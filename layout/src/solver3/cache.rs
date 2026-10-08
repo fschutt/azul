@@ -2036,6 +2036,444 @@ pub fn reconcile_recursive(
     // pre-cascade tiers". None = no diff available (full fingerprinting).
     dom_diff_clean: Option<&[bool]>,
 ) -> Result<usize> {
+    let ReconciledNode {
+        new_node_idx,
+        subtree_style_changed,
+        new_fingerprint,
+        dirty_flag,
+        new_children_dom_ids,
+        old_children_indices,
+        old_children_by_dom,
+        mut children_are_different,
+        mut new_child_hashes,
+    } = reconcile_node(
+        styled_dom,
+        new_dom_id,
+        old_tree_idx,
+        new_parent_idx,
+        old_tree,
+        new_tree_builder,
+        recon,
+        debug_messages,
+        ancestor_style_changed,
+        dom_diff_clean,
+    )?;
+
+    // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container
+    // has mixed block/inline children CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
+    // When a block container has mixed block/inline children, we must:
+    // 1. Wrap consecutive inline children in anonymous block boxes
+    // 2. Leave block-level children as direct children
+
+    // Only IN-FLOW block-level children split the inline content: an
+    // absolutely positioned block goes with the inline run around it (the
+    // fresh tree's rule, `in_flow_block_level_mask`).
+    let block_level = in_flow_block_level_mask(styled_dom, &new_children_dom_ids);
+    let has_block_child = block_level.iter().any(|&b| b);
+
+    // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
+    // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline
+    // runs is a BLOCK-container concept and must NOT apply here — otherwise an
+    // inline-level child (e.g. an <img> with flex-grow, default display
+    // inline-block) gets wrapped in an anonymous IFC block, so it's no longer a
+    // direct flex item and its flex-grow is ignored (laid out 300×0). Processing
+    // each child directly lets `blockify_node_display` (in create_node_from_dom)
+    // see the flex/grid parent and blockify the child into a real flex item.
+    let parent_is_flex_or_grid = matches!(
+        get_display_type(styled_dom, new_dom_id),
+        LayoutDisplay::Flex
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::Grid
+            | LayoutDisplay::InlineGrid
+    );
+
+    // CSS 2.2 17.2.1 rule 2: a table, row group or row with a child that is
+    // not of the kind it takes gets anonymous table boxes around such
+    // children - a block `<td>` in a row, a cell straight under a table.
+    let table_fixup = TableParent::of(get_display_type(styled_dom, new_dom_id)).filter(|parent| {
+        new_children_dom_ids
+            .iter()
+            .any(|&id| !parent.takes(get_display_type(styled_dom, id)))
+    });
+
+    if let Some(parent) = table_fixup {
+        reconcile_table_children(
+            parent,
+            &new_children_dom_ids,
+            styled_dom,
+            new_dom_id,
+            new_node_idx,
+            &old_children_by_dom,
+            old_tree,
+            new_tree_builder,
+            recon,
+            debug_messages,
+            subtree_style_changed,
+            dom_diff_clean,
+            &mut new_child_hashes,
+        )?;
+        // The anonymous boxes are made anew on every pass (they have no DOM
+        // id to be matched by): the parent's layout is redone.
+        children_are_different = true;
+    } else if !has_block_child || parent_is_flex_or_grid {
+        // All children are inline (block container) OR the parent is a flex/grid
+        // container (all children are direct items) — no anonymous boxes needed.
+        // Process each child directly.
+        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
+            // css-flexbox-1 section 4 / css-grid-1 section 6: an anonymous
+            // flex/grid item that contains only white space is not rendered.
+            // Without this, every newline between a grid container's <div>
+            // children became a real grid item and consumed an auto-placement
+            // cell (grid-minmax-fr-001 rendered 0-height phantom items and
+            // pushed real items into implicit rows).
+            if parent_is_flex_or_grid
+                && super::layout_tree::is_whitespace_only_text(styled_dom, new_child_dom_id)
+            {
+                continue;
+            }
+            // DOM-ID match rather than positional — tree builder
+            // may have dropped some DOM children (whitespace text
+            // nodes) so positional drift mis-aligns the cache.
+            // DOM-id match only: positional fallback would align
+            // anonymous wrappers against real DOM nodes and trigger
+            // spurious fingerprint mismatches (see fp_diff dump).
+            let old_child_idx = old_children_by_dom.get(&new_child_dom_id).copied();
+
+            let reconciled_child_idx = reconcile_recursive(
+                styled_dom,
+                new_child_dom_id,
+                old_child_idx,
+                Some(new_node_idx),
+                old_tree,
+                new_tree_builder,
+                recon,
+                debug_messages,
+                subtree_style_changed,
+                dom_diff_clean,
+            )?;
+            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                new_child_hashes.push(child_node.subtree_hash.0);
+            }
+
+            if old_tree.and_then(|t| {
+                t.cold(LayoutNodeId::new(old_child_idx?))
+                    .map(|n| n.subtree_hash)
+            }) != new_tree_builder
+                .get(reconciled_child_idx)
+                .map(|n| n.subtree_hash)
+            {
+                children_are_different = true;
+            }
+        }
+    } else {
+        // Mixed content: block and inline children
+        // We must create anonymous block boxes around consecutive inline runs
+
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[reconcile_recursive] Mixed content in node {}: creating anonymous IFC wrappers",
+                new_dom_id.index()
+            )));
+        }
+
+        let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
+                                                               // Which inline run (== which
+                                                               // anon-wrapper ordinal) we're on —
+                                                               // the
+                                                               // identity try_reuse_anon_wrapper
+                                                               // matches against the old tree.
+        let mut anon_ordinal: usize = 0;
+
+        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
+            if block_level[i] {
+                // End current inline run if any
+                if !inline_run.is_empty() {
+                    // CSS 2.2 § 9.2.2.1: If the inline run consists entirely of
+                    // whitespace-only text nodes (and white-space doesn't preserve it),
+                    // skip creating the anonymous IFC wrapper. This prevents inter-block
+                    // whitespace from creating empty blocks that take up vertical space.
+                    // +spec:display-property:bef3fc - anonymous blocks of only collapsible
+                    // whitespace removed from rendering tree
+                    if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[reconcile_recursive] Skipping whitespace-only inline run ({} \
+                                 nodes) between blocks in node {}",
+                                inline_run.len(),
+                                new_dom_id.index()
+                            )));
+                        }
+                        inline_run.clear();
+                    } else {
+                        // Create anonymous IFC wrapper for the inline run
+                        // This wrapper establishes an Inline Formatting Context
+                        let anon_idx = new_tree_builder.create_anonymous_node(
+                            new_node_idx,
+                            AnonymousBoxType::InlineWrapper,
+                            FormattingContext::Inline, // IFC for inline content
+                        );
+                        let anon_reused = try_reuse_anon_wrapper(
+                            old_tree,
+                            old_tree_idx,
+                            anon_ordinal,
+                            &inline_run,
+                            new_tree_builder,
+                            anon_idx,
+                            recon,
+                        );
+                        anon_ordinal += 1;
+
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[reconcile_recursive] Created anonymous IFC wrapper \
+                                 (layout_idx={}) for {} inline children: {:?}",
+                                anon_idx,
+                                inline_run.len(),
+                                inline_run
+                                    .iter()
+                                    .map(|(_, id)| id.index())
+                                    .collect::<Vec<_>>()
+                            )));
+                        }
+
+                        // Process each inline child under the anonymous wrapper
+                        #[allow(clippy::iter_with_drain)]
+                        // accumulator Vec reused across runs; drain(..) empties it while retaining
+                        // the allocation
+                        for (pos, inline_dom_id) in inline_run.drain(..) {
+                            // Inline children live under the anon wrapper
+                            // in the old tree, so the parent's direct
+                            // `old_children_by_dom` map won't hit them; the
+                            // lookup falls through to the whole old tree.
+                            let old_child_idx =
+                                old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
+                            let reconciled_child_idx = reconcile_recursive(
+                                styled_dom,
+                                inline_dom_id,
+                                old_child_idx,
+                                Some(anon_idx), // Parent is the anonymous wrapper
+                                old_tree,
+                                new_tree_builder,
+                                recon,
+                                debug_messages,
+                                subtree_style_changed,
+                                dom_diff_clean,
+                            )?;
+                            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                                new_child_hashes.push(child_node.subtree_hash.0);
+                            }
+                        }
+
+                        // NOTE: We intentionally do NOT unconditionally
+                        // mark the anonymous wrapper as intrinsic_dirty
+                        // here. If any of the inline children are
+                        // themselves dirty, their own `mark_dirty` call
+                        // propagates upward through this wrapper, so
+                        // wrappers whose content is unchanged keep their
+                        // cached layout. `children_are_different` flips the
+                        // parent to layout-dirty ONLY when the wrapper is
+                        // genuinely new / its run changed — the previous
+                        // unconditional `= true` here re-dirtied every
+                        // paragraph's parent on every reconcile (see
+                        // try_reuse_anon_wrapper).
+                        if !anon_reused {
+                            if env_flag!("AZ_RECON_DEBUG") {
+                                eprintln!(
+                                    "[recon] mid-loop wrapper ord {} NOT reused (run len {})",
+                                    anon_ordinal - 1,
+                                    inline_run.len()
+                                );
+                            }
+                            children_are_different = true;
+                        }
+                    } // end else (non-whitespace run)
+                }
+
+                // Process block-level child directly under parent
+                let old_child_idx = old_children_by_dom
+                    .get(&new_child_dom_id)
+                    .copied()
+                    .or_else(|| old_children_indices.get(i).copied());
+                let reconciled_child_idx = reconcile_recursive(
+                    styled_dom,
+                    new_child_dom_id,
+                    old_child_idx,
+                    Some(new_node_idx),
+                    old_tree,
+                    new_tree_builder,
+                    recon,
+                    debug_messages,
+                    subtree_style_changed,
+                    dom_diff_clean,
+                )?;
+                if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                    new_child_hashes.push(child_node.subtree_hash.0);
+                }
+
+                if old_tree.and_then(|t| {
+                    t.cold(LayoutNodeId::new(old_child_idx?))
+                        .map(|n| n.subtree_hash)
+                }) != new_tree_builder
+                    .get(reconciled_child_idx)
+                    .map(|n| n.subtree_hash)
+                {
+                    if env_flag!("AZ_RECON_DEBUG") {
+                        eprintln!(
+                            "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH \
+                             warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
+                            new_child_dom_id.index(),
+                            new_dom_id.index(),
+                            old_tree.is_some(),
+                            old_child_idx,
+                            old_tree.and_then(|t| t
+                                .cold(LayoutNodeId::new(old_child_idx.unwrap_or(usize::MAX)))
+                                .map(|n| n.subtree_hash)),
+                            new_tree_builder
+                                .get(reconciled_child_idx)
+                                .map(|n| n.subtree_hash),
+                        );
+                    }
+                    children_are_different = true;
+                }
+            } else {
+                // Inline-level child - add to current run
+                inline_run.push((i, new_child_dom_id));
+            }
+        }
+
+        // Process any remaining inline run at the end
+        if !inline_run.is_empty() {
+            // CSS 2.2 § 9.2.2.1: Skip whitespace-only trailing inline runs
+            if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[reconcile_recursive] Skipping trailing whitespace-only inline run ({} \
+                         nodes) in node {}",
+                        inline_run.len(),
+                        new_dom_id.index()
+                    )));
+                }
+                // Don't create a wrapper — just drop the run
+            } else {
+                let anon_idx = new_tree_builder.create_anonymous_node(
+                    new_node_idx,
+                    AnonymousBoxType::InlineWrapper,
+                    FormattingContext::Inline, // IFC for inline content
+                );
+                let anon_reused = try_reuse_anon_wrapper(
+                    old_tree,
+                    old_tree_idx,
+                    anon_ordinal,
+                    &inline_run,
+                    new_tree_builder,
+                    anon_idx,
+                    recon,
+                );
+                anon_ordinal += 1;
+
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[reconcile_recursive] Created trailing anonymous IFC wrapper \
+                         (layout_idx={}) for {} inline children: {:?}",
+                        anon_idx,
+                        inline_run.len(),
+                        inline_run
+                            .iter()
+                            .map(|(_, id)| id.index())
+                            .collect::<Vec<_>>()
+                    )));
+                }
+
+                #[allow(clippy::iter_with_drain)]
+                // accumulator Vec reused across runs; drain(..) empties it while retaining the
+                // allocation
+                for (pos, inline_dom_id) in inline_run.drain(..) {
+                    // In the anonymous block, not under the parent: the same
+                    // lookup as the runs before a block (`old_layout_index_of`).
+                    let old_child_idx =
+                        old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
+                    let reconciled_child_idx = reconcile_recursive(
+                        styled_dom,
+                        inline_dom_id,
+                        old_child_idx,
+                        Some(anon_idx),
+                        old_tree,
+                        new_tree_builder,
+                        recon,
+                        debug_messages,
+                        subtree_style_changed,
+                        dom_diff_clean,
+                    )?;
+                    if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                        new_child_hashes.push(child_node.subtree_hash.0);
+                    }
+                }
+
+                // See note in main mixed-content branch: rely on
+                // children's own mark_dirty to propagate upward rather
+                // than invalidating the whole wrapper each reconcile.
+                if !anon_reused {
+                    if env_flag!("AZ_RECON_DEBUG") {
+                        eprintln!(
+                            "[recon] trailing wrapper ord {} NOT reused",
+                            anon_ordinal - 1
+                        );
+                    }
+                    children_are_different = true;
+                }
+            } // end else (non-whitespace trailing run)
+        }
+    }
+
+    classify_reconciled_node(
+        new_tree_builder,
+        recon,
+        new_dom_id,
+        new_node_idx,
+        new_fingerprint,
+        new_child_hashes,
+        dirty_flag,
+        children_are_different,
+    );
+
+    Ok(new_node_idx)
+}
+
+/// What [`reconcile_node`] decided about one node before its children are
+/// reconciled.
+struct ReconciledNode {
+    new_node_idx: usize,
+    subtree_style_changed: bool,
+    new_fingerprint: NodeDataFingerprint,
+    dirty_flag: DirtyFlag,
+    new_children_dom_ids: Vec<NodeId>,
+    old_children_indices: Vec<usize>,
+    old_children_by_dom: BTreeMap<NodeId, usize>,
+    children_are_different: bool,
+    new_child_hashes: Vec<u64>,
+}
+
+/// [`reconcile_recursive`] for the node itself, before its children: its
+/// fingerprint against the old tree's and what is dirty, the node built fresh or
+/// cloned from the old tree (and its `::marker`), and the children the layout
+/// tree will hold, matched by DOM id against the old tree's.
+///
+/// Out of line, so that none of its locals is on the stack while
+/// `reconcile_recursive` recurses into the children: a debug build keeps every
+/// local of a function in its frame, and one frame is on the stack per DOM level.
+#[inline(never)]
+fn reconcile_node(
+    styled_dom: &StyledDom,
+    new_dom_id: NodeId,
+    old_tree_idx: Option<usize>,
+    new_parent_idx: Option<usize>,
+    old_tree: Option<&LayoutTree>,
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ancestor_style_changed: bool,
+    dom_diff_clean: Option<&[bool]>,
+) -> Result<ReconciledNode> {
     // Cache the env check in a `OnceLock<bool>`: this branch
     // fires once per dirty node (hundreds on cold layout),
     // and a direct `env::var` is a mutex + hashmap lookup
@@ -2442,372 +2880,32 @@ pub fn reconcile_recursive(
     let mut children_are_different = new_layout_relevant_count != old_layout_relevant_count;
     let mut new_child_hashes = Vec::new();
 
-    // +spec:display-property:42f9c0 - anonymous block boxes wrap inline runs when block container
-    // has mixed block/inline children CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
-    // When a block container has mixed block/inline children, we must:
-    // 1. Wrap consecutive inline children in anonymous block boxes
-    // 2. Leave block-level children as direct children
+    Ok(ReconciledNode {
+        new_node_idx,
+        subtree_style_changed,
+        new_fingerprint,
+        dirty_flag,
+        new_children_dom_ids,
+        old_children_indices,
+        old_children_by_dom,
+        children_are_different,
+        new_child_hashes,
+    })
+}
 
-    // Only IN-FLOW block-level children split the inline content: an
-    // absolutely positioned block goes with the inline run around it (the
-    // fresh tree's rule, `in_flow_block_level_mask`).
-    let block_level = in_flow_block_level_mask(styled_dom, &new_children_dom_ids);
-    let has_block_child = block_level.iter().any(|&b| b);
-
-    // CSS Flexbox §4 / Grid §6: every in-flow child of a flex/grid container
-    // becomes a (blockified) flex/grid item. Anonymous-block wrapping of inline
-    // runs is a BLOCK-container concept and must NOT apply here — otherwise an
-    // inline-level child (e.g. an <img> with flex-grow, default display
-    // inline-block) gets wrapped in an anonymous IFC block, so it's no longer a
-    // direct flex item and its flex-grow is ignored (laid out 300×0). Processing
-    // each child directly lets `blockify_node_display` (in create_node_from_dom)
-    // see the flex/grid parent and blockify the child into a real flex item.
-    let parent_is_flex_or_grid = matches!(
-        get_display_type(styled_dom, new_dom_id),
-        LayoutDisplay::Flex
-            | LayoutDisplay::InlineFlex
-            | LayoutDisplay::Grid
-            | LayoutDisplay::InlineGrid
-    );
-
-    // CSS 2.2 17.2.1 rule 2: a table, row group or row with a child that is
-    // not of the kind it takes gets anonymous table boxes around such
-    // children - a block `<td>` in a row, a cell straight under a table.
-    let table_fixup = TableParent::of(get_display_type(styled_dom, new_dom_id)).filter(|parent| {
-        new_children_dom_ids
-            .iter()
-            .any(|&id| !parent.takes(get_display_type(styled_dom, id)))
-    });
-
-    if let Some(parent) = table_fixup {
-        reconcile_table_children(
-            parent,
-            &new_children_dom_ids,
-            styled_dom,
-            new_dom_id,
-            new_node_idx,
-            &old_children_by_dom,
-            old_tree,
-            new_tree_builder,
-            recon,
-            debug_messages,
-            subtree_style_changed,
-            dom_diff_clean,
-            &mut new_child_hashes,
-        )?;
-        // The anonymous boxes are made anew on every pass (they have no DOM
-        // id to be matched by): the parent's layout is redone.
-        children_are_different = true;
-    } else if !has_block_child || parent_is_flex_or_grid {
-        // All children are inline (block container) OR the parent is a flex/grid
-        // container (all children are direct items) — no anonymous boxes needed.
-        // Process each child directly.
-        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
-            // css-flexbox-1 section 4 / css-grid-1 section 6: an anonymous
-            // flex/grid item that contains only white space is not rendered.
-            // Without this, every newline between a grid container's <div>
-            // children became a real grid item and consumed an auto-placement
-            // cell (grid-minmax-fr-001 rendered 0-height phantom items and
-            // pushed real items into implicit rows).
-            if parent_is_flex_or_grid
-                && super::layout_tree::is_whitespace_only_text(styled_dom, new_child_dom_id)
-            {
-                continue;
-            }
-            // DOM-ID match rather than positional — tree builder
-            // may have dropped some DOM children (whitespace text
-            // nodes) so positional drift mis-aligns the cache.
-            // DOM-id match only: positional fallback would align
-            // anonymous wrappers against real DOM nodes and trigger
-            // spurious fingerprint mismatches (see fp_diff dump).
-            let old_child_idx = old_children_by_dom.get(&new_child_dom_id).copied();
-
-            let reconciled_child_idx = reconcile_recursive(
-                styled_dom,
-                new_child_dom_id,
-                old_child_idx,
-                Some(new_node_idx),
-                old_tree,
-                new_tree_builder,
-                recon,
-                debug_messages,
-                subtree_style_changed,
-                dom_diff_clean,
-            )?;
-            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                new_child_hashes.push(child_node.subtree_hash.0);
-            }
-
-            if old_tree.and_then(|t| {
-                t.cold(LayoutNodeId::new(old_child_idx?))
-                    .map(|n| n.subtree_hash)
-            }) != new_tree_builder
-                .get(reconciled_child_idx)
-                .map(|n| n.subtree_hash)
-            {
-                children_are_different = true;
-            }
-        }
-    } else {
-        // Mixed content: block and inline children
-        // We must create anonymous block boxes around consecutive inline runs
-
-        if let Some(msgs) = debug_messages.as_mut() {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "[reconcile_recursive] Mixed content in node {}: creating anonymous IFC wrappers",
-                new_dom_id.index()
-            )));
-        }
-
-        let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
-                                                               // Which inline run (== which
-                                                               // anon-wrapper ordinal) we're on —
-                                                               // the
-                                                               // identity try_reuse_anon_wrapper
-                                                               // matches against the old tree.
-        let mut anon_ordinal: usize = 0;
-
-        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
-            if block_level[i] {
-                // End current inline run if any
-                if !inline_run.is_empty() {
-                    // CSS 2.2 § 9.2.2.1: If the inline run consists entirely of
-                    // whitespace-only text nodes (and white-space doesn't preserve it),
-                    // skip creating the anonymous IFC wrapper. This prevents inter-block
-                    // whitespace from creating empty blocks that take up vertical space.
-                    // +spec:display-property:bef3fc - anonymous blocks of only collapsible
-                    // whitespace removed from rendering tree
-                    if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[reconcile_recursive] Skipping whitespace-only inline run ({} \
-                                 nodes) between blocks in node {}",
-                                inline_run.len(),
-                                new_dom_id.index()
-                            )));
-                        }
-                        inline_run.clear();
-                    } else {
-                        // Create anonymous IFC wrapper for the inline run
-                        // This wrapper establishes an Inline Formatting Context
-                        let anon_idx = new_tree_builder.create_anonymous_node(
-                            new_node_idx,
-                            AnonymousBoxType::InlineWrapper,
-                            FormattingContext::Inline, // IFC for inline content
-                        );
-                        let anon_reused = try_reuse_anon_wrapper(
-                            old_tree,
-                            old_tree_idx,
-                            anon_ordinal,
-                            &inline_run,
-                            new_tree_builder,
-                            anon_idx,
-                            recon,
-                        );
-                        anon_ordinal += 1;
-
-                        if let Some(msgs) = debug_messages.as_mut() {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[reconcile_recursive] Created anonymous IFC wrapper \
-                                 (layout_idx={}) for {} inline children: {:?}",
-                                anon_idx,
-                                inline_run.len(),
-                                inline_run
-                                    .iter()
-                                    .map(|(_, id)| id.index())
-                                    .collect::<Vec<_>>()
-                            )));
-                        }
-
-                        // Process each inline child under the anonymous wrapper
-                        #[allow(clippy::iter_with_drain)]
-                        // accumulator Vec reused across runs; drain(..) empties it while retaining
-                        // the allocation
-                        for (pos, inline_dom_id) in inline_run.drain(..) {
-                            // Inline children live under the anon wrapper
-                            // in the old tree, so the parent's direct
-                            // `old_children_by_dom` map won't hit them; the
-                            // lookup falls through to the whole old tree.
-                            let old_child_idx =
-                                old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
-                            let reconciled_child_idx = reconcile_recursive(
-                                styled_dom,
-                                inline_dom_id,
-                                old_child_idx,
-                                Some(anon_idx), // Parent is the anonymous wrapper
-                                old_tree,
-                                new_tree_builder,
-                                recon,
-                                debug_messages,
-                                subtree_style_changed,
-                                dom_diff_clean,
-                            )?;
-                            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                                new_child_hashes.push(child_node.subtree_hash.0);
-                            }
-                        }
-
-                        // NOTE: We intentionally do NOT unconditionally
-                        // mark the anonymous wrapper as intrinsic_dirty
-                        // here. If any of the inline children are
-                        // themselves dirty, their own `mark_dirty` call
-                        // propagates upward through this wrapper, so
-                        // wrappers whose content is unchanged keep their
-                        // cached layout. `children_are_different` flips the
-                        // parent to layout-dirty ONLY when the wrapper is
-                        // genuinely new / its run changed — the previous
-                        // unconditional `= true` here re-dirtied every
-                        // paragraph's parent on every reconcile (see
-                        // try_reuse_anon_wrapper).
-                        if !anon_reused {
-                            if env_flag!("AZ_RECON_DEBUG") {
-                                eprintln!(
-                                    "[recon] mid-loop wrapper ord {} NOT reused (run len {})",
-                                    anon_ordinal - 1,
-                                    inline_run.len()
-                                );
-                            }
-                            children_are_different = true;
-                        }
-                    } // end else (non-whitespace run)
-                }
-
-                // Process block-level child directly under parent
-                let old_child_idx = old_children_by_dom
-                    .get(&new_child_dom_id)
-                    .copied()
-                    .or_else(|| old_children_indices.get(i).copied());
-                let reconciled_child_idx = reconcile_recursive(
-                    styled_dom,
-                    new_child_dom_id,
-                    old_child_idx,
-                    Some(new_node_idx),
-                    old_tree,
-                    new_tree_builder,
-                    recon,
-                    debug_messages,
-                    subtree_style_changed,
-                    dom_diff_clean,
-                )?;
-                if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                    new_child_hashes.push(child_node.subtree_hash.0);
-                }
-
-                if old_tree.and_then(|t| {
-                    t.cold(LayoutNodeId::new(old_child_idx?))
-                        .map(|n| n.subtree_hash)
-                }) != new_tree_builder
-                    .get(reconciled_child_idx)
-                    .map(|n| n.subtree_hash)
-                {
-                    if env_flag!("AZ_RECON_DEBUG") {
-                        eprintln!(
-                            "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH \
-                             warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
-                            new_child_dom_id.index(),
-                            new_dom_id.index(),
-                            old_tree.is_some(),
-                            old_child_idx,
-                            old_tree.and_then(|t| t
-                                .cold(LayoutNodeId::new(old_child_idx.unwrap_or(usize::MAX)))
-                                .map(|n| n.subtree_hash)),
-                            new_tree_builder
-                                .get(reconciled_child_idx)
-                                .map(|n| n.subtree_hash),
-                        );
-                    }
-                    children_are_different = true;
-                }
-            } else {
-                // Inline-level child - add to current run
-                inline_run.push((i, new_child_dom_id));
-            }
-        }
-
-        // Process any remaining inline run at the end
-        if !inline_run.is_empty() {
-            // CSS 2.2 § 9.2.2.1: Skip whitespace-only trailing inline runs
-            if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[reconcile_recursive] Skipping trailing whitespace-only inline run ({} \
-                         nodes) in node {}",
-                        inline_run.len(),
-                        new_dom_id.index()
-                    )));
-                }
-                // Don't create a wrapper — just drop the run
-            } else {
-                let anon_idx = new_tree_builder.create_anonymous_node(
-                    new_node_idx,
-                    AnonymousBoxType::InlineWrapper,
-                    FormattingContext::Inline, // IFC for inline content
-                );
-                let anon_reused = try_reuse_anon_wrapper(
-                    old_tree,
-                    old_tree_idx,
-                    anon_ordinal,
-                    &inline_run,
-                    new_tree_builder,
-                    anon_idx,
-                    recon,
-                );
-                anon_ordinal += 1;
-
-                if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "[reconcile_recursive] Created trailing anonymous IFC wrapper \
-                         (layout_idx={}) for {} inline children: {:?}",
-                        anon_idx,
-                        inline_run.len(),
-                        inline_run
-                            .iter()
-                            .map(|(_, id)| id.index())
-                            .collect::<Vec<_>>()
-                    )));
-                }
-
-                #[allow(clippy::iter_with_drain)]
-                // accumulator Vec reused across runs; drain(..) empties it while retaining the
-                // allocation
-                for (pos, inline_dom_id) in inline_run.drain(..) {
-                    // In the anonymous block, not under the parent: the same
-                    // lookup as the runs before a block (`old_layout_index_of`).
-                    let old_child_idx =
-                        old_layout_index_of(&old_children_by_dom, old_tree, inline_dom_id);
-                    let reconciled_child_idx = reconcile_recursive(
-                        styled_dom,
-                        inline_dom_id,
-                        old_child_idx,
-                        Some(anon_idx),
-                        old_tree,
-                        new_tree_builder,
-                        recon,
-                        debug_messages,
-                        subtree_style_changed,
-                        dom_diff_clean,
-                    )?;
-                    if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
-                        new_child_hashes.push(child_node.subtree_hash.0);
-                    }
-                }
-
-                // See note in main mixed-content branch: rely on
-                // children's own mark_dirty to propagate upward rather
-                // than invalidating the whole wrapper each reconcile.
-                if !anon_reused {
-                    if env_flag!("AZ_RECON_DEBUG") {
-                        eprintln!(
-                            "[recon] trailing wrapper ord {} NOT reused",
-                            anon_ordinal - 1
-                        );
-                    }
-                    children_are_different = true;
-                }
-            } // end else (non-whitespace trailing run)
-        }
-    }
-
+/// [`reconcile_recursive`] after the children: the node's subtree hash, and the
+/// dirty set it goes into. Out of line for the same reason as [`reconcile_node`].
+#[inline(never)]
+fn classify_reconciled_node(
+    new_tree_builder: &mut LayoutTreeBuilder,
+    recon: &mut ReconciliationResult,
+    new_dom_id: NodeId,
+    new_node_idx: usize,
+    new_fingerprint: NodeDataFingerprint,
+    new_child_hashes: Vec<u64>,
+    dirty_flag: DirtyFlag,
+    children_are_different: bool,
+) {
     // After reconciling children, calculate this node's full subtree hash.
     // Use a combined hash of the fingerprint fields for the subtree hash.
     let node_self_hash = {
@@ -2840,7 +2938,6 @@ pub fn reconcile_recursive(
         recon.paint_dirty.insert(new_node_idx);
     }
 
-    Ok(new_node_idx)
 }
 
 /// Whether a box whose `height` is auto hands its OWN containing block's
