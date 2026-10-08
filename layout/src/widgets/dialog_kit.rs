@@ -114,6 +114,11 @@ pub(crate) struct DialogKitLook {
     pub icon_error: Vec<CssPropertyWithConditions>,
     /// The glyph of a question.
     pub icon_question: Vec<CssPropertyWithConditions>,
+    /// One step of a message box's numbered list (the room around it).
+    pub step: Vec<CssPropertyWithConditions>,
+    /// A step's number ("1."): a column the steps' texts line up after,
+    /// in the secondary ink.
+    pub step_number: Vec<CssPropertyWithConditions>,
     /// A dialog's button row: a strip under a hairline.
     pub buttons: Vec<CssPropertyWithConditions>,
     /// The box around one button of a row (its spacing). A disabled
@@ -179,6 +184,8 @@ pub(crate) fn follow_look(structure: UiTheme) -> DialogKitLook {
         icon_warning,
         icon_error,
         icon_question,
+        step,
+        step_number,
         buttons,
         button,
         notice,
