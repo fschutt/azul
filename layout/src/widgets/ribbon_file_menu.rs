@@ -62,7 +62,7 @@ use azul_css::{
             LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection,
             LayoutJustifyContent, LayoutMinWidth, StyleTextOverflow,
         },
-        property::{CssProperty, StyleTextOverflowValue},
+        property::{CssProperty, CssPropertyType, StyleTextOverflowValue},
         style::{effects::StyleOpacity, StyleCursor, StyleUserSelect},
     },
     AzString,
@@ -1278,6 +1278,13 @@ fn rows_of(info: &CallbackInfo, panel: DomNodeId) -> Vec<DomNodeId> {
 
 /// Shows panel `shown` of the side column, hides the others - in place, no
 /// app relayout.
+///
+/// Overrides, and kept: which panel shows is the WIDGET's state (the command
+/// the pointer or the keyboard is on), not the app's, and no handler that
+/// writes it asks for a rebuild - so they are the mechanism, and a rebuild
+/// that lands meanwhile keeps the panel the user is looking at. They live in
+/// the popup's window and go with it when the menu closes. (The pin is the
+/// app's state: [`on_pin`] clears its override when the app rebuilds.)
 fn show_panel(info: &mut CallbackInfo, menu: DomNodeId, shown: usize) {
     for (i, panel) in panels_of(info, menu).into_iter().enumerate() {
         let display = if i == shown {
@@ -1354,7 +1361,16 @@ extern "C" fn on_dismissed(mut data: RefAny, info: CallbackInfo) -> Update {
 }
 
 /// A place's pin was clicked: the app hears it at once and the menu stays
-/// open; the pin shows its new state before the app's rebuild reaches it.
+/// open.
+///
+/// Whether the place IS pinned is the app's to say: it pins or unpins it and
+/// rebuilds, and the rebuilt pin shows it. The pin must not light (or dim)
+/// itself then - `set_css_property` is a user override, which the engine
+/// carries onto the pin of every later rebuild, where it outranks the rebuilt
+/// pin's own style: the pin kept the click's guess whatever the app decided,
+/// and an unpinned pin's dim outranked its `:hover`. So a rebuild clears what
+/// an earlier click left (`initial` removes an override); only an app that
+/// does not rebuild leaves the pin to show its new state itself.
 extern "C" fn on_pin(mut data: RefAny, mut info: CallbackInfo) -> Update {
     info.stop_propagation();
     let Some((mut shared, place, pinned)) = data.downcast_mut::<PinData>().map(|mut p| {
@@ -1363,15 +1379,8 @@ extern "C" fn on_pin(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }) else {
         return Update::DoNothing;
     };
-    let opacity = if pinned { UNPINNED_OPACITY } else { 100 };
     let pin = info.get_hit_node();
-    info.set_css_property(
-        pin,
-        CssProperty::const_opacity(StyleOpacity {
-            inner: PercentageValue::const_new(opacity),
-        }),
-    );
-    everywhere(tell_app(
+    let update = tell_app(
         &mut shared,
         info,
         RibbonFileMenuEvent {
@@ -1379,7 +1388,19 @@ extern "C" fn on_pin(mut data: RefAny, mut info: CallbackInfo) -> Update {
             index: place,
             sub_index: 0,
         },
-    ))
+    );
+    if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+        info.override_css_property(pin, CssProperty::initial(CssPropertyType::Opacity));
+    } else {
+        let opacity = if pinned { UNPINNED_OPACITY } else { 100 };
+        info.set_css_property(
+            pin,
+            CssProperty::const_opacity(StyleOpacity {
+                inner: PercentageValue::const_new(opacity),
+            }),
+        );
+    }
+    everywhere(update)
 }
 
 /// A key on a command: Up / Down / Home / End walk the commands (the rules
@@ -1503,7 +1524,6 @@ mod tests {
         dom::{DomId, NodeId},
         styled_dom::{NodeHierarchyItemId, StyledDom},
     };
-    use azul_css::props::property::CssPropertyType;
 
     use super::*;
     use crate::{
@@ -1908,16 +1928,57 @@ mod tests {
         assert!(stopped(&changes), "the pin's row does not open the place");
         assert!(window_writes(&changes).is_empty(), "the menu stays open");
         assert_eq!(update, Update::RefreshDomAllWindows, "the app's window rebuilds too");
+        // The app rebuilds, and its rebuilt pin shows whether the place is
+        // pinned: the click writes no opacity of its own - an override would
+        // outrank that rebuild for good - it only clears one an earlier click
+        // left.
+        let opacity: Vec<&CssProperty> = changes
+            .iter()
+            .flat_map(|c| match c {
+                CallbackChange::ChangeNodeCssProperties { properties, .. }
+                | CallbackChange::OverrideNodeCssProperties { properties, .. } => {
+                    properties.as_ref().iter().collect::<Vec<_>>()
+                }
+                _ => Vec::new(),
+            })
+            .filter(|p| p.get_type() == CssPropertyType::Opacity)
+            .collect();
+        assert!(
+            !opacity.is_empty() && opacity.iter().all(|p| p.is_initial()),
+            "the pin's opacity is the rebuild's: {opacity:?}"
+        );
+        dismissed(&styled);
+        assert_eq!(events(&log).len(), 1, "the pin left no pick behind");
+    }
+
+    extern "C" fn record_only(mut data: RefAny, _info: CallbackInfo, event: RibbonFileMenuEvent) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(event);
+        }
+        Update::DoNothing
+    }
+
+    #[test]
+    fn a_pin_whose_app_does_not_rebuild_lights_itself() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let mut m = menu(&log).with_theme(UiTheme::Flat);
+        m.set_on_event(RefAny::new(log.clone()), record_only as RibbonFileMenuOnEventCallbackType);
+        let styled = StyledDom::create_from_dom(m.dom());
+        let pins = nodes_with_class(&styled, PIN_CLASS);
+        // Place 4 is not pinned, and no rebuild will show it pinned.
+        let (update, changes) = click(&styled, pins[4]).expect("the pin takes the click");
+        assert_eq!(update, Update::DoNothing);
+        let lit = CssProperty::const_opacity(StyleOpacity {
+            inner: PercentageValue::const_new(100),
+        });
         assert!(
             changes.iter().any(|c| matches!(
                 c,
                 CallbackChange::ChangeNodeCssProperties { properties, .. }
-                    if properties.as_ref().iter().any(|p| p.get_type() == CssPropertyType::Opacity)
+                    if properties.as_ref().contains(&lit)
             )),
-            "the pin lights at once"
+            "nothing else will: the pin lights itself ({changes:?})"
         );
-        dismissed(&styled);
-        assert_eq!(events(&log).len(), 1, "the pin left no pick behind");
     }
 
     #[test]

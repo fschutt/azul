@@ -13354,22 +13354,35 @@ mod tests {
     extern "C" fn probe_worker(
         mut init: RefAny,
         _sender: azul_layout::thread::ThreadSender,
-        mut recv: azul_core::task::ThreadReceiver,
+        recv: azul_core::task::ThreadReceiver,
     ) {
         use core::sync::atomic::Ordering;
+        use std::time::{Duration, Instant};
 
-        use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
+        use azul_core::task::ThreadSendMsg;
 
         let Some(probe) = init.downcast_ref::<WorkerNode>().map(|n| n.probe.clone()) else {
             return;
         };
         probe.started.store(true, Ordering::SeqCst);
-        for _ in 0..2000 {
-            if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
-                probe.told_to_stop.store(true, Ordering::SeqCst);
-                return;
+        // The window's messages - a `Tick` per frame, then `TerminateThread` -
+        // come down the channel inside the receiver: wait on it up to the
+        // deadline, instead of polling it every 2 ms.
+        let Ok(inner) = recv.ptr.lock() else {
+            return;
+        };
+        let deadline = Instant::now() + Duration::from_secs(4);
+        loop {
+            match inner.ptr.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(ThreadSendMsg::TerminateThread) => {
+                    probe.told_to_stop.store(true, Ordering::SeqCst);
+                    return;
+                }
+                // A frame's `Tick`: keep waiting.
+                Ok(_) => {}
+                // The deadline passed, or the window dropped the thread untold.
+                Err(_) => return,
             }
-            std::thread::sleep(std::time::Duration::from_millis(2));
         }
     }
 

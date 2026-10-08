@@ -329,6 +329,8 @@ fn the_selection_keeps_only_the_rows_a_filter_still_shows() {
 /// The brief's yardstick: half a million rows, sorted by a number column
 /// and filtered by a text column, in one pass of the job's thread half -
 /// timed loosely (a debug build on a slow runner is far below the bound).
+/// Timed on the host's wall clock, which wasm32 does not have.
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn half_a_million_rows_sort_and_filter_in_well_under_the_bound() {
     let rows: u32 = 500_000;

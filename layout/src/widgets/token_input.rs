@@ -63,7 +63,7 @@ use azul_css::{
             LayoutFlexShrink, LayoutFlexWrap, LayoutLeft, LayoutMinWidth, LayoutPosition, LayoutTop,
             LayoutZIndex,
         },
-        property::CssProperty,
+        property::{CssProperty, CssPropertyType},
         style::StyleCursor,
     },
     AzString, StringVec,
@@ -1013,15 +1013,39 @@ fn token_of(data: &mut RefAny) -> Option<(usize, RefAny)> {
 }
 
 /// Hands `event` to the app.
-fn emit(shared: &mut RefAny, info: CallbackInfo, event: TokenInputEvent) -> Update {
+///
+/// The app rebuilds the field from the state the event carries, and that
+/// rebuild decides whether the list shows - so a list Escape hid
+/// ([`EntryKey::Dismiss`]) is handed back to it: the override goes
+/// (`initial` removes it). Without a rebuild the dismissal stands.
+fn emit(shared: &mut RefAny, mut info: CallbackInfo, event: TokenInputEvent) -> Update {
     let hook = match shared.downcast_ref::<TokenShared>() {
         Some(s) => s.on_event.clone(),
         None => return Update::DoNothing,
     };
-    match hook.as_ref() {
+    let update = match hook.as_ref() {
         Some(TokenInputOnEvent { refany, callback }) => callback.invoke(refany.clone(), info, event),
         None => Update::DoNothing,
+    };
+    if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+        if let Some(list) = list_of(&info, info.get_hit_node()) {
+            info.override_css_property(list, CssProperty::initial(CssPropertyType::Display));
+        }
     }
+    update
+}
+
+/// The list of suggestions of the token input `node` is in, if it shows one.
+fn list_of(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
+    let mut current = Some(node);
+    for _ in 0..16 {
+        let n = current?;
+        if roving::has_class(info, n, TOKEN_INPUT_CLASS) {
+            return roving::items_of(info, n, LIST_CLASS).first().copied();
+        }
+        current = info.get_parent(n);
+    }
+    None
 }
 
 /// The app's verdict on `token` (no validator: taken as typed).
@@ -1210,12 +1234,11 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
             TokenInputEvent::create(TokenInputEventKind::Navigate, next)
         }),
         EntryKey::Dismiss => {
-            // The list goes until the next build (the next character).
-            let list = info
-                .get_parent(container)
-                .and_then(|field| info.get_parent(field))
-                .and_then(|root| roving::items_of(&info, root, LIST_CLASS).first().copied());
-            if let Some(list) = list {
+            // The list goes until the app rebuilds the field for the user's
+            // next action (the next character): an override, as nothing is
+            // rebuilt now - and one `emit` takes back, since an override
+            // outranks every later rebuild.
+            if let Some(list) = list_of(&info, container) {
                 info.set_css_property(list, CssProperty::const_display(LayoutDisplay::None));
             }
             return taken(Update::DoNothing);
@@ -1752,6 +1775,59 @@ mod token_input_tests {
             vec![String::from(
                 "Add 2 Albert <al@b.org> | alice@x.org,bob@y.org,Albert <al@b.org> |  | None"
             )]
+        );
+    }
+
+    extern "C" fn hear_only(_: RefAny, _: CallbackInfo, _: TokenInputEvent) -> Update {
+        Update::DoNothing
+    }
+
+    /// Every `display` the handler wrote, on either channel, as (node, value).
+    fn display_writes(changes: &[crate::callbacks::CallbackChange]) -> Vec<(NodeId, CssProperty)> {
+        use crate::callbacks::CallbackChange as C;
+        changes
+            .iter()
+            .flat_map(|c| match c {
+                C::ChangeNodeCssProperties { node_id, properties, .. }
+                | C::OverrideNodeCssProperties { node_id, properties, .. } => properties
+                    .as_ref()
+                    .iter()
+                    .filter(|p| p.get_type() == CssPropertyType::Display)
+                    .map(|p| (*node_id, p.clone()))
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// The list Escape hid is the rebuild's to show again: an event the app
+    /// rebuilds for takes the override back; one it does not leaves it.
+    #[test]
+    fn an_event_the_app_rebuilds_for_hands_the_list_back_to_the_rebuild() {
+        let log = log();
+        let styled = StyledDom::create_from_dom(field(&log).with_theme(UiTheme::Flat).dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let entry = kids(&styled, field_node)[2];
+        let list = kids(&styled, NodeId::new(0))[1];
+        assert!(has_class_at(&styled, list, LIST_CLASS));
+        let (_, changes) = rv::press(&styled, id(entry), K::Down, &[]).expect("the entry's key handler");
+        assert!(logged(&log).iter().any(|l| l.starts_with("Navigate")), "{:?}", logged(&log));
+        assert_eq!(
+            display_writes(&changes),
+            vec![(list, CssProperty::initial(CssPropertyType::Display))],
+            "the app rebuilds: its list decides, the override goes"
+        );
+
+        let quiet = StyledDom::create_from_dom(
+            field(&log)
+                .with_on_event(RefAny::new(()), hear_only as TokenInputOnEventCallbackType)
+                .with_theme(UiTheme::Flat)
+                .dom(),
+        );
+        let (_, changes) = rv::press(&quiet, id(entry), K::Down, &[]).expect("the entry's key handler");
+        assert!(
+            display_writes(&changes).is_empty(),
+            "no rebuild is coming: a dismissal stands ({changes:?})"
         );
     }
 

@@ -52,6 +52,7 @@ pub(crate) struct BlocksDemo {
     zoom: f32,
     bold: bool,
     week_starts_monday: bool,
+    calendar: DatePickerState,
 }
 
 impl BlocksDemo {
@@ -70,6 +71,11 @@ impl BlocksDemo {
             zoom: 100.0,
             bold: true,
             week_starts_monday: true,
+            calendar: DatePickerState {
+                year: 2026,
+                month: 10,
+                day: 3,
+            },
         }
     }
 }
@@ -199,7 +205,7 @@ pub(crate) fn blocks_section(data: &RefAny, b: &BlocksDemo, theme: UiTheme) -> D
                 .with_accessibility_name("First day of the week"),
         )
         .with_child(
-            DatePicker::create(2026, 10, 3)
+            DatePicker::create(b.calendar.year, b.calendar.month, b.calendar.day)
                 .with_inline(true)
                 .with_week_start(if b.week_starts_monday {
                     DatePickerWeekStart::Monday
@@ -207,6 +213,7 @@ pub(crate) fn blocks_section(data: &RefAny, b: &BlocksDemo, theme: UiTheme) -> D
                     DatePickerWeekStart::Sunday
                 })
                 .with_accessibility_name("Calendar")
+                .with_on_change(data.clone(), on_calendar)
                 .with_theme(theme)
                 .dom(),
         );
@@ -299,4 +306,10 @@ extern "C" fn on_bold(mut data: RefAny, _: CallbackInfo) -> Update {
 
 extern "C" fn on_week_start(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
     keep(&mut data, |b| b.week_starts_monday = state.selected_index == 1)
+}
+
+/// The day picked in the calendar: kept, so flipping the first day of the
+/// week (a rebuild) shows the calendar where the user left it.
+extern "C" fn on_calendar(mut data: RefAny, _: CallbackInfo, state: DatePickerState) -> Update {
+    keep(&mut data, |b| b.calendar = state)
 }
