@@ -9022,6 +9022,37 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "azul_layout::icon::register_hvif_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), hvif_bytes.as_slice(), meta)"
+                            },
+                            "set_pack_condition": {
+                                "doc": [
+                                    "Let a pack take part in the search for a bare icon name only while",
+                                    "`apply_if` holds ([`parse_icon_apply_if`]: `theme=flora`, `mode=dark`,",
+                                    "`os=...`, `contrast=high`, `app=...`; the comma is AND). It is",
+                                    "evaluated at every lookup against the window's live context, so a",
+                                    "theme switch brings the pack in or takes it out with the next frame.",
+                                    "The flora theme's own icons, searched first under flora and not at",
+                                    "all under any other theme: `set_pack_rank(pack, 0)` and",
+                                    "`set_pack_condition(pack, \"theme=flora\")`.",
+                                    "",
+                                    "A pack-qualified spec (`pack:name`) still reaches the pack, the",
+                                    "user's remap rules still come first, and a lookup without a window",
+                                    "context (`lookup`, `has_icon`) passes the pack by. A term nobody",
+                                    "understands never holds: a typo keeps the pack out instead of making",
+                                    "it unconditional. An empty `apply_if` removes the condition; like the",
+                                    "rank, the condition belongs to the pack NAME."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "apply_if": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_pack_condition(pack_name.as_str(), apply_if.as_str())"
                             }
                         },
                         "repr": "C"
@@ -89148,14 +89179,23 @@
                                 "detail": {
                                     "type": "String"
                                 },
+                                "steps": {
+                                    "type": "StringVec"
+                                },
                                 "buttons": {
                                     "type": "StringVec"
                                 },
                                 "dont_ask_label": {
                                     "type": "String"
                                 },
+                                "destructive_warning": {
+                                    "type": "String"
+                                },
                                 "on_event": {
                                     "type": "OptionStandardDialogOnEvent"
+                                },
+                                "destructive_button": {
+                                    "type": "OptionUsize"
                                 },
                                 "default_button": {
                                     "type": "usize"
@@ -89392,6 +89432,81 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_destructive_button": {
+                                "doc": [
+                                    "Marks button `index` destructive - it deletes, overwrites or costs",
+                                    "money: it wears the theme's danger face (red; flora's clay) instead",
+                                    "of the plain or the primary one, and assistive technology hears",
+                                    "`warning` as its description (\"Deletes 3 files for good.\"; empty:",
+                                    "\"This cannot be undone.\"), since the colour tells it nothing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    },
+                                    {
+                                        "warning": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_destructive_button(index, warning)"
+                            },
+                            "set_steps": {
+                                "doc": [
+                                    "What the confirmed action is about to do, one step each (\"Order 3 x",
+                                    "SX65-2 at Hetzner, EUR 104.00 a month each\", \"Restart the token",
+                                    "server\"): numbered under the text, a list for assistive technology",
+                                    "and part of what the box says when it opens. Empty: no list."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "steps": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_steps(steps)"
+                            },
+                            "with_destructive_button": {
+                                "doc": [
+                                    "[`Self::set_destructive_button`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    },
+                                    {
+                                        "warning": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MessageBox"
+                                },
+                                "fn_body": "object.with_destructive_button(index, warning)"
+                            },
+                            "with_steps": {
+                                "doc": [
+                                    "[`Self::set_steps`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "steps": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MessageBox"
+                                },
+                                "fn_body": "object.with_steps(steps)"
                             }
                         },
                         "repr": "C"
@@ -100108,6 +100223,28 @@
                                     "type": "u32"
                                 },
                                 "fn_body": "object.shown_count(row_count)"
+                            },
+                            "invalidate_order": {
+                                "doc": [
+                                    "The app's rows changed (a refresh, rows added or removed, values",
+                                    "edited): the order, made of the rows the app had before, no longer",
+                                    "fits them. The same sort and filters run again over the new rows -",
+                                    "a table of at most [`DATA_TABLE_SYNC_ROWS`] rows at its next build,",
+                                    "a bigger one when the app calls [`DataTable::start_query`] - and the",
+                                    "old order shows until then. The scroll position, the selection and",
+                                    "the sort stay. Without a sort or a filter there is nothing to redo:",
+                                    "every row shows in the app's order.",
+                                    "",
+                                    "The table cannot tell by itself: it holds no rows and reads only the",
+                                    "rows in view, and a refresh can keep the row count and change the",
+                                    "values."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.invalidate_order()"
                             }
                         },
                         "repr": "C"

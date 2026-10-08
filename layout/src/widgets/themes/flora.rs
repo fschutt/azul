@@ -8766,11 +8766,6 @@ pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLo
     field_key.push(CssPropertyWithConditions::simple(CssProperty::const_min_width(
         LayoutMinWidth::const_px(56),
     )));
-    field_key.push(CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
-        LayoutFlexShrink {
-            inner: FloatValue::const_new(0),
-        },
-    )));
     field_key.extend(decl::margin(0, 8, 0, 0));
 
     let mut attachments = decl::padding(6, 16, 6, 16).to_vec();

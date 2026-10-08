@@ -143,6 +143,10 @@ pub(crate) static PANE_ROW_BASE: &[CssPropertyWithConditions] = &[
 /// A key: set from the right, so the values line up.
 pub(crate) static PANE_KEY_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // the key keeps its room; the value is the part that gives way
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Right)),
 ];
 

@@ -2974,6 +2974,7 @@ pub(crate) mod theme_contrast {
         "wizard_pages (progress)",
         "wizard_pages (finish)",
         "standard_dialogs (message box)",
+        "standard_dialogs (message box with steps)",
         "standard_dialogs (about)",
         "standard_dialogs (progress)",
         "standard_dialogs (login)",
