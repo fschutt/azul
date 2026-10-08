@@ -681,7 +681,7 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
     if event.kind == CodeViewEventKind::Scroll {
         if let Some(mut st) = data.downcast_mut::<AppState>() {
             if let Some(doc) = st.tabs.active_mut() {
-                doc.view = event.view;
+                doc.view = event.view.clone();
             }
         }
         return Update::DoNothing;
