@@ -20,7 +20,7 @@ use crate::{
     browse::{self, Place},
     go, ids,
     jobs::PreviewContent,
-    look, place_up, start_tree_listing, ui_view, with_state, DriveState,
+    listing, look, place_up, start_tree_listing, ui_view, with_state, DriveState,
 };
 
 // ==== The address bar ====
@@ -146,6 +146,8 @@ extern "C" fn on_address(
             let keys = s.visible_keys();
             let order: Vec<&str> = keys.iter().map(String::as_str).collect();
             s.selection.retain(&order);
+            // Other rows are in view now: their sizes, counts and thumbnails.
+            actions::request_view_work(info, app, s);
         }
     })
 }
@@ -278,17 +280,18 @@ pub(crate) fn status_text(s: &DriveState) -> String {
         Place::Folder { .. } if s.loading => parts.push(String::from("Loading...")),
         Place::Folder { drive, .. } => {
             let shown = s.visible_entries().len();
-            let more = if s.next.is_some() { "+" } else { "" };
             let selected = s.selected_entries();
             if selected.is_empty() {
-                parts.push(if more.is_empty() {
-                    browse::counted(shown, "item", "items")
-                } else {
-                    format!("{shown}{more} items")
-                });
+                // While the scan still runs, the count says so ("12,345 items so far").
+                parts.push(listing::count_text(shown, s.listing_done));
             } else {
                 let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
-                let mut text = format!("{} of {shown}{more} selected", selected.len());
+                let more = if s.listing_done { "" } else { "+" };
+                let mut text = format!(
+                    "{} of {}{more} selected",
+                    listing::grouped_digits(selected.len()),
+                    listing::grouped_digits(shown)
+                );
                 if bytes > 0 {
                     text.push_str(&format!(" ({})", browse::format_size(Some(bytes))));
                 }
@@ -596,6 +599,12 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                                     &chrono::Local,
                                 )),
                             );
+                    } else if let Some(n) = s.counts.get(&entry.key) {
+                        // Counted with one read of the folder, no stat per item.
+                        pane = pane.with_property(
+                            AzString::from("Items"),
+                            AzString::from(listing::grouped_digits(*n)),
+                        );
                     }
                     pane = pane.with_property(
                         AzString::from("Location"),

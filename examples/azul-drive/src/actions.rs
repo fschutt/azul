@@ -32,10 +32,11 @@ use crate::{
     go,
     jobs::{Job, PreviewContent},
     keys::{self, Command, Key, Mods, Step},
+    listing,
     model::{self, GroupBy, ViewLayout},
     open_current, open_drive, place_up,
     preview,
-    refresh, save_settings, spawn, with_state, ClipboardItems, DriveState, KeyringCall,
+    refresh, save_settings, spawn, ui_view, with_state, ClipboardItems, DriveState, KeyringCall,
     KeyringOp, Popup, PreviewState, PropertiesState, Renaming, Slot, TransferJob, UndoOp,
 };
 
@@ -335,6 +336,11 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::GroupBy(group) => {
             s.settings.group_by = group;
             println!("AZDRIVE_GROUP {}", group.label());
+            // Groups by size or date need every item's stat (the scan reads names only).
+            if needs_all_stats(s) {
+                request_sort_stats(info, app, s);
+            }
+            request_view_work(info, app, s);
             save_settings(info, app, s);
         }
         Action::ColumnsMenu => open_menu_below(info, column_items(app, s)),
@@ -789,13 +795,25 @@ fn move_focus(
             s.selected_pin = Some(to as usize);
         }
         Place::Folder { .. } => {
-            let keys = s.visible_keys();
+            // The order the view shows (grouped: group after group).
+            let keys: Vec<String> = ui_view::shown_order(s)
+                .into_iter()
+                .map(|e| e.key.clone())
+                .collect();
             let order: Vec<&str> = keys.iter().map(String::as_str).collect();
             s.selection
                 .step(&order, step.delta(columns, 10), extend, keep);
             s.print_selection();
             request_preview(info, app, s);
+            reveal_focus(info, s);
         }
+    }
+}
+
+/// The virtual view scrolls the item the keyboard is on into view.
+fn reveal_focus(info: &mut CallbackInfo, s: &mut DriveState) {
+    if let Some(key) = s.selection.focus().map(str::to_string) {
+        ui_view::reveal_item(info, s, &key);
     }
 }
 
@@ -833,6 +851,7 @@ fn type_ahead(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, c: char
                 s.selection.click(&key);
                 s.print_selection();
                 request_preview(info, app, s);
+                reveal_focus(info, s);
             }
         }
     }
@@ -1897,6 +1916,12 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
     let local = s
         .current_drive_id()
         .is_some_and(|id| s.is_local_drive(&id));
+    if s.settings.details_pane && entry.is_folder && local {
+        // The details pane says how many items the folder holds: one cheap count.
+        if let Some(index) = s.current_drive() {
+            crate::request_counts(info, app, s, index, vec![entry.key.clone()]);
+        }
+    }
     if s.settings.details_pane && !entry.is_folder && !local && !s.metadata.contains_key(&entry.key)
     {
         if let Some(drive) = open_current(s) {
@@ -2074,36 +2099,118 @@ pub(crate) fn set_layout(
 ) {
     s.settings.layout = layout;
     println!("AZDRIVE_LAYOUT {}", layout.name());
-    request_thumbnails(info, app, s);
+    request_view_work(info, app, s);
     save_settings(info, app, s);
 }
 
-/// The icon layouts show pictures as thumbnails: the open folder's pictures
-/// (up to 8 MB, the first 120) are fetched, decoded and scaled down on ONE
-/// thread, one answer per picture.
-pub(crate) fn request_thumbnails(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    /// Pictures per folder that get a thumbnail.
-    const MAX_THUMBNAILS: usize = 120;
+/// Whether the view needs every item's size and date: a sort by Size or Date modified, a
+/// grouping by them. A scan of a folder on this computer reads names and kinds only.
+pub(crate) fn needs_all_stats(s: &DriveState) -> bool {
+    listing::sort_needs_stats(s.settings.sort)
+        || matches!(s.settings.group_by, GroupBy::Size | GroupBy::Modified)
+}
+
+/// What the rows in view are owed, on worker threads: the sizes and dates of the ones a scan
+/// read only the names of, the item counts of the folders among them (the Size column of
+/// Details, Content), the thumbnails of the pictures among them (the icon layouts). Nothing for
+/// the rows out of view. Whether anything was asked for.
+pub(crate) fn request_view_work(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -> bool {
+    let Some(index) = s.current_drive() else {
+        return false;
+    };
+    let range = ui_view::items_in_view(s);
+    let mut asked = false;
+    if let Some(root) = s.local_root(index) {
+        let (stat_keys, folder_keys) = {
+            let shown = ui_view::shown_order(s);
+            let stats =
+                listing::stats_wanted(&shown, range.clone(), &s.stats_asked, listing::STAT_MAX);
+            let folders: Vec<String> = shown
+                .get(range.clone())
+                .unwrap_or(&[])
+                .iter()
+                .filter(|e| e.is_folder)
+                .map(|e| e.key.clone())
+                .collect();
+            (stats, folders)
+        };
+        if !stat_keys.is_empty() {
+            s.stats_asked.extend(stat_keys.iter().cloned());
+            let serial = s.list_serial;
+            spawn(
+                info,
+                app,
+                s,
+                Job::Stat {
+                    root,
+                    keys: stat_keys,
+                    serial,
+                },
+            );
+            asked = true;
+        }
+        let counts_shown = matches!(s.settings.layout, ViewLayout::Details | ViewLayout::Content);
+        if counts_shown && !folder_keys.is_empty() {
+            crate::request_counts(info, app, s, index, folder_keys);
+        }
+    }
+    request_thumbnails_in(info, app, s, range) || asked
+}
+
+/// A sort by Size or Date modified (a grouping by them) needs every item's size and date: the
+/// ones not stat'ed yet are asked for, a job's worth at a time - each answer asks for the next,
+/// and the rows are sorted again when the last one is in.
+pub(crate) fn request_sort_stats(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(index) = s.current_drive() else {
+        return;
+    };
+    let Some(root) = s.local_root(index) else {
+        return;
+    };
+    let keys = listing::unknown_keys(&s.entries, &s.stats_asked, listing::STAT_MAX);
+    if keys.is_empty() {
+        return;
+    }
+    s.stats_asked.extend(keys.iter().cloned());
+    let serial = s.list_serial;
+    spawn(info, app, s, Job::Stat { root, keys, serial });
+}
+
+/// The icon layouts show pictures as thumbnails: the pictures in view (up to 8 MB) that have
+/// none yet are fetched, decoded and scaled down on ONE thread, one answer per picture.
+fn request_thumbnails_in(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    range: std::ops::Range<usize>,
+) -> bool {
     let wanted = matches!(
         s.settings.layout,
         ViewLayout::MediumIcons | ViewLayout::LargeIcons | ViewLayout::ExtraLargeIcons
     );
     if !wanted || s.current_drive().is_none() {
-        return;
+        return false;
     }
-    let items: Vec<(String, Option<u64>)> = s
-        .visible_entries()
-        .into_iter()
-        .filter(|e| !e.is_folder && preview::preview_kind(&e.name) == preview::PreviewKind::Image)
-        .filter(|e| !s.thumbnails.contains_key(&e.key) && !s.thumbnails_pending.contains(&e.key))
-        .take(MAX_THUMBNAILS)
-        .map(|e| (e.key.clone(), e.size))
-        .collect();
+    let items: Vec<(String, Option<u64>)> = {
+        let shown = ui_view::shown_order(s);
+        shown
+            .get(range)
+            .unwrap_or(&[])
+            .iter()
+            .filter(|e| {
+                !e.is_folder && preview::preview_kind(&e.name) == preview::PreviewKind::Image
+            })
+            .filter(|e| {
+                !s.thumbnails.contains_key(&e.key) && !s.thumbnails_pending.contains(&e.key)
+            })
+            .map(|e| (e.key.clone(), e.size))
+            .collect()
+    };
     if items.is_empty() {
-        return;
+        return false;
     }
     let Some(drive) = open_current(s) else {
-        return;
+        return false;
     };
     for (key, _) in &items {
         s.thumbnails_pending.insert(key.clone());
@@ -2118,6 +2225,7 @@ pub(crate) fn request_thumbnails(info: &mut CallbackInfo, app: &RefAny, s: &mut 
             max_px: 192,
         },
     );
+    true
 }
 
 /// Sort by `column` (a second click on the same column reverses it), or
@@ -2134,6 +2242,12 @@ pub(crate) fn sort_by(
         None => s.settings.sort.clicked(column),
     };
     browse::sort_entries(&mut s.entries, s.settings.sort);
+    // Sizes and dates of a folder on this computer come with the stat of the rows in view: a
+    // sort by them asks for the rest, and sorts again when they are in.
+    if needs_all_stats(s) {
+        request_sort_stats(info, app, s);
+    }
+    request_view_work(info, app, s);
     println!(
         "AZDRIVE_SORT {} {}",
         s.settings.sort.column.label(),
@@ -2184,6 +2298,10 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
             for node in open {
                 crate::start_tree_listing(info, app, s, node);
             }
+            // The counts of folders count hidden items only while they show.
+            s.counts.clear();
+            s.counts_asked.clear();
+            request_view_work(info, app, s);
         }
         Toggle::PreviewPane | Toggle::DetailsPane => {
             s.clear_preview();

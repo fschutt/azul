@@ -84,7 +84,10 @@ mod ui_view;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use azul::{
@@ -101,11 +104,11 @@ use azul::{
 use azul_storage::{
     azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
-    key, Credentials, Drive, DriveError, ListRequest, LocalDrive,
+    key, Credentials, Drive, DriveError, LocalDrive,
 };
 use browse::{DriveForm, Entry, History, Place};
 use fileops::{ConflictChoice, Plan, SourceItem, TransferKind, TransferQueue};
-use jobs::{Done, FolderSize, Job, JobInit, ListPurpose, Outcome, PreviewContent};
+use jobs::{Done, FolderSize, Job, JobInit, Outcome, PreviewContent};
 use model::{Selection, Settings, TypeAhead};
 
 pub(crate) const USER_AGENT: &str = "AzDrive/0.2";
@@ -123,10 +126,6 @@ pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
     license: "MIT",
     app_folder: "drive",
 };
-/// Entries per listing page.
-const PAGE_SIZE: u32 = 500;
-/// Folders per tree listing (one listing per expand).
-const TREE_PAGE_SIZE: u32 = 500;
 /// The Home drive's id (never in the drives file).
 pub(crate) const HOME_ID: &str = "home";
 /// The places "Recent locations" remembers.
@@ -399,13 +398,27 @@ pub(crate) struct DriveState {
     pub history: History,
     /// The places visited last (Recent locations), newest first.
     pub recent: Vec<Place>,
-    /// The open folder's rows.
+    /// The open folder's rows, in the view's sort order (a scan's batches merge into them).
     pub entries: Vec<Entry>,
-    /// Where the next page of the listing starts.
-    pub next: Option<String>,
+    /// Nothing of the open folder has arrived yet ("Loading...").
     pub loading: bool,
+    /// The scan of the open folder has handed over its last batch.
+    pub listing_done: bool,
     /// The listing the rows belong to; an answer for an older one is dropped.
     pub list_serial: u64,
+    /// The running scan's stop: set when the window goes elsewhere, so a big folder left
+    /// half-read is not read to its end.
+    pub list_cancel: Arc<AtomicBool>,
+    /// A refresh's rows, gathered while the rows it replaces still show; they take their place
+    /// when the scan ends (no folder blinks empty on F5).
+    pub refreshing: Option<Vec<Entry>>,
+    /// The rows whose size and date were asked for (the ones in view; a sort's).
+    pub stats_asked: HashSet<String>,
+    /// The item counts of the open folder's subfolders (their keys), and the ones asked for.
+    pub counts: HashMap<String, usize>,
+    pub counts_asked: HashSet<String>,
+    /// Where the folder view's last scroll left it: its offset and its height (px).
+    pub view_scroll: (f32, f32),
     pub selection: Selection,
     /// The selected drive tile of This PC.
     pub selected_drive: Option<usize>,
@@ -672,8 +685,8 @@ impl DriveState {
     /// over it and the leaf's frame and foot around it. An estimate that errs small - an empty
     /// strip, never a clipped row.
     pub fn content_size(&self, window: (f32, f32)) -> (f32, f32) {
-        /// The title row, the navigation row and the command bar.
-        const CHROME_PX: f32 = 160.0;
+        /// The ribbon (its tab strip in the title bar, its band) and the address row.
+        const CHROME_PX: f32 = 172.0;
         /// A splitter and the pane's edges.
         const SPLITTER_PX: f32 = 8.0;
         let (mut width, mut height) = window;
@@ -694,10 +707,21 @@ impl DriveState {
         if self.message.is_some() {
             height -= 52.0;
         }
-        if self.next.is_some() {
-            height -= 44.0;
-        }
         ((width - 8.0).max(120.0), height.max(120.0))
+    }
+
+    /// The folder on this computer that holds `prefix` of drive `index`, for a local drive (the
+    /// scan reads it with `read_dir`); `None` for a bucket.
+    pub fn local_dir(&self, index: usize, prefix: &str) -> Option<PathBuf> {
+        match &self.slots.get(index)?.entry.location {
+            DriveLocation::Local { root } => Some(jobs::path_in(Path::new(root), prefix)),
+            DriveLocation::S3 { .. } => None,
+        }
+    }
+
+    /// The root folder of drive `index` on this computer (`None` for a bucket).
+    pub fn local_root(&self, index: usize) -> Option<PathBuf> {
+        self.local_dir(index, "")
     }
 
     /// Prints the selection for scripts.
@@ -749,42 +773,60 @@ pub(crate) fn open_drive(s: &mut DriveState, drive_id: &str) -> Option<Arc<dyn D
     open_slot(s, index)
 }
 
-/// Lists the open folder from its start (`append == false`) or its next page.
+/// Stops the running scan of the open folder (its batches would be dropped anyway: they carry
+/// an older serial) - a big folder the window left is not read to its end.
+pub(crate) fn cancel_listing(s: &mut DriveState) {
+    s.list_cancel.store(true, Ordering::SeqCst);
+}
+
+/// Scans the open folder: its rows stream in batches ([`Outcome::Scanned`]). A `refresh`
+/// gathers the new rows while the old ones still show and swaps them in at the end; otherwise
+/// the rows start empty and fill as the batches land.
 pub(crate) fn start_listing(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
-    append: bool,
+    refresh: bool,
 ) {
-    let Some(drive) = open_current(s) else {
+    let Some(index) = s.current_drive() else {
         return;
     };
-    let mut request = ListRequest::folder(s.prefix()).with_max_keys(PAGE_SIZE);
-    if append {
-        match s.next.clone() {
-            Some(token) => request = request.with_continuation(token),
-            None => return,
-        }
+    let Some(drive) = open_slot(s, index) else {
+        return;
+    };
+    cancel_listing(s);
+    let cancel = Arc::new(AtomicBool::new(false));
+    s.list_cancel = cancel.clone();
+    s.list_serial += 1;
+    s.listing_done = false;
+    s.stats_asked.clear();
+    s.counts_asked.clear();
+    if refresh && !s.entries.is_empty() {
+        s.refreshing = Some(Vec::new());
     } else {
-        s.list_serial += 1;
-        s.next = None;
+        s.refreshing = None;
+        s.entries.clear();
+        s.loading = true;
     }
-    s.loading = true;
+    let prefix = s.prefix().to_string();
+    let dir = s.local_dir(index, &prefix);
     let serial = s.list_serial;
     spawn(
         info,
         app,
         s,
-        Job::List {
+        Job::Scan {
             drive,
-            request,
-            purpose: ListPurpose::Content { serial, append },
+            dir,
+            prefix,
+            serial,
+            cancel,
         },
     );
 }
 
-/// Lists the folders of the tree node `node` (one listing), unlocking its
-/// drive first when it needs the keyring.
+/// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
+/// first when it needs the keyring.
 pub(crate) fn start_tree_listing(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -807,18 +849,70 @@ pub(crate) fn start_tree_listing(
     let Some(drive) = open_slot(s, index) else {
         return;
     };
-    let request = ListRequest::folder(&node.1).with_max_keys(TREE_PAGE_SIZE);
+    let dir = s.local_dir(index, &node.1);
     s.tree.listing.insert(node.clone());
+    spawn(info, app, s, Job::Folders { drive, dir, node });
+}
+
+/// Counts the items of the local folders `keys` of drive `index` (`""`: its root), the ones not
+/// counted or asked for yet - one `read_dir` each, on a worker thread.
+pub(crate) fn request_counts(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+    keys: Vec<String>,
+) {
+    let Some(root) = s.local_root(index) else {
+        return;
+    };
+    let keys: Vec<String> = keys
+        .into_iter()
+        .filter(|k| !s.counts.contains_key(k) && !s.counts_asked.contains(k))
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    s.counts_asked.extend(keys.iter().cloned());
+    let drive_id = s.slots[index].entry.id.clone();
+    let show_hidden = s.settings.show_hidden;
     spawn(
         info,
         app,
         s,
-        Job::List {
-            drive,
-            request,
-            purpose: ListPurpose::Tree { node },
+        Job::Count {
+            drive_id,
+            root,
+            keys,
+            show_hidden,
         },
     );
+}
+
+/// This PC's local drive tiles say how many items each drive's root holds: one cheap count each
+/// (no listing of the drive).
+pub(crate) fn count_drive_roots(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let local: Vec<usize> = (0..s.slots.len())
+        .filter(|&i| s.slots[i].is_local() && !s.root_counts.contains_key(&s.slots[i].entry.id))
+        .collect();
+    for index in local {
+        let Some(root) = s.local_root(index) else {
+            continue;
+        };
+        let drive_id = s.slots[index].entry.id.clone();
+        let show_hidden = s.settings.show_hidden;
+        spawn(
+            info,
+            app,
+            s,
+            Job::Count {
+                drive_id,
+                root,
+                keys: vec![String::new()],
+                show_hidden,
+            },
+        );
+    }
 }
 
 /// Reads an S3 drive's keys from the keyring (once at a time).
@@ -864,8 +958,14 @@ pub(crate) fn go(
     s.editing_path = false;
     s.renaming = None;
     s.search.clear();
+    // The folder being left may still be read: that read stops here.
+    cancel_listing(s);
     s.entries.clear();
-    s.next = None;
+    s.refreshing = None;
+    s.listing_done = false;
+    s.stats_asked.clear();
+    s.counts.clear();
+    s.counts_asked.clear();
     s.selection = Selection::default();
     s.selected_pin = None;
     s.grid_view = IconGridView::create();
@@ -875,7 +975,14 @@ pub(crate) fn go(
     s.loading = false;
     s.list_serial += 1;
     s.backstage = None;
+    // The new folder opens at its top, wherever the last one was scrolled to.
+    s.view_scroll.0 = 0.0;
+    ui_view::scroll_view_to_top(info);
+    set_window_title(info, s);
     println!("AZDRIVE_PLACE {}", s.place_line());
+    if s.place == Place::ThisPc {
+        count_drive_roots(info, app, s);
+    }
     let Some(index) = s.current_drive() else {
         return;
     };
@@ -890,11 +997,34 @@ pub(crate) fn go(
 /// Lists the open folder again (F5), keeping the selection.
 pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     if s.current_drive().is_none() {
-        // This PC: the drives' sizes again.
+        // This PC: the drives' sizes and item counts again.
         refresh_disks(s);
+        s.root_counts.clear();
+        count_drive_roots(info, app, s);
         return;
     }
-    start_listing(info, app, s, false);
+    start_listing(info, app, s, true);
+}
+
+/// The window's title is the open place's path (the title bar shows the ribbon's tabs, so the
+/// path is what the system's window list, the Dock and Mission Control name the window by).
+pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
+    let mut state = info.get_current_window_state();
+    let title = window_title(s);
+    if state.title.as_str() != title {
+        state.title = AzString::from(title);
+        info.modify_window_state(state);
+    }
+}
+
+/// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
+pub(crate) fn window_title(s: &DriveState) -> String {
+    let drive_name = s.drive_name(&s.place);
+    let path_drive = match &s.place {
+        Place::Folder { .. } => Some(drive_name.as_str()),
+        _ => None,
+    };
+    format!("{} - AzDrive", browse::path_text(&s.place, path_drive))
 }
 
 /// The local volumes' size and free space, from the OS - and the standard folders the Home
@@ -1143,7 +1273,8 @@ pub(crate) fn changed(
     prefix: &str,
 ) {
     if showing(s, drive_id, prefix) {
-        start_listing(info, app, s, false);
+        // Read again behind the rows that show: they stay until the new ones are in.
+        start_listing(info, app, s, true);
     }
     tree_invalidate(info, app, s, (drive_id.to_string(), prefix.to_string()));
 }
@@ -1154,6 +1285,67 @@ fn changed_here(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         let prefix = s.prefix().to_string();
         changed(info, app, s, &drive_id, &prefix);
     }
+}
+
+/// A batch of the open folder's scan landed (`done` with the last one): it merges into the rows
+/// in the view's order - while a refresh runs it is gathered behind the rows that still show,
+/// which it replaces at the end -, and the rows in view get their stats, counts and thumbnails.
+/// The selection is checked against the rows once, at the end (a batch only adds rows).
+fn scanned(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    batch: Vec<Entry>,
+    done: bool,
+    error: Option<String>,
+) {
+    let sort = s.settings.sort;
+    match s.refreshing.as_mut() {
+        Some(gathered) => gathered.extend(batch),
+        None => {
+            listing::merge_batch(&mut s.entries, batch, sort);
+            s.loading = false;
+        }
+    }
+    if let Some(e) = error {
+        s.loading = false;
+        s.listing_done = true;
+        s.refreshing = None;
+        s.error(format!("Could not list this folder: {e}"));
+        return;
+    }
+    if !done {
+        actions::request_view_work(info, app, s);
+        return;
+    }
+    s.listing_done = true;
+    s.loading = false;
+    if let Some(mut fresh) = s.refreshing.take() {
+        browse::sort_entries(&mut fresh, sort);
+        s.entries = fresh;
+    }
+    let keys = s.visible_keys();
+    let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+    s.selection.retain(&order);
+    if let Place::Folder { drive, prefix } = &s.place {
+        if prefix.is_empty() {
+            s.root_counts.insert(drive.clone(), s.entries.len());
+        }
+        println!(
+            "AZDRIVE_LISTED {drive} {} {}",
+            if prefix.is_empty() { "/" } else { prefix },
+            s.entries.len()
+        );
+    }
+    // A new folder waiting for its name is scrolled into view (it may sort far down).
+    if let Some(key) = s.renaming.as_ref().map(|r| r.key.clone()) {
+        ui_view::reveal_item(info, s, &key);
+    }
+    actions::request_preview(info, app, s);
+    if actions::needs_all_stats(s) {
+        actions::request_sort_stats(info, app, s);
+    }
+    actions::request_view_work(info, app, s);
 }
 
 pub(crate) extern "C" fn on_job_done(
@@ -1172,73 +1364,72 @@ pub(crate) extern "C" fn on_job_done(
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    if !matches!(outcome, Outcome::Progress { .. } | Outcome::Thumbnail { .. }) {
+    // A scan's batches before its last one and a transfer's progress are messages of a thread
+    // that still runs.
+    let still_running = matches!(
+        outcome,
+        Outcome::Progress { .. } | Outcome::Thumbnail { .. } | Outcome::Scanned { done: false, .. }
+    );
+    if !still_running {
         s.running = s.running.saturating_sub(1);
     }
     match outcome {
-        Outcome::Listed {
-            purpose: ListPurpose::Content { serial, append },
-            result,
+        Outcome::Scanned {
+            serial,
+            batch,
+            done,
+            error,
         } => {
             if serial != s.list_serial {
                 return Update::DoNothing; // another folder or drive by now
             }
-            s.loading = false;
-            match result {
-                Ok(page) => {
-                    let prefix = s.prefix().to_string();
-                    let mut more = browse::entries_of(&page, &prefix);
-                    if append {
-                        more.retain(|e| !s.entries.iter().any(|old| old.key == e.key));
-                        s.entries.extend(more);
-                    } else {
-                        s.entries = more;
-                    }
+            scanned(&mut info, &handle, s, batch, done, error);
+        }
+        Outcome::Stats { serial, stats } => {
+            if serial != s.list_serial {
+                return Update::DoNothing;
+            }
+            if listing::apply_stats(&mut s.entries, &stats) == 0 {
+                return Update::DoNothing;
+            }
+            if actions::needs_all_stats(s) {
+                if listing::all_known(&s.entries) {
+                    // The last sizes and dates are in: the rows take the order they ask for.
                     browse::sort_entries(&mut s.entries, s.settings.sort);
-                    s.next = page.next;
-                    let keys = s.visible_keys();
-                    let order: Vec<&str> = keys.iter().map(String::as_str).collect();
-                    s.selection.retain(&order);
-                    if let Place::Folder { drive, prefix } = &s.place {
-                        if prefix.is_empty() {
-                            s.root_counts.insert(drive.clone(), s.entries.len());
-                        }
-                        println!(
-                            "AZDRIVE_LISTED {drive} {} {}",
-                            if prefix.is_empty() { "/" } else { prefix },
-                            s.entries.len()
-                        );
-                    }
-                    actions::request_preview(&mut info, &handle, s);
-                    actions::request_thumbnails(&mut info, &handle, s);
+                } else {
+                    actions::request_sort_stats(&mut info, &handle, s);
                 }
-                Err(e) => s.error(format!("Could not list this folder: {e}")),
+            }
+            // A picture's size is known now: it may get its thumbnail.
+            actions::request_view_work(&mut info, &handle, s);
+        }
+        Outcome::Counted { drive_id, counts } => {
+            for (key, n) in counts {
+                if key.is_empty() {
+                    s.root_counts.insert(drive_id.clone(), n);
+                } else if s.current_drive_id().as_deref() == Some(drive_id.as_str()) {
+                    s.counts.insert(key, n);
+                }
             }
         }
-        Outcome::Listed {
-            purpose: ListPurpose::Tree { node },
-            result,
-        } => {
+        Outcome::Folders { node, result } => {
             s.tree.listing.remove(&node);
             match result {
-                Ok(page) => {
+                Ok((folders, items)) => {
                     if node.1.is_empty() {
-                        s.root_counts
-                            .insert(node.0.clone(), page.folders.len() + page.objects.len());
+                        s.root_counts.insert(node.0.clone(), items);
                     }
                     println!(
                         "AZDRIVE_TREE {} {} {}",
                         node.0,
                         if node.1.is_empty() { "/" } else { &node.1 },
-                        page.folders.len()
+                        folders.len()
                     );
                     let show_hidden = s.settings.show_hidden;
-                    let mut folders: Vec<String> = page
-                        .folders
+                    let folders: Vec<String> = folders
                         .into_iter()
                         .filter(|f| show_hidden || !key::last_segment(f).starts_with('.'))
                         .collect();
-                    folders.sort_by_key(|f| f.to_lowercase());
                     s.tree.loaded.insert(node, folders);
                 }
                 Err(e) => {
@@ -1757,9 +1948,15 @@ pub fn start() {
         history: History::default(),
         recent: Vec::new(),
         entries: Vec::new(),
-        next: None,
         loading: false,
+        listing_done: false,
         list_serial: 0,
+        list_cancel: Arc::new(AtomicBool::new(false)),
+        refreshing: None,
+        stats_asked: HashSet::new(),
+        counts: HashMap::new(),
+        counts_asked: HashSet::new(),
+        view_scroll: (0.0, 0.0),
         selection: Selection::default(),
         selected_drive: None,
         selected_pin: None,

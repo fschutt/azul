@@ -15,8 +15,9 @@ pub const INFO_BAR: AzString = AzString::from_const_str("__azdrive_info_bar");
 pub const CONTENT: AzString = AzString::from_const_str("__azdrive_content");
 /// The scrolling view of the place.
 pub const VIEW: AzString = AzString::from_const_str("__azdrive_view");
-/// The "Load more" button under a long listing.
-pub const LOAD_MORE: AzString = AzString::from_const_str("__azdrive_load_more");
+/// The folder's rows: the virtual view under the Details header (every layout but the
+/// IconGrid's) - its own DOM, which holds the rows in view and a screen either side.
+pub const FOLDER_ROWS: AzString = AzString::from_const_str("__azdrive_folder_rows");
 /// This PC's drive groups.
 pub const THIS_PC: AzString = AzString::from_const_str("__azdrive_this_pc");
 /// Quick access's pins and recent places.
@@ -195,6 +196,8 @@ pub const COLUMN_EDGE_CLASS: AzString = AzString::from_const_str("__azdrive_colu
 pub const THUMBNAIL_CLASS: AzString = AzString::from_const_str("__azdrive_thumbnail");
 /// A Details row on an odd line (Explorer's alternate shade).
 pub const ROW_ALT_CLASS: AzString = AzString::from_const_str("__azdrive_row_alt");
+/// A group's header line in a grouped folder view (a click opens or closes the group).
+pub const GROUP_HEADER_CLASS: AzString = AzString::from_const_str("__azdrive_group_header");
 /// The source list's column (what the keyboard finds it by).
 pub const SIDEBAR_CLASS: AzString = AzString::from_const_str("__azdrive_source_list");
 /// A row of the source list - a section title too: the arrow keys walk them in order.
