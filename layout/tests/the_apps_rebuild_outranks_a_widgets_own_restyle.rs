@@ -13,6 +13,10 @@
 //!   told the app, which pins or unpins the place and rebuilds. The pin kept
 //!   the click's guess whatever the app decided, and an unpinned pin's dim
 //!   outranked its own `:hover`: it no longer lit under the pointer.
+//! - A token input hid its list of suggestions on Escape "until the next
+//!   build", without asking the app. The user typed on, the app rebuilt the
+//!   field with the suggestions for the new text - and the list stayed
+//!   hidden for good, while Down moved a highlight nobody could see.
 //!
 //! Each check runs the window the way the shell does: the handler through
 //! `invoke_single_callback_at`, its style writes through the content
@@ -23,19 +27,23 @@ use std::sync::{Arc, Mutex};
 
 use azul_core::{
     callbacks::Update,
-    dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId},
+    dom::{Dom, DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId},
+    events::FocusEventFilter,
     geom::LogicalSize,
     gl::OptionGlContextPtr,
     refany::RefAny,
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
     task::Instant,
-    window::RawWindowHandle,
+    window::{RawWindowHandle, VirtualKeyCode},
 };
 use azul_css::{
-    props::property::{CssProperty, CssPropertyType},
+    props::{
+        layout::LayoutDisplay,
+        property::{CssProperty, CssPropertyType},
+    },
     system::SystemStyle,
-    AzString,
+    AzString, StringVec,
 };
 use azul_layout::{
     callbacks::{Callback, CallbackChange, CallbackInfo, ExternalSystemCallbacks},
@@ -46,7 +54,9 @@ use azul_layout::{
             RibbonFileMenuOnEventCallbackType, RibbonFileMenuPlace, RibbonFileMenuPlaceVec,
             PIN_CLASS,
         },
+        text_input::{TextInputOnTextInput, TextInputState, TextInputStateWrapper},
         themes::UiTheme,
+        token_input::{TokenInput, TokenInputEvent, TokenInputOnEventCallbackType},
     },
     window::LayoutWindow,
     window_state::FullWindowState,
@@ -323,5 +333,140 @@ fn an_unpinned_file_menu_pin_lights_under_the_pointer_after_the_apps_rebuild() {
         pin_opacity(&twin, 0, true),
         "under the pointer the unpinned pin lights like any other: the dim the click wrote must \
          not outrank its :hover"
+    );
+}
+
+// ---- the token input: its list of suggestions ----
+
+/// The classes the token input gives its entry and its list of suggestions
+/// (`widgets/token_input.rs`).
+const ENTRY_CLASS: &str = "__azul-native-token-input-entry";
+const LIST_CLASS: &str = "__azul-native-token-input-suggestions";
+
+/// Every event the app heard.
+type Heard = Arc<Mutex<Vec<TokenInputEvent>>>;
+
+/// The app's callback: it keeps the event's state and rebuilds - the field
+/// is its state.
+extern "C" fn keep_and_rebuild(mut data: RefAny, _info: CallbackInfo, event: TokenInputEvent) -> Update {
+    if let Some(heard) = data.downcast_ref::<Heard>() {
+        heard.lock().expect("heard").push(event);
+    }
+    Update::RefreshDom
+}
+
+/// The app's page: a "To" field holding one recipient, `text` typed, and the
+/// address book it suggests from.
+fn recipients(heard: &Heard, text: &str) -> StyledDom {
+    let field = TokenInput::create(
+        StringVec::from_vec(vec![AzString::from("bob@example.org")]),
+        AzString::from("To"),
+    )
+    .with_text(AzString::from(text))
+    .with_suggestions(StringVec::from_vec(vec![
+        AzString::from("Alan Turing <alan@example.org>"),
+        AzString::from("Albert Camus <albert@example.org>"),
+        AzString::from("Malcolm X <malcolm@example.org>"),
+    ]))
+    .with_on_event(RefAny::new(heard.clone()), keep_and_rebuild as TokenInputOnEventCallbackType)
+    .with_theme(UiTheme::Flat);
+    StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0;").with_child(field.dom()))
+}
+
+/// A key pressed in the field's entry: the key handler the entry registered,
+/// with the key down in the window's state.
+fn press(lw: &mut LayoutWindow, entry: NodeId, key: VirtualKeyCode) -> Update {
+    let (mut callback, mut data) =
+        handler(lw, entry, EventFilter::Focus(FocusEventFilter::VirtualKeyDown));
+    let mut ws = lw.current_window_state.clone();
+    ws.keyboard_state.current_virtual_keycode = Some(key).into();
+    ws.keyboard_state.pressed_virtual_keycodes = vec![key].into();
+    run(lw, entry, &mut callback, &mut data, &ws)
+}
+
+/// What the entry's edit handler hands its hook once the engine has taken a
+/// keystroke (`text_input::default_on_text_input`): the field's state, with
+/// the new text.
+struct Typed {
+    hook: TextInputOnTextInput,
+    state: TextInputState,
+}
+
+/// The edit handler's last step: the entry's hook hears the new text.
+extern "C" fn edit_handler(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((hook, state)) = data
+        .downcast_ref::<Typed>()
+        .map(|t| (t.hook.clone(), t.state.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    hook.callback.invoke(hook.refany.clone(), info, state).update
+}
+
+/// The user types on until the entry reads `text`: its hook hears it, as the
+/// entry's edit handler hands it on.
+fn type_until(lw: &mut LayoutWindow, entry: NodeId, text: &str) -> Update {
+    let mut data = styled(lw).node_data.as_container()[entry]
+        .get_dataset()
+        .cloned()
+        .expect("harness: the entry keeps its state");
+    let hook = {
+        let wrapper = data
+            .downcast_ref::<TextInputStateWrapper>()
+            .expect("harness: the entry is a text input");
+        wrapper
+            .on_text_input
+            .as_ref()
+            .cloned()
+            .expect("harness: the entry hands its text to the token input")
+    };
+    let state = TextInputState {
+        text: text.chars().map(|c| c as u32).collect::<Vec<_>>().into(),
+        ..TextInputState::default()
+    };
+    let mut callback = Callback::from_ptr(edit_handler);
+    let mut payload = RefAny::new(Typed { hook, state });
+    let ws = lw.current_window_state.clone();
+    run(lw, entry, &mut callback, &mut payload, &ws)
+}
+
+#[test]
+fn an_escaped_suggestion_list_comes_back_with_the_next_character() {
+    let heard: Heard = Arc::new(Mutex::new(Vec::new()));
+    let mut lw = window(recipients(&heard, "a"));
+    let entry = with_class(&lw, ENTRY_CLASS)[0];
+    let list = with_class(&lw, LIST_CLASS)[0];
+    let hidden = Some(CssProperty::const_display(LayoutDisplay::None));
+    assert_ne!(
+        resolved(&lw, list, CssPropertyType::Display, false),
+        hidden,
+        "harness: \"a\" shows suggestions"
+    );
+
+    // Escape: the list goes, and the app is not asked.
+    let _ = press(&mut lw, entry, VirtualKeyCode::Escape);
+    assert_eq!(
+        resolved(&lw, list, CssPropertyType::Display, false),
+        hidden,
+        "harness: Escape hides the list"
+    );
+    assert!(heard.lock().expect("heard").is_empty(), "harness: Escape tells the app nothing");
+
+    // The next character: the app hears the new text and rebuilds the field
+    // with it - and with the suggestions for it.
+    let update = type_until(&mut lw, entry, "al");
+    assert_eq!(update, Update::RefreshDom, "harness: the app rebuilds for the new text");
+    rebuild(&mut lw, recipients(&heard, "al"));
+
+    let twin = window(recipients(&heard, "al"));
+    let twin_list = with_class(&twin, LIST_CLASS);
+    assert_eq!(twin_list.len(), 1, "harness: \"al\" has suggestions");
+    let list = with_class(&lw, LIST_CLASS);
+    assert_eq!(list.len(), 1, "the rebuilt field has its list");
+    assert_eq!(
+        resolved(&lw, list[0], CssPropertyType::Display, false),
+        resolved(&twin, twin_list[0], CssPropertyType::Display, false),
+        "the field the app rebuilt for the next character shows its suggestions again: the list \
+         Escape hid must not stay hidden for good"
     );
 }
