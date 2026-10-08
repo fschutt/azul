@@ -6025,6 +6025,26 @@ pub fn resolve_font_chains_with_registry(
                 },
             )
         };
+        // With nothing installed, the resolver's last resort ranks every font
+        // the cache holds by style alone, the faces held in memory included -
+        // so an italic `sans-serif` came back as flora's bundled EB Garamond
+        // italic. A memory font is not an installed font: where the disk
+        // turned up memory fonts and nothing else for a family, the face
+        // registered for that family goes first. (A family the disk found
+        // nothing for keeps its face at the end, behind the installed fonts
+        // the stack names after it.)
+        for group in &mut chain.css_fallbacks {
+            let Some(own) = mem_fallbacks.iter().find(|g| g.css_name == group.css_name) else {
+                continue;
+            };
+            if !group.fonts.is_empty() && group.fonts.iter().all(|m| fc_cache.is_memory_font(&m.id)) {
+                let guessed = core::mem::take(&mut group.fonts);
+                group.fonts = own.fonts.clone();
+                group
+                    .fonts
+                    .extend(guessed.into_iter().filter(|m| own.fonts.iter().all(|o| o.id != m.id)));
+            }
+        }
         if !mem_groups.is_empty() {
             let mut merged = mem_groups;
             merged.append(&mut chain.css_fallbacks);
