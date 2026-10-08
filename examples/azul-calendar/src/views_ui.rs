@@ -299,7 +299,7 @@ fn month_cell(
                 .with_id(ids::month_more(day))
                 .with_css(
                     "font-size: 12px; color: system:accent; margin-top: 1px; cursor: pointer; \
-                     flex-shrink: 0;",
+                     flex-shrink: 0; @theme(flora) { color: system:link; }",
                 )
                 .with_tab_index(TabIndex::Auto)
                 .with_accessibility_name(format!("{} more on {}", more, day.format("%A %-d %B")))
