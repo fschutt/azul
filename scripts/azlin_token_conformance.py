@@ -77,9 +77,13 @@ def run(token_url, s3_url=None):
     suite.check('the location is an S3 bucket, path style',
                 location.get('kind') == 's3' and bool(bucket) and bool(endpoint) and bool(region)
                 and location.get('path_style') is True, '(%r)' % location)
-    suite.check('the credentials have keys and an expiry',
+    # Temporary credentials expire; a token server handing out long-lived keys says so
+    # (`location.auth.type` "keyring") and gives no expiry.
+    long_lived = ((location.get('auth') or {}).get('type') == 'keyring')
+    suite.check('the credentials have keys and an expiry (unless long-lived)',
                 bool(credentials.get('access_key_id')) and bool(credentials.get('secret_access_key'))
-                and 'expires_at' in credentials, '(keys: %s)' % sorted(credentials))
+                and ('expires_at' in credentials or long_lived),
+                '(keys: %s)' % sorted(credentials))
     first = TOKEN.match(token)
     suite.check('the drive token is dt_<family>.<generation>.<random>', first is not None)
 
