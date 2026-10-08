@@ -283,6 +283,8 @@ pub enum Tok {
     RParen,
     Const(Const),
     Post(Post),
+    /// `x`: the variable of a function the graph plots (`sin(x)·x²`).
+    Var,
 }
 
 impl Tok {
@@ -290,7 +292,10 @@ impl Tok {
     /// multiplies).
     #[must_use]
     pub fn ends_operand(&self) -> bool {
-        matches!(self, Tok::Num(_) | Tok::RParen | Tok::Const(_) | Tok::Post(_))
+        matches!(
+            self,
+            Tok::Num(_) | Tok::RParen | Tok::Const(_) | Tok::Post(_) | Tok::Var
+        )
     }
 
     /// Whether an operand can start with this token.
@@ -298,9 +303,16 @@ impl Tok {
     pub fn starts_operand(&self) -> bool {
         matches!(
             self,
-            Tok::Num(_) | Tok::LParen | Tok::Const(_) | Tok::Func(_) | Tok::Neg | Tok::Not
+            Tok::Num(_) | Tok::LParen | Tok::Const(_) | Tok::Func(_) | Tok::Neg | Tok::Not | Tok::Var
         )
     }
+}
+
+/// Whether the tokens are a function of `x` (the graph plots them; `=`
+/// cannot give them a value).
+#[must_use]
+pub fn contains_var(tokens: &[Tok]) -> bool {
+    tokens.iter().any(|t| *t == Tok::Var)
 }
 
 /// What the numbers are.
@@ -344,6 +356,8 @@ impl AngleUnit {
 pub enum Expr {
     Num(String),
     Const(Const),
+    /// `x`.
+    Var,
     Neg(Box<Expr>),
     Not(Box<Expr>),
     Bin(BinOp, Box<Expr>, Box<Expr>),
@@ -472,11 +486,19 @@ pub fn tokenize(text: &str, domain: Domain) -> Result<Vec<Tok>, CalcError> {
                 }
             }
             let lower = word.to_lowercase();
+            // `x` between two numbers is a times sign (`1,280 x 0.19`, `2x3`);
+            // anywhere else it is the graph's variable (`2x`, `sin(x)`).
+            let next_is_number = chars[i..]
+                .iter()
+                .find(|c| !c.is_whitespace())
+                .is_some_and(|c| c.is_ascii_digit() || *c == '.');
+            let times = matches!(out.last(), Some(Tok::Num(_))) && next_is_number;
             let tok = match lower.as_str() {
                 "pi" | "\u{3c0}" => Tok::Const(Const::Pi),
                 "e" => Tok::Const(Const::E),
                 "mod" => Tok::Op(BinOp::Mod),
-                "x" => Tok::Op(BinOp::Mul),
+                "x" if times => Tok::Op(BinOp::Mul),
+                "x" => Tok::Var,
                 _ => match Func::by_name(&lower) {
                     Some(f) => Tok::Func(f),
                     None => return Err(CalcError::Syntax(format!("unknown name \"{word}\""))),
@@ -636,6 +658,7 @@ impl Parser<'_> {
         match self.next() {
             Some(Tok::Num(text)) => Ok(Expr::Num(text)),
             Some(Tok::Const(c)) => Ok(Expr::Const(c)),
+            Some(Tok::Var) => Ok(Expr::Var),
             Some(Tok::LParen) => {
                 if matches!(self.peek(), Some(Tok::RParen)) {
                     return Err(syntax("Empty parentheses"));
@@ -678,6 +701,7 @@ fn tok_text(t: &Tok) -> String {
         Tok::RParen => ")".to_string(),
         Tok::Const(c) => c.symbol().to_string(),
         Tok::Post(p) => p.symbol().to_string(),
+        Tok::Var => "x".to_string(),
     }
 }
 
@@ -877,6 +901,7 @@ pub fn eval_dec(e: &Expr, angle: AngleUnit) -> Result<Num, CalcError> {
     match e {
         Expr::Num(text) => Num::parse(text),
         Expr::Const(c) => Ok(c.value()),
+        Expr::Var => Err(syntax("x is the graph's variable")),
         Expr::Neg(x) => Ok(eval_dec(x, angle)?.neg()),
         Expr::Not(_) => Err(syntax("NOT needs Programmer mode")),
         Expr::Bin(op, l, r) => {
@@ -995,7 +1020,7 @@ pub fn eval_int(e: &Expr, word: WordSize, base: Base) -> Result<i128, CalcError>
             Ok(acc)
         }
         Expr::Post(Post::Percent, _) => Err(syntax("% needs Standard or Scientific mode")),
-        Expr::Const(_) | Expr::Func(..) => {
+        Expr::Const(_) | Expr::Func(..) | Expr::Var => {
             Err(syntax("Functions need Standard or Scientific mode"))
         }
     }
@@ -1105,6 +1130,25 @@ mod tests {
         assert!(ev("pi").len() > 30);
         assert_eq!(ev("2x3"), "6");
         assert_eq!(ev("\u{3c0}"), ev("pi"));
+    }
+
+    #[test]
+    fn x_between_numbers_multiplies_and_is_the_variable_elsewhere() {
+        assert_eq!(ev("2x3"), "6");
+        assert_eq!(ev("1,280 x 0.19"), "243.2");
+        let t = tokenize("2x", Domain::Decimal).unwrap();
+        assert_eq!(t, vec![Tok::Num("2".into()), Tok::Var]);
+        let t = tokenize("sin(x)*x^2", Domain::Decimal).unwrap();
+        assert!(contains_var(&t));
+        assert_eq!(display(&t, true, false), "sin(x) \u{d7} x^2");
+        assert_eq!(parse(&t).unwrap(), Expr::Bin(
+            BinOp::Mul,
+            Box::new(Expr::Func(Func::Sin, Box::new(Expr::Var))),
+            Box::new(Expr::Bin(BinOp::Pow, Box::new(Expr::Var), Box::new(Expr::Num("2".into())))),
+        ));
+        assert_eq!(ev("x + 1"), "error: x is the graph's variable");
+        assert!(!contains_var(&tokenize("2 * 3", Domain::Decimal).unwrap()));
+        assert_eq!(int("3 x 4", WordSize::Qword, Base::Dec).unwrap(), 12, "programmer x is times");
     }
 
     #[test]

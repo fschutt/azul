@@ -1,25 +1,59 @@
 //! AzCalculator's window: azul's S9 `UtilityShell` with the app-drawn title
-//! row (`NoTitle` + `Titlebar`), the mode switch (Standard, Scientific,
-//! Programmer, Date, Convert), the display and keypad of each mode, the
-//! History / Memory panel beside the keypad when the window is wide enough
-//! (Ctrl+H shows it otherwise), and the shared settings page of azul-appkit.
+//! row (`NoTitle` + `Titlebar`), a View menu, and a calculator that changes
+//! its layout with the window:
 //!
-//! Keyboard: every key of the keypad has a key (calc::char_command and
-//! calc::named_command; the US key positions give the shifted characters),
-//! Enter evaluates, Escape clears, Backspace deletes, Ctrl/Cmd+C copies the
-//! result, Ctrl/Cmd+V pastes an expression, Alt+1..5 switch the mode,
-//! Ctrl+M / R / P / Q / L are MS / MR / M+ / M- / MC (as on Windows),
-//! F3 / F4 / F5 pick DEG / RAD / GRAD (Scientific), F5..F8 HEX / DEC / OCT
-//! / BIN (Programmer); Mod+, opens the settings (appkit).
+//! ```text
+//!   small (the default, < 640 px wide)   wider (>= 640)          large (>= 900 x 700)
+//!   +-------------+                      +---------+---------+   +------------------+------+
+//!   |     display |                      | display           |   | typeset  display | tape |
+//!   | MC MR M+ .. |                      +---------+---------+   | DEG RAD GRAD     |      |
+//!   | %  CE C  ⌫ |                      | HEX ... | MC MR   |   | 9 x 5 scientific |      |
+//!   | 7  8  9  × |                      | DEC ... | %  CE C |   +----------+-------+------+
+//!   | ...         |                      | bits    | 7 8 9 × |   | y₁ = ... |  plot       |
+//!   | ±  0  .  = |                      | AND OR  | ...     |   | y₂ = ... |  (graph)    |
+//!   +-------------+                      +---------+---------+   +----------+-------------+
+//!     Standard                             Programmer                Graphing
+//! ```
+//!
+//! The layout callback picks the view from the window's size (recorded
+//! size queries: a resize across a breakpoint rebuilds the window) unless
+//! the View menu pins one; the calculator's state - the entry, the memory,
+//! the word size, the graph's functions and viewport - lives in the app and
+//! survives every switch (between decimals and Programmer's integers the
+//! entry's numbers are rewritten, `Calculator::set_mode`). Panels that
+//! appear slide in (`-azul-animation-in`). Date and Convert are the View
+//! menu's other two screens.
+//!
+//! KEYBOARD. The characters a key TYPES come through the text input: the
+//! calculator's surface holds the focus (it takes it when it mounts, and
+//! back after a click on a key), so a keystroke's text is recorded against
+//! it and arrives at the window's `TextInput` handler as the character the
+//! user's layout produced - `*` is Shift+8 on a US keyboard but Shift++ on a
+//! German one, and the key code says neither. `Calculator::type_char` reads
+//! it: digits, `. ,`, `+ - * / ^ % ! ( ) =`, names letter by letter (`sqrt`,
+//! `sin`, `pi`, `x`; `and`, `xor`, `0x` in Programmer mode). The key-down
+//! handler keeps the keys that type nothing: Enter (=), Backspace, Escape
+//! (C), Delete (CE), F3-F9, the chords (Ctrl/Cmd+C copies, Ctrl/Cmd+V pastes
+//! through the engine's Paste event, Ctrl+M/R/P/Q/L the memory, Ctrl+H the
+//! history, Alt+0..5 the View menu). The window's body is focusable too, so
+//! a click anywhere keeps the keyboard in the window; only when NOTHING holds
+//! it (no text could be recorded) does a key type without its text, and then
+//! only a keypad key, whose character no layout changes. A focused
+//! calculator waits for the text, which Windows sends in a pass of its own
+//! after the key (`WM_CHAR`).
 //!
 //! The history lives in `calculator/history.jsonl` in the user's data
 //! folder, read when the window opens and written after every calculation,
 //! always on an azul Thread through azul-storage (appkit::ui::spawn_file_jobs).
 //!
-//! On stdout, for scripts/azcalculator_e2e.py: `AZCALC_SCREEN <name>`,
-//! `AZCALC_DISPLAY <expression line>\t<result line>` after every key,
-//! `AZCALC_COPIED <text>`, `AZCALC_PASTED <text>`, `AZCALC_HISTORY_LOADED <n>`,
-//! `AZCALC_HISTORY_SAVED <n>`, `AZCALC_CONVERT <line>`, `AZCALC_DATE <line>`.
+//! On stdout, for scripts/azcalculator_e2e.py: `AZCALC_MODE <micro |
+//! programmer | graph | date | convert>` when the view changes,
+//! `AZCALC_SCREEN <pin>` when the View menu changes, `AZCALC_DISPLAY
+//! <expression line>\t<result line>` after every key, `AZCALC_PLOT <n> | y1 =
+//! ...` when the graph's functions change, `AZCALC_GRAPH x .. y ..` when its
+//! viewport does, `AZCALC_COPIED <text>`, `AZCALC_PASTED <text>`,
+//! `AZCALC_HISTORY_LOADED <n>`, `AZCALC_HISTORY_SAVED <n>`, `AZCALC_CONVERT
+//! <line>`, `AZCALC_DATE <line>`.
 
 use std::path::PathBuf;
 
@@ -28,15 +62,17 @@ use azul::{
         ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
         SwitchOnToggleCallbackType, TabOnClickCallbackType, TextInputOnTextInputCallbackType,
     },
-    dom::{ClipboardContent, VirtualKeyCode},
+    css::DarkLightMode,
+    dom::{AccessibilityInfo, AccessibilityRole, ClipboardContent, DomId, FocusTarget, TabIndex, VirtualKeyCode},
     option::OptionString,
     prelude::*,
     shells::{ShellThemeAccent, ShellThemeScope, UtilityShell},
     str::String as AzString,
+    svg::{CssPath, CssPathSelector},
     vec::{StringVec, StyledTextRunVec},
     widgets::{
-        ButtonType, DropDown, OnTextInputReturn, Segmented, SegmentedState, Switch, SwitchState,
-        TabHeader, TabHeaderState, TextInputState, TextInputValid,
+        DropDown, OnTextInputReturn, Segmented, SegmentedState, Switch, SwitchState, TabHeader, TabHeaderState,
+        TextInputState, TextInputValid,
     },
 };
 use azul_appkit::{
@@ -48,24 +84,38 @@ use azul_appkit::{
     ui::{self as kit, AppSection},
 };
 
-use crate::calc::{char_command, named_command, CalcMode, Calculator, Cmd, NamedKey};
+use crate::calc::{named_command, CalcMode, Calculator, Cmd, NamedKey};
 use crate::datecalc::{self, Date};
-use crate::expr::{AngleUnit, BinOp, Const, Func, Post};
+use crate::expr::AngleUnit;
+use crate::graphview::{self, GraphState};
 use crate::history::{self, HistoryEntry};
 use crate::ids;
+use crate::keypad::{self, Action, KeyHooks, KeyRef};
+use crate::look::{self, Look};
+use crate::mathview::{self, M};
 use crate::num::Num;
 use crate::programmer::{self, Base, WordSize};
 use crate::units::{self, CATEGORIES};
 
 // ==== The app's facts ====
 
-/// The screens `--screen` opens.
-pub const SCREENS: [&str; 6] = ["standard", "scientific", "programmer", "date", "convert", "settings"];
+/// The screens `--screen` opens: the View menu's choices (`scientific` is
+/// the graphing view's old name), and the settings page.
+pub const SCREENS: [&str; 8] = [
+    "auto",
+    "standard",
+    "programmer",
+    "graphing",
+    "scientific",
+    "date",
+    "convert",
+    "settings",
+];
 
 pub const SPEC: AppSpec = AppSpec {
     name: "AzCalculator",
     binary: "AzCalculator",
-    summary: "a calculator: standard, scientific, programmer, dates, units",
+    summary: "a calculator that grows with its window: standard, programmer, graphing; dates, units",
     screens: &SCREENS,
     files_help: "",
 };
@@ -73,31 +123,34 @@ pub const SPEC: AppSpec = AppSpec {
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzCalculator",
     version: env!("CARGO_PKG_VERSION"),
-    summary: "Standard, scientific and programmer calculations with exact decimals, date \
-              calculations and a unit converter. Part of the Azlin apps, built with azul.",
+    summary: "Standard, programmer and graphing calculations with exact decimals - the window \
+              picks the calculator by its size - date calculations and a unit converter. Part of \
+              the Azlin apps, built with azul.",
     license: "MIT",
     app_folder: "calculator",
 };
 
 /// The keyboard shortcuts the settings page lists.
-pub const SHORTCUTS: [Shortcut; 17] = [
-    Shortcut::new("Calculator", "Enter", "Evaluate (=)"),
+pub const SHORTCUTS: [Shortcut; 19] = [
+    Shortcut::new("Calculator", "Enter", "Evaluate (=); a function of x goes to the graph"),
     Shortcut::new("Calculator", "Escape", "Clear (C)"),
     Shortcut::new("Calculator", "Delete", "Clear the entry (CE)"),
-    Shortcut::new("Calculator", "Backspace", "Delete the last digit"),
+    Shortcut::new("Calculator", "Backspace", "Delete the last digit or letter"),
     Shortcut::new("Calculator", "F9", "Change the sign (+/-)"),
     Shortcut::new("Calculator", "Mod+C", "Copy the result"),
     Shortcut::new("Calculator", "Mod+V", "Paste a number or an expression"),
-    Shortcut::new("Calculator", "@  q  r", "Square root, square, reciprocal"),
+    Shortcut::new("Typing", "+ - * / ^ % ! ( ) =", "Operators, as your keyboard types them"),
+    Shortcut::new("Typing", "sqrt sin cos tan ln log abs", "Functions: type the name"),
+    Shortcut::new("Typing", "pi  e  x", "Constants, and the graph's variable"),
+    Shortcut::new("Typing", "y =", "Start a function for the graph"),
     Shortcut::new("Memory", "Ctrl+M  Ctrl+R", "Memory store, recall"),
     Shortcut::new("Memory", "Ctrl+P  Ctrl+Q", "Memory add, subtract"),
     Shortcut::new("Memory", "Ctrl+L", "Memory clear"),
-    Shortcut::new("Modes", "Alt+1 .. Alt+5", "Standard, Scientific, Programmer, Date, Convert"),
-    Shortcut::new("Modes", "Ctrl+H", "Show or hide the history"),
-    Shortcut::new("Scientific", "s o t n l p", "sin, cos, tan, ln, log, pi"),
-    Shortcut::new("Scientific", "F3 F4 F5", "Degrees, radians, grads"),
-    Shortcut::new("Programmer", "& | ^ ~ < > %", "AND, OR, XOR, NOT, shifts, mod"),
-    Shortcut::new("Programmer", "F5 F6 F7 F8", "HEX, DEC, OCT, BIN"),
+    Shortcut::new("View", "Alt+0 .. Alt+5", "Automatic, Standard, Programmer, Graphing, Date, Convert"),
+    Shortcut::new("View", "Ctrl+H", "Show or hide the history"),
+    Shortcut::new("Graphing", "F3 F4 F5", "Degrees, radians, grads"),
+    Shortcut::new("Programmer", "& | ^ ~ < > %  and xor not", "AND, OR, XOR, NOT, shifts, mod"),
+    Shortcut::new("Programmer", "F5 F6 F7 F8  0x 0b 0o", "HEX, DEC, OCT, BIN"),
 ];
 
 /// The settings page's own category.
@@ -112,70 +165,164 @@ fn history_key() -> String {
 const TAG_LOAD: u64 = 1;
 const TAG_SAVE: u64 = 2;
 
-/// The window is wide enough for the History / Memory panel beside the keypad.
-const PANEL_MIN_WIDTH: f32 = 620.0;
+/// The window's default size: the small calculator.
+const DEFAULT_SIZE: (f32, f32) = (340.0, 560.0);
+/// The smallest window the small calculator still fits.
+const MIN_SIZE: (f32, f32) = (300.0, 460.0);
 
-// ==== State ====
+/// From this width on the window is the programmer calculator.
+pub const PROGRAMMER_MIN_WIDTH: f32 = 640.0;
+/// From this width AND [`GRAPH_MIN_HEIGHT`] on it is the graphing one.
+pub const GRAPH_MIN_WIDTH: f32 = 900.0;
+pub const GRAPH_MIN_HEIGHT: f32 = 700.0;
 
-/// The five screens of the mode switch.
+// ==== Views ====
+
+/// What the window shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Screen {
-    Standard,
-    Scientific,
+pub enum View {
+    /// The small standard calculator.
+    Micro,
     Programmer,
+    /// Scientific keys over the graph.
+    Graph,
     Date,
     Convert,
 }
 
-impl Screen {
-    pub const ALL: [Screen; 5] = [
-        Screen::Standard,
-        Screen::Scientific,
-        Screen::Programmer,
-        Screen::Date,
-        Screen::Convert,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Screen::Standard => "Standard",
-            Screen::Scientific => "Scientific",
-            Screen::Programmer => "Programmer",
-            Screen::Date => "Date",
-            Screen::Convert => "Convert",
-        }
-    }
-
+impl View {
+    /// The name on stdout (`AZCALC_MODE micro`).
+    #[must_use]
     pub fn key(self) -> &'static str {
         match self {
-            Screen::Standard => "standard",
-            Screen::Scientific => "scientific",
-            Screen::Programmer => "programmer",
-            Screen::Date => "date",
-            Screen::Convert => "convert",
+            View::Micro => "micro",
+            View::Programmer => "programmer",
+            View::Graph => "graph",
+            View::Date => "date",
+            View::Convert => "convert",
         }
     }
 
-    pub fn by_key(key: &str) -> Option<Screen> {
-        Screen::ALL.into_iter().find(|s| s.key() == key)
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            View::Micro => "Standard",
+            View::Programmer => "Programmer",
+            View::Graph => "Graphing",
+            View::Date => "Date",
+            View::Convert => "Convert",
+        }
     }
 
-    pub fn index(self) -> usize {
-        Screen::ALL.iter().position(|s| *s == self).unwrap_or(0)
-    }
-
-    /// The keypad mode a calculator screen uses.
+    /// The keypad mode of a calculator view.
+    #[must_use]
     pub fn calc_mode(self) -> Option<CalcMode> {
         match self {
-            Screen::Standard => Some(CalcMode::Standard),
-            Screen::Scientific => Some(CalcMode::Scientific),
-            Screen::Programmer => Some(CalcMode::Programmer),
-            Screen::Date | Screen::Convert => None,
+            View::Micro => Some(CalcMode::Standard),
+            View::Programmer => Some(CalcMode::Programmer),
+            View::Graph => Some(CalcMode::Scientific),
+            View::Date | View::Convert => None,
         }
     }
 }
 
-/// The panel beside the keypad.
+/// The view a window of `width` x `height` shows by itself.
+#[must_use]
+pub fn view_for_size(width: f32, height: f32) -> View {
+    if width >= GRAPH_MIN_WIDTH && height >= GRAPH_MIN_HEIGHT {
+        View::Graph
+    } else if width >= PROGRAMMER_MIN_WIDTH {
+        View::Programmer
+    } else {
+        View::Micro
+    }
+}
+
+/// [`view_for_size`] through the layout callback's RECORDED size queries:
+/// a resize that flips one of them rebuilds the window (all three are
+/// asked every time, so all three are recorded).
+fn view_of_window(info: &LayoutCallbackInfo) -> View {
+    let narrow = info.window_width_less_than(PROGRAMMER_MIN_WIDTH);
+    let below_graph = info.window_width_less_than(GRAPH_MIN_WIDTH);
+    let short = info.window_height_less_than(GRAPH_MIN_HEIGHT);
+    if !below_graph && !short {
+        View::Graph
+    } else if !narrow {
+        View::Programmer
+    } else {
+        View::Micro
+    }
+}
+
+/// The View menu: by the window's size, or one view pinned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pin {
+    Auto,
+    Standard,
+    Programmer,
+    Graphing,
+    Date,
+    Convert,
+}
+
+impl Pin {
+    pub const ALL: [Pin; 6] = [Pin::Auto, Pin::Standard, Pin::Programmer, Pin::Graphing, Pin::Date, Pin::Convert];
+
+    /// The name in the settings file and of `--screen`.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Pin::Auto => "auto",
+            Pin::Standard => "standard",
+            Pin::Programmer => "programmer",
+            Pin::Graphing => "graphing",
+            Pin::Date => "date",
+            Pin::Convert => "convert",
+        }
+    }
+
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Pin::Auto => "Automatic",
+            Pin::Standard => "Standard",
+            Pin::Programmer => "Programmer",
+            Pin::Graphing => "Graphing",
+            Pin::Date => "Date",
+            Pin::Convert => "Convert",
+        }
+    }
+
+    #[must_use]
+    pub fn by_key(key: &str) -> Option<Pin> {
+        if key == "scientific" {
+            return Some(Pin::Graphing);
+        }
+        Pin::ALL.into_iter().find(|p| p.key() == key)
+    }
+
+    #[must_use]
+    pub fn index(self) -> usize {
+        Pin::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
+
+    /// The pinned view (`None`: the window's size decides).
+    #[must_use]
+    pub fn view(self) -> Option<View> {
+        match self {
+            Pin::Auto => None,
+            Pin::Standard => Some(View::Micro),
+            Pin::Programmer => Some(View::Programmer),
+            Pin::Graphing => Some(View::Graph),
+            Pin::Date => Some(View::Date),
+            Pin::Convert => Some(View::Convert),
+        }
+    }
+}
+
+// ==== State ====
+
+/// The panel of the history tape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
     History,
@@ -221,12 +368,23 @@ pub struct DateState {
 pub struct CalcApp {
     pub kit: RefAny,
     pub calc: Calculator,
-    pub screen: Screen,
+    /// The View menu's choice.
+    pub pin: Pin,
+    /// The view the last layout built (`None` before the first).
+    pub view: Option<View>,
     pub panel: Panel,
-    /// Ctrl+H / the History button: `None` = by the window's width.
-    pub panel_shown: Option<bool>,
+    /// The small and the programmer views: the history over the keys
+    /// (Ctrl+H / the History button). The graphing view always shows it.
+    pub panel_shown: bool,
     pub convert: ConvertState,
     pub date: DateState,
+    pub graph: GraphState,
+    /// The graph's functions as last announced on stdout.
+    pub plots_seen: Vec<String>,
+    /// A character a key typed by its US position because nothing held the
+    /// keyboard: on Windows its text still follows (`WM_CHAR`, a pass after
+    /// the key), and must not type it twice.
+    pub fallback: Option<char>,
     /// The data root (from the kit).
     pub data_root: PathBuf,
     pub sample: bool,
@@ -279,13 +437,14 @@ impl CalcApp {
         let mut calc = Calculator::new();
         calc.grouping = grouping;
         calc.angle = angle_of(angle.as_deref());
-        let screen = args
+        let pin = args
             .screen
             .as_deref()
-            .and_then(Screen::by_key)
-            .or_else(|| last_screen.as_deref().and_then(Screen::by_key))
-            .unwrap_or(Screen::Standard);
-        if let Some(mode) = screen.calc_mode() {
+            .filter(|s| *s != "settings")
+            .and_then(Pin::by_key)
+            .or_else(|| last_screen.as_deref().and_then(Pin::by_key))
+            .unwrap_or(Pin::Auto);
+        if let Some(mode) = pin.view().and_then(View::calc_mode) {
             calc.set_mode(mode);
         }
         let length = &CATEGORIES[0];
@@ -305,9 +464,10 @@ impl CalcApp {
         CalcApp {
             kit: kit_ref,
             calc,
-            screen,
+            pin,
+            view: None,
             panel: Panel::History,
-            panel_shown: None,
+            panel_shown: false,
             convert,
             date: DateState {
                 kind: 0,
@@ -318,6 +478,9 @@ impl CalcApp {
                 days: "100".to_string(),
                 subtract: false,
             },
+            graph: GraphState::default(),
+            plots_seen: Vec::new(),
+            fallback: None,
             data_root,
             sample: args.sample,
             history_loaded: false,
@@ -335,6 +498,46 @@ impl CalcApp {
             self.calc.result_line()
         );
     }
+
+    /// Prints the graph's functions for scripts, when they changed.
+    pub(crate) fn announce_plots(&mut self) {
+        let texts: Vec<String> = self
+            .calc
+            .plots
+            .iter()
+            .enumerate()
+            .map(|(i, p)| format!("y{} = {}", i + 1, p.text))
+            .collect();
+        if texts == self.plots_seen {
+            return;
+        }
+        let list: String = texts.iter().map(|t| format!(" | {t}")).collect();
+        println!("AZCALC_PLOT {}{list}", texts.len());
+        self.plots_seen = texts;
+    }
+
+    /// The layout built `view`: the calculator follows it into its keypad
+    /// mode (the entry carried over), and scripts hear of it.
+    fn enter_view(&mut self, view: View) {
+        if self.view == Some(view) {
+            return;
+        }
+        if let Some(mode) = view.calc_mode() {
+            self.calc.set_mode(mode);
+        }
+        self.view = Some(view);
+        self.graph.drag = None;
+        println!("AZCALC_MODE {}", view.key());
+        self.announce_display();
+    }
+
+    /// The view callbacks act on: the last one built, else the window's.
+    fn current_view(&self, info: &CallbackInfo) -> View {
+        self.view.unwrap_or_else(|| {
+            let size = info.get_current_window_state().size.dimensions;
+            self.pin.view().unwrap_or_else(|| view_for_size(size.width, size.height))
+        })
+    }
 }
 
 /// The app's start: switches, the kit (settings, data root), the window.
@@ -351,329 +554,118 @@ pub fn start() {
         kit::open_settings(&kit_ref, None);
     }
     let app = CalcApp::new(kit_ref.clone(), &args);
-    println!("AZCALC_SCREEN {}", app.screen.key());
+    println!("AZCALC_SCREEN {}", app.pin.key());
     let config = kit::app_config(&kit_ref);
-    let window = kit::window_options(&kit_ref, layout, (680.0, 620.0), (320.0, 480.0), on_window_created);
+    let window = kit::window_options(&kit_ref, layout, DEFAULT_SIZE, MIN_SIZE, on_window_created);
     App::create(RefAny::new(app), config).run(window);
-}
-
-// ==== Keypads ====
-
-/// What a keypad key does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    Calc(Cmd),
-    /// 2nd: the function keys' second meanings.
-    Second,
-    /// F-E: scientific notation.
-    FlipFe,
-    /// An empty cell.
-    Blank,
-}
-
-/// One key of a keypad.
-#[derive(Clone, Copy, Debug)]
-pub struct KeyDef {
-    pub label: &'static str,
-    /// The DOM id (`key-7`, `key-plus`).
-    pub id: &'static str,
-    pub action: Action,
-    /// Drawn as the primary button (`=`, an active toggle).
-    pub primary: bool,
-}
-
-const fn key(label: &'static str, id: &'static str, cmd: Cmd) -> KeyDef {
-    KeyDef {
-        label,
-        id,
-        action: Action::Calc(cmd),
-        primary: false,
-    }
-}
-
-const BLANK: KeyDef = KeyDef {
-    label: "",
-    id: "",
-    action: Action::Blank,
-    primary: false,
-};
-
-const fn digit_key(label: &'static str, id: &'static str, d: u8) -> KeyDef {
-    key(label, id, Cmd::Digit(d))
-}
-
-const EQUALS: KeyDef = KeyDef {
-    label: "=",
-    id: "key-equals",
-    action: Action::Calc(Cmd::Equals),
-    primary: true,
-};
-
-/// Standard: 4 columns (the plan's 2.1).
-pub fn standard_keys() -> Vec<KeyDef> {
-    vec![
-        key("%", "key-percent", Cmd::Post(Post::Percent)),
-        key("CE", "key-ce", Cmd::ClearEntry),
-        key("C", "key-c", Cmd::Clear),
-        key("\u{232b}", "key-back", Cmd::Backspace),
-        key("1/x", "key-recip", Cmd::Func(Func::Recip)),
-        key("x\u{b2}", "key-square", Cmd::Post(Post::Square)),
-        key("\u{221a}x", "key-sqrt", Cmd::Func(Func::Sqrt)),
-        key("\u{f7}", "key-divide", Cmd::Op(BinOp::Div)),
-        digit_key("7", "key-7", 7),
-        digit_key("8", "key-8", 8),
-        digit_key("9", "key-9", 9),
-        key("\u{d7}", "key-multiply", Cmd::Op(BinOp::Mul)),
-        digit_key("4", "key-4", 4),
-        digit_key("5", "key-5", 5),
-        digit_key("6", "key-6", 6),
-        key("\u{2212}", "key-minus", Cmd::Op(BinOp::Sub)),
-        digit_key("1", "key-1", 1),
-        digit_key("2", "key-2", 2),
-        digit_key("3", "key-3", 3),
-        key("+", "key-plus", Cmd::Op(BinOp::Add)),
-        key("+/\u{2212}", "key-negate", Cmd::Negate),
-        digit_key("0", "key-0", 0),
-        key(".", "key-point", Cmd::Point),
-        EQUALS,
-    ]
-}
-
-/// The memory row of Standard and Scientific.
-pub fn memory_keys() -> Vec<KeyDef> {
-    vec![
-        key("MC", "key-mc", Cmd::MemClear),
-        key("MR", "key-mr", Cmd::MemRecall),
-        key("M+", "key-mplus", Cmd::MemAdd),
-        key("M\u{2212}", "key-mminus", Cmd::MemSub),
-        key("MS", "key-ms", Cmd::MemStore),
-    ]
-}
-
-/// Scientific: 9 columns, the functions left of the digits (the plan's 2.2);
-/// 2nd swaps x² / x³, √ / ∛, sin / cos / tan and their inverses, 10^x / e^x,
-/// log / log2.
-pub fn scientific_keys(second: bool, fe: bool) -> Vec<KeyDef> {
-    let pick = |a: KeyDef, b: KeyDef| if second { b } else { a };
-    vec![
-        KeyDef {
-            label: "2nd",
-            id: "key-second",
-            action: Action::Second,
-            primary: second,
-        },
-        key("\u{3c0}", "key-pi", Cmd::Const(Const::Pi)),
-        key("e", "key-e", Cmd::Const(Const::E)),
-        key("C", "key-c", Cmd::Clear),
-        key("\u{232b}", "key-back", Cmd::Backspace),
-        key("(", "key-lparen", Cmd::LParen),
-        key(")", "key-rparen", Cmd::RParen),
-        key("n!", "key-factorial", Cmd::Post(Post::Factorial)),
-        key("\u{f7}", "key-divide", Cmd::Op(BinOp::Div)),
-        // row 2
-        pick(
-            key("x\u{b2}", "key-square", Cmd::Post(Post::Square)),
-            key("x\u{b3}", "key-cube", Cmd::Post(Post::Cube)),
-        ),
-        key("x^y", "key-pow", Cmd::Op(BinOp::Pow)),
-        pick(key("sin", "key-sin", Cmd::Func(Func::Sin)), key("sin\u{207b}\u{b9}", "key-asin", Cmd::Func(Func::Asin))),
-        pick(key("cos", "key-cos", Cmd::Func(Func::Cos)), key("cos\u{207b}\u{b9}", "key-acos", Cmd::Func(Func::Acos))),
-        pick(key("tan", "key-tan", Cmd::Func(Func::Tan)), key("tan\u{207b}\u{b9}", "key-atan", Cmd::Func(Func::Atan))),
-        digit_key("7", "key-7", 7),
-        digit_key("8", "key-8", 8),
-        digit_key("9", "key-9", 9),
-        key("\u{d7}", "key-multiply", Cmd::Op(BinOp::Mul)),
-        // row 3
-        pick(
-            key("\u{221a}x", "key-sqrt", Cmd::Func(Func::Sqrt)),
-            key("\u{221b}x", "key-cbrt", Cmd::Func(Func::Cbrt)),
-        ),
-        pick(key("10^x", "key-pow10", Cmd::Func(Func::Pow10)), key("e^x", "key-exp", Cmd::Func(Func::Exp))),
-        pick(key("log", "key-log", Cmd::Func(Func::Log)), key("log\u{2082}", "key-log2", Cmd::Func(Func::Log2))),
-        key("ln", "key-ln", Cmd::Func(Func::Ln)),
-        key("Exp", "key-exponent", Cmd::Exp),
-        digit_key("4", "key-4", 4),
-        digit_key("5", "key-5", 5),
-        digit_key("6", "key-6", 6),
-        key("\u{2212}", "key-minus", Cmd::Op(BinOp::Sub)),
-        // row 4
-        key("|x|", "key-abs", Cmd::Func(Func::Abs)),
-        key("1/x", "key-recip", Cmd::Func(Func::Recip)),
-        key("mod", "key-mod", Cmd::Op(BinOp::Mod)),
-        KeyDef {
-            label: "F-E",
-            id: "key-fe",
-            action: Action::FlipFe,
-            primary: fe,
-        },
-        key("%", "key-percent", Cmd::Post(Post::Percent)),
-        digit_key("1", "key-1", 1),
-        digit_key("2", "key-2", 2),
-        digit_key("3", "key-3", 3),
-        key("+", "key-plus", Cmd::Op(BinOp::Add)),
-        // row 5
-        key("MC", "key-mc", Cmd::MemClear),
-        key("MR", "key-mr", Cmd::MemRecall),
-        key("M+", "key-mplus", Cmd::MemAdd),
-        key("MS", "key-ms", Cmd::MemStore),
-        key("CE", "key-ce", Cmd::ClearEntry),
-        key("+/\u{2212}", "key-negate", Cmd::Negate),
-        digit_key("0", "key-0", 0),
-        key(".", "key-point", Cmd::Point),
-        EQUALS,
-    ]
-}
-
-/// Programmer: 11 columns, the operators left of the hex and decimal digits
-/// (the plan's 2.3).
-pub fn programmer_keys() -> Vec<KeyDef> {
-    vec![
-        key("AND", "key-and", Cmd::Op(BinOp::And)),
-        key("OR", "key-or", Cmd::Op(BinOp::Or)),
-        key("XOR", "key-xor", Cmd::Op(BinOp::Xor)),
-        key("NOT", "key-not", Cmd::Not),
-        key("<<", "key-shl", Cmd::Op(BinOp::Shl)),
-        key(">>", "key-shr", Cmd::Op(BinOp::Shr)),
-        digit_key("A", "key-a", 10),
-        digit_key("B", "key-b", 11),
-        digit_key("7", "key-7", 7),
-        digit_key("8", "key-8", 8),
-        digit_key("9", "key-9", 9),
-        // row 2
-        key("ROL", "key-rol", Cmd::Op(BinOp::Rol)),
-        key("ROR", "key-ror", Cmd::Op(BinOp::Ror)),
-        key("mod", "key-mod", Cmd::Op(BinOp::Mod)),
-        key("(", "key-lparen", Cmd::LParen),
-        key(")", "key-rparen", Cmd::RParen),
-        key("\u{f7}", "key-divide", Cmd::Op(BinOp::Div)),
-        digit_key("C", "key-hex-c", 12),
-        digit_key("D", "key-d", 13),
-        digit_key("4", "key-4", 4),
-        digit_key("5", "key-5", 5),
-        digit_key("6", "key-6", 6),
-        // row 3
-        key("CE", "key-ce", Cmd::ClearEntry),
-        key("C", "key-c", Cmd::Clear),
-        key("\u{232b}", "key-back", Cmd::Backspace),
-        key("+/\u{2212}", "key-negate", Cmd::Negate),
-        key("\u{d7}", "key-multiply", Cmd::Op(BinOp::Mul)),
-        key("\u{2212}", "key-minus", Cmd::Op(BinOp::Sub)),
-        digit_key("E", "key-hex-e", 14),
-        digit_key("F", "key-f", 15),
-        digit_key("1", "key-1", 1),
-        digit_key("2", "key-2", 2),
-        digit_key("3", "key-3", 3),
-        // row 4
-        key("NAND", "key-nand", Cmd::Op(BinOp::Nand)),
-        key("NOR", "key-nor", Cmd::Op(BinOp::Nor)),
-        key("x\u{b2}", "key-square", Cmd::Post(Post::Square)),
-        key("x^y", "key-pow", Cmd::Op(BinOp::Pow)),
-        key("+", "key-plus", Cmd::Op(BinOp::Add)),
-        EQUALS,
-        BLANK,
-        BLANK,
-        BLANK,
-        digit_key("0", "key-0", 0),
-        BLANK,
-    ]
-}
-
-/// The data of a key's click: the app and what the key does.
-struct KeyRef {
-    app: RefAny,
-    action: Action,
-}
-
-fn grid(columns: usize, cells: Vec<Dom>, id: AzString) -> Dom {
-    // `minmax(0, 1fr)`, not `1fr` (= `minmax(auto, 1fr)`): a bare `1fr` column
-    // cannot shrink below its button's min-content, so the nine Scientific
-    // columns of padded buttons outgrew the 404px keypad and its last column
-    // sat over the history panel - a click on + or = recalled a history entry.
-    let template = vec!["minmax(0, 1fr)"; columns].join(" ");
-    Dom::create_div()
-        .with_id(id)
-        .with_css(format!(
-            "display: grid; grid-template-columns: {template}; gap: 4px; padding: 4px 8px 8px 8px;"
-        ))
-        .with_children(DomVec::from_vec(cells))
-}
-
-/// A keypad of `keys` in `columns` columns. A digit the base does not take
-/// is a disabled key: dimmed, inert, and it says why.
-fn keypad(app: &RefAny, keys: &[KeyDef], columns: usize, base: Option<Base>, id: AzString) -> Dom {
-    let cells: Vec<Dom> = keys
-        .iter()
-        .map(|k| {
-            if k.action == Action::Blank {
-                return Dom::create_div()
-                    .with_css("display: flex; align-items: center; justify-content: center; opacity: 0.35; font-size: 14px;")
-                    .with_child(Dom::create_span_with_text(k.label));
-            }
-            let accepted = match (k.action, base) {
-                (Action::Calc(Cmd::Digit(d)), Some(b)) => b.accepts(d),
-                _ => true,
-            };
-            let button = Button::create(k.label).with_on_click(
-                RefAny::new(KeyRef {
-                    app: app.clone(),
-                    action: k.action,
-                }),
-                on_key_button as ButtonOnClickCallbackType,
-            );
-            // Not a dimmed div: a disabled Button keeps the key's place and
-            // tells a screen reader (and a hover) why it does nothing.
-            let button = if accepted {
-                button
-            } else {
-                button.with_disabled(AzString::from("Not a digit of the current base"))
-            };
-            let button = if k.primary {
-                button.with_button_type(ButtonType::Primary)
-            } else {
-                button
-            };
-            button
-                .dom()
-                .with_id(ids::named(k.id))
-                .with_css("min-height: 34px; min-width: 0; padding-left: 2px; padding-right: 2px;")
-        })
-        .collect();
-    grid(columns, cells, id)
 }
 
 // ==== The display ====
 
-fn line(id: Option<AzString>, text: &str, css: &str) -> Dom {
-    let div = Dom::create_div()
-        .with_css(format!("text-align: right; {css}"))
-        .with_child(Dom::create_span_with_text(text));
-    match id {
-        Some(id) => div.with_id(id),
-        None => div,
+/// The result line's size: as big as the view allows, smaller for long numbers.
+fn result_px(text: &str, view: View) -> usize {
+    let base: usize = match view {
+        View::Programmer => 32,
+        View::Graph => 40,
+        _ => 38,
+    };
+    let n = text.chars().count().max(1);
+    if n <= 11 {
+        base
+    } else {
+        (base * 11 / n).max(14)
     }
 }
 
-fn display(s: &CalcApp) -> Dom {
-    let big = if s.screen == Screen::Programmer { 26 } else { 34 };
-    let mut expression = s.calc.expression_line();
-    let open = s.calc.open_parens();
-    if open > 0 && !s.calc.just_evaluated {
-        expression.push_str(&format!("   ({open} open)"));
+/// The last `max` characters of `text`, an ellipsis before them: a long
+/// expression shows where it is being typed (an overflowing line is cut at
+/// its END, right-aligned or not).
+fn tail(text: &str, max: usize) -> String {
+    let n = text.chars().count();
+    if n <= max || max < 2 {
+        return text.to_string();
     }
+    let kept: String = text.chars().skip(n - (max - 1)).collect();
+    format!("\u{2026}{kept}")
+}
+
+/// The expression typeset (the graphing view): the evaluated expression and
+/// `=` after it, `y =` before a function, the entry with its holes.
+fn typeset(c: &Calculator) -> Option<M> {
+    let y_equals = |m: M| M::Row(vec![M::Var("y".to_string()), M::Op("=".to_string()), m]);
+    if c.just_evaluated {
+        if c.shown_tokens.is_empty() {
+            return None;
+        }
+        let m = mathview::entry(&c.shown_tokens, "", c.grouping)?;
+        return Some(if c.plotted.is_some() {
+            y_equals(m)
+        } else {
+            M::Row(vec![m, M::Op("=".to_string())])
+        });
+    }
+    if c.tokens.is_empty() && c.letters.is_empty() && !c.defining {
+        return None;
+    }
+    let m = mathview::entry(&c.tokens, &c.letters, c.grouping)?;
+    Some(if c.defining { y_equals(m) } else { m })
+}
+
+fn display(s: &CalcApp, view: View) -> Dom {
+    let c = &s.calc;
+    let result = c.result_line();
     let mut column = Dom::create_div()
         .with_id(ids::DISPLAY)
-        .with_css("display: flex; flex-direction: column; padding: 8px 12px 4px 12px; flex-shrink: 0;")
-        .with_child(line(Some(ids::EXPRESSION), &expression, "font-size: 14px; opacity: 0.7; min-height: 20px;"))
-        .with_child(line(
-            Some(ids::RESULT),
-            &s.calc.result_line(),
-            &format!("font-size: {big}px; font-weight: 600; min-height: {}px;", big + 8),
+        .with_css(look::DISPLAY)
+        .with_accessibility_info(AccessibilityInfo::named(
+            format!("{} {}", c.expression_line(), result),
+            AccessibilityRole::StatusBar,
         ));
-    if !s.notice.is_empty() {
-        column.add_child(line(Some(ids::NOTICE), &s.notice, "font-size: 12px; opacity: 0.8;"));
+    if view == View::Graph {
+        let math = match typeset(c) {
+            Some(m) => mathview::to_dom(&m),
+            None => Dom::create_div(),
+        };
+        column.add_child(Dom::create_div().with_id(ids::MATH).with_css(look::MATH).with_child(math));
+    } else {
+        let mut expression = c.expression_line();
+        let open = c.open_parens();
+        if open > 0 && !c.just_evaluated {
+            expression.push_str(&format!("   ({open} open)"));
+        }
+        let fits = if view == View::Programmer { 64 } else { 40 };
+        column.add_child(
+            Dom::create_div_with_text(AzString::from(tail(&expression, fits)))
+                .with_id(ids::EXPRESSION)
+                .with_css(look::EXPR_LINE),
+        );
+    }
+    let px = result_px(&result, view);
+    column.add_child(
+        Dom::create_div_with_text(AzString::from(result))
+            .with_id(ids::RESULT)
+            .with_css(format!(
+                "{} font-size: {px}px; min-height: {}px; line-height: 1.2;",
+                look::RESULT_LINE,
+                px + 10
+            )),
+    );
+    let note = if s.notice.is_empty() {
+        c.hint.clone().unwrap_or_default()
+    } else {
+        s.notice.clone()
+    };
+    if !note.is_empty() {
+        column.add_child(
+            Dom::create_div_with_text(AzString::from(note))
+                .with_id(ids::NOTICE)
+                .with_css(look::NOTICE),
+        );
     }
     column
 }
+
+// ==== The programmer panel ====
 
 struct BaseRef {
     app: RefAny,
@@ -685,22 +677,47 @@ struct BitRef {
     bit: u32,
 }
 
-/// Programmer: the four bases (click one to type in it), the word size and the bit field.
+/// HEX / DEC / OCT / BIN (click one to type in it), the word size, the bits,
+/// the bitwise keys and the hex digits.
 fn programmer_panel(s: &CalcApp, app: &RefAny) -> Dom {
-    let mut rows = Dom::create_div().with_id(ids::BASES).with_css("display: flex; flex-direction: column; padding: 0px 12px;");
+    let words: Vec<&str> = WordSize::ALL.iter().map(|w| w.label()).collect();
+    let title = Dom::create_div()
+        .with_css(look::PANEL_TITLE)
+        .with_child(Dom::create_div_with_text("Programmer").with_css("flex-grow: 1;"))
+        .with_child(
+            DropDown::create(strs(&words))
+                .with_selected(s.calc.word.index())
+                .with_accessibility_name("Word size")
+                .with_on_choice_change(app.clone(), on_word as DropDownOnChoiceChangeCallbackType)
+                .dom()
+                .with_id(ids::WORD)
+                .with_css("text-transform: none; letter-spacing: 0px;"),
+        );
+    let mut rows = Dom::create_div()
+        .with_id(ids::BASES)
+        .with_css("display: flex; flex-direction: column; padding: 2px 0px 4px 0px; flex-shrink: 0;");
     for (base, text) in s.calc.programmer_lines() {
         let selected = base == s.calc.base;
         rows.add_child(
             Dom::create_div()
                 .with_id(ids::named(&format!("base-{}", base.label().to_lowercase())))
                 .with_css(format!(
-                    "display: flex; flex-direction: row; padding: 2px 4px; cursor: pointer; font-size: 13px; {}",
-                    if selected { "font-weight: 700;" } else { "opacity: 0.8;" }
+                    "{} {}",
+                    look::BASE_ROW,
+                    if selected { look::BASE_ROW_SELECTED } else { "" }
                 ))
-                .with_child(Dom::create_div().with_css("width: 48px;").with_child(Dom::create_span_with_text(base.label())))
-                .with_child(Dom::create_div().with_child(Dom::create_span_with_text(text)))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    format!("{} {}", base.label(), text),
+                    AccessibilityRole::PushButton,
+                ))
+                .with_tab_index(TabIndex::Auto)
+                .with_child(Dom::create_div_with_text(base.label()).with_css("width: 40px; flex-shrink: 0;"))
+                .with_child(
+                    Dom::create_div_with_text(AzString::from(text))
+                        .with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"),
+                )
                 .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(BaseRef {
                         app: app.clone(),
                         base,
@@ -709,23 +726,26 @@ fn programmer_panel(s: &CalcApp, app: &RefAny) -> Dom {
                 ),
         );
     }
-    let words: Vec<&str> = WordSize::ALL.iter().map(|w| w.label()).collect();
-    let word = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 12px;")
-        .with_child(Dom::create_div().with_css("flex-grow: 1;"))
-        .with_child(
-            DropDown::create(strs(&words))
-                .with_selected(s.calc.word.index())
-                .with_accessibility_name("Word size")
-                .with_on_choice_change(app.clone(), on_word as DropDownOnChoiceChangeCallbackType)
-                .dom()
-                .with_id(ids::WORD),
-        );
     Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-shrink: 0;")
-        .with_child(word)
+        .with_id(ids::PROGRAMMER)
+        .with_css(format!(
+            "{} {} flex-grow: 1; flex-basis: 0px; margin-right: 8px;",
+            look::PANEL,
+            look::ENTER_SIDE
+        ))
+        .with_child(title)
         .with_child(rows)
         .with_child(bit_field(s, app))
+        .with_child(keypad::grid(
+            app,
+            &keypad::programmer_keys(),
+            6,
+            Some(s.calc.base),
+            &[],
+            ids::PROGPAD,
+            "padding: 6px 8px 8px 8px; flex-grow: 1; min-height: 100px;",
+            &hooks(),
+        ))
 }
 
 /// 64 bits in four rows of 16 (63..48 at the top), groups of four; bits
@@ -738,31 +758,28 @@ fn bit_field(s: &CalcApp, app: &RefAny) -> Dom {
     let word = s.calc.word;
     let mut field = Dom::create_div()
         .with_id(ids::BITS)
-        .with_css("display: flex; flex-direction: column; padding: 4px 12px; font-size: 12px;");
+        .with_css("display: flex; flex-direction: column; padding: 2px 10px 4px 10px; flex-shrink: 0;");
     for row in 0..4u32 {
         let top = 63 - row * 16;
         let mut line = Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center;")
-            .with_child(
-                Dom::create_div()
-                    .with_css("width: 24px; opacity: 0.6;")
-                    .with_child(Dom::create_span_with_text(top.to_string())),
-            );
+            .with_css("display: flex; flex-direction: row; align-items: center; height: 17px;")
+            .with_child(Dom::create_div_with_text(AzString::from(top.to_string())).with_css(look::BIT_LABEL));
         for i in 0..16u32 {
             let bit = top - i;
             let set = programmer::bit(value, bit, word);
             let inside = bit < word.bits();
-            let mut cell = Dom::create_div()
+            let mut cell = Dom::create_div_with_text(if set { "1" } else { "0" })
                 .with_id(ids::named(&format!("bit-{bit}")))
                 .with_css(format!(
-                    "width: 14px; text-align: center; {}{}",
-                    if inside { "cursor: pointer;" } else { "opacity: 0.3;" },
-                    if i % 4 == 3 { " margin-right: 8px;" } else { "" }
-                ))
-                .with_child(Dom::create_span_with_text(if set { "1" } else { "0" }));
+                    "{} {} {} {}",
+                    look::BIT,
+                    if set { look::BIT_ON } else { "" },
+                    if inside { "" } else { look::BIT_OUT },
+                    if i % 4 == 3 && i < 15 { "margin-right: 7px;" } else { "" }
+                ));
             if inside {
                 cell = cell.with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(BitRef { app: app.clone(), bit }),
                     on_bit,
                 );
@@ -774,11 +791,11 @@ fn bit_field(s: &CalcApp, app: &RefAny) -> Dom {
     field
 }
 
-/// Scientific: the angle unit beside the display.
+/// Graphing: the angle unit over the scientific keys.
 fn angle_row(s: &CalcApp, app: &RefAny) -> Dom {
     let labels: Vec<&str> = AngleUnit::ALL.iter().map(|a| a.label()).collect();
     Dom::create_div()
-        .with_css("display: flex; flex-direction: row; padding: 0px 8px 4px 8px;")
+        .with_css("display: flex; flex-direction: row; align-items: center; padding: 0px 0px 6px 0px; flex-shrink: 0;")
         .with_child(
             Segmented::create(strs(&labels))
                 .with_selected_index(s.calc.angle.index())
@@ -788,38 +805,33 @@ fn angle_row(s: &CalcApp, app: &RefAny) -> Dom {
         )
 }
 
-// ==== History and memory ====
+// ==== The history tape and the memory ====
 
 struct HistoryRef {
     app: RefAny,
     index: usize,
 }
 
-/// A calculation in the history panel, over its result.
-const PANEL_EXPR_CSS: &str = "font-size: 12px; opacity: 0.7; overflow-wrap: anywhere;";
-/// A result in the history / memory panel.
-const PANEL_RESULT_CSS: &str = "font-size: 18px; font-weight: 600; overflow-wrap: anywhere;";
-
 fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
         .with_id(ids::HISTORY)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; padding: 4px 8px;");
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
     if s.calc.history.is_empty() {
-        list.add_child(
-            Dom::create_div()
-                .with_css("padding: 12px; opacity: 0.7; font-size: 13px;")
-                .with_child(Dom::create_span_with_text("There's no history yet.")),
-        );
+        list.add_child(Dom::create_div_with_text("There's no history yet.").with_css(look::EMPTY_NOTE));
     }
     for (index, e) in s.calc.history.iter().enumerate().rev() {
         list.add_child(
             Dom::create_div()
                 .with_class(ids::HISTORY_ENTRY)
-                .with_css("display: flex; flex-direction: column; padding: 6px 8px; cursor: pointer;")
-                .with_child(line(None, &format!("{} =", e.expr), PANEL_EXPR_CSS))
-                .with_child(line(None, &e.result, PANEL_RESULT_CSS))
+                .with_css(look::TAPE_ENTRY)
+                .with_accessibility_info(AccessibilityInfo::named(
+                    format!("{} = {}", e.expr, e.result),
+                    AccessibilityRole::ListItem,
+                ))
+                .with_child(Dom::create_div_with_text(AzString::from(format!("{} =", e.expr))).with_css(look::TAPE_EXPR))
+                .with_child(Dom::create_div_with_text(AzString::from(e.result.as_str())).with_css(look::TAPE_RESULT))
                 .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(HistoryRef { app: app.clone(), index }),
                     on_history_entry,
                 ),
@@ -831,7 +843,7 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
     if !s.calc.history.is_empty() {
         column.add_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; justify-content: flex-end; padding: 6px 8px;")
+                .with_css("display: flex; flex-direction: row; justify-content: flex-end; padding: 6px 8px; flex-shrink: 0;")
                 .with_child(
                     Button::create("Clear history")
                         .with_icon("delete")
@@ -847,13 +859,9 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
 fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
     let mut list = Dom::create_div()
         .with_id(ids::MEMORY)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; padding: 4px 8px;");
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
     if s.calc.memory.items.is_empty() {
-        list.add_child(
-            Dom::create_div()
-                .with_css("padding: 12px; opacity: 0.7; font-size: 13px;")
-                .with_child(Dom::create_span_with_text("There's nothing saved in memory.")),
-        );
+        list.add_child(Dom::create_div_with_text("There's nothing saved in memory.").with_css(look::EMPTY_NOTE));
     }
     for (index, item) in s.calc.memory.items.iter().enumerate() {
         let shown = Num::parse(item)
@@ -862,10 +870,10 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
         list.add_child(
             Dom::create_div()
                 .with_class(ids::MEMORY_ENTRY)
-                .with_css("padding: 6px 8px; cursor: pointer;")
-                .with_child(line(None, &shown, PANEL_RESULT_CSS))
+                .with_css(look::TAPE_ENTRY)
+                .with_child(Dom::create_div_with_text(AzString::from(shown)).with_css(look::TAPE_RESULT))
                 .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
+                    EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(HistoryRef { app: app.clone(), index }),
                     on_memory_entry,
                 ),
@@ -874,7 +882,8 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
     list
 }
 
-fn side_panel(s: &CalcApp, app: &RefAny) -> Dom {
+/// The history tape (and the memory, its second tab).
+fn side_panel(s: &CalcApp, app: &RefAny, css: &str) -> Dom {
     let active = match s.panel {
         Panel::History => 0,
         Panel::Memory => 1,
@@ -886,7 +895,7 @@ fn side_panel(s: &CalcApp, app: &RefAny) -> Dom {
     Dom::create_aside()
         .with_id(ids::PANEL)
         .with_accessibility_name("History and memory")
-        .with_css("display: flex; flex-direction: column; width: 260px; flex-shrink: 0; min-height: 0px;")
+        .with_css(format!("{} {css}", look::PANEL))
         .with_child(
             TabHeader::create(strs(&["History", "Memory"]))
                 .with_active_tab(active)
@@ -897,39 +906,131 @@ fn side_panel(s: &CalcApp, app: &RefAny) -> Dom {
         .with_child(body)
 }
 
-// ==== The screens ====
+// ==== The calculator views ====
 
-fn calculator_view(s: &CalcApp, app: &RefAny, wide: bool) -> Dom {
-    let panel_visible = s.panel_shown.unwrap_or(wide);
-    if panel_visible && !wide {
-        // A narrow window: the panel takes the keypad's place.
-        return side_panel(s, app);
+/// The callbacks every key carries.
+fn hooks() -> KeyHooks {
+    KeyHooks {
+        click: on_key_click,
+        paste: on_paste,
+        copy: on_copy,
     }
-    let mut column = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
-        .with_child(display(s));
-    match s.screen {
-        Screen::Standard => {
-            column.add_child(keypad(app, &memory_keys(), 5, None, ids::MEMORY_ROW));
-            column.add_child(keypad(app, &standard_keys(), 4, None, ids::KEYPAD));
-        }
-        Screen::Scientific => {
-            column.add_child(angle_row(s, app));
-            column.add_child(keypad(app, &scientific_keys(s.calc.second, s.calc.fe), 9, None, ids::KEYPAD));
-        }
-        _ => {
-            column.add_child(programmer_panel(s, app));
-            column.add_child(keypad(app, &programmer_keys(), 11, Some(s.calc.base), ids::KEYPAD));
-        }
-    }
-    let mut row = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;")
-        .with_child(column);
-    if panel_visible {
-        row.add_child(side_panel(s, app));
-    }
-    row
 }
+
+/// The calculator's surface: it holds the keyboard focus, so a keystroke's
+/// TEXT arrives (recorded against the focused node, heard by the window's
+/// `TextInput` handler).
+fn surface(app: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_id(ids::CALC)
+        .with_css(look::SURFACE)
+        .with_tab_index(TabIndex::NoKeyboardFocus)
+        .with_accessibility_info(AccessibilityInfo::named("Calculator", AccessibilityRole::Grouping))
+        .with_callback(EventFilter::Component(ComponentEventFilter::AfterMount), app.clone(), on_surface_mounted)
+        .with_callback(EventFilter::Focus(FocusEventFilter::Paste), app.clone(), on_paste)
+        .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app.clone(), on_copy)
+}
+
+/// The memory row over the standard keys (`programmer`: its variant, the
+/// digits the base does not take dimmed).
+fn standard_pad(s: &CalcApp, app: &RefAny, programmer: bool) -> Dom {
+    let base = programmer.then_some(s.calc.base);
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; min-height: 0px; min-width: 0px;")
+        .with_child(keypad::grid(
+            app,
+            &keypad::memory_keys(),
+            5,
+            None,
+            &[],
+            ids::MEMORY_ROW,
+            "height: 28px; flex-shrink: 0; margin-bottom: 5px;",
+            &hooks(),
+        ))
+        .with_child(keypad::grid(
+            app,
+            &keypad::standard_keys(programmer),
+            4,
+            base,
+            &[],
+            ids::KEYPAD,
+            "flex-grow: 1;",
+            &hooks(),
+        ))
+}
+
+/// The small window: the display over the standard keys (or the history,
+/// Ctrl+H).
+fn micro_view(s: &CalcApp, app: &RefAny) -> Dom {
+    let below = if s.panel_shown {
+        side_panel(s, app, &format!("flex-grow: 1; {}", look::ENTER_FADE))
+    } else {
+        standard_pad(s, app, false)
+    };
+    surface(app).with_child(display(s, View::Micro)).with_child(below)
+}
+
+/// Wider: the programmer panel beside the standard keys.
+fn programmer_view(s: &CalcApp, app: &RefAny) -> Dom {
+    let right = if s.panel_shown {
+        side_panel(s, app, &format!("flex-grow: 1; flex-basis: 0px; {}", look::ENTER_FADE))
+    } else {
+        standard_pad(s, app, true)
+    };
+    surface(app).with_child(display(s, View::Programmer)).with_child(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; flex-grow: 1; min-height: 0px;")
+            .with_child(programmer_panel(s, app))
+            .with_child(right),
+    )
+}
+
+/// Large: the scientific keys and the history tape over the graph.
+fn graphing_view(s: &CalcApp, app: &RefAny, look: Look) -> Dom {
+    let mut on: Vec<&str> = Vec::new();
+    if s.calc.second {
+        on.push("key-second");
+    }
+    if s.calc.fe {
+        on.push("key-fe");
+    }
+    let keys = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; margin-right: 8px;")
+        .with_child(display(s, View::Graph))
+        .with_child(angle_row(s, app))
+        .with_child(keypad::grid(
+            app,
+            &keypad::scientific_keys(s.calc.second),
+            9,
+            None,
+            &on,
+            ids::KEYPAD,
+            "height: 216px; flex-shrink: 0;",
+            &hooks(),
+        ));
+    surface(app)
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-shrink: 0;")
+                .with_child(keys)
+                .with_child(side_panel(
+                    s,
+                    app,
+                    &format!("width: 290px; flex-shrink: 0; {}", look::ENTER_SIDE),
+                )),
+        )
+        .with_child(graphview::panel(s, app, look))
+}
+
+fn calculator(s: &CalcApp, app: &RefAny, view: View, look: Look) -> Dom {
+    match view {
+        View::Programmer => programmer_view(s, app),
+        View::Graph => graphing_view(s, app, look),
+        _ => micro_view(s, app),
+    }
+}
+
+// ==== Date and Convert ====
 
 /// The fields of the date and converter screens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1147,33 +1248,37 @@ fn strs(items: &[&str]) -> StringVec {
     StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
 }
 
-/// The mode switch and the History / Settings buttons.
-fn modes_row(s: &CalcApp, app: &RefAny) -> Dom {
-    let labels: Vec<&str> = Screen::ALL.iter().map(|m| m.label()).collect();
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 8px;")
+/// An icon-only command of the mode row, named for a screen reader.
+fn icon_button(app: &RefAny, icon: &str, name: &str, id: AzString, cb: ButtonOnClickCallbackType) -> Dom {
+    Button::create("")
+        .with_icon(icon)
+        .with_on_click(app.clone(), cb)
+        .dom()
+        .with_id(id)
+        .with_accessibility_assign(AccessibilityInfo::named(name, AccessibilityRole::PushButton))
+}
+
+/// The View menu, the name of the view the size picked, History, Settings.
+fn modes_row(s: &CalcApp, app: &RefAny, view: View) -> Dom {
+    let labels: Vec<&str> = Pin::ALL.iter().map(|p| p.label()).collect();
+    let mut row = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 8px; min-width: 0px;")
         .with_child(
-            Segmented::create(strs(&labels))
-                .with_selected_index(s.screen.index())
-                .with_on_change(app.clone(), on_screen as SegmentedOnChangeCallbackType)
+            DropDown::create(strs(&labels))
+                .with_selected(s.pin.index())
+                .with_accessibility_name("View")
+                .with_on_choice_change(app.clone(), on_view_pick as DropDownOnChoiceChangeCallbackType)
                 .dom()
-                .with_id(ids::MODES),
-        )
-        .with_child(Dom::create_div().with_css("flex-grow: 1;"))
-        .with_child(
-            Button::create("History")
-                .with_icon("history")
-                .with_on_click(app.clone(), on_toggle_panel as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::TOGGLE_PANEL),
-        )
-        .with_child(
-            Button::create("Settings")
-                .with_icon("settings")
-                .with_on_click(app.clone(), on_open_settings as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::SETTINGS),
-        )
+                .with_id(ids::VIEW),
+        );
+    if s.pin == Pin::Auto {
+        row.add_child(Dom::create_div_with_text(view.label()).with_css(look::VIEW_BADGE));
+    }
+    row.add_child(Dom::create_div().with_css("flex-grow: 1;"));
+    if matches!(view, View::Micro | View::Programmer) {
+        row.add_child(icon_button(app, "history", "History", ids::TOGGLE_PANEL, on_toggle_panel));
+    }
+    row.with_child(icon_button(app, "settings", "Settings", ids::SETTINGS, on_open_settings))
 }
 
 /// The calculator's own settings sections.
@@ -1235,41 +1340,53 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
     ]
 }
 
-/// The window: the shell, the theme scope, the window-level key, copy and paste handlers.
+/// The window: the shell, the theme scope, the window-level key, text,
+/// copy and paste handlers. The view comes from the window's size (or the
+/// View menu); the calculator follows it into its keypad mode here.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
-    let _mode = info.get_mode();
-    let wide = info.window_width_greater_than(PANEL_MIN_WIDTH);
+    let dark = matches!(info.get_mode(), DarkLightMode::Dark);
+    let flora = info.get_theme().as_str().starts_with("flora");
+    let look = Look { flora, dark };
+    let by_size = view_of_window(&info);
     let app = data.clone();
-    let Some(guard) = data.downcast_ref::<CalcApp>() else {
+    let Some(mut guard) = data.downcast_mut::<CalcApp>() else {
         return Dom::create_body();
     };
-    let s = &*guard;
+    let s = &mut *guard;
+    let view = s.pin.view().unwrap_or(by_size);
+    s.enter_view(view);
     let settings = kit::settings_open(&s.kit);
     let content = if settings {
         kit::settings_page_with_reload(&s.kit, settings_sections(s, &app), &app, reload_settings)
     } else {
-        match s.screen {
-            Screen::Date => date_view(s, &app),
-            Screen::Convert => convert_view(s, &app),
-            _ => calculator_view(s, &app, wide),
+        match view {
+            View::Date => date_view(s, &app),
+            View::Convert => convert_view(s, &app),
+            _ => calculator(s, &app, view, look),
         }
     };
     let mut shell = UtilityShell::create(content)
         .with_title_row(kit::title_row(SPEC.name))
         .with_label(SPEC.name)
-        .with_min_size(320.0, 480.0);
+        .with_min_size(MIN_SIZE.0, MIN_SIZE.1);
     if !settings {
-        shell = shell.with_modes(modes_row(s, &app));
+        shell = shell.with_modes(modes_row(s, &app, view));
     }
     let column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(shell.dom());
     // The scope as the window's body: no UA margin, the full window height.
+    // Focusable (not a Tab stop): a click on the title row or the mode row's
+    // background focuses at least the body, so the keyboard's TEXT is always
+    // recorded somewhere the window's handler hears it.
     ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Slate)
         .body()
+        .with_tab_index(TabIndex::NoKeyboardFocus)
+        .with_component_css(Css::from_string(look::KEYFRAMES))
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app.clone(), on_key)
+        .with_callback(EventFilter::Window(WindowEventFilter::TextInput), app.clone(), on_text)
         .with_callback(EventFilter::Focus(FocusEventFilter::Paste), app.clone(), on_paste)
         .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app, on_copy)
 }
@@ -1277,7 +1394,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 // ==== Callbacks ====
 
 /// Runs `f` on the app's state; the window is rebuilt afterwards.
-fn with_app(
+pub(crate) fn with_app(
     app: &mut RefAny,
     info: &mut CallbackInfo,
     f: impl FnOnce(&mut CalcApp, &mut CallbackInfo, &RefAny),
@@ -1342,9 +1459,11 @@ fn save_history(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
     );
 }
 
-/// After a key: the display lines for scripts, the history to disk.
+/// After a key: the display lines and the graph's functions for scripts,
+/// the history to disk.
 fn after_calc(s: &mut CalcApp, info: &mut CallbackInfo, app: &RefAny) {
     s.announce_display();
+    s.announce_plots();
     save_history(s, info, app);
 }
 
@@ -1358,17 +1477,15 @@ fn run_action(s: &mut CalcApp, action: Action) {
     }
 }
 
-fn set_screen(s: &mut CalcApp, info: &mut CallbackInfo, screen: Screen) {
-    if s.screen == screen {
+/// The View menu's choice (the next layout builds the view).
+fn set_pin(s: &mut CalcApp, info: &mut CallbackInfo, pin: Pin) {
+    if s.pin == pin {
         return;
     }
     remember_conversion(s);
-    s.screen = screen;
-    if let Some(mode) = screen.calc_mode() {
-        s.calc.set_mode(mode);
-    }
-    println!("AZCALC_SCREEN {}", screen.key());
-    kit::set_value(&s.kit, info, "screen", screen.key());
+    s.pin = pin;
+    println!("AZCALC_SCREEN {}", pin.key());
+    kit::set_value(&s.kit, info, "screen", pin.key());
 }
 
 fn copy_result(s: &CalcApp, info: &mut CallbackInfo) {
@@ -1379,6 +1496,27 @@ fn copy_result(s: &CalcApp, info: &mut CallbackInfo) {
         html: OptionString::None,
     });
     println!("AZCALC_COPIED {text}");
+}
+
+/// The keys go to the calculator's surface again (after a click on a key,
+/// or when a rebuild took the focused node away).
+fn focus_surface(info: &mut CallbackInfo) {
+    info.set_focus_to_path(
+        DomId { inner: 0 },
+        CssPath {
+            selectors: vec![CssPathSelector::Id(ids::CALC)].into(),
+        },
+    );
+}
+
+/// The surface mounted (the window opened, the settings page closed, Date
+/// gave way): it takes the keyboard when nothing else has it.
+extern "C" fn on_surface_mounted(_data: RefAny, mut info: CallbackInfo) -> Update {
+    if info.get_focused_node().into_option().is_none() {
+        let node = info.get_hit_node();
+        info.set_focus(FocusTarget::Id(node));
+    }
+    Update::DoNothing
 }
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1396,6 +1534,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         on_files_done,
     );
     s.announce_display();
+    // The focus a create callback asks for waits for the first layout.
+    focus_surface(&mut info);
     Update::DoNothing
 }
 
@@ -1455,10 +1595,21 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
     })
 }
 
-extern "C" fn on_key_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// A key of a keypad, clicked (or activated with Space on a key tabbed to).
+extern "C" fn on_key_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, action)) = data.downcast_ref::<KeyRef>().map(|k| (k.app.clone(), k.action)) else {
         return Update::DoNothing;
     };
+    // A pointer click hands the keyboard back to the surface (a key the
+    // user tabbed to keeps it).
+    let by_keyboard = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option()
+        .is_some();
+    if !by_keyboard {
+        focus_surface(&mut info);
+    }
     with_app(&mut app, &mut info, |s, info, handle| {
         run_action(s, action);
         after_calc(s, info, handle);
@@ -1505,6 +1656,7 @@ extern "C" fn on_history_entry(mut data: RefAny, mut info: CallbackInfo) -> Upda
     let Some((mut app, index)) = data.downcast_ref::<HistoryRef>().map(|h| (h.app.clone(), h.index)) else {
         return Update::DoNothing;
     };
+    focus_surface(&mut info);
     with_app(&mut app, &mut info, |s, _info, _| {
         let before = s.calc.clone();
         s.calc.use_history(index);
@@ -1519,6 +1671,7 @@ extern "C" fn on_memory_entry(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some((mut app, index)) = data.downcast_ref::<HistoryRef>().map(|h| (h.app.clone(), h.index)) else {
         return Update::DoNothing;
     };
+    focus_surface(&mut info);
     with_app(&mut app, &mut info, |s, _info, _| {
         if index < s.calc.memory.items.len() {
             let item = s.calc.memory.items.remove(index);
@@ -1543,10 +1696,8 @@ extern "C" fn on_panel_tab(mut data: RefAny, mut info: CallbackInfo, state: TabH
 }
 
 extern "C" fn on_toggle_panel(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let wide = info.get_current_window_state().size.dimensions.width > PANEL_MIN_WIDTH;
     with_app(&mut data, &mut info, |s, _info, _| {
-        let shown = s.panel_shown.unwrap_or(wide);
-        s.panel_shown = Some(!shown);
+        s.panel_shown = !s.panel_shown;
     })
 }
 
@@ -1554,9 +1705,9 @@ extern "C" fn on_open_settings(mut data: RefAny, mut info: CallbackInfo) -> Upda
     with_app(&mut data, &mut info, |s, _info, _| kit::open_settings(&s.kit, None))
 }
 
-extern "C" fn on_screen(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+extern "C" fn on_view_pick(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     with_app(&mut data, &mut info, |s, info, _| {
-        set_screen(s, info, Screen::ALL[state.selected_index.min(Screen::ALL.len() - 1)]);
+        set_pin(s, info, Pin::ALL[index.min(Pin::ALL.len() - 1)]);
     })
 }
 
@@ -1725,15 +1876,14 @@ extern "C" fn on_convert_swap(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 // ==== Keyboard, copy and paste ====
 
-/// The character a key gives on a US layout (the key positions every shell
-/// reports), shifted or not.
-fn key_char(vk: VirtualKeyCode, shift: bool) -> Option<char> {
+/// The character a KEYPAD key stands for, whatever the layout: the one
+/// fallback for a key no text could be recorded for (nothing held the
+/// keyboard). Every other key's character depends on the layout - `*` is
+/// Shift+8 only on a US keyboard, Shift++ on a German one, and a digit is
+/// shifted on a French one - so only its text says it ([`on_text`]); a
+/// guess from the key's position typed `*` for a German `(`.
+fn keypad_char(vk: VirtualKeyCode) -> Option<char> {
     use VirtualKeyCode as K;
-    let digits = [K::Key0, K::Key1, K::Key2, K::Key3, K::Key4, K::Key5, K::Key6, K::Key7, K::Key8, K::Key9];
-    if let Some(d) = digits.iter().position(|k| *k == vk) {
-        let shifted = [')', '!', '@', '#', '$', '%', '^', '&', '*', '('];
-        return Some(if shift { shifted[d] } else { char::from(b'0' + d as u8) });
-    }
     let pad = [
         K::Numpad0, K::Numpad1, K::Numpad2, K::Numpad3, K::Numpad4, K::Numpad5, K::Numpad6, K::Numpad7,
         K::Numpad8, K::Numpad9,
@@ -1741,34 +1891,51 @@ fn key_char(vk: VirtualKeyCode, shift: bool) -> Option<char> {
     if let Some(d) = pad.iter().position(|k| *k == vk) {
         return Some(char::from(b'0' + d as u8));
     }
-    let letters = [
-        K::A, K::B, K::C, K::D, K::E, K::F, K::G, K::H, K::I, K::J, K::K, K::L, K::M, K::N, K::O, K::P, K::Q,
-        K::R, K::S, K::T, K::U, K::V, K::W, K::X, K::Y, K::Z,
-    ];
-    if let Some(i) = letters.iter().position(|k| *k == vk) {
-        let c = char::from(b'a' + i as u8);
-        return Some(if shift { c.to_ascii_uppercase() } else { c });
-    }
-    Some(match (vk, shift) {
-        (K::NumpadAdd, _) | (K::Plus, _) | (K::Equals, true) => '+',
-        (K::NumpadSubtract, _) | (K::Minus, false) => '-',
-        (K::NumpadMultiply, _) | (K::Asterisk, _) => '*',
-        (K::NumpadDivide, _) | (K::Slash, false) => '/',
-        (K::NumpadDecimal, _) | (K::Period, false) => '.',
-        (K::NumpadComma, _) | (K::Comma, false) => ',',
-        (K::NumpadEquals, _) | (K::Equals, false) => '=',
-        (K::Comma, true) => '<',
-        (K::Period, true) => '>',
-        (K::Backslash, true) => '|',
-        (K::Grave, true) => '~',
-        (K::Caret, _) => '^',
-        (K::At, _) => '@',
+    Some(match vk {
+        K::NumpadAdd => '+',
+        K::NumpadSubtract => '-',
+        K::NumpadMultiply => '*',
+        K::NumpadDivide => '/',
+        K::NumpadDecimal | K::NumpadComma => '.',
+        K::NumpadEquals => '=',
         _ => return None,
     })
 }
 
+/// Alt+0..5: the View menu.
+fn pin_for_key(vk: VirtualKeyCode) -> Option<Pin> {
+    let keys = [
+        VirtualKeyCode::Key0,
+        VirtualKeyCode::Key1,
+        VirtualKeyCode::Key2,
+        VirtualKeyCode::Key3,
+        VirtualKeyCode::Key4,
+        VirtualKeyCode::Key5,
+    ];
+    keys.iter().position(|k| *k == vk).map(|i| Pin::ALL[i])
+}
+
+/// The text the key being handled typed, if any (recorded against the
+/// focused node before the key's pass; on Windows in a pass of its own
+/// after it), without control characters (Windows' WM_CHAR sends Backspace
+/// and Enter as text too).
+fn typed_text(info: &CallbackInfo) -> Option<String> {
+    info.get_text_changeset()
+        .into_option()
+        .map(|c| c.inserted_text.as_str().chars().filter(|c| !c.is_control()).collect::<String>())
+        .filter(|t| !t.is_empty())
+}
+
+/// The keys that type nothing, and the chords. A key that typed a character
+/// is the text handler's ([`on_text`]); one that could not (nothing held
+/// the keyboard, so no text was recorded) types only if it is a keypad key
+/// ([`keypad_char`]).
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(kit_ref) = data.downcast_ref::<CalcApp>().map(|s| s.kit.clone()) else {
+    let Some(kit_ref) = data.downcast_mut::<CalcApp>().map(|mut s| {
+        // A fallback character's text no longer follows once another key comes.
+        s.fallback = None;
+        s.kit.clone()
+    }) else {
         return Update::DoNothing;
     };
     if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
@@ -1782,22 +1949,28 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     let m = info.get_key_modifiers();
     let command = m.primary_down();
-    let Some(screen) = data.downcast_ref::<CalcApp>().map(|s| s.screen) else {
+    let Some(view) = data.downcast_ref::<CalcApp>().map(|s| s.current_view(&info)) else {
         return Update::DoNothing;
     };
-    // Alt+1..5: the modes.
+    // Alt+0..5: the View menu.
     if m.alt && !command {
-        let modes = [VirtualKeyCode::Key1, VirtualKeyCode::Key2, VirtualKeyCode::Key3, VirtualKeyCode::Key4, VirtualKeyCode::Key5];
-        if let Some(i) = modes.iter().position(|k| *k == vk) {
+        if let Some(pin) = pin_for_key(vk) {
             info.prevent_default();
-            return with_app(&mut data, &mut info, |s, info, _| set_screen(s, info, Screen::ALL[i]));
+            return with_app(&mut data, &mut info, |s, info, _| set_pin(s, info, pin));
         }
         return Update::DoNothing;
     }
-    let Some(mode) = screen.calc_mode() else {
+    let Some(mode) = view.calc_mode() else {
         // Date and Convert: the fields take the keys.
         return Update::DoNothing;
     };
+    let typed = typed_text(&info);
+    let focused = info.get_focused_node().into_option().is_some();
+    if !focused {
+        // Nothing holds the keyboard (a rebuild took the focused key away):
+        // the surface takes it, so the next key's text arrives.
+        focus_surface(&mut info);
+    }
     if command {
         let cmd = match vk {
             VirtualKeyCode::C => {
@@ -1809,10 +1982,8 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
             VirtualKeyCode::H => {
                 info.prevent_default();
-                let wide = info.get_current_window_state().size.dimensions.width > PANEL_MIN_WIDTH;
                 return with_app(&mut data, &mut info, |s, _info, _| {
-                    let shown = s.panel_shown.unwrap_or(wide);
-                    s.panel_shown = Some(!shown);
+                    s.panel_shown = !s.panel_shown;
                 });
             }
             VirtualKeyCode::M => Cmd::MemStore,
@@ -1828,7 +1999,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             after_calc(s, info, handle);
         });
     }
-    // The angle unit (Scientific) and the base (Programmer) by function key.
+    // The angle unit (graphing) and the base (Programmer) by function key.
     let setting = match (mode, vk) {
         (CalcMode::Scientific, VirtualKeyCode::F3) => Some((Some(AngleUnit::Deg), None)),
         (CalcMode::Scientific, VirtualKeyCode::F4) => Some((Some(AngleUnit::Rad), None)),
@@ -1859,28 +2030,89 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         VirtualKeyCode::F9 => Some(NamedKey::F9),
         _ => None,
     };
-    let cmd = match named {
-        Some(n) => Some(named_command(n)),
-        None => key_char(vk, m.shift).and_then(|c| char_command(c, mode)),
-    };
-    let Some(cmd) = cmd else {
+    if let Some(n) = named {
+        // Enter must not also click the focused key.
+        info.prevent_default();
+        let cmd = named_command(n);
+        return with_app(&mut data, &mut info, |s, info, handle| {
+            run_action(s, Action::Calc(cmd));
+            after_calc(s, info, handle);
+        });
+    }
+    if typed.is_some() || focused {
+        // The text handler reads the character this key typed - recorded
+        // with the key (macOS, X11, Wayland, the debug server) or right after
+        // it (Windows' WM_CHAR).
+        return Update::DoNothing;
+    }
+    let Some(c) = keypad_char(vk) else {
         return Update::DoNothing;
     };
-    // Enter must not also click the focused key.
     info.prevent_default();
     with_app(&mut data, &mut info, |s, info, handle| {
-        run_action(s, Action::Calc(cmd));
+        s.notice.clear();
+        s.fallback = Some(c);
+        s.calc.type_char(c, now_secs());
         after_calc(s, info, handle);
     })
 }
 
-/// Ctrl/Cmd+V: the clipboard's text as an expression (the calculator screens
-/// only; the date and converter fields paste as text fields do).
-extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((kit_ref, screen)) = data.downcast_ref::<CalcApp>().map(|s| (s.kit.clone(), s.screen)) else {
+/// The characters a key typed - whatever key position made them on the
+/// user's layout: `*` from Shift+8 (US), Shift++ (German) or the keypad,
+/// letters for names, a dead key's composed character.
+extern "C" fn on_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(text) = typed_text(&info) else {
         return Update::DoNothing;
     };
-    if kit::settings_open(&kit_ref) || screen.calc_mode().is_none() {
+    let Some((kit_ref, view, naming)) = data
+        .downcast_ref::<CalcApp>()
+        .map(|s| (s.kit.clone(), s.current_view(&info), !s.calc.letters.is_empty()))
+    else {
+        return Update::DoNothing;
+    };
+    if kit::settings_open(&kit_ref) || view.calc_mode().is_none() {
+        // The settings page's and Date's / Convert's fields take their text.
+        return Update::DoNothing;
+    }
+    if text.trim().is_empty() && !naming {
+        // A space means nothing here (unless it ends a name being typed), and
+        // it stays the Space that activates a key the user tabbed to.
+        return Update::DoNothing;
+    }
+    let m = info.get_key_modifiers();
+    if m.primary_down() {
+        return Update::DoNothing;
+    }
+    let vk = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    if m.alt && vk.and_then(pin_for_key).is_some() {
+        // Alt+0..5 chose a view; on a Mac Option+digit types a character too.
+        info.prevent_default();
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    let already = data
+        .downcast_mut::<CalcApp>()
+        .and_then(|mut s| s.fallback.take())
+        .is_some_and(|c| text == c.to_string());
+    if already {
+        // Its key typed it by its position (nothing held the keyboard then);
+        // Windows sends the text after the key.
+        return Update::DoNothing;
+    }
+    with_app(&mut data, &mut info, |s, info, handle| {
+        s.notice.clear();
+        s.calc.type_text(&text, now_secs());
+        after_calc(s, info, handle);
+    })
+}
+
+/// Ctrl/Cmd+V (the engine reads the clipboard for the focused node that
+/// listens for paste): the clipboard's text as an expression.
+extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((kit_ref, view)) = data.downcast_ref::<CalcApp>().map(|s| (s.kit.clone(), s.current_view(&info))) else {
+        return Update::DoNothing;
+    };
+    if kit::settings_open(&kit_ref) || view.calc_mode().is_none() {
         return Update::DoNothing;
     }
     let Some(content) = info.get_clipboard_content().into_option() else {
@@ -1900,12 +2132,13 @@ extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// The Copy event (Ctrl/Cmd+C, or Edit > Copy): the result, not a selection.
+/// The Copy event (Edit > Copy on the focused key or surface): the result,
+/// not a selection.
 extern "C" fn on_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((kit_ref, screen)) = data.downcast_ref::<CalcApp>().map(|s| (s.kit.clone(), s.screen)) else {
+    let Some((kit_ref, view)) = data.downcast_ref::<CalcApp>().map(|s| (s.kit.clone(), s.current_view(&info))) else {
         return Update::DoNothing;
     };
-    if kit::settings_open(&kit_ref) || screen.calc_mode().is_none() {
+    if kit::settings_open(&kit_ref) || view.calc_mode().is_none() {
         return Update::DoNothing;
     }
     info.prevent_default();
@@ -1922,62 +2155,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_long_result_in_the_side_panel_wraps_inside_it() {
-        // sqrt(2) to 32 digits is wider than the 260px panel at 18px: it
-        // wraps at any character instead of running out of the panel.
-        assert!(PANEL_RESULT_CSS.contains("overflow-wrap: anywhere"), "{PANEL_RESULT_CSS}");
-        assert!(PANEL_EXPR_CSS.contains("overflow-wrap: anywhere"), "{PANEL_EXPR_CSS}");
+    fn the_window_picks_its_calculator_by_its_size() {
+        assert_eq!(view_for_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1), View::Micro, "the default is small");
+        assert_eq!(view_for_size(MIN_SIZE.0, MIN_SIZE.1), View::Micro);
+        assert_eq!(view_for_size(639.0, 900.0), View::Micro, "tall but narrow");
+        assert_eq!(view_for_size(640.0, 560.0), View::Programmer, "widened to the right");
+        assert_eq!(view_for_size(1200.0, 699.0), View::Programmer, "wide but not tall");
+        assert_eq!(view_for_size(900.0, 700.0), View::Graph);
+        assert_eq!(view_for_size(1920.0, 1080.0), View::Graph, "maximized");
     }
 
     #[test]
-    fn every_keypad_key_has_a_unique_id() {
-        for (name, keys) in [
-            ("standard", standard_keys()),
-            ("scientific", scientific_keys(false, false)),
-            ("scientific 2nd", scientific_keys(true, true)),
-            ("programmer", programmer_keys()),
-        ] {
-            let mut seen = Vec::new();
-            for k in keys.iter().filter(|k| k.action != Action::Blank) {
-                assert!(k.id.starts_with("key-"), "{name}: {}", k.id);
-                assert!(!seen.contains(&k.id), "{name}: {} twice", k.id);
-                seen.push(k.id);
-            }
+    fn the_view_menu_pins_a_view() {
+        assert_eq!(Pin::by_key("auto"), Some(Pin::Auto));
+        assert_eq!(Pin::Auto.view(), None);
+        assert_eq!(Pin::by_key("scientific"), Some(Pin::Graphing), "the old screen name");
+        assert_eq!(Pin::Graphing.view(), Some(View::Graph));
+        assert_eq!(Pin::Graphing.view().and_then(View::calc_mode), Some(CalcMode::Scientific));
+        assert_eq!(View::Date.calc_mode(), None);
+        for p in Pin::ALL {
+            assert!(SCREENS.contains(&p.key()), "{}", p.key());
+            assert_eq!(Pin::ALL[p.index()], p);
         }
+        assert_eq!(pin_for_key(VirtualKeyCode::Key2), Some(Pin::Programmer));
+        assert_eq!(pin_for_key(VirtualKeyCode::Key9), None);
     }
 
     #[test]
-    fn the_keypads_fill_their_grids() {
-        assert_eq!(standard_keys().len(), 6 * 4);
-        assert_eq!(scientific_keys(false, false).len(), 5 * 9);
-        assert_eq!(programmer_keys().len(), 4 * 11);
-        assert_eq!(memory_keys().len(), 5);
+    fn a_long_expression_shows_its_end() {
+        assert_eq!(tail("12 \u{d7} 3", 40), "12 \u{d7} 3");
+        let long = "1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12";
+        let shown = tail(long, 20);
+        assert_eq!(shown.chars().count(), 20);
+        assert!(shown.starts_with('\u{2026}') && shown.ends_with("11 + 12"), "{shown}");
     }
 
     #[test]
-    fn the_second_key_swaps_the_function_row() {
-        let first = scientific_keys(false, false);
-        let second = scientific_keys(true, false);
-        assert!(first.iter().any(|k| k.id == "key-sin"));
-        assert!(second.iter().any(|k| k.id == "key-asin"));
-        assert!(second.iter().any(|k| k.id == "key-cube"));
-        assert!(second.iter().find(|k| k.id == "key-second").unwrap().primary);
+    fn long_results_get_smaller() {
+        assert_eq!(result_px("42", View::Micro), 38);
+        assert!(result_px("1.4142135623730950488016887242097", View::Micro) < 20);
+        assert!(result_px("Cannot divide by zero", View::Micro) >= 14);
     }
 
     #[test]
-    fn the_us_key_positions_give_the_calculator_characters() {
-        assert_eq!(key_char(VirtualKeyCode::Key8, true), Some('*'));
-        assert_eq!(key_char(VirtualKeyCode::Equals, true), Some('+'));
-        assert_eq!(key_char(VirtualKeyCode::Equals, false), Some('='));
-        assert_eq!(key_char(VirtualKeyCode::Key9, true), Some('('));
-        assert_eq!(key_char(VirtualKeyCode::Key5, true), Some('%'));
-        assert_eq!(key_char(VirtualKeyCode::Key2, true), Some('@'));
-        assert_eq!(key_char(VirtualKeyCode::Numpad7, false), Some('7'));
-        assert_eq!(key_char(VirtualKeyCode::NumpadMultiply, false), Some('*'));
-        assert_eq!(key_char(VirtualKeyCode::Plus, false), Some('+'));
-        assert_eq!(key_char(VirtualKeyCode::A, false), Some('a'));
-        assert_eq!(key_char(VirtualKeyCode::E, true), Some('E'));
-        assert_eq!(key_char(VirtualKeyCode::F1, false), None);
+    fn only_the_keypad_types_without_its_text() {
+        assert_eq!(keypad_char(VirtualKeyCode::Numpad7), Some('7'));
+        assert_eq!(keypad_char(VirtualKeyCode::NumpadMultiply), Some('*'));
+        assert_eq!(keypad_char(VirtualKeyCode::NumpadComma), Some('.'), "the German keypad's comma");
+        assert_eq!(keypad_char(VirtualKeyCode::NumpadEnter), None, "Enter is a named key");
+        // The key positions say nothing about the character: Shift+8 is `*`
+        // on a US keyboard and `(` on a German one, whose `*` is Shift and
+        // the key right of Ü (the US `]` position). Only the TEXT says it.
+        assert_eq!(keypad_char(VirtualKeyCode::Key8), None);
+        assert_eq!(keypad_char(VirtualKeyCode::RBracket), None);
+        assert_eq!(keypad_char(VirtualKeyCode::A), None);
+    }
+
+    #[test]
+    fn the_typeset_display_wraps_results_and_functions() {
+        let mut c = Calculator::new();
+        assert!(typeset(&c).is_none(), "nothing typed, nothing set");
+        c.type_text("1/4=", 1);
+        assert_eq!(typeset(&c).unwrap().text(), "(1)/(4) = ");
+        c.type_text("y=x^2", 1);
+        assert_eq!(typeset(&c).unwrap().text(), "y = x^(2)");
+        c.type_char('=', 1);
+        assert_eq!(typeset(&c).unwrap().text(), "y = x^(2)");
     }
 
     #[test]
@@ -2019,15 +2262,5 @@ mod tests {
         assert_eq!(convert_values(&c), ("1.609344".to_string(), "1".to_string()));
         c.to_text = "abc".into();
         assert_eq!(convert_values(&c).0, "\u{2014}");
-    }
-
-    #[test]
-    fn the_screens_map_to_keypad_modes() {
-        assert_eq!(Screen::by_key("programmer"), Some(Screen::Programmer));
-        assert_eq!(Screen::Programmer.calc_mode(), Some(CalcMode::Programmer));
-        assert_eq!(Screen::Convert.calc_mode(), None);
-        for s in Screen::ALL {
-            assert!(SCREENS.contains(&s.key()));
-        }
     }
 }

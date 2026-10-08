@@ -15,11 +15,19 @@
 //! there is none, `+/-` changes the sign of the number being typed (or of
 //! its exponent after Exp), CE clears the entry, C everything but the
 //! memory and the history, Backspace deletes a digit or the last token.
+//!
+//! TYPING ([`Calculator::type_char`]) takes the CHARACTER the user's
+//! keyboard layout produced - `*` is Shift+8 on a US keyboard and Shift++ on
+//! a German one, the key position says nothing - and names letter by letter
+//! (`sqrt`, `sin`, `pi`, `x`; [`crate::typing`]). An entry with `x` in it is a
+//! function: `=` hands it to the graph ([`Plot`]) instead of evaluating it,
+//! and `y =` starts one explicitly.
 
 use crate::expr::{self, AngleUnit, BinOp, Const, Domain, Func, Post, Tok};
 use crate::history::{HistoryEntry, Memory, MAX_HISTORY};
 use crate::num::{format_typed, CalcError, Format, Num, DISPLAY_DIGITS};
 use crate::programmer::{self, Base, WordSize};
+use crate::typing::{self, Word};
 
 /// The keypad modes (Date and Convert are other screens).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -61,13 +69,18 @@ pub enum Cmd {
     Digit(u8),
     Point,
     Op(BinOp),
+    /// A function KEY: wraps the current operand (`√(2)`), or opens the call.
     Func(Func),
+    /// A function NAME typed: always opens `name(` (`2 sqrt` is `2 × √(`).
+    Call(Func),
     Post(Post),
     /// +/-.
     Negate,
     /// Exp: scientific-notation entry (`1.5E3`).
     Exp,
     Const(Const),
+    /// The graph's variable `x`.
+    Var,
     LParen,
     RParen,
     Equals,
@@ -90,8 +103,31 @@ pub enum Value {
     Int(i128),
 }
 
-/// The most significant digits a typed decimal number takes.
+/// A function of `x` the graph plots, committed with `=` (or `y = ...`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Plot {
+    pub tokens: Vec<Tok>,
+    /// As the expression line shows it: `sin(x) × x^2`.
+    pub text: String,
+}
+
+/// The most typed significant digits a decimal number takes.
 pub const MAX_TYPED_DIGITS: usize = 32;
+
+/// The most functions the graph keeps (the oldest goes first).
+pub const MAX_PLOTS: usize = 8;
+
+/// `1` -> `₁`: the graph's function names (`y₁`).
+#[must_use]
+pub fn subscript(n: usize) -> String {
+    n.to_string()
+        .chars()
+        .map(|c| match c.to_digit(10) {
+            Some(d) => char::from_u32(0x2080 + d).unwrap_or(c),
+            None => c,
+        })
+        .collect()
+}
 
 /// The calculator.
 #[derive(Clone, Debug, PartialEq)]
@@ -105,6 +141,8 @@ pub struct Calculator {
     pub just_evaluated: bool,
     /// The expression line after `=`: `1,280 × 0.19 =`.
     pub shown_expr: String,
+    /// The tokens of `shown_expr` (the typeset view draws them).
+    pub shown_tokens: Vec<Tok>,
     /// The last result.
     pub result: Option<Value>,
     /// The error the result line shows instead of a number.
@@ -125,12 +163,62 @@ pub struct Calculator {
     pub last_op: Option<(BinOp, String)>,
     /// A history entry was added since the history was last saved.
     pub history_dirty: bool,
+    /// Letters typed that are not a name yet (`si` on the way to `sin`):
+    /// shown where a number being typed is shown.
+    pub letters: String,
+    /// A typed name opened its own `(`: a `(` typed right after it is that one.
+    pub skip_paren: bool,
+    /// `y =` was typed: the entry is a function for the graph.
+    pub defining: bool,
+    /// The graph's functions, oldest first.
+    pub plots: Vec<Plot>,
+    /// `=` plotted the entry as `plots[i]` (the result line says so).
+    pub plotted: Option<usize>,
+    /// What the last typed character could not be, for the notice line.
+    pub hint: Option<String>,
 }
 
 impl Default for Calculator {
     fn default() -> Self {
         Calculator::new()
     }
+}
+
+/// A decimal literal as an integer of the word, if it IS an integer.
+fn dec_literal_to_int(text: &str, word: WordSize) -> Option<i128> {
+    let n = Num::parse(text).ok()?;
+    if !n.is_integer() {
+        return None;
+    }
+    dec_to_int(&n, word)
+}
+
+/// The integer part of a decimal value, wrapped to the word (what a result
+/// becomes in Programmer mode); `None` beyond 10^32.
+fn dec_to_int(n: &Num, word: WordSize) -> Option<i128> {
+    let lit = n.to_literal();
+    if let Some(p) = lit.find('e') {
+        return lit[p..].contains('-').then_some(0);
+    }
+    let whole = lit.split('.').next()?;
+    whole.parse::<i128>().ok().map(|v| word.wrap(v))
+}
+
+/// The base a letter right after a lone `0` switches Programmer mode to
+/// (`0x` HEX, `0b` BIN, `0o` OCT, `0d` DEC) - unless the base takes the
+/// letter as a digit (`0b` in HEX is the number B).
+fn base_prefix(c: char, base: Base) -> Option<Base> {
+    let target = match c.to_ascii_lowercase() {
+        'x' => Base::Hex,
+        'b' => Base::Bin,
+        'o' => Base::Oct,
+        'd' => Base::Dec,
+        _ => return None,
+    };
+    if c.to_digit(16).is_some_and(|d| base.accepts(d as u8)) {
+        return None;
+    }
+    Some(target)
 }
 
 impl Calculator {
@@ -142,6 +230,7 @@ impl Calculator {
             editing: false,
             just_evaluated: false,
             shown_expr: String::new(),
+            shown_tokens: Vec::new(),
             result: None,
             error: None,
             angle: AngleUnit::Deg,
@@ -154,6 +243,12 @@ impl Calculator {
             history: Vec::new(),
             last_op: None,
             history_dirty: false,
+            letters: String::new(),
+            skip_paren: false,
+            defining: false,
+            plots: Vec::new(),
+            plotted: None,
+            hint: None,
         }
     }
 
@@ -170,6 +265,15 @@ impl Calculator {
             digits: DISPLAY_DIGITS,
             grouping: self.grouping,
             scientific: self.fe,
+        }
+    }
+
+    /// The names this mode's keyboard knows.
+    fn names(&self) -> &'static [(&'static str, Word)] {
+        if self.mode.is_programmer() {
+            typing::PROGRAMMER_NAMES
+        } else {
+            typing::DECIMAL_NAMES
         }
     }
 
@@ -190,6 +294,12 @@ impl Calculator {
         }
     }
 
+    /// Whether the entry is a function of `x` (the graph's, not a number).
+    #[must_use]
+    pub fn entry_is_function(&self) -> bool {
+        !self.just_evaluated && (self.defining || expr::contains_var(&self.tokens))
+    }
+
     // ==== The two display lines ====
 
     /// The expression line: after `=` the evaluated expression with ` =`;
@@ -204,25 +314,45 @@ impl Calculator {
         } else {
             self.tokens.len()
         };
-        expr::display(&self.tokens[..end], self.grouping, self.mode.is_programmer())
+        let line = expr::display(&self.tokens[..end], self.grouping, self.mode.is_programmer())
             .trim_end()
-            .to_string()
+            .to_string();
+        if self.defining {
+            return if line.is_empty() {
+                "y =".to_string()
+            } else {
+                format!("y = {line}")
+            };
+        }
+        line
     }
 
-    /// The result line: the error, the number being typed (as typed), or the
-    /// value of what is built so far.
+    /// The result line: the error, the name or number being typed (as
+    /// typed), `f(x)` for a function, or the value of what is built so far.
     #[must_use]
     pub fn result_line(&self) -> String {
         if let Some(e) = &self.error {
             return e.clone();
         }
-        if self.editing && !self.just_evaluated {
-            if let Some(Tok::Num(text)) = self.tokens.last() {
-                return if self.mode.is_programmer() {
-                    text.clone()
-                } else {
-                    format_typed(text, self.grouping)
-                };
+        if self.just_evaluated {
+            if let Some(i) = self.plotted {
+                return format!("Plotted as y{}", subscript(i + 1));
+            }
+        } else {
+            if !self.letters.is_empty() {
+                return self.letters.clone();
+            }
+            if self.editing {
+                if let Some(Tok::Num(text)) = self.tokens.last() {
+                    return if self.mode.is_programmer() {
+                        text.clone()
+                    } else {
+                        format_typed(text, self.grouping)
+                    };
+                }
+            }
+            if self.entry_is_function() {
+                return "f(x)".to_string();
             }
         }
         match self.current_value() {
@@ -277,9 +407,18 @@ impl Calculator {
             .collect()
     }
 
-    /// The text Ctrl+C copies: the result line's value without grouping.
+    /// The text Ctrl+C copies: the result line's value without grouping, or
+    /// a function as it is written.
     #[must_use]
     pub fn copy_text(&self) -> String {
+        if self.entry_is_function() {
+            return expr::display(&self.tokens, false, false);
+        }
+        if self.just_evaluated {
+            if let Some(plot) = self.plotted.and_then(|i| self.plots.get(i)) {
+                return expr::display(&plot.tokens, false, false);
+            }
+        }
         match self.current_value() {
             Some(Value::Dec(n)) => n.format(&Format {
                 digits: DISPLAY_DIGITS,
@@ -302,13 +441,19 @@ impl Calculator {
 
     // ==== Commands ====
 
-    /// Starts over after `=` or an error (the memory and history stay).
+    /// Starts over after `=` or an error (the memory, the history and the
+    /// graph's functions stay).
     fn fresh(&mut self) {
         self.tokens.clear();
         self.editing = false;
         self.just_evaluated = false;
         self.shown_expr.clear();
+        self.shown_tokens.clear();
         self.error = None;
+        self.letters.clear();
+        self.skip_paren = false;
+        self.defining = false;
+        self.plotted = None;
     }
 
     /// After `=`: the result becomes the first operand.
@@ -370,7 +515,7 @@ impl Calculator {
             i = i.checked_sub(1)?;
         }
         match &self.tokens[i] {
-            Tok::Num(_) | Tok::Const(_) => {}
+            Tok::Num(_) | Tok::Const(_) | Tok::Var => {}
             Tok::RParen => {
                 let mut depth = 0usize;
                 loop {
@@ -422,6 +567,25 @@ impl Calculator {
 
     /// Applies one key. `now` (seconds since 1970) stamps a history entry.
     pub fn apply(&mut self, cmd: Cmd, now: u64) {
+        self.hint = None;
+        // Letters being typed: Backspace and CE work on them; any other key
+        // takes the name typed so far first (`si` + `n` was `sin`, `sin` + `7`
+        // opens `sin(7`).
+        if !self.letters.is_empty() {
+            match cmd {
+                Cmd::Backspace => {
+                    self.letters.pop();
+                    return;
+                }
+                Cmd::ClearEntry => {
+                    self.letters.clear();
+                    return;
+                }
+                Cmd::Clear => self.letters.clear(),
+                _ => self.flush_word(now),
+            }
+        }
+        self.skip_paren = false;
         let programmer = self.mode.is_programmer();
         match cmd {
             Cmd::Digit(d) => self.digit(d),
@@ -456,6 +620,14 @@ impl Calculator {
                     self.tokens.push(Tok::Func(f));
                     self.tokens.push(Tok::LParen);
                 }
+            }
+            Cmd::Call(f) => {
+                if programmer {
+                    return;
+                }
+                self.begin_operand();
+                self.tokens.push(Tok::Func(f));
+                self.tokens.push(Tok::LParen);
             }
             Cmd::Not => {
                 if !programmer {
@@ -503,6 +675,13 @@ impl Calculator {
                 }
                 self.begin_operand();
                 self.tokens.push(Tok::Const(c));
+            }
+            Cmd::Var => {
+                if programmer {
+                    return;
+                }
+                self.begin_operand();
+                self.tokens.push(Tok::Var);
             }
             Cmd::LParen => {
                 self.begin_operand();
@@ -557,6 +736,189 @@ impl Calculator {
                     r.ok().map(|n| n.to_literal())
                 });
             }
+        }
+    }
+
+    // ==== Typing ====
+
+    /// One character the keyboard TYPED - the character the user's layout
+    /// produced, not the key's position: digits, `. ,` (both the decimal
+    /// point), `+ - * / ^ % ! ( ) =`, the typographic `× ÷ − · √ π ² ³`,
+    /// names letter by letter (`sqrt`, `sin`, `pi`, `x`, `mod`; `and`, `xor`,
+    /// `shl` in Programmer mode, where a-f are digits the base takes and
+    /// `0x` / `0b` / `0o` after a lone 0 switch the base), `E` after a number
+    /// for its exponent, and `y =` to start a function for the graph.
+    /// Returns whether the character meant something.
+    pub fn type_char(&mut self, c: char, now: u64) -> bool {
+        let skip_paren = std::mem::take(&mut self.skip_paren);
+        self.hint = None;
+        if c.is_control() {
+            return false;
+        }
+        if c.is_whitespace() {
+            // A space ends a name (`sin 30`) and is nothing else.
+            if self.letters.is_empty() {
+                return false;
+            }
+            self.flush_word(now);
+            return true;
+        }
+        if c == '(' && skip_paren && self.letters.is_empty() {
+            // The name typed before opened this parenthesis already.
+            return true;
+        }
+        let programmer = self.mode.is_programmer();
+        if programmer && self.letters.is_empty() {
+            if let Some(base) = base_prefix(c, self.base) {
+                let lone_zero =
+                    matches!(self.tokens.last(), Some(Tok::Num(t)) if t == "0");
+                if self.editing && !self.just_evaluated && lone_zero {
+                    self.tokens.pop();
+                    self.editing = false;
+                    self.set_base(base);
+                    self.tokens.push(Tok::Num("0".to_string()));
+                    self.editing = true;
+                    return true;
+                }
+            }
+            if let Some(d) = c.to_digit(16) {
+                if c.is_ascii_digit() || self.base.accepts(d as u8) {
+                    self.apply(Cmd::Digit(d as u8), now);
+                    return true;
+                }
+            }
+        }
+        if c.is_alphabetic() && c != '\u{3c0}' {
+            if !programmer && c == 'E' && self.letters.is_empty() && self.editing && !self.just_evaluated {
+                self.apply(Cmd::Exp, now);
+                return true;
+            }
+            let lower = c.to_lowercase().next().unwrap_or(c);
+            self.letters.push(lower);
+            self.settle_word(now, false);
+            return true;
+        }
+        if c.is_ascii_digit() && !self.letters.is_empty() {
+            let longer = format!("{}{c}", self.letters);
+            if typing::is_prefix(self.names(), &longer) {
+                // `log2`, `log10`, `pow10`.
+                self.letters = longer;
+                self.settle_word(now, false);
+                return true;
+            }
+        }
+        if c == '=' && self.letters == "y" {
+            self.letters.clear();
+            if self.just_evaluated || self.error.is_some() {
+                self.fresh();
+            }
+            if self.tokens.is_empty() && !programmer {
+                self.defining = true;
+            } else {
+                self.hint = Some("y = starts a function: type it on an empty entry".to_string());
+            }
+            return true;
+        }
+        // A typed root sign opens a call, as typing `sqrt` does.
+        let call = match c {
+            '\u{221a}' => Some(Func::Sqrt),
+            '\u{221b}' => Some(Func::Cbrt),
+            _ => None,
+        };
+        if let Some(f) = call.filter(|_| !programmer) {
+            self.flush_word(now);
+            self.apply_word(Word::Call(f), now);
+            return true;
+        }
+        // Anything else ends a name: the name typed so far goes in first.
+        let had_letters = !self.letters.is_empty();
+        if had_letters {
+            self.flush_word(now);
+            if c == '(' && self.skip_paren {
+                self.skip_paren = false;
+                return true;
+            }
+        }
+        match char_command(c, self.mode) {
+            Some(cmd) => {
+                self.apply(cmd, now);
+                true
+            }
+            None => had_letters,
+        }
+    }
+
+    /// [`Self::type_char`] for every character of `text`; how many meant something.
+    pub fn type_text(&mut self, text: &str, now: u64) -> usize {
+        text.chars().filter(|c| self.type_char(*c, now)).count()
+    }
+
+    /// The letters typed so far, read as names: a complete name that no
+    /// longer name extends goes in now; letters no name starts with are cut
+    /// at the longest name they begin with (`sinx` = `sin` + `x`), and a
+    /// letter that starts no name at all means nothing (the hint says so).
+    /// `flush`: the word is over (another character came) - everything goes.
+    fn settle_word(&mut self, now: u64, flush: bool) {
+        let names = self.names();
+        let mut dropped = String::new();
+        while !self.letters.is_empty() {
+            if !flush && typing::is_prefix(names, &self.letters) {
+                if let Some(w) = typing::exact(names, &self.letters) {
+                    if w != Word::Define && !typing::extends(names, &self.letters) {
+                        self.letters.clear();
+                        self.apply_word(w, now);
+                    }
+                }
+                break;
+            }
+            match typing::longest_prefix(names, &self.letters) {
+                Some((len, w)) => {
+                    let rest = self.letters[len..].to_string();
+                    self.letters.clear();
+                    if w == Word::Define {
+                        dropped.push('y');
+                    } else {
+                        self.apply_word(w, now);
+                    }
+                    self.letters = rest;
+                }
+                None => {
+                    let first = self.letters.chars().next().unwrap_or(' ');
+                    dropped.push(first);
+                    self.letters = self.letters[first.len_utf8()..].to_string();
+                }
+            }
+        }
+        if !dropped.is_empty() {
+            self.hint = Some(if self.mode.is_programmer() {
+                format!(
+                    "\u{201c}{dropped}\u{201d} is not a {} digit or an operator",
+                    self.base.label()
+                )
+            } else {
+                format!("\u{201c}{dropped}\u{201d} is not a name the calculator knows")
+            });
+        }
+    }
+
+    /// The letters typed so far are over: every name in them goes in.
+    fn flush_word(&mut self, now: u64) {
+        if !self.letters.is_empty() {
+            self.settle_word(now, true);
+        }
+    }
+
+    fn apply_word(&mut self, w: Word, now: u64) {
+        match w {
+            Word::Call(f) => {
+                self.apply(Cmd::Call(f), now);
+                self.skip_paren = !self.mode.is_programmer();
+            }
+            Word::Const(k) => self.apply(Cmd::Const(k), now),
+            Word::Var => self.apply(Cmd::Var, now),
+            Word::Op(op) => self.apply(Cmd::Op(op), now),
+            Word::Not => self.apply(Cmd::Not, now),
+            Word::Define => {}
         }
     }
 
@@ -730,6 +1092,10 @@ impl Calculator {
             self.fresh();
             return;
         }
+        if self.entry_is_function() {
+            self.plot_entry();
+            return;
+        }
         if self.just_evaluated {
             // `=` again repeats the last operation on the result.
             let (Some(result), Some((op, operand))) = (self.result.clone(), self.last_op.clone()) else {
@@ -774,7 +1140,7 @@ impl Calculator {
         self.shown_expr = format!("{shown} =");
         self.just_evaluated = true;
         self.editing = false;
-        self.tokens.clear();
+        self.shown_tokens = std::mem::take(&mut self.tokens);
         match value {
             Ok(v) => {
                 self.history.push(HistoryEntry {
@@ -798,7 +1164,61 @@ impl Calculator {
         }
     }
 
-    /// C: everything but the memory and the history.
+    /// `=` on a function of `x`: it goes to the graph (`y₁`, `y₂`, ...).
+    fn plot_entry(&mut self) {
+        self.finish_number();
+        while matches!(self.tokens.last(), Some(Tok::Op(_) | Tok::Neg | Tok::Not | Tok::Func(_) | Tok::LParen)) {
+            self.tokens.pop();
+        }
+        if self.tokens.is_empty() {
+            // `y =` and nothing yet: wait for the function.
+            return;
+        }
+        for _ in 0..self.open_parens() {
+            self.tokens.push(Tok::RParen);
+        }
+        let text = expr::display(&self.tokens, self.grouping, false);
+        match expr::parse(&self.tokens) {
+            Ok(_) => {
+                if self.plots.len() >= MAX_PLOTS {
+                    self.plots.remove(0);
+                }
+                self.plots.push(Plot {
+                    tokens: self.tokens.clone(),
+                    text: text.clone(),
+                });
+                self.plotted = Some(self.plots.len() - 1);
+                self.error = None;
+            }
+            Err(e) => {
+                self.plotted = None;
+                self.error = Some(e.to_string());
+            }
+        }
+        self.shown_expr = format!("y = {text}");
+        self.shown_tokens = std::mem::take(&mut self.tokens);
+        self.just_evaluated = true;
+        self.editing = false;
+        self.defining = false;
+        self.result = None;
+        self.last_op = None;
+    }
+
+    /// Removes the graph's function `i`.
+    pub fn remove_plot(&mut self, i: usize) {
+        if i < self.plots.len() {
+            self.plots.remove(i);
+            self.plotted = None;
+        }
+    }
+
+    /// Removes every function from the graph.
+    pub fn clear_plots(&mut self) {
+        self.plots.clear();
+        self.plotted = None;
+    }
+
+    /// C: everything but the memory, the history and the graph's functions.
     pub fn clear(&mut self) {
         self.fresh();
         self.result = None;
@@ -812,6 +1232,7 @@ impl Calculator {
         }
         if self.just_evaluated {
             self.shown_expr.clear();
+            self.shown_tokens.clear();
             return;
         }
         if self.editing {
@@ -824,6 +1245,10 @@ impl Calculator {
             }
             return;
         }
+        if self.tokens.is_empty() && self.defining {
+            self.defining = false;
+            return;
+        }
         if let Some(t) = self.tokens.pop() {
             if t == Tok::LParen && matches!(self.tokens.last(), Some(Tok::Func(_))) {
                 self.tokens.pop();
@@ -834,14 +1259,106 @@ impl Calculator {
 
     // ==== Modes, bases, history ====
 
-    /// Switches the keypad mode; between decimals and Programmer's integers
-    /// the entry starts over (the memory and the history stay).
+    /// Switches the keypad mode. Between the decimals and Programmer's
+    /// integers the entry is carried over - its numbers rewritten (`12 × 3`
+    /// stays `12 × 3`; a result becomes its integer part) - and starts over
+    /// with its value only where the other mode lacks something in it (a
+    /// fraction, `sin`, `x`, a bitwise operator). The memory, the history
+    /// and the graph's functions stay.
     pub fn set_mode(&mut self, mode: CalcMode) {
         if mode.is_programmer() != self.mode.is_programmer() {
-            self.clear();
+            self.convert_domain(mode.is_programmer());
         }
         self.mode = mode;
         self.second = false;
+    }
+
+    /// The entry in the other domain (the mode still says the old one).
+    fn convert_domain(&mut self, to_programmer: bool) {
+        self.letters.clear();
+        self.skip_paren = false;
+        self.defining = false;
+        self.last_op = None;
+        if self.just_evaluated {
+            match self.result.take().and_then(|v| self.convert_value(v, to_programmer)) {
+                Some(v) => {
+                    self.result = Some(v);
+                    self.shown_tokens = self
+                        .convert_tokens(&self.shown_tokens, to_programmer)
+                        .unwrap_or_default();
+                }
+                None => self.clear(),
+            }
+            return;
+        }
+        if let Some(tokens) = self.convert_tokens(&self.tokens, to_programmer) {
+            self.tokens = tokens;
+            return;
+        }
+        // Something the other mode has no word for: the entry's value goes
+        // on, as a result does (a digit starts over, an operator continues).
+        let value = self
+            .entry_value()
+            .and_then(|v| self.convert_value(v, to_programmer));
+        self.clear();
+        if let Some(v) = value {
+            self.result = Some(v);
+            self.just_evaluated = true;
+        }
+    }
+
+    /// The value of the whole entry (an unfinished tail left off, open
+    /// parentheses closed), or the result after `=`.
+    fn entry_value(&self) -> Option<Value> {
+        if self.just_evaluated {
+            return self.result.clone();
+        }
+        let mut end = self.tokens.len();
+        while end > 0
+            && matches!(
+                self.tokens[end - 1],
+                Tok::Op(_) | Tok::Neg | Tok::Not | Tok::Func(_) | Tok::LParen
+            )
+        {
+            end -= 1;
+        }
+        if end == 0 {
+            return None;
+        }
+        self.eval_tokens(&self.tokens[..end]).ok()
+    }
+
+    fn convert_value(&self, v: Value, to_programmer: bool) -> Option<Value> {
+        match (v, to_programmer) {
+            (Value::Dec(n), true) => dec_to_int(&n, self.word).map(Value::Int),
+            (Value::Int(i), false) => Num::parse(&i.to_string()).ok().map(Value::Dec),
+            (v, _) => Some(v),
+        }
+    }
+
+    /// `tokens` in the other domain, or `None` if one of them has no
+    /// counterpart there.
+    fn convert_tokens(&self, tokens: &[Tok], to_programmer: bool) -> Option<Vec<Tok>> {
+        let mut out = Vec::with_capacity(tokens.len());
+        for t in tokens {
+            out.push(match t {
+                Tok::Num(text) if to_programmer => {
+                    let v = dec_literal_to_int(text, self.word)?;
+                    Tok::Num(programmer::format_int(v, self.base, self.word, false))
+                }
+                Tok::Num(text) => {
+                    let v = programmer::parse_int(text, self.base, self.word).ok()?;
+                    Tok::Num(v.to_string())
+                }
+                Tok::Op(op) if op.is_bitwise() && !to_programmer => return None,
+                Tok::Not if !to_programmer => return None,
+                Tok::Func(_) | Tok::Const(_) | Tok::Var | Tok::Post(Post::Percent) if to_programmer => {
+                    return None
+                }
+                other => other.clone(),
+            });
+        }
+        Some(out)
     }
 
     /// Programmer mode's input base: the numbers typed so far are rewritten in it.
@@ -923,6 +1440,7 @@ impl Calculator {
         };
         self.fresh();
         self.shown_expr = format!("{} =", entry.expr);
+        self.shown_tokens = expr::tokenize(&entry.expr, self.domain()).unwrap_or_default();
         self.result = Some(value);
         self.just_evaluated = true;
         self.last_op = None;
@@ -935,17 +1453,31 @@ impl Calculator {
     }
 
     /// Pasted text: tokens of the current mode, replacing the entry after
-    /// `=`, appended otherwise. `Err` says why it could not be read.
+    /// `=`, appended otherwise; `y = ...` starts a function for the graph.
+    /// `Err` says why it could not be read.
     pub fn paste(&mut self, text: &str) -> Result<(), String> {
-        let tokens = expr::tokenize(text.trim(), self.domain()).map_err(|e| e.to_string())?;
-        if tokens.is_empty() {
+        let mut body = text.trim();
+        let mut define = false;
+        if !self.mode.is_programmer() {
+            for prefix in ["y=", "y =", "Y=", "Y =", "f(x)=", "f(x) ="] {
+                if let Some(rest) = body.strip_prefix(prefix) {
+                    body = rest.trim_start();
+                    define = true;
+                    break;
+                }
+            }
+        }
+        let tokens = expr::tokenize(body, self.domain()).map_err(|e| e.to_string())?;
+        if tokens.is_empty() && !define {
             return Ok(());
         }
-        if self.just_evaluated || self.error.is_some() {
+        self.flush_word(0);
+        if self.just_evaluated || self.error.is_some() || define {
             self.fresh();
         }
+        self.defining |= define;
         self.finish_number();
-        if self.last_ends_operand() && tokens[0].starts_operand() {
+        if self.last_ends_operand() && tokens.first().is_some_and(Tok::starts_operand) {
             self.tokens.push(Tok::Op(BinOp::Mul));
         }
         self.tokens.extend(tokens);
@@ -954,62 +1486,57 @@ impl Calculator {
     }
 }
 
-/// What a typed character does in a mode: digits, operators, `.`, the
-/// Windows calculator's letters (`@` √, `q` x², `r` 1/x, `s` sin, `o` cos,
-/// `t` tan, `n` ln, `l` log, `p` π, `e` e, `E` Exp, `!` n!) and Programmer
-/// mode's `a`-`f`, `&` `|` `^` (XOR) `~` `<` `>` and `%` (mod).
+/// What a typed character that is not a letter does in a mode: digits,
+/// operators, `.` and `,` (both the decimal point), `^` (power; XOR in
+/// Programmer mode), `!`, `%`, the typographic `× ÷ − · π ² ³`, Windows'
+/// `@` (square root of the operand), and Programmer mode's a-f, `&` `|`
+/// `~` `<` `>` and `%` (mod). Letters are names ([`Calculator::type_char`]).
 #[must_use]
 pub fn char_command(c: char, mode: CalcMode) -> Option<Cmd> {
     if let Some(d) = c.to_digit(10) {
         return Some(Cmd::Digit(d as u8));
     }
-    let programmer = mode.is_programmer();
-    if programmer {
+    if mode.is_programmer() {
         if let Some(d) = c.to_digit(16) {
             return Some(Cmd::Digit(d as u8));
         }
         return match c {
             '+' => Some(Cmd::Op(BinOp::Add)),
-            '-' => Some(Cmd::Op(BinOp::Sub)),
-            '*' | 'x' => Some(Cmd::Op(BinOp::Mul)),
-            '/' => Some(Cmd::Op(BinOp::Div)),
+            '-' | '\u{2212}' => Some(Cmd::Op(BinOp::Sub)),
+            '*' | '\u{d7}' | '\u{b7}' => Some(Cmd::Op(BinOp::Mul)),
+            '/' | '\u{f7}' | ':' => Some(Cmd::Op(BinOp::Div)),
             '%' => Some(Cmd::Op(BinOp::Mod)),
             '&' => Some(Cmd::Op(BinOp::And)),
             '|' => Some(Cmd::Op(BinOp::Or)),
             '^' => Some(Cmd::Op(BinOp::Xor)),
-            '~' => Some(Cmd::Not),
+            '~' | '\u{ac}' => Some(Cmd::Not),
             '<' => Some(Cmd::Op(BinOp::Shl)),
             '>' => Some(Cmd::Op(BinOp::Shr)),
-            '(' => Some(Cmd::LParen),
-            ')' => Some(Cmd::RParen),
+            '!' => Some(Cmd::Post(Post::Factorial)),
+            '\u{b2}' => Some(Cmd::Post(Post::Square)),
+            '\u{b3}' => Some(Cmd::Post(Post::Cube)),
+            '(' | '[' => Some(Cmd::LParen),
+            ')' | ']' => Some(Cmd::RParen),
             '=' => Some(Cmd::Equals),
             _ => None,
         };
     }
-    let scientific = mode == CalcMode::Scientific;
     match c {
-        '.' | ',' => Some(Cmd::Point),
+        '.' | ',' | '\u{66b}' => Some(Cmd::Point),
         '+' => Some(Cmd::Op(BinOp::Add)),
-        '-' => Some(Cmd::Op(BinOp::Sub)),
-        '*' | 'x' | 'X' => Some(Cmd::Op(BinOp::Mul)),
-        '/' => Some(Cmd::Op(BinOp::Div)),
+        '-' | '\u{2212}' => Some(Cmd::Op(BinOp::Sub)),
+        '*' | '\u{d7}' | '\u{b7}' | '\u{22c5}' => Some(Cmd::Op(BinOp::Mul)),
+        '/' | '\u{f7}' | ':' | '\u{2215}' => Some(Cmd::Op(BinOp::Div)),
+        '^' => Some(Cmd::Op(BinOp::Pow)),
         '%' => Some(Cmd::Post(Post::Percent)),
+        '!' => Some(Cmd::Post(Post::Factorial)),
+        '\u{b2}' => Some(Cmd::Post(Post::Square)),
+        '\u{b3}' => Some(Cmd::Post(Post::Cube)),
+        '\u{3c0}' => Some(Cmd::Const(Const::Pi)),
         '=' => Some(Cmd::Equals),
         '@' => Some(Cmd::Func(Func::Sqrt)),
-        'q' => Some(Cmd::Post(Post::Square)),
-        'r' => Some(Cmd::Func(Func::Recip)),
-        '(' => Some(Cmd::LParen),
-        ')' => Some(Cmd::RParen),
-        '^' if scientific => Some(Cmd::Op(BinOp::Pow)),
-        '!' if scientific => Some(Cmd::Post(Post::Factorial)),
-        's' if scientific => Some(Cmd::Func(Func::Sin)),
-        'o' if scientific => Some(Cmd::Func(Func::Cos)),
-        't' if scientific => Some(Cmd::Func(Func::Tan)),
-        'n' if scientific => Some(Cmd::Func(Func::Ln)),
-        'l' if scientific => Some(Cmd::Func(Func::Log)),
-        'p' if scientific => Some(Cmd::Const(Const::Pi)),
-        'e' if scientific => Some(Cmd::Const(Const::E)),
-        'E' if scientific => Some(Cmd::Exp),
+        '(' | '[' => Some(Cmd::LParen),
+        ')' | ']' => Some(Cmd::RParen),
         _ => None,
     }
 }
@@ -1041,8 +1568,9 @@ pub fn named_command(key: NamedKey) -> Cmd {
 mod tests {
     use super::*;
 
-    /// Types `keys` (one char each, `=` evaluates; `C` clears, `B`
-    /// backspace, `N` negate, `R` CE) into a calculator in `mode`.
+    /// Types `keys` into a calculator in `mode` as a keyboard does
+    /// ([`Calculator::type_char`]), except four test letters: `C` clears,
+    /// `B` is Backspace, `N` +/-, `R` CE.
     fn typed(mode: CalcMode, keys: &str) -> Calculator {
         let mut c = Calculator::new();
         c.set_mode(mode);
@@ -1053,7 +1581,10 @@ mod tests {
                 'B' => Cmd::Backspace,
                 'N' => Cmd::Negate,
                 'R' => Cmd::ClearEntry,
-                other => char_command(other, mode).unwrap_or_else(|| panic!("no key {other:?}")),
+                other => {
+                    assert!(c.type_char(other, 1), "{other:?} meant nothing");
+                    continue;
+                }
             };
             c.apply(cmd, 1);
         }
@@ -1062,6 +1593,10 @@ mod tests {
 
     fn std(keys: &str) -> Calculator {
         typed(CalcMode::Standard, keys)
+    }
+
+    fn sci(keys: &str) -> Calculator {
+        typed(CalcMode::Scientific, keys)
     }
 
     fn lines(c: &Calculator) -> (String, String) {
@@ -1166,6 +1701,7 @@ mod tests {
         assert_eq!(std("007").result_line(), "7");
         assert_eq!(std("5.+1=").result_line(), "6");
         assert_eq!(std("5.+").expression_line(), "5 +");
+        assert_eq!(std("2,5*2=").result_line(), "5", "a typed comma is the decimal point");
     }
 
     #[test]
@@ -1188,25 +1724,21 @@ mod tests {
     fn function_keys_wrap_the_operand_or_open_a_call() {
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Scientific);
-        for k in "2".chars() {
-            c.apply(char_command(k, c.mode).unwrap(), 1);
-        }
+        c.type_char('2', 1);
         c.apply(Cmd::Func(Func::Sqrt), 1);
         assert_eq!(c.expression_line(), "\u{221a}(2)");
         assert_eq!(c.result_line(), "1.4142135623730950488016887242097");
         c.apply(Cmd::Op(BinOp::Add), 1);
         c.apply(Cmd::Func(Func::Sin), 1);
         assert_eq!(c.expression_line(), "\u{221a}(2) + sin(");
-        for k in "30)=".chars() {
-            c.apply(char_command(k, c.mode).unwrap(), 1);
-        }
+        c.type_text("30)=", 1);
         assert_eq!(c.expression_line(), "\u{221a}(2) + sin(30) =");
         assert!(c.result_line().starts_with("1.9142135623730"), "{}", c.result_line());
     }
 
     #[test]
     fn the_scientific_sample_by_keyboard() {
-        let c = typed(CalcMode::Scientific, "s30)+2^10=");
+        let c = sci("sin30)+2^10=");
         assert_eq!(c.expression_line(), "sin(30) + 2^10 =");
         assert_eq!(c.result_line(), "1,024.5");
     }
@@ -1225,31 +1757,31 @@ mod tests {
 
     #[test]
     fn parentheses_close_themselves_on_equals() {
-        let c = typed(CalcMode::Scientific, "2*(3+4=");
+        let c = sci("2*(3+4=");
         assert_eq!(c.expression_line(), "2 \u{d7} (3 + 4) =");
         assert_eq!(c.result_line(), "14");
-        let c = typed(CalcMode::Scientific, "2*(3+4");
+        let c = sci("2*(3+4");
         assert_eq!(c.open_parens(), 1);
-        let c = typed(CalcMode::Scientific, ")");
+        let c = sci(")");
         assert!(c.tokens.is_empty(), "a ) with nothing open is ignored");
-        let c = typed(CalcMode::Scientific, "2(3)=");
+        let c = sci("2(3)=");
         assert_eq!(c.expression_line(), "2 \u{d7} (3) =");
         assert_eq!(c.result_line(), "6");
     }
 
     #[test]
     fn the_exponent_key_enters_scientific_notation() {
-        let c = typed(CalcMode::Scientific, "1.5E3");
+        let c = sci("1.5E3");
         assert_eq!(c.result_line(), "1.5e+3");
-        let c = typed(CalcMode::Scientific, "1.5E3N");
+        let c = sci("1.5E3N");
         assert_eq!(c.result_line(), "1.5e-3", "+/- after Exp flips the exponent's sign");
-        assert_eq!(typed(CalcMode::Scientific, "1.5E3+1=").result_line(), "1,501");
-        assert_eq!(typed(CalcMode::Scientific, "2E+1=").result_line(), "3", "a dangling E goes");
+        assert_eq!(sci("1.5E3+1=").result_line(), "1,501");
+        assert_eq!(sci("2E+1=").result_line(), "3", "a dangling E goes");
     }
 
     #[test]
     fn constants_multiply_implicitly() {
-        let c = typed(CalcMode::Scientific, "2p=");
+        let c = sci("2pi=");
         assert_eq!(c.expression_line(), "2 \u{d7} \u{3c0} =");
         assert!(c.result_line().starts_with("6.283185307179586"));
     }
@@ -1292,9 +1824,7 @@ mod tests {
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Programmer);
         c.set_base(Base::Hex);
-        for k in "2a5f".chars() {
-            c.apply(char_command(k, c.mode).unwrap(), 1);
-        }
+        c.type_text("2a5f", 1);
         assert_eq!(c.result_line(), "2A5F");
         let lines = c.programmer_lines();
         assert_eq!(lines[0], (Base::Hex, "2A5F".to_string()));
@@ -1330,17 +1860,13 @@ mod tests {
         let mut c = Calculator::new();
         c.set_mode(CalcMode::Programmer);
         c.set_word(WordSize::Byte);
-        for k in "999".chars() {
-            c.apply(char_command(k, c.mode).unwrap(), 1);
-        }
+        c.type_text("999", 1);
         assert_eq!(c.result_line(), "99", "999 does not fit a byte");
         let c2 = {
             let mut c = Calculator::new();
             c.set_mode(CalcMode::Programmer);
             c.set_word(WordSize::Byte);
-            for k in "127+1=".chars() {
-                c.apply(char_command(k, c.mode).unwrap(), 1);
-            }
+            c.type_text("127+1=", 1);
             c
         };
         assert_eq!(c2.result_line(), "-128", "overflow wraps");
@@ -1357,22 +1883,37 @@ mod tests {
         assert_eq!(c.result_line(), "9");
         c.toggle_bit(0);
         assert_eq!(c.result_line(), "8");
-        for k in "+1=".chars() {
-            c.apply(char_command(k, c.mode).unwrap(), 1);
-        }
+        c.type_text("+1=", 1);
         assert_eq!(c.result_line(), "9");
         c.toggle_bit(1);
         assert_eq!(c.result_line(), "11", "after = the result is toggled");
     }
 
     #[test]
-    fn switching_between_decimals_and_programmer_starts_over() {
+    fn switching_between_decimals_and_programmer_keeps_the_entry() {
         let mut c = std("12+3=");
         c.set_mode(CalcMode::Scientific);
         assert_eq!(c.result_line(), "15", "Standard and Scientific share the entry");
         c.set_mode(CalcMode::Programmer);
-        assert_eq!(c.result_line(), "0");
+        assert_eq!(c.result_line(), "15", "the result is an integer: it carries over");
         assert_eq!(c.history.len(), 1, "the history stays");
+        // An unfinished entry keeps its tokens, in the base.
+        let mut c = std("12*3");
+        c.set_mode(CalcMode::Programmer);
+        assert_eq!(lines(&c), ("12 \u{d7}".to_string(), "3".to_string()));
+        c.set_base(Base::Hex);
+        assert_eq!(lines(&c), ("C \u{d7}".to_string(), "3".to_string()));
+        c.set_mode(CalcMode::Scientific);
+        assert_eq!(lines(&c), ("12 \u{d7}".to_string(), "3".to_string()));
+        c.type_char('=', 1);
+        assert_eq!(c.result_line(), "36");
+        // What Programmer mode has no word for goes on as its value.
+        let mut c = std("2.5*3");
+        c.set_mode(CalcMode::Programmer);
+        assert_eq!(lines(&c), (String::new(), "7".to_string()), "7.5 has the integer part 7");
+        let mut c = typed(CalcMode::Programmer, "6&3");
+        c.set_mode(CalcMode::Standard);
+        assert_eq!(c.result_line(), "2", "AND has no decimal twin: its value goes on");
     }
 
     #[test]
@@ -1381,9 +1922,7 @@ mod tests {
         c.use_history(0);
         assert_eq!(lines(&c), ("1,280 \u{d7} 0.19 =".to_string(), "243.2".to_string()));
         c.apply(Cmd::Op(BinOp::Add), 1);
-        for k in "18.5=".chars() {
-            c.apply(char_command(k, c.mode).unwrap(), 1);
-        }
+        c.type_text("18.5=", 1);
         assert_eq!(c.result_line(), "261.7");
         c.clear_history();
         assert!(c.history.is_empty());
@@ -1410,8 +1949,10 @@ mod tests {
         assert_eq!(char_command('7', CalcMode::Standard), Some(Cmd::Digit(7)));
         assert_eq!(char_command(',', CalcMode::Standard), Some(Cmd::Point));
         assert_eq!(char_command('@', CalcMode::Standard), Some(Cmd::Func(Func::Sqrt)));
-        assert_eq!(char_command('s', CalcMode::Standard), None, "sin needs Scientific");
-        assert_eq!(char_command('s', CalcMode::Scientific), Some(Cmd::Func(Func::Sin)));
+        assert_eq!(char_command('*', CalcMode::Standard), Some(Cmd::Op(BinOp::Mul)));
+        assert_eq!(char_command('^', CalcMode::Standard), Some(Cmd::Op(BinOp::Pow)), "in every decimal mode");
+        assert_eq!(char_command('!', CalcMode::Standard), Some(Cmd::Post(Post::Factorial)));
+        assert_eq!(char_command('s', CalcMode::Scientific), None, "letters are names: type_char");
         assert_eq!(char_command('f', CalcMode::Programmer), Some(Cmd::Digit(15)));
         assert_eq!(char_command('%', CalcMode::Programmer), Some(Cmd::Op(BinOp::Mod)));
         assert_eq!(char_command('%', CalcMode::Standard), Some(Cmd::Post(Post::Percent)));
@@ -1420,5 +1961,127 @@ mod tests {
         assert_eq!(named_command(NamedKey::Delete), Cmd::ClearEntry);
         assert_eq!(named_command(NamedKey::F9), Cmd::Negate);
         assert_eq!(CalcMode::by_key("programmer"), Some(CalcMode::Programmer));
+    }
+
+    // ==== Typing: the characters a keyboard produces ====
+
+    #[test]
+    fn typed_operators_from_any_layout_compute() {
+        // `*` arrives as the CHARACTER, whatever key made it (Shift+8 on a US
+        // keyboard, Shift++ on a German one, the keypad's `*`).
+        assert_eq!(lines(&std("12*3=")), ("12 \u{d7} 3 =".to_string(), "36".to_string()));
+        assert_eq!(std("2^10=").result_line(), "1,024");
+        assert_eq!(std("(1+2)*3=").result_line(), "9");
+        assert_eq!(std("5!=").result_line(), "120");
+        assert_eq!(std("7\u{d7}6=").result_line(), "42", "the typographic times sign");
+        assert_eq!(std("84\u{f7}2=").result_line(), "42");
+        assert_eq!(std("50\u{2212}8=").result_line(), "42");
+    }
+
+    #[test]
+    fn typed_names_open_their_calls() {
+        let c = std("sqrt(16)=");
+        assert_eq!(lines(&c), ("\u{221a}(16) =".to_string(), "4".to_string()));
+        let c = std("sqrt16=");
+        assert_eq!(c.result_line(), "4", "the name opened its parenthesis; = closes it");
+        assert_eq!(std("abs(-7)=").result_line(), "7");
+        assert_eq!(std("ln(e)=").result_line(), "1");
+        assert_eq!(std("log(1000)=").result_line(), "3");
+        assert_eq!(std("log2(8)=").result_line(), "3");
+        assert_eq!(std("cos(60)=").result_line(), "0.5");
+        assert_eq!(std("2sqrt(9)=").result_line(), "6", "a name after a number multiplies");
+        assert_eq!(std("\u{221a}25=").result_line(), "5", "a typed root sign is sqrt");
+    }
+
+    #[test]
+    fn a_name_shows_while_it_is_typed_and_backspace_takes_its_letters() {
+        let mut c = Calculator::new();
+        c.type_text("2+si", 1);
+        assert_eq!(lines(&c), ("2 +".to_string(), "si".to_string()));
+        c.apply(Cmd::Backspace, 1);
+        assert_eq!(c.result_line(), "s");
+        c.type_text("qrt", 1);
+        assert_eq!(c.expression_line(), "2 + \u{221a}(", "sqrt went in at its last letter");
+        assert!(c.letters.is_empty());
+        let mut c = Calculator::new();
+        c.type_text("sin", 1);
+        assert_eq!(c.result_line(), "sin", "sin waits: sinh is a name too");
+        c.type_char('h', 1);
+        assert_eq!(c.expression_line(), "sinh(");
+    }
+
+    #[test]
+    fn letters_that_are_no_name_are_dropped_with_a_hint() {
+        let mut c = Calculator::new();
+        c.type_text("q", 1);
+        assert!(c.letters.is_empty());
+        assert!(c.hint.as_deref().is_some_and(|h| h.contains('q')), "{:?}", c.hint);
+        c.type_char('5', 1);
+        assert_eq!(c.hint, None, "the next key clears it");
+        assert_eq!(c.result_line(), "5");
+    }
+
+    #[test]
+    fn x_makes_the_entry_a_function_and_equals_plots_it() {
+        let mut c = Calculator::new();
+        c.set_mode(CalcMode::Scientific);
+        c.type_text("sin(x)*x^2", 1);
+        assert!(c.entry_is_function());
+        assert_eq!(c.expression_line(), "sin(x) \u{d7} x^");
+        assert_eq!(c.result_line(), "2");
+        c.type_char('=', 1);
+        assert_eq!(c.plots.len(), 1);
+        assert_eq!(c.plots[0].text, "sin(x) \u{d7} x^2");
+        assert_eq!(lines(&c), ("y = sin(x) \u{d7} x^2".to_string(), "Plotted as y\u{2081}".to_string()));
+        assert!(c.history.is_empty(), "a function is not a calculation");
+        c.type_text("2x+1=", 1);
+        assert_eq!(c.plots.len(), 2);
+        assert_eq!(c.plots[1].text, "2 \u{d7} x + 1");
+        c.remove_plot(0);
+        assert_eq!(c.plots.len(), 1);
+    }
+
+    #[test]
+    fn y_equals_defines_a_function_even_without_x() {
+        let mut c = Calculator::new();
+        c.type_text("y=", 1);
+        assert!(c.defining);
+        assert_eq!(c.expression_line(), "y =");
+        c.type_text("3=", 1);
+        assert_eq!(c.plots.len(), 1, "y = 3 is a horizontal line");
+        assert_eq!(c.expression_line(), "y = 3");
+        let mut c = Calculator::new();
+        c.paste("y = x^2").unwrap();
+        c.apply(Cmd::Equals, 1);
+        assert_eq!(c.plots[0].text, "x^2");
+    }
+
+    #[test]
+    fn programmer_prefixes_switch_the_base() {
+        let mut c = Calculator::new();
+        c.set_mode(CalcMode::Programmer);
+        c.type_text("0xff", 1);
+        assert_eq!(c.base, Base::Hex);
+        assert_eq!(c.result_line(), "FF");
+        assert_eq!(c.programmer_lines()[1], (Base::Dec, "255".to_string()));
+        let mut c = Calculator::new();
+        c.set_mode(CalcMode::Programmer);
+        c.type_text("0b101+1=", 1);
+        assert_eq!(c.base, Base::Bin);
+        assert_eq!(c.result_line(), "110");
+        let mut c = Calculator::new();
+        c.set_mode(CalcMode::Programmer);
+        c.type_text("6 xor 3=", 1);
+        assert_eq!(c.result_line(), "5", "operator words");
+        let mut c = Calculator::new();
+        c.set_mode(CalcMode::Programmer);
+        c.type_text("3x4=", 1);
+        assert_eq!(c.result_line(), "12", "x is times in Programmer mode");
+    }
+
+    #[test]
+    fn subscripts_name_the_graphs_functions() {
+        assert_eq!(subscript(1), "\u{2081}");
+        assert_eq!(subscript(12), "\u{2081}\u{2082}");
     }
 }
