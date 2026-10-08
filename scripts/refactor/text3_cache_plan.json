@@ -359,5 +359,30 @@
       ]
     }
   ],
-  "member_visibility": {}
+  "member_visibility": {
+    "struct TextShapingCache": [
+      "logical_items",
+      "visual_items",
+      "per_item_shaped",
+      "per_item_accessed",
+      "stage_accessed",
+      "generation"
+    ],
+    "struct GroupItem": ["source", "run_byte_offset", "style", "source_node_id"],
+    "struct CompactShapedEntry": ["clusters"],
+    "struct FontManager": ["vf_bake_cache", "loaded_fonts_memo"],
+    "impl Glyph": [
+      "bounds",
+      "character_class",
+      "is_whitespace",
+      "can_justify",
+      "justification_priority",
+      "break_opportunity_after"
+    ],
+    "impl WritingMode": ["get_direction"],
+    "impl UnifiedLayout": ["cluster_is_grapheme_continuation"],
+    "impl UnifiedConstraints": ["direction", "is_vertical"],
+    "impl StyleProperties": ["apply_override"],
+    "impl TextShapingCache": ["touch_stage", "inline_content_layout_eq"]
+  }
 }

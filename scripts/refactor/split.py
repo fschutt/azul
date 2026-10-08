@@ -224,16 +224,22 @@ def split(plan, root, index_bin, dry_run):
         insert_at(it["vis_at"], key_of(it))
         vis_log.append(f"{key_of(it)} -> pub(super)")
     for key, names in plan.get("member_visibility", {}).items():
-        if key not in keys or len(keys[key]) != 1:
-            raise PlanError(f"member_visibility: `{key}` is not exactly one item")
-        it = keys[key][0]
-        if dest[it["idx"]] in ("mod.rs", "outline"):
-            raise PlanError(f"member_visibility: `{key}` stays in mod.rs - its members need nothing")
-        have = {m["name"]: m for m in members.get(it["idx"], [])}
+        if key not in keys:
+            raise PlanError(f"member_visibility: `{key}` is no item")
+        # A key can name several items (two `impl Foo` blocks): the member is
+        # looked up in all of them and must be found exactly once.
         for name in names:
-            m = have.get(name)
-            if m is None:
-                raise PlanError(f"member_visibility: `{key}` has no member `{name}`")
+            found = [
+                (it, m)
+                for it in keys[key]
+                for m in members.get(it["idx"], [])
+                if m["name"] == name
+            ]
+            if len(found) != 1:
+                raise PlanError(f"member_visibility: `{key}::{name}` found {len(found)} times")
+            it, m = found[0]
+            if dest[it["idx"]] in ("mod.rs", "outline"):
+                raise PlanError(f"member_visibility: `{key}` stays in mod.rs - its members need nothing")
             if m["vis"] != "inherited":
                 raise PlanError(f"member_visibility: `{key}::{name}` is already `{m['vis']}`")
             insert_at(m["vis_at"], f"{key}::{name}")
