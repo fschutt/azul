@@ -97,7 +97,7 @@ Phase `crypto` (three devices in one encrypted chat room; CRYPTO.md):
        "Your rooms" (`#__azmeet_room_<room>`), and its history read back from the ciphertext
        (`AZMEET_HISTORY`): the two messages sealed to her, not the two before her;
     9. a meeting with times: Ada goes Back and fills "Schedule" (a start in two hours, local
-       time, 45 minutes): her waiting room prints `AZMEET_TIMES <start> <end>` (UTC) and shows
+       time; the form's 60 minutes): her waiting room prints `AZMEET_TIMES <start> <end>` (UTC) and shows
        them (`#__azmeet_meeting_times`, "starts in ..."); Cleo pastes its link into "Join with
        a link or a code" and gets the same times from the meeting server; the database has
        them;
@@ -1203,10 +1203,12 @@ def crypto_phase(args, binary, worker, logs, out, capped, procs):
             sealed_to = envelopes_of(db, room, key)
             if sealed_to != {devices[t] for t in tags}:
                 raise Failure("key %s is sealed to %s, not to %s" % (key, sorted(sealed_to), sorted(tags)))
-        listed = json.loads(db.query("SELECT members FROM room_key WHERE room_id = ? AND key_id = ?",
-                                     (room, key3))[0]["members"])
-        if devices["ben"] in listed:
-            raise Failure("key 3's signed member list still names Ben")
+        # The key's signed member list: the devices, comma-separated (src/store.js putKey).
+        stored = db.query("SELECT members FROM room_key WHERE room_id = ? AND key_id = ?",
+                          (room, key3))[0]["members"]
+        listed = json.loads(stored) if stored.startswith("[") else stored.split(",")
+        if sorted(listed) != sorted([devices["ada"], devices["cleo"]]):
+            raise Failure("key 3's signed member list is %s, not Ada and Cleo" % listed)
 
         def records():
             found = {r["device"]: r for r in db.query(
@@ -1264,11 +1266,12 @@ def crypto_phase(args, binary, worker, logs, out, capped, procs):
     # 9. A meeting with times: Ada's "Schedule"; Cleo joins its link from the start screen.
     ada.click(selector="#__azmeet_room_back")
     until("Ada's start screen", lambda: ada.has("#__azmeet_schedule_start"), deadline, procs)
-    starts = (datetime.datetime.now().astimezone() + datetime.timedelta(hours=2)).replace(second=0, microsecond=0)
-    minutes = 45
-    ends = starts + datetime.timedelta(minutes=minutes)
-    ada.text_input("#__azmeet_schedule_start", starts.strftime("%Y-%m-%d %H:%M"))
-    ada.text_input("#__azmeet_schedule_minutes", str(minutes))
+    # Two hours from now, this computer's time (the offset of that hour, summer time or not); the
+    # minutes field starts at 60 (typing into it would add to that).
+    local = (datetime.datetime.now() + datetime.timedelta(hours=2)).replace(second=0, microsecond=0)
+    starts = local.astimezone()
+    ends = starts + datetime.timedelta(minutes=60)
+    ada.text_input("#__azmeet_schedule_start", local.strftime("%Y-%m-%d %H:%M"))
     ada.click(selector="#__azmeet_schedule")
     meeting = until("Ada's scheduled meeting (AZMEET_WAITING)", lambda: (ada.printed("AZMEET_WAITING") or [None])[-1],
                     deadline, procs)
