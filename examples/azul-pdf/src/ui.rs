@@ -151,11 +151,13 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
     }
     let mut list = Dom::create_div().with_id(ids::RECENT).with_css(
         "display: flex; flex-direction: column; width: 560px; margin-top: 24px; border: 1px \
-         solid system:separator; border-radius: 6px;",
+         solid system:separator; border-radius: 6px; @theme(flora) { border-radius: 5px; }",
     );
+    // Under flora the list's heading is flora's label (capitals in the label ink).
     list.add_child(Dom::create_h2_with_text("Recent").with_css(
         "font-size: 13px; font-weight: 600; margin: 0px; padding: 8px 12px; border-bottom: 1px \
-         solid system:separator;",
+         solid system:separator; @theme(flora) { font-size: 11px; font-weight: bold; \
+         text-transform: uppercase; letter-spacing: 0.12em; color: system:secondary-text; }",
     ));
     for (i, doc) in s.recent.docs.iter().enumerate() {
         let mut row = Dom::create_div()
@@ -429,7 +431,9 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> 
         .with_css(
             format!(
                 "position: absolute; left: {x}px; top: {y}px; width: {w}px; height: {h}px; \
-                 background: #ffffff; box-shadow: 0px 1px 4px #00000040; overflow: hidden;"
+                 background: #ffffff; box-shadow: 0px 1px 4px #00000040; overflow: hidden; \
+                 @theme(flora) {{ box-shadow: 0px 1px 4px rgba(48, 45, 38, 0.3); @media \
+                 (prefers-color-scheme: dark) {{ box-shadow: 0px 1px 4px rgba(0, 0, 0, 0.55); }} }}"
             )
             .as_str(),
         );
@@ -751,7 +755,8 @@ fn thumb_frame(
     frame.add_child(
         Dom::create_span_with_text(format!("{}", page + 1).as_str()).with_css(
             "position: absolute; right: 4px; bottom: 4px; padding: 1px 5px; font-size: 10px; \
-             border-radius: 3px; background: #00000099; color: #ffffff;",
+             border-radius: 3px; background: #00000099; color: #ffffff; @theme(flora) { \
+             font-size: 12px; background: rgba(38, 37, 33, 0.72); color: #F4F2EA; }",
         ),
     );
     frame

@@ -220,21 +220,30 @@ fn finder_row(
     index: Option<usize>,
     data: &RefAny,
 ) -> Dom {
+    // A selected file: flat's accent row; under flora flora's selection (the soft wash and
+    // the deep ink by day, the stone at night), as every list of the engine shows it.
     let mut row = Dom::create_div().with_css(
         format!(
             "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px \
-             3px {}px; font-size: 11px; flex-shrink: 0; background: {}; color: {};",
+             3px {}px; font-size: 11px; flex-shrink: 0; background: {}; color: {};{}",
             10 + depth * 16,
             if selected { "system:accent" } else { "transparent" },
             if selected { "system:accent-text" } else { "system:text" },
+            if selected {
+                " @theme(flora) { background: system:selection-background; color: \
+                 system:selection-text; }"
+            } else {
+                ""
+            },
         )
         .as_str(),
     );
     row.add_child(
         Dom::create_icon(icon).with_css(
             format!(
-                "font-size: 14px; color: {};",
+                "font-size: 14px; color: {};{}",
                 if selected { "system:accent-text" } else { icon_color },
+                if selected { " @theme(flora) { color: system:selection-text; }" } else { "" },
             )
             .as_str(),
         ),
@@ -361,13 +370,17 @@ fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let Some(file) = s.file() else { return rail };
     for page in 0..file.page_count() {
         let here = page == s.visible_page;
+        // A page's number: flat's monospace; under flora flora's Garamond (its figures are
+        // tabular) at 12px.
         let css = if here {
             "padding: 2px 9px; font-size: 11px; font-family: monospace; border-radius: 3px; \
-             background: system:accent; color: system:accent-text; flex-shrink: 0;"
+             background: system:accent; color: system:accent-text; flex-shrink: 0; \
+             @theme(flora) { font-family: EB Garamond, Georgia, serif; font-size: 12px; }"
         } else {
             "padding: 2px 9px; font-size: 11px; font-family: monospace; border-radius: 3px; \
              background: system:control-background; color: system:secondary-text; border: 1px \
-             solid system:separator; flex-shrink: 0;"
+             solid system:separator; flex-shrink: 0; @theme(flora) { font-family: EB Garamond, \
+             Georgia, serif; font-size: 12px; }"
         };
         rail.add_child(
             Dom::create_span_with_text(format!("{}", page + 1).as_str())
