@@ -22,9 +22,16 @@ sheet of `--dialogs inline`:
        turns them into yearly prices, a tier chosen, Create test drive (a development server):
        the new Azlin drive is in the drives file with its {"type": "azlin"} auth (no secret),
        its empty bucket lists, and a file put into the bucket shows after F5.
+    6. A paid drive reaches AzDrive however late (the claim, CLAIM CONTRACT v1): Buy names a
+       claim key (the mock keeps its public half), "Stop waiting", the payment is approved at
+       the mock - the drive joins the source list in the background, without taking over the
+       window; then a second checkout, "Stop waiting", AzDrive closes, the payment is approved
+       while it is closed, AzDrive starts again and the drive arrives at its start: in the
+       drives file under the name typed, its session in the keyring, the checkout off the
+       keyring's list, its bucket listed.
 
-Buy (a checkout) is not driven here: AzDrive opens the payment page with azul's Url::open, which
-starts the system's browser even in a headless run (an engine gap, see the progress file).
+Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
+step 6 stays closed and the mock's test provider is paid directly.
 
 Usage (from the azul repository, after building libazul with the debug server and AzDrive with
 its default features `opendal` and `sql`):
@@ -33,10 +40,12 @@ its default features `opendal` and `sql`):
         [--timeout 240] [--out /tmp/azdrive-add-shots] [--keep-logs]
 
 Every key_down has its key_up (the E2E key_up rule); the shared Azlin config is a temporary one
-(azlin_e2e sets AZLIN_CONFIG), the keyring the headless backend's in-memory one.
+(azlin_e2e sets AZLIN_CONFIG), the keyring the headless backend's stand-in kept in a file of the
+run (AZ_KEYRING_FILE: it outlives AzDrive's restart in step 6).
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -45,6 +54,7 @@ import sqlite3
 import sys
 import tempfile
 
+import azlin_claim
 import azlin_e2e as e2e
 import azlin_mock_stack
 from azlin_e2e import Failure
@@ -152,6 +162,59 @@ def drives_file_entries(path):
     return text, json.loads(text)["drives"]
 
 
+# The keyring entries azcloud-kit keeps: the unfinished checkouts, a drive's session.
+PENDING_KEY = "azcloud/checkouts"
+
+
+def keyring_entries(path):
+    """The headless keyring kept in the run's file (AZ_KEYRING_FILE): entry name -> text."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return {}
+    return json.loads(text) if text.strip() else {}
+
+
+def pending_checkouts(path):
+    """The keyring's list of unfinished checkouts, by checkout id."""
+    text = keyring_entries(path).get(PENDING_KEY)
+    if not text:
+        return {}
+    return {c["checkout_id"]: c for c in json.loads(text).get("checkouts") or []}
+
+
+def buy_and_stop_waiting(app, stack, keyring_file, name):
+    """Add drive -> Buy storage -> 100 GB named `name` -> Buy -> Stop waiting: the checkout's id
+    (its claim key checked at the mock and on the keyring's list) and the dialog."""
+    dialog = open_dialog(app, "the source list",
+                         lambda: app.click(selector="#" + I("side-add-drive")))
+    app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+              lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    dialog.click("tier_0")
+    dialog.type_into("name", name, clear=len("Azlin Storage"))
+    checkout = app.after("the checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
+                         lambda: dialog.click("buy_button"))
+    record = stack.token.state.checkouts.get(checkout) or {}
+    if len(base64.b64decode(record.get("claim_key") or "")) != 32:
+        raise Failure("the checkout names no 32-byte claim key: %r" % record.get("claim_key"))
+    kept = pending_checkouts(keyring_file).get(checkout)
+    if not kept:
+        raise Failure("the checkout %s is not on the keyring's list: %r"
+                      % (checkout, sorted(pending_checkouts(keyring_file))))
+    # The keyring keeps the secret, the token server got its public half only.
+    secret = base64.b64decode(kept["claim_secret"])
+    if base64.b64encode(azlin_claim.public_key(secret)).decode("ascii") != record["claim_key"]:
+        raise Failure("the claim key at the token server is not the kept secret's public half")
+    if kept.get("name") != name or kept.get("tier") != "100GB":
+        raise Failure("the kept checkout is %r" % {k: v for k, v in kept.items()
+                                                   if k != "claim_secret"})
+    dialog.win.until("Stop waiting", lambda: dialog.win.has(add_id("stop")))
+    dialog.click("stop")
+    dialog.win.until("stopped waiting", lambda: dialog.shows("Stopped waiting"))
+    return checkout, dialog
+
+
 def run(args, logs):
     binary = e2e.find_binary("AzDrive", args.bin, "AZDRIVE_BIN")
     log("AzDrive: %s" % binary)
@@ -185,7 +248,10 @@ def run(args, logs):
         "--token-url", stack.token_url,
         "--profile", "local",
     ]
-    app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout)
+    # The headless keyring in a file of this run: it outlives AzDrive's restart (step 6).
+    keyring_file = os.path.join(logs, "keyring.json")
+    env = {"AZ_KEYRING_FILE": keyring_file}
+    app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout, extra_env=env)
     try:
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
         app.until("the debug server", lambda: app.op("get_dom_tree"))
@@ -339,9 +405,65 @@ def run(args, logs):
             "test drive made %s (500 GB) - in the drives file with its azlin auth and no secret, "
             "its bucket listed (and its new file after F5)" % bought)
 
+        # 6a. Paid after "Stop waiting": the drive joins the list in the background.
+        place_lines = app.count("AZDRIVE_PLACE")
+        first, dialog = buy_and_stop_waiting(app, stack, keyring_file, "Paid later")
+        stack.token.state.pay(first, {"card_number": azlin_mock_stack.APPROVING_CARD})
+        late = app.until("the drive paid after Stop waiting", lambda: [
+            d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d != bought])[-1]
+        app.until("its row in CLOUD", lambda: app.has(side_drive(late)))
+        if app.count("AZDRIVE_PLACE") != place_lines:
+            raise Failure("the late drive took the window elsewhere: %s"
+                          % app.last("AZDRIVE_PLACE"))
+        if len(app.window_ids()) < 2:
+            raise Failure("the late drive closed the dialog it did not come from")
+        app.until("the checkout off the keyring's list",
+                  lambda: first not in pending_checkouts(keyring_file))
+        dialog.click("cancel")
+        wait_closed(app)
+        log("6a. Buy -> Stop waiting -> paid at the token server: %s joined the source list in "
+            "the background (the window stayed where it was), its checkout left the keyring's "
+            "list" % late)
+
+        # 6b. Paid while AzDrive is closed: the drive arrives at the next start.
+        second, dialog = buy_and_stop_waiting(app, stack, keyring_file, "Paid while closed")
+        dialog.click("cancel")
+        wait_closed(app)
+        app.stop()
+        stack.token.state.pay(second, {"card_number": azlin_mock_stack.APPROVING_CARD})
+        if second not in pending_checkouts(keyring_file):
+            raise Failure("the checkout %s did not outlive AzDrive in the keyring" % second)
+        app = Drive("azdrive-restarted", binary, switches, args.debug_port, logs, args.timeout,
+                    extra_env=env)
+        app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
+        app.until("the debug server", lambda: app.op("get_dom_tree"))
+        paid = app.until("the drive paid while AzDrive was closed", lambda: [
+            d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in (bought, late)])[-1]
+        app.until("its row in CLOUD", lambda: app.has(side_drive(paid)))
+        app.until("the checkout off the keyring's list",
+                  lambda: second not in pending_checkouts(keyring_file))
+        text, entries = drives_file_entries(drives_file)
+        entry = next((e for e in entries if e["id"] == paid), None)
+        if not entry or entry["name"] != "Paid while closed":
+            raise Failure("the drives file's entry of %s is %s" % (paid, entry))
+        session = json.loads(keyring_entries(keyring_file).get("azul-storage/s3/" + paid) or "{}")
+        if session.get("drive_id") != paid or not session.get("drive_token"):
+            raise Failure("the keyring has no session of %s" % paid)
+        if "dt_" in text:
+            raise Failure("the drives file holds a drive token: %s" % text)
+        if (stack.token.state.drives.get(paid) or {}).get("tier") != "100GB":
+            raise Failure("the token server made %s" % stack.token.state.drives.get(paid))
+        app.after("the paid drive's bucket", "AZDRIVE_LISTED", r"%s / 0" % re.escape(paid),
+                  lambda: app.click(selector=side_drive(paid)))
+        app.screenshot(os.path.join(out, "6-claimed.png"))
+        log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
+            "the start under the name typed, its session in the keyring, its checkout off the "
+            "keyring's list, its bucket listed" % paid)
+
         log("PASS: Add drive connected an S3 bucket, a folder and a SQLite database (tables as "
-            "folders) and bought a test drive, from the source list, This PC's ribbon and "
-            "Home's ribbon, in the dialog's own window")
+            "folders), bought a test drive, and claimed two paid drives - one in the background "
+            "after Stop waiting, one at the start after AzDrive was closed - from the source list, "
+            "This PC's ribbon and Home's ribbon, in the dialog's own window")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
