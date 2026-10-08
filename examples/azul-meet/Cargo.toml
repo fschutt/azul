@@ -5,16 +5,18 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    azul-meet - a Google-Meet-style app on the public azul API. With a meeting
-    server (the `meet` Worker, --worker) it starts a meeting or joins one
-    by its link through a waiting room (the camera preview, the microphone and
-    camera switches, the devices, the name), and connects to every participant
-    over azul.iroh: every captured frame is H.264-encoded where an encoder
-    works (VideoToolbox on macOS; keyframe requests on loss) and JPEG-encoded
-    otherwise, and decoded into that participant's tile. The gear opens the
-    settings page the Azlin apps share. Without a reachable meeting server it
-    opens the in-process demo: Ada in a CPU-rendered window and Ben in a
-    GPU-rendered one (her camera and his screen share off until switched on).
+    azul-meet - a Google-Meet-style app on the public azul API, end-to-end
+    encrypted. With a meeting server (the `meet` Worker, --worker) it starts a
+    meeting, a scheduled meeting or a chat room, or joins one by its link (or
+    knocks with its code) through a waiting room (the camera preview, the
+    microphone and camera switches, the devices, the name), and connects to
+    every participant over azul.iroh: every captured frame is H.264-encoded
+    where an encoder works (VideoToolbox on macOS; keyframe requests on loss)
+    and JPEG-encoded otherwise, and decoded into that participant's tile. A
+    room's chat is sealed with a room key sealed to each member's device key
+    (CRYPTO.md): the meeting server keeps only ciphertext. The gear opens the
+    settings page the Azlin apps share. Without a reachable meeting server the
+    start screen says so, with Retry.
 """
 publish = false
 
