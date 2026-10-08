@@ -32,13 +32,20 @@ Measurement tools (not in the repo): /tmp/codescroll13/measure.py, run.sh (lock 
 - 18d977394 fix(code_view): a scroll renders the view's own lines, not the window (CodeView = view node +
   VirtualView `render_lines`; Scroll -> `rerender_lines`; AzCode answers Scroll with DoNothing).
 - 716137961 code_view: lines_dom binds the pinned theme before the match.
+- 530504dd1 scripts/azcode_scroll_probe.py (the per-notch cost + frame counters, AzCode vs AzWidgets).
+- 414139c5a test(precascade): RED - an identical rebuild renders its virtual views from the fresh payload
+  (dll headless test; the pre-cascade skip kept last build's VirtualView refany: CodeView's handlers and
+  lines would split after e.g. AzCode's highlight-done RefreshDom).
+- 0ce7e36fb fix(precascade): PreCascadeTransfers::virtual_views installed on the retained DOM before the
+  dataset merge (core/src/diff.rs fingerprint_dom, dll/src/desktop/shell2/common/layout.rs).
 
 ## IN PROGRESS
 - nothing (nothing compiled - the lead builds).
 
 ## NEXT (lead)
 - cargo test -p azul-layout --lib code_view; --test all a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;
-  --lib widgets:: (manifest lints: code_view now `fixtures::sample_with_lines`); build dylib + AzCode;
+  --lib widgets:: (manifest lints: code_view now `fixtures::sample_with_lines`); core --lib diff_test::;
+  dll --lib --features build-dll an_identical_rebuild_renders; build dylib + AzCode;
   scripts/azcode_e2e.py; re-measure with /tmp/codescroll13/measure.py (or scripts/azcode_scroll_probe.py).
 
 ## Open questions / follow-ups (engine, not fixed here)
