@@ -1357,6 +1357,23 @@ impl CpuHitTester {
         for dom_id in unreached {
             self.hit_dom(dom_id, &hit, &mut visited, &mut results);
         }
+        // `AZ_TRACE_HIT=1`: every query's hits, front to back - which node a
+        // click lands on, without a debugger.
+        #[cfg(feature = "std")]
+        {
+            static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *TRACE.get_or_init(|| std::env::var_os("AZ_TRACE_HIT").is_some()) {
+                let front: Vec<(usize, usize)> = results
+                    .iter()
+                    .take(12)
+                    .map(|(d, n, _)| (d.inner, n.index()))
+                    .collect();
+                eprintln!(
+                    "[hit] ({:.1}, {:.1}) -> (dom, node) front to back: {front:?}",
+                    position.x, position.y
+                );
+            }
+        }
 
         results
     }
@@ -2686,6 +2703,61 @@ mod autotest_generated {
             tester.hit_test(p(20.0, 20.0)),
             vec![(dom(1), NodeId::new(1)), (dom(0), NodeId::new(0))],
             "away from the overlay the page is on top of its host",
+        );
+    }
+
+    #[test]
+    fn a_view_host_that_paints_after_its_page_still_stays_under_it() {
+        // The host of a VirtualView whose own first item comes AFTER the
+        // view's (a border or scrollbar drawn over the content) ranked over
+        // its page, and so did every wrapper ranked at it: AzMonitor's
+        // process table (a page in the host's scroll box) took no click -
+        // the header's sort never ran. A host CONTAINS its page, as a parent
+        // contains its children: it and its ancestors are under the page;
+        // rank decides only against the host's other boxes.
+        let rect = |x: f32, y: f32, w: f32, h: f32| DisplayListItem::Rect {
+            bounds: WindowLogicalRect::new(p(x, y), LogicalSize { width: w, height: h }),
+            color: ColorU::BLACK,
+            border_radius: Default::default(),
+        };
+        let mut host = layout_result(
+            styled(""),
+            vec![
+                hot(Some(0), Some((300.0, 300.0)), None),
+                hot(Some(1), Some((300.0, 300.0)), Some(0)),
+            ],
+            vec![p(0.0, 0.0), p(0.0, 0.0)],
+            Vec::new(),
+        );
+        host.display_list = std::sync::Arc::new(DisplayList {
+            items: vec![
+                virtual_view(1, r(0.0, 0.0, 300.0, 300.0)),
+                rect(0.0, 0.0, 300.0, 300.0),
+            ],
+            // The view's item is its host's (display_list.rs
+            // `push_virtual_view_placeholder`); the host's other item comes
+            // after it.
+            layout_node_mapping: vec![Some((1, EmitPhase::Content)), Some((1, EmitPhase::ScWalk))],
+            node_mapping: vec![Some(NodeId::new(1)), Some(NodeId::new(1))],
+            ..Default::default()
+        });
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), host);
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+        assert_eq!(
+            tester.hit_test(p(20.0, 20.0)).first(),
+            Some(&(dom(1), NodeId::new(1))),
+            "the page, not its host or the host's wrappers",
         );
     }
 

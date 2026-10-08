@@ -3345,17 +3345,29 @@ impl DisplayListBuilder {
     pub(crate) fn pop_scroll_frame(&mut self) {
         self.push_item(DisplayListItem::PopScrollFrame);
     }
+    /// The view's place in the list, attributed to its HOST (`node_id`,
+    /// layout node `layout_index`): it is the host's content. Pushed after the
+    /// host's descendants, it took whatever node painted last - so a host
+    /// whose own first item came after it (a scroll box's bar) ranked over its
+    /// own page in hit testing, and took the page's clicks (AzMonitor's
+    /// process table).
     pub(crate) fn push_virtual_view_placeholder(
         &mut self,
         node_id: NodeId,
+        layout_index: usize,
         bounds: LogicalRect,
         clip_rect: LogicalRect,
     ) {
+        let (node, layout) = (self.current_node, self.current_layout);
+        self.current_node = Some(node_id);
+        self.current_layout = Some((layout_index, EmitPhase::Content));
         self.push_item(DisplayListItem::VirtualViewPlaceholder {
             node_id,
             bounds: bounds.into(),
             clip_rect: clip_rect.into(),
         });
+        self.current_node = node;
+        self.current_layout = layout;
     }
     pub(crate) fn push_border(
         &mut self,
@@ -5378,7 +5390,12 @@ where
             // Emit VirtualViewPlaceholder before popping the clip so it's inside PushClip/PopClip
             if let Some(dom_id) = node.dom_node_id {
                 if self.is_virtual_view_node(dom_id) {
-                    builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
+                    builder.push_virtual_view_placeholder(
+                        dom_id,
+                        context.node_index,
+                        node_bounds,
+                        node_bounds,
+                    );
                 }
             }
             self.close_node_clips(builder, context.node_index, node);
@@ -5386,7 +5403,12 @@ where
             // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
             if let Some(dom_id) = node.dom_node_id {
                 if self.is_virtual_view_node(dom_id) {
-                    builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
+                    builder.push_virtual_view_placeholder(
+                        dom_id,
+                        context.node_index,
+                        node_bounds,
+                        node_bounds,
+                    );
                 }
             }
         }
@@ -5745,7 +5767,7 @@ where
         if let Some(dom_id) = child_node.dom_node_id {
             if self.is_virtual_view_node(dom_id) {
                 let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
+                builder.push_virtual_view_placeholder(dom_id, child_index, child_bounds, child_bounds);
             }
         }
 
@@ -13833,6 +13855,24 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_virtual_views_place_in_the_list_is_its_hosts() {
+        // The placeholder is pushed after the host's descendants painted; it
+        // inherited the last one's attribution, so hit testing ranked the
+        // host by a later item and put it over its own page.
+        let mut b = DisplayListBuilder::new();
+        b.current_node = Some(NodeId::new(5));
+        b.current_layout = Some((5, EmitPhase::Content));
+        b.push_virtual_view_placeholder(NodeId::new(2), 2, LogicalRect::zero(), LogicalRect::zero());
+        let list = b.build();
+        assert_eq!(list.node_mapping.last(), Some(&Some(NodeId::new(2))), "the host's node");
+        assert_eq!(
+            list.layout_node_mapping.last(),
+            Some(&Some((2, EmitPhase::Content))),
+            "the host's layout node"
+        );
+    }
+
+    #[test]
     fn builder_stack_pushes_accept_extreme_arguments() {
         let mut b = DisplayListBuilder::new();
         // i32 extremes for z-index, degenerate bounds, and an all-NaN clip.
@@ -13866,7 +13906,7 @@ mod autotest_generated {
             None,
         );
         b.pop_reference_frame();
-        b.push_virtual_view_placeholder(NodeId::ZERO, LogicalRect::zero(), LogicalRect::zero());
+        b.push_virtual_view_placeholder(NodeId::ZERO, 0, LogicalRect::zero(), LogicalRect::zero());
         b.push_hit_test_area(rect(0.0, 0.0, 1.0, 1.0), (u64::MAX, TAG_TYPE_CURSOR));
         b.push_image(LogicalRect::zero(), test_image(), BorderRadius::default());
         b.push_linear_gradient(
