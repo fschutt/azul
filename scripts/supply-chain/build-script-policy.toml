@@ -614,7 +614,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "reads the consuming crate's own Cargo.toml to turn feature comments into rustdoc; read-only"
-reviewed = ["0.2.12:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+reviewed = ["0.2.12:368f4035f0f73b688bfe7d5b396145cdfe07d1f40617966fa7030294adc0ab0c"]
 
 [crate."dunce"]  # build-dependency
 allow = true
