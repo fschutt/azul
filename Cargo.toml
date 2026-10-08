@@ -53,6 +53,14 @@ exclude = [
     # wayland-client/scanner out of the azul lockfile). Lives under doc/
     # (the azul-doc tool's home) rather than as its own root folder.
     "doc/aztest",
+    # The Azlin cloud client and the `azcloud` CLI (own [workspace], own
+    # rust-toolchain.toml). It links azlin-client from the private
+    # azul-apps checkout next to this one, which azul's CI does not have,
+    # and the iso crates pin Rust 1.99 and exact tokio / rustls / iroh
+    # versions that would collide with this lockfile (iroh 1.2 here, 1.3
+    # there). A member - even behind a feature - would put the missing path
+    # into every `cargo metadata` of this workspace.
+    "examples/azcloud-api",
 ]
 
 [workspace.dependencies]
