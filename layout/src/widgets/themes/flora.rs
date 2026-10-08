@@ -9000,6 +9000,16 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
     icon_question.extend(decl::margin(0, 16, 0, 0));
     icon_question.extend(decl::themed_ink(LIGHT_ACC, DARK_GLOW));
 
+    // A message box's steps: the number in the soft ink, right-aligned in
+    // a column the texts line up after.
+    let mut step_number = vec![
+        decl::font_size(13),
+        decl::px_min_width(20.0),
+        px(CssProperty::const_text_align(StyleTextAlign::Right)),
+    ];
+    step_number.extend(decl::margin(0, 6, 0, 0));
+    step_number.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
     let warning = AlertKind::Warning;
     let mut notice = vec![decl::font_size(12)];
     notice.extend(decl::margin(0, 12, 0, 12));
@@ -9042,6 +9052,8 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
         icon_warning: glyph_of(AlertKind::Warning),
         icon_error: glyph_of(AlertKind::Danger),
         icon_question,
+        step: decl::padding(2, 0, 2, 0).to_vec(),
+        step_number,
         buttons,
         button: decl::margin(0, 0, 0, 8).to_vec(),
         notice,

@@ -2,7 +2,7 @@
 //!
 //! | dialog                  | what it shows                                                       |
 //! |-------------------------|---------------------------------------------------------------------|
-//! | [`MessageBox`]          | an info / warning / error / question glyph, a title, the text, the buttons, "Don't ask again" |
+//! | [`MessageBox`]          | an info / warning / error / question glyph, a title, the text, the steps it confirms, the buttons (one may be destructive), "Don't ask again" |
 //! | [`AboutDialog`]         | the icon, the name, the version, the copyright, the credits and their licenses |
 //! | [`ProgressDialog`]      | the status, a bar (or a spinner when the end is unknown), Cancel    |
 //! | [`LoginDialog`]         | user name, password, "Remember me", Sign in / Cancel                |
@@ -32,7 +32,7 @@ use azul_core::{
     refany::RefAny,
     window::{StringPairVec, VirtualKeyCode},
 };
-use azul_css::{AzString, StringVec};
+use azul_css::{corety::OptionUsize, AzString, StringVec};
 
 use crate::{
     callbacks::CallbackInfo,
@@ -58,6 +58,13 @@ use crate::{
 
 /// The message box's class.
 pub const MESSAGE_BOX_CLASS: &str = "__azul-native-message-box";
+/// The class of a message box's list of steps.
+pub const MESSAGE_BOX_STEPS_CLASS: &str = "__azul-native-message-box-steps";
+/// The class of one step of that list.
+pub const MESSAGE_BOX_STEP_CLASS: &str = "__azul-native-message-box-step";
+/// What a destructive button tells assistive technology when the app gave
+/// no warning of its own.
+pub const DESTRUCTIVE_REASON: &str = "This cannot be undone.";
 /// The about dialog's class.
 pub const ABOUT_CLASS: &str = "__azul-native-about-dialog";
 /// The class of the credits list.
@@ -335,13 +342,30 @@ fn button(
     theme: Option<UiTheme>,
     look: &DialogKitLook,
 ) -> Dom {
+    let face = if primary {
+        ButtonType::Primary
+    } else {
+        ButtonType::Default
+    };
+    button_in(label, face, kind, index, held, on_event, theme, look)
+}
+
+/// [`button`] in the Button face `face` (a message box's destructive
+/// button wears [`ButtonType::Danger`]).
+#[allow(clippy::too_many_arguments)]
+fn button_in(
+    label: &AzString,
+    face: ButtonType,
+    kind: StandardDialogEventKind,
+    index: usize,
+    held: Option<&'static str>,
+    on_event: &OptionStandardDialogOnEvent,
+    theme: Option<UiTheme>,
+    look: &DialogKitLook,
+) -> Dom {
     dialog_kit::row_button(
         label.clone(),
-        if primary {
-            ButtonType::Primary
-        } else {
-            ButtonType::Default
-        },
+        face,
         dialog_kit::RowAction::enabled_or(
             held.is_none(),
             || {
@@ -458,7 +482,8 @@ impl MessageBoxKind {
     }
 }
 
-/// A message box: a glyph, a title, the text, a detail line, the buttons
+/// A message box: a glyph, a title, the text, the steps of what it
+/// confirms, a detail line, the buttons (one of them may be destructive)
 /// and an optional "Don't ask again".
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -469,12 +494,21 @@ pub struct MessageBox {
     pub text: AzString,
     /// A line in the secondary ink under the text, or empty.
     pub detail: AzString,
+    /// What the confirmed action is about to do, one step each, numbered
+    /// under the text; empty for no list.
+    pub steps: StringVec,
     /// The buttons, left to right ("Save", "Don't Save", "Cancel").
     pub buttons: StringVec,
     /// The "Don't ask again" label, or empty for no checkbox.
     pub dont_ask_label: AzString,
+    /// What the destructive button tells assistive technology, or empty
+    /// for [`DESTRUCTIVE_REASON`].
+    pub destructive_warning: AzString,
     /// Hears `Button(index)` and `DontAskAgain`.
     pub on_event: OptionStandardDialogOnEvent,
+    /// The button whose action deletes, overwrites or costs money, if any:
+    /// it wears the theme's danger face.
+    pub destructive_button: OptionUsize,
     /// The primary button (the default action).
     pub default_button: usize,
     /// What it tells (the glyph).
@@ -494,14 +528,49 @@ impl MessageBox {
             title,
             text,
             detail: AzString::from_const_str(""),
+            steps: StringVec::from_const_slice(&[]),
             buttons: StringVec::from_vec(alloc::vec![AzString::from_const_str("OK")]),
             dont_ask_label: AzString::from_const_str(""),
+            destructive_warning: AzString::from_const_str(""),
             on_event: None.into(),
+            destructive_button: OptionUsize::None,
             default_button: 0,
             kind,
             theme: OptionUiTheme::None,
             dont_ask: false,
         }
+    }
+
+    /// What the confirmed action is about to do, one step each ("Order 3 x
+    /// SX65-2 at Hetzner, EUR 104.00 a month each", "Restart the token
+    /// server"): numbered under the text, a list for assistive technology
+    /// and part of what the box says when it opens. Empty: no list.
+    pub fn set_steps(&mut self, steps: StringVec) {
+        self.steps = steps;
+    }
+
+    /// [`Self::set_steps`] for the builder chain.
+    #[must_use]
+    pub fn with_steps(mut self, steps: StringVec) -> Self {
+        self.set_steps(steps);
+        self
+    }
+
+    /// Marks button `index` destructive - it deletes, overwrites or costs
+    /// money: it wears the theme's danger face (red; flora's clay) instead
+    /// of the plain or the primary one, and assistive technology hears
+    /// `warning` as its description ("Deletes 3 files for good."; empty:
+    /// "This cannot be undone."), since the colour tells it nothing.
+    pub fn set_destructive_button(&mut self, index: usize, warning: AzString) {
+        self.destructive_button = OptionUsize::Some(index);
+        self.destructive_warning = warning;
+    }
+
+    /// [`Self::set_destructive_button`] for the builder chain.
+    #[must_use]
+    pub fn with_destructive_button(mut self, index: usize, warning: AzString) -> Self {
+        self.set_destructive_button(index, warning);
+        self
     }
 
     /// The buttons and which one is the default.
@@ -567,6 +636,9 @@ fn build_message_box(m: MessageBox, look: &DialogKitLook) -> Dom {
         v
     })];
     words.extend(paragraphs(&m.text, &look.text, look));
+    if !m.steps.as_ref().is_empty() {
+        words.push(steps_list(&m.steps, look));
+    }
     if !m.detail.as_str().is_empty() {
         words.push(dialog_kit::line(m.detail.clone(), &[], &look.hint));
     }
@@ -590,30 +662,114 @@ fn build_message_box(m: MessageBox, look: &DialogKitLook) -> Dom {
             look,
         ));
     }
+    let destructive = m.destructive_button.into_option();
+    let warning = if m.destructive_warning.as_str().is_empty() {
+        AzString::from_const_str(DESTRUCTIVE_REASON)
+    } else {
+        m.destructive_warning.clone()
+    };
     let buttons: Vec<Dom> = m
         .buttons
         .as_ref()
         .iter()
         .enumerate()
         .map(|(i, label)| {
-            button(
+            let face = if destructive == Some(i) {
+                ButtonType::Danger
+            } else if i == m.default_button {
+                ButtonType::Primary
+            } else {
+                ButtonType::Default
+            };
+            let boxed = button_in(
                 label,
-                i == m.default_button,
+                face,
                 StandardDialogEventKind::Button,
                 i,
                 None,
                 &m.on_event,
                 theme,
                 look,
-            )
+            );
+            if destructive == Some(i) {
+                described(boxed, warning.clone())
+            } else {
+                boxed
+            }
         })
         .collect();
-    // A message that asks for an answer: an alert named by its title.
+    // A message that asks for an answer: an alert named by its title, which
+    // says its text and the steps it confirms.
     let a11y = AccessibilityInfo {
-        description: Some(m.text.clone()).into(),
+        description: Some(alert_description(&m.text, &m.steps)).into(),
         ..AccessibilityInfo::named(m.title.clone(), AccessibilityRole::Alert)
     };
     body(MESSAGE_BOX_CLASS, a11y, content, buttons, look)
+}
+
+/// The steps a message box confirms: a list, one row per step - its number
+/// in a column the texts line up after, its text beside it (a long step
+/// wraps under itself, not under the number), each read with its number.
+fn steps_list(steps: &StringVec, look: &DialogKitLook) -> Dom {
+    let rows: Vec<Dom> = steps
+        .as_ref()
+        .iter()
+        .enumerate()
+        .map(|(i, step)| {
+            let number = alloc::format!("{}.", i + 1);
+            Dom::create_div()
+                .with_ids_and_classes(dialog_kit::class(MESSAGE_BOX_STEP_CLASS))
+                .with_css_props(dialog_kit::part(ROW_TOP_BASE, &look.step))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    AzString::from(alloc::format!("{number} {}", step.as_str())),
+                    AccessibilityRole::ListItem,
+                ))
+                .with_children(DomVec::from_vec(alloc::vec![
+                    dialog_kit::line(AzString::from(number), FIXED_BASE, &look.step_number),
+                    dialog_kit::line(step.clone(), GROW_LABEL_BASE, &look.text),
+                ]))
+        })
+        .collect();
+    Dom::create_div()
+        .with_ids_and_classes(dialog_kit::class(MESSAGE_BOX_STEPS_CLASS))
+        .with_css_props(dialog_kit::part(COLUMN_BASE, &look.block))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::List,
+            ..AccessibilityInfo::default()
+        })
+        .with_children(DomVec::from_vec(rows))
+}
+
+/// What a message box says when it opens: its text, then the steps it
+/// confirms, one numbered line each.
+fn alert_description(text: &AzString, steps: &StringVec) -> AzString {
+    if steps.as_ref().is_empty() {
+        return text.clone();
+    }
+    let mut said = alloc::string::String::from(text.as_str().trim_end());
+    for (i, step) in steps.as_ref().iter().enumerate() {
+        if !said.is_empty() {
+            said.push('\n');
+        }
+        said.push_str(&alloc::format!("{}. {}", i + 1, step.as_str()));
+    }
+    AzString::from(said)
+}
+
+/// `boxed` - a button row's box - with its Button described to assistive
+/// technology by `description` (a destructive button's warning).
+fn described(mut boxed: Dom, description: AzString) -> Dom {
+    let kids: &mut [Dom] = boxed.children.as_mut();
+    if let Some(button) = kids.first_mut() {
+        let mut a11y = button
+            .root
+            .get_accessibility_info()
+            .cloned()
+            .unwrap_or_default();
+        a11y.description = Some(description).into();
+        button.root.set_accessibility_info(a11y);
+    }
+    boxed
 }
 
 // ---------------------------------------------------------------------------
@@ -1771,6 +1927,178 @@ mod standard_dialog_tests {
         );
     }
 
+    /// A confirmation in a message box: what it is about to do, numbered
+    /// under the text, and the button that orders in the danger face.
+    fn confirm(log: &Log) -> MessageBox {
+        MessageBox::create(
+            MessageBoxKind::Warning,
+            AzString::from("Order 3 x SX65 at Hetzner Robot?"),
+            AzString::from("Hetzner bills from the order on."),
+        )
+        .with_steps(strs(&[
+            "Order 3 x SX65-2 at Hetzner, EUR 104.00 a month each",
+            "Wait until the servers show up",
+            "Provision each into a slot",
+        ]))
+        .with_detail(AzString::from("azctl block order --yes"))
+        .with_buttons(strs(&["Cancel", "Order"]), 1)
+        .with_destructive_button(1, AzString::from("Costs money: EUR 312.00 a month."))
+        .with_on_event(
+            RefAny::new(log.clone()),
+            record as StandardDialogOnEventCallbackType,
+        )
+    }
+
+    /// What assistive technology hears after a node's name and role.
+    fn description_of(node: &Dom) -> Option<String> {
+        node.root
+            .get_accessibility_info()
+            .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string()))
+    }
+
+    #[test]
+    fn a_message_box_numbers_the_steps_of_what_it_confirms_under_its_text() {
+        let log = new_log();
+        for theme in checks::BOTH {
+            let dom = confirm(&log).with_theme(theme).dom();
+            assert_eq!(
+                texts(&dom),
+                vec![
+                    "Order 3 x SX65 at Hetzner Robot?",
+                    "Hetzner bills from the order on.",
+                    "1.",
+                    "Order 3 x SX65-2 at Hetzner, EUR 104.00 a month each",
+                    "2.",
+                    "Wait until the servers show up",
+                    "3.",
+                    "Provision each into a slot",
+                    "azctl block order --yes",
+                    "Cancel",
+                    "Order"
+                ],
+                "{}: the title, the text, the steps, the detail, the buttons",
+                theme.name()
+            );
+            let list = tc::find(&dom, MESSAGE_BOX_STEPS_CLASS).expect("the steps");
+            assert_eq!(
+                list.root.get_accessibility_info().map(|a| a.role),
+                Some(AccessibilityRole::List),
+                "{}",
+                theme.name()
+            );
+            let items: Vec<(AccessibilityRole, String)> = list
+                .children
+                .as_ref()
+                .iter()
+                .filter_map(|c| c.root.get_accessibility_info())
+                .map(|a| {
+                    let name = a
+                        .accessibility_name
+                        .as_ref()
+                        .map(|n| n.as_str().to_string())
+                        .unwrap_or_default();
+                    (a.role, name)
+                })
+                .collect();
+            assert_eq!(
+                items,
+                vec![
+                    (
+                        AccessibilityRole::ListItem,
+                        String::from("1. Order 3 x SX65-2 at Hetzner, EUR 104.00 a month each")
+                    ),
+                    (
+                        AccessibilityRole::ListItem,
+                        String::from("2. Wait until the servers show up")
+                    ),
+                    (
+                        AccessibilityRole::ListItem,
+                        String::from("3. Provision each into a slot")
+                    ),
+                ],
+                "{}: every step a list item read with its number",
+                theme.name()
+            );
+            let alert = description_of(&dom).unwrap_or_default();
+            assert!(
+                alert.starts_with("Hetzner bills from the order on.")
+                    && alert.contains("1. Order 3 x SX65-2")
+                    && alert.contains("3. Provision each into a slot"),
+                "{}: the alert says what will happen: {alert:?}",
+                theme.name()
+            );
+        }
+        let plain = message(&log).with_theme(UiTheme::Flat).dom();
+        assert!(
+            tc::find(&plain, MESSAGE_BOX_STEPS_CLASS).is_none(),
+            "no steps, no list"
+        );
+        assert_eq!(
+            description_of(&plain).as_deref(),
+            Some("Your changes will be lost if you don't save them."),
+            "without steps the alert says its text"
+        );
+    }
+
+    /// The destructive button (it orders, deletes, overwrites) is the
+    /// Button's danger face in either theme - and a screen reader hears
+    /// why, which the colour cannot tell it. It still reports its index.
+    #[test]
+    fn a_destructive_button_wears_the_danger_face_and_tells_a_screen_reader_why() {
+        let log = new_log();
+        for theme in checks::BOTH {
+            let dom = confirm(&log).with_theme(theme).dom();
+            let danger = tc::find_all(&dom, ButtonType::Danger.class_name());
+            assert_eq!(danger.len(), 1, "{}: one destructive button", theme.name());
+            assert_eq!(texts(danger[0]), vec!["Order"], "{}", theme.name());
+            assert_eq!(
+                description_of(danger[0]).as_deref(),
+                Some("Costs money: EUR 312.00 a month."),
+                "{}: the warning is its description",
+                theme.name()
+            );
+            assert!(
+                tc::find(&dom, ButtonType::Primary.class_name()).is_none(),
+                "{}: the destructive default button wears the danger face, not the accent",
+                theme.name()
+            );
+            let cancel = tc::find(&dom, ButtonType::Default.class_name()).expect("Cancel");
+            assert_eq!(texts(cancel), vec!["Cancel"], "{}", theme.name());
+            assert_eq!(
+                description_of(cancel),
+                None,
+                "{}: Cancel destroys nothing",
+                theme.name()
+            );
+        }
+
+        let delete = MessageBox::create(
+            MessageBoxKind::Warning,
+            AzString::from("Delete Report.docx?"),
+            AzString::from("It goes for good."),
+        )
+        .with_buttons(strs(&["Delete", "Cancel"]), 1)
+        .with_destructive_button(0, AzString::from(""))
+        .with_theme(UiTheme::Flat)
+        .dom();
+        let button = tc::find(&delete, ButtonType::Danger.class_name()).expect("Delete");
+        assert_eq!(texts(button), vec!["Delete"]);
+        assert_eq!(
+            description_of(button).as_deref(),
+            Some(DESTRUCTIVE_REASON),
+            "no warning given: the general one"
+        );
+        let default = tc::find(&delete, ButtonType::Primary.class_name()).expect("Cancel");
+        assert_eq!(texts(default), vec!["Cancel"], "Cancel stays the default");
+
+        click(confirm(&log).with_theme(UiTheme::Flat).dom(), "Order").expect("the button");
+        let got = log.lock().expect("log").clone();
+        assert_eq!(
+            (got[0].kind, got[0].index),
+            (StandardDialogEventKind::Button, 1)
+        );
+    }
+
     #[test]
     fn the_about_box_names_the_app_its_version_and_its_credits() {
         let log = new_log();
@@ -2010,6 +2338,10 @@ mod standard_dialog_tests {
         pinned(message(&new_log()), t, MessageBox::set_theme).dom()
     }
 
+    fn confirm_dom(t: OptionUiTheme) -> Dom {
+        pinned(confirm(&new_log()), t, MessageBox::set_theme).dom()
+    }
+
     fn about_dom(t: OptionUiTheme) -> Dom {
         pinned(
             AboutDialog::create(AzString::from("AzOffice"), AzString::from("1.0"))
@@ -2056,6 +2388,7 @@ mod standard_dialog_tests {
     fn every_standard_dialog_follows_the_app_theme() {
         for (name, dialog) in [
             ("message_box", message_dom as DialogFn),
+            ("message_box (steps, destructive)", confirm_dom as DialogFn),
             ("about_dialog", about_dom as DialogFn),
             ("progress_dialog", progress_dom as DialogFn),
             ("login_dialog", login_dom as DialogFn),

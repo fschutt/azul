@@ -32,6 +32,14 @@
 //! [`DataTableEventKind::OrderReady`] event brings the order. A table of up
 //! to [`DATA_TABLE_SYNC_ROWS`] rows is ordered at once, in the handler.
 //!
+//! ROWS THAT CHANGE: the order is made of the rows the app had when the
+//! query ran. When the app's rows change (a refresh, a log line appended,
+//! values edited) it calls [`DataTableView::invalidate_order`] on its view:
+//! a table of up to [`DATA_TABLE_SYNC_ROWS`] rows shows the new rows in the
+//! order of its sort and filters at its next build, a bigger one once the
+//! app calls [`DataTable::start_query`] (with the new rows). The table
+//! cannot tell by itself - it holds no rows and reads only the rows in view.
+//!
 //! THE APP OWNS THE STATE: the sort, the filters, the order, the selection,
 //! the scroll position, an edit and a drag in progress are the
 //! [`DataTableView`] the app hands in; every action reports a
@@ -684,16 +692,32 @@ impl DataTableView {
             .map(|i| (i, self.sort.as_slice()[i].direction))
     }
 
-    /// A new query: the order no longer fits it - unless there is no query
-    /// left, which needs no work (every row in the app's order).
-    fn bump_query(&mut self) {
+    /// The app's rows changed (a refresh, rows added or removed, values
+    /// edited): the order, made of the rows the app had before, no longer
+    /// fits them. The same sort and filters run again over the new rows -
+    /// a table of at most [`DATA_TABLE_SYNC_ROWS`] rows at its next build,
+    /// a bigger one when the app calls [`DataTable::start_query`] - and the
+    /// old order shows until then. The scroll position, the selection and
+    /// the sort stay. Without a sort or a filter there is nothing to redo:
+    /// every row shows in the app's order.
+    ///
+    /// The table cannot tell by itself: it holds no rows and reads only the
+    /// rows in view, and a refresh can keep the row count and change the
+    /// values.
+    pub fn invalidate_order(&mut self) {
         self.query_serial = self.query_serial.wrapping_add(1);
-        self.top = 0;
         if !self.has_query() {
             self.order = U32Vec::from_const_slice(&[]);
             self.ordered = false;
             self.order_serial = self.query_serial;
         }
+    }
+
+    /// A new query: the order no longer fits it (unless there is no query
+    /// left, which needs no work), and the rows show from the top.
+    fn bump_query(&mut self) {
+        self.top = 0;
+        self.invalidate_order();
     }
 
     /// The view with `order` (the rows `serial`'s query shows) in place;
@@ -2276,7 +2300,16 @@ pub(crate) struct DataTableResolved {
 }
 
 /// Lays the table out and asks the data callback for the cells in view.
+/// A table of at most [`DATA_TABLE_SYNC_ROWS`] rows whose order waits -
+/// the app changed the sort, the filters or its rows itself
+/// ([`DataTableView::invalidate_order`]) - is ordered first, as its handlers
+/// order it: it never shows an order made of other rows. (The next event
+/// hands the app that view.)
 pub(crate) fn resolve(mut table: DataTable) -> DataTableResolved {
+    if table.view.is_sorting() && table.row_count <= DATA_TABLE_SYNC_ROWS {
+        let view = core::mem::take(&mut table.view);
+        table.view = order_at_once(&table, view);
+    }
     let geo = geometry(&table);
     table.view.top = geo.top;
     table.view.left_column = geo.left;
@@ -3138,15 +3171,28 @@ pub(crate) fn requery(t: &DataTable, view: DataTableView, info: &mut CallbackInf
     if !view.is_sorting() {
         return view;
     }
+    if t.row_count <= DATA_TABLE_SYNC_ROWS {
+        return order_at_once(t, view);
+    }
     let plan = plan_of(&view, t.columns.as_slice());
     if plan.is_empty() {
         return in_app_order(view);
     }
-    if t.row_count <= DATA_TABLE_SYNC_ROWS {
-        return order_now(t, view, &plan);
-    }
     start_order_job(t, &view, plan, info);
     view
+}
+
+/// `view` with the order of its query over `t`'s rows, made here and now
+/// (a query that needs no keys - a sort on an unsortable column - keeps
+/// every row in the app's order): what a small table's handlers and its
+/// build do.
+pub(crate) fn order_at_once(t: &DataTable, view: DataTableView) -> DataTableView {
+    let plan = plan_of(&view, t.columns.as_slice());
+    if plan.is_empty() {
+        in_app_order(view)
+    } else {
+        order_now(t, view, &plan)
+    }
 }
 
 /// The order of `view`'s query, computed here and now.
@@ -3162,9 +3208,11 @@ impl DataTable {
     /// Starts bringing the order up to `self.view`'s query - for the app,
     /// after it changed the sort or the filters itself
     /// ([`DataTableView::clear_filters`], [`DataTableView::set_sort`] ...)
-    /// or its rows. The order arrives as an `OrderReady` event (also for a
-    /// small table: never inside the app's own callback). Nothing happens
-    /// when the view waits for nothing.
+    /// or its rows ([`DataTableView::invalidate_order`]; `self` then holds
+    /// the new rows). The order arrives as an `OrderReady` event (also for
+    /// a small table: never inside the app's own callback; a small table
+    /// shows it at its next build already). Nothing happens when the view
+    /// waits for nothing.
     pub fn start_query(&self, info: &mut CallbackInfo) {
         if !self.view.is_sorting() {
             return;
