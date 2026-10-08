@@ -981,3 +981,5 @@ mod a_line_too_long_for_its_box_ends_in_an_ellipsis;
 mod a_blocks_text_decoration_decorates_the_text_in_it;
 #[path = "an_inline_blocks_paint_belongs_to_its_own_node.rs"]
 mod an_inline_blocks_paint_belongs_to_its_own_node;
+#[path = "a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window.rs"]
+mod a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;

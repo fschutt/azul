@@ -2033,8 +2033,10 @@ mod label_convention {
                 .with_accessibility_name("Level")
                 .dom(),
         ));
-        // The code view: a short function, the caret on its second line.
-        all.push(("code_view", super::code_view::fixtures::sample().dom()));
+        // The code view: a short function, the caret on its second line -
+        // its lines (the DOM of its VirtualView) drawn in place, so their
+        // inks are read on the view's own ground.
+        all.push(("code_view", super::code_view::fixtures::sample_with_lines()));
         all
     }
 

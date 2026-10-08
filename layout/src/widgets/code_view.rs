@@ -13,12 +13,21 @@
 //!
 //! VIRTUALISED IN WHOLE LINES (the scroll window of [`super::cell_grid`] and
 //! [`super::data_table`]): the view shows the lines from
-//! [`CodeViewView::top_line`] until its viewport ([`CodeView::with_viewport`])
-//! is full, the columns from [`CodeViewView::left_column`]. The wheel, the
-//! keyboard and the view's own scroll bar move `top_line` / `left_column`,
-//! never a pixel offset - a million lines need no 19-million-pixel scroll
-//! extent (f32 pixel offsets are exact only to 2^24 px), so the view is
-//! exact for any length.
+//! [`CodeViewView::top_line`] until its box is full, the columns from
+//! [`CodeViewView::left_column`]. The wheel, the keyboard and the view's own
+//! scroll bar move `top_line` / `left_column`, never a pixel offset - a
+//! million lines need no 19-million-pixel scroll extent (f32 pixel offsets
+//! are exact only to 2^24 px), so the view is exact for any length.
+//!
+//! THE LINES ARE A `VirtualView`'S DOM: the view node (the focus stop, the
+//! handlers, what a screen reader hears) holds one `VirtualView`, and that
+//! view builds the lines that fit its real box. So the lines can be rendered
+//! again ALONE: a scroll renders them again and nothing else - the window
+//! around them is not rebuilt (as the terminal view's rows and the explorer
+//! of a file tree are). Scrolling by rebuilding the window cost the app's
+//! layout callback, the cascade and the layout of every node of the window
+//! for every notch of the wheel (AzCode: ~45 ms a notch, where the page of
+//! AzWidgets scrolls with no DOM work at all).
 //!
 //! THE APP OWNS THE TEXT AND THE STATE: the cursors, the scroll position and
 //! a drag in progress are the [`CodeViewView`] the app hands in; every
@@ -27,9 +36,12 @@
 //! `text`", positions in the text BEFORE the edit, ordered from the last in
 //! the text to the first so applying them in order never moves one still to
 //! come. The app applies them to its buffer (a piece table, a rope), stores
-//! `event.view` and rebuilds. Undo and redo are the app's history: the view
-//! reports [`CodeViewEventKind::Undo`] / `Redo` and the app puts the caret
-//! back with [`CodeViewView::set_cursor`].
+//! `event.view` and rebuilds. A [`CodeViewEventKind::Scroll`] is the one
+//! event that needs no rebuild: the view has rendered its lines again
+//! itself, the app stores `event.view` (the next build starts from it) and
+//! answers `Update::DoNothing`. Undo and redo are the app's history: the
+//! view reports [`CodeViewEventKind::Undo`] / `Redo` and the app puts the
+//! caret back with [`CodeViewView::set_cursor`].
 //!
 //! A POSITION is a line and a BYTE offset in its UTF-8 text
 //! ([`CodeViewPosition`]); what a user sees as a column - tabs expanded to
@@ -65,9 +77,10 @@
 use alloc::{string::String, vec::Vec};
 
 use azul_core::{
-    callbacks::{CoreCallbackData, Update},
+    callbacks::{CoreCallbackData, Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     events::FocusEventFilter,
+    geom::{LogicalPosition, LogicalRect},
     refany::RefAny,
     window::VirtualKeyCode,
 };
@@ -567,7 +580,8 @@ pub enum CodeViewEventKind {
     Edit,
     /// The cursors or the selections moved (the view may have scrolled).
     Move,
-    /// Only the scroll position changed.
+    /// Only the scroll position changed. The view has rendered its lines
+    /// again itself: store `view`, the window needs no rebuild.
     Scroll,
     /// Ctrl/Cmd+Z: undo the app's last edit, put the caret back.
     Undo,
@@ -681,10 +695,10 @@ pub struct CodeView {
     pub data_source: OptionCodeViewDataSource,
     /// Hears every action.
     pub on_event: OptionCodeViewOnEvent,
-    /// The px the view fills (gutter and scroll bar included): how many
-    /// lines and columns it builds. A little more than the real box is
-    /// fine (the rest is clipped); the view measures its box at every
-    /// action for paging and for keeping the caret in sight.
+    /// The px the view fills (gutter and scroll bar included), a hint for
+    /// the handlers until the view is laid out: its lines are built for the
+    /// box it really has (its `VirtualView`'s), and it measures that box at
+    /// every action for paging and for keeping the caret in sight.
     pub viewport_width: f32,
     /// See `viewport_width`.
     pub viewport_height: f32,
@@ -2485,6 +2499,8 @@ pub(crate) fn scroll_event(cv: &CodeView, rows: i64, columns: i64) -> Option<Cod
 
 /// The view's class; the view node also carries the app's `id`.
 pub(crate) const VIEW_CLASS_NAME: &str = "__azul-native-code-view";
+/// The root of the lines (the DOM of the view's `VirtualView`).
+pub(crate) const LINES_CLASS_NAME: &str = "__azul-native-code-view-lines";
 /// A line (its number and its text).
 pub(crate) const LINE_CLASS_NAME: &str = "__azul-native-code-view-line";
 /// Added to the caret's line.
@@ -2523,18 +2539,32 @@ pub(crate) struct CodeViewResolved {
     pub lines: Vec<ResolvedLine>,
 }
 
-/// Lays the view out and asks the data callback for the lines in view.
-pub(crate) fn resolve(mut cv: CodeView) -> CodeViewResolved {
+/// Lays the view's window out (its `top_line` kept in range) without asking
+/// for a line: what the view node is built from - its `VirtualView` asks
+/// for the lines in view when it renders them ([`render_lines`]).
+pub(crate) fn resolve_window(mut cv: CodeView) -> CodeViewResolved {
     clamp_view(&mut cv.view, cv.line_count);
     let geo = geometry(&cv);
     cv.view.top_line = geo.top;
-    let lines = (geo.top..geo.top.saturating_add(geo.rows))
+    CodeViewResolved {
+        cv,
+        geo,
+        lines: Vec::new(),
+    }
+}
+
+/// Lays the view out and asks the data callback for the lines in view.
+pub(crate) fn resolve(cv: CodeView) -> CodeViewResolved {
+    let mut resolved = resolve_window(cv);
+    let (top, rows) = (resolved.geo.top, resolved.geo.rows);
+    let lines: Vec<ResolvedLine> = (top..top.saturating_add(rows))
         .map(|index| ResolvedLine {
             index,
-            line: line_content(&cv.data_source, index),
+            line: line_content(&resolved.cv.data_source, index),
         })
         .collect();
-    CodeViewResolved { cv, geo, lines }
+    resolved.lines = lines;
+    resolved
 }
 
 impl CodeView {
@@ -2546,7 +2576,9 @@ impl CodeView {
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::UiTheme;
         let theme = self.theme.into_option();
-        let resolved = resolve(self);
+        // The view node asks for no line: the lines in view are asked for
+        // when its VirtualView renders them, once (`render_lines`).
+        let resolved = resolve_window(self);
         match theme {
             Some(UiTheme::Flora) => crate::widgets::themes::flora::code_view(resolved),
             Some(UiTheme::Flat) => crate::widgets::themes::flat::code_view(resolved),
@@ -2565,6 +2597,7 @@ use azul_css::{
         basic::{
             font::{StyleFontFamily, StyleFontFamilyVec},
             length::FloatValue,
+            pixel::PixelValue,
             StyleFontSize,
         },
         layout::{
@@ -2688,7 +2721,29 @@ pub(crate) static CODE_VIEW_OVERLAY_BASE: &[CssPropertyWithConditions] = &[
 /// The caret's bar's width, px.
 pub(crate) const CARET_PX: f32 = 2.0;
 
+/// The view node's `VirtualView`, the box its lines are rendered into: all
+/// of the view, a flex item of the view's column (as the explorer of a file
+/// tree places its view).
+pub(crate) static CODE_VIEW_LINES_VIEW_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    simple(CssProperty::const_min_height(LayoutMinHeight::const_px(0))),
+    simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+    simple(CssProperty::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))),
+];
+
+/// The root of the lines, the `VirtualView`'s DOM: a column of lines at the
+/// view's own size (set per render), clipped, the containing block of the
+/// scroll bar.
+pub(crate) static CODE_VIEW_LINES_BASE: &[CssPropertyWithConditions] = &[
+    simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    simple(CssProperty::const_position(LayoutPosition::Relative)),
+];
+
 static VIEW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(VIEW_CLASS_NAME))];
+static LINES_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(LINES_CLASS_NAME))];
 static LINE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(LINE_CLASS_NAME))];
 static CURRENT_LINE_CLASS: &[IdOrClass] = &[
     Class(AzString::from_const_str(LINE_CLASS_NAME)),
@@ -2722,9 +2777,49 @@ fn caret_value(cv: &CodeView) -> String {
     )
 }
 
-/// The view's DOM in `look`: view [line (number, text) .., scroll bar?].
-#[allow(clippy::too_many_lines)]
+/// The view's DOM in `look`: the view node - the focus stop, the handlers,
+/// what a screen reader hears - holding ONE `VirtualView`, which renders the
+/// lines ([`render_lines`] -> [`build_lines`]). A scroll renders that view
+/// again and nothing else: the lines are its DOM, not the app's.
 pub(crate) fn build(resolved: CodeViewResolved, look: &CodeViewLook) -> Dom {
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityRole};
+
+    let CodeViewResolved { cv, geo, .. } = resolved;
+    let mut classes: Vec<IdOrClass> = VIEW_CLASS.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let mut props = super::themes::decl::on_base(CODE_VIEW_BASE, &look.view);
+    props.push(simple(CssProperty::const_font_family(MONO_FAMILY)));
+    props.push(simple(CssProperty::const_font_size(StyleFontSize::px(cv.font_size))));
+    let a11y = AccessibilityInfo {
+        accessibility_value: Some(AzString::from(caret_value(&cv))).into(),
+        ..AccessibilityInfo::named(cv.accessibility_name.clone(), AccessibilityRole::Text)
+    };
+    let id = cv.id.clone();
+    // The lines are built under the app theme the view node is built under,
+    // also when they are rendered again without a rebuild of the window (a
+    // scroll), where no window pass has entered one.
+    let theme = azul_core::app_theme::current_theme();
+    let shared = RefAny::new(CodeViewShared { cv, geo, theme });
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_id(id)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_accessibility_info(a11y)
+        .with_callbacks(code_view_callbacks(&shared).into())
+        .with_child(
+            Dom::create_virtual_view(shared, VirtualViewCallback::create(render_lines)).with_css_props(
+                CssPropertyWithConditionsVec::from_const_slice(CODE_VIEW_LINES_VIEW_BASE),
+            ),
+        )
+}
+
+/// The lines of `resolved` in `look`, the DOM of the view's `VirtualView`:
+/// lines [line (number, text) ..] and the scroll bar, at the view's size.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn build_lines(resolved: CodeViewResolved, look: &CodeViewLook) -> Dom {
     use azul_core::a11y::{AccessibilityInfo, AccessibilityRole};
 
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
@@ -2857,39 +2952,92 @@ pub(crate) fn build(resolved: CodeViewResolved, look: &CodeViewLook) -> Dom {
         );
     }
 
-    let mut classes: Vec<IdOrClass> = VIEW_CLASS.to_vec();
-    if let Some(marker) = look.marker {
-        classes.push(Class(AzString::from_const_str(marker)));
-    }
-    let mut props = part(CODE_VIEW_BASE, &look.view);
-    props.push(simple(CssProperty::const_font_family(MONO_FAMILY)));
-    props.push(simple(CssProperty::const_font_size(StyleFontSize::px(cv.font_size))));
-    let a11y = AccessibilityInfo {
-        accessibility_value: Some(AzString::from(caret_value(&cv))).into(),
-        ..AccessibilityInfo::named(cv.accessibility_name.clone(), AccessibilityRole::Text)
-    };
-    let id = cv.id.clone();
-    let shared = RefAny::new(CodeViewShared { cv, geo });
+    let mut root = CODE_VIEW_LINES_BASE.to_vec();
+    root.push(px_width(geo.width));
+    root.push(px_height(geo.height));
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-        .with_id(id)
-        .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
-        .with_tab_index(azul_core::dom::TabIndex::Auto)
-        .with_accessibility_info(a11y)
-        .with_callbacks(code_view_callbacks(&shared).into())
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(LINES_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(root))
         .with_children(DomVec::from_vec(children))
+}
+
+/// The lines of `resolved` in the view's look: the theme it is pinned to,
+/// or - following the app theme - both themes' looks in the structure of
+/// the current one, as the view node is built (`CodeView::dom`).
+pub(crate) fn lines_dom(resolved: CodeViewResolved) -> Dom {
+    use crate::widgets::themes::UiTheme;
+    let theme = resolved.cv.theme.into_option();
+    match theme {
+        Some(UiTheme::Flora) => flora_lines(resolved),
+        Some(UiTheme::Flat) => flat_lines(resolved),
+        None => crate::widgets::themes::theme_blocks::follow_app_theme(resolved, flat_lines, flora_lines),
+    }
+}
+
+/// The lines in flat's look.
+fn flat_lines(resolved: CodeViewResolved) -> Dom {
+    build_lines(resolved, &crate::widgets::themes::flat::code_view_look())
+}
+
+/// The lines in flora's look.
+fn flora_lines(resolved: CodeViewResolved) -> Dom {
+    build_lines(resolved, &crate::widgets::themes::flora::code_view_look())
+}
+
+/// The view's `VirtualView`: the lines that fit the box it really has and
+/// the scroll bar, from the view the handlers keep in the shared data -
+/// rendered with every build of the window, and again ALONE after a scroll
+/// (`deliver`), so a wheel notch costs the lines in view and never the
+/// window around them.
+extern "C" fn render_lines(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let size = info.get_bounds().get_logical_size();
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    let Some((mut cv, theme)) = data
+        .downcast_ref::<CodeViewShared>()
+        .map(|s| (s.cv.clone(), s.theme.clone()))
+    else {
+        return VirtualViewReturn::keep_current(rect, rect);
+    };
+    // The box the view has, not the app's hint: the lines that fit it are
+    // the lines built, and the scroll bar spans it.
+    if size.width.is_finite() && size.width > 0.0 {
+        cv.viewport_width = size.width;
+    }
+    if size.height.is_finite() && size.height > 0.0 {
+        cv.viewport_height = size.height;
+    }
+    let (width, height) = (cv.viewport_width, cv.viewport_height);
+    // The data callback runs with no borrow of the view's data held.
+    let resolved = resolve(cv);
+    let (geo, view) = (resolved.geo.clone(), resolved.cv.view.clone());
+    let dom = {
+        let _theme = azul_core::app_theme::ThemeScope::enter(theme);
+        lines_dom(resolved)
+    };
+    // The handlers hit-test against the lines as they are drawn.
+    if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
+        s.geo = geo;
+        s.cv.view = view;
+        s.cv.viewport_width = width;
+        s.cv.viewport_height = height;
+    }
+    VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
 // ---- the handlers: one set on the view node, the view hit-tests itself ----
 
-/// What every handler of one build shares: the view (its state and
-/// callbacks) and where its lines sit. A drag in progress updates the view
-/// here too, so the next move compares against it before the app's
-/// rebuild arrives.
+/// What every handler of one build and the view's `VirtualView` share: the
+/// view (its state and callbacks) and where its lines sit. Every event's
+/// view is stored here before the app hears it, so the next action - and
+/// the lines rendered again after a scroll - start from it before (or
+/// without) the app's rebuild; the render writes back the geometry it drew.
 #[derive(Debug)]
 pub(crate) struct CodeViewShared {
     pub cv: CodeView,
     pub geo: Geometry,
+    /// The app theme the view node was built under (the lines are built
+    /// under it).
+    pub theme: AzString,
 }
 
 /// A copy of the view and its geometry from a handler's payload.
@@ -2913,10 +3061,37 @@ fn fire(cv: &CodeView, info: CallbackInfo, event: CodeViewEvent) -> Update {
     }
 }
 
-/// Stores the event's view, then the app hears it.
-fn deliver(data: &mut RefAny, cv: &CodeView, info: CallbackInfo, event: CodeViewEvent) -> Update {
+/// Stores the event's view, then the app hears it. A `Scroll` moves only
+/// the lines, so the view renders them again itself (its `VirtualView`, from
+/// the view just stored) and the app need not rebuild anything for it: a
+/// scroll answered with a rebuild of the window paid the app's layout
+/// callback and the cascade and the layout of every node of the window for
+/// every notch of the wheel.
+fn deliver(data: &mut RefAny, cv: &CodeView, mut info: CallbackInfo, event: CodeViewEvent) -> Update {
     store_view(data, &event.view);
-    fire(cv, info, event)
+    let scrolled = event.kind == CodeViewEventKind::Scroll;
+    let update = fire(cv, info, event);
+    if scrolled {
+        rerender_lines(&mut info);
+    }
+    update
+}
+
+/// Renders THIS view's lines again: the `VirtualView` that is the first
+/// child of the view node the handler runs on (the focused node for a key,
+/// the node the listener sits on for the pointer) - not every view of the
+/// window (the explorer's tree, a title bar's glyph, a live status label are
+/// views too).
+fn rerender_lines(info: &mut CallbackInfo) {
+    let host = info.get_hit_node();
+    let lines = host
+        .node
+        .into_crate_internal()
+        .and_then(|node| info.get_first_child_node(host.dom, node));
+    match lines {
+        Some(lines) => info.trigger_virtual_view_rerender(host.dom, lines),
+        None => info.trigger_all_virtual_view_rerender(),
+    }
 }
 
 /// The view's handlers.
@@ -3295,5 +3470,14 @@ pub(crate) mod fixtures {
         let mut cv = over("fn main() {\n\tlet answer = 42;\n    println!(\"{answer}\");\n}");
         cv.view.set_cursor(CodeViewPosition::create(1, 5));
         cv
+    }
+
+    /// The sample as a window shows it: the view node with its lines in
+    /// the place of the `VirtualView` that renders them - what the lint
+    /// manifest checks, the lines' inks read on the view's own ground.
+    pub(crate) fn sample_with_lines() -> Dom {
+        let mut dom = sample().dom();
+        dom.set_children(DomVec::from_vec(alloc::vec![lines_dom(resolve(sample()))]));
+        dom
     }
 }

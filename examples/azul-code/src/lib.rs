@@ -14,7 +14,9 @@
 //!
 //! Everything long is virtualized: the explorer and the search results are
 //! `VirtualView`s that build the rows in view, the CodeView builds the lines
-//! in view, the terminal's scrollback is read a screen at a time.
+//! in view (in a `VirtualView` of its own, which a scroll renders again
+//! without a rebuild of the window), the terminal's scrollback is read a
+//! screen at a time.
 //!
 //! - [`buffer`]: the text of an open file, a piece table (plain Rust).
 //! - [`highlight`]: syntect, incremental by line, checkpoints, a background
