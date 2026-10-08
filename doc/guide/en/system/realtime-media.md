@@ -239,10 +239,14 @@ Nothing arrives unless you poll `recv`; AzMeet does it every 15 ms.
 ## AzMeet: meetings, audio, leaving
 
 `examples/azul-meet` is a meeting app on the public API. Started with a meeting
-server it shows **New meeting** and **Join with a link**; in a meeting it shows the
-invite link, the people, a tile per camera or screen, and the buttons **Mute**,
-**Deafen**, **Start video**, **Share screen**, **Speaker view** / **Grid view** and
-**Leave**.
+server it shows **New meeting**, **New chat room**, **Schedule** (a meeting with a
+start and a length), **Join with a link or a code** and **Your rooms** (with their
+unread counts); a room opens in its room view - its chat, its members with their
+safety codes, **Join call**, **Leave room**. In a call it shows the invite link, the
+people, a tile per camera or screen, and the buttons **Mute**, **Deafen**, **Start
+video**, **Share screen**, **Speaker view** / **Grid view** and **Leave**. Every
+room is end-to-end encrypted: the meeting server keeps nothing it can read (see
+*End-to-end encryption* below).
 
 ### Rooms
 
@@ -252,11 +256,14 @@ apps find each other:
 
 | Request | What AzMeet uses it for |
 |---|---|
-| `POST /rooms` | New meeting: a room id (the credential), a short code, the link `azlin://meet/<room>` |
+| `POST /rooms` with `{room, invite_key, kind, starts_at, ends_at}` | A new room: the id and the invite secret are made in the app, the server keeps the invite key (public) and gives a short code |
 | `GET /rooms/<id or code>?format=json` | Joining: resolves a pasted link or code |
-| `POST /rooms/<id>/peers` with `{node_id, ticket, name}` | Announces this app's iroh ticket, every 20 s |
-| `GET /rooms/<id>/peers?except=<node_id>` | Reads everyone else's ticket, every 2 s |
-| `DELETE /rooms/<id>/peers/<node_id>` | Leaving: off the list at once |
+| `PUT /rooms/<id>/members/<device>`, `POST .../members/<device>/admit`, `DELETE .../members/<device>` | This device's signed member record (with the link's proof, or a knock), letting a knock in, leaving the room |
+| `POST /rooms/<id>/keys`, `POST /rooms/<id>/messages` | A room key sealed to each member; a sealed message |
+| `GET /rooms/<id>/sync?for=<device>&after=<seq>&keys_after=<seq>` | The members, the key copies sealed to this device and the messages since the last read: every 2 s for the room on screen, every 15 s for the others |
+| `POST /rooms/<id>/peers` with `{node_id, ticket, device, sig}` | Announces this app's iroh ticket, signed by its device, every sixth of the server's peer TTL |
+| `GET /rooms/<id>/peers?except=<node_id>` | Reads everyone else's ticket, every 2 s; only a member's signed one is dialled or taken |
+| `DELETE /rooms/<id>/peers/<node_id>` | Leaving the call: off the list at once |
 
 Of each pair of participants the one with the lower endpoint id dials, so two
 peers that find each other in the same poll open one connection. Every request
@@ -265,17 +272,53 @@ network. A participant that stops announcing drops off after 120 s, a room after
 a day without announcements.
 
 The start screen has a **Meeting server** field, prefilled with `--worker`, else
-the address saved last time, else `AZMEET_WORKER`, else the built-in default
-(`PRODUCTION_WORKER`, baked in with `AZMEET_DEFAULT_WORKER=<url>` at build time,
-else the local mock at `http://127.0.0.1:8787`). Pressing Enter or leaving the field makes its address the
-meeting server for every request from then on, checks it with `GET /health`, and
-saves it (`AzMeet/settings.txt` in the per-user config folder,
-`FilePath::get_config_dir`; written to a temporary file and renamed) once it
-answers. The line under the field says whether it answers. The in-process demo
-opens only when nothing is saved or set and the built-in default does not answer.
-A headless run (`AZ_BACKEND=headless`) without a data root of its own neither
-reads nor writes the saved address, so `--worker` / `AZMEET_WORKER` always win in
-tests.
+the address saved last time, else the shared Azlin config's (azul-appkit
+`azlin_config`: `AZMEET_WORKER`, else `endpoints.meet` of the file `AZLIN_CONFIG`
+names or of `~/.azlin/config.json`), else one built in at build time
+(`AZMEET_DEFAULT_WORKER=<url>`), else the config profile's (`local`, the default:
+the local stack's `http://127.0.0.1:8790`), else none - the field asks for one.
+Pressing Enter or leaving the field makes its address the meeting server for every
+request from then on, checks it with `GET /health`, and saves it (`meet/settings.json`
+in the Azlin data tree) once it answers. The line under the field says whether it
+answers, and where the address came from; a server that does not answer is asked
+again every 10 seconds, and **Retry** asks now. A headless run (`AZ_BACKEND=headless`)
+without a data root of its own neither reads nor writes the saved address, so the
+configuration always wins in tests. The relays come the same way: `--relay`,
+`AZMEET_RELAY`, `endpoints.relay`, the profile's (`local`: `http://127.0.0.1:3340`,
+`production`: n0's).
+
+### End-to-end encryption
+
+The design is `examples/azul-meet/CRYPTO.md`; the meeting server and the relay are
+not trusted with anything readable.
+
+- **The device.** Every device has an Ed25519 key (it signs) and an X25519 key (keys
+  are sealed to it), both from one seed in the OS keyring (`--identity-file` keeps it
+  in a file instead, mode 0600). Its **safety code** - 20 digits from both public
+  keys - is what two people compare; the room view lists every member's, with
+  **Mark verified**.
+- **The link.** A room's id and its **invite secret** are made in the app; the secret
+  travels only in the link's fragment (`azlin://meet/<room>#<secret>`). The server
+  keeps the invite key derived from it (public), and a member record carries the
+  key's proof. Without the secret - with only the code - a device **knocks**, and a
+  member lets it in with **Admit**; its first room key brings it the secret.
+  Members' names are sealed with a key from the secret.
+- **Room keys.** A message is sealed (XChaCha20-Poly1305, padded to 128 bytes) with
+  the room's newest key sealed to exactly the members listed now, and signed. When
+  the members change (someone leaves, someone is let in) the next message is under a
+  new key, sealed to those who are there: one who left reads nothing after.
+- **Calls.** An iroh ticket is announced signed by its member's device; a connection
+  from an endpoint no member announced is held until a read of the list confirms it,
+  and dropped otherwise.
+- **What the server holds:** room ids, codes, times, public keys, signatures, the
+  sealed names, the sealed key copies and the sealed messages, their sizes in steps
+  and their times - no message, no name (but a knock's), no secret.
+
+stdout, for scripts: `AZMEET_IDENTITY <device> <keyring|file|session>`,
+`AZMEET_SAFETY <code>`, `AZMEET_KEY <room> epoch=<n> key=<id> members=<n> by=<who>`,
+`AZMEET_MEMBER <room> <joined|left|knocking> <name> <code>`, `AZMEET_HISTORY <room>
+<n>`, `AZMEET_KNOCK`, `AZMEET_ADMITTED`, `AZMEET_VERIFIED`, `AZMEET_LEFT_ROOM`,
+`AZMEET_TIMES <start> <end>`, `AZMEET_CHAT <name>: <text>`.
 
 ### Video
 
@@ -440,8 +483,9 @@ forwarders is azul's `IrohLoadBalancer`.
 ### Run it
 
 ```sh
-# the meeting server (azul-apps)
-node cf-workers/meet/dev-server.mjs
+# the meeting server (azul-apps): its dev server, or the whole local stack
+node cf-workers/meet/dev-server.mjs          # http://127.0.0.1:8787
+local/up.sh && . local/state/env             # wrangler dev on :8790, a relay on :3340
 
 # two participants (azul)
 cargo run --release -p AzMeet -- --worker http://127.0.0.1:8787 --name Ada
@@ -450,9 +494,10 @@ cargo run --release -p AzMeet -- --worker http://127.0.0.1:8787 --name Ben
 
 Ada clicks **New meeting** and **Copy link**; Ben pastes the link and clicks
 **Join**. Each lands in the meeting's waiting room first: the camera preview, the
-microphone and camera switches, the devices, the name, the meeting's code and link,
-and who is in it already. Without a reachable meeting server AzMeet opens its
-in-process demo instead: two windows, one per participant, linked by two endpoints.
+microphone and camera switches, the devices, the name, the meeting's code, link and
+times, and who is in it already. With only the code Ben's button says **Ask to
+join**, and Ada lets him in from the people panel. Without a reachable meeting
+server the start screen says so, with **Retry**.
 
 Every setting is a switch (`AzMeet --help`). Each also reads its `AZMEET_*`
 environment variable when the switch is not given (`1` for a switch without a
@@ -460,11 +505,14 @@ value), so older scripts keep working; the switch wins.
 
 | Switch (variable) | Meaning |
 |---|---|
-| `--worker <url>` (`AZMEET_WORKER`) | The meeting server, e.g. `http://127.0.0.1:8787`; the switch wins over the one saved from the start screen, the variable does not |
+| `--worker <url>` (`AZMEET_WORKER`) | The meeting server, e.g. `http://127.0.0.1:8787`; the switch wins over the one saved from the start screen, the variable (and the Azlin config) does not |
+| `--identity-file <path>` (`AZMEET_IDENTITY_FILE`) | Keep this device's key in that file (mode 0600), not the system keyring - a headless run's keyring lives in memory |
+| `--open <link>` (`AZMEET_OPEN`) | Open that room's view at start (joining it, or knocking with a code) |
+| `--chat-room`, `--starts-at <time>`, `--ends-at <time>` (`AZMEET_CHAT_ROOM=1`, `AZMEET_STARTS_AT`, `AZMEET_ENDS_AT`) | With `--autocreate`: a chat room instead of a meeting; a meeting's times (RFC 3339) |
 | `--name <name>` (`AZMEET_NAME`) | The name the others see |
 | `--autocreate`, `--join <link>` (`AZMEET_AUTOCREATE=1`, `AZMEET_JOIN`) | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
 | `--waiting-room` (`AZMEET_WAITING_ROOM=1`) | With those, stop in the waiting room first (`AZMEET_WAITING <link>`) |
-| `--relay <off\|default\|url>` (`AZMEET_RELAY`) | The iroh relays (off for a meeting server on this machine) |
+| `--relay <off\|default\|url>` (`AZMEET_RELAY`) | The iroh relays (else the Azlin config's; else off for a meeting server on this machine) |
 | `--relay-only` (`AZMEET_RELAY_ONLY=1`) | Never a direct path: no UDP socket, every packet through the relay (`IrohConfig::with_relay_only`); stdout `AZMEET_TRANSPORT relay-only <url>`, `AZMEET_PATH <peer> relayed` |
 | `--test-tone` (`AZMEET_TEST_TONE=1`) | A 440 Hz tone replaces the microphone, unmuted from the start |
 | `--test-pattern` (`AZMEET_TEST_PATTERN=1`) | Moving colour bars replace the camera (on from the start) and the screen; a **Drop a video packet** button drops the next packet |
@@ -513,7 +561,16 @@ waiting room, video and chat, and the proof that the relay carried the call: eac
 side prints `AZMEET_PATH <other> relayed` and never `direct`, its statistics say
 so, and the relay's own byte counters grew both ways. Build the relay once, outside
 the repository: `cargo install iroh-relay@1.2.0 --locked --features server --root
-~/.cache/azul/iroh-relay`; without it the relay phase is skipped and says so.
+~/.cache/azul/iroh-relay`; without it (and without `--relay-url`) the relay phase is
+skipped and says so. Its `crypto` phase runs three devices in one encrypted chat
+room: Ben opens the link, Cleo knocks with the code and Ada admits her, each room key
+(1 for two, 2 for three, 3 once Ben left) is checked on stdout and in the meeting
+server's database (who each key is sealed to, which key each message is under), every
+safety code against the public keys there, and no value of any table - nor what it
+decodes to - holds a message, a name, the invite secret or a device seed; Cleo
+restarts and reads the history back from the ciphertext, and Ada schedules a meeting
+that Cleo joins from the start screen. `--worker-url`, `--sqld-url`,
+`--sqld-token-file` and `--relay-url` run it against a running stack.
 
 A headless test must never open a real device. Under `AZ_BACKEND=headless` only
 `AudioDeviceList::enumerate` is answered by the mock store (see
