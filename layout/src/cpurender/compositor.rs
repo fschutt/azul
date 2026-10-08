@@ -8466,6 +8466,60 @@ mod autotest_generated {
         );
     }
 
+    /// CSS opacity is a GROUP effect: it applies to the element and to
+    /// everything painted inside it (CSS Color 4, `opacity`). A layer nested
+    /// in an opacity group - a transformed descendant, a scroll frame, an
+    /// inner group - is composited THROUGH the group, never straight onto the
+    /// output. Flora's unchecked check box is an opacity-0 mark around a
+    /// rotated tick, and the tick - a layer of its own - showed through.
+    #[test]
+    fn a_layer_inside_an_opacity_group_is_composited_through_the_group() {
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        for opacity in [0.0_f32, 0.5] {
+            let mut c = CompositorState::new(16, 16);
+            let list = dlist(vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wlr(0.0, 0.0, 16.0, 16.0),
+                    opacity,
+                    opacity_key: None,
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: translate(4.0, 4.0),
+                    bounds: wlr(0.0, 0.0, 8.0, 8.0),
+                },
+                rect_item(0.0, 0.0, 8.0, 8.0, red),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopOpacity,
+            ]);
+            c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+            let (rr, mut gc, st) = render_deps();
+            c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+                .unwrap();
+            let mut out = AzulPixmap::new(16, 16).unwrap();
+            out.fill(0, 0, 0, 255);
+            c.composite_frame(&mut out, 1.0);
+            let px = at(&out, 8, 8);
+            if opacity == 0.0 {
+                assert_eq!(
+                    px,
+                    [255, 255, 255, 255],
+                    "an opacity-0 group hides the layer inside it"
+                );
+            } else {
+                assert!(
+                    px[0] > 240 && (100..160).contains(&px[1]) && (100..160).contains(&px[2]),
+                    "a half-opacity group shows the layer inside it at half: {px:?}"
+                );
+            }
+        }
+    }
+
     // ================= windowed structural display-list damage ===============
 
     /// THE CLASS (dl_text_patch on ubuntu, 2026-08-24): retyping a
