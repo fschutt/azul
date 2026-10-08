@@ -675,6 +675,13 @@ pub enum NodeType {
     /// materializing an estimated break does not move content. XML tag:
     /// `<pagebreak/>`; constructor: [`Dom::create_page_break`].
     PageBreak,
+    /// `<webview src=..>` - a native web view embedded as a replaced
+    /// element (300x150 unless sized), the page in the node's `src`
+    /// attribute. It reports its navigations, loads and title to the app as
+    /// `ComponentEventFilter::WebView*` events; there is no script bridge.
+    /// The config rides inline like `TransientWindow`'s. See
+    /// `crate::webview`; constructor: [`Dom::create_webview`].
+    WebView(crate::webview::WebViewConfig),
 }
 
 /// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
@@ -909,6 +916,7 @@ impl NodeType {
             Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
             GeolocationProbe(cfg) => GeolocationProbe(*cfg),
             Self::PageBreak => Self::PageBreak,
+            Self::WebView(cfg) => Self::WebView(*cfg),
         }
     }
 
@@ -925,6 +933,7 @@ impl NodeType {
                 "geolocation-probe(hi={}, bg={}, max={}m, every={}ms)",
                 cfg.high_accuracy, cfg.background, cfg.max_accuracy_m, cfg.min_interval_ms
             )),
+            Self::WebView(cfg) => Some(format!("webview(storage={})", cfg.storage.as_str())),
             _ => None,
         }
     }
@@ -1128,6 +1137,7 @@ impl NodeType {
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::GeolocationProbe(_) => NodeTypeTag::GeolocationProbe,
             Self::PageBreak => NodeTypeTag::PageBreak,
+            Self::WebView(_) => NodeTypeTag::WebView,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
@@ -3059,6 +3069,26 @@ impl NodeData {
             callback: callback.into(),
             refany: data,
         });
+        nd
+    }
+
+    /// A `<webview>` showing the page `src`, its cookies and storage in the
+    /// app's ephemeral store (see [`NodeType::WebView`]). The page is the
+    /// node's `src` attribute, as on an iframe.
+    #[must_use]
+    pub fn create_webview(src: AzString) -> Self {
+        Self::create_webview_with_config(src, crate::webview::WebViewConfig::ephemeral())
+    }
+
+    /// [`Self::create_webview`] with an explicit configuration (a persistent
+    /// store: `WebViewConfig::persistent()`).
+    #[must_use]
+    pub fn create_webview_with_config(
+        src: AzString,
+        config: crate::webview::WebViewConfig,
+    ) -> Self {
+        let mut nd = Self::create_node(NodeType::WebView(config));
+        nd.set_attributes(vec![AttributeType::Src(src)].into());
         nd
     }
 
@@ -5107,6 +5137,34 @@ impl Dom {
     #[must_use]
     pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
         Self::create_node(NodeType::GeolocationProbe(config))
+    }
+
+    /// Creates a `<webview>` showing the page `src`: a native web view laid
+    /// out as a replaced element - 300x150 unless CSS (or the markup's
+    /// `width` / `height`) sizes it - in the app's ephemeral store.
+    ///
+    /// The view reports to the app through four component events at this
+    /// node: `WebViewNavigationRequested` (cancel with `prevent_default` -
+    /// how a sign-in flow catches its redirect), `WebViewLoadFinished`,
+    /// `WebViewTitleChanged` and `WebViewLoadFailed`, each read with
+    /// `CallbackInfo::get_webview_event`. A changed `src` on the same node
+    /// navigates the view it has; `CallbackInfo::webview_navigate`,
+    /// `webview_reload` and `webview_go_back` drive it from a callback.
+    #[inline]
+    #[must_use]
+    pub fn create_webview(src: AzString) -> Self {
+        Self::create_from_data(NodeData::create_webview(src))
+    }
+
+    /// [`Self::create_webview`] with an explicit configuration, e.g. the
+    /// app's persistent store (`WebViewConfig::persistent()`).
+    #[inline]
+    #[must_use]
+    pub fn create_webview_with_config(
+        src: AzString,
+        config: crate::webview::WebViewConfig,
+    ) -> Self {
+        Self::create_from_data(NodeData::create_webview_with_config(src, config))
     }
 
     // Semantic HTML Elements with Accessibility Guidance

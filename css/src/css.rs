@@ -1500,6 +1500,10 @@ pub enum NodeTypeTag {
     /// `Dom::create_page_break()`): an empty block with UA
     /// `break-before: page`. CSS tag: `pagebreak`.
     PageBreak,
+    /// A native web view (`<webview src=..>` / `Dom::create_webview`), a
+    /// replaced element. CSS tag: `webview`. APPENDED at the end for ABI
+    /// stability.
+    WebView,
 }
 
 /// Error returned when a CSS tag name string cannot be mapped to a [`NodeTypeTag`].
@@ -1772,6 +1776,7 @@ impl NodeTypeTag {
             "icon" => Ok(Self::Icon),
             "geolocation-probe" => Ok(Self::GeolocationProbe),
             "pagebreak" => Ok(Self::PageBreak),
+            "webview" => Ok(Self::WebView),
 
             // Pseudo-elements (usually prefixed with ::)
             "before" | "::before" => Ok(Self::Before),
@@ -2007,6 +2012,7 @@ impl fmt::Display for NodeTypeTag {
             Self::Icon => write!(f, "icon"),
             Self::GeolocationProbe => write!(f, "geolocation-probe"),
             Self::PageBreak => write!(f, "pagebreak"),
+            Self::WebView => write!(f, "webview"),
 
             // Pseudo-elements
             Self::Before => write!(f, "::before"),

@@ -2234,7 +2234,11 @@ mod autotest_generated {
             EventType::MediaControl => EventType::PointerLockChange,
             EventType::PointerLockChange => EventType::SystemAudioChange,
             EventType::SystemAudioChange => EventType::TypingStyleChanged,
-            EventType::TypingStyleChanged => return None,
+            EventType::TypingStyleChanged => EventType::WebViewNavigationRequested,
+            EventType::WebViewNavigationRequested => EventType::WebViewLoadFinished,
+            EventType::WebViewLoadFinished => EventType::WebViewTitleChanged,
+            EventType::WebViewTitleChanged => EventType::WebViewLoadFailed,
+            EventType::WebViewLoadFailed => return None,
         })
     }
 
@@ -2399,6 +2403,10 @@ mod autotest_generated {
             (EventType::PointerLockChange, EventData::None),
             (EventType::SystemAudioChange, EventData::None),
             (EventType::TypingStyleChanged, EventData::None),
+            (EventType::WebViewNavigationRequested, EventData::None),
+            (EventType::WebViewLoadFinished, EventData::None),
+            (EventType::WebViewTitleChanged, EventData::None),
+            (EventType::WebViewLoadFailed, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
