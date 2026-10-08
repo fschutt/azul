@@ -114,6 +114,18 @@ impl Args {
         })
     }
 
+    /// Whether the start opens a blank presentation: nothing to open (no deck id, no sample)
+    /// and a screen that shows a deck - File > New and File > Open start on their own pages.
+    #[must_use]
+    pub fn starts_with_a_blank_deck(&self) -> bool {
+        self.open.is_none()
+            && !self.sample()
+            && !matches!(
+                self.screen,
+                StartScreen::BackstageNew | StartScreen::BackstageOpen
+            )
+    }
+
     /// `--sample`: start on the sample deck.
     #[must_use]
     pub fn sample(&self) -> bool {
@@ -151,6 +163,31 @@ mod tests {
         assert_eq!(a.screen, StartScreen::Normal);
         assert!(a.kit.theme.is_none() && a.kit.mode.is_none() && !a.sample() && a.open.is_none());
         assert!(!a.no_presenter && a.slide.is_none());
+    }
+
+    /// A start with nothing to open begins with a blank presentation (the user's ruling: there
+    /// is always a deck to type into, changed later); File > New and File > Open start on their
+    /// pages, a deck to open or the sample is what opens.
+    #[test]
+    fn a_start_with_nothing_to_open_begins_with_a_blank_presentation() {
+        for argv in [
+            &[][..],
+            &["--screen", "sorter"][..],
+            &["--screen", "outline"][..],
+            &["--screen", "notes"][..],
+            &["--screen", "show"][..],
+            &["--screen", "settings"][..],
+        ] {
+            assert!(parse(argv).expect("parses").starts_with_a_blank_deck(), "{argv:?}");
+        }
+        for argv in [
+            &["--screen", "backstage-new"][..],
+            &["--screen", "backstage-open"][..],
+            &["--sample"][..],
+            &["d1"][..],
+        ] {
+            assert!(!parse(argv).expect("parses").starts_with_a_blank_deck(), "{argv:?}");
+        }
     }
 
     #[test]

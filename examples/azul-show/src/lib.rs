@@ -651,6 +651,13 @@ pub fn start(args: Args) {
     if args.sample() {
         let deck = model::sample_deck(&commands::new_deck_id(), themes::theme(1, 0, 0));
         commands::open_deck(&mut st, deck);
+    } else if args.starts_with_a_blank_deck() {
+        // Nothing to open: a blank presentation, as File > New > Create makes it (one title
+        // slide, the default theme), so there is always a deck to type into. It is written when
+        // it is saved, not before - an untouched start leaves nothing in the data folder.
+        let theme = themes::theme(st.new_theme, st.new_variant, st.new_fonts);
+        let deck = model::Deck::new(&commands::new_deck_id(), "Presentation", theme, st.new_size);
+        commands::open_deck(&mut st, deck);
     }
     match args.screen {
         StartScreen::Normal | StartScreen::Show => {}

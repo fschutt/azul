@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """AzShow end to end, headless over the debug server, on the shared driver scripts/azlin_e2e.py.
 
+    0. a start with nothing to open opens a blank presentation (SLIDE 1 OF 1) and writes nothing;
     1. starts AzShow headless on File > New with an empty data folder (--data-dir), 1280 x 800;
     2. creates a deck from the default theme (Create) - AZSHOW_DECK;
     3. adds a slide with HOME > New Slide and one with INSERT > the "Two Content" layout cell
@@ -131,8 +132,29 @@ def slide_box(app):
     return r, r["width"] / 1920.0
 
 
+def blank_start(args, binary, logs, out):
+    """A start with nothing to open (no --screen, no deck id) begins with a blank presentation:
+    one title slide in the normal view, and nothing written to the data folder until it is saved."""
+    data_root = os.path.join(logs, "data-blank")
+    os.makedirs(data_root, exist_ok=True)
+    argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--no-presenter"]
+    app = Show(TAG + "-blank", binary, argv, args.debug_port, logs, args.timeout)
+    try:
+        app.until("AzShow's window", lambda: app.has_line("AZSHOW_READY"))
+        deck_id = app.until("the blank deck", lambda: app.printed("AZSHOW_DECK", r"\S+"))[-1]
+        app.until("the normal view on the blank deck", lambda: app.shows("SLIDE 1 OF 1"))
+        app.screenshot(os.path.join(out, "00-blank-start.png"))
+        written = [os.path.join(d, f) for d, _, fs in os.walk(data_root) for f in fs if f == "deck.json"]
+        if written:
+            raise k.Failure("an untouched blank deck was written: %s" % written)
+        app.log("a blank presentation %s, nothing written until it is saved" % deck_id)
+    finally:
+        app.stop()
+
+
 def body(args, logs, out):
     binary = k.find_binary("AzShow", args.bin, "AZSHOW_BIN")
+    blank_start(args, binary, logs, out)
     data_root = os.path.join(logs, "data")
     os.makedirs(data_root, exist_ok=True)
     argv = ["--data-dir", data_root, "--size", "%dx%d" % (WIDTH, HEIGHT), "--screen", "backstage-new"]
