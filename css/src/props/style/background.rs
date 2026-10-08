@@ -66,8 +66,17 @@ pub const BUILTIN_IMAGE_PREFIX: &str = "azul-builtin:";
 
 /// The textures `builtin(<name>)` draws: `vellum` (black-and-white parchment
 /// grain, opaque) and `vellum-overlay` (the same grain as black ink at a low
-/// alpha, to lay over any colour). Any other name is transparent.
-pub const BUILTIN_IMAGES: &[&str] = &["vellum", "vellum-overlay"];
+/// alpha, to lay over any colour) in every build; the 2.5D materials
+/// `leather`, `bluejeans` and `aluminium` - lit for the rect they fill, with a
+/// bevel around its rounded edge - when azul-layout is built with its
+/// `materials` feature (transparent without). Any other name is transparent.
+pub const BUILTIN_IMAGES: &[&str] = &[
+    "vellum",
+    "vellum-overlay",
+    "leather",
+    "bluejeans",
+    "aluminium",
+];
 
 /// A single CSS background layer: a solid color, image URL, or gradient.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

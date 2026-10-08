@@ -30,6 +30,10 @@ use alloc::vec::Vec;
 use azul_core::resources::{ImageCache, ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul_css::props::basic::ColorU;
 
+// The 2.5D materials' tiles, decoder, shader and render cache.
+#[cfg(feature = "materials")]
+pub mod materials;
+
 /// A texture compiled into the library.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -132,17 +136,93 @@ pub fn builtin_texture(texture: BuiltinTexture) -> ImageRef {
     })
 }
 
-/// A window's image cache with every built-in texture under its CSS name.
+/// A window's image cache with every built-in texture under its CSS name -
+/// and, with the `materials` feature, every [`Material`] as the callback
+/// image that renders it for the rect it fills.
 #[must_use]
 pub fn image_cache_with_builtin_textures() -> ImageCache {
     let mut cache = ImageCache::default();
     for texture in BuiltinTexture::ALL {
         cache.add_css_image_id(texture.css_name().as_str().into(), builtin_texture(texture));
     }
+    #[cfg(feature = "materials")]
+    for material in Material::ALL {
+        cache.add_css_image_id(material.css_name().as_str().into(), material_image(material));
+    }
     cache
 }
 
-// -- The light of the 2.5D materials (cargo feature `materials`) --------------
+// -- Materials: the always-present half (the light, the names) ---------------
+
+/// A 2.5D material compiled into the library (cargo feature `materials`):
+/// a micro tile of a CC0 PBR texture set, lit by the window's
+/// [`MaterialLight`] for the rect it fills - `background: builtin(leather);`.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Material {
+    /// Brown leather with a pebbled grain (Poly Haven `brown_leather`, CC0).
+    Leather,
+    /// Blue denim, a twill weave (ambientCG `Fabric003`, CC0).
+    BlueJeans,
+    /// Satin aluminium with a fine grain (CC0, see the assets README).
+    Aluminium,
+}
+
+impl Material {
+    /// Every material.
+    pub const ALL: [Self; 3] = [Self::Leather, Self::BlueJeans, Self::Aluminium];
+
+    /// The name `builtin(<name>)` takes.
+    #[must_use]
+    pub const fn builtin_name(self) -> &'static str {
+        match self {
+            Self::Leather => "leather",
+            Self::BlueJeans => "bluejeans",
+            Self::Aluminium => "aluminium",
+        }
+    }
+
+    /// The image id every window has the material under (`azul-builtin:<name>`).
+    #[must_use]
+    pub fn css_name(self) -> alloc::string::String {
+        alloc::format!(
+            "{}{}",
+            azul_css::props::style::background::BUILTIN_IMAGE_PREFIX,
+            self.builtin_name()
+        )
+    }
+}
+
+/// The material as an image for `Dom::create_image` or a CSS id of the app's
+/// own: a render callback that lights the material for the size it is drawn
+/// at. Without the `materials` feature a transparent pixel.
+#[must_use]
+pub fn material_image(material: Material) -> ImageRef {
+    #[cfg(feature = "materials")]
+    {
+        materials::material_callback_image(material)
+    }
+    #[cfg(not(feature = "materials"))]
+    {
+        let _ = material;
+        transparent_pixel()
+    }
+}
+
+/// One transparent RGBA8 pixel: an image that draws nothing (a `NullImage`
+/// would be painted as the grey "no pixels" placeholder).
+#[must_use]
+pub fn transparent_pixel() -> ImageRef {
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(alloc::vec![0_u8; 4].into()),
+        width: 1,
+        height: 1,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    })
+    .unwrap_or_else(|| ImageRef::null_image(1, 1, RawImageFormat::RGBA8, b"transparent".to_vec()))
+}
 
 /// The light every material in a window is lit by
 /// (`CallbackInfo::set_material_light`, `LayoutWindow::set_material_light`):
@@ -289,6 +369,29 @@ mod tests {
         depths.sort_unstable();
         depths.dedup();
         assert!(depths.len() >= 8, "only {} shades", depths.len());
+    }
+
+    #[test]
+    fn every_material_is_a_builtin_name_the_css_parser_knows() {
+        for material in Material::ALL {
+            assert!(
+                azul_css::props::style::background::BUILTIN_IMAGES
+                    .contains(&material.builtin_name()),
+                "the CSS parser knows `builtin({})`",
+                material.builtin_name()
+            );
+        }
+        // With the feature every window has each material as the callback
+        // image that renders it for the rect it fills; without it the names
+        // name nothing (transparent).
+        let cache = image_cache_with_builtin_textures();
+        for material in Material::ALL {
+            let image = cache.get_css_image_id(&material.css_name().as_str().into());
+            #[cfg(feature = "materials")]
+            assert!(image.is_some_and(ImageRef::is_callback), "{}", material.css_name());
+            #[cfg(not(feature = "materials"))]
+            assert!(image.is_none(), "{}", material.css_name());
+        }
     }
 
     #[test]
