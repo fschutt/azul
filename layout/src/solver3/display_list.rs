@@ -9446,7 +9446,13 @@ where
 
     // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per
     // E.2
-    /// Paints an inline shape (inline-block background and border)
+    /// Paints an inline shape (inline-block background and border), mapped to
+    /// the inline-block's OWN node: it is painted while its line's block is
+    /// being painted, and the block's attribution made the box's paint the
+    /// block's in the list - no face of its own for a button in a row to fade
+    /// or patch, and its damage the block's. Only the node changes: the items
+    /// stay in the block's content run (`current_layout`), which is where a
+    /// cached copy of the run replays them.
     fn paint_inline_shape(
         &self,
         builder: &mut DisplayListBuilder,
@@ -9454,11 +9460,26 @@ where
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
     ) {
-        // Render inline-block backgrounds and borders using their CSS styling
-        // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
             return;
         };
+        let block = builder.current_node();
+        builder.set_current_node(Some(node_id));
+        self.paint_inline_shape_of(builder, object_bounds, shape, bounds, node_id);
+        builder.set_current_node(block);
+    }
+
+    /// [`Self::paint_inline_shape`] for the inline-block `node_id`.
+    fn paint_inline_shape_of(
+        &self,
+        builder: &mut DisplayListBuilder,
+        object_bounds: LogicalRect,
+        shape: &InlineShape,
+        bounds: &crate::text3::cache::Rect,
+        node_id: NodeId,
+    ) {
+        // Render inline-block backgrounds and borders using their CSS styling
+        // The text3 engine positions these correctly in the inline flow
 
         // If this inline-block establishes a stacking context, its background was
         // already painted by paint_node_background_and_border (called from
