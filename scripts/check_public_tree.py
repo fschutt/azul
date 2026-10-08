@@ -114,10 +114,11 @@ def self_test():
         "a.py": b"-----BEGIN PRIVATE KEY-----\n" + b"MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n" * 3 + b"-----END PRIVATE KEY-----\n",
         "a2.py": b"KEY = '-----BEGIN PRIVATE KEY-----'  # a test's secret-shaped file\n",
         "e2.rs": b"const S3_ACCESS_KEY: &str = \"AKIAIOSFODNN7EXAMPLE\";\n",
-        "b.md": b"token: eyJhbGciOiJFZERTQSJ9x.eyJhIjoicncifQxxxxxxxxx.c2lnbmF0dXJlc2lnbmF0dXJl\n",
+        # split, so this file does not trip its own check
+        "b.md": b"token: eyJ" + b"hbGciOiJFZERTQSJ9x.eyJ" + b"hIjoicncifQxxxxxxxxx.c2lnbmF0dXJlc2lnbmF0dXJl\n",
         "c.rs": b"let password = \"hunter2hunter2hunter2hunter2\";\n",
         "d.rs": b"let password = \"<from the keyring>\"; // fine\n",
-        "e.txt": b"AKIAABCDEFGHIJKLMNOP\n",
+        "e.txt": b"AKIA" + b"ABCDEFGHIJKLMNOP\n",
         "scripts/NEW_AGENT_2026_10_09.md": b"notes\n",
         "scripts/X.PROGRESS.md": b"notes\n",
         "scripts/run_e2e.py": b"print('ok')\n",
