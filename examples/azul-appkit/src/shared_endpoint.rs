@@ -51,8 +51,14 @@ pub fn of(config: &AzlinConfig, name: &str) -> Option<String> {
 /// `None` without a config or without the name.
 #[must_use]
 pub fn read(var: Option<&str>, home: Option<&Path>, name: &str) -> Option<String> {
-    let path = azlin_config::config_path(var, home)?;
-    let (config, _problem) = AzlinConfig::load(&path);
+    in_file(&azlin_config::config_path(var, home)?, name)
+}
+
+/// `endpoints.<name>` of the config file at `path` (the kit's
+/// `Kit::config_path`, which a `--shot` run leaves empty).
+#[must_use]
+pub fn in_file(path: &Path, name: &str) -> Option<String> {
+    let (config, _problem) = AzlinConfig::load(path);
     of(&config, name)
 }
 
