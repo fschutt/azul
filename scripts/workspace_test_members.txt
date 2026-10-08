@@ -45,6 +45,10 @@ tested: AzPhoto              # dll_tests (the raster core: blend modes, tiles, b
 tested: AzSheets             # dll_tests (the engine trait on a fake, the IronCalc adapter, the worker, the UI model)
 tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart lists, task files)
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
+tested: azcloud-kit          # dll_tests (the token server's API, sessions, endpoints, the Azlin drive)
+tested: azul-termkit         # dll_tests (the VT parser, panes, sessions, the sample screens)
+tested: AzBuilder            # dll_tests (its lib; its page is also tested by scripts/debugger-ui/builder-dnd-*.mjs)
+tested: AzWidgets            # dll_tests (the video page's helpers)
 tested: AzDashboard          # dll_tests (the generated orders, their texts and values, edit validation, the table glue)
 tested: AzTerm               # dll_tests (VT state -> the view's screen, sessions and recordings, tabs, the data callback)
 tested: AzPdf                # dll_tests (zoom, the page strip, size labels, render widths, the page cache, search, recent documents)
@@ -62,8 +66,6 @@ tested: AzERP                # dll_tests (money, depreciation schedules, record 
 #    for #[test]; if any of these grows one, it fails until it is moved up and
 #    wired into a job.
 no-tests: azul-examples         # examples/rust: hello-world binaries
-no-tests: AzWidgets          # widget showcase binary
-no-tests: AzBuilder          # builder shell binary; its page is tested by scripts/debugger-ui/builder-dnd-*.mjs
 no-tests: webrender_api         # types only
 no-tests: webrender_build       # build-time shader plumbing
 no-tests: wr_azul_glyph_rasterizer  # thin adapter over azul-layout's rasteriser

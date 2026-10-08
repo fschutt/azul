@@ -626,13 +626,7 @@ jobs:
         run: azul-doc check
 
   dll_tests:
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells, azul-appkit, AzCalculator and AzContacts.
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells and AzSetup.
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells and AzNotes.
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells and AzShow.
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells and AzPhoto.
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells and AzSheets.
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter, AzReview, AzMeet, AzCalendar, AzDrive, azul-storage, AzMail, AzShells and AzTasks.
+    # Runs azul-dll unit tests and feature checks, and the unit tests of the example apps and their crates, a step each.
     name: DLL tests + feature check
     needs: [content_state_lint, documentation_paths, clippy, check_crates, codegen_linux]
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -766,14 +760,37 @@ jobs:
           cargo test -p azul-pim --no-fail-fast 2>&1 | tee azul-pim-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-pim-tests.txt
 
+      - name: Run azcloud-kit tests
+        run: |
+          set -o pipefail
+          cargo test -p azcloud-kit --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
+          ./scripts/zero_test_guard.sh --strict azcloud-kit-tests.txt
+
+      - name: Run azul-termkit tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p azul-termkit --lib --no-fail-fast 2>&1 | tee azul-termkit-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-termkit-tests.txt
+
+      - name: Run AzBuilder tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzBuilder --lib --no-fail-fast 2>&1 | tee azul-builder-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-builder-tests.txt
+
+      - name: Run AzWidgets tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzWidgets --lib --no-fail-fast 2>&1 | tee azul-widgets-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-widgets-tests.txt
+
       - name: Run AzCalculator tests
-      - name: Run AzSetup tests
-      - name: Run AzNotes tests
-      - name: Run AzVideoCut tests
-      - name: Run AzShow tests
-      - name: Run AzPhoto tests
-      - name: Run AzSheets tests
-      - name: Run AzTasks tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
@@ -788,18 +805,60 @@ jobs:
           set -o pipefail
           cargo test -p AzContacts --lib --no-fail-fast 2>&1 | tee azul-contacts-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-contacts-tests.txt
+
+      - name: Run AzSetup tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzSetup --lib --no-fail-fast 2>&1 | tee azul-setup-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-setup-tests.txt
+
+      - name: Run AzNotes tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzNotes --lib --no-fail-fast 2>&1 | tee azul-notes-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-notes-tests.txt
+
+      - name: Run AzVideoCut tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzVideoCut --lib --no-fail-fast 2>&1 | tee azul-videocut-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-videocut-tests.txt
+
+      - name: Run AzShow tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzShow --lib --no-fail-fast 2>&1 | tee azul-show-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-show-tests.txt
+
+      - name: Run AzPhoto tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzPhoto --lib --no-fail-fast 2>&1 | tee azul-photo-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-photo-tests.txt
+
+      - name: Run AzSheets tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test --release -p AzSheets --lib --no-fail-fast 2>&1 | tee azul-sheets-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-sheets-tests.txt
+
+      - name: Run AzTasks tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzTasks --lib --no-fail-fast 2>&1 | tee azul-tasks-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-tasks-tests.txt
 
@@ -821,27 +880,42 @@ jobs:
           ./scripts/zero_test_guard.sh --strict azul-dashboard-tests.txt
 
       - name: Run AzTerm tests
-      - name: Run AzPdf tests
-      - name: Run AzClock tests
-      - name: Run AzReader tests
-      - name: Run AzMusic tests
-      - name: Run AzCode tests
-      - name: Run AzKeys tests
-      - name: Run AzMonitor tests
-      - name: Run AzNews tests (and the local feed server's)
-      - name: Run AzERP tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
           set -o pipefail
           cargo test -p AzTerm --lib --no-fail-fast 2>&1 | tee azul-term-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-term-tests.txt
+
+      - name: Run AzPdf tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzPdf --lib --no-fail-fast 2>&1 | tee azul-pdf-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-pdf-tests.txt
+
+      - name: Run AzClock tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzClock --lib --no-fail-fast 2>&1 | tee azul-clock-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-clock-tests.txt
+
+      - name: Run AzReader tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzReader --lib --no-fail-fast 2>&1 | tee azul-reader-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-reader-tests.txt
+
+      - name: Run AzMusic tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzMusic --lib --no-fail-fast 2>&1 | tee azul-music-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-music-tests.txt
 
@@ -852,15 +926,45 @@ jobs:
           set -o pipefail
           cargo test -p AzPlayer --lib --no-fail-fast 2>&1 | tee azul-player-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-player-tests.txt
+
+      - name: Run AzCode tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzCode --lib --no-fail-fast 2>&1 | tee azul-code-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-code-tests.txt
+
+      - name: Run AzKeys tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzKeys --lib --no-fail-fast 2>&1 | tee azul-keys-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-keys-tests.txt
+
+      - name: Run AzMonitor tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzMonitor --lib --no-fail-fast 2>&1 | tee azul-monitor-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-monitor-tests.txt
+
+      - name: Run AzNews tests (and the local feed server's)
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzNews --lib --no-fail-fast 2>&1 | tee azul-news-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-news-tests.txt
           python3 examples/azul-news/scripts/test_feed_server.py
+
+      - name: Run AzERP tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
           cargo test -p AzERP --lib --no-fail-fast 2>&1 | tee azul-erp-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-erp-tests.txt
 
