@@ -91,6 +91,27 @@ pack:
 config.icon_provider.set_pack_rank("user".into(), 0);
 ```
 
+A pack can also belong to a condition: with `set_pack_condition` it takes
+part in the search only while the condition holds, evaluated at every
+lookup against the window's live context. The condition speaks the remap
+rules' `apply-if` vocabulary (`theme=flora`, `mode=dark`, `os=...`,
+`contrast=high`, `app=...`). That is how a theme brings its own icons and
+falls back to another pack for every name it does not draw: a pack ranked
+first under `theme=flora` answers while the app theme is flora (spins
+such as `flora:green` included) and sits out under any other theme, so a
+theme switch at runtime switches the icons with the next frame.
+
+```rust,ignore
+// Haiku's icons under the Material names, the flora theme's.
+config.icon_provider.set_pack_rank("haiku".into(), 0);
+config.icon_provider.set_pack_condition("haiku".into(), "theme=flora".into());
+```
+
+A `pack:name` spec still reaches a conditional pack, the user's remap
+rules still come first, and a lookup without a window (`lookup`,
+`has_icon`) passes a conditional pack by. The Azlin apps get this pack
+from `azul-icons-haiku` through azul-appkit.
+
 An icon spec can be a fallback list (`ios:open_menu,kde:three-lines,menu`).
 Bare entries follow the lookup order above. A `pack:name` entry is looked
 up only in that pack.
@@ -108,6 +129,10 @@ Methods on `IconProviderHandle`:
 - `unregister_pack(pack)`. Removes every icon in a pack. Registering into it again puts the pack
   at the back of the registration order.
 - `set_pack_rank(pack, rank)`. Lower ranks are searched first.
+- `set_pack_condition(pack, apply_if)`. The pack takes part in the search only while `apply_if`
+  holds; an empty `apply_if` removes the condition.
+- `register_hvif_icon(pack, name, hvif_bytes, meta)`. Adds an HVIF icon (Haiku's vector icon
+  format), drawn at the size it is shown at.
 - `add_icon_remap_rule(name, apply_if, target)`. Adds a remap rule (see below).
 - `set_resolver(callback)`. Replaces the resolver for the whole provider.
 
