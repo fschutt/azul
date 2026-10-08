@@ -66,6 +66,24 @@ pub const fn binds_threads_to_node(filter: &EventFilter) -> bool {
     )
 }
 
+/// The clock [`ORPHAN_GRACE`] runs on, or `None` where std has none to read:
+/// on wasm32 `std::time::Instant::now()` panics, and such a target runs no
+/// threads either. Real time on purpose, not the injectable
+/// `azul_core::task::Instant`: the grace bounds how long an OS thread may take
+/// to stop, and a frozen test clock would never let it run out.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn wall_clock() -> Option<std::time::Instant> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Some(std::time::Instant::now())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        None
+    }
+}
+
 /// When an orphan was told to stop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Orphaned {
@@ -78,16 +96,19 @@ impl Orphaned {
     fn now() -> Self {
         Self {
             #[cfg(feature = "std")]
-            since: Some(std::time::Instant::now()),
+            since: wall_clock(),
         }
     }
 
-    /// Has it had [`ORPHAN_GRACE`] to stop?
+    /// Has it had [`ORPHAN_GRACE`] to stop? Never without a clock (`now`
+    /// from [`wall_clock`]).
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn is_overdue(&self, now: std::time::Instant) -> bool {
-        self.since
-            .is_some_and(|t| now.saturating_duration_since(t) >= ORPHAN_GRACE)
+    pub fn is_overdue(&self, now: Option<std::time::Instant>) -> bool {
+        match (self.since, now) {
+            (Some(since), Some(now)) => now.saturating_duration_since(since) >= ORPHAN_GRACE,
+            _ => false,
+        }
     }
 }
 
@@ -231,7 +252,7 @@ impl ThreadOwnerManager {
 pub fn poll_orphan(
     orphaned: Orphaned,
     thread: &crate::thread::Thread,
-    now: std::time::Instant,
+    now: Option<std::time::Instant>,
 ) -> bool {
     use crate::thread::OptionThreadReceiveMsg;
 
@@ -275,9 +296,11 @@ pub fn stop_all(threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
     let told = Orphaned::now();
     let mut running: Vec<&crate::thread::Thread> = threads.values().collect();
     loop {
-        let now = std::time::Instant::now();
+        let now = wall_clock();
         running.retain(|thread| !poll_orphan(told, thread, now));
-        if running.is_empty() {
+        // No clock, no grace period to wait out (and no thread was ever
+        // started there, see `wall_clock`).
+        if running.is_empty() || now.is_none() {
             break;
         }
         std::thread::sleep(core::time::Duration::from_millis(2));
@@ -447,8 +470,9 @@ mod tests {
     fn an_orphan_is_overdue_after_the_grace_period() {
         let start = std::time::Instant::now();
         let o = Orphaned { since: Some(start) };
-        assert!(!o.is_overdue(start));
-        assert!(o.is_overdue(start + ORPHAN_GRACE));
+        assert!(!o.is_overdue(Some(start)));
+        assert!(o.is_overdue(Some(start + ORPHAN_GRACE)));
+        assert!(!o.is_overdue(None), "without a clock nothing is overdue");
     }
 
     // --- A window that closes stops its workers together -----------------

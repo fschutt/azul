@@ -13051,7 +13051,7 @@ pub extern "C" fn debug_timer_callback(
         // come to rest.
         if let DebugEvent::WaitSettled { timeout_ms } = &request.event {
             let ms = timeout_ms.unwrap_or(WAIT_SETTLED_DEFAULT_MS);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+            let deadline = wall_clock_now() + std::time::Duration::from_millis(ms);
             session.settle_waiters.push((request, deadline));
             processed_count += 1;
             continue;
@@ -21562,7 +21562,7 @@ fn serve_settle_waiters(session: &mut E2eSession, callback_info: &azul_layout::c
         return;
     }
     let moving = window_still_moving(callback_info.get_layout_window());
-    let now = std::time::Instant::now();
+    let now = wall_clock_now();
     session.settle_waiters.retain(|(request, deadline)| {
         match settle_verdict(moving.as_deref(), now, *deadline) {
             None => true,
@@ -21708,7 +21708,7 @@ mod debug_request_wake_tests {
 
     #[test]
     fn a_settle_waiter_answers_when_settled_and_gives_up_at_its_deadline() {
-        let start = std::time::Instant::now();
+        let start = wall_clock_now();
         let deadline = start + std::time::Duration::from_millis(100);
         assert_eq!(settle_verdict(None, start, deadline), Some(Ok(())));
         assert_eq!(

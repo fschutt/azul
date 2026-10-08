@@ -18638,7 +18638,7 @@ impl LayoutWindow {
                     crate::managers::thread_owner::poll_orphan(
                         orphaned,
                         thread,
-                        std::time::Instant::now(),
+                        crate::managers::thread_owner::wall_clock(),
                     )
                 });
                 if retire {
