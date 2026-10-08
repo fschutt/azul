@@ -377,18 +377,22 @@ impl Profile {
     /// The local addresses are the ports of the mocked services: `azctl dev
     /// up` binds the token server on 8081 and the S3 load balancer on 9000
     /// (azul-apps `iso/crates/azctl/src/ctl/dev.rs`, which the bundle then
-    /// names), the meet Worker runs under `wrangler dev --port 8790`, the iroh
-    /// relay under `iroh-relay --dev` on 3340. The trial and live token
-    /// servers are the Workers' routes in `iso/azworker/token/wrangler.toml`.
+    /// names), the meet Worker runs under `wrangler dev --port 8790`. The trial
+    /// and live token servers are the Workers' routes in
+    /// `iso/azworker/token/wrangler.toml`.
+    ///
+    /// The relay is the public iroh relays (`default`) in every profile: Azlin
+    /// runs no relay of its own (a paid shared one may follow; it is a URL in
+    /// the file then). The local stack names its own `iroh-relay --dev` in its
+    /// profile's file (azul-apps `local/mkprofile.py`).
     #[must_use]
     pub fn default_for(self, endpoint: Endpoint) -> Option<&'static str> {
         match (self, endpoint) {
             (Profile::Local, Endpoint::Token) => Some("http://127.0.0.1:8081"),
             (Profile::Local, Endpoint::Meet) => Some("http://127.0.0.1:8790"),
-            (Profile::Local, Endpoint::Relay) => Some("http://127.0.0.1:3340"),
             (Profile::Trial, Endpoint::Token) => Some("https://token-trial.azlin.io"),
             (Profile::Production, Endpoint::Token) => Some("https://token.azlin.io"),
-            (Profile::Trial | Profile::Production, Endpoint::Relay) => Some("default"),
+            (_, Endpoint::Relay) => Some("default"),
             _ => None,
         }
     }
@@ -892,7 +896,11 @@ mod tests {
             Source::Profile(Profile::Local)
         );
         assert_eq!(e.url(Endpoint::Meet), Some("http://127.0.0.1:8790"));
-        assert_eq!(e.url(Endpoint::Relay), Some("http://127.0.0.1:3340"));
+        assert_eq!(
+            e.url(Endpoint::Relay),
+            Some("default"),
+            "every profile relays through the public iroh relays unless a relay is named"
+        );
         assert_eq!(
             e.url(Endpoint::S3),
             None,

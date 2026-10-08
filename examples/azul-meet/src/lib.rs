@@ -111,10 +111,10 @@
 //! - `--join <link>` (`AZMEET_JOIN`): join that meeting at start, without the waiting room.
 //! - `--waiting-room` (`AZMEET_WAITING_ROOM=1`): with `--join` / `--autocreate`, stop in the
 //!   waiting room (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
-//! - `--relay <off|default|url>` (`AZMEET_RELAY`, then the shared config's `endpoints.relay` and
-//!   its profile's: `local` the local stack's `iroh-relay --dev` at `http://127.0.0.1:3340`,
-//!   `production` the public iroh relays); with none of them, off for a meeting server on this
-//!   machine and the public iroh relays otherwise.
+//! - `--relay <off|default|url>` (`AZMEET_RELAY`, then the shared config file's
+//!   `endpoints.relay`, as the local stack names its `iroh-relay --dev`); with none of them, off
+//!   for a meeting server on this machine and the public iroh relays otherwise (every profile's
+//!   built-in relay is the public one).
 //! - `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path - no UDP socket, no hole
 //!   punching, every packet through the relay (`IrohConfig::with_relay_only`); stderr says
 //!   `relay only` with the endpoint, the statistics say `relayed` per peer.
@@ -7587,19 +7587,26 @@ pub fn start() {
 }
 
 /// The relays for a meeting server at `worker`: `--relay`, else the shared Azlin config's
-/// (`AZMEET_RELAY`, its file's `endpoints.relay`, its profile's: `local` the local stack's
-/// relay, `production` n0's), else none for a meeting server on this machine and n0's for any
-/// other.
+/// (`AZMEET_RELAY`, its file's `endpoints.relay`), else none for a meeting server on this machine
+/// and the public iroh relays for any other.
 fn relay_for(worker: &str) -> Relay {
     let host = server_address(worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
+    // A relay someone named (the environment, the config file); a profile's built-in one is the
+    // public relays, which the rule below picks anyway for a meeting server elsewhere - and a
+    // meeting server on this machine is a local test, which reaches no public relay.
+    let named = || {
+        let resolved = azlin_endpoints().get(azlin_config::Endpoint::Relay);
+        match resolved.source {
+            azlin_config::Source::Env(_) | azlin_config::Source::File(_) => resolved.value.clone(),
+            _ => None,
+        }
+    };
     let setting = launch_args()
         .switch("AZMEET_RELAY")
         .map(String::from)
-        .or_else(|| {
-            shared_endpoint(azlin_config::Endpoint::Relay).map(|(value, _)| value.to_string())
-        });
+        .or_else(named);
     rooms::relay_choice(setting.as_deref(), &host)
 }
 
