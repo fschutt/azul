@@ -1175,6 +1175,7 @@ fn menu_window(content: Dom, shared: RefAny) -> Dom {
     // first command takes the focus.
     window.set_tab_index(TabIndex::NoKeyboardFocus);
     window.set_dataset(OptionRefAny::Some(shared.clone()));
+    window.set_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_shared));
     window.add_callback(
         EventFilter::Component(ComponentEventFilter::Dismissed),
         shared,
@@ -1318,6 +1319,25 @@ extern "C" fn on_pick(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let popup = top_of(&info, info.get_hit_node());
     info.set_transient_window_open(popup, false);
     Update::DoNothing
+}
+
+/// Reconcile: a pick noted in the popup survives the app's rebuild between the
+/// pick and the dismissal. The popup closes itself from its own window, which
+/// wakes every window - the app's window rebuilds its DOM (a fresh menu, a
+/// fresh shared part) before it hears the `Dismissed`, and the pick was left
+/// in the old shared part: AzDrive's Delete history > Recent places ran
+/// nothing. The new build's shared part (the one its `Dismissed` handler
+/// holds) takes the old one's pick over.
+extern "C" fn merge_shared(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    let pending = old_data
+        .downcast_mut::<FileMenuShared>()
+        .and_then(|mut old| old.pending.take());
+    if let Some(mut new) = new_data.downcast_mut::<FileMenuShared>() {
+        if new.pending.is_none() {
+            new.pending = pending;
+        }
+    }
+    new_data
 }
 
 /// The menu closed (a pick closed it, or a press outside, or Escape), in the
@@ -1819,6 +1839,33 @@ mod tests {
         assert_eq!(update, Update::RefreshDom, "the app's verdict, in its own window");
         dismissed(&styled);
         assert_eq!(events(&log).len(), 1, "a pick is handed over once");
+    }
+
+    #[test]
+    fn a_pick_survives_the_apps_rebuild_between_the_pick_and_the_dismissal() {
+        // The popup closes itself from its own window, and that wakes every window: the app's
+        // window rebuilds its DOM - a fresh menu, a fresh shared part - before it hears the
+        // `Dismissed`. The engine carries the old shared part over the rebuild (the window
+        // node's dataset merge), and the pick with it.
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let mut old = StyledDom::create_from_dom(menu(&log).with_theme(UiTheme::Flat).dom());
+        let commands = nodes_with_class(&old, COMMAND_CLASS);
+        click(&old, commands[5]).expect("Close takes the click");
+        let mut new = StyledDom::create_from_dom(menu(&log).with_theme(UiTheme::Flat).dom());
+        azul_core::diff::transfer_states(
+            old.node_data.as_container_mut().internal,
+            new.node_data.as_container_mut().internal,
+            &[azul_core::diff::NodeMove {
+                old_node_id: NodeId::new(0),
+                new_node_id: NodeId::new(0),
+            }],
+        );
+        dismissed(&new).expect("the rebuilt window hears its dismissal");
+        assert_eq!(
+            events(&log),
+            vec![ev(RibbonFileMenuEventKind::Command, 5, 0)],
+            "the pick made before the rebuild reaches the app"
+        );
     }
 
     #[test]
