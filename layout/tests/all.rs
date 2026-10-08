@@ -971,3 +971,7 @@ mod a_long_status_text_leaves_the_zoom_in_its_bar;
 mod a_line_too_long_for_its_box_ends_in_an_ellipsis;
 #[path = "a_blocks_text_decoration_decorates_the_text_in_it.rs"]
 mod a_blocks_text_decoration_decorates_the_text_in_it;
+#[path = "the_first_background_layer_is_painted_on_top.rs"]
+mod the_first_background_layer_is_painted_on_top;
+#[path = "each_background_layer_is_clipped_to_its_own_box.rs"]
+mod each_background_layer_is_clipped_to_its_own_box;
