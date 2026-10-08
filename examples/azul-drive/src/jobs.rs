@@ -697,6 +697,11 @@ fn scan_bucket(
     }
 }
 
+/// The sizes and dates of the local items `keys` (a [`Job::Stat`]'s answer).
+fn stats_of(root: &Path, keys: &[String]) -> Vec<Stat> {
+    keys.iter().filter_map(|key| stat_of(root, key)).collect()
+}
+
 /// A local item's size and date (`fs::metadata` follows a symbolic link, as the drive's own
 /// listing does); `None` for one gone since the scan.
 fn stat_of(root: &Path, key: &str) -> Option<Stat> {
@@ -833,7 +838,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         Job::Stat { root, keys, serial } => Outcome::Stats {
             serial,
-            stats: keys.iter().filter_map(|key| stat_of(&root, key)).collect(),
+            stats: stats_of(&root, &keys),
         },
         Job::Count {
             drive_id,
@@ -1201,6 +1206,37 @@ mod tests {
         assert!(stat_of(dir.path(), "a/gone.txt").is_none());
         assert_eq!(path_in(Path::new("/r"), "a/b/"), PathBuf::from("/r/a/b"));
         assert_eq!(path_in(Path::new("/r"), ""), PathBuf::from("/r"));
+    }
+
+    /// Every row a stat job is asked for is answered - one gone since the scan (or one the file
+    /// system will not stat, a dangling link) with neither size nor date. A sort by Size or Date
+    /// modified waits for an answer for every row: a row that was never answered held it up for
+    /// good, and the rows kept the order of the sizes known so far.
+    #[test]
+    fn every_row_asked_for_is_answered_even_when_its_stat_fails() {
+        let dir = TempDir::new("azdrive-stat-gone");
+        fs::write(dir.path().join("note.txt"), b"hello").expect("a file");
+        let keys = vec![String::from("note.txt"), String::from("gone.txt")];
+        let stats = stats_of(dir.path(), &keys);
+        assert_eq!(stats.len(), 2, "one answer per row asked for: {stats:?}");
+        assert_eq!(stats[0].key, "note.txt");
+        assert_eq!(stats[0].size, Some(5));
+        assert_eq!(
+            stats[1],
+            Stat {
+                key: String::from("gone.txt"),
+                size: None,
+                modified: None,
+            }
+        );
+        // Answered, the row is known: the sort that waits for every row can run.
+        let mut rows = vec![
+            listing::scanned_entry("", "note.txt", false),
+            listing::scanned_entry("", "gone.txt", false),
+        ];
+        assert_eq!(listing::apply_stats(&mut rows, &stats), 2);
+        assert!(listing::all_known(&rows));
+        assert_eq!(rows[1].size, None);
     }
 
     /// A folder's items are counted with one read_dir: hidden ones only while they show, never

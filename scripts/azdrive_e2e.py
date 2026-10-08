@@ -43,7 +43,8 @@ node layout, AzDrive's stdout markers and the files on disk:
     19. the File menu: a popup under the File tab (Open new window, Open terminal here, Delete
         history, Help, Close; Frequent places), Delete history > Recent places runs in the
         window (the menu closes), a frequent place's pin pins it, Escape closes the menu;
-    20. a folder of 3,000 files opens at once: the listing streams in, the virtual view holds a
+    20. F5 counts a folder's items again (Counted: 17 files, 6 written meanwhile, 23); a
+        folder of 3,000 files opens at once: the listing streams in, the virtual view holds a
         few screens of rows (never the folder), the rows in view get their sizes (the stat of
         the rows in view), End reveals the last file.
 
@@ -364,6 +365,11 @@ def run(args, logs):
     for i in range(3000):
         with open(os.path.join(big, "file-%05d.txt" % i), "wb") as f:
             f.write(b"hello")
+    # Step 20's recount: a folder of 17 files (6 more are written while Home shows).
+    os.makedirs(os.path.join(home, "Counted"))
+    for i in range(17):
+        with open(os.path.join(home, "Counted", "c-%02d.txt" % i), "wb") as f:
+            f.write(b"x")
     # Every setting is a switch (src/args.rs); only the engine's AZ_BACKEND / AZ_DEBUG are
     # variables (the shared driver sets them).
     switches = [
@@ -856,6 +862,14 @@ def run(args, logs):
         # 20. A folder of 3,000 files opens at once: the listing streams in, the virtual view
         # holds a few screens of rows, the rows in view get their sizes, End reveals the last.
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
+        # F5 reads the folder again, the item counts of its folders with it (a count is asked
+        # for once per listing, not once per window): Counted's 17 files and 6 more read 23.
+        app.until("Counted's count", lambda: "17 items" in texts_in_view(app))
+        for i in range(17, 23):
+            with open(os.path.join(home, "Counted", "c-%02d.txt" % i), "wb") as f:
+                f.write(b"x")
+        app.after("F5", "AZDRIVE_LISTED", r"home / \d+", lambda: app.key("f5"))
+        app.until("Counted counted again (F5)", lambda: "23 items" in texts_in_view(app))
         app.after("Big (3,000 files)", "AZDRIVE_LISTED", r"home Big/ 3000",
                   lambda: open_item(app, "Big"))
         app.until("the first rows", lambda: "file-00000.txt" in item_names(app))
@@ -872,8 +886,9 @@ def run(args, logs):
         app.after("End: the last file", "AZDRIVE_SELECTED", r"1 Big/file-02999\.txt",
                   lambda: app.key("end"))
         app.until("the last file revealed", lambda: "file-02999.txt" in item_names(app))
-        log("20. a folder of 3,000 files: %d rows built, the status line counted 3,000, the rows "
-            "in view got their sizes, End revealed the last" % built)
+        log("20. F5 counted Counted again (23 items); a folder of 3,000 files: %d rows built, "
+            "the status line counted 3,000, the rows in view got their sizes, End revealed "
+            "the last" % built)
 
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "

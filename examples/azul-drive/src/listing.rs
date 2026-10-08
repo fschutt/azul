@@ -426,6 +426,22 @@ mod tests {
         );
     }
 
+    /// A view that fits more columns than any folder has items (an infinite width cast to
+    /// `usize` is `usize::MAX`) lays every group out on one line, ending at the group's end: the
+    /// line's end never overflows (a panic in a debug build, an endless loop in a release one).
+    #[test]
+    fn a_line_of_more_columns_than_items_ends_at_its_group() {
+        assert_eq!(
+            lines_of(&[3, 2], &[true, true], usize::MAX, true),
+            vec![
+                Line::Header { group: 0 },
+                Line::Items { start: 0, end: 3 },
+                Line::Header { group: 1 },
+                Line::Items { start: 3, end: 5 },
+            ]
+        );
+    }
+
     /// 100,000 rows of 24 px in a 480 px view: 20 rows show, a screen either side is built -
     /// never the folder; scrolled into the middle, the window follows; past the end, the last
     /// screen.
