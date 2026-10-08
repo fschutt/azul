@@ -4,8 +4,10 @@ use azul_storage::{config::DriveAuth, config::DriveLocation, Method};
 
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
-    token::{check_token_url, is_loopback_host, CheckoutStatus, TokenError, TokenServer},
-    DriveBundle,
+    token::{
+        check_id, check_token_url, is_loopback_host, CheckoutStatus, TokenError, TokenServer,
+    },
+    CloudError, DriveBundle,
 };
 
 /// azlin-token's price ladder (tiers.rs), as GET /v1/tiers answers.
@@ -256,4 +258,131 @@ fn an_answer_that_is_no_bundle_is_a_protocol_error() {
             .create_dev_drive("x", "100GB"),
         Err(TokenError::Protocol(_))
     ));
+}
+
+#[test]
+fn a_named_refresh_tells_the_token_server_what_this_device_calls_the_drive() {
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            200,
+            &bundle("AKID2", "2026-10-09T09:15:00Z", "dt_f.1.bbb"),
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let fresh = server
+        .refresh_named("d_1", "dt_f.0.aaa", " Ann's drive ")
+        .unwrap();
+    assert_eq!(fresh.drive_token, "dt_f.1.bbb");
+    let call = &fake.calls()[0];
+    assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/credentials"));
+    assert_eq!(header(call, "authorization"), Some("Bearer dt_f.0.aaa"));
+    let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+    assert_eq!(body["name"], "Ann's drive");
+}
+
+#[test]
+fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
+    let fake = Fake::new(|call, _| {
+        let url = call.url.as_str();
+        Ok(match call.method {
+            Method::Post if url.ends_with("/members") => json(
+                201,
+                r#"{"member": "m_laptop", "drive_token": "dt_m.0.joins"}"#,
+            ),
+            Method::Post if url.ends_with("/lockdown/cancel") => json(204, ""),
+            Method::Post if url.ends_with("/restore") => json(
+                202,
+                r#"{"request_id": "rs_1", "status": "queued"}"#,
+            ),
+            Method::Get if url.ends_with("/restore/rs_1") => json(
+                200,
+                r#"{"request_id": "rs_1", "status": "done"}"#,
+            ),
+            Method::Get if url.ends_with("/v1/drives/d_1") => {
+                json(200, r#"{"id": "d_1", "tier": "100GB"}"#)
+            }
+            _ => json(404, r#"{"error": "not_found"}"#),
+        })
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let member = server
+        .add_member("d_1", "dt_f.0.aaa", Some("laptop"))
+        .unwrap();
+    assert_eq!(member["drive_token"], "dt_m.0.joins");
+    assert_eq!(server.info("d_1", "dt_f.0.aaa").unwrap()["tier"], "100GB");
+    assert_eq!(
+        server.lockdown_cancel("d_1", "dt_f.0.aaa").unwrap(),
+        serde_json::Value::Null,
+        "an empty answer is no error"
+    );
+    let queued = server
+        .restore("d_1", "dt_f.0.aaa", "docs/", "2026-10-08T09:00:00Z")
+        .unwrap();
+    assert_eq!(queued["request_id"], "rs_1");
+    assert_eq!(
+        server
+            .restore_status("d_1", "dt_f.0.aaa", "rs_1")
+            .unwrap()["status"],
+        "done"
+    );
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 5);
+    assert_eq!(calls[0].url, format!("{TOKEN}/v1/drives/d_1/members"));
+    let body: serde_json::Value = serde_json::from_slice(&calls[0].body).unwrap();
+    assert_eq!(body["member"], "laptop");
+    assert_eq!(calls[1].method, Method::Get);
+    assert_eq!(calls[1].url, format!("{TOKEN}/v1/drives/d_1"));
+    assert_eq!(
+        calls[2].url,
+        format!("{TOKEN}/v1/drives/d_1/lockdown/cancel")
+    );
+    assert_eq!(calls[3].url, format!("{TOKEN}/v1/drives/d_1/restore"));
+    let body: serde_json::Value = serde_json::from_slice(&calls[3].body).unwrap();
+    assert_eq!(body["prefix"], "docs/");
+    assert_eq!(body["as_of"], "2026-10-08T09:00:00Z");
+    assert_eq!(calls[4].url, format!("{TOKEN}/v1/drives/d_1/restore/rs_1"));
+    for call in &calls {
+        assert_eq!(header(call, "authorization"), Some("Bearer dt_f.0.aaa"));
+    }
+    assert!(matches!(
+        server.info("../d_1", "dt_f.0.aaa"),
+        Err(TokenError::Config(_))
+    ));
+    assert!(matches!(
+        server.restore_status("d_1", "dt_f.0.aaa", "rs_1/../x"),
+        Err(TokenError::Config(_))
+    ));
+    assert!(matches!(
+        server.lockdown("d_1", " "),
+        Err(TokenError::SignIn(_))
+    ));
+    assert_eq!(fake.calls().len(), 5, "a bad id or no token sends nothing");
+}
+
+#[test]
+fn an_id_that_could_change_the_url_is_refused() {
+    assert!(check_id("d_k3f9-x").is_ok());
+    for bad in ["", "../keys", "d_1/members", "d 1", "d_1?x", "%2e%2e"] {
+        assert!(check_id(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn a_refused_drive_token_means_signing_in_again_under_any_context() {
+    let refused = CloudError::from(TokenError::SignIn(String::from(
+        "an old token was reused, token_reuse",
+    )))
+    .context("credential refresh");
+    assert!(refused.is_sign_in());
+    let text = refused.to_string();
+    assert!(text.starts_with("credential refresh: "), "{text}");
+    assert!(text.contains("token_reuse") && text.contains("sign in"), "{text}");
+    let busy = CloudError::from(TokenError::Refused {
+        status: 503,
+        code: String::from("busy"),
+        message: String::new(),
+    });
+    assert!(!busy.is_sign_in());
 }
