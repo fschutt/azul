@@ -268,14 +268,16 @@ class Process:
         return "".join(self.output().splitlines(True)[-lines:])
 
 
-def start_worker(worker_dir, port, logs, db_path):
+def start_worker(worker_dir, port, logs, db_path=None):
     """The meet Worker's dev server on `port`, its database the file `db_path` (read by the
-    crypto phase), with this run's rate limits (`DEV_LIMITS`)."""
+    crypto phase; in memory without one: azmeet_cpu.py), with this run's rate limits
+    (`DEV_LIMITS`)."""
     node = shutil.which("node") or "node"
     env = dict(os.environ)
     env.update(DEV_LIMITS)
-    return Process("worker", [node, os.path.join(worker_dir, "dev-server.mjs"), "--db", db_path,
-                              "--port", str(port)], env, logs)
+    store = ["--db", db_path] if db_path else ["--memory"]
+    return Process("worker", [node, os.path.join(worker_dir, "dev-server.mjs")] + store
+                   + ["--port", str(port)], env, logs)
 
 
 # ==== The meeting server's database: what an attacker who reads it sees ====

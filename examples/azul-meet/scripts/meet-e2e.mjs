@@ -165,10 +165,22 @@ export async function startWorker(run, workerDir, port) {
   return worker;
 }
 
-/** The names the dev server lists in `room`. */
-export async function listedNames(worker, room) {
+/** The announcements the dev server lists in `room`. In an encrypted room (every room AzMeet
+ *  makes, CRYPTO.md) each is signed by its member's device and names nobody: the name lives
+ *  sealed in the member's record, the server lists "Guest". */
+export async function listedPeers(worker, room) {
   const { status, json } = await getJson(`${worker}/rooms/${room}/peers`);
-  return status === 200 ? json.peers.map((p) => p.name) : [];
+  return status === 200 ? json.peers : [];
+}
+
+/** Whether the dev server lists `count` signed announcements in `room`, none naming `names`. */
+export async function signedPeers(worker, room, count, names = []) {
+  const peers = await listedPeers(worker, room);
+  const signed = peers.filter((p) => p.device && p.sig);
+  if (peers.some((p) => names.includes(p.name))) {
+    throw new Error(`an announcement names its member: ${JSON.stringify(peers)}`);
+  }
+  return signed.length >= count;
 }
 
 /** The environment of a headless AzMeet: its debug server on `debugPort`, and every AZMEET_*
