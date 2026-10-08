@@ -1537,6 +1537,45 @@ mod tests {
         );
     }
 
+    /// What a render costs - not a check. Run it in release:
+    /// `cargo test --release -p azul-layout --lib --features materials --
+    /// --ignored print_what_a_render_costs --nocapture`.
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn print_what_a_render_costs() {
+        let params = MaterialParams {
+            radii: [8.0; 4],
+            ..MaterialParams::DEFAULT
+        };
+        for material in Material::ALL {
+            // Decode the tile and preshade the light first: once per process.
+            let _ = render_material_pixels(material, 8, 8, 1.0, &params, &MaterialLight::DEFAULT, [0.0; 2]);
+            for (w, h) in [(200, 40), (800, 600), (1920, 1080)] {
+                for (dpi, rays) in [(1.0, false), (1.0, true), (2.0, false)] {
+                    let runs = 5;
+                    let start = std::time::Instant::now();
+                    for i in 0..runs {
+                        let light = if rays {
+                            MaterialLight::DEFAULT.with_rays(crate::texture::MaterialRays::create(
+                                0.6,
+                                135.0,
+                                120.0,
+                                i as f32 * 10.0,
+                            ))
+                        } else {
+                            MaterialLight::DEFAULT
+                        };
+                        let _ = render_material_pixels(material, w, h, dpi, &params, &light, [0.0; 2]);
+                    }
+                    let ms = start.elapsed().as_secs_f64() * 1e3 / f64::from(runs);
+                    eprintln!(
+                        "{material:?} {w}x{h} device px, dpi {dpi}, rays {rays}: {ms:.2} ms"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn god_rays_brighten_a_band_and_nothing_else() {
         let tile = flat_tile(0.2, 0.8);

@@ -8,11 +8,15 @@ Scratch (never in the repo): /tmp/materials/ (scripts/, src/, micro/, azm/, comp
 - 7a6bf853a fix(texture): commit vellum_ink.bin (`*.bin` is gitignored: builtin(vellum) never reached the repo)
 - 062249baa test(RED): a callback image in a background layer is drawn for the layer's rect
 - 15aa3a711 fix(engine): background-layer callback images rendered per item + the window's MaterialLight
-- (this commit) feat(materials): the `materials` feature - tiles, decoder, shader, caches, CSS names, packer
+- 01596ed9e feat(materials): the `materials` feature - tiles, decoder, shader, caches, CSS names, packer
+- (this commit) an ignored cost test (`print_what_a_render_costs`), progress
+- /tmp/materials/scripts/rustmirror.py: numpy twin of the Rust shader; final sheets in /tmp/materials/compare/final_*
 
 ## NEXT
-- Python reference mirroring the Rust shader (macro on the final colour), final comparison sheets, timings
-- report
+- the lead: build + run `cargo test -p azul-layout --lib --features materials texture::`, `--test all
+  a_callback_image_in_a_background_layer`, then the RED pass (revert 15aa3a711 -> the first test fails)
+- follow-ups: stochastic (Heitz-Neyret) tiling, god rays as an overlay layer instead of a re-render,
+  a pre-encoded sRGB8 interior fast path, AppConfig initial light, api.json entries (see the report)
 
 ## Findings
 - Background layers on non-root boxes are drawn STRETCHED over the background area (one DL Image item,
