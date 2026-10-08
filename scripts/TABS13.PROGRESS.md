@@ -32,8 +32,13 @@ Worktree: .claude/worktrees/agent-a44bac5bf68dda4ac, branch worktree-agent-a44ba
   -2px); S = filled band of ROLLED_TAB (tabs::curve_band); run-outs; hover hairline; fades
 - 548e9d653 test: painted flora tab row (layout/tests/a_flora_tab_row_is_cut_from_the_websites_metal.rs)
 
+- 576c98ebb progress
+- 5521bf3c1 RED: a selected tab right after the application button hangs no left run-out
+- cdfe2ff7b fix: TabCurveLook::after_a_stone, empty run-out paint hangs none
+- 45b533391 docs: no doc line opens as a list item
+
 ## IN PROGRESS
-- final review, report.
+- none (report sent).
 
 ## NEXT
 - (lead) compile + run: css, layout --lib, layout --test all; autofix api.json; regenerate
