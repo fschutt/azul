@@ -15497,6 +15497,14 @@ impl LayoutWindow {
                 azul_css::props::basic::color::ColorU,
                 crate::solver3::display_list::PaintColorSlot,
             )> = Vec::new();
+            // (node, the layers the list shows, the frame's layers): the
+            // background fades patched layer by layer, after the loop like
+            // the colours.
+            let mut layer_jobs: Vec<(
+                NodeId,
+                Vec<azul_css::props::style::StyleBackgroundContent>,
+                Vec<azul_css::props::style::StyleBackgroundContent>,
+            )> = Vec::new();
             // A `transform` tween stepped by publishing its matrix alone (the
             // GPU property path below): a repaint, like a patched colour.
             let mut gpu_values_moved = false;
@@ -15648,6 +15656,21 @@ impl LayoutWindow {
                         };
                         Some((from_c, to_c, slot))
                     });
+                    // The same fast path for a background of gradients or of
+                    // several layers - a flora face: the layers the list shows
+                    // now (the last frame's, or `from` before the first), and
+                    // this frame's.
+                    let layers = if patchable && colors.is_none() {
+                        transition_patch_layers(&shown).and_then(|next| {
+                            let shown_now = match &tr.last_layers {
+                                Some(layers) => layers.clone(),
+                                None => transition_patch_layers(&tr.from)?,
+                            };
+                            Some((shown_now, next))
+                        })
+                    } else {
+                        None
+                    };
                     if let (true, Some((from_c, to_c, slot))) = (patchable, colors) {
                         result.styled_dom.set_user_property_override_fast(
                             &tr.node,
@@ -15675,6 +15698,21 @@ impl LayoutWindow {
                             needs_restyle = true;
                             restyle_fonts = true;
                         }
+                    } else if let Some((from_layers, to_layers)) = layers {
+                        // A background is no inherited property and its
+                        // presence bit in the compact cache stays set from
+                        // face to face, so the lean channel is all the
+                        // cascade needs: a list built for any other reason
+                        // mid-fade paints the override, which is what the
+                        // patch shows.
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
+                        );
+                        if from_layers != to_layers {
+                            layer_jobs.push((tr.node, from_layers, to_layers.clone()));
+                        }
+                        tr.last_layers = Some(to_layers);
                     } else {
                         // THE RESTYLE PATH, batched: the override goes in
                         // through the lean channel now and the cascade's
@@ -15730,6 +15768,24 @@ impl LayoutWindow {
                     }
                 }
 
+                if !layer_jobs.is_empty() {
+                    let dl = Arc::make_mut(&mut result.display_list);
+                    for (node, from_layers, to_layers) in &layer_jobs {
+                        if dl
+                            .patch_background_layers(*node, from_layers, to_layers)
+                            .is_none()
+                        {
+                            // The list could not be patched (a layer it never
+                            // drew, faces of two kinds): the rebuild path,
+                            // which reads the cascade's derived tables - the
+                            // lean channel left them behind.
+                            dirty.push((*node, azul_css::props::property::RelayoutScope::None));
+                            needs_restyle = true;
+                            paint_restyled = true;
+                        }
+                    }
+                }
+
                 // The one cascade refresh of this frame (see `needs_restyle`):
                 // what `restyle_user_property` did per tween - the compact
                 // cache and the inheritance tables rebuilt with every override
@@ -15745,7 +15801,7 @@ impl LayoutWindow {
                     }
                 }
             }
-            if !patch_jobs.is_empty() {
+            if !patch_jobs.is_empty() || !layer_jobs.is_empty() {
                 // The solver's structural-identity DL cache holds the
                 // PRE-PATCH arc (make_mut cloned): swap in the patched one or
                 // the next cache hit resurrects the stale colours.
@@ -15789,7 +15845,7 @@ impl LayoutWindow {
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
             // one: a mixed tick (patchable + unpatchable) rebuilds.
-            if (!patch_jobs.is_empty() || gpu_values_moved)
+            if (!patch_jobs.is_empty() || !layer_jobs.is_empty() || gpu_values_moved)
                 && dirty_empty
                 && self.pending_css_dirty.is_none()
             {
@@ -30207,6 +30263,11 @@ pub struct CssTransition {
     /// patch's from-match). `None` until the first patched tick — then the
     /// `from` endpoint's colour.
     pub last_color: Option<azul_css::props::basic::color::ColorU>,
+    /// [`Self::last_color`] for a background of gradients or of several
+    /// layers (a flora face): the layers the display list currently SHOWS,
+    /// the from-match of `DisplayList::patch_background_layers`. `None` until
+    /// the first patched tick - then the `from` endpoint's layers.
+    pub last_layers: Option<Vec<azul_css::props::style::StyleBackgroundContent>>,
     /// Where the target lives once the tween is over. A rebuilt DOM's
     /// transition (`false`) finishes by clearing its override, and the
     /// cascade - which already holds the target - shows through. An
@@ -30242,6 +30303,7 @@ impl CssTransition {
             timing: anim.timing,
             scope: prop_type.relayout_scope(false),
             last_color: None,
+            last_layers: None,
             keeps_target,
         }
     }
@@ -30467,6 +30529,31 @@ fn transition_patch_color(
         }
         _ => None,
     }
+}
+
+/// The background layers a paint transition prop shows, when the display list
+/// can take them in place (`DisplayList::patch_background_layers`): solid
+/// colours and linear, radial or conic gradients - a flora face is a two-stop
+/// linear gradient. `None` for anything else: no background, an image (where
+/// its tiles go may depend on what it shows), an unresolved `system:` colour
+/// (the list holds resolved ones). A single solid colour is
+/// [`transition_patch_color`]'s and never gets here.
+fn transition_patch_layers(
+    prop: &azul_css::props::property::CssProperty,
+) -> Option<Vec<azul_css::props::style::StyleBackgroundContent>> {
+    use azul_css::props::{property::CssProperty, style::StyleBackgroundContent as B};
+    let CssProperty::BackgroundContent(v) = prop else {
+        return None;
+    };
+    let layers = v.get_property()?.as_ref();
+    let drawable = !layers.is_empty()
+        && layers.iter().all(|layer| {
+            matches!(
+                layer,
+                B::Color(_) | B::LinearGradient(_) | B::RadialGradient(_) | B::ConicGradient(_)
+            )
+        });
+    drawable.then(|| layers.to_vec())
 }
 
 /// Whether a LAYOUT-scope tween leaves the layout TREE as it is - the boxes,

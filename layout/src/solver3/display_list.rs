@@ -1339,6 +1339,141 @@ impl DisplayList {
         damage
     }
 
+    /// Patch a node's BACKGROUND in place, layer by layer - the per-tick fast
+    /// path of a fade between two backgrounds of one shape: a gradient face
+    /// (flora paints its faces as two-stop gradients, `themes::decl::face`) or
+    /// a list of colour layers. Every item `node` paints for a layer of `from`
+    /// takes the layer of `to` at the same position: a colour layer is a
+    /// `Rect`, a gradient layer its gradient item. Neither item's bounds depend
+    /// on the layer's colours, so only the paint moves and the backend's
+    /// display-list diff damages exactly these items.
+    ///
+    /// Only the node's OWN items are rewritten: a background is not
+    /// inherited, so a descendant painting an equal face paints its own.
+    ///
+    /// Returns the damage union, or `None` when the list cannot be patched and
+    /// the caller must rebuild it: the two lists do not pair up kind for kind,
+    /// a layer is an image (where its tiles go may depend on what it shows),
+    /// two layers of `from` are equal (the match could not tell their items
+    /// apart), or a layer that changes paints nothing this walk can find (a
+    /// transparent colour is not drawn at all).
+    pub fn patch_background_layers(
+        &mut self,
+        node: NodeId,
+        from: &[azul_css::props::style::StyleBackgroundContent],
+        to: &[azul_css::props::style::StyleBackgroundContent],
+    ) -> Option<LogicalRect> {
+        use azul_css::props::style::StyleBackgroundContent as B;
+        if from.is_empty() || from.len() != to.len() {
+            return None;
+        }
+        for (i, pair) in from.iter().zip(to).enumerate() {
+            let same_kind = matches!(
+                pair,
+                (B::Color(_), B::Color(_))
+                    | (B::LinearGradient(_), B::LinearGradient(_))
+                    | (B::RadialGradient(_), B::RadialGradient(_))
+                    | (B::ConicGradient(_), B::ConicGradient(_))
+            );
+            if !same_kind || from[..i].contains(pair.0) {
+                return None;
+            }
+        }
+        let mut found = vec![false; from.len()];
+        let mut damage: Option<LogicalRect> = None;
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            if self.node_mapping.get(idx).copied().flatten() != Some(node) {
+                continue;
+            }
+            let bounds = match item {
+                DisplayListItem::Rect { color, bounds, .. } => {
+                    let Some(i) = from.iter().position(|f| *f == B::Color(*color)) else {
+                        continue;
+                    };
+                    let B::Color(next) = &to[i] else {
+                        continue;
+                    };
+                    *color = *next;
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::LinearGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::LinearGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::LinearGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::RadialGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::RadialGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::RadialGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::ConicGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::ConicGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::ConicGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                _ => continue,
+            };
+            damage = Some(damage.map_or(bounds, |d| {
+                let x = d.origin.x.min(bounds.origin.x);
+                let y = d.origin.y.min(bounds.origin.y);
+                let right = (d.origin.x + d.size.width).max(bounds.origin.x + bounds.size.width);
+                let bottom = (d.origin.y + d.size.height).max(bounds.origin.y + bounds.size.height);
+                LogicalRect {
+                    origin: LogicalPosition { x, y },
+                    size: LogicalSize {
+                        width: right - x,
+                        height: bottom - y,
+                    },
+                }
+            }));
+        }
+        // A layer that moves must have been found: one the walk missed would
+        // keep painting its old face while the rest of the background fades.
+        let missed = from
+            .iter()
+            .zip(to)
+            .zip(&found)
+            .any(|((f, t), seen)| !*seen && f != t);
+        if missed {
+            return None;
+        }
+        Some(damage.unwrap_or_else(LogicalRect::zero))
+    }
+
     pub fn patch_node_image(&mut self, node: NodeId, image: &ImageRef) -> Option<LogicalRect> {
         let mut damage: Option<LogicalRect> = None;
 
