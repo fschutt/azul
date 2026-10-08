@@ -795,11 +795,13 @@ fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
             compose_ref(app, c.id),
             on_compose_body_change as RichTextEditorOnChangeCallbackType,
         );
+    // The message is running text: flat's sans, flora's serif (the `system:serif` role is
+    // flora's Garamond under flora).
     let paper = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 160px; \
              background: system:background; color: system:text; font-family: sans-serif; \
-             overflow-y: auto;",
+             overflow-y: auto; @theme(flora) { font-family: system:serif; }",
         )
         .with_child(editor.content_dom());
     Dom::create_div()

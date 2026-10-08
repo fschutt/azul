@@ -222,6 +222,13 @@ const PAPER_LIGHT: &str = "background-color: #ffffff; color: #1a1a1a;";
 /// The paper in the dark mode, for a mail with dark rules (inside a `prefers-color-scheme:
 /// dark` rule).
 const PAPER_DARK: &str = "background-color: #1e1e1e; color: #e8e8e8;";
+/// [`PAPER_LIGHT`] under flora (inside an `@theme(flora)` rule): flora's field paper
+/// (`--fl-fld`) under its ink - flora never lays a pure white field - kept light at night for
+/// a mail without dark rules, whose own colours assume a light page. Only the paper itself:
+/// a theme block outranks the mail's own rules, so nothing the mail styles is touched.
+const PAPER_LIGHT_FLORA: &str = "background-color: #FBFAF6; color: #262521;";
+/// [`PAPER_DARK`] under flora: the night field paper and the night ink.
+const PAPER_DARK_FLORA: &str = "background-color: #1D1D1D; color: #E7E7E7;";
 /// The paper's box: at least the pane wide, wider when the mail is (a browser's canvas grows
 /// with its content the same way).
 const PAPER_BOX: &str = "display: inline-block; min-width: 100%; box-sizing: border-box;";
@@ -615,9 +622,15 @@ impl Sanitizer {
         let mail_body = ids::MAIL_BODY;
         let mail_body = mail_body.as_str();
         let mut sheet = format!(".{paper} {{ {PAPER_BOX} {PAPER_LIGHT} }} ");
+        // Under flora, flora's paper (the paper element only - see `PAPER_LIGHT_FLORA`).
+        sheet.push_str(&format!("@theme(flora) {{ .{paper} {{ {PAPER_LIGHT_FLORA} }} }} "));
         if self.has_dark_rules {
             sheet.push_str(&format!(
                 "@media (prefers-color-scheme: dark) {{ .{paper} {{ {PAPER_DARK} }} }} "
+            ));
+            sheet.push_str(&format!(
+                "@theme(flora) {{ @media (prefers-color-scheme: dark) {{ .{paper} {{ \
+                 {PAPER_DARK_FLORA} }} }} }} "
             ));
         } else {
             sheet.push_str(&format!(".{paper} a {{ {PAPER_LINK} }} "));
@@ -1086,6 +1099,33 @@ mod tests {
             inner("<p>Hi</p>"),
             "<p>Hi</p>",
             "the paper wraps the mail's own markup"
+        );
+    }
+
+    /// Under flora a mail lies on flora's field paper in flora's ink - flora never lays a pure
+    /// white field - and a mail with dark rules on flora's night paper at night. Only the
+    /// paper element itself: a theme block outranks the mail's own rules, so it names nothing
+    /// the mail styles.
+    #[test]
+    fn under_flora_a_mail_lies_on_floras_field_paper() {
+        let css = style_sheet(&sanitize("<p>Hi</p>"));
+        assert!(
+            css.contains(&format!(
+                "@theme(flora) {{ .__azmail_paper {{ {PAPER_LIGHT_FLORA} }} }}"
+            )),
+            "{css}"
+        );
+        assert!(!css.contains("prefers-color-scheme"), "still light at night: {css}");
+        let dark = style_sheet(&sanitize(
+            "<style>@media (prefers-color-scheme: dark) { .x { color: #eeeeee } }</style>\
+             <p class=x>t</p>",
+        ));
+        assert!(
+            dark.contains(&format!(
+                "@theme(flora) {{ @media (prefers-color-scheme: dark) {{ .__azmail_paper {{ \
+                 {PAPER_DARK_FLORA} }} }} }}"
+            )),
+            "{dark}"
         );
     }
 

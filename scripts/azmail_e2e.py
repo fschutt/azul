@@ -82,6 +82,7 @@ names the binary. Logs and data go to a temporary folder that is printed at the 
 failure, or always with --keep-logs).
 """
 import argparse
+import base64
 import email
 import email.policy
 import json
@@ -764,6 +765,57 @@ class SampleRun(Run):
         self.check('the newsletter\'s 600 px table stays on its paper',
                    papers and min(papers) >= 600, f'(paper {papers})')
 
+    def screenshot(self, path, window=None):
+        """The window as a PNG at `path` (the debug server's `take_screenshot`)."""
+        answer = self.must('take_screenshot', window)
+
+        def find(x):
+            if isinstance(x, str) and 'base64,' in x:
+                return x
+            if isinstance(x, dict):
+                for y in x.values():
+                    found = find(y)
+                    if found:
+                        return found
+            return None
+
+        png = find(answer)
+        if not png:
+            raise Failure(f'take_screenshot gave no PNG: {json.dumps(answer)[:200]}')
+        with open(path, 'wb') as f:
+            f.write(base64.b64decode(png.split('base64,', 1)[1]))
+
+    def looks(self):
+        """The main window with the newsletter open in the reading pane, in flat and flora,
+        light and dark: each settled (a theme switch fades flora's faces), screenshotted
+        (screenshots/<theme>-<mode>.png in the run's folder) and every text checked to read at
+        2:1 or better against what is painted under it (azlin_e2e.contrast_findings). Ends in
+        flat light, as the run started."""
+        def value(answer):
+            data = answer.get('data') if isinstance(answer, dict) else None
+            return data.get('value') if isinstance(data, dict) and 'value' in data else data
+        out = os.path.join(self.tmp, 'screenshots')
+        os.makedirs(out, exist_ok=True)
+        findings = []
+        for theme in ('flat', 'flora'):
+            for mode in ('light', 'dark'):
+                self.must('set_theme', theme=theme)
+                self.must('set_mode', mode=mode)
+                self.frame(None, 3)
+                self.settle(limit=3.0)
+                self.frame(None, 2)
+                items = (value(self.must('get_display_list')) or {}).get('items') or []
+                base = (255.0, 255.0, 255.0) if mode == 'light' else (30.0, 30.0, 30.0)
+                findings += [f'{theme}/{mode}: {f}'
+                             for f in azlin_e2e.contrast_findings(items, base)]
+                self.screenshot(os.path.join(out, f'{theme}-{mode}.png'))
+        self.must('set_theme', theme='flat')
+        self.must('set_mode', mode='light')
+        self.frame(None, 3)
+        self.check('every text reads at 2:1 or better in flat / flora x light / dark',
+                   not findings, '\n  ' + '\n  '.join(findings[:30]))
+        log(f'4 screenshots (flat / flora x light / dark, the newsletter open) in {out}')
+
     def todo_task(self):
         self.must('focus_node', selector='.__azul-native-todo-bar-task-input '
                                          '.__azul-native-text-input-container')
@@ -911,6 +963,7 @@ class SampleRun(Run):
         window = self.compose_window()
         self.close_guard(window)
         self.check_open_newsletter()
+        self.looks()
         self.print_to_pdf()
         self.zoom_in()
         self.restart_keeps_tasks()
