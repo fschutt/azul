@@ -64070,6 +64070,9 @@
                                 },
                                 "theme": {
                                     "type": "OptionUiTheme"
+                                },
+                                "available_width": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -64373,6 +64376,39 @@
                                     "type": "Ribbon"
                                 },
                                 "fn_body": "object.with_tabs_in_titlebar(chrome)"
+                            },
+                            "set_available_width": {
+                                "doc": [
+                                    "The width the ribbon is laid out in, px (see",
+                                    "[`Self::available_width`]); 0 or a width that is not a number: the",
+                                    "window's."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_available_width(width)"
+                            },
+                            "with_available_width": {
+                                "doc": [
+                                    "[`Self::set_available_width`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_available_width(width)"
                             }
                         },
                         "repr": "C"
@@ -73521,6 +73557,9 @@
                                 },
                                 "fills_space": {
                                     "type": "bool"
+                                },
+                                "icon": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -73654,6 +73693,38 @@
                                     "type": "RibbonGroup"
                                 },
                                 "fn_body": "object.with_items(items)"
+                            },
+                            "set_icon": {
+                                "doc": [
+                                    "Sets the icon the group's button shows when the group collapses",
+                                    "(see [`Self::icon`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "Builder method: [`Self::set_icon`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGroup"
+                                },
+                                "fn_body": "object.with_icon(icon)"
                             }
                         },
                         "repr": "C"
@@ -74061,6 +74132,9 @@
                                     "type": "OptionCssPropertyWithConditionsVec"
                                 },
                                 "gallery_spinner_icon_style": {
+                                    "type": "OptionCssPropertyWithConditionsVec"
+                                },
+                                "group_popup_style": {
                                     "type": "OptionCssPropertyWithConditionsVec"
                                 }
                             }
