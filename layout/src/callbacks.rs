@@ -9114,6 +9114,48 @@ mod autotest_generated {
         );
     }
 
+    /// A callback drives a `<webview>` by its node: each command is ONE
+    /// queued change naming the node, applied by the shell (the engine queues
+    /// it for the view's backend). Outside a web view's own event there is no
+    /// web view event to read.
+    #[test]
+    fn webview_commands_queue_one_change_each_naming_the_views_node() {
+        use azul_core::webview::{OptionWebViewEvent, WebViewCommand};
+        let view = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(3))),
+        };
+        with_info(node_none(), |info| {
+            info.webview_navigate(view, azul_css::AzString::from("https://example.com/"));
+            info.webview_reload(view);
+            info.webview_go_back(view);
+            let changes = info.take_changes();
+            assert_eq!(changes.len(), 3, "{changes:?}");
+            assert!(matches!(
+                &changes[0],
+                CallbackChange::WebViewCommand {
+                    node,
+                    command: WebViewCommand::Navigate(url),
+                } if *node == view && url.as_str() == "https://example.com/"
+            ));
+            assert!(matches!(
+                &changes[1],
+                CallbackChange::WebViewCommand {
+                    node,
+                    command: WebViewCommand::Reload,
+                } if *node == view
+            ));
+            assert!(matches!(
+                &changes[2],
+                CallbackChange::WebViewCommand {
+                    node,
+                    command: WebViewCommand::GoBack,
+                } if *node == view
+            ));
+            assert_eq!(info.get_webview_event(), OptionWebViewEvent::None);
+        });
+    }
+
     #[test]
     fn callback_info_timer_and_thread_ids_survive_boundary_values() {
         with_info(node_none(), |info| {
