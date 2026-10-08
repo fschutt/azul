@@ -318,6 +318,15 @@ fn parse_and_dump_in_window(out: &mut String, xml: &str, width: f32, height: f32
     }
 }
 
+/// How a fixture is read: mail through the lenient HTML document loader (the
+/// one a mail client uses - real mail is not XML), the web-platform tests
+/// through the XML document loader, as their reftest runner reads them.
+#[derive(Clone, Copy)]
+enum Loader {
+    Html,
+    Xml,
+}
+
 fn fresh_layout_cache() -> Solver3LayoutCache {
     Solver3LayoutCache {
         prev_viewport: LogicalRect {
@@ -520,7 +529,7 @@ fn files_under(dir: &Path, exts: &[&str]) -> Vec<PathBuf> {
 }
 
 /// Lays out every fixture under `../tests/<dir>` at 800 x 600.
-fn fixture_group(dirs: &[&str], exts: &[&str]) -> String {
+fn fixture_group(dirs: &[&str], exts: &[&str], loader: Loader) -> String {
     let root = manifest_dir().join("../tests");
     let mut out = String::new();
     let mut count = 0;
@@ -528,9 +537,13 @@ fn fixture_group(dirs: &[&str], exts: &[&str]) -> String {
         for file in files_under(&root.join(dir), exts) {
             let name = file.strip_prefix(&root).unwrap_or(&file).display().to_string();
             let _ = writeln!(out, "=== {name}");
-            match std::fs::read_to_string(&file) {
-                Ok(xml) => parse_and_dump_in_window(&mut out, &xml, 800.0, 600.0),
-                Err(e) => {
+            match (std::fs::read_to_string(&file), loader) {
+                (Ok(html), Loader::Html) => {
+                    let styled = azul_layout::xml::parse_html_to_styled_dom(&html);
+                    dump_in_window(&mut out, styled, 800.0, 600.0);
+                }
+                (Ok(xml), Loader::Xml) => parse_and_dump_in_window(&mut out, &xml, 800.0, 600.0),
+                (Err(e), _) => {
                     let _ = writeln!(out, "read error: {e}");
                 }
             }
@@ -543,14 +556,21 @@ fn fixture_group(dirs: &[&str], exts: &[&str]) -> String {
 
 #[test]
 fn the_mail_corpus_lays_out_as_its_golden_dump() {
-    matches_golden("mail_corpus", &fixture_group(&["mail_corpus"], &["html"]));
+    matches_golden(
+        "mail_corpus",
+        &fixture_group(&["mail_corpus"], &["html"], Loader::Html),
+    );
 }
 
 #[test]
 fn the_web_platform_css_fixtures_lay_out_as_their_golden_dump() {
     matches_golden(
         "wpt_css",
-        &fixture_group(&["wpt/normalized/css"], &["html", "htm", "xht", "xhtml"]),
+        &fixture_group(
+            &["wpt/normalized/css"],
+            &["html", "htm", "xht", "xhtml"],
+            Loader::Xml,
+        ),
     );
 }
 
@@ -561,6 +581,7 @@ fn the_web_platform_html_and_local_fixtures_lay_out_as_their_golden_dump() {
         &fixture_group(
             &["wpt/normalized/html", "wpt/normalized/local"],
             &["html", "htm", "xht", "xhtml"],
+            Loader::Xml,
         ),
     );
 }
