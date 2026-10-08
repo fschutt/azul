@@ -26,9 +26,12 @@ use crate::pieces::{column, text};
 const PAGE: &str = "padding: 20px 32px; color: system:text; min-width: 0px;";
 /// The page's title ("Account Information").
 const TITLE: &str = "font-size: 26px; margin-bottom: 14px;";
-/// A section's heading ("Support", "Printer", "About AzMail") over its rule.
+/// A section's heading ("Support", "Printer", "About AzMail") over its rule; under flora
+/// flora's label (`.fl-label`): capitals in the label ink.
 const SECTION: &str = "font-size: 15px; font-weight: bold; margin-top: 18px; padding-bottom: \
-                       4px; border-bottom: 1px solid system:separator;";
+                       4px; border-bottom: 1px solid system:separator; @theme(flora) { \
+                       font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; \
+                       color: system:secondary-text; }";
 /// A command's heading.
 const HEADING: &str = "font-size: 15px; font-weight: bold;";
 /// Secondary lines: what a command does, a card's details, a fact's label.
@@ -96,7 +99,12 @@ pub fn card(icon: &str, title: &str, details: &[&str], selected: bool) -> Dom {
         ))
         .with_child(
             Dom::create_icon(icon)
-                .with_css("font-size: 32px; margin-right: 12px; color: system:accent;"),
+                // The card's glyph: the accent under flat, flora's brass (its large glyphs'
+                // ink) under flora.
+                .with_css(
+                    "font-size: 32px; margin-right: 12px; color: system:accent; @theme(flora) { \
+                     color: system:link; }",
+                ),
         )
         .with_child(column("flex-grow: 1; min-width: 0px;", lines))
 }

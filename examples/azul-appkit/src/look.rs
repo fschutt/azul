@@ -17,7 +17,11 @@
 //! ```
 //!
 //! The colours are the theme's (`system:` colours), named here so a palette - Office 2010's
-//! silver and orange, or any other - can be swapped in without touching a page.
+//! silver and orange, or any other - can be swapped in without touching a page. Under flora
+//! (`@theme(flora)` blocks, after the flat values) the dialog is flora's: the two panes are
+//! leaves (`system:window-background`, flora's `--fl-sur`) on the desk, a section's band is
+//! flora's label (`.fl-label`: capitals in the label ink over a hairline, no fill), the
+//! header's glyph is brass and the category items take the house radius.
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, CallbackType},
@@ -86,7 +90,9 @@ pub fn band(title: &str) -> Dom {
         .with_class("appkit-band")
         .with_css(format!(
             "padding: 4px 8px; margin-top: 12px; background: {BAND_BG}; font-size: 13px; \
-             font-weight: bold;"
+             font-weight: bold; @theme(flora) {{ background: transparent; font-size: 11px; \
+             text-transform: uppercase; letter-spacing: 0.12em; color: system:secondary-text; \
+             border-bottom: 1px solid system:grid; padding: 4px 0px; }}"
         ))
         .with_child(text(title))
 }
@@ -116,7 +122,8 @@ pub fn header_line(id: &str, icon: &str, line: &str) -> Dom {
              0px; flex-shrink: 0;",
         )
         .with_child(Dom::create_icon(icon).with_css(format!(
-            "font-size: 32px; color: {HEADER_ICON}; margin-right: 12px; flex-shrink: 0;"
+            "font-size: 32px; color: {HEADER_ICON}; margin-right: 12px; flex-shrink: 0; \
+             @theme(flora) {{ color: system:link; }}"
         )))
         .with_child(
             Dom::create_div()
@@ -148,7 +155,7 @@ pub fn category_list(
     on_pick: CallbackType,
 ) -> Dom {
     let item_css = "padding: 6px 12px; margin: 1px 4px; font-size: 13px; border-radius: 2px; \
-                    cursor: pointer; flex-shrink: 0;";
+                    cursor: pointer; flex-shrink: 0; @theme(flora) { border-radius: 3px; }";
     let mut children = Vec::with_capacity(items.len() + 2);
     for (index, item) in items.iter().enumerate() {
         if item.rule_before {
@@ -177,7 +184,8 @@ pub fn category_list(
         &format!(
             "width: {CATEGORY_WIDTH}; flex-shrink: 1; min-width: 100px; min-height: 0px; \
              padding: 4px 0px; background: {PANE_BG}; border: 1px solid {PANE_EDGE}; \
-             overflow-y: auto; overflow-x: hidden;"
+             overflow-y: auto; overflow-x: hidden; @theme(flora) {{ background: \
+             system:window-background; }}"
         ),
         children,
     )
@@ -193,7 +201,8 @@ pub fn options_pane(id: &str, children: Vec<Dom>) -> Dom {
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; min-width: \
              0px; min-height: 0px; margin-left: 8px; background: {PANE_BG}; border: 1px solid \
-             {PANE_EDGE}; overflow-y: auto; overflow-x: hidden;"
+             {PANE_EDGE}; overflow-y: auto; overflow-x: hidden; @theme(flora) {{ background: \
+             system:window-background; }}"
         ))
         .with_child(column(
             "flex-shrink: 0; min-width: 0px; padding: 12px 18px 18px 18px;",
@@ -253,7 +262,8 @@ pub fn dialog(id: &str, categories: Dom, pane: Dom, buttons: Dom) -> Dom {
         .with_id(id)
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: \
-             0px; background: {DIALOG_BG}; color: system:text;"
+             0px; background: {DIALOG_BG}; color: system:text; @theme(flora) {{ background: \
+             system:under-page-background; }}"
         ))
         .with_child(
             Dom::create_div()
