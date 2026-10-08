@@ -340,17 +340,95 @@ impl Screen {
     }
 }
 
-/// Where the focus is on a page with a gallery.
+/// Where the keyboard is on a page: Tab and Shift+Tab move between the page's zones (round),
+/// the arrows within one, Enter does what the zone's focused part does. The app draws the
+/// focus of the zone the keys are in - one glow on the window, never the engine's ring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Zone {
+    /// The top band's buttons: back (and fullscreen over a video).
+    Corner,
+    /// The page itself: the strip, a gallery and its views, the settings; on the media pages
+    /// the media (the arrows seek or step, Enter plays and pauses).
+    #[default]
+    Content,
+    /// The transport's round buttons (now playing, the picture viewer, a video).
+    Transport,
+    /// The now-playing inset, bottom left.
+    Inset,
+}
+
+impl Zone {
+    /// Its name in `AZPLAYER_ZONE`.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Zone::Corner => "corner",
+            Zone::Content => "content",
+            Zone::Transport => "transport",
+            Zone::Inset => "inset",
+        }
+    }
+}
+
+/// The zones of `screen` in Tab order (`inset`: the now-playing inset shows on it): the top
+/// band's buttons (every page but the start strip), the page, the transport (the pages of what
+/// plays), the inset.
+#[must_use]
+pub fn zones(screen: &Screen, inset: bool) -> Vec<Zone> {
+    let mut out = Vec::with_capacity(4);
+    if *screen != Screen::Start {
+        out.push(Zone::Corner);
+    }
+    out.push(Zone::Content);
+    if matches!(screen, Screen::NowPlaying | Screen::Picture | Screen::Video) {
+        out.push(Zone::Transport);
+    }
+    if inset {
+        out.push(Zone::Inset);
+    }
+    out
+}
+
+/// The zone the keys are in: `zone` where the page has it, else the page itself.
+#[must_use]
+pub fn zone_in(zone: Zone, zones: &[Zone]) -> Zone {
+    if zones.contains(&zone) {
+        zone
+    } else {
+        Zone::Content
+    }
+}
+
+/// The zone Tab (`forward`) or Shift+Tab goes to from `zone`, round.
+#[must_use]
+pub fn next_zone(zone: Zone, zones: &[Zone], forward: bool) -> Zone {
+    let n = zones.len();
+    if n == 0 {
+        return Zone::Content;
+    }
+    let here = zone_in(zone, zones);
+    let i = zones.iter().position(|z| *z == here).unwrap_or(0);
+    let j = if forward { (i + 1) % n } else { (i + n - 1) % n };
+    zones[j]
+}
+
+/// Where the focus is on a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Focus {
     /// The views row has the focus (not the gallery).
     pub on_views: bool,
     /// The view shown (an index into the section's views).
     pub view: usize,
-    /// The focused tile.
+    /// The focused tile (on a settings page: the focused row).
     pub index: usize,
     /// The first column in view.
     pub first_col: usize,
+    /// The zone the keys are in.
+    pub zone: Zone,
+    /// The focused button of the top band (0: back).
+    pub corner: usize,
+    /// The focused button of the transport (`None`: play / pause).
+    pub transport: Option<usize>,
 }
 
 /// A page in the history of the window: what it is and where its focus was.
@@ -441,5 +519,36 @@ mod tests {
         assert_eq!(group_tiles(Shelf::Music, group).len(), 2);
         assert!(Screen::Start.on_ground() && !Screen::Video.on_ground());
         assert_ne!(Screen::Section(Section::Music).key(), Screen::Section(Section::Tv).key());
+    }
+
+    /// "pressing tab can also make the back button disappear" (2026-10-08): Tab walks the
+    /// page's zones - the back button among them - round, never off the page.
+    #[test]
+    fn tab_walks_a_pages_zones_round_and_shift_tab_walks_back() {
+        let music = Screen::Section(Section::Music);
+        assert_eq!(zones(&music, false), vec![Zone::Corner, Zone::Content]);
+        assert_eq!(
+            zones(&music, true),
+            vec![Zone::Corner, Zone::Content, Zone::Inset],
+            "the inset while music plays"
+        );
+        assert_eq!(zones(&Screen::Start, false), vec![Zone::Content], "no back on the strip");
+        assert_eq!(
+            zones(&Screen::NowPlaying, false),
+            vec![Zone::Corner, Zone::Content, Zone::Transport]
+        );
+        let z = zones(&music, false);
+        assert_eq!(next_zone(Zone::Content, &z, true), Zone::Corner, "Tab: round to back");
+        assert_eq!(next_zone(Zone::Corner, &z, true), Zone::Content);
+        assert_eq!(next_zone(Zone::Content, &z, false), Zone::Corner, "Shift+Tab");
+        let np = zones(&Screen::NowPlaying, false);
+        assert_eq!(next_zone(Zone::Content, &np, true), Zone::Transport);
+        assert_eq!(next_zone(Zone::Transport, &np, true), Zone::Corner);
+        assert_eq!(next_zone(Zone::Corner, &np, false), Zone::Transport);
+        // A zone the page does not have (the inset after the music stopped): the page.
+        assert_eq!(zone_in(Zone::Inset, &z), Zone::Content);
+        assert_eq!(zone_in(Zone::Transport, &zones(&Screen::Start, false)), Zone::Content);
+        assert_eq!(Focus::default().zone, Zone::Content, "a page opens on itself");
+        assert_eq!(Zone::Corner.word(), "corner");
     }
 }

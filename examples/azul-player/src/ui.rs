@@ -40,7 +40,7 @@ use crate::{
     look::{self, Light},
     media::{self, Command, CommandRef, Music, VideoSession},
     nav::{self, Act, ActRef},
-    pages::{self, Place, Screen, Section, Tile},
+    pages::{self, Place, Screen, Section, Tile, Zone},
     strip::{Entry, CATEGORIES},
 };
 
@@ -338,6 +338,8 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         18.0 + lights
     ));
     if place.screen != Screen::Start {
+        // Lit while Tab has the keyboard on it (and then it stays: `Player::chrome_held`).
+        let lit = s.zone() == Zone::Corner && s.place().focus.corner == 0;
         left.add_child(
             Dom::create_div()
                 .with_id(ids::CORNER)
@@ -350,11 +352,11 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
                 .with_child(round_button(
                     app,
                     Command::Back,
-                    "arrow_back",
-                    "Back",
+                    ("arrow_back", "Back"),
                     34.0,
                     ids::BACK,
                     stage,
+                    lit,
                 )),
         );
     }
@@ -382,26 +384,28 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         .with_child(clock)
 }
 
-/// A round glass button doing `command`: an icon, named `name` for assistive technology; the
-/// glow under the pointer and while it has the keyboard focus.
+/// A round glass button doing `command`: an icon, named for assistive technology (`face`: the
+/// icon and the name); the glow under the pointer, and the keyboard's ring while `lit` (Tab
+/// brought the keys to it: the app's own focus, which fades in and out - never the engine's
+/// ring).
 fn round_button(
     app: &RefAny,
     command: Command,
-    icon_name: &str,
-    name: &str,
+    face: (&str, &str),
     size: f32,
     id: AzString,
     stage: Stage,
+    lit: bool,
 ) -> Dom {
+    let (icon_name, name) = face;
     let icon_px = (size * 0.5).round();
     let radius = size / 2.0;
-    // The box takes the click, the focus and the name; its icon is the face.
+    // The box takes the click and the name; its icon is the face, the ring is over it.
     Dom::create_div()
         .with_id(id)
         .with_css(format!(
-            "display: flex; flex-shrink: 0; width: {size}px; height: {size}px; margin-left: \
-             8px; cursor: pointer; border-radius: {radius}px; {NO_DRAG} :focus {{ box-shadow: \
-             0px 0px 14px 2px rgba(118, 196, 255, 0.95); }}"
+            "position: relative; display: flex; flex-shrink: 0; width: {size}px; height: \
+             {size}px; margin-left: 8px; cursor: pointer; border-radius: {radius}px; {NO_DRAG}"
         ))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(name)
@@ -419,6 +423,7 @@ fn round_button(
             look::ROUND,
             look::icon_fade(stage)
         )))
+        .with_child(Dom::create_div().with_css(look::ring(lit, size, stage)))
 }
 
 /// The music playing, small, bottom left (a click: now playing).
@@ -439,6 +444,8 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
         .filter(|i| i.has_cover)
         .and_then(|i| s.art.get(&cover_key(&i.path)).cloned().flatten());
     let face = art_face(art, &title, 56.0, 56.0, "music_note", stage);
+    // In on a spring, out with a fade (Stop dismisses it); lit while Tab has the keys on it.
+    let lit = s.zone() == Zone::Inset;
     let inset = Dom::create_div()
         .with_id(ids::INSET)
         .with_css(
@@ -446,9 +453,10 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
              flex; flex-direction: row; align-items: center; padding: 4px; box-sizing: \
              border-box; border-radius: 6px; background: rgba(4, 18, 43, 0.55); border: 1px \
              solid rgba(255, 255, 255, 0.18); cursor: pointer; -azul-animation-in: azp-rise-in \
-             360ms spring; :hover { border: 1px solid rgba(255, 255, 255, 0.7); } :focus { \
-             box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, 0.85); }",
+             360ms spring; -azul-animation-out: azp-fade-out 240ms ease-in; :hover { border: \
+             1px solid rgba(255, 255, 255, 0.7); }",
         )
+        .with_child(Dom::create_div().with_css(look::bar(lit, 6.0)))
         .with_child(
             Dom::create_div()
                 .with_css(
@@ -622,7 +630,7 @@ fn strip_items(
             STRIP_TILE_H + 36.0
         ));
     for (i, entry) in category.entries.iter().enumerate() {
-        let focused = i == col;
+        let focused = i == col && s.zone() == Zone::Content;
         let reason = entry_reason(s, entry);
         let enabled = reason.is_none();
         let face_bg = if enabled {
@@ -729,7 +737,7 @@ fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: S
     ));
     for (i, view) in section.views().iter().enumerate() {
         let shown = i == place.focus.view;
-        let focused = shown && place.focus.on_views;
+        let focused = shown && place.focus.on_views && s.zone() == Zone::Content;
         let word = Dom::create_p_with_text(view.label(section)).with_css(format!(
             "margin: 0px 26px 0px 0px; padding: 2px 8px; border-radius: 4px; font-size: 21px; \
              cursor: pointer; color: {}; {} {} :hover {{ color: #ffffff; }}",
@@ -783,12 +791,16 @@ fn gallery_page(
         ));
     }
     let offset = grid.offset(place.focus.first_col);
+    // The sheet glides a column at a time as the focus nears the edge (declared: a move on
+    // the strip's spring), the tiles on it ride along.
     let mut sheet = Dom::create_div().with_id(ids::SHEET).with_css(format!(
-        "position: absolute; left: {:.1}px; top: 0px; right: 0px; bottom: 0px;",
+        "position: absolute; left: {:.1}px; top: 0px; right: 0px; bottom: 0px; animation: move \
+         {STRIP_GLIDE_MS}ms spring;",
         -offset
     ));
+    let content_lit = s.zone() == Zone::Content;
     for i in grid.built(place.focus.first_col, tiles.len()) {
-        let focused = !place.focus.on_views && i == place.focus.index;
+        let focused = !place.focus.on_views && i == place.focus.index && content_lit;
         sheet.add_child(gallery_tile(s, app, &tiles[i], i, focused, &grid, stage));
     }
     page.add_child(
@@ -1178,6 +1190,8 @@ fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         .with_on_text_input(app.clone(), nav::on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::SEARCH_FIELD)
+        // Found again when Tab brings the keys back to the page (`nav::tab`).
+        .with_marker(OptionString::Some(ids::SEARCH_FIELD))
         .with_attribute(AttributeType::Autofocus)
         .with_css(format!(
             "position: absolute; left: 60px; top: {:.0}px; width: 460px;",
@@ -1426,69 +1440,28 @@ fn transport_bar(s: &Player, app: &RefAny, what: Shelf, stage: Stage) -> Dom {
         .with_child(transport(s, app, what, stage))
 }
 
-/// The transport's buttons: for music, shuffle · previous · rewind · play / pause · forward ·
-/// next · stop and the volume; for a video stop · from the start · rewind · play / pause ·
-/// forward and the volume; for the slide show previous · play / pause · next and the music.
+/// The transport's buttons (`media::transport_buttons`): the one the keyboard is on has its
+/// ring while Tab has the keys in the transport (Left / Right walk it, Enter presses).
 fn transport(s: &Player, app: &RefAny, what: Shelf, stage: Stage) -> Dom {
-    let playing = match what {
-        Shelf::Music => s.music.as_ref().is_some_and(Music::playing),
-        Shelf::Pictures => s.viewer.playing,
-        _ => s
-            .video
-            .as_ref()
-            .is_some_and(|v| !v.paused && v.status.phase != VideoPhase::Ended),
-    };
-    let (play_icon, play_name) = if playing {
-        ("pause", "Pause")
-    } else {
-        ("play_arrow", "Play")
-    };
-    let (mute_icon, mute_name) = if s.muted {
-        ("volume_off", "Sound on")
-    } else {
-        ("volume_up", "Mute")
-    };
-    let b = |command: Command, icon_name: &str, name: &str, size: f32, id: AzString| {
-        round_button(app, command, icon_name, name, size, id, stage)
-    };
+    let buttons = media::transport_buttons(s, what);
+    let keys_here = s.zone() == Zone::Transport;
+    let focused = media::transport_focus(&buttons, s.place().focus.transport);
     let mut controls = Dom::create_div().with_id(ids::CONTROLS).with_css(
         "display: flex; flex-direction: row; align-items: center; flex-shrink: 0;",
     );
-    match what {
-        Shelf::Pictures => {
-            controls.add_child(b(Command::Previous, "skip_previous", "Previous picture", 40.0, ids::PREVIOUS));
-            controls.add_child(b(Command::SlideShow, play_icon, if playing { "Pause the slide show" } else { "Play the slide show" }, 54.0, ids::PLAY));
-            controls.add_child(b(Command::Next, "skip_next", "Next picture", 40.0, ids::NEXT));
+    for (i, b) in buttons.iter().enumerate() {
+        if b.gap {
             controls.add_child(Dom::create_div().with_css("width: 22px; flex-shrink: 0;"));
-            let music_name = if s.music.is_some() {
-                "Stop the music"
-            } else {
-                "Music under the slide show"
-            };
-            controls.add_child(b(Command::SlideMusic, "library_music", music_name, 34.0, ids::MUSIC));
         }
-        Shelf::Music => {
-            controls.add_child(b(Command::Shuffle, "shuffle", "Shuffle", 34.0, ids::SHUFFLE));
-            controls.add_child(b(Command::Previous, "skip_previous", "Previous song", 40.0, ids::PREVIOUS));
-            controls.add_child(b(Command::Rewind, "fast_rewind", "Back 10 seconds", 40.0, ids::REWIND));
-            controls.add_child(b(Command::PlayPause, play_icon, play_name, 56.0, ids::PLAY));
-            controls.add_child(b(Command::Forward, "fast_forward", "Forward 30 seconds", 40.0, ids::FORWARD));
-            controls.add_child(b(Command::Next, "skip_next", "Next song", 40.0, ids::NEXT));
-            controls.add_child(b(Command::Stop, "stop", "Stop", 40.0, ids::STOP));
-        }
-        _ => {
-            controls.add_child(b(Command::Stop, "stop", "Stop", 40.0, ids::STOP));
-            controls.add_child(b(Command::Restart, "skip_previous", "From the start", 40.0, ids::RESTART));
-            controls.add_child(b(Command::Rewind, "fast_rewind", "Back 10 seconds", 40.0, ids::REWIND));
-            controls.add_child(b(Command::PlayPause, play_icon, play_name, 56.0, ids::PLAY));
-            controls.add_child(b(Command::Forward, "fast_forward", "Forward 30 seconds", 40.0, ids::FORWARD));
-        }
-    }
-    if what != Shelf::Pictures {
-        controls.add_child(Dom::create_div().with_css("width: 22px; flex-shrink: 0;"));
-        controls.add_child(b(Command::Mute, mute_icon, mute_name, 34.0, ids::MUTE));
-        controls.add_child(b(Command::VolumeDown, "remove", "Volume down", 34.0, ids::VOLUME_DOWN));
-        controls.add_child(b(Command::VolumeUp, "add", "Volume up", 34.0, ids::VOLUME_UP));
+        controls.add_child(round_button(
+            app,
+            b.command,
+            (b.icon, b.name),
+            b.size,
+            ids::id(b.id),
+            stage,
+            keys_here && i == focused,
+        ));
     }
     controls
 }
@@ -1685,7 +1658,15 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
             16.0 + lights,
             if s.controls_shown { 1 } else { 0 }
         ))
-        .with_child(round_button(app, Command::Back, "arrow_back", "Back", 40.0, ids::BACK, stage))
+        .with_child(round_button(
+            app,
+            Command::Back,
+            ("arrow_back", "Back"),
+            40.0,
+            ids::BACK,
+            stage,
+            corner_lit(s, 0),
+        ))
         .with_child(
             Dom::create_p_with_text(video.title().as_str())
                 .with_id(ids::TITLE)
@@ -1697,12 +1678,17 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
         .with_child(round_button(
             app,
             Command::Fullscreen,
-            full_icon,
-            full_name,
+            (full_icon, full_name),
             40.0,
             ids::FULLSCREEN,
             stage,
+            corner_lit(s, 1),
         ))
+}
+
+/// Whether the top band's button `index` (`media::corner_buttons`) has the keyboard's ring.
+fn corner_lit(s: &Player, index: usize) -> bool {
+    s.zone() == Zone::Corner && s.place().focus.corner == index
 }
 
 /// The bottom strip over the picture: the seek bar between the times, the transport bottom

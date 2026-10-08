@@ -1049,10 +1049,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
         }
     }
     // The chrome and the OSD as the state has them, in place - also what a rebuild then keeps.
-    if !s.controls_shown {
-        s.controls_shown = true;
-        app::show_chrome(info, true);
-    }
+    app::set_chrome(s, info, true);
     app::show_osd(s, info);
     drop(guard);
     if rebuild {
@@ -1120,6 +1117,141 @@ pub fn transport_key(s: &Player, key: VirtualKeyCode, gallery: bool) -> Option<C
 
 /// The seek bar's callback, typed.
 pub const ON_SEEK: SeekBarOnSeekCallbackType = on_seek;
+
+// ==== The round buttons: the transport, the top band ====
+
+/// One round button of the transport.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransportButton {
+    pub command: Command,
+    pub icon: &'static str,
+    /// Its name for assistive technology.
+    pub name: &'static str,
+    pub size: f32,
+    /// Its id's name (`ids::id`).
+    pub id: &'static str,
+    /// A gap before it (the volume after the transport, the music after the slide show's).
+    pub gap: bool,
+}
+
+/// The transport that shows for `screen`, if one does: the music's on now playing, the slide
+/// show's on the picture viewer, the video's over a video.
+#[must_use]
+pub fn transport_of(screen: &Screen) -> Option<Shelf> {
+    match screen {
+        Screen::NowPlaying => Some(Shelf::Music),
+        Screen::Picture => Some(Shelf::Pictures),
+        Screen::Video => Some(Shelf::Videos),
+        _ => None,
+    }
+}
+
+/// The transport's buttons, left to right: for music shuffle, previous, rewind, play / pause,
+/// forward, next, stop and the volume; for a video stop, from the start, rewind, play / pause,
+/// forward and the volume; for the slide show previous, play / pause, next and the music.
+#[must_use]
+pub fn transport_buttons(s: &Player, what: Shelf) -> Vec<TransportButton> {
+    let playing = match what {
+        Shelf::Music => s.music.as_ref().is_some_and(Music::playing),
+        Shelf::Pictures => s.viewer.playing,
+        _ => s
+            .video
+            .as_ref()
+            .is_some_and(|v| !v.paused && v.status.phase != VideoPhase::Ended),
+    };
+    let (play_icon, play_name) = if playing {
+        ("pause", "Pause")
+    } else {
+        ("play_arrow", "Play")
+    };
+    let (mute_icon, mute_name) = if s.muted {
+        ("volume_off", "Sound on")
+    } else {
+        ("volume_up", "Mute")
+    };
+    let b = |command: Command,
+             icon: &'static str,
+             name: &'static str,
+             size: f32,
+             id: &'static str| TransportButton {
+        command,
+        icon,
+        name,
+        size,
+        id,
+        gap: false,
+    };
+    let mut out = match what {
+        Shelf::Pictures => {
+            let music_name = if s.music.is_some() {
+                "Stop the music"
+            } else {
+                "Music under the slide show"
+            };
+            let show_name = if playing {
+                "Pause the slide show"
+            } else {
+                "Play the slide show"
+            };
+            vec![
+                b(Command::Previous, "skip_previous", "Previous picture", 40.0, "previous"),
+                b(Command::SlideShow, play_icon, show_name, 54.0, "play"),
+                b(Command::Next, "skip_next", "Next picture", 40.0, "next"),
+                TransportButton {
+                    gap: true,
+                    ..b(Command::SlideMusic, "library_music", music_name, 34.0, "music")
+                },
+            ]
+        }
+        Shelf::Music => vec![
+            b(Command::Shuffle, "shuffle", "Shuffle", 34.0, "shuffle"),
+            b(Command::Previous, "skip_previous", "Previous song", 40.0, "previous"),
+            b(Command::Rewind, "fast_rewind", "Skip back", 40.0, "rewind"),
+            b(Command::PlayPause, play_icon, play_name, 56.0, "play"),
+            b(Command::Forward, "fast_forward", "Skip forward", 40.0, "forward"),
+            b(Command::Next, "skip_next", "Next song", 40.0, "next"),
+            b(Command::Stop, "stop", "Stop", 40.0, "stop"),
+        ],
+        _ => vec![
+            b(Command::Stop, "stop", "Stop", 40.0, "stop"),
+            b(Command::Restart, "skip_previous", "From the start", 40.0, "restart"),
+            b(Command::Rewind, "fast_rewind", "Skip back", 40.0, "rewind"),
+            b(Command::PlayPause, play_icon, play_name, 56.0, "play"),
+            b(Command::Forward, "fast_forward", "Skip forward", 40.0, "forward"),
+        ],
+    };
+    if what != Shelf::Pictures {
+        out.push(TransportButton {
+            gap: true,
+            ..b(Command::Mute, mute_icon, mute_name, 34.0, "mute")
+        });
+        out.push(b(Command::VolumeDown, "remove", "Volume down", 34.0, "volume-down"));
+        out.push(b(Command::VolumeUp, "add", "Volume up", 34.0, "volume-up"));
+    }
+    out
+}
+
+/// The transport button the keys are on: the one Left / Right moved to, else play / pause.
+#[must_use]
+pub fn transport_focus(buttons: &[TransportButton], chosen: Option<usize>) -> usize {
+    match chosen {
+        Some(i) if i < buttons.len() => i,
+        _ => buttons
+            .iter()
+            .position(|b| matches!(b.command, Command::PlayPause | Command::SlideShow))
+            .unwrap_or(0),
+    }
+}
+
+/// The top band's buttons on `screen`: back, and over a video fullscreen.
+#[must_use]
+pub fn corner_buttons(screen: &Screen) -> Vec<Command> {
+    if *screen == Screen::Video {
+        vec![Command::Back, Command::Fullscreen]
+    } else {
+        vec![Command::Back]
+    }
+}
 
 #[cfg(test)]
 mod tests {

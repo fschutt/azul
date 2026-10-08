@@ -42,7 +42,7 @@ use crate::{
     ids,
     library::{Item, Library, Shelf, Status, LIBRARY_FILE, RECORDED_TV},
     media::{self, Music, VideoSession, Viewer},
-    pages::{self, Place, Screen, Section, Tile},
+    pages::{self, Place, Screen, Section, Tile, Zone},
     scan::{self, ArtDone, ArtJob, ArtSource, ScanBatch},
     strip::StripFocus,
     sync::ControlsVisibility,
@@ -303,6 +303,36 @@ impl Player {
     pub fn place_mut(&mut self) -> &mut Place {
         let last = self.nav.len() - 1;
         &mut self.nav[last]
+    }
+
+    /// Whether the now-playing inset shows: music plays (or is paused) and the page is not now
+    /// playing, the picture viewer or a video.
+    #[must_use]
+    pub fn inset_shown(&self) -> bool {
+        self.music.is_some()
+            && !matches!(
+                self.place().screen,
+                Screen::NowPlaying | Screen::Picture | Screen::Video
+            )
+    }
+
+    /// The zones of the page that shows, in Tab order.
+    #[must_use]
+    pub fn zones(&self) -> Vec<Zone> {
+        pages::zones(&self.place().screen, self.inset_shown())
+    }
+
+    /// The zone the keys are in on the page that shows.
+    #[must_use]
+    pub fn zone(&self) -> Zone {
+        pages::zone_in(self.place().focus.zone, &self.zones())
+    }
+
+    /// The pointer's chrome (the back button, the transport) has the keyboard: it stays while
+    /// it has.
+    #[must_use]
+    pub fn chrome_held(&self) -> bool {
+        matches!(self.zone(), Zone::Corner | Zone::Transport)
     }
 
     /// The page the MENUS show: the page under a video while its curtain is down.
@@ -919,6 +949,17 @@ pub fn show_chrome(info: &mut CallbackInfo, shown: bool) {
     set_shown(info, ids::CORNER, shown);
 }
 
+/// The chrome shows (`true`) or hides when it does not already: the state, the window (in
+/// place), and `AZPLAYER_CHROME <shown|hidden>` for scripts.
+pub fn set_chrome(s: &mut Player, info: &mut CallbackInfo, shown: bool) {
+    if s.controls_shown == shown {
+        return;
+    }
+    s.controls_shown = shown;
+    show_chrome(info, shown);
+    println!("AZPLAYER_CHROME {}", if shown { "shown" } else { "hidden" });
+}
+
 /// The OSD as the state has it, in place: its text and whether it shows.
 pub fn show_osd(s: &Player, info: &mut CallbackInfo) {
     match &s.osd {
@@ -968,12 +1009,11 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         let (slide, art) = media::tick_viewer(s, now);
         refresh |= slide;
         wants_art |= art;
-        // The chrome over what plays hides itself while it plays, in place.
-        let visible = s.controls.visible(now, media::chrome_hides(s));
-        if visible != s.controls_shown {
-            s.controls_shown = visible;
-            show_chrome(cb, visible);
-        }
+        // The pointer's chrome (the back button, the transport) hides itself while the pointer
+        // rests - never while the keyboard is on it (Tab took it there: what has the focus
+        // stays in sight).
+        let visible = s.controls.visible(now, media::chrome_hides(s)) || s.chrome_held();
+        set_chrome(s, cb, visible);
         if s.osd.as_ref().is_some_and(|(_, until)| now >= *until) {
             s.osd = None;
             set_shown(cb, ids::OSD, false);

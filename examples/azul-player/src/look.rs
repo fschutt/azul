@@ -178,6 +178,39 @@ pub fn glow(focused: bool, scale: f32, w: f32, h: f32, radius: f32, stage: Stage
     )
 }
 
+/// The keyboard's ring around a round button `size` across (the back button, the transport):
+/// the bright rim and the soft blue-white light of a focused tile, a layer of its own whose
+/// opacity fades in fast and out slower - Tab moving the keys from one button to the next
+/// cross-fades the two rings.
+#[must_use]
+pub fn ring(lit: bool, size: f32, stage: Stage) -> String {
+    let lit = lit && stage.menus;
+    let d = size + 8.0;
+    format!(
+        "position: absolute; left: -4px; top: -4px; width: {d}px; height: {d}px; box-sizing: \
+         border-box; border-radius: {}px; border: 2px solid rgba(236, 246, 255, 0.95); \
+         box-shadow: 0px 0px 16px 3px rgba(118, 196, 255, 0.9); opacity: {}; animation: opacity \
+         {}ms ease-out;",
+        d / 2.0,
+        if lit { 1 } else { 0 },
+        if lit { 140 } else { 220 }
+    )
+}
+
+/// A panel's row lit by the keyboard (a choice of an overlay, a row of the settings): Media
+/// Center's bar of light behind it, which fades in and out with the focus.
+#[must_use]
+pub fn bar(lit: bool, radius: f32) -> String {
+    format!(
+        "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; border-radius: \
+         {radius}px; background: linear-gradient(to bottom, rgba(120, 190, 255, 0.55), rgba(40, \
+         110, 210, 0.45)); border: 1px solid rgba(236, 246, 255, 0.85); box-shadow: 0px 0px 16px \
+         2px rgba(118, 196, 255, 0.6); opacity: {}; animation: opacity {}ms ease-out;",
+        if lit { 1 } else { 0 },
+        if lit { 140 } else { 220 }
+    )
+}
+
 /// A caption's ink: bright when its tile is focused.
 #[must_use]
 pub fn caption_ink(focused: bool) -> &'static str {

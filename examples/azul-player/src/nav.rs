@@ -5,7 +5,7 @@
 //! engine's spring, a tile that comes slides in, the focus glow and scale ease over.
 
 use azul::{
-    dom::{NodeId, VirtualKeyCode},
+    dom::{FocusTarget, NodeId, VirtualKeyCode},
     prelude::*,
     widgets::{OnTextInputReturn, TextInputState, TextInputValid},
 };
@@ -16,7 +16,7 @@ use crate::{
     gallery::{self, Step},
     library::Shelf,
     media::{self, Command},
-    pages::{Place, Screen, Section, Tile, View},
+    pages::{self, Place, Screen, Section, Tile, View, Zone},
     strip::{Action, Needs, CATEGORIES},
 };
 
@@ -440,11 +440,143 @@ fn focus_tile(s: &mut Player, index: usize) -> bool {
     let grid = s.grid(&tiles);
     let first_col = grid.scrolled(place.focus.first_col, index, tiles.len());
     let f = &mut s.place_mut().focus;
-    let changed = f.index != index || f.on_views || f.first_col != first_col;
+    let changed =
+        f.index != index || f.on_views || f.first_col != first_col || f.zone != Zone::Content;
     f.index = index;
     f.on_views = false;
     f.first_col = first_col;
+    // The pointer and the keys move ONE focus: a tile under the pointer takes it from the
+    // back button or the inset.
+    f.zone = Zone::Content;
     changed
+}
+
+// ==== The zones: Tab, and the keys within a zone ====
+
+/// Tab (`forward`) or Shift+Tab: the keys go to the page's next zone, round - the back button,
+/// the page, the transport, the inset. The zone's part lights (the app's glow); the pointer's
+/// chrome shows, and stays while it has the keys (`Player::chrome_held`). A field keeps the
+/// keys only while its page has them (the search field).
+fn tab(app: &RefAny, info: &mut CallbackInfo, forward: bool) -> Update {
+    let mut app_ref = app.clone();
+    let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+        return Update::DoNothing;
+    };
+    let zones = s.zones();
+    let from = s.zone();
+    let to = pages::next_zone(from, &zones, forward);
+    s.place_mut().focus.zone = to;
+    println!("AZPLAYER_ZONE {}", to.word());
+    if s.chrome_held() {
+        app::set_chrome(&mut s, info, true);
+    }
+    if from == Zone::Content && to != Zone::Content {
+        info.clear_focus();
+    } else if to == Zone::Content && s.place().screen == Screen::Search {
+        if let Some(field) = info
+            .get_node_id_by_marker(crate::ids::SEARCH_FIELD)
+            .into_option()
+        {
+            info.set_focus(FocusTarget::Id(field));
+        }
+    }
+    Update::RefreshDom
+}
+
+/// An arrow in a zone that is not the page: Left / Right walk the top band's buttons or the
+/// transport's; Down from the top band and Up from the inset go to the page. `None`: the
+/// arrow is not the zone's (the transport's Up / Down are the volume).
+fn move_in_zone(app: &RefAny, zone: Zone, step: Step) -> Option<Update> {
+    let mut app_ref = app.clone();
+    let mut s = app_ref.downcast_mut::<Player>()?;
+    let screen = s.place().screen.clone();
+    let along = |i: usize, n: usize| -> usize {
+        match step {
+            Step::Right => (i + 1).min(n.saturating_sub(1)),
+            _ => i.saturating_sub(1),
+        }
+    };
+    match (zone, step) {
+        (Zone::Corner, Step::Left | Step::Right) => {
+            let n = media::corner_buttons(&screen).len();
+            let i = s.place().focus.corner.min(n.saturating_sub(1));
+            let j = along(i, n);
+            if j == i {
+                return Some(Update::DoNothing);
+            }
+            s.place_mut().focus.corner = j;
+            println!("AZPLAYER_FOCUS corner {j}");
+        }
+        (Zone::Transport, Step::Left | Step::Right) => {
+            let what = media::transport_of(&screen)?;
+            let buttons = media::transport_buttons(&s, what);
+            let i = media::transport_focus(&buttons, s.place().focus.transport);
+            let j = along(i, buttons.len());
+            if j == i {
+                return Some(Update::DoNothing);
+            }
+            s.place_mut().focus.transport = Some(j);
+            println!("AZPLAYER_FOCUS button {}", buttons[j].id);
+        }
+        (Zone::Corner, Step::Down) | (Zone::Inset, Step::Up) => {
+            s.place_mut().focus.zone = Zone::Content;
+            println!("AZPLAYER_ZONE content");
+        }
+        (Zone::Transport, _) => return None,
+        _ => return Some(Update::DoNothing),
+    }
+    Some(Update::RefreshDom)
+}
+
+/// Enter in a zone that is not the page: the top band's button, the transport's, the inset
+/// (now playing) does what a click does.
+fn press_zone(app: &RefAny, info: &mut CallbackInfo, zone: Zone) -> Update {
+    let command = {
+        let mut app_ref = app.clone();
+        let Some(s) = app_ref.downcast_ref::<Player>() else {
+            return Update::DoNothing;
+        };
+        let screen = s.place().screen.clone();
+        match zone {
+            Zone::Corner => {
+                let buttons = media::corner_buttons(&screen);
+                buttons.get(s.place().focus.corner).copied()
+            }
+            Zone::Transport => media::transport_of(&screen).map(|what| {
+                let buttons = media::transport_buttons(&s, what);
+                buttons[media::transport_focus(&buttons, s.place().focus.transport)].command
+            }),
+            Zone::Inset | Zone::Content => None,
+        }
+    };
+    match (zone, command) {
+        (Zone::Inset, _) => open_now_playing(app, info),
+        (_, Some(command)) => media::run(app, info, command),
+        _ => Update::DoNothing,
+    }
+}
+
+/// The step an arrow key is.
+fn arrow_step(key: VirtualKeyCode) -> Option<Step> {
+    match key {
+        VirtualKeyCode::Up => Some(Step::Up),
+        VirtualKeyCode::Down => Some(Step::Down),
+        VirtualKeyCode::Left => Some(Step::Left),
+        VirtualKeyCode::Right => Some(Step::Right),
+        _ => None,
+    }
+}
+
+/// Now playing (the inset, Enter on it).
+fn open_now_playing(app: &RefAny, info: &mut CallbackInfo) -> Update {
+    let mut app_ref = app.clone();
+    if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+        if s.place().screen != Screen::NowPlaying {
+            go(&mut s, Screen::NowPlaying);
+        }
+    }
+    app::request_art(app, info);
+    Update::RefreshDom
 }
 
 /// Enter on the page shown.
@@ -556,16 +688,7 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
             open_tile(&app, &mut info, index)
         }
-        Act::NowPlaying => {
-            let mut app_ref = app.clone();
-            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
-                if s.place().screen != Screen::NowPlaying {
-                    go(&mut s, Screen::NowPlaying);
-                }
-            }
-            app::request_art(&app, &mut info);
-            Update::RefreshDom
-        }
+        Act::NowPlaying => open_now_playing(&app, &mut info),
         Act::OpenAddress => open_address(&app, &mut info, None),
         Act::Sample => open_address(&app, &mut info, Some(crate::ui::SAMPLE_ADDRESS)),
     }
@@ -593,7 +716,10 @@ pub extern "C" fn on_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 if row == s.strip.row {
                     s.strip.set(row, col);
                 }
-                before != (s.strip.row, s.strip.col())
+                // One focus: the strip takes it back from the inset.
+                let zoned = s.place().focus.zone != Zone::Content;
+                s.place_mut().focus.zone = Zone::Content;
+                zoned || before != (s.strip.row, s.strip.col())
             }
             Act::Tile(index) => focus_tile(&mut s, index),
             // The pointer over a view's word only lights it (`:hover`); a click shows it.
@@ -662,10 +788,7 @@ pub extern "C" fn on_pointer(mut data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
     s.activity();
-    if !s.controls_shown {
-        s.controls_shown = true;
-        app::show_chrome(&mut info, true);
-    }
+    app::set_chrome(&mut s, &mut info, true);
     Update::DoNothing
 }
 
@@ -733,7 +856,14 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if kit::settings_open(&kit_ref) {
         return Update::DoNothing;
     }
-    let (screen, searching, transport) = {
+    // Tab and Shift+Tab: the page's zones (the back button, the page, the transport, the
+    // inset) - the app's own walk, never the engine's over every focusable box (which put the
+    // keys on a hidden back button: "pressing tab can also make the back button disappear").
+    if key == VirtualKeyCode::Tab && !modifiers.ctrl && !modifiers.alt {
+        info.prevent_default();
+        return tab(&app, &mut info, !modifiers.shift);
+    }
+    let (screen, searching, transport, zone) = {
         let Some(s) = data.downcast_ref::<Player>() else {
             return Update::DoNothing;
         };
@@ -746,16 +876,32 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 | Screen::Search
                 | Screen::Address
         );
-        // A field with words in it: Backspace edits it rather than going back.
-        let searching = match screen {
-            Screen::Search => !s.query.is_empty(),
-            Screen::Address => !s.address.is_empty(),
-            _ => false,
-        };
-        (screen, searching, media::transport_key(&s, key, gallery))
+        let zone = s.zone();
+        // A field with words in it (and the keys): Backspace edits it rather than going back.
+        let searching = zone == Zone::Content
+            && match screen {
+                Screen::Search => !s.query.is_empty(),
+                Screen::Address => !s.address.is_empty(),
+                _ => false,
+            };
+        (screen, searching, media::transport_key(&s, key, gallery), zone)
     };
+    // A zone that is not the page: its Enter and its arrows.
+    if zone != Zone::Content {
+        if matches!(key, VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) {
+            info.prevent_default();
+            return press_zone(&app, &mut info, zone);
+        }
+        if let Some(step) = arrow_step(key) {
+            if let Some(update) = move_in_zone(&app, zone, step) {
+                info.prevent_default();
+                return update;
+            }
+        }
+    }
     // The search and the address fields keep their letters, Space and Backspace.
-    let typing = matches!(screen, Screen::Search | Screen::Address)
+    let typing = zone == Zone::Content
+        && matches!(screen, Screen::Search | Screen::Address)
         && !matches!(
             key,
             VirtualKeyCode::Up
@@ -794,12 +940,8 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         return media::run(&app, &mut info, command);
     }
-    let step = match key {
-        VirtualKeyCode::Up => Step::Up,
-        VirtualKeyCode::Down => Step::Down,
-        VirtualKeyCode::Left => Step::Left,
-        VirtualKeyCode::Right => Step::Right,
-        _ => return Update::DoNothing,
+    let Some(step) = arrow_step(key) else {
+        return Update::DoNothing;
     };
     // Left / Right move the caret of the search and address fields.
     if matches!(screen, Screen::Search | Screen::Address)
