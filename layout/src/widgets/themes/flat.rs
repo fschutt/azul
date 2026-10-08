@@ -4973,6 +4973,152 @@ pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
     crate::widgets::address_bar::build(b, &address_bar_look())
 }
 
+// ==== ribbon_file_menu ====
+//
+// The flat File menu is Windows 8 Explorer's in Office 2010's faces: a white
+// panel in the field rule with a soft shadow; the left column's commands
+// carry their 32 px icons beside their labels and light up with Office
+// 2010's yellow face in its gold rim under the pointer (the orange one
+// pressed), the commands with sub-commands ending in a quiet ▸; hairline
+// rules split the groups. The side column sits past a hairline: its title
+// set a little heavier over a rule, its places numbered (the number
+// underlined, Windows 8's access key) with their pins at the right, a
+// sub-command's label over its description. At night the desktop's dark
+// surfaces, the amber faces and the accent ring.
+
+/// Flat's File-menu look.
+#[must_use]
+pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::RibbonFileMenuLook {
+    use super::decl;
+    type C = CssPropertyWithConditions;
+    let px = |n: isize| C::simple(CssProperty::const_font_size(StyleFontSize::const_px(n)));
+    // A row of the menu at rest: no face in a transparent rim (so the
+    // hover's rim moves nothing); Office 2010's faces lit and pressed, the
+    // field ring inside it on focus (the columns clip at their edges).
+    let row = |height: isize| {
+        let mut v = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(height)))];
+        v.extend(decl::border(1));
+        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(C::simple));
+        v.extend(decl::radius(2));
+        v.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.extend(hover_face_both());
+        v.extend(decl::hover_border_color(LIGHT_HOVER_BORDER, DARK_HOVER_BORDER));
+        v.extend(active_face_both());
+        v.extend(decl::active_border_color(LIGHT_PRESSED_BORDER, DARK_PRESSED_BORDER));
+        v.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+        v
+    };
+
+    let mut menu = vec![px(13), C::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY))];
+    menu.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    menu.extend(decl::themed_fill(LIGHT_PG, DARK_SUR));
+    menu.extend(decl::border(1));
+    menu.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    menu.extend(decl::themed_shadow(
+        3,
+        10,
+        ColorU::new(0, 0, 0, 56),
+        ColorU::new(0, 0, 0, 150),
+    ));
+
+    let mut commands = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(240)))];
+    commands.extend(decl::padding(4, 3, 4, 3));
+
+    let mut command = row(46);
+    command.extend(decl::padding(0, 8, 0, 6));
+
+    let mut command_icon = vec![px(32)];
+    command_icon.extend(decl::margin(0, 10, 0, 0));
+    command_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    let mut command_label = vec![px(13)];
+    command_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut arrow = vec![px(16)];
+    arrow.extend(decl::margin(0, 0, 0, 6));
+    arrow.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut rule = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(1)))];
+    rule.extend(decl::margin(3, 6, 3, 50));
+    rule.extend(decl::themed_fill(LIGHT_SEP, DARK_SEP));
+
+    let mut side = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(320)))];
+    side.extend(decl::padding(6, 8, 6, 8));
+    side.extend(decl::border_left(1));
+    side.extend(decl::themed_border_left_color(LIGHT_SEP, DARK_SEP));
+
+    let mut title = vec![px(12), decl::semibold()];
+    title.extend(decl::padding(2, 4, 5, 4));
+    title.extend(decl::margin(0, 0, 4, 0));
+    title.extend(decl::border_bottom(1));
+    title.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    title.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut open = row(24);
+    open.extend(decl::padding(0, 4, 0, 4));
+
+    let mut number = vec![
+        px(12),
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
+        C::simple(CssProperty::text_decoration(StyleTextDecoration::Underline)),
+    ];
+    number.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut place_label = vec![px(13)];
+    place_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut pin = row(24);
+    pin.push(C::simple(CssProperty::const_width(LayoutWidth::const_px(24))));
+    pin.extend(decl::margin(0, 0, 0, 2));
+
+    let mut pin_icon = vec![px(14)];
+    pin_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    let mut sub = row(50);
+    sub.extend(decl::padding(0, 8, 0, 6));
+
+    let mut sub_icon = vec![px(24)];
+    sub_icon.extend(decl::margin(0, 10, 0, 0));
+    sub_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    let mut sub_label = vec![px(13), decl::semibold()];
+    sub_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut sub_description = vec![px(12)];
+    sub_description.extend(decl::margin(1, 0, 0, 0));
+    sub_description.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::ribbon_file_menu::RibbonFileMenuLook {
+        theme: super::UiTheme::Flat,
+        menu,
+        commands,
+        command,
+        command_icon,
+        command_label,
+        arrow,
+        rule,
+        side,
+        title,
+        place: Vec::new(),
+        open,
+        number,
+        place_label,
+        pin,
+        pin_icon,
+        sub,
+        sub_icon,
+        sub_label,
+        sub_description,
+        marker: None,
+    }
+}
+
+/// The flat File menu.
+#[must_use]
+pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> Dom {
+    crate::widgets::ribbon_file_menu::build(m, &ribbon_file_menu_look())
+}
+
 // ==== shells ====
 //
 // The flat shells are Outlook 2010 and Windows Explorer: the window's page

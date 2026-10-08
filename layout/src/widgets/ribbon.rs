@@ -2724,6 +2724,13 @@ pub struct RibbonAppButton {
     pub label: AzString,
     /// Optional click callback.
     pub on_click: OptionButtonOnClick,
+    /// The drop-down the button opens - Windows 8 Explorer's File menu
+    /// ([`crate::widgets::ribbon_file_menu::RibbonFileMenu::dom`]), or any
+    /// DOM, which then shows in a window of its own: hung on the button, it
+    /// opens under the File tab and its click opens and closes it (next to
+    /// `on_click`, if any). `None`: the button only runs `on_click` (Office's
+    /// full-window backstage is the app's to show).
+    pub menu: OptionDom,
 }
 
 /// A single tab within a [`Ribbon`], containing a label and groups.
@@ -2976,7 +2983,20 @@ impl RibbonAppButton {
         Self {
             label,
             on_click: None.into(),
+            menu: OptionDom::None,
         }
+    }
+
+    /// Sets the drop-down the button opens (see [`Self::menu`]).
+    pub fn set_menu(&mut self, menu: Dom) {
+        self.menu = OptionDom::Some(menu);
+    }
+
+    /// Builder method: sets the drop-down the button opens and returns `self`.
+    #[must_use]
+    pub fn with_menu(mut self, menu: Dom) -> Self {
+        self.set_menu(menu);
+        self
     }
 
     /// Sets the click callback.
@@ -3624,6 +3644,11 @@ impl Ribbon {
         let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
 
         if let Some(ab) = app_button.into_option() {
+            let RibbonAppButton {
+                label,
+                on_click,
+                menu,
+            } = ab;
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
                 .with_css_props(as_control(
@@ -3631,14 +3656,14 @@ impl Ribbon {
                     tabs_in_titlebar,
                 ))
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
-                    ab.label,
+                    label,
                 )]));
             if let Some(look) = curves.app_button.as_ref() {
                 for curve in crate::widgets::tabs::australis_curves(look) {
                     d.add_child(curve);
                 }
             }
-            if let Some(oc) = ab.on_click.into_option() {
+            if let Some(oc) = on_click.into_option() {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::Click),
@@ -3650,6 +3675,12 @@ impl Ribbon {
                     }]
                     .into(),
                 );
+            }
+            // The File menu: hung on the button (its anchor) as a window the
+            // button's click opens and closes - after its other parts, so the
+            // label stays the button's first child.
+            if let Some(menu) = menu.into_option() {
+                crate::widgets::ribbon_file_menu::hang_on_app_button(&mut d, menu);
             }
             bar_children.push(d);
         }
