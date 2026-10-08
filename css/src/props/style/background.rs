@@ -29,6 +29,7 @@ use crate::{
             },
             direction::{
                 parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
+                DirectionCorner,
             },
             length::{
                 parse_percentage_value, FloatValue, OptionPercentageValue, PercentageParseError,
@@ -257,70 +258,473 @@ pub struct ResolvedLinearGradient {
     pub stops: Vec<(f32, ColorOrSystem)>,
 }
 
-/// Two background layer lists tweened at `t` - when they pair up one to one:
-/// a colour with a colour, a linear gradient with a linear gradient of the
-/// same direction, extend mode and stop positions (every stop colour
-/// concrete). `None` when they do not, and the caller keeps its half-way
-/// switch: two faces of different shapes have no colour in between.
+/// The most layers a tweened face may paint. A cross-fade lays the new face
+/// over the old one, and a fade reversed half way lays the next face over
+/// both; past this many a face takes the half-way switch instead of growing.
+const MAX_TWEENED_LAYERS: usize = 32;
+
+/// A face - a list of background layers, painted first to last - on its way
+/// from `from` to `to` at `t` (the eased progress, `0..=1`): what every frame
+/// of a `background` transition paints.
 ///
-/// What lets a gradient FACE fade (flora's buttons hover from one paper
-/// gradient to another); the solid colour is the one-layer case.
+/// - Two lists of one length pair up layer by layer ([`interpolate_background_layer`]): a colour
+///   with a colour, a gradient with a gradient of its kind and number of stops (every stop's
+///   colour AND position tween, as do a linear gradient's angle and a radial or conic gradient's
+///   centre - CSS Images 4), and a colour with a gradient as that gradient in the one colour. A
+///   pair with nothing in between cross-fades in its place ([`cross_fade_layers`]).
+/// - A list that is the other one plus layers on top fades just those layers in or out: a face
+///   that adds a glow under the pointer, a background that comes from `none` or goes to it.
+/// - Any other two lists cross-fade as a whole: the new face comes in over the old one.
+///
+/// `None` when a layer that must fade cannot - an image, an unresolved system colour, a gradient
+/// without stops - or the face would grow past [`MAX_TWEENED_LAYERS`]: the caller keeps its
+/// half-way switch, as for a discrete property.
+///
+/// flora's blue stone is six layers, three of them radial, and its streak moves its stops under
+/// the pointer: while only colours and linear gradients with their stops in place paired up, the
+/// stone held its face and jumped half way through its fade.
 #[must_use]
 pub(crate) fn interpolate_background_layers(
     from: &[StyleBackgroundContent],
     to: &[StyleBackgroundContent],
     t: f32,
 ) -> Option<Vec<StyleBackgroundContent>> {
-    if from.is_empty() || from.len() != to.len() {
-        return None;
+    if from == to {
+        return Some(from.to_vec());
     }
-    from.iter()
-        .zip(to)
-        .map(|(a, b)| interpolate_background_layer(a, b, t))
-        .collect()
+    let mut out = Vec::with_capacity(from.len().max(to.len()) + 1);
+    if from.len() == to.len() {
+        for (a, b) in from.iter().zip(to) {
+            match interpolate_background_layer(a, b, t) {
+                Some(layer) => out.push(layer),
+                None => {
+                    cross_fade_layers(
+                        core::slice::from_ref(a),
+                        core::slice::from_ref(b),
+                        t,
+                        &mut out,
+                    )?;
+                }
+            }
+        }
+    } else if to.starts_with(from) {
+        out.extend_from_slice(from);
+        for layer in &to[from.len()..] {
+            out.push(fade_layer(layer, t)?);
+        }
+    } else if from.starts_with(to) {
+        out.extend_from_slice(to);
+        for layer in &from[to.len()..] {
+            out.push(fade_layer(layer, 1.0 - t)?);
+        }
+    } else {
+        cross_fade_layers(from, to, t, &mut out)?;
+    }
+    (out.len() <= MAX_TWEENED_LAYERS).then_some(out)
 }
 
-/// One layer of [`interpolate_background_layers`].
+/// One layer of [`interpolate_background_layers`] at `t`; `None` when the
+/// two have no layer in between (another kind of gradient, another number of
+/// stops, two images).
 fn interpolate_background_layer(
     from: &StyleBackgroundContent,
     to: &StyleBackgroundContent,
     t: f32,
 ) -> Option<StyleBackgroundContent> {
     use StyleBackgroundContent as B;
+    if from == to {
+        return Some(from.clone());
+    }
     match (from, to) {
-        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate(b, t))),
-        (B::LinearGradient(a), B::LinearGradient(b))
-            if a.direction == b.direction
-                && a.extend_mode == b.extend_mode
-                && a.stops.as_ref().len() == b.stops.as_ref().len() =>
-        {
-            let stops = a
-                .stops
-                .as_ref()
-                .iter()
-                .zip(b.stops.as_ref())
-                .map(|(s, e)| {
-                    if s.offset != e.offset || s.offset_px != e.offset_px {
-                        return None;
-                    }
-                    let (ColorOrSystem::Color(c0), ColorOrSystem::Color(c1)) = (&s.color, &e.color)
-                    else {
-                        return None;
-                    };
-                    Some(NormalizedLinearColorStop {
-                        offset: s.offset,
-                        color: ColorOrSystem::Color(c0.interpolate(c1, t)),
-                        offset_px: s.offset_px,
+        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(b, t))),
+        (B::LinearGradient(a), B::LinearGradient(b)) => {
+            interpolate_linear_gradient(a, b, t).map(B::LinearGradient)
+        }
+        (B::RadialGradient(a), B::RadialGradient(b)) => {
+            interpolate_radial_gradient(a, b, t).map(B::RadialGradient)
+        }
+        (B::ConicGradient(a), B::ConicGradient(b)) => {
+            interpolate_conic_gradient(a, b, t).map(B::ConicGradient)
+        }
+        // A colour is any gradient in that one colour: laid out as the
+        // gradient on the other side, it tweens with it stop by stop.
+        (B::Color(c), gradient) => {
+            interpolate_background_layer(&in_one_colour(gradient, *c)?, gradient, t)
+        }
+        (gradient, B::Color(c)) => {
+            interpolate_background_layer(gradient, &in_one_colour(gradient, *c)?, t)
+        }
+        _ => None,
+    }
+}
+
+/// `a` and `b` at `t`: two linear gradients of one extend mode and one number
+/// of stops, whose directions are both angles (or sides, which are angles in
+/// any box).
+fn interpolate_linear_gradient(
+    a: &LinearGradient,
+    b: &LinearGradient,
+    t: f32,
+) -> Option<LinearGradient> {
+    if a.extend_mode != b.extend_mode {
+        return None;
+    }
+    Some(LinearGradient {
+        direction: interpolate_direction(a.direction, b.direction, t)?,
+        extend_mode: a.extend_mode,
+        stops: interpolate_stops(a.stops.as_ref(), b.stops.as_ref(), t)?,
+    })
+}
+
+/// `a` and `b` at `t`: two radial gradients of one shape, size keyword and
+/// extend mode and one number of stops. Their centres tween too.
+fn interpolate_radial_gradient(
+    a: &RadialGradient,
+    b: &RadialGradient,
+    t: f32,
+) -> Option<RadialGradient> {
+    if a.shape != b.shape || a.size != b.size || a.extend_mode != b.extend_mode {
+        return None;
+    }
+    Some(RadialGradient {
+        shape: a.shape,
+        size: a.size,
+        position: interpolate_position(&a.position, &b.position, t)?,
+        extend_mode: a.extend_mode,
+        stops: interpolate_stops(a.stops.as_ref(), b.stops.as_ref(), t)?,
+    })
+}
+
+/// `a` and `b` at `t`: two conic gradients of one extend mode and one number
+/// of stops. Their centres, start angles and stop angles tween too.
+fn interpolate_conic_gradient(
+    a: &ConicGradient,
+    b: &ConicGradient,
+    t: f32,
+) -> Option<ConicGradient> {
+    let (from, to) = (a.stops.as_ref(), b.stops.as_ref());
+    if a.extend_mode != b.extend_mode || from.is_empty() || from.len() != to.len() {
+        return None;
+    }
+    let stops = from
+        .iter()
+        .zip(to)
+        .map(|(s, e)| {
+            Some(NormalizedRadialColorStop {
+                angle: interpolate_angle(s.angle, e.angle, t),
+                color: interpolate_stop_colour(s.color, e.color, t)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(ConicGradient {
+        extend_mode: a.extend_mode,
+        center: interpolate_position(&a.center, &b.center, t)?,
+        angle: interpolate_angle(a.angle, b.angle, t),
+        stops: NormalizedRadialColorStopVec::from_vec(stops),
+    })
+}
+
+/// Two stop lists of one length at `t`: each stop's colour and its position
+/// (both of its parts) tween. `None` for lists of two lengths, an empty one
+/// or a stop whose colour is still a system colour.
+fn interpolate_stops(
+    from: &[NormalizedLinearColorStop],
+    to: &[NormalizedLinearColorStop],
+    t: f32,
+) -> Option<NormalizedLinearColorStopVec> {
+    if from.is_empty() || from.len() != to.len() {
+        return None;
+    }
+    let stops = from
+        .iter()
+        .zip(to)
+        .map(|(s, e)| {
+            Some(NormalizedLinearColorStop {
+                // Equal parts are kept as they are: the fixed-point round
+                // trip of a tween would move a stop that does not move.
+                offset: if s.offset == e.offset {
+                    s.offset
+                } else {
+                    s.offset.interpolate(&e.offset, t)
+                },
+                color: interpolate_stop_colour(s.color, e.color, t)?,
+                offset_px: if s.offset_px == e.offset_px {
+                    s.offset_px
+                } else {
+                    s.offset_px.interpolate(&e.offset_px, t)
+                },
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(NormalizedLinearColorStopVec::from_vec(stops))
+}
+
+/// A stop's colour at `t`; `None` while either end is a system colour (the
+/// transition resolves both ends before it starts).
+fn interpolate_stop_colour(
+    from: ColorOrSystem,
+    to: ColorOrSystem,
+    t: f32,
+) -> Option<ColorOrSystem> {
+    match (from, to) {
+        (ColorOrSystem::Color(a), ColorOrSystem::Color(b)) => {
+            Some(ColorOrSystem::Color(a.interpolate_premultiplied(&b, t)))
+        }
+        _ => None,
+    }
+}
+
+/// A gradient's direction at `t`. Angles tween; `to top`, `to right`, ...
+/// are angles whatever the box (0, 90, 180, 270 degrees). A corner's angle
+/// depends on the box's sides, which a value does not know: `None`, unless
+/// both ends are the same direction.
+fn interpolate_direction(from: Direction, to: Direction, t: f32) -> Option<Direction> {
+    if from == to {
+        return Some(from);
+    }
+    let degrees = |d: Direction| match d {
+        Direction::Angle(angle) => Some(angle.to_degrees_raw()),
+        Direction::FromTo(corners) => match corners.dir_to {
+            DirectionCorner::Top => Some(0.0),
+            DirectionCorner::Right => Some(90.0),
+            DirectionCorner::Bottom => Some(180.0),
+            DirectionCorner::Left => Some(270.0),
+            DirectionCorner::TopRight
+            | DirectionCorner::TopLeft
+            | DirectionCorner::BottomRight
+            | DirectionCorner::BottomLeft => None,
+        },
+    };
+    let (a, b) = (degrees(from)?, degrees(to)?);
+    Some(Direction::Angle(AngleValue::deg(a + (b - a) * t)))
+}
+
+/// An angle at `t`: in the unit both ends share, else in degrees.
+fn interpolate_angle(from: AngleValue, to: AngleValue, t: f32) -> AngleValue {
+    if from == to {
+        from
+    } else if from.metric == to.metric {
+        AngleValue {
+            metric: from.metric,
+            number: from.number.interpolate(&to.number, t),
+        }
+    } else {
+        let (a, b) = (from.to_degrees_raw(), to.to_degrees_raw());
+        AngleValue::deg(a + (b - a) * t)
+    }
+}
+
+/// A gradient's centre at `t`. A keyword is the percentage it stands for
+/// (`left` 0%, `center` 50%, `right` 100%); a percentage and a length do not
+/// mix without the box they resolve in: `None`.
+fn interpolate_position(
+    from: &StyleBackgroundPosition,
+    to: &StyleBackgroundPosition,
+    t: f32,
+) -> Option<StyleBackgroundPosition> {
+    use BackgroundPositionHorizontal as H;
+    use BackgroundPositionVertical as V;
+    let x = |p: H| match p {
+        H::Left => PixelValue::const_percent(0),
+        H::Center => PixelValue::const_percent(50),
+        H::Right => PixelValue::const_percent(100),
+        H::Exact(v) => v,
+    };
+    let y = |p: V| match p {
+        V::Top => PixelValue::const_percent(0),
+        V::Center => PixelValue::const_percent(50),
+        V::Bottom => PixelValue::const_percent(100),
+        V::Exact(v) => v,
+    };
+    let length =
+        |a: PixelValue, b: PixelValue| (a.metric == b.metric).then(|| a.interpolate(&b, t));
+    Some(StyleBackgroundPosition {
+        horizontal: if from.horizontal == to.horizontal {
+            from.horizontal
+        } else {
+            H::Exact(length(x(from.horizontal), x(to.horizontal))?)
+        },
+        vertical: if from.vertical == to.vertical {
+            from.vertical
+        } else {
+            V::Exact(length(y(from.vertical), y(to.vertical))?)
+        },
+    })
+}
+
+/// The gradient `shape` with every stop in `colour`: what a solid colour is,
+/// laid out as `shape`, so the two tween stop by stop. `None` for a layer
+/// that is no gradient and for a gradient without stops.
+fn in_one_colour(shape: &StyleBackgroundContent, colour: ColorU) -> Option<StyleBackgroundContent> {
+    use StyleBackgroundContent as B;
+    let linear = |stops: &[NormalizedLinearColorStop]| {
+        (!stops.is_empty()).then(|| {
+            NormalizedLinearColorStopVec::from_vec(
+                stops
+                    .iter()
+                    .map(|s| NormalizedLinearColorStop {
+                        color: ColorOrSystem::Color(colour),
+                        ..*s
                     })
-                })
-                .collect::<Option<Vec<_>>>()?;
+                    .collect(),
+            )
+        })
+    };
+    match shape {
+        B::LinearGradient(g) => Some(B::LinearGradient(LinearGradient {
+            stops: linear(g.stops.as_ref())?,
+            ..g.clone()
+        })),
+        B::RadialGradient(g) => Some(B::RadialGradient(RadialGradient {
+            stops: linear(g.stops.as_ref())?,
+            ..g.clone()
+        })),
+        B::ConicGradient(g) => {
+            let stops = g.stops.as_ref();
+            if stops.is_empty() {
+                return None;
+            }
+            Some(B::ConicGradient(ConicGradient {
+                stops: NormalizedRadialColorStopVec::from_vec(
+                    stops
+                        .iter()
+                        .map(|s| NormalizedRadialColorStop {
+                            color: ColorOrSystem::Color(colour),
+                            ..*s
+                        })
+                        .collect(),
+                ),
+                ..g.clone()
+            }))
+        }
+        B::Color(_) | B::Image(_) | B::SystemColor(_) => None,
+    }
+}
+
+/// `from` and `to` cross-faded at `t`, pushed onto `out`: the new layers come
+/// in over the old ones at `t` of their strength.
+///
+/// Under an opaque new face the old one stays whole - the new face covers it
+/// by the end - so the blend is the true mix of the two faces. Under a
+/// translucent one the old face goes as the new one comes, or it would show
+/// through the new face at the end and vanish in one frame when the tween is
+/// over. `None` when a layer that must fade cannot ([`fade_layer`]).
+fn cross_fade_layers(
+    from: &[StyleBackgroundContent],
+    to: &[StyleBackgroundContent],
+    t: f32,
+    out: &mut Vec<StyleBackgroundContent>,
+) -> Option<()> {
+    if to.iter().any(is_opaque) {
+        out.extend_from_slice(from);
+    } else {
+        for layer in from {
+            out.push(fade_layer(layer, 1.0 - t)?);
+        }
+    }
+    for layer in to {
+        out.push(fade_layer(layer, t)?);
+    }
+    Some(())
+}
+
+/// Whether `layer` hides what lies under it: an opaque colour, or a gradient
+/// none of whose stops lets anything through. An image may have holes.
+fn is_opaque(layer: &StyleBackgroundContent) -> bool {
+    use StyleBackgroundContent as B;
+    let opaque = |c: &ColorOrSystem| matches!(c, ColorOrSystem::Color(c) if c.a == 255);
+    match layer {
+        B::Color(c) => c.a == 255,
+        B::LinearGradient(g) => {
+            !g.stops.as_ref().is_empty() && g.stops.as_ref().iter().all(|s| opaque(&s.color))
+        }
+        B::RadialGradient(g) => {
+            !g.stops.as_ref().is_empty() && g.stops.as_ref().iter().all(|s| opaque(&s.color))
+        }
+        B::ConicGradient(g) => {
+            !g.stops.as_ref().is_empty() && g.stops.as_ref().iter().all(|s| opaque(&s.color))
+        }
+        B::Image(_) | B::SystemColor(_) => false,
+    }
+}
+
+/// `layer` at `strength` (`0..=1`) of its own opacity: how a layer comes in
+/// or goes in a cross-fade. `None` for a layer with no colour to fade - an
+/// image, an unresolved system colour, a gradient without stops.
+fn fade_layer(layer: &StyleBackgroundContent, strength: f32) -> Option<StyleBackgroundContent> {
+    use StyleBackgroundContent as B;
+    let colour = |c: ColorOrSystem| match c {
+        ColorOrSystem::Color(c) => Some(ColorOrSystem::Color(faded(c, strength))),
+        ColorOrSystem::System(_) => None,
+    };
+    match layer {
+        B::Color(c) => Some(B::Color(faded(*c, strength))),
+        B::LinearGradient(g) if !g.stops.as_ref().is_empty() => {
             Some(B::LinearGradient(LinearGradient {
-                direction: a.direction,
-                extend_mode: a.extend_mode,
-                stops: NormalizedLinearColorStopVec::from_vec(stops),
+                stops: NormalizedLinearColorStopVec::from_vec(
+                    g.stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| {
+                            Some(NormalizedLinearColorStop {
+                                color: colour(s.color)?,
+                                ..*s
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ..g.clone()
+            }))
+        }
+        B::RadialGradient(g) if !g.stops.as_ref().is_empty() => {
+            Some(B::RadialGradient(RadialGradient {
+                stops: NormalizedLinearColorStopVec::from_vec(
+                    g.stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| {
+                            Some(NormalizedLinearColorStop {
+                                color: colour(s.color)?,
+                                ..*s
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ..g.clone()
+            }))
+        }
+        B::ConicGradient(g) if !g.stops.as_ref().is_empty() => {
+            Some(B::ConicGradient(ConicGradient {
+                stops: NormalizedRadialColorStopVec::from_vec(
+                    g.stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| {
+                            Some(NormalizedRadialColorStop {
+                                color: colour(s.color)?,
+                                ..*s
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ..g.clone()
             }))
         }
         _ => None,
+    }
+}
+
+/// `c` at `strength` (`0..=1`) of its alpha, rounded to the nearest step.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255 first
+fn faded(c: ColorU, strength: f32) -> ColorU {
+    let strength = if strength.is_nan() {
+        0.0
+    } else {
+        strength.clamp(0.0, 1.0)
+    };
+    ColorU {
+        a: libm::roundf(f32::from(c.a) * strength).clamp(0.0, 255.0) as u8,
+        ..c
     }
 }
 
