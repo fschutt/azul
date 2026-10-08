@@ -21,11 +21,15 @@
 //! opens a new meeting's waiting room (a preview of one when no meeting server answers); with
 //! `--shot <png>` that is a screenshot. Every HTTP request runs on an azul `Thread` and resumes on
 //! the UI thread, so no callback waits on the network. The start screen's "Meeting server" field
-//! holds the Worker's address: `--worker`, else the one saved last time, else `AZMEET_WORKER`,
-//! else one built in at build time - and nothing else: with none, the start screen asks for one,
+//! holds the Worker's address: `--worker`, else the one saved last time, else the shared Azlin
+//! config's (azul-appkit `azlin_config`: `AZMEET_WORKER`, else `endpoints.meet` of the config
+//! file `AZLIN_CONFIG` names, else of `~/.azlin/config.json`), else one built in at build time,
+//! else the config profile's (`local`, the default: the local stack's `http://127.0.0.1:8790`;
+//! `production` names none yet) - and nothing else: with none, the start screen asks for one,
 //! and an unreachable one is an error with a Retry button. A new address is used for every
 //! request from Enter or leaving the field on, checked with `GET /health`, and saved once it
-//! answers.
+//! answers. The relays come the same way (`--relay`, `AZMEET_RELAY`, `endpoints.relay`, the
+//! profile's).
 //!
 //! Settings: the gear at the top right of every screen (or Mod+,) opens azul-appkit's settings
 //! page, the one every Azlin app shares (AzMail's File > Options): AzMeet's Audio & Video (the
@@ -83,12 +87,13 @@
 //! Switches (`args.rs`, `--help` lists them): each AzMeet switch also reads its `AZMEET_*`
 //! environment variable when it is not given (`1` for a switch without a value), so older scripts
 //! keep working; the switch wins.
-//! - `--worker <url>` (`AZMEET_WORKER`): the meeting server, e.g. `http://127.0.0.1:8787` (the
-//!   local mock). `--worker` wins over the one saved from the start screen; the variable only
-//!   counts when none was saved. Else the `PRODUCTION_WORKER` constant, set at build time with
-//!   `AZMEET_DEFAULT_WORKER=<url>`, else none: the start screen asks for one. A headless run
-//!   (`AZ_BACKEND=headless`) keeps no files unless it is given a data root (`--data-dir`,
-//!   `AZLIN_DATA`), so without one the variable always wins there.
+//! - `--worker <url>` (`AZMEET_WORKER`): the meeting server, e.g. `http://127.0.0.1:8790` (the
+//!   local stack's `wrangler dev`). `--worker` wins over the one saved from the start screen; the
+//!   variable and the shared config only count when none was saved. Else the `PRODUCTION_WORKER`
+//!   constant, set at build time with `AZMEET_DEFAULT_WORKER=<url>`, else the config profile's
+//!   address, else none: the start screen asks for one. A headless run (`AZ_BACKEND=headless`)
+//!   keeps no files unless it is given a data root (`--data-dir`, `AZLIN_DATA`), so without one
+//!   nothing saved outranks the configuration there.
 //! - `--identity-file <path>` (`AZMEET_IDENTITY_FILE`): keep this device's seed in that file
 //!   (made with mode 0600) instead of the system keyring - for tests (a headless run's keyring
 //!   lives in memory) and unattended machines.
@@ -106,9 +111,10 @@
 //! - `--join <link>` (`AZMEET_JOIN`): join that meeting at start, without the waiting room.
 //! - `--waiting-room` (`AZMEET_WAITING_ROOM=1`): with `--join` / `--autocreate`, stop in the
 //!   waiting room (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
-//! - `--relay <off|default|url>` (`AZMEET_RELAY`): the iroh relays (default: off for a meeting
-//!   server on this machine, the public iroh relays otherwise); a local one is `iroh-relay --dev`
-//!   at `http://127.0.0.1:3340`.
+//! - `--relay <off|default|url>` (`AZMEET_RELAY`, then the shared config's `endpoints.relay` and
+//!   its profile's: `local` the local stack's `iroh-relay --dev` at `http://127.0.0.1:3340`,
+//!   `production` the public iroh relays); with none of them, off for a meeting server on this
+//!   machine and the public iroh relays otherwise.
 //! - `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path - no UDP socket, no hole
 //!   punching, every packet through the relay (`IrohConfig::with_relay_only`); stderr says
 //!   `relay only` with the endpoint, the statistics say `relayed` per peer.
@@ -141,8 +147,9 @@
 pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
     name: "AzMeet",
     version: env!("CARGO_PKG_VERSION"),
-    summary: "Video meetings over azul.iroh: camera, screen sharing, the people and a chat; each \
-              meeting's record and chat are files in the Azlin data tree.",
+    summary: "Video meetings and chat rooms over azul.iroh, end-to-end encrypted: camera, screen \
+              sharing, the people and a chat the meeting server cannot read; each meeting's \
+              record and chat are files in the Azlin data tree.",
     license: "MIT",
     app_folder: store::APP_FOLDER,
 };
@@ -182,6 +189,7 @@ use azul::{
     error::{
         HttpError, KeyringResult, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError,
     },
+    file::FilePath,
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat},
     iroh::{
@@ -203,7 +211,7 @@ use azul::{
     },
     window::{PlatformCapability, WindowDecorations},
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{azlin_config, ui as kit};
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 use video_wire::{Codec, Control, Message};
 
@@ -490,6 +498,8 @@ impl RoomSession {
         self.close_waiting();
         self.created = false;
         self.straight_in = false;
+        self.minting = None;
+        self.join_secret = None;
         self.room_id.clear();
         self.code.clear();
         self.link.clear();
@@ -1300,7 +1310,6 @@ fn room_page(s: &MeetState) -> Option<ui::RoomPage> {
         None => String::from("A room key is made with the first message."),
     };
     Some(ui::RoomPage {
-        room: id.clone(),
         title: format!("{kind} {}", chat.code),
         times: match (chat.starts_at, chat.ends_at) {
             (Some(a), Some(b)) => Some(times_text(a, b)),
@@ -5897,6 +5906,7 @@ fn begin_new_room(
         room.busy = true;
         room.created = true;
         room.straight_in = straight_in;
+        room.join_secret = None;
         let minting = Minting { invite, kind, times };
         let job = HttpJob::create_room(room, &minting);
         room.minting = Some(minting);
@@ -5934,7 +5944,7 @@ fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str, straight_i
             s.notice = no_server_notice();
             return Update::RefreshDom;
         }
-        let Some(link) = rooms::parse_room_link(text) else {
+        let Some(link) = rooms::read_room_link(text) else {
             s.notice = String::from(
                 "That is not a meeting link. Paste an azlin://meet/... link, the meeting's web \
                  address, or its code.",
@@ -5952,6 +5962,7 @@ fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str, straight_i
         room.busy = true;
         room.created = false;
         room.straight_in = straight_in;
+        room.minting = None;
         room.join_secret = link.secret.clone().or(kept);
         s.open_room = None;
         s.notice = String::from("Looking up the meeting...");
@@ -6267,7 +6278,7 @@ fn launch_times() -> Option<(String, String)> {
 /// `--open <link>`: the room view of that room - one this device is in at once, another looked
 /// up and joined.
 fn open_link(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update {
-    let known = match rooms::parse_room_link(text).map(|link| link.key) {
+    let known = match rooms::parse_room_link(text) {
         Some(RoomKey::Id(id)) => data
             .downcast_mut::<MeetState>()
             .map(|mut s| {
@@ -7346,22 +7357,109 @@ fn probe(url: &str) -> Result<(), String> {
         .unwrap_or_else(|_| Err(String::from("no answer")))
 }
 
-/// The meeting server at start (`rooms::server_choice`: `--worker`, else the one saved last time,
-/// else `AZMEET_WORKER`, else one built in at build time, else none), where it came from, and
-/// whether it accepts a connection. A headless run without a data root of its own reads no
-/// settings, so `AZMEET_WORKER` wins there. With none there is nothing to ask.
-fn meeting_server() -> (String, rooms::ServerSource, Result<(), String>) {
+/// Where the Azlin services are for this run, as azul-appkit's shared config resolves them
+/// (`azlin_config::resolve_endpoints`): the profile's addresses (`local`, the default: the local
+/// stack's; `production`: n0's relays, no meeting server yet), under the config file's
+/// `endpoints` (`AZLIN_CONFIG`, else `~/.azlin/config.json`), under the environment
+/// (`AZMEET_WORKER`, `AZMEET_RELAY`, `AZLIN_PROFILE`), under the switches (`--worker`,
+/// `--relay`). A `--shot` run (a screenshot fixture) reads no config file, as the kit does.
+fn azlin_endpoints() -> &'static azlin_config::EffectiveEndpoints {
+    static RESOLVED: std::sync::OnceLock<azlin_config::EffectiveEndpoints> =
+        std::sync::OnceLock::new();
+    RESOLVED.get_or_init(|| {
+        let args = launch_args();
+        let flags = azlin_config::EndpointFlags {
+            meet: args.switch("AZMEET_WORKER").map(String::from),
+            relay: args.switch("AZMEET_RELAY").map(String::from),
+            ..azlin_config::EndpointFlags::default()
+        };
+        let home = FilePath::get_home_dir()
+            .into_option()
+            .map(|dir| std::path::PathBuf::from(dir.inner.as_str()));
+        let path = if args.kit.shot.is_some() {
+            None
+        } else {
+            azlin_config::config_path(
+                std::env::var(azlin_config::CONFIG_VAR).ok().as_deref(),
+                home.as_deref(),
+            )
+        };
+        let loaded = path.map(|path| {
+            let (config, problem) = azlin_config::AzlinConfig::load(&path);
+            if let Some(problem) = problem {
+                eprintln!("[azmeet] {}: {problem}", path.display());
+            }
+            (path, config)
+        });
+        let file = loaded
+            .as_ref()
+            .map(|(path, config)| (path.as_path(), &config.endpoints));
+        let env = |var: &str| std::env::var(var).ok();
+        let resolved = azlin_config::resolve_endpoints(file, &env, &flags);
+        for endpoint in [azlin_config::Endpoint::Meet, azlin_config::Endpoint::Relay] {
+            for (source, raw, why) in &resolved.get(endpoint).rejected {
+                eprintln!(
+                    "[azmeet] {} from {} passed over: {raw:?} {why}",
+                    endpoint.key(),
+                    source.label()
+                );
+            }
+        }
+        resolved
+    })
+}
+
+/// The shared config's value of `endpoint` as AzMeet takes it: not a profile's built-in address
+/// in a screenshot run (`--shot` renders the same everywhere), and not the switch's (AzMeet weighs
+/// its switches itself). With where it came from.
+fn shared_endpoint(endpoint: azlin_config::Endpoint) -> Option<(&'static str, String)> {
+    let resolved = azlin_endpoints().get(endpoint);
+    let value = resolved.value.as_deref()?;
+    let shot = launch_args().kit.shot.is_some();
+    match resolved.source {
+        azlin_config::Source::Env(_) | azlin_config::Source::File(_) => {}
+        azlin_config::Source::Profile(_) | azlin_config::Source::BuiltIn if !shot => {}
+        _ => return None,
+    }
+    Some((value, resolved.source.label()))
+}
+
+/// The meeting server at start, where it came from (for the log and the start screen), and
+/// whether it accepts a connection: `--worker` (this run only), else the one saved last time
+/// (the start screen's field), else the shared Azlin config's (`AZMEET_WORKER`, else its file's
+/// `endpoints.meet`), else one built in at build time (`AZMEET_DEFAULT_WORKER`), else the config
+/// profile's (`local`: the local stack's `http://127.0.0.1:8790`), else none - the start screen
+/// asks for one. A headless run without a data root of its own reads no settings, so nothing
+/// saved outranks the configuration there.
+fn meeting_server() -> (String, String, Result<(), String>) {
     let saved = store::Prefs::read(saved_settings()).server;
     let flag = launch_args().switch("AZMEET_WORKER");
-    let env = std::env::var("AZMEET_WORKER").ok();
-    let (url, source) =
-        rooms::server_choice(flag, saved.as_deref(), env.as_deref(), PRODUCTION_WORKER);
+    let shared = shared_endpoint(azlin_config::Endpoint::Meet).filter(|_| {
+        // A meeting server built in at build time outranks a profile's.
+        !matches!(
+            azlin_endpoints().get(azlin_config::Endpoint::Meet).source,
+            azlin_config::Source::Profile(_) | azlin_config::Source::BuiltIn
+        ) || PRODUCTION_WORKER.is_empty()
+    });
+    let (url, source) = rooms::server_choice(
+        flag,
+        saved.as_deref(),
+        shared.as_ref().map(|(value, _)| *value),
+        PRODUCTION_WORKER,
+    );
+    let from = match source {
+        rooms::ServerSource::CommandLine => String::from("--worker"),
+        rooms::ServerSource::Saved => String::from("saved on the start screen"),
+        rooms::ServerSource::Environment => shared.map(|(_, label)| label).unwrap_or_default(),
+        rooms::ServerSource::BuiltIn => String::from("built in (AZMEET_DEFAULT_WORKER)"),
+        rooms::ServerSource::Unset => String::from("none set"),
+    };
     let answer = if url.is_empty() {
         Err(String::from("none is set"))
     } else {
         probe(&url)
     };
-    (url, source, answer)
+    (url, from, answer)
 }
 
 /// The command line this run was started with (`args.rs`), read once by [`start`].
@@ -7419,23 +7517,32 @@ pub fn start() {
             std::process::exit(2);
         }
     }
-    let (worker, _source, answer) = meeting_server();
-    start_rooms(worker, answer);
+    let (worker, from, answer) = meeting_server();
+    start_rooms(worker, &from, answer);
 }
 
-/// The relays for a meeting server at `worker`: `--relay` (`AZMEET_RELAY`), else none for one on
-/// this machine.
+/// The relays for a meeting server at `worker`: `--relay`, else the shared Azlin config's
+/// (`AZMEET_RELAY`, its file's `endpoints.relay`, its profile's: `local` the local stack's
+/// relay, `production` n0's), else none for a meeting server on this machine and n0's for any
+/// other.
 fn relay_for(worker: &str) -> Relay {
     let host = server_address(worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
-    rooms::relay_choice(setting("AZMEET_RELAY").as_deref(), &host)
+    let setting = launch_args()
+        .switch("AZMEET_RELAY")
+        .map(String::from)
+        .or_else(|| {
+            shared_endpoint(azlin_config::Endpoint::Relay).map(|(value, _)| value.to_string())
+        });
+    rooms::relay_choice(setting.as_deref(), &host)
 }
 
 /// The window with the start screen, talking to the meeting server at `worker` (none when
-/// empty); `answer` says whether it accepted a connection at start. An unreachable or missing
-/// server is said under the field, with a Retry button: nothing else opens instead.
-fn start_rooms(worker: String, answer: Result<(), String>) {
+/// empty; `from`: where its address came from); `answer` says whether it accepted a connection
+/// at start. An unreachable or missing server is said under the field, with a Retry button:
+/// nothing else opens instead.
+fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
     let relay = relay_for(&worker);
     let name = display_name();
     if relay_only() && relay == Relay::Off {
@@ -7458,8 +7565,8 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
         Ok(()) => String::from("The meeting server answers."),
         Err(_) if worker.is_empty() => no_server_notice(),
         Err(e) => format!(
-            "The meeting server at {worker} does not answer ({e}). AzMeet asks again every {} \
-             seconds; Retry asks now, or type another one and press Enter.",
+            "The meeting server at {worker} ({from}) does not answer ({e}). AzMeet asks again \
+             every {} seconds; Retry asks now, or type another one and press Enter.",
             SERVER_RETRY_MS / 1000
         ),
     };
@@ -7469,7 +7576,7 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
     if endpoint.is_bound() {
         room.node_id = endpoint.endpoint_id().as_str().to_string();
         eprintln!(
-            "[azmeet] {name}: endpoint {} (relays {relay:?}{}), meeting server {}",
+            "[azmeet] {name}: endpoint {} (relays {relay:?}{}), meeting server {} ({from})",
             short_id(&room.node_id),
             if relay_only() { ", relay only" } else { "" },
             if worker.is_empty() { "none" } else { worker.as_str() }

@@ -58,8 +58,14 @@ fn fragment_secret(fragment: &str) -> Option<String> {
 }
 
 /// Reads `azlin://meet/<key>`, the landing page `http(s)://<host>/rooms/<key>`, or a bare key,
-/// where the key is a room id or a room code, with the invite secret of a `#` fragment.
-pub fn parse_room_link(input: &str) -> Option<RoomLink> {
+/// where the key is a room id or a room code; a `#` fragment is passed over ([`read_room_link`]
+/// reads its invite secret). AzCalendar reads its meeting links with it too.
+pub fn parse_room_link(input: &str) -> Option<RoomKey> {
+    read_room_link(input).map(|link| link.key)
+}
+
+/// [`parse_room_link`], with the invite secret of a `#` fragment.
+pub fn read_room_link(input: &str) -> Option<RoomLink> {
     let s = input.trim();
     let (s, fragment) = s.split_once('#').unwrap_or((s, ""));
     let key = parse_link_key(s)?;
@@ -282,7 +288,8 @@ pub enum ServerSource {
     CommandLine,
     /// Saved the last time it answered (the start screen's field).
     Saved,
-    /// `AZMEET_WORKER`.
+    /// `AZMEET_WORKER`, or what the shared Azlin config names (AzMeet passes its resolved
+    /// address as the `env` layer: the variable, the config file, the profile).
     Environment,
     /// Built in: `PRODUCTION_WORKER` (`AZMEET_DEFAULT_WORKER` at build time).
     BuiltIn,
@@ -460,21 +467,34 @@ mod tests {
 
     /// The room a link names.
     fn key_of(input: &str) -> Option<RoomKey> {
-        parse_room_link(input).map(|l| l.key)
+        let key = parse_room_link(input);
+        assert_eq!(key, read_room_link(input).map(|l| l.key), "both read the same room");
+        key
     }
 
     const SECRET: &str = "k7qz2m9x4c8v1b6n3r5t0w2y8p";
 
     #[test]
     fn a_links_fragment_carries_the_invite_secret_and_a_code_carries_none() {
-        let link = parse_room_link(&format!("azlin://meet/{ID}#{SECRET}")).unwrap();
+        let link = read_room_link(&format!("azlin://meet/{ID}#{SECRET}")).unwrap();
         assert_eq!(link.key, RoomKey::Id(ID.to_string()));
         assert_eq!(link.secret.as_deref(), Some(SECRET));
-        let web = parse_room_link(&format!("https://meet.example.com/rooms/{ID}#k={}", SECRET.to_uppercase()));
+        let web = read_room_link(&format!(
+            "https://meet.example.com/rooms/{ID}#k={}",
+            SECRET.to_uppercase()
+        ));
         assert_eq!(web.and_then(|l| l.secret).as_deref(), Some(SECRET), "k= and any case");
-        assert_eq!(parse_room_link(&format!("azlin://meet/{ID}")).unwrap().secret, None, "a knock");
-        assert_eq!(parse_room_link(&format!("azlin://meet/{ID}#short")).unwrap().secret, None);
-        assert_eq!(parse_room_link(&format!("{CODE}#{SECRET}")).unwrap().secret, None, "a code has no secret");
+        let bare = read_room_link(&format!("azlin://meet/{ID}")).unwrap();
+        assert_eq!(bare.secret, None, "a knock");
+        let short = read_room_link(&format!("azlin://meet/{ID}#short")).unwrap();
+        assert_eq!(short.secret, None);
+        let code = read_room_link(&format!("{CODE}#{SECRET}")).unwrap();
+        assert_eq!(code.secret, None, "a code has no secret");
+        assert_eq!(
+            parse_room_link(&format!("azlin://meet/{ID}#{SECRET}")),
+            id(),
+            "the room alone (AzCalendar's reading)"
+        );
         assert_eq!(
             link_with_secret(&format!("azlin://meet/{ID}"), Some(SECRET)),
             format!("azlin://meet/{ID}#{SECRET}")

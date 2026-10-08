@@ -127,7 +127,7 @@ pub const SWITCHES: &[Switch] = &[
         flag: "--relay",
         var: "AZMEET_RELAY",
         takes: Takes::Url("<URL>", &["off", "default"]),
-        help: "the iroh relays (default: off for a meeting server on this machine)",
+        help: "the iroh relays (else the Azlin config's; else off for a local meeting server)",
     },
     Switch {
         flag: "--relay-only",

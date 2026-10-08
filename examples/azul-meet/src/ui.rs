@@ -142,7 +142,6 @@ pub(crate) struct MemberRow {
 /// The room view: a room outside a call.
 #[derive(Debug, Clone)]
 pub(crate) struct RoomPage {
-    pub room: String,
     /// "Chat room xq4-8kd-2nm".
     pub title: String,
     /// When a meeting is: "Fri 9 Oct 2026, 16:00-17:00 · starts in 2 h".
