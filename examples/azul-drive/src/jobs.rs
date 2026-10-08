@@ -4,7 +4,9 @@
 //! transfer plan, a transfer run (with progress messages while it copies), a
 //! delete into the trash or for good, a rename, a new folder or file, an
 //! undo, a preview, a folder's size, an object's metadata, a zip, the
-//! settings file, a download to open. Every answer comes back to the UI
+//! settings file, a download to open; and the Add drive dialog's calls (a
+//! source's connection test, Azlin's storage tiers, a test drive, a checkout
+//! and the wait for its payment). Every answer comes back to the UI
 //! thread as an [`Outcome`] through the thread's write-back. No callback
 //! ever waits on a drive.
 
@@ -18,14 +20,15 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
+use azcloud_kit::{Checkout, CheckoutStatus, DriveBundle, Tiers, TokenServer};
 use azul::{
     image::{ImageRef, RawImage},
     prelude::*,
     vec::U8VecRef,
 };
 use azul_storage::{
-    azul_transport::AzulTransport, ops as storage_ops, transfer, ByteRange, Credentials,
-    Drive, DriveError, ListRequest, LocalDrive, S3Config, S3Drive,
+    azul_transport::AzulTransport, config::DriveEntry, ops as storage_ops, transfer, ByteRange,
+    Drive, DriveError, ListRequest, LocalDrive,
 };
 
 use crate::{
@@ -178,10 +181,36 @@ pub(crate) enum Job {
         size: Option<u64>,
         folder: PathBuf,
     },
+    /// Add drive's "Test connection": the source `entry` opened with its keyring text
+    /// `secret`, then ONE listing of its root, one entry at most.
     Test {
         serial: u64,
-        config: S3Config,
-        credentials: Credentials,
+        entry: DriveEntry,
+        secret: Option<String>,
+    },
+    /// Buy storage's tier list from the token server at `token_url`.
+    Tiers { serial: u64, token_url: String },
+    /// A test drive without payment (a development token server).
+    CreateTestDrive {
+        serial: u64,
+        token_url: String,
+        name: String,
+        tier: String,
+    },
+    /// A checkout of `tier` for `months` months.
+    Checkout {
+        serial: u64,
+        token_url: String,
+        tier: String,
+        months: u32,
+    },
+    /// The wait for checkout `checkout_id`'s payment: its status asked every few seconds
+    /// until the drive is there, the payment declined, `cancel` set or an hour gone.
+    AwaitPayment {
+        serial: u64,
+        token_url: String,
+        checkout_id: String,
+        cancel: Arc<AtomicBool>,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -274,6 +303,23 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<String, DriveError>,
     },
+    /// Buy storage's tier list (or why there is none).
+    Tiers {
+        serial: u64,
+        result: Result<Tiers, String>,
+    },
+    /// A new Azlin drive: a test drive, or a paid checkout's (or why there is none).
+    Bought {
+        serial: u64,
+        result: Result<DriveBundle, String>,
+    },
+    /// A checkout to pay in the browser (or why there is none).
+    CheckoutStarted {
+        serial: u64,
+        result: Result<Checkout, String>,
+    },
+    /// The wait for a payment ended without a drive: why.
+    PaymentEnded { serial: u64, why: String },
     SettingsSaved {
         result: Result<(), DriveError>,
     },
@@ -831,6 +877,79 @@ fn undo_create(drive: &dyn Drive, key: &str) -> Result<(), DriveError> {
     }
 }
 
+/// Seconds between two questions about a checkout's payment.
+const PAYMENT_POLL_SECS: u64 = 3;
+/// How long the dialog waits for a payment before it gives up (the payment page stays valid).
+const PAYMENT_WAIT_SECS: u64 = 3600;
+
+/// Asks the token server about checkout `checkout_id` every few seconds until it is paid
+/// (the drive), declined, `cancel` is set or the wait is too long. A question without an answer
+/// is asked again (the network may come back); a refusal ends the wait.
+fn await_payment(serial: u64, token_url: &str, checkout_id: &str, cancel: &AtomicBool) -> Outcome {
+    let transport = AzulTransport::new(USER_AGENT);
+    let server = match TokenServer::new(token_url, &transport) {
+        Ok(server) => server,
+        Err(e) => {
+            return Outcome::PaymentEnded {
+                serial,
+                why: e.to_string(),
+            }
+        }
+    };
+    let started = Instant::now();
+    loop {
+        // A few seconds in short steps: Stop waiting is heard at once.
+        for _ in 0..(PAYMENT_POLL_SECS * 4) {
+            if cancel.load(Ordering::SeqCst) {
+                return Outcome::PaymentEnded {
+                    serial,
+                    why: String::from("Stopped waiting for the payment."),
+                };
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        if started.elapsed() > Duration::from_secs(PAYMENT_WAIT_SECS) {
+            return Outcome::PaymentEnded {
+                serial,
+                why: String::from(
+                    "No payment arrived within an hour. A payment made later still creates the \
+                     drive at the token server.",
+                ),
+            };
+        }
+        match server.checkout_status(checkout_id) {
+            Ok(CheckoutStatus::Pending) | Err(azcloud_kit::TokenError::Connect(_)) => continue,
+            Ok(CheckoutStatus::Approved(bundle)) => {
+                return Outcome::Bought {
+                    serial,
+                    result: Ok(*bundle),
+                }
+            }
+            Ok(CheckoutStatus::ApprovedElsewhere) => {
+                return Outcome::PaymentEnded {
+                    serial,
+                    why: String::from(
+                        "The payment went through, but the new drive was handed to another \
+                         window. Look for it there.",
+                    ),
+                }
+            }
+            Ok(CheckoutStatus::Declined(why)) => {
+                return Outcome::PaymentEnded {
+                    serial,
+                    why: format!("The payment did not go through: {why}."),
+                }
+            }
+            Err(e) => {
+                return Outcome::PaymentEnded {
+                    serial,
+                    why: e.to_string(),
+                }
+            }
+        }
+    }
+}
+
 fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
     match job {
         Job::Scan {
@@ -1023,25 +1142,70 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         Job::Test {
             serial,
-            config,
-            credentials,
+            entry,
+            secret,
         } => {
-            // ONE listing call, at most one entry: does the bucket answer to these keys?
-            let result = S3Drive::new(
-                config,
-                credentials,
-                Box::new(AzulTransport::new(USER_AGENT)),
-            )
-            .and_then(|drive| drive.list(&ListRequest::folder("").with_max_keys(1)))
-            .map(|page| {
-                if page.folders.is_empty() && page.objects.is_empty() {
-                    String::from("Connection OK: the bucket answered; it is empty.")
-                } else {
-                    String::from("Connection OK: the bucket answered and lists its files.")
-                }
-            });
+            // ONE listing call, at most one entry: does the source answer with these settings?
+            let result = entry
+                .open_with_secret(secret.as_deref(), Box::new(AzulTransport::new(USER_AGENT)))
+                .and_then(|drive| drive.list(&ListRequest::folder("").with_max_keys(1)))
+                .map(|page| {
+                    if page.folders.is_empty() && page.objects.is_empty() {
+                        String::from("Connection OK: the source answered; it is empty.")
+                    } else {
+                        String::from("Connection OK: the source answered and lists its files.")
+                    }
+                });
             Outcome::Tested { serial, result }
         }
+        Job::Tiers { serial, token_url } => {
+            let transport = AzulTransport::new(USER_AGENT);
+            let result = TokenServer::new(&token_url, &transport)
+                .and_then(|server| server.tiers())
+                .map_err(|e| e.to_string());
+            Outcome::Tiers { serial, result }
+        }
+        Job::CreateTestDrive {
+            serial,
+            token_url,
+            name,
+            tier,
+        } => {
+            let transport = AzulTransport::new(USER_AGENT);
+            let result = TokenServer::new(&token_url, &transport)
+                .and_then(|server| server.create_dev_drive(&name, &tier))
+                .map_err(|e| {
+                    if e.is_checkout_only() {
+                        String::from(
+                            "This token server sells drives through a checkout only: it makes \
+                             no test drives. Use Buy.",
+                        )
+                    } else {
+                        e.to_string()
+                    }
+                });
+            Outcome::Bought { serial, result }
+        }
+        Job::Checkout {
+            serial,
+            token_url,
+            tier,
+            months,
+        } => {
+            let transport = AzulTransport::new(USER_AGENT);
+            let result = TokenServer::new(&token_url, &transport)
+                .and_then(|server| {
+                    server.checkout(&tier, months, azcloud_kit::token::DEFAULT_METHOD)
+                })
+                .map_err(|e| e.to_string());
+            Outcome::CheckoutStarted { serial, result }
+        }
+        Job::AwaitPayment {
+            serial,
+            token_url,
+            checkout_id,
+            cancel,
+        } => await_payment(serial, &token_url, &checkout_id, &cancel),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },

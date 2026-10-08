@@ -91,17 +91,24 @@ const AZDRIVE_HELP: &str = concat!(
     "                             the window (default: $AZDRIVE_DIALOGS, else window)\n",
     "    --open <PATH>            Open at a place as the address bar names it: This PC,\n",
     "                             Home/Documents (File > Open new window passes it)\n",
+    "    --token-url <URL>        The Azlin token server of Add drive > Buy storage (default:\n",
+    "                             $AZLIN_TOKEN_URL, else the shared Azlin config's endpoints,\n",
+    "                             else the profile's)\n",
+    "    --profile <NAME>         local | trial | production: whose addresses are the defaults\n",
+    "                             (default: $AZLIN_PROFILE, else the shared config's, else local)\n",
 );
 
 /// AzDrive's own switches that take a value (after a space or an equals sign), and what the
 /// value is called in an error.
-const OWN: [(&str, &str); 6] = [
+const OWN: [(&str, &str); 8] = [
     ("--layout", "name"),
     ("--home", "folder"),
     ("--downloads", "folder"),
     ("--drives", "file"),
     ("--dialogs", "window or inline"),
     ("--open", "place such as Home/Documents"),
+    ("--token-url", "address such as https://token.example"),
+    ("--profile", "profile: local, trial or production"),
 ];
 
 /// The parsed command line.
@@ -121,6 +128,11 @@ pub struct Args {
     /// `--open`: the place to open at, as the address bar names it (`Home/Documents`); it wins
     /// over `--screen`.
     pub open: Option<String>,
+    /// `--token-url`: the Azlin token server (over the environment and the shared config;
+    /// azul-appkit's `resolve_endpoints` weighs them).
+    pub token_url: Option<String>,
+    /// `--profile`: the Azlin profile whose addresses are the defaults.
+    pub profile: Option<String>,
     /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
     /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
     pub kit: AppArgs,
@@ -197,6 +209,17 @@ impl Args {
                         return Err(format!("{name} needs a {what}"));
                     }
                     args.open = Some(place.to_string());
+                }
+                "--token-url" | "--profile" => {
+                    let value = value.trim();
+                    if value.is_empty() {
+                        return Err(format!("{name} needs a {what}"));
+                    }
+                    if name == "--token-url" {
+                        args.token_url = Some(value.to_string());
+                    } else {
+                        args.profile = Some(value.to_string());
+                    }
                 }
                 _ => {
                     args.dialogs = Some(Dialogs::from_name(&value).ok_or_else(|| {

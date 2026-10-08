@@ -100,38 +100,28 @@ fn property_rows(rows: Vec<(String, String)>) -> Dom {
         ))
 }
 
-/// The forms' fields, for their text callbacks.
-#[derive(Clone, Copy)]
-enum Field {
-    Name,
-    Endpoint,
-    Region,
-    Bucket,
-    AccessKey,
-    SecretKey,
-    Location,
+/// A data source's plain settings as (label, value) rows, in its form's order (a setting the
+/// form does not know under its own name).
+pub(crate) fn source_rows(
+    entry: &azul_storage::config::DriveEntry,
+    options: &std::collections::BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    match azul_storage::catalog::service_of(entry) {
+        Some(spec) => spec
+            .fields
+            .iter()
+            .filter_map(|f| options.get(f.key).map(|v| (f.label.to_string(), v.clone())))
+            .collect(),
+        None => options.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    }
 }
 
-struct FieldRef {
-    app: RefAny,
-    field: Field,
-}
-
-fn input(app: &RefAny, value: &str, placeholder: &str, field: Field, id: AzString, secret: bool) -> Dom {
-    let base = if secret {
-        TextInput::create_password()
-    } else {
-        TextInput::create()
-    };
-    base.with_text(AzString::from(value))
+/// "Choose location"'s typed path (the Add drive dialog's fields are `ui_add_drive`'s).
+fn input(app: &RefAny, value: &str, placeholder: &str, id: AzString) -> Dom {
+    TextInput::create()
+        .with_text(AzString::from(value))
         .with_placeholder(AzString::from(placeholder))
-        .with_on_text_input(
-            RefAny::new(FieldRef {
-                app: app.clone(),
-                field,
-            }),
-            on_form_text as TextInputOnTextInputCallbackType,
-        )
+        .with_on_text_input(app.clone(), on_form_text as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(id)
 }
@@ -145,34 +135,16 @@ extern "C" fn on_form_text(
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
     };
-    let Some((mut app, field)) = data
-        .downcast_ref::<FieldRef>()
-        .map(|r| (r.app.clone(), r.field))
-    else {
-        return keep;
-    };
-    let Some(mut s) = app.downcast_mut::<DriveState>() else {
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return keep;
     };
     let text = state.get_text().as_str().to_string();
-    match (s.popup.as_mut(), field) {
-        (Some(Popup::AddDrive { form, error, .. }), field) => {
-            match field {
-                Field::Name => form.name = text,
-                Field::Endpoint => form.endpoint = text,
-                Field::Region => form.region = text,
-                Field::Bucket => form.bucket = text,
-                Field::AccessKey => form.access_key = text,
-                Field::SecretKey => form.secret_key = text,
-                Field::Location => {}
-            }
-            error.clear();
-        }
-        (Some(Popup::ChooseLocation { text: typed, error, .. }), Field::Location) => {
-            *typed = text;
-            error.clear();
-        }
-        _ => {}
+    if let Some(Popup::ChooseLocation {
+        text: typed, error, ..
+    }) = s.popup.as_mut()
+    {
+        *typed = text;
+        error.clear();
     }
     keep
 }
@@ -182,106 +154,8 @@ extern "C" fn on_form_text(
 /// A dialog's title and content.
 pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (String, Dom) {
     match popup {
-        Popup::AddDrive {
-            form,
-            editing,
-            testing,
-            tested,
-            error,
-            ..
-        } => {
-            let mut body = Dom::create_div()
-                .with_id(ids::ADD_DRIVE)
-                .with_css("display: flex; flex-direction: column; min-width: 340px;")
-                .with_child(label("Name"))
-                .with_child(input(app, &form.name, "S3 Drive", Field::Name, ids::ADD_NAME, false))
-                .with_child(label("Endpoint"))
-                .with_child(input(
-                    app,
-                    &form.endpoint,
-                    "https://s3.eu-central-1.amazonaws.com",
-                    Field::Endpoint,
-                    ids::ADD_ENDPOINT,
-                    false,
-                ))
-                .with_child(label("Region"))
-                .with_child(input(
-                    app,
-                    &form.region,
-                    "us-east-1 (R2: auto)",
-                    Field::Region,
-                    ids::ADD_REGION,
-                    false,
-                ))
-                .with_child(label("Bucket"))
-                .with_child(input(app, &form.bucket, "my-bucket", Field::Bucket, ids::ADD_BUCKET, false))
-                .with_child(label("Access key"))
-                .with_child(input(
-                    app,
-                    &form.access_key,
-                    "",
-                    Field::AccessKey,
-                    ids::ADD_ACCESS_KEY,
-                    false,
-                ))
-                .with_child(label("Secret key (kept in the system keyring only)"))
-                .with_child(input(
-                    app,
-                    &form.secret_key,
-                    "",
-                    Field::SecretKey,
-                    ids::ADD_SECRET_KEY,
-                    true,
-                ))
-                .with_child(
-                    Dom::create_div()
-                        .with_css(
-                            "display: flex; flex-direction: row; align-items: center; \
-                             margin-top: 12px;",
-                        )
-                        .with_child(
-                            CheckBox::create(form.path_style)
-                                .with_on_toggle(app.clone(), on_path_style as CheckBoxOnToggleCallbackType)
-                                .dom(),
-                        )
-                        .with_child(
-                            Dom::create_span_with_text(AzString::from(
-                                "Path-style URLs (MinIO, local servers)",
-                            ))
-                            .with_css("margin-left: 8px;")
-                            .with_callback(
-                                EventFilter::Hover(HoverEventFilter::Click),
-                                app.clone(),
-                                on_path_style_label,
-                            ),
-                        ),
-                );
-            let status = if *testing {
-                Some(String::from("Testing the connection..."))
-            } else {
-                match tested {
-                    Some(Ok(text)) => Some(text.clone()),
-                    Some(Err(text)) => Some(format!("The connection failed: {text}")),
-                    None => None,
-                }
-            };
-            if let Some(text) = status {
-                body.add_child(line(&text).with_id(ids::ADD_STATUS));
-            }
-            if !error.is_empty() {
-                body.add_child(line(error).with_id(ids::ADD_ERROR).with_css("color: #C42B1C;"));
-            }
-            body.add_child(buttons(vec![
-                button("Test connection", app, on_test_connection),
-                button("Cancel", app, on_cancel_popup),
-                typed_button("Save drive", ButtonType::Primary, app, on_save_drive),
-            ]));
-            let title = if editing.is_some() {
-                "Enter the drive's keys again"
-            } else {
-                "Add an S3 drive"
-            };
-            (title.to_string(), body)
+        Popup::AddDrive(dialog) => {
+            crate::ui_add_drive::dialog(dialog, s, app)
         }
         Popup::ConfirmDelete { drive_id, items } => {
             let what = match items.as_slice() {
@@ -331,7 +205,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 .with_id(ids::CHOOSE_LOCATION)
                 .with_css("display: flex; flex-direction: column; min-width: 360px;")
                 .with_child(label("The folder (a drive's name, then its folders: Home/docs)"))
-                .with_child(input(app, text, "Home/docs", Field::Location, ids::LOCATION_PATH, false));
+                .with_child(input(app, text, "Home/docs", ids::LOCATION_PATH));
             if !error.is_empty() {
                 body.add_child(line(error).with_css("color: #C42B1C;"));
             }
@@ -490,6 +364,20 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
                     String::from("Keys"),
                     String::from("in the system keyring (never on disk)"),
                 ));
+            }
+            DriveLocation::Opendal {
+                options, keyring, ..
+            }
+            | DriveLocation::Database {
+                options, keyring, ..
+            } => {
+                general.extend(source_rows(&slot.entry, options));
+                if *keyring {
+                    details.push((
+                        String::from("Passwords and tokens"),
+                        String::from("in the system keyring (never on disk)"),
+                    ));
+                }
             }
         }
         details.push((String::from("Drive id"), slot.entry.id.clone()));
@@ -773,34 +661,6 @@ extern "C" fn on_location_done(mut data: RefAny, mut info: CallbackInfo) -> Upda
     })
 }
 
-extern "C" fn on_test_connection(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| {
-        actions::test_connection(info, app, s)
-    })
-}
-
-extern "C" fn on_save_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| actions::save_drive(info, app, s))
-}
-
-fn set_path_style(data: &mut RefAny, checked: Option<bool>) -> Update {
-    let Some(mut s) = data.downcast_mut::<DriveState>() else {
-        return Update::DoNothing;
-    };
-    if let Some(Popup::AddDrive { form, .. }) = s.popup.as_mut() {
-        form.path_style = checked.unwrap_or(!form.path_style);
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_path_style(mut data: RefAny, _info: CallbackInfo, state: CheckBoxState) -> Update {
-    set_path_style(&mut data, Some(state.checked))
-}
-
-extern "C" fn on_path_style_label(mut data: RefAny, _info: CallbackInfo) -> Update {
-    set_path_style(&mut data, None)
-}
-
 // ==== The backstage ====
 
 /// The backstage (the gear, See more > Options / About): the Options, About, Close. The Options
@@ -1026,6 +886,13 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                         DriveLocation::S3 {
                             endpoint, bucket, ..
                         } => format!("s3://{bucket} at {endpoint}"),
+                        DriveLocation::Opendal { options, .. }
+                        | DriveLocation::Database { options, .. } => {
+                            source_rows(&slot.entry, options)
+                                .into_iter()
+                                .next()
+                                .map_or_else(String::new, |(_, value)| value)
+                        }
                     };
                     let mut row = Dom::create_div()
                         .with_css(
@@ -1077,15 +944,15 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                     column_of(vec![
                         Dom::create_div()
                             .with_css("display: flex; flex-direction: row;")
-                            .with_child(action_button("Add S3 drive", app, Action::AddDrive))
+                            .with_child(action_button("Add drive ...", app, Action::AddDrive))
                             .with_child(action_button(
                                 "Add a folder as a drive",
                                 app,
                                 Action::AddLocalDrive,
                             )),
                         line(&format!(
-                            "An S3 drive's access keys live in the system keyring only; the list \
-                             of drives (without keys) is {drives_file}."
+                            "Access keys, passwords and tokens live in the system keyring only; \
+                             the list of drives (without them) is {drives_file}."
                         ))
                         .with_css("font-size: 12px; opacity: 0.75;"),
                     ]),
@@ -1100,11 +967,21 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
 /// pages.
 fn about(app: &RefAny) -> Dom {
     let about = crate::ABOUT;
-    AboutDialog::create(about.name, about.version)
+    let mut dialog = AboutDialog::create(about.name, about.version)
         .with_icon("folder_open")
         .with_description(about.summary)
         .with_credit("azul", "MIT")
-        .with_credit("azul-storage", about.license)
+        .with_credit("azul-storage", about.license);
+    // The data sources' libraries (Add drive > Connect data source).
+    if cfg!(feature = "opendal") {
+        dialog = dialog.with_credit("Apache OpenDAL", "Apache-2.0");
+    }
+    if cfg!(feature = "sql") {
+        dialog = dialog
+            .with_credit("SQLx", "MIT OR Apache-2.0")
+            .with_credit("SQLite", "Public domain");
+    }
+    dialog
         .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType)
         .dom()
         .with_id(ids::ABOUT)

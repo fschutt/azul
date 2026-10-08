@@ -6,7 +6,7 @@
 //! File | Home | Share | View                  (at This PC: File | Computer | View)
 //! Home:  Clipboard [Copy][Paste] Cut / Copy path / Paste shortcut
 //!        Organize  [Move to v][Copy to v][Delete|v][Rename] Undo
-//!        New       [New folder] New item v / Easy access v
+//!        New       [New folder] New item v / Easy access v / Add drive
 //!        Open      [Properties|v] Open|v / Edit / History
 //!        Select    Select all / Select none / Invert selection
 //! Share: Send      [Email][Zip] Print / Burn to disc / Fax
@@ -17,7 +17,7 @@
 //!        Current view [Sort by v] Group by v / Add columns v / Size all columns to fit
 //!        Show/hide Item check boxes / File name extensions / Hidden items [Hide selected items]
 //!        Options   [Options]
-//! Computer: Location [Properties][Open]  Network [Add S3 drive][Add folder as drive]
+//! Computer: Location [Properties][Open]  Network [Add drive][Add folder as drive]
 //!        [Remove drive]  System [Refresh][Options]
 //! ```
 //!
@@ -241,6 +241,8 @@ fn home_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                 large(button(s, app, "create_new_folder", "New folder", Action::NewFolder)),
                 small(menu_button(s, app, "note_add", "New item", Action::NewItemMenu)),
                 small(menu_button(s, app, "bolt", "Easy access", Action::EasyAccessMenu)),
+                // Buy storage or connect a data source (Explorer's "Map network drive").
+                small(button(s, app, "add_link", "Add drive", Action::AddDrive)),
             ],
         ))
         .with_group(group(
@@ -445,7 +447,7 @@ fn computer_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
         .with_group(group(
             "Network",
             vec![
-                large(button(s, app, "add_circle", "Add S3 drive", Action::AddDrive)),
+                large(button(s, app, "add_circle", "Add drive", Action::AddDrive)),
                 large(button(
                     s,
                     app,
