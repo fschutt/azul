@@ -16,9 +16,9 @@ use crate::{
     lock::{HeldLock, LockDir},
 };
 
-/// How long a change waits for another process's change of the same entry (a refresh holds the
-/// lock for one call to the token server).
-pub const LOCK_WAIT: Duration = Duration::from_secs(60);
+/// How long a change waits for another process's change of the same entry: a refresh holds the
+/// lock for one call to the token server, which azul's HTTP client gives up on after 90 s.
+pub const LOCK_WAIT: Duration = Duration::from_secs(120);
 
 /// The keyring and the locks of its entries. `Debug` shows where the locks are, nothing of the
 /// keyring.
