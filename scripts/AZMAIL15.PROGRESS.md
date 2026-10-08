@@ -21,9 +21,11 @@ AzMail for hard-coded endpoints. Worktree branch `worktree-agent-a53601a48788117
   not run: no compiling)
 - a26a8a190 audit fix: --dns-servers / AZMAIL_DNS_SERVERS for the DKIM / DMARC / SPF check
 - 1a8588274 pushed / uploaded mail keeps \Seen in the drive (markers)
+- e583f3c8a docs; bf97061ec / 0eceed0ef e2e isolation (AZLIN_DATA, AZLIN_CONFIG=off in every
+  phase, sync_e2e.py too); ead001ae8 conformance takes long-lived keys
 
 ## IN PROGRESS
-- final report
+- (none: handed to the lead)
 
 ## NEXT (for the lead)
 - compile + `cargo test -p AzMail` (azlin, azlin_sync, account, args, dkim tests are new)
