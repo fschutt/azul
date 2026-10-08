@@ -5,15 +5,20 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    The Azlin cloud client the desktop apps share: the token server's API (the
-    storage tiers, a development sign-up, a checkout and its status, the
-    refresh of a drive's credentials with its rotating drive token), the
-    drive bundle it answers with, the session an app keeps in the OS keyring,
-    the token server's address from the shared Azlin config, and an Azlin
-    drive that refreshes its 12-hour credentials by itself. Blocking: every
-    call goes through azul-storage's `Transport` (azul's HTTP client in the
-    apps, a fake in the tests), from an azul `Thread`. No azul types, no
-    dependency on the service's own crates.
+    The Azlin cloud client the desktop apps share and the `azcloud` command
+    line is built on: the token server's API (the storage tiers, a
+    development sign-up, a checkout and its status, the refresh of a drive's
+    credentials with its rotating drive token, members, lockdown, restore),
+    the drive bundle it answers with, the session an app keeps in the OS
+    keyring and an Azlin drive that refreshes its 12-hour credentials by
+    itself; a device's account and state folder, the settings with where
+    each came from; the bucket (S3 through azul-storage: endpoint failover,
+    compare-and-swap, multipart, ranges), the folder sync (a CAS index,
+    BLAKE3 blobs, a three-way merge) and public links. Blocking: every call
+    goes through azul-storage's `Transport` (azul's HTTP client in the apps,
+    a fake in the tests), from an azul `Thread`; a build that links iroh
+    plugs in its dialer. No azul types, no dependency on the service's own
+    crates.
 """
 publish = false
 

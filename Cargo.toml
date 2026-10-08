@@ -11,7 +11,7 @@ members = [
     "examples/azul-meet", # azul-meet demo (SUPER_PLAN_2 P8 goal app: Udp + AudioSink + MicrophoneWidget)
     "examples/azul-calendar", # AzCalendar test app: week view, event files, mints AzMeet links
     "examples/azul-storage", # azul-storage: the Drive trait (LocalDrive, S3Drive) AzDrive and AzMail share
-    "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps (token server, drive bundle, keyring session, self-refreshing drive)
+    "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)
     "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
@@ -55,13 +55,13 @@ exclude = [
     # wayland-client/scanner out of the azul lockfile). Lives under doc/
     # (the azul-doc tool's home) rather than as its own root folder.
     "doc/aztest",
-    # The Azlin cloud client and the `azcloud` CLI (own [workspace], own
-    # rust-toolchain.toml). It links azlin-client from the private
-    # azul-apps checkout next to this one, which azul's CI does not have,
-    # and the iso crates pin Rust 1.99 and exact tokio / rustls / iroh
-    # versions that would collide with this lockfile (iroh 1.2 here, 1.3
-    # there). A member - even behind a feature - would put the missing path
-    # into every `cargo metadata` of this workspace.
+    # The `azcloud` CLI and its S3-over-iroh transport over azcloud-kit
+    # (own [workspace], own rust-toolchain.toml). It links azlin-client from
+    # the private azul-apps checkout next to this one, which azul's CI does
+    # not have, and the iso crates pin Rust 1.99 and exact tokio / rustls /
+    # iroh versions that would collide with this lockfile (iroh 1.2 here,
+    # 1.3 there). A member - even behind a feature - would put the missing
+    # path into every `cargo metadata` of this workspace.
     "examples/azcloud-api",
 ]
 
