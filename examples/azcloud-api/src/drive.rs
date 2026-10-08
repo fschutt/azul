@@ -638,9 +638,12 @@ async fn iroh_endpoint(relay: Option<&str>) -> Result<iroh::Endpoint> {
         .map_err(|e| anyhow!("the iroh endpoint cannot start: {e}"))
 }
 
-/// The node's address: its id and, when known, its UDP socket.
+/// The node's address: its id, its UDP socket when known, and the relay when one is configured. A
+/// block that runs its own relay is the nodes' home relay too, and with no address lookup (anything
+/// but `default`) the dial has nothing else to go by: a node behind NAT, or a VM whose sockets are
+/// inside the guest, is only reachable there.
 #[cfg(feature = "iroh")]
-fn iroh_addr(target: &IrohTarget) -> Result<iroh::EndpointAddr> {
+fn iroh_addr(target: &IrohTarget, relay: Option<&str>) -> Result<iroh::EndpointAddr> {
     let id: iroh::EndpointId = target
         .id
         .trim()
@@ -652,6 +655,12 @@ fn iroh_addr(target: &IrohTarget) -> Result<iroh::EndpointAddr> {
             .parse()
             .map_err(|e| anyhow!("{socket} is no ip:port: {e}"))?;
         addr = addr.with_ip_addr(socket);
+    }
+    if let Some(url) = relay.filter(|r| !matches!(*r, "off" | "default")) {
+        let url: iroh::RelayUrl = url
+            .parse()
+            .map_err(|e| anyhow!("the relay {url} is no relay address: {e}"))?;
+        addr = addr.with_relay_url(url);
     }
     Ok(addr)
 }
@@ -665,7 +674,7 @@ async fn try_iroh(
     target: &IrohTarget,
     relay: Option<&str>,
 ) -> Result<Bucket, String> {
-    let addr = iroh_addr(target).map_err(|e| format!("{e:#}"))?;
+    let addr = iroh_addr(target, relay).map_err(|e| format!("{e:#}"))?;
     let ep = iroh_endpoint(relay).await.map_err(|e| format!("{e:#}"))?;
     let bucket = Bucket::new(endpoint, bucket, creds.clone()).with_transport(
         azlin_client::Transport::Iroh {

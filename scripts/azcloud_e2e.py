@@ -239,12 +239,16 @@ def dev_state_dir(args):
 
 
 def iroh_target(args):
-    """The node to dial over iroh: the flags, else the first node of the dev state that reports
-    an iroh id on /admin/status (azctl test client --iroh does the same). (None, why) when none."""
+    """The node to dial over iroh, as (node id, direct address or None, relay): the flags, else the
+    first node of the dev state that reports an iroh id on /admin/status (azctl test client --iroh
+    does the same). A process-mode node is dialled directly (relay "off"); a VM's UDP sockets are
+    inside the guest, so it is reached through the relay it homes on (AZMEET_RELAY, the local
+    stack's). (None, why) when none."""
+    relay = args.relay or os.environ.get("AZMEET_RELAY") or "off"
     if args.iroh_node:
-        return (args.iroh_node, args.iroh_addr), "flags --iroh-node/--iroh-addr"
+        return (args.iroh_node, args.iroh_addr, relay), "flags --iroh-node/--iroh-addr"
     if os.environ.get("AZLIN_IROH_NODE"):
-        return ((os.environ["AZLIN_IROH_NODE"], os.environ.get("AZLIN_IROH_ADDR")),
+        return ((os.environ["AZLIN_IROH_NODE"], os.environ.get("AZLIN_IROH_ADDR"), relay),
                 "environment AZLIN_IROH_NODE")
     state = dev_state_dir(args)
     if not state:
@@ -265,11 +269,17 @@ def iroh_target(args):
         node_id = status.get("iroh_id") if isinstance(status, dict) else None
         if not node_id:
             continue
+        if dev.get("mode") == "vms":
+            if relay == "off":
+                return None, ("the dev state's nodes are VMs, reachable over iroh only through a "
+                              "relay: set AZMEET_RELAY or --relay")
+            return (node_id, None, relay), "dev state %s (node %s, VM, via relay %s)" % (
+                dev_json, node.get("name"), relay)
         addrs = [a for a in status.get("iroh_addrs") or [] if "." in a]
         addr = None
         if addrs:
             addr = "%s:%s" % (host, addrs[0].rsplit(":", 1)[-1])
-        return (node_id, addr), "dev state %s (node %s)" % (dev_json, node.get("name"))
+        return (node_id, addr, "off"), "dev state %s (node %s)" % (dev_json, node.get("name"))
     return None, ("no node of %s reports an iroh id: build azinit with --features dev,iroh "
                   "and start it with AZLIN_AZINIT=<that binary> azctl dev up" % dev_json)
 
@@ -281,6 +291,8 @@ def main():
     parser.add_argument("--big-mib", type=int, default=50, help="the big file's size (50)")
     parser.add_argument("--iroh-node", help="the node's iroh id (else discovered)")
     parser.add_argument("--iroh-addr", help="its UDP socket ip:port")
+    parser.add_argument("--relay", help="the iroh relay to dial it through (else AZMEET_RELAY; "
+                                        "process-mode nodes are dialled directly)")
     parser.add_argument("--dev-state", help="azctl's dev state folder (else AZLIN_DEV_STATE)")
     parser.add_argument("--admin-host", default="127.0.0.1",
                         help="where the nodes' admin ports listen (127.0.0.1)")
@@ -530,8 +542,8 @@ def main():
             if args.require_iroh:
                 raise Failure("iroh: " + why)
             raise Skip("https ok; iroh skipped: " + why)
-        node, addr = target
-        iroh_flags = ["--iroh-node", node, "--relay", "off"]
+        node, addr, relay = target
+        iroh_flags = ["--iroh-node", node, "--relay", relay]
         if addr:
             iroh_flags += ["--iroh-addr", addr]
         t = a.az("transport", "--transport", "iroh", *iroh_flags)
