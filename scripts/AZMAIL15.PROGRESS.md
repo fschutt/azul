@@ -14,13 +14,22 @@ AzMail for hard-coded endpoints. Worktree branch `worktree-agent-a53601a48788117
 - e9deeec7e UI: wizard Azlin page, Send/Receive (refresh + rotated token to keyring), Archive /
   Junk / Delete / Move, marks pushed, big message fetched on open, drafts uploaded
 
-## IN PROGRESS
-- scripts: mock stack, seed, conformance, e2e --phase azlin
+- 070a36791 scripts: azlin_mock_stack.py, azlin_client.py, azlin_token_conformance.py (--mock
+  passes 14/14 here)
+- c8a0ade5b scripts/azmail_seed_azlin.py (checked against the mock)
+- b24dfcde6 scripts/azmail_e2e.py --phase azlin (stack + seed steps dry-run here; AzMail itself
+  not run: no compiling)
+- a26a8a190 audit fix: --dns-servers / AZMAIL_DNS_SERVERS for the DKIM / DMARC / SPF check
+- 1a8588274 pushed / uploaded mail keeps \Seen in the drive (markers)
 
-## NEXT
-5. scripts: azlin_mock_stack.py (Python token server + AzDrive's stdlib S3),
-   azmail_seed_azlin.py, azlin_token_conformance.py, azmail_e2e.py --phase azlin
-6. hard-coding audit of AzMail
+## IN PROGRESS
+- final report
+
+## NEXT (for the lead)
+- compile + `cargo test -p AzMail` (azlin, azlin_sync, account, args, dkim tests are new)
+- `python3 scripts/azmail_e2e.py --phase azlin` (mock), then `--azlin-stack local` with
+  `azctl dev up --processes`; `python3 scripts/azlin_token_conformance.py --token-url
+  http://127.0.0.1:8081`
 
 ## Open questions
 - AZCLOUD15 owns the `endpoints` section of azul-appkit's azlin_config.rs; AzMail reads it

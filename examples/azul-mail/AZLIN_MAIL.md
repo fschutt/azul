@@ -183,12 +183,22 @@ arrival is a later layer between the Worker and the bucket.
 
 - `scripts/azlin_mock_stack.py`: a Python token server (the `/v1/drives` routes AzMail uses,
   rotation and reuse detection included) in front of AzDrive's stdlib S3 test server
-  (`examples/azul-drive/scripts/s3_server.py`), on free ports or 8081 / 9000.
-- `scripts/azlin_token_conformance.py --token-url <URL>`: the same HTTP checks against the mock
-  and against the real token server (`azctl dev up --processes`), so the two cannot drift.
-- `scripts/azmail_seed_azlin.py`: signs up a test drive and puts realistic mail into it (plain
-  text, HTML with an inline picture, an attachment, a calendar invitation into `mail/Inbox/`,
-  one into `mail/Spam/`).
-- `scripts/azmail_e2e.py --phase azlin`: AzMail headless against the stack - add the Azlin
-  account, see Inbox and Spam, open a message, archive one (and find it moved in the bucket),
-  save a draft (and find it in `mail/Drafts/`).
+  (`examples/azul-drive/scripts/s3_server.py`), on free ports or `--token-port 8081 --s3-port
+  9000`.
+- `scripts/azlin_token_conformance.py --mock` / `--token-url <URL>`: the same HTTP checks
+  against the mock and against the real token server (`azctl dev up --processes`), so the two
+  cannot drift.
+- `scripts/azmail_seed_azlin.py [--token-url URL] [--s3-url URL] [--big-mb N] [--out FILE]`:
+  signs up a test drive and puts realistic, made-up mail into it (plain text, HTML with an
+  inline picture, an attachment, a calendar invitation into `mail/Inbox/`, one into
+  `mail/Spam/`, with `--big-mb` one with a big attachment).
+- `scripts/azmail_e2e.py --phase azlin [--azlin-stack mock|local]`: AzMail headless against the
+  mock (default) or the running stack - add the Azlin account, see Inbox and Junk E-mail, open
+  a message (its read marker appears), open the big one (downloaded then), archive one (and find
+  it moved in the bucket), save a draft (and find it in `mail/Drafts/`), no drive token in any
+  file or output, the seeded token dead after the sign-in.
+- `scripts/azlin_client.py`: the scripts' one client of the token server and of a drive's
+  bucket.
+- The Rust side's tests: `azlin.rs` (names, markers, the session, the token server client over
+  a fake transport, the endpoints) and `azlin_sync.rs` (Send/Receive and every action, with a
+  folder on disk as the drive).
