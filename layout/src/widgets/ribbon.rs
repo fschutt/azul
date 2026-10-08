@@ -3622,6 +3622,9 @@ impl Ribbon {
             .unwrap_or_default();
 
         let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
+        // The first tab stands right after the application button when there
+        // is one: a stone of its own, over the strip's rule.
+        let after_the_app_button = app_button.is_some();
 
         if let Some(ab) = app_button.into_option() {
             let mut d = Dom::create_div()
@@ -3690,10 +3693,17 @@ impl Ribbon {
                     tab.label.clone(),
                 )]));
             // The selected tab's curves go after its label: the label stays
-            // the tab's first child in every look.
+            // the tab's first child in every look. Right after the
+            // application button it hangs no run-out on that side: the
+            // button's stone covers the rule there.
             if idx == active_tab {
                 if let Some(look) = curves.selected_tab.as_ref() {
-                    for curve in crate::widgets::tabs::australis_curves(look) {
+                    let parts = if idx == 0 && after_the_app_button {
+                        crate::widgets::tabs::australis_curves(&look.after_a_stone())
+                    } else {
+                        crate::widgets::tabs::australis_curves(look)
+                    };
+                    for curve in parts {
                         d.add_child(curve);
                     }
                 }

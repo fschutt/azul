@@ -131,9 +131,24 @@ pub(crate) struct TabCurveLook {
     /// px; `0` hangs none.
     pub(crate) runout: f32,
     /// The left run-out's paint: a `runout` x `gauge` band lying on the rule.
+    /// Empty hangs none on that side - where a neighbouring stone stands
+    /// over the rule, there is no rule to ease.
     pub(crate) runout_left: CssPropertyWithConditionsVec,
-    /// The right run-out's paint.
+    /// The right run-out's paint; empty hangs none.
     pub(crate) runout_right: CssPropertyWithConditionsVec,
+}
+
+impl TabCurveLook {
+    /// This look without the run-out beside its left foot: the tab stands
+    /// right after another stone (the ribbon's application button), which
+    /// covers the rule there.
+    #[must_use]
+    pub(crate) fn after_a_stone(&self) -> Self {
+        Self {
+            runout_left: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            ..self.clone()
+        }
+    }
 }
 
 /// `u` (0 at the foot's end, 1 at the tab's side) across a curve `w` wide,
@@ -350,8 +365,11 @@ fn runout(look: &TabCurveLook, left: bool) -> Dom {
 pub(crate) fn australis_curves(look: &TabCurveLook) -> Vec<Dom> {
     let mut parts = vec![curve(look, true), curve(look, false)];
     if look.runout > 0.0 {
-        parts.push(runout(look, true));
-        parts.push(runout(look, false));
+        for (left, paint) in [(true, &look.runout_left), (false, &look.runout_right)] {
+            if !paint.as_ref().is_empty() {
+                parts.push(runout(look, left));
+            }
+        }
     }
     parts
 }
@@ -363,6 +381,13 @@ mod australis_tests {
     use super::*;
 
     fn look() -> TabCurveLook {
+        let paint = || {
+            CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::simple(
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(vec![
+                    StyleBackgroundContent::Color(ColorU::rgb(0xC6, 0xB2, 0x79)),
+                ])),
+            )])
+        };
         TabCurveLook {
             height: 28.0,
             gauge: 2.0,
@@ -370,8 +395,8 @@ mod australis_tests {
             right_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
             metal: CssPropertyWithConditionsVec::from_const_slice(&[]),
             runout: 34.0,
-            runout_left: CssPropertyWithConditionsVec::from_const_slice(&[]),
-            runout_right: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            runout_left: paint(),
+            runout_right: paint(),
         }
     }
 
@@ -420,6 +445,16 @@ mod australis_tests {
             ..look()
         };
         assert_eq!(australis_curves(&without).len(), 2, "no run-outs");
+        // After another stone, which stands over the rule on that side, only
+        // the right run-out is hung.
+        let after = australis_curves(&look().after_a_stone());
+        assert_eq!(after.len(), 3, "two curves, the right run-out");
+        assert!(after[2]
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == RUNOUT_RIGHT_CLASS)));
     }
 
     /// The S leaves the strip's rule and reaches the tab's top edge LEVEL -
