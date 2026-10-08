@@ -53,6 +53,8 @@ pub mod transport;
 pub(crate) mod xml;
 
 #[cfg(feature = "azul")]
+pub mod azul_keyring;
+#[cfg(feature = "azul")]
 pub mod azul_transport;
 
 /// The one tokio runtime the async back-ends (OpenDAL, the database drivers) run on.
