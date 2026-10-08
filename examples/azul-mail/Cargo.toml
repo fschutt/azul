@@ -26,8 +26,10 @@ azul-pim = { path = "../azul-pim" }
 # The Azlin apps' skeleton: switches, the data root, settings.json, the settings page, the
 # shortcut table, file jobs on a Thread.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
-# The drive every durable write goes through (LocalDrive today, S3 later) and the id seed.
-azul-storage = { path = "../azul-storage" }
+# The drive every durable write goes through (LocalDrive today, S3 later) and the id seed; its
+# `azul` feature is AzulTransport, azul's HTTP client under an Azlin account's S3 drive and its
+# token server calls (azlin.rs).
+azul-storage = { path = "../azul-storage", features = ["azul"] }
 # The same features azul-layout builds chrono with: UTC dates for the files, local dates for the list.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # A sync IMAP client over any Read + Write stream (it runs on an azul Thread). No TLS feature: the

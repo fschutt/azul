@@ -11,7 +11,13 @@
 //! to the keyring and Send / Receive starts (`account_saved`).
 //!
 //! Field ids for scripts (`ids.rs`): `#__azmail_acct_name`, `_email`, `_secret`, `_imap_host`,
-//! `_imap_port`, `_username`, `_folder`, `#__azmail_send_host`, `#__azmail_send_port`.
+//! `_imap_port`, `_username`, `_folder`, `#__azmail_send_host`, `#__azmail_send_port`; an Azlin
+//! account's `#__azmail_acct_kind` (the kind), `_token_url`, `_drive_id`, `_drive_token` and
+//! `#__azmail_azlin_create_drive`.
+//!
+//! An Azlin account (the wizard's first page: "Azlin drive") has a token server, a drive id and
+//! a drive token instead of the IMAP server and the password; "Create a new drive" makes one at
+//! a development token server. Its sending is the same as an IMAP account's: from this computer.
 
 use azul::{
     callbacks::{
@@ -30,7 +36,7 @@ use azul::{
 
 use crate::{
     account::{self, Account, AccountForm, Secret},
-    dkim,
+    azlin, dkim,
     send::SendSettings,
     sending::SendingForm,
     ids, ui_backstage, with_app, IoJob, MailApp,
@@ -40,6 +46,16 @@ use crate::{
 pub(crate) const WIZARD_STEPS: [&str; 4] = ["Your account", "Incoming mail", "Sending", "Finish"];
 /// Account Settings' categories (the same fields).
 pub(crate) const SETTINGS_CATEGORIES: [&str; 3] = ["Account", "Incoming mail", "Sending"];
+/// The account kinds of the wizard's first page.
+pub(crate) const KINDS: [&str; 2] = ["IMAP server", "Azlin drive"];
+/// What an Azlin account is, on the wizard's pages.
+const AZLIN_NOTE: &str = "AzMail keeps your mail as files in your Azlin drive (one file per \
+                          message, under mail/) and a copy on this computer. The drive token \
+                          stays in the system keyring.";
+/// How an Azlin account's mail leaves (Azlin itself never sends mail).
+const AZLIN_SENDING_NOTE: &str = "Your Azlin drive stores your mail; it does not send it. AzMail \
+                                  sends from this computer as chosen here, and the next \
+                                  Send/Receive puts the copy from Sent Items into the drive.";
 
 const NOTE: &str = "font-size: 12px; margin-top: 4px; opacity: 0.75;";
 const LABEL: &str = "font-size: 12px; margin-top: 12px; margin-bottom: 4px;";
@@ -72,6 +88,11 @@ pub(crate) struct AccountEditor {
     pub(crate) dkim_busy: bool,
     /// What the last "Check DNS" found, one line per record.
     pub(crate) dkim_report: Vec<String>,
+    /// The session of a drive made with "Create a new drive" (its first credentials and drive
+    /// token): the account's secret once it is saved.
+    pub(crate) azlin_session: Option<Secret>,
+    /// "Create a new drive" is asking the token server (on a thread).
+    pub(crate) azlin_busy: bool,
 }
 
 impl AccountEditor {
@@ -91,6 +112,24 @@ impl AccountEditor {
             dkim_new_key: None,
             dkim_busy: false,
             dkim_report: Vec::new(),
+            azlin_session: None,
+            azlin_busy: false,
+        }
+    }
+
+    /// The secret the account is saved with: the typed one (an IMAP account's password or
+    /// token; an Azlin account's drive token, as a session the first Send/Receive refreshes), a
+    /// new drive's session; `None` when nothing was typed (editing: the saved one stays).
+    fn secret_to_save(&self, account: &Account) -> Option<Secret> {
+        let typed = Some(self.secret.clone()).filter(|secret| !secret.is_empty());
+        let Some(link) = &account.azlin else {
+            return typed;
+        };
+        match typed {
+            Some(token) => Some(Secret::new(
+                azlin::AzlinSession::with_token(&link.drive_id, token.expose()).to_secret(),
+            )),
+            None => self.azlin_session.clone(),
         }
     }
 
@@ -163,8 +202,10 @@ pub(crate) fn dkim_checked(s: &mut MailApp, report: &dkim::DnsReport) {
 /// File > Info > Add Account: the wizard, on an empty form (or `prefill`). Its Cancel returns to
 /// File > Info when it was opened in the backstage, else to the mail window.
 pub(crate) fn open_wizard(s: &mut MailApp, prefill: Option<AccountForm>) {
-    let mut editor =
-        AccountEditor::create(prefill.unwrap_or_default(), false, SendSettings::default());
+    let mut form = prefill.unwrap_or_default();
+    // An Azlin account's empty token server field stands for the one this run was told.
+    form.token_default = s.endpoints.token_url.clone().unwrap_or_default();
+    let mut editor = AccountEditor::create(form, false, SendSettings::default());
     editor.return_to = s.backstage.map(|_| ui_backstage::PAGE_INFO);
     s.editor = Some(editor);
     s.backstage = Some(ui_backstage::PAGE_ADD_ACCOUNT);
@@ -189,7 +230,9 @@ pub(crate) fn open_settings_with_error(s: &mut MailApp, account_id: &str, error:
         return;
     };
     let settings = SendSettings::load(&s.root, &account.id);
-    let mut editor = AccountEditor::create(AccountForm::from_account(&account), true, settings);
+    let mut form = AccountForm::from_account(&account);
+    form.token_default = s.endpoints.token_url.clone().unwrap_or_default();
+    let mut editor = AccountEditor::create(form, true, settings);
     editor.error = error;
     editor.return_to = s.backstage.map(|_| ui_backstage::PAGE_INFO);
     s.editor = Some(editor);
@@ -208,8 +251,7 @@ pub(crate) fn account_saved(
     let typed = s
         .editor
         .as_ref()
-        .map(|e| e.secret.clone())
-        .filter(|secret| !secret.is_empty());
+        .and_then(|e| e.secret_to_save(&account));
     // A DKIM key made in the editor: into the keyring and memory, now that sending.json names
     // its public half.
     let new_dkim_key = s
@@ -231,7 +273,7 @@ pub(crate) fn account_saved(
         }
     };
     if let Some(secret) = typed {
-        crate::remember_secret(s, info, &account.id, secret);
+        crate::remember_secret(s, info, &account, secret);
     }
     s.editor = None;
     s.backstage = None;
@@ -249,6 +291,26 @@ pub(crate) fn account_saved(
 /// What is wrong with the editor's step `step` (the wizard's steps; Save checks them all).
 fn check_step(s: &MailApp, editor: &AccountEditor, step: usize) -> Result<(), String> {
     match step {
+        0 if editor.form.azlin => {
+            if !account::is_email(&editor.form.email) {
+                return Err(String::from("Enter your e-mail address."));
+            }
+            Ok(())
+        }
+        1 if editor.form.azlin => {
+            editor.form.to_account().map_err(|e| e.to_string())?;
+            let id = account::account_id(&editor.form.email).unwrap_or_default();
+            let have_token = !editor.secret.is_empty()
+                || editor.azlin_session.is_some()
+                || editor.editing
+                || s.secrets.contains_key(&id);
+            if !have_token {
+                return Err(String::from(
+                    "Enter the drive token, or create a new drive.",
+                ));
+            }
+            Ok(())
+        }
         0 => {
             if !account::is_email(&editor.form.email) {
                 return Err(String::from("Enter your e-mail address."));
@@ -404,6 +466,8 @@ enum Field {
     SendPort,
     DkimDomain,
     DkimSelector,
+    TokenUrl,
+    DriveId,
 }
 
 /// A form check box.
@@ -487,7 +551,7 @@ fn pair(left: Dom, right: Dom) -> Dom {
         .with_child(Dom::create_div().with_css("width: 90px; margin-left: 8px;").with_child(right))
 }
 
-/// Step 1: who you are.
+/// Step 1: who you are - and, in the wizard, the kind of account.
 fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     let f = &editor.form;
     let secret_label = if f.xoauth2 {
@@ -500,15 +564,26 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     } else {
         ""
     };
-    let mut page = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(
-            Dom::create_span_with_text(
-                "AzMail signs in over IMAP and keeps a copy of every folder on this computer. \
-                 The password stays in the system keyring.",
-            )
-            .with_css(NOTE),
-        )
+    let mut page = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    if !editor.editing {
+        // The kind first: an IMAP server's mail, or the user's own Azlin drive.
+        page.add_child(label("Account type:"));
+        page.add_child(
+            Segmented::create(strings(&KINDS))
+                .with_selected_index(usize::from(f.azlin))
+                .with_on_change(app.clone(), on_kind as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id(ids::ACCT_KIND),
+        );
+    }
+    let intro = if f.azlin {
+        AZLIN_NOTE
+    } else {
+        "AzMail signs in over IMAP and keeps a copy of every folder on this computer. The \
+         password stays in the system keyring."
+    };
+    let page = page
+        .with_child(Dom::create_span_with_text(intro).with_css(NOTE))
         .with_child(label("Your Name:"))
         .with_child(input(
             app,
@@ -526,7 +601,12 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
             &f.email,
             "Example: ada@example.org",
             ids::ACCT_EMAIL,
-        ))
+        ));
+    if f.azlin {
+        // The drive and its token are the next page's.
+        return page;
+    }
+    let mut page = page
         .with_child(label(secret_label))
         .with_child(input(
             app,
@@ -548,8 +628,100 @@ fn account_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     ))
 }
 
-/// Step 2: the incoming server.
+/// Step 2 of an Azlin account: the token server, the drive and its token - or a new drive.
+fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
+    let f = &editor.form;
+    let default_folder = account::account_id(&f.email)
+        .map(|id| account::account_dir(&s.root, &id).path().display().to_string())
+        .unwrap_or_default();
+    let token_placeholder: &str = if f.token_default.is_empty() {
+        "https://... (your Azlin provider's token server)"
+    } else {
+        &f.token_default
+    };
+    let secret_placeholder = if editor.editing || editor.azlin_session.is_some() {
+        "Leave empty to keep the one AzMail has"
+    } else {
+        "dt_..."
+    };
+    let mut page = Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(label("Azlin token server:"))
+        .with_child(input(
+            app,
+            TextInput::create(),
+            Field::TokenUrl,
+            &f.token_url,
+            token_placeholder,
+            ids::ACCT_TOKEN_URL,
+        ))
+        .with_child(label("Drive id:"))
+        .with_child(input(
+            app,
+            TextInput::create(),
+            Field::DriveId,
+            &f.drive_id,
+            "d_...",
+            ids::ACCT_DRIVE_ID,
+        ))
+        .with_child(label("Drive token:"))
+        .with_child(input(
+            app,
+            TextInput::create_password(),
+            Field::Secret,
+            editor.secret.expose(),
+            secret_placeholder,
+            ids::ACCT_DRIVE_TOKEN,
+        ))
+        .with_child(
+            Dom::create_span_with_text(
+                "A drive token for this computer, from your Azlin provider or AzDrive's devices. \
+                 Every sign-in replaces it with a new one: give AzMail a token of its own, not \
+                 one AzDrive uses.",
+            )
+            .with_css(NOTE),
+        );
+    if !editor.editing {
+        page.add_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; margin-top: 12px;")
+                .with_child(
+                    Button::create("Create a new drive")
+                        .with_on_click(app.clone(), on_create_drive as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::AZLIN_CREATE_DRIVE),
+                ),
+        );
+        let note = if editor.azlin_busy {
+            String::from("Asking the token server for a new drive...")
+        } else if editor.azlin_session.is_some() {
+            format!(
+                "The new drive {} is ready: Finish adds it as this account.",
+                f.drive_id.trim()
+            )
+        } else {
+            String::from(
+                "A new, empty drive at this token server (a development token server's: a real \
+                 one comes from your Azlin provider).",
+            )
+        };
+        page.add_child(Dom::create_span_with_text(note).with_css(NOTE));
+    }
+    page.with_child(label("Local mail folder:")).with_child(input(
+        app,
+        TextInput::create(),
+        Field::Folder,
+        &f.folder,
+        &default_folder,
+        ids::ACCT_FOLDER,
+    ))
+}
+
+/// Step 2: the incoming server (an Azlin account's drive: [`azlin_fields`]).
 fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
+    if editor.form.azlin {
+        return azlin_fields(s, editor, app);
+    }
     let f = &editor.form;
     let d = &editor.drawn;
     let default_folder = account::account_id(&f.email)
@@ -591,8 +763,11 @@ fn server_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
 /// Step 3: how mail leaves.
 fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
     let sending = &editor.sending;
-    let mut page = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
+    let mut page = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    if editor.form.azlin {
+        page.add_child(Dom::create_span_with_text(AZLIN_SENDING_NOTE).with_css(NOTE));
+    }
+    let mut page = page
         .with_child(label("Send mail:"))
         .with_child(
             Segmented::create(strings(&crate::sending::ROUTE_CHOICES))
@@ -844,7 +1019,14 @@ extern "C" fn on_dkim_check(mut data: RefAny, mut info: CallbackInfo) -> Update 
 fn finish_summary(editor: &AccountEditor) -> Dom {
     let f = &editor.form;
     let d = &editor.drawn;
-    let server = if f.imap_host.trim().is_empty() {
+    let server = if f.azlin {
+        let token = if f.token_url.trim().is_empty() {
+            f.token_default.trim()
+        } else {
+            f.token_url.trim()
+        };
+        format!("the Azlin drive {} at {token}", f.drive_id.trim())
+    } else if f.imap_host.trim().is_empty() {
         d.imap_host.clone()
     } else {
         f.imap_host.trim().to_string()
@@ -888,6 +1070,8 @@ extern "C" fn on_field(mut data: RefAny, _info: CallbackInfo, state: TextInputSt
                     Field::SendPort => editor.sending.port = text,
                     Field::DkimDomain => editor.sending.dkim_domain = text,
                     Field::DkimSelector => editor.sending.dkim_selector = text,
+                    Field::TokenUrl => f.token_url = text,
+                    Field::DriveId => f.drive_id = text,
                 }
             }
         }
@@ -948,6 +1132,76 @@ extern "C" fn on_flag(mut data: RefAny, _info: CallbackInfo, state: CheckBoxStat
 
 extern "C" fn on_flag_label(mut data: RefAny, _info: CallbackInfo) -> Update {
     set_flag(&mut data, None)
+}
+
+/// The wizard's account type: an IMAP server (0) or an Azlin drive (1).
+extern "C" fn on_kind(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    with_app(&mut data, |s, _| {
+        if let Some(editor) = s.editor.as_mut() {
+            editor.form.azlin = state.selected_index == 1;
+            editor.error.clear();
+        }
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// "Create a new drive": a drive at the token server, on a thread ([`drive_created`] takes
+/// it). The token server is the typed one, else the one this run was told.
+extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, |s, app| {
+        let Some(editor) = s.editor.as_mut() else {
+            return Update::DoNothing;
+        };
+        if editor.azlin_busy {
+            return Update::DoNothing;
+        }
+        let typed = editor.form.token_url.trim();
+        let url = if typed.is_empty() {
+            editor.form.token_default.trim().to_string()
+        } else {
+            typed.to_string()
+        };
+        if url.is_empty() {
+            editor.error = account::FormError::NoTokenServer.to_string();
+            return Update::RefreshDom;
+        }
+        if let Err(e) = azlin::check_token_url(&url) {
+            editor.error = e.to_string();
+            return Update::RefreshDom;
+        }
+        editor.azlin_busy = true;
+        editor.error.clear();
+        crate::spawn_io(
+            &mut info,
+            app,
+            IoJob::CreateDrive {
+                token_url: url,
+                name: String::from("AzMail"),
+            },
+        );
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// "Create a new drive" is answered: the drive's id goes into its field, and its session (the
+/// first credentials, the drive token) is the account's secret once Finish saves it.
+pub(crate) fn drive_created(s: &mut MailApp, result: Result<azlin::AzlinSession, String>) {
+    let Some(editor) = s.editor.as_mut() else {
+        return;
+    };
+    editor.azlin_busy = false;
+    match result {
+        Ok(session) => {
+            println!("AZMAIL_AZLIN_DRIVE_CREATED {}", session.drive_id);
+            editor.form.drive_id = session.drive_id.clone();
+            editor.secret = Secret::new(String::new());
+            editor.azlin_session = Some(Secret::new(session.to_secret()));
+            editor.error.clear();
+        }
+        Err(e) => editor.error = format!("No drive was made: {e}"),
+    }
 }
 
 extern "C" fn on_route(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {

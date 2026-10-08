@@ -857,6 +857,7 @@ pub fn outbox_index(entries: &[OutboxEntry]) -> Vec<IndexEntry> {
             flags: vec![String::from("\\Seen")],
             size: 0,
             path: format!("{OUTBOX_DIR}/{}.eml", entry.id),
+            remote: String::new(),
         })
         .collect()
 }
@@ -2853,6 +2854,7 @@ mod tests {
                 security: account::Security::Tls,
                 auth,
                 folder: None,
+                azlin: None,
             },
         )
         .unwrap();

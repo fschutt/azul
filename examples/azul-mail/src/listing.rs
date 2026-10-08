@@ -378,6 +378,7 @@ mod tests {
             flags: flags.iter().map(|f| f.to_string()).collect(),
             size: 100,
             path: format!("mail/inbox/2026/09/{uid}.eml"),
+            remote: String::new(),
         }
     }
 

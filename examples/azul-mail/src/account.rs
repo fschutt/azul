@@ -22,6 +22,24 @@
 //! ```
 //!
 //! plus `"folder": "<path>"` when the mail is synced somewhere else than the account's folder.
+//!
+//! An Azlin account - the mailbox is files in the user's Azlin drive (`AZLIN_MAIL.md`) - is
+//! version 2 with its kind and drive instead of the IMAP server (an older AzMail refuses it
+//! rather than syncing it as an IMAP account without a server):
+//!
+//! ```json
+//! {
+//!   "format": "azmail.account",
+//!   "version": 2,
+//!   "kind": "azlin",
+//!   "email": "ada@example.org",
+//!   "smtp": { "host": "smtp.example.org", "port": 465 },
+//!   "azlin": { "token_url": "https://token.example", "drive_id": "d_..." }
+//! }
+//! ```
+//!
+//! Its secret is the drive token with the current S3 credentials (`azlin::AzlinSession`), in the
+//! keyring under [`azlin_keyring_key`].
 
 use std::path::{Path, PathBuf};
 
@@ -31,8 +49,12 @@ use crate::store::{DriveFolder, MailStore};
 
 /// The `format` of an account file.
 pub const FORMAT: &str = "azmail.account";
-/// The version this AzMail writes, and the newest it reads.
-pub const VERSION: u64 = 1;
+/// The newest version this AzMail reads: an Azlin account's.
+pub const VERSION: u64 = 2;
+/// The version an IMAP account's file is written as (every AzMail reads it).
+pub const IMAP_VERSION: u64 = 1;
+/// The `kind` of an Azlin account's file (an IMAP account's file names none).
+pub const KIND_AZLIN: &str = "azlin";
 /// The account file in an account's folder.
 pub const ACCOUNT_FILE: &str = "account.json";
 /// The folder in the user's data folder when `AZMAIL_DATA` is not set.
@@ -98,6 +120,20 @@ pub struct Account {
     pub auth: AuthKind,
     /// Where the mail is synced to; `None` is the account's own folder.
     pub folder: Option<PathBuf>,
+    /// An Azlin account's drive (then `imap`, `username`, `security` and `auth` mean nothing);
+    /// `None` for an IMAP account.
+    pub azlin: Option<AzlinLink>,
+}
+
+/// Where an Azlin account's mailbox is: the token server that hands out the drive's
+/// credentials, and the drive.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AzlinLink {
+    /// The token server the account was created with (`https://token.example`; empty: the one
+    /// this run was told, `azlin::Endpoints`).
+    #[serde(default)]
+    pub token_url: String,
+    pub drive_id: String,
 }
 
 /// A mail provider AzMail knows the servers of.
@@ -267,6 +303,21 @@ pub fn keyring_key(id: &str) -> String {
     format!("{APP_DIR}/{id}/imap")
 }
 
+/// The name an Azlin account's secret (the drive token and the S3 credentials) is stored under.
+pub fn azlin_keyring_key(id: &str) -> String {
+    format!("{APP_DIR}/{id}/azlin")
+}
+
+/// The keyring name of `account`'s secret: an IMAP account's password or token, an Azlin
+/// account's session.
+pub fn secret_keyring_key(account: &Account) -> String {
+    if account.is_azlin() {
+        azlin_keyring_key(&account.id)
+    } else {
+        keyring_key(&account.id)
+    }
+}
+
 /// Whether `host` is this computer: `localhost`, `127.x.x.x` or `::1`.
 pub fn is_loopback_host(host: &str) -> bool {
     let host = host.trim();
@@ -351,6 +402,8 @@ pub enum AccountError {
     Malformed(String),
     /// The address in the file is not one.
     BadEmail(String),
+    /// An account of a kind this AzMail does not know (a newer AzMail's).
+    UnknownKind(String),
 }
 
 impl std::fmt::Display for AccountError {
@@ -366,43 +419,80 @@ impl std::fmt::Display for AccountError {
             ),
             AccountError::Malformed(e) => write!(f, "malformed ({e})"),
             AccountError::BadEmail(e) => write!(f, "the address {e:?} is not an address"),
+            AccountError::UnknownKind(kind) => {
+                write!(
+                    f,
+                    "an account of a kind this AzMail does not know ({kind:?})"
+                )
+            }
         }
     }
 }
 
-/// The account file on disk.
+/// The account file on disk. The IMAP fields are an IMAP account's only.
 #[derive(Serialize, Deserialize)]
 struct AccountFile {
     format: String,
     version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
     email: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     name: String,
-    username: String,
-    imap: Server,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    imap: Option<Server>,
     smtp: Server,
-    security: Security,
-    auth: AuthKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    security: Option<Security>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auth: Option<AuthKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    azlin: Option<AzlinLink>,
 }
 
-/// The account file's contents (pretty JSON, ending in a newline).
+/// The account file's contents (pretty JSON, ending in a newline): an IMAP account's exactly as
+/// every AzMail wrote it (version 1), an Azlin account's as version 2.
 pub fn to_json(account: &Account) -> String {
-    let file = AccountFile {
-        format: FORMAT.to_string(),
-        version: VERSION,
-        email: account.email.clone(),
-        name: account.name.trim().to_string(),
-        username: account.username.clone(),
-        imap: account.imap.clone(),
-        smtp: account.smtp.clone(),
-        security: account.security,
-        auth: account.auth,
-        folder: account
-            .folder
-            .as_ref()
-            .map(|f| f.to_string_lossy().into_owned()),
+    let folder = account
+        .folder
+        .as_ref()
+        .map(|f| f.to_string_lossy().into_owned());
+    let file = match &account.azlin {
+        None => AccountFile {
+            format: FORMAT.to_string(),
+            version: IMAP_VERSION,
+            kind: None,
+            email: account.email.clone(),
+            name: account.name.trim().to_string(),
+            username: Some(account.username.clone()),
+            imap: Some(account.imap.clone()),
+            smtp: account.smtp.clone(),
+            security: Some(account.security),
+            auth: Some(account.auth),
+            folder,
+            azlin: None,
+        },
+        Some(link) => AccountFile {
+            format: FORMAT.to_string(),
+            version: VERSION,
+            kind: Some(KIND_AZLIN.to_string()),
+            email: account.email.clone(),
+            name: account.name.trim().to_string(),
+            username: None,
+            imap: None,
+            smtp: account.smtp.clone(),
+            security: None,
+            auth: None,
+            folder,
+            azlin: Some(AzlinLink {
+                token_url: link.token_url.trim().to_string(),
+                drive_id: link.drive_id.trim().to_string(),
+            }),
+        },
     };
     // Strings and numbers only: serializing cannot fail.
     let mut text = serde_json::to_string_pretty(&file).unwrap_or_default();
@@ -425,20 +515,50 @@ pub fn from_json(text: &str) -> Result<Account, AccountError> {
     let file: AccountFile =
         serde_json::from_value(value).map_err(|e| AccountError::Malformed(e.to_string()))?;
     let id = account_id(&file.email).ok_or_else(|| AccountError::BadEmail(file.email.clone()))?;
-    Ok(Account {
-        id,
-        email: file.email,
-        name: file.name.trim().to_string(),
-        username: file.username,
-        imap: file.imap,
-        smtp: file.smtp,
-        security: file.security,
-        auth: file.auth,
-        folder: file
-            .folder
-            .filter(|f| !f.trim().is_empty())
-            .map(PathBuf::from),
-    })
+    let folder = file
+        .folder
+        .filter(|f| !f.trim().is_empty())
+        .map(PathBuf::from);
+    let missing = |what: &str| AccountError::Malformed(format!("no {what}"));
+    match file.kind.as_deref().map(str::trim) {
+        None | Some("imap") => Ok(Account {
+            id,
+            username: file.username.ok_or_else(|| missing("username"))?,
+            imap: file.imap.ok_or_else(|| missing("IMAP server"))?,
+            security: file.security.ok_or_else(|| missing("security"))?,
+            auth: file.auth.ok_or_else(|| missing("auth"))?,
+            email: file.email,
+            name: file.name.trim().to_string(),
+            smtp: file.smtp,
+            folder,
+            azlin: None,
+        }),
+        Some(KIND_AZLIN) => {
+            let link = file
+                .azlin
+                .filter(|link| !link.drive_id.trim().is_empty())
+                .ok_or_else(|| missing("Azlin drive"))?;
+            Ok(Account {
+                id,
+                username: file.email.clone(),
+                imap: Server {
+                    host: String::new(),
+                    port: 0,
+                },
+                security: Security::Tls,
+                auth: AuthKind::Password,
+                email: file.email,
+                name: file.name.trim().to_string(),
+                smtp: file.smtp,
+                folder,
+                azlin: Some(AzlinLink {
+                    token_url: link.token_url.trim().to_string(),
+                    drive_id: link.drive_id.trim().to_string(),
+                }),
+            })
+        }
+        Some(other) => Err(AccountError::UnknownKind(other.to_string())),
+    }
 }
 
 /// Writes the account file through the AzMail folder's drive (whole or not at all) and returns
@@ -494,9 +614,23 @@ pub struct AccountForm {
     pub plain: bool,
     /// "Sign in with an OAuth access token (XOAUTH2)".
     pub xoauth2: bool,
+    /// The account kind: an Azlin drive (`true`) or an IMAP server.
+    pub azlin: bool,
+    /// An Azlin account's token server as typed; empty: [`AccountForm::token_default`].
+    pub token_url: String,
+    /// The token server this run was told about (the shared Azlin config, `$AZLIN_TOKEN_URL`,
+    /// `--azlin-token-url`): what the empty field stands for. Not typed.
+    pub token_default: String,
+    /// An Azlin account's drive id.
+    pub drive_id: String,
 }
 
 impl Account {
+    /// The mailbox is files in an Azlin drive (`AZLIN_MAIL.md`), not on an IMAP server.
+    pub fn is_azlin(&self) -> bool {
+        self.azlin.is_some()
+    }
+
     /// The From line: `Name <address>` (the name quoted when it holds a special character), or
     /// the address alone without a name.
     pub fn sender(&self) -> String {
@@ -537,6 +671,12 @@ pub enum FormError {
     },
     /// An unencrypted connection to anything but this computer.
     PlainNotLocal(String),
+    /// An Azlin account without a token server (none typed, none configured).
+    NoTokenServer,
+    /// A token server that cannot be one (the sentence says why).
+    BadTokenServer(String),
+    /// An Azlin account without a drive id.
+    NoDrive,
 }
 
 impl std::fmt::Display for FormError {
@@ -552,6 +692,13 @@ impl std::fmt::Display for FormError {
                 "An unencrypted connection is only allowed to a test server on this computer, \
                  not to {host}: your password would cross the network in the clear."
             ),
+            FormError::NoTokenServer => write!(
+                f,
+                "Enter the Azlin token server (https://...), or name it in the endpoints of \
+                 ~/.azlin/config.json, in AZLIN_TOKEN_URL or with --azlin-token-url."
+            ),
+            FormError::BadTokenServer(why) => write!(f, "{why}"),
+            FormError::NoDrive => write!(f, "Enter the drive id (d_...), or create a new drive."),
         }
     }
 }
@@ -559,6 +706,24 @@ impl std::fmt::Display for FormError {
 impl AccountForm {
     /// The form for an existing account.
     pub fn from_account(account: &Account) -> AccountForm {
+        let folder = account
+            .folder
+            .as_ref()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if let Some(link) = &account.azlin {
+            return AccountForm {
+                email: account.email.clone(),
+                name: account.name.clone(),
+                smtp_host: account.smtp.host.clone(),
+                smtp_port: account.smtp.port.to_string(),
+                folder,
+                azlin: true,
+                token_url: link.token_url.clone(),
+                drive_id: link.drive_id.clone(),
+                ..AccountForm::default()
+            };
+        }
         AccountForm {
             email: account.email.clone(),
             name: account.name.clone(),
@@ -567,13 +732,10 @@ impl AccountForm {
             imap_port: account.imap.port.to_string(),
             smtp_host: account.smtp.host.clone(),
             smtp_port: account.smtp.port.to_string(),
-            folder: account
-                .folder
-                .as_ref()
-                .map(|f| f.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+            folder,
             plain: account.security == Security::Plain,
             xoauth2: account.auth == AuthKind::Xoauth2,
+            ..AccountForm::default()
         }
     }
 
@@ -617,6 +779,45 @@ impl AccountForm {
                 _ => Err(FormError::BadPort { field, value }),
             }
         };
+        let folder = self.folder.trim();
+        if self.azlin {
+            // An Azlin drive: the token server and the drive instead of the IMAP server; the
+            // outgoing server stays the address's (sending is this computer's).
+            let token_url = pick(&self.token_url, &self.token_default);
+            if token_url.is_empty() {
+                return Err(FormError::NoTokenServer);
+            }
+            crate::azlin::check_token_url(&token_url)
+                .map_err(|e| FormError::BadTokenServer(e.to_string()))?;
+            let drive_id = self.drive_id.trim();
+            if drive_id.is_empty() {
+                return Err(FormError::NoDrive);
+            }
+            let smtp_port = port("SMTP", &self.smtp_port, &defaults.smtp_port)?;
+            return Ok(Account {
+                id,
+                email: self.email.trim().to_string(),
+                name: self.name.trim().to_string(),
+                username: self.email.trim().to_string(),
+                imap: Server {
+                    host: String::new(),
+                    port: 0,
+                },
+                smtp: Server {
+                    host: pick(&self.smtp_host, &defaults.smtp_host),
+                    port: smtp_port,
+                },
+                security: Security::Tls,
+                auth: AuthKind::Password,
+                folder: (!folder.is_empty()).then(|| PathBuf::from(folder)),
+                // The drive belongs to the token server it was made at: the account keeps
+                // that one, whatever this run is told later.
+                azlin: Some(AzlinLink {
+                    token_url,
+                    drive_id: drive_id.to_string(),
+                }),
+            });
+        }
         let imap_host = pick(&self.imap_host, &defaults.imap_host);
         if imap_host.is_empty() {
             return Err(FormError::NoImapHost);
@@ -626,7 +827,6 @@ impl AccountForm {
         if self.plain && !is_loopback_host(&imap_host) {
             return Err(FormError::PlainNotLocal(imap_host));
         }
-        let folder = self.folder.trim();
         Ok(Account {
             id,
             email: self.email.trim().to_string(),
@@ -651,6 +851,7 @@ impl AccountForm {
                 AuthKind::Password
             },
             folder: (!folder.is_empty()).then(|| PathBuf::from(folder)),
+            azlin: None,
         })
     }
 }
@@ -679,7 +880,22 @@ mod tests {
             security: Security::Tls,
             auth: AuthKind::Password,
             folder: None,
+            azlin: None,
         }
+    }
+
+    /// An Azlin account of the same address.
+    fn azlin_account() -> Account {
+        AccountForm {
+            email: String::from(ADA),
+            name: String::from("Ada Lovelace"),
+            azlin: true,
+            token_url: String::from("https://token.example"),
+            drive_id: String::from("d_42"),
+            ..AccountForm::default()
+        }
+        .to_account()
+        .unwrap()
     }
 
     #[test]
@@ -794,6 +1010,102 @@ mod tests {
     #[test]
     fn the_keyring_name_says_app_and_account() {
         assert_eq!(keyring_key(ADA), "AzMail/ada@example.org/imap");
+        assert_eq!(
+            secret_keyring_key(&account()),
+            "AzMail/ada@example.org/imap"
+        );
+        assert_eq!(
+            secret_keyring_key(&azlin_account()),
+            "AzMail/ada@example.org/azlin"
+        );
+    }
+
+    #[test]
+    fn an_azlin_account_file_names_its_kind_and_drive_and_no_secret() {
+        let a = azlin_account();
+        assert!(a.is_azlin() && !account().is_azlin());
+        let text = to_json(&a);
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            json["version"], 2,
+            "an older AzMail refuses it instead of syncing it as IMAP"
+        );
+        assert_eq!(json["kind"], "azlin");
+        assert_eq!(json["azlin"]["token_url"], "https://token.example");
+        assert_eq!(json["azlin"]["drive_id"], "d_42");
+        let mut keys: Vec<&String> = json.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            ["azlin", "email", "format", "kind", "name", "smtp", "version"],
+            "no IMAP server, no password, token or secret field"
+        );
+        assert_eq!(from_json(&text), Ok(a));
+        // An IMAP account's file is the one every AzMail wrote.
+        let imap: serde_json::Value = serde_json::from_str(&to_json(&account())).unwrap();
+        assert_eq!(imap["version"], 1);
+        assert!(imap.get("kind").is_none() && imap.get("azlin").is_none());
+        let unknown = text.replace("\"kind\": \"azlin\"", "\"kind\": \"jmap\"");
+        assert_eq!(
+            from_json(&unknown),
+            Err(AccountError::UnknownKind(String::from("jmap")))
+        );
+        let no_drive = text.replace("\"drive_id\": \"d_42\"", "\"drive_id\": \"\"");
+        assert!(matches!(
+            from_json(&no_drive),
+            Err(AccountError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn the_form_makes_an_azlin_account_from_the_token_server_and_the_drive() {
+        let form = AccountForm::from_account(&azlin_account());
+        assert!(form.azlin);
+        assert_eq!(
+            (form.token_url.as_str(), form.drive_id.as_str()),
+            ("https://token.example", "d_42")
+        );
+        assert_eq!(form.to_account(), Ok(azlin_account()));
+        // The configured token server stands for an empty field, and the account keeps it.
+        let configured = AccountForm {
+            token_url: String::new(),
+            token_default: String::from("http://127.0.0.1:8081"),
+            ..form.clone()
+        };
+        let made = configured.to_account().unwrap();
+        assert_eq!(made.azlin.unwrap().token_url, "http://127.0.0.1:8081");
+        assert_eq!(
+            AccountForm {
+                token_url: String::new(),
+                ..form.clone()
+            }
+            .to_account(),
+            Err(FormError::NoTokenServer)
+        );
+        assert_eq!(
+            AccountForm {
+                drive_id: String::from(" "),
+                ..form.clone()
+            }
+            .to_account(),
+            Err(FormError::NoDrive)
+        );
+        assert!(matches!(
+            AccountForm {
+                token_url: String::from("http://token.example"),
+                ..form.clone()
+            }
+            .to_account(),
+            Err(FormError::BadTokenServer(_))
+        ));
+        assert_eq!(
+            AccountForm {
+                email: String::from("ada"),
+                ..form
+            }
+            .to_account(),
+            Err(FormError::BadEmail)
+        );
     }
 
     #[test]
@@ -950,8 +1262,8 @@ mod tests {
     fn a_file_that_is_not_an_account_is_refused() {
         assert!(matches!(from_json("{"), Err(AccountError::NotJson(_))));
         assert_eq!(from_json("{}"), Err(AccountError::NotAnAccount));
-        let newer = to_json(&account()).replace("\"version\": 1", "\"version\": 2");
-        assert_eq!(from_json(&newer), Err(AccountError::NewerVersion(2)));
+        let newer = to_json(&account()).replace("\"version\": 1", "\"version\": 3");
+        assert_eq!(from_json(&newer), Err(AccountError::NewerVersion(3)));
         let broken = to_json(&account()).replace("\"imap\"", "\"imapx\"");
         assert!(matches!(
             from_json(&broken),
@@ -1041,6 +1353,7 @@ mod tests {
             folder: String::from("/tmp/ada-mail"),
             plain: true,
             xoauth2: true,
+            ..AccountForm::default()
         };
         let a = form.to_account().unwrap();
         assert_eq!(a.email, "Ada@Example.org");
