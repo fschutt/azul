@@ -72,6 +72,8 @@
 //! `AZDRIVE_NEW_WINDOW <path>`. Keys and secrets are never printed.
 
 mod actions;
+#[cfg(test)]
+mod add_drive_tests;
 pub mod args;
 pub mod browse;
 pub mod fileops;
