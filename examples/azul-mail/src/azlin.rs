@@ -3,11 +3,11 @@
 //! - The bucket's names: [`object_name`] (`<stamp>-<hash>.eml`), [`message_id`],
 //!   [`marker_key`], the well-known folders ([`WELL_KNOWN`]).
 //! - [`AzlinSession`]: what the keyring keeps for an Azlin account - the drive token and the
-//!   current S3 credentials - and the S3 drive they open.
+//!   current S3 credentials with where the drive is - and the S3 drive they open.
 //! - [`CloudAccount`]: what AzMail needs from the Azlin account service (a new drive, fresh
-//!   credentials). [`TokenServer`] is the token server's HTTP API over any azul-storage
-//!   `Transport` (azul's HTTP client in the app, a fake in the tests); azcloud-api's `Account`
-//!   takes its place later as a second implementation, nothing else changes.
+//!   credentials), as sessions: azcloud-kit's [`TokenServer`] - the token server's HTTP API
+//!   over any azul-storage `Transport` (azul's HTTP client in the app, a fake in the tests) -
+//!   answers drive bundles, [`session_of`] makes them sessions.
 //! - [`Endpoints`]: the token server's URL and an S3 endpoint override, from the shared Azlin
 //!   config, then the environment, then the command line. There is no built-in default.
 //!
@@ -15,15 +15,22 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use azcloud_kit::{bundle::DriveBundle, token::DEFAULT_TIER};
 use azul_storage::{
     sigv4::{sha256_hex, uri_decode, uri_encode},
     time::{amz_date, parse_iso8601},
-    Credentials, DriveError, HttpCall, HttpReply, Method, S3Config, S3Drive, Transport,
+    Credentials, DriveError, S3Config, S3Drive, Transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::folders::Role;
+
+// The token server's API and its address checks are azcloud-kit's.
+pub use azcloud_kit::token::{check_token_url, url_host, TokenError, TokenServer};
+// The margins of a session's credentials are the kit's: refreshed before a Send/Receive when
+// less than an hour is left, used by an action while more than a minute is.
+pub use azcloud_kit::session::{REFRESH_MARGIN_SECS, VALID_MARGIN_SECS};
 
 // ==== The bucket's names ====
 
@@ -230,8 +237,6 @@ pub fn states_from_keys<'a>(
 
 /// The region a bundle that names none is in (S3's own default, what the token server says).
 pub const DEFAULT_REGION: &str = "us-east-1";
-/// Credentials with less than this left are refreshed before a Send/Receive (seconds).
-pub const REFRESH_MARGIN_SECS: u64 = 3600;
 
 /// What the keyring keeps for an Azlin account (`AzMail/<account>/azlin`, as JSON): the drive
 /// token - a refresh token, a new one with every refresh - and the S3 credentials of the last
@@ -338,7 +343,7 @@ impl AzlinSession {
         self.has_credentials()
             && self
                 .expires_at
-                .is_none_or(|at| at > now.saturating_add(60))
+                .is_none_or(|at| at > now.saturating_add(VALID_MARGIN_SECS))
     }
 
     /// Where the bucket is: the endpoint the token server reported, or `endpoint_override`
@@ -393,230 +398,66 @@ impl AzlinSession {
 
 // ==== The account service: the token server ====
 
-/// Why the account service could not help.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AzlinError {
-    /// No answer (DNS, connection, TLS, timeout).
-    Connect(String),
-    /// The drive token was refused (revoked, reused, unknown): sign in again.
-    SignIn(String),
-    /// Another refusal, or an answer that makes no sense.
-    Protocol(String),
-    /// Not set up: no token server, no drive id, a URL that cannot be one.
-    Config(String),
-}
-
-impl std::fmt::Display for AzlinError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AzlinError::Connect(e) => write!(f, "no answer from the Azlin token server: {e}"),
-            AzlinError::SignIn(e) => {
-                write!(f, "the Azlin token server refused the drive token: {e}")
-            }
-            AzlinError::Protocol(e) => {
-                write!(f, "the Azlin token server answered unexpectedly: {e}")
-            }
-            AzlinError::Config(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-/// What AzMail needs from the Azlin account service. [`TokenServer`] is the token server's
-/// HTTP API; azcloud-api's `Account` is the next implementation.
+/// What AzMail needs from the Azlin account service, as sessions. azcloud-kit's
+/// [`TokenServer`] is it: blocking, call it from an azul `Thread`.
 pub trait CloudAccount {
     /// A new drive named `name` and its first credentials (a development token server only:
     /// real sign-ups go through a checkout).
-    fn create_drive(&self, name: &str) -> Result<AzlinSession, AzlinError>;
+    fn create_drive(&self, name: &str) -> Result<AzlinSession, TokenError>;
     /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the
     /// NEXT drive token: the one given is dead from then on, and reusing it makes the token
     /// server revoke this device.
-    fn refresh(&self, drive_id: &str, drive_token: &str) -> Result<AzlinSession, AzlinError>;
-}
-
-/// The host of an `http://` or `https://` URL (`[::1]` keeps its brackets), and whether it is
-/// `https`; `None` for anything else.
-pub fn url_host(url: &str) -> Option<(&str, bool)> {
-    let url = url.trim();
-    let (scheme, rest) = url.split_once("://")?;
-    let https = if scheme.eq_ignore_ascii_case("https") {
-        true
-    } else if scheme.eq_ignore_ascii_case("http") {
-        false
-    } else {
-        return None;
-    };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.contains('@') {
-        return None;
-    }
-    let host = if authority.starts_with('[') {
-        let end = authority.find(']')?;
-        &authority[..=end]
-    } else {
-        authority.split(':').next().unwrap_or_default()
-    };
-    (!host.is_empty()).then_some((host, https))
-}
-
-/// Checks a token server's URL: `https://`, or `http://` to this computer only (the drive token
-/// and the credentials would cross the network in the clear).
-pub fn check_token_url(url: &str) -> Result<(), AzlinError> {
-    let Some((host, https)) = url_host(url) else {
-        return Err(AzlinError::Config(format!(
-            "The token server \"{}\" is not a web address (https://...).",
-            url.trim()
-        )));
-    };
-    if !https && !crate::account::is_loopback_host(host) {
-        return Err(AzlinError::Config(format!(
-            "An unencrypted token server (http://) is only allowed on this computer, not {host}: \
-             the drive token would cross the network in the clear."
-        )));
-    }
-    Ok(())
-}
-
-/// The token server: `POST /v1/drives` and `POST /v1/drives/<id>/credentials`, JSON both ways.
-/// Blocking: call it from an azul `Thread`.
-pub struct TokenServer<'a> {
-    base: String,
-    transport: &'a dyn Transport,
-}
-
-impl<'a> TokenServer<'a> {
-    /// The token server at `base` (`http://127.0.0.1:8081`, `https://token.example`); refused
-    /// when it is no usable URL ([`check_token_url`]).
-    pub fn new(base: &str, transport: &'a dyn Transport) -> Result<TokenServer<'a>, AzlinError> {
-        check_token_url(base)?;
-        Ok(TokenServer {
-            base: base.trim().trim_end_matches('/').to_string(),
-            transport,
-        })
-    }
-
-    fn post(
-        &self,
-        path: &str,
-        bearer: Option<&str>,
-        body: &Value,
-    ) -> Result<HttpReply, AzlinError> {
-        let mut headers = vec![(String::from("accept"), String::from("application/json"))];
-        if let Some(token) = bearer {
-            headers.push((String::from("authorization"), format!("Bearer {token}")));
-        }
-        let call = HttpCall {
-            method: Method::Post,
-            url: format!("{}{path}", self.base),
-            headers,
-            body: body.to_string().into_bytes(),
-            content_type: String::from("application/json"),
-        };
-        self.transport.send(&call).map_err(AzlinError::Connect)
-    }
+    fn refresh_session(&self, drive_id: &str, drive_token: &str)
+        -> Result<AzlinSession, TokenError>;
 }
 
 impl CloudAccount for TokenServer<'_> {
-    fn create_drive(&self, name: &str) -> Result<AzlinSession, AzlinError> {
-        // The tier is the token server's default one.
-        let reply = self.post(
-            "/v1/drives",
-            None,
-            &serde_json::json!({ "name": name.trim() }),
-        )?;
-        session_of_reply(&reply)
+    fn create_drive(&self, name: &str) -> Result<AzlinSession, TokenError> {
+        session_of(&self.create_dev_drive(name, DEFAULT_TIER)?)
     }
 
-    fn refresh(&self, drive_id: &str, drive_token: &str) -> Result<AzlinSession, AzlinError> {
-        let drive_id = drive_id.trim();
-        if drive_id.is_empty() {
-            return Err(AzlinError::Config(String::from(
-                "The account names no drive.",
-            )));
-        }
-        if drive_token.trim().is_empty() {
-            return Err(AzlinError::SignIn(String::from("there is no drive token")));
-        }
-        let path = format!("/v1/drives/{}/credentials", uri_encode(drive_id, true));
-        let reply = self.post(&path, Some(drive_token.trim()), &serde_json::json!({}))?;
-        let session = session_of_reply(&reply)?;
-        if session.drive_id != drive_id {
-            return Err(AzlinError::Protocol(format!(
-                "the answer is for the drive {}, not {drive_id}",
-                session.drive_id
-            )));
-        }
-        Ok(session)
+    fn refresh_session(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+    ) -> Result<AzlinSession, TokenError> {
+        session_of(&TokenServer::refresh(self, drive_id, drive_token)?)
     }
 }
 
-/// The token server's error answer: `{"error": "<code>", "message": "<sentence>"}`.
-fn error_of(status: u16, body: &str) -> String {
-    let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let code = value["error"].as_str().unwrap_or_default();
-    let message = value["message"].as_str().unwrap_or_default();
-    match (code.is_empty(), message.is_empty()) {
-        (true, true) => format!("HTTP {status}"),
-        (false, true) => format!("{code} (HTTP {status})"),
-        (true, false) => format!("{message} (HTTP {status})"),
-        (false, false) => format!("{message} ({code}, HTTP {status})"),
-    }
-}
-
-fn session_of_reply(reply: &HttpReply) -> Result<AzlinSession, AzlinError> {
-    let text = String::from_utf8_lossy(&reply.body);
-    if !reply.is_success() {
-        let why = error_of(reply.status, &text);
-        return Err(match reply.status {
-            401 | 403 => AzlinError::SignIn(why),
-            _ => AzlinError::Protocol(why),
-        });
-    }
-    session_from_bundle(&text)
-}
-
-/// A token server's answer (the drive bundle: `drive.id`, `drive.location`, `credentials`,
-/// `drive_token`) as a session.
-pub fn session_from_bundle(json: &str) -> Result<AzlinSession, AzlinError> {
-    let value: Value = serde_json::from_str(json)
-        .map_err(|_| AzlinError::Protocol(String::from("the answer is not JSON")))?;
-    let text = |v: &Value| v.as_str().unwrap_or_default().trim().to_string();
-    let either = |a: &Value, b: &Value| {
-        let first = text(a);
-        if first.is_empty() {
-            text(b)
-        } else {
-            first
-        }
-    };
-    let drive = &value["drive"];
-    let location = &drive["location"];
-    let credentials = &value["credentials"];
-    let expires = &credentials["expires_at"];
-    let session = AzlinSession {
-        drive_id: text(&drive["id"]),
-        drive_token: text(&value["drive_token"]),
-        endpoint: either(&location["endpoint"], &credentials["endpoint"]),
-        region: text(&location["region"]),
-        bucket: either(&location["bucket"], &drive["bucket"]),
-        path_style: location["path_style"].as_bool().unwrap_or(true),
-        access_key_id: text(&credentials["access_key_id"]),
-        secret_access_key: text(&credentials["secret_access_key"]),
-        session_token: Some(text(&credentials["session_token"])).filter(|t| !t.is_empty()),
-        expires_at: expires
-            .as_u64()
-            .or_else(|| expires.as_str().and_then(parse_iso8601)),
-    };
-    if session.drive_id.is_empty() || session.drive_token.is_empty() {
-        return Err(AzlinError::Protocol(String::from(
-            "the answer has no drive id or no drive token",
+/// A drive bundle of the token server (a new drive, a refresh) as the keyring's session: the
+/// drive token, the credentials and where the drive is.
+pub fn session_of(bundle: &DriveBundle) -> Result<AzlinSession, TokenError> {
+    let Some(config) = bundle.entry.s3_config() else {
+        return Err(TokenError::Protocol(String::from(
+            "the answer's drive is not an S3 bucket",
         )));
-    }
+    };
+    let credentials = &bundle.credentials;
+    let session = AzlinSession {
+        drive_id: bundle.drive_id().trim().to_string(),
+        drive_token: bundle.drive_token.trim().to_string(),
+        endpoint: config.endpoint.trim().to_string(),
+        region: config.region.trim().to_string(),
+        bucket: config.bucket.trim().to_string(),
+        path_style: config.path_style,
+        access_key_id: credentials.access_key_id.clone(),
+        secret_access_key: credentials.secret_access_key.clone(),
+        session_token: credentials.session_token.clone(),
+        expires_at: credentials.expires_at,
+    };
     if !session.has_credentials() {
-        return Err(AzlinError::Protocol(String::from(
+        return Err(TokenError::Protocol(String::from(
             "the answer has no credentials, endpoint or bucket",
         )));
     }
     Ok(session)
+}
+
+/// A token server's answer (the drive bundle: `drive.id`, `drive.location`, `credentials`,
+/// `drive_token`) as a session.
+pub fn session_from_bundle(json: &str) -> Result<AzlinSession, TokenError> {
+    session_of(&DriveBundle::parse(json)?)
 }
 
 // ==== Where the token server is ====
@@ -716,6 +557,8 @@ pub fn endpoints_from_config(json: &str) -> Endpoints {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
+
+    use azul_storage::{HttpCall, HttpReply, Method};
 
     use super::*;
 
@@ -903,11 +746,11 @@ mod tests {
         assert_eq!(session.expires_at, Some(1_791_494_100));
         assert!(matches!(
             session_from_bundle("{}"),
-            Err(AzlinError::Protocol(_))
+            Err(TokenError::Protocol(_))
         ));
         assert!(matches!(
             session_from_bundle("not json"),
-            Err(AzlinError::Protocol(_))
+            Err(TokenError::Protocol(_))
         ));
     }
 
@@ -952,14 +795,18 @@ mod tests {
         let server = TokenServer::new("http://127.0.0.1:8081/", &fake).unwrap();
         let created = server.create_drive("AzMail").unwrap();
         assert_eq!(created.drive_token, "dt_f.0.first");
-        let refreshed = server.refresh("d_42", &created.drive_token).unwrap();
+        let refreshed = server
+            .refresh_session("d_42", &created.drive_token)
+            .unwrap();
         assert_eq!(
             refreshed.drive_token, "dt_f.1.second",
             "a new token with every refresh"
         );
-        let refused = server.refresh("d_42", &created.drive_token).unwrap_err();
+        let refused = server
+            .refresh_session("d_42", &created.drive_token)
+            .unwrap_err();
         assert!(
-            matches!(&refused, AzlinError::SignIn(why) if why.contains("token_reuse")),
+            matches!(&refused, TokenError::SignIn(why) if why.contains("token_reuse")),
             "{refused:?}"
         );
         let calls = fake.calls.lock().unwrap();
@@ -982,11 +829,14 @@ mod tests {
         );
         drop(calls);
         assert!(matches!(
-            server.refresh("d_42", ""),
-            Err(AzlinError::SignIn(_))
+            server.refresh_session("d_42", ""),
+            Err(TokenError::SignIn(_))
         ));
         assert!(
-            matches!(server.refresh("d_42", "dt"), Err(AzlinError::Connect(_))),
+            matches!(
+                server.refresh_session("d_42", "dt"),
+                Err(TokenError::Connect(_))
+            ),
             "no answers left"
         );
     }
@@ -1020,15 +870,15 @@ mod tests {
         assert!(TokenServer::new("http://[::1]:8081", &fake).is_ok());
         assert!(matches!(
             TokenServer::new("http://token.example", &fake),
-            Err(AzlinError::Config(_))
+            Err(TokenError::Config(_))
         ));
         assert!(matches!(
             TokenServer::new("ftp://token.example", &fake),
-            Err(AzlinError::Config(_))
+            Err(TokenError::Config(_))
         ));
         assert!(matches!(
             TokenServer::new("", &fake),
-            Err(AzlinError::Config(_))
+            Err(TokenError::Config(_))
         ));
         assert_eq!(url_host("https://user@token.example"), None);
         assert_eq!(

@@ -1071,11 +1071,12 @@ fn report_progress(
 
 /// The token server's refusal as the sync's: a refused drive token (or a token server nobody
 /// named) opens Account Settings with why.
-fn azlin_error(e: azlin::AzlinError) -> SyncError {
+fn azlin_error(e: azlin::TokenError) -> SyncError {
     match e {
-        azlin::AzlinError::Connect(why) => SyncError::Connect(why),
-        azlin::AzlinError::Protocol(why) => SyncError::Protocol(why),
-        e @ (azlin::AzlinError::SignIn(_) | azlin::AzlinError::Config(_)) => {
+        azlin::TokenError::Connect(why) => SyncError::Connect(why),
+        azlin::TokenError::Protocol(why) => SyncError::Protocol(why),
+        e @ azlin::TokenError::Refused { .. } => SyncError::Protocol(e.to_string()),
+        e @ (azlin::TokenError::SignIn(_) | azlin::TokenError::Config(_)) => {
             SyncError::Auth(e.to_string())
         }
     }
@@ -1096,7 +1097,7 @@ fn refresh_session(
     })?;
     let server = azlin::TokenServer::new(&url, transport).map_err(azlin_error)?;
     let fresh = server
-        .refresh(&link.drive_id, &session.drive_token)
+        .refresh_session(&link.drive_id, &session.drive_token)
         .map_err(azlin_error)?;
     post(
         sender,
