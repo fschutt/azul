@@ -435,6 +435,18 @@ mod autotest_generated {
     static MEASURE_CALLS: AtomicUsize = AtomicUsize::new(0);
     /// The `MeasureDomMode` the trampoline saw last (0 = Extent, 1 = ShrinkToFit).
     static LAST_MEASURE_MODE: AtomicUsize = AtomicUsize::new(usize::MAX);
+    /// Held by every test that calls the trampoline: they share its statics, and the
+    /// test harness runs them in parallel - another test's call between a call and the
+    /// read of `LAST_MEASURE_MODE` overwrote the mode it read.
+    static MEASURE_HOOK_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// [`MEASURE_HOOK_TESTS`], held for the rest of the calling test (a test that
+    /// panicked while holding it poisons nothing the next one needs).
+    fn measure_hook_tests() -> std::sync::MutexGuard<'static, ()> {
+        MEASURE_HOOK_TESTS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     /// Test trampoline. Per the `MeasureDomFn` contract the `Dom` is passed by
     /// pointer and **consumed** (moved out) here.
@@ -490,6 +502,7 @@ mod autotest_generated {
 
     #[test]
     fn measure_dom_with_hook_forwards_ctx_and_available_and_consumes_the_dom() {
+        let _serial = measure_hook_tests();
         let fonts = FcFontCache::default();
         let images = ImageCache::default();
         let mut info = vv_info(&fonts, &images, bounds_1x1());
@@ -525,6 +538,7 @@ mod autotest_generated {
 
     #[test]
     fn measure_dom_shrink_to_fit_reaches_the_same_hook_in_its_own_mode() {
+        let _serial = measure_hook_tests();
         let fonts = FcFontCache::default();
         let images = ImageCache::default();
         let mut info = vv_info(&fonts, &images, bounds_1x1());
@@ -550,6 +564,7 @@ mod autotest_generated {
 
     #[test]
     fn measure_dom_hook_can_be_replaced_and_last_writer_wins() {
+        let _serial = measure_hook_tests();
         let fonts = FcFontCache::default();
         let images = ImageCache::default();
         let mut info = vv_info(&fonts, &images, bounds_1x1());
