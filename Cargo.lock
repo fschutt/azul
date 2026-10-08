@@ -1298,6 +1298,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-icons-haiku"
+version = "0.1.0"
+dependencies = [
+ "azul-core",
+ "azul-dll",
+ "material-icons",
+]
+
+[[package]]
 name = "azul-layout"
 version = "0.0.16"
 dependencies = [
