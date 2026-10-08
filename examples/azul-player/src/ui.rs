@@ -765,10 +765,10 @@ fn section_page(s: &Player, app: &RefAny, place: &Place, section: Section, stage
     page
 }
 
-/// The views row: albums · artists · genres · songs (the view shown bright, the focus's glow
-/// when the row has the keyboard).
+/// The views row: albums · artists · genres · songs (the view shown bright, a lit plate under
+/// the word while the row has the keyboard). The ink and the plate fade from one word to the
+/// next - one `animation` list with the curtain's fade (a second list would replace it).
 fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: Stage) -> Dom {
-    let _ = s;
     let mut row = Dom::create_div().with_id(ids::VIEWS).with_css(format!(
         "position: absolute; left: 60px; top: {:.0}px; display: flex; flex-direction: row; \
          align-items: center;",
@@ -779,15 +779,17 @@ fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: S
         let focused = shown && place.focus.on_views && s.zone() == Zone::Content;
         let word = Dom::create_p_with_text(view.label(section)).with_css(format!(
             "margin: 0px 26px 0px 0px; padding: 2px 8px; border-radius: 4px; font-size: 21px; \
-             cursor: pointer; color: {}; {} {} :hover {{ color: #ffffff; }}",
+             cursor: pointer; color: {}; background-color: {}; opacity: {}; animation: opacity \
+             {}ms ease-in, color 200ms ease-out, background-color 200ms ease-out; :hover {{ \
+             color: #ffffff; }}",
             if shown { look::INK } else { look::INK_FAINT },
             if focused {
-                "box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, 0.8); background: rgba(118, \
-                 196, 255, 0.18);"
+                "rgba(118, 196, 255, 0.3)"
             } else {
-                ""
+                "rgba(118, 196, 255, 0)"
             },
-            look::text_fade(stage)
+            if stage.menus { 1 } else { 0 },
+            crate::curtain::TEXT_FADE_MS
         ));
         row.add_child(act_part(
             word.with_id(ids::id(&format!("view-{i}"))),
@@ -1789,10 +1791,12 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     page.add_child(
         Dom::create_div()
             .with_id(ids::id(&format!("np-art-{}", pages::short_hash(&title))))
+            // A song that follows cross-fades in over the last one's cover.
             .with_css(format!(
                 "position: absolute; left: {left}px; top: 96px; width: {art_size}px; height: \
                  {art_size}px; overflow: hidden; border-radius: 4px; box-shadow: 0px 10px 30px \
-                 rgba(0, 0, 0, 0.55); -azul-animation-in: azp-page-in 420ms spring;"
+                 rgba(0, 0, 0, 0.55); -azul-animation-in: azp-page-in 420ms spring; \
+                 -azul-animation-out: azp-fade-out 320ms ease-in;"
             ))
             .with_child(art_face(art, &album, art_size, art_size, "album", stage)),
     );
@@ -1803,11 +1807,14 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         look::INK_DIM,
         look::text_fade(stage)
     );
+    // The song's words rise in when it begins (keyed by the song: a pause keeps them).
     page.add_child(
         Dom::create_div()
+            .with_id(ids::id(&format!("np-info-{}", pages::short_hash(&title))))
             .with_css(format!(
                 "position: absolute; left: {info_left}px; right: 40px; top: 104px; display: \
-                 flex; flex-direction: column;"
+                 flex; flex-direction: column; -azul-animation-in: azp-rise-in 360ms spring; \
+                 -azul-animation-out: azp-fade-out 220ms ease-in;"
             ))
             .with_child(text(
                 if music.playing() { "now playing" } else { "paused" },

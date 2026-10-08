@@ -167,6 +167,18 @@ pub fn queue_music(app: &RefAny, info: &mut CallbackInfo, paths: Vec<String>) {
     play_music(app, info, paths, 0, false);
 }
 
+/// The music ended (stopped, finished, the slide show's turned off): it is gone - its inset with
+/// it, nothing brings it back at the next start - and a page whose keys were on the inset has
+/// them on the page again.
+fn music_ended(s: &mut Player) {
+    s.music = None;
+    for place in &mut s.nav {
+        if place.focus.zone == crate::pages::Zone::Inset {
+            place.focus.zone = crate::pages::Zone::Content;
+        }
+    }
+}
+
 /// Hands the player the song after the one heard (gapless), once.
 fn queue_next(s: &mut Player) {
     let Some((next, path)) = s.music.as_ref().and_then(|m| {
@@ -240,7 +252,7 @@ pub fn tick_music(s: &mut Player, info: &mut CallbackInfo) -> bool {
     }
     if known && state.finished {
         println!("AZPLAYER_MUSIC finished");
-        s.music = None;
+        music_ended(s);
         return true;
     }
     // In place: the seek bar and the time played (once a second).
@@ -330,7 +342,8 @@ pub fn open_video(app: &RefAny, info: &mut CallbackInfo, path: &str) {
     };
     let s = &mut *guard;
     // Music stops for a video (Media Center's way).
-    if s.music.take().is_some() {
+    if s.music.is_some() {
+        music_ended(s);
         if let Some(a) = s.audio.as_ref() {
             a.stop();
         }
@@ -986,7 +999,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
             if let Some(a) = s.audio.as_ref() {
                 a.stop();
             }
-            s.music = None;
+            music_ended(s);
             println!("AZPLAYER_MUSIC stopped");
         }
         (Command::Stop, Playing::Pictures) => {
@@ -1120,7 +1133,7 @@ fn slide_music(app: &RefAny, info: &mut CallbackInfo) -> Update {
             if let Some(a) = s.audio.as_ref() {
                 a.stop();
             }
-            s.music = None;
+            music_ended(&mut s);
             return Update::RefreshDom;
         }
         let paths: Vec<String> = s

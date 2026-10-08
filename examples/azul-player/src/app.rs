@@ -71,7 +71,7 @@ pub const SHORTCUTS: [Shortcut; 14] = [
     Shortcut::new("Moving around", "Home", "The start screen"),
     Shortcut::new("Moving around", "Mouse wheel", "Scroll the strip or the gallery"),
     Shortcut::new("Playback", "Space", "Play / pause"),
-    Shortcut::new("Playback", "Left  Right", "Back / forward 10 seconds (videos, music)"),
+    Shortcut::new("Playback", "Left  Right", "Skip back / forward (how far: settings, videos)"),
     Shortcut::new("Playback", "Shift+Left  Shift+Right", "Back / forward a minute"),
     Shortcut::new("Playback", "Page Up  Page Down", "Previous / next song or picture"),
     Shortcut::new("Playback", "Up  Down", "Volume up / down (while something plays)"),

@@ -12,9 +12,9 @@ use azul::{
 
 use crate::{
     app::{self, Player},
+    dialog,
     gallery::{self, Step},
     library::Shelf,
-    dialog,
     media::{self, Command, CommandRef},
     options::{self, Category},
     overlay,
@@ -472,6 +472,9 @@ pub fn move_focus(s: &mut Player, step: Step) -> bool {
                     }
                 }
                 f.on_views = on_views;
+                if !on_views {
+                    println!("AZPLAYER_FOCUS tile {} column {}", f.index, f.first_col);
+                }
                 return true;
             }
             match gallery::step(&grid, focus.index, tiles.len(), step) {
