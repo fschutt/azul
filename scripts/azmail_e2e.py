@@ -47,6 +47,22 @@ the From line remembered; File > Options opens a window of its own over File
 switch hides the main window's To-Do bar at once, and Escape (Cancel) brings it back - in
 settings.json too, the remembered From line kept.
 
+The azlin phase (`--phase azlin`, or `--azlin`; AZMAIL15) is an Azlin account: the mailbox is
+files in the user's Azlin drive (examples/azul-mail/AZLIN_MAIL.md). With `--azlin-stack mock` (the
+default) scripts/azlin_mock_stack.py stands in for the token server and the S3 balancer on free
+ports; with `--azlin-stack local` the running stack is used (`azctl dev up --processes` in
+azul-apps iso/: --azlin-token-url, else $AZLIN_TOKEN_URL, else the shared Azlin config's
+endpoints, else http://127.0.0.1:8081; --azlin-s3-url when the bundle's endpoint is not reachable
+from here). scripts/azmail_seed_azlin.py signs up a drive and fills mail/Inbox/ and mail/Spam/;
+AzMail starts with `--azlin-token-url` and AZLIN_CONFIG=off; the wizard's "Azlin drive" takes the
+drive id and the drive token (the token server field left empty: the switch's URL stands for
+it); Finish signs in (the token is rotated: AZMAIL_AZLIN_SIGNED_IN) and syncs; the window lists
+the seeded Inbox and Junk E-mail from the drive; opening a message writes its read marker
+(mail/.state/<id>/seen); a big message (--azlin-big-mb, default 7) is listed from its header
+block and downloaded when opened; Archive moves a message's object from mail/Inbox/ to
+mail/Archive/ under the same name (checked with plain S3 calls); Save Draft puts an .eml into
+mail/Drafts/; no drive token is in any file AzMail wrote or in its output.
+
 The submission phase (`--phase submission`, MAIL9 left 2) walks the Sending page's third choice:
 the sink is a submission server (`--auth`: MAIL needs a sign-in); after the wizard the account's
 own outgoing server (account.json `smtp`, which the wizard has no field for) is pointed at the sink
@@ -82,7 +98,9 @@ import time
 import urllib.error
 import urllib.request
 
+import azlin_client
 import azlin_e2e
+import azmail_seed_azlin
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..'))
@@ -1435,6 +1453,304 @@ class SubmissionRun(Run):
         self.check_secret()
 
 
+# ---- the azlin phase (AZMAIL15): an Azlin account - the mailbox is files in the drive ----
+
+AZLIN_NAME = 'Ada Lovelace'
+AZLIN_USER = 'ada@example.org'
+AZLIN_DRAFT_TO = 'cleo@example.org'
+AZLIN_DRAFT_SUBJECT = 'Compost bins for plot 7'
+AZLIN_SIZE = (1600, 900)
+
+
+class AzlinRun(Run):
+    """An Azlin account, end to end: the drive filled by azmail_seed_azlin.py, AzMail signed in
+    with the drive id and token, its folders listed from mail/, a message opened (its read
+    marker), a big one downloaded when opened, one archived (its object moved in the bucket), a
+    draft saved (an .eml in mail/Drafts/), and the drive token nowhere."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.stack = None
+        self.token_url = None
+        self.s3_url = None
+        self.seed = None
+        self.bucket = None
+
+    # -- the stack and the seed --
+
+    def start_stack(self):
+        if self.args.azlin_stack == 'mock':
+            import azlin_mock_stack  # noqa: PLC0415 - the mock only when asked for
+            self.stack = azlin_mock_stack.start(os.path.join(self.tmp, 's3'))
+            self.token_url = self.stack.token_url
+            log(f'the Azlin mock stack: token server {self.stack.token_url}, S3 '
+                f'{self.stack.s3_url}')
+        else:
+            self.token_url = azlin_client.token_url_from(self.args.azlin_token_url)
+            self.s3_url = self.args.azlin_s3_url
+            try:
+                status = azlin_client.TokenClient(self.token_url, timeout=5).health()
+            except OSError as e:
+                status = f'no answer ({e})'
+            if status != 200:
+                raise Failure(f'no token server at {self.token_url}: {status} (start `azctl dev '
+                              'up --processes` in azul-apps iso/, or use --azlin-stack mock)')
+            log(f'the local Azlin stack: token server {self.token_url}')
+
+    def stop_all(self):
+        super().stop_all()
+        if self.stack is not None:
+            self.stack.stop()
+            self.stack = None
+
+    def seed_drive(self):
+        try:
+            self.seed = azmail_seed_azlin.seed(self.token_url, self.s3_url,
+                                               big_mb=self.args.azlin_big_mb)
+        except SystemExit as e:
+            raise Failure(f'the seed failed: {e}') from None
+        self.bucket = azlin_client.Bucket(self.seed['bundle'], endpoint=self.s3_url)
+        log(f"seeded drive {self.seed['drive_id']}: " + ', '.join(
+            f"{m['folder']}/{m['kind']}" for m in self.seed['messages']))
+
+    def seeded(self, kind):
+        return next(m for m in self.seed['messages'] if m['kind'] == kind)
+
+    # -- AzMail --
+
+    def start_azlin_app(self):
+        binary = find_binary(self.args.bin)
+        env = {
+            'AZ_BACKEND': 'headless',
+            'AZ_DEBUG': str(self.debug),
+            'AZMAIL_DATA': self.data,
+            # The user's shared Azlin config (its look, its endpoints) stays out of the run.
+            'AZLIN_CONFIG': 'off',
+        }
+        app_args = ['--size', f'{AZLIN_SIZE[0]}x{AZLIN_SIZE[1]}',
+                    '--azlin-token-url', self.token_url]
+        if self.s3_url:
+            app_args += ['--azlin-s3-url', self.s3_url]
+        command = [binary, *app_args]
+        if self.args.runner:
+            command = [self.args.runner, '--cap-mb', '1500', '--seconds',
+                       str(int(self.args.timeout) + 30), '--log',
+                       self.runner_log('azmail'), '--', 'env'] + \
+                      [f'{k}={v}' for k, v in env.items()] + command
+        log(f'AzMail: {binary} {" ".join(app_args)}')
+        self.start('azmail', command, env)
+
+    def add_azlin_account(self):
+        self.check_empty_main_window()
+        self.open_wizard()
+        self.click_exact('Azlin drive')
+        self.until('the Azlin intro', lambda: self.shows('AzMail keeps your mail as files in '
+                                                         'your Azlin drive'), limit=20)
+        if self.has_id(PREFIX + 'acct_secret'):
+            raise Failure('an Azlin account asks for a password on its first page')
+        self.type_into(PREFIX + 'acct_name', AZLIN_NAME)
+        self.type_into(PREFIX + 'acct_email', AZLIN_USER)
+        self.click('Next >')
+        self.until('the drive page', lambda: self.shows('Azlin token server:'), limit=20)
+        # The token server's field stays empty: the switch's URL stands for it (the placeholder).
+        self.type_into(PREFIX + 'acct_drive_id', self.seed['drive_id'])
+        self.type_into(PREFIX + 'acct_drive_token', self.seed['drive_token'])
+        self.click('Next >')
+        self.until('the sending page', lambda: self.shows('Send mail:'), limit=20)
+        if not self.shows('Your Azlin drive stores your mail; it does not send it.'):
+            raise Failure('the sending page does not say that the drive does not send mail')
+        self.click('Next >')
+        self.until('the last page', lambda: self.shows('Finish adds the account'), limit=20)
+        if not self.shows(f"the Azlin drive {self.seed['drive_id']} at {self.token_url}"):
+            raise Failure('the last page does not name the drive and the token server')
+        self.click_exact('Finish', within='__azul-native-wizard-layout-buttons')
+        saved = self.until('AZMAIL_ACCOUNT_SAVED', lambda: self.printed('AZMAIL_ACCOUNT_SAVED'))
+        log(f'account saved: {saved[0]}')
+        self.until('the sign-in at the token server',
+                   lambda: self.seed['drive_id'] in self.printed('AZMAIL_AZLIN_SIGNED_IN'))
+        done = self.until('the first Send/Receive', lambda: self.printed('AZMAIL_SYNC_DONE') or
+                          self.printed('AZMAIL_SYNC_FAILED'))
+        if self.printed('AZMAIL_SYNC_FAILED'):
+            raise Failure(f'the first Send/Receive failed: {self.printed("AZMAIL_SYNC_FAILED")}')
+        log(f'signed in (the drive token rotated), first Send/Receive: {done[0]}')
+
+    def local_index(self, folder):
+        path = os.path.join(self.data, AZLIN_USER, 'mail', folder, 'index.jsonl')
+        try:
+            with open(path, encoding='utf-8') as f:
+                return [json.loads(line) for line in f if line.strip()]
+        except OSError:
+            return []
+
+    def check_azlin_files(self):
+        with open(os.path.join(self.data, AZLIN_USER, 'account.json'), encoding='utf-8') as f:
+            account = json.load(f)
+        link = account.get('azlin') or {}
+        if account.get('kind') != 'azlin' or account.get('version') != 2 or \
+                link.get('drive_id') != self.seed['drive_id'] or \
+                link.get('token_url') != self.token_url.rstrip('/'):
+            raise Failure(f'account.json is {account}')
+        if 'imap' in account or 'password' in json.dumps(account):
+            raise Failure(f'account.json has an IMAP server or a password: {account}')
+        inbox = self.local_index('inbox')
+        seeded = {m['key'] for m in self.seed['messages'] if m['folder'] == 'Inbox'}
+        remote = {e.get('remote') for e in inbox}
+        if not seeded <= remote:
+            raise Failure(f'the local Inbox has {sorted(remote)}, the drive {sorted(seeded)}')
+        spam = self.local_index('spam')
+        if [e.get('remote') for e in spam] != [self.seeded('spam')['key']]:
+            raise Failure(f'the local spam folder is {spam}')
+        log(f'account.json: kind azlin, drive {self.seed["drive_id"]}, no secret; the local copy '
+            f'has the {len(inbox)} Inbox and {len(spam)} spam messages with their drive keys')
+
+    def check_folders_from_drive(self):
+        for m in self.seed['messages']:
+            if m['folder'] == 'Inbox':
+                self.until(f'the Inbox to list "{m["subject"]}"',
+                           lambda s=m['subject']: self.shows(s), limit=30)
+        self.click_exact('Junk E-mail')
+        spam = self.seeded('spam')['subject']
+        self.until('Junk E-mail to list the spam', lambda: self.shows(spam), limit=20)
+        self.click_exact('Inbox')
+        self.until('the Inbox again', lambda: self.shows(self.seeded('plain')['subject']),
+                   limit=20)
+        log('the window lists the Inbox and Junk E-mail from the drive')
+
+    def open_and_mark_read(self):
+        plain = self.seeded('plain')
+        self.click(plain['subject'])
+        self.until('the reading pane', lambda: self.shows('here is the rota for November'),
+                   limit=20)
+        self.until('the read mark in the drive', lambda: [
+            line for line in self.printed('AZMAIL_AZLIN_DONE') if line.startswith('marks inbox')],
+            limit=30)
+        marker = azlin_client.marker_key(plain['key'].rsplit('/', 1)[1][:-len('.eml')], 'seen')
+        if self.bucket.head(marker) is None:
+            raise Failure(f'no read marker {marker} in the drive')
+        log(f'opened "{plain["subject"]}": its read marker {marker} is in the drive')
+
+    def open_big_message(self):
+        big = self.seeded('big')
+        entry = next((e for e in self.local_index('inbox') if e.get('remote') == big['key']), None)
+        if entry is None:
+            raise Failure('the big message is not in the local Inbox')
+        path = os.path.join(self.data, AZLIN_USER, *entry['path'].split('/'))
+        if os.path.exists(path):
+            raise Failure('Send/Receive downloaded the big message whole')
+        self.click(big['subject'])
+        self.until('the big message to download', lambda: [
+            line for line in self.printed('AZMAIL_AZLIN_DONE') + self.printed('AZMAIL_AZLIN_FAILED')
+            if line.startswith('fetch inbox')], limit=90)
+        failed = [line for line in self.printed('AZMAIL_AZLIN_FAILED')
+                  if line.startswith('fetch inbox')]
+        if failed:
+            raise Failure(f'the big message did not download: {failed[-1]}')
+        self.until('the big message in the reading pane',
+                   lambda: self.shows('The photos from Saturday'), limit=30)
+        with open(path, 'rb') as f:
+            here = f.read()
+        if here != self.bucket.get(big['key']):
+            raise Failure('the downloaded message is not the object')
+        log(f'the big message ({big["size"]} bytes) came as its header block and whole when opened')
+
+    def archive(self):
+        plain = self.seeded('plain')
+        name = plain['key'].rsplit('/', 1)[1]
+        original = self.bucket.get(plain['key'])
+        self.click(plain['subject'])
+        self.until('the message open', lambda: self.shows('here is the rota for November'),
+                   limit=20)
+        # The ribbon's Archive (the folder pane has an Archive folder too).
+        self.click_exact('Archive', within='__azul-native-ribbon')
+        self.until('the move', lambda: [
+            line for line in self.printed('AZMAIL_AZLIN_DONE') + self.printed('AZMAIL_AZLIN_FAILED')
+            if line.startswith('move inbox archive')], limit=30)
+        failed = [line for line in self.printed('AZMAIL_AZLIN_FAILED')
+                  if line.startswith('move inbox archive')]
+        if failed:
+            raise Failure(f'the move failed: {failed[-1]}')
+        archived = f'mail/Archive/{name}'
+        if self.bucket.head(plain['key']) is not None:
+            raise Failure(f'{plain["key"]} is still in the drive')
+        if archived not in self.bucket.keys('mail/Archive/') or \
+                self.bucket.get(archived) != original:
+            raise Failure(f'{archived} is not the message in the drive')
+        self.until('the Inbox without it', lambda: not self.shows(plain['subject']), limit=20)
+        if not any(e.get('remote') == archived for e in self.local_index('archive')):
+            raise Failure('the local Archive does not have it')
+        log(f'Archive moved {plain["key"]} to {archived} in the drive (same name)')
+
+    def draft_into_drive(self):
+        self.click('New E-mail')
+        opened = self.until('a new compose window', lambda: self.printed(
+            'AZMAIL_COMPOSE_OPEN', r'\S+ new'))
+        window = opened[-1].split()[0]
+        self.until('the new window', lambda: self.shows('Untitled - Message (HTML)', window))
+        if not self.shows('Azlin account: the drive keeps this message', window):
+            raise Failure('the message window does not say how an Azlin account sends')
+        self.type_into(PREFIX + 'compose_to', AZLIN_DRAFT_TO, window)
+        self.type_into(PREFIX + 'compose_subject', AZLIN_DRAFT_SUBJECT, window)
+        self.click('Save Draft', window)
+        uploaded = self.until('the draft in the drive', lambda: [
+            line for line in self.printed('AZMAIL_DRAFT_UPLOADED') + self.printed(
+                'AZMAIL_DRAFT_UPLOAD_FAILED') if line.startswith(window + ' ')], limit=30)
+        if uploaded[-1] in self.printed('AZMAIL_DRAFT_UPLOAD_FAILED'):
+            raise Failure(f'the draft did not go into the drive: {uploaded[-1]}')
+        key = uploaded[-1].split(' ', 1)[1]
+        drafts = self.bucket.keys('mail/Drafts/')
+        if drafts != [key] or not key.endswith('.eml') or \
+                not azlin_client.STAMP.match(key.rsplit('/', 1)[1][:-len('.eml')]):
+            raise Failure(f'mail/Drafts/ holds {drafts}, the draft is {key}')
+        data = self.bucket.get(key)
+        if AZLIN_DRAFT_SUBJECT.encode() not in data or AZLIN_DRAFT_TO.encode() not in data:
+            raise Failure(f'{key} is not the draft:\n{data[:500]!r}')
+        self.click('Discard', window, closes=True)
+        self.until('the draft window to close', lambda: window in self.printed(
+            'AZMAIL_COMPOSE_CLOSED'))
+        log(f'Save Draft put {key} into the drive')
+
+    def check_no_drive_token(self):
+        token = self.seed['drive_token'].encode()
+        for dirpath, _, files in os.walk(self.data):
+            for name in files:
+                with open(os.path.join(dirpath, name), 'rb') as f:
+                    data = f.read()
+                # No drive token at all - the seeded one, nor any rotated one (dt_<family>.).
+                if token in data or b'dt_f_' in data:
+                    raise Failure(f'a drive token is in {os.path.join(dirpath, name)}')
+        output = (self.output('azmail') + self.output('azmail', 'err')).encode()
+        if token in output or b'dt_f_' in output:
+            raise Failure("a drive token is in AzMail's output")
+        log('no drive token is in any file AzMail wrote or in its output')
+
+    def check_token_rotated(self):
+        """AzMail's sign-in rotated the drive token: the seeded one is dead - and using it now
+        makes the token server revoke the family (the last step, for that reason)."""
+        status, value, _ = azlin_client.TokenClient(self.token_url).refresh(
+            self.seed['drive_id'], self.seed['drive_token'])
+        if status != 401 or (value or {}).get('error') != 'token_reuse':
+            raise Failure(f'the seeded drive token still works after the sign-in: HTTP {status} '
+                          f'{value}')
+        log("the seeded drive token is dead after AzMail's sign-in (401 token_reuse)")
+
+    def run(self):
+        log(f'logs and data: {self.tmp}')
+        os.makedirs(self.data)
+        self.start_stack()
+        self.seed_drive()
+        self.start_azlin_app()
+        self.add_azlin_account()
+        self.check_azlin_files()
+        self.check_folders_from_drive()
+        self.open_and_mark_read()
+        if self.args.azlin_big_mb > 0:
+            self.open_big_message()
+        self.archive()
+        self.draft_into_drive()
+        self.check_no_drive_token()
+        self.check_token_rotated()
+
+
 def run_phase(cls, args, what):
     run = cls(args)
     passed = False
@@ -1464,7 +1780,7 @@ def main():
     parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
     parser.add_argument('--keep-logs', action='store_true')
     parser.add_argument('--phase', choices=('all', 'empty', 'local', 'sample', 'account',
-                                            'submission'),
+                                            'submission', 'azlin'),
                         default='all',
                         help='empty: no account - the real window, File, the ways back (no '
                              'servers); local: no account - a message window, Local Folders '
@@ -1472,8 +1788,26 @@ def main():
                              'own window (the SMTP sink only); sample: --sample, the look and the '
                              'app-kit flows (no servers); account: the wizard, IMAP, SMTP; '
                              'submission: Account Settings, Sending: the signed-in route and '
-                             'DKIM, a mail to the sink')
+                             'DKIM, a mail to the sink; azlin: an Azlin account against the Azlin '
+                             'stack (the mailbox is files in the drive)')
+    parser.add_argument('--azlin', action='store_true', help='the same as --phase azlin')
+    parser.add_argument('--azlin-stack', choices=('mock', 'local'), default='mock',
+                        help='the azlin phase\'s token server and S3: mock (default) - '
+                             'scripts/azlin_mock_stack.py on free ports; local - the running '
+                             'stack (azctl dev up --processes)')
+    parser.add_argument('--azlin-token-url',
+                        help='with --azlin-stack local: the token server (default: '
+                             '$AZLIN_TOKEN_URL, the shared Azlin config, else '
+                             f'{azlin_client.LOCAL_TOKEN_URL})')
+    parser.add_argument('--azlin-s3-url',
+                        help="with --azlin-stack local: the S3 address when the bundle's "
+                             'endpoint is not reachable from here')
+    parser.add_argument('--azlin-big-mb', type=int, default=7,
+                        help='the azlin phase seeds a mail with an attachment of this many MiB '
+                             '(0: none) and opens it')
     args = parser.parse_args()
+    if args.azlin:
+        args.phase = 'azlin'
     passed = True
     if args.phase in ('all', 'empty'):
         passed &= run_phase(EmptyRun, args, 'empty: the real window with no account, File '
@@ -1492,6 +1826,11 @@ def main():
     if args.phase in ('all', 'submission'):
         passed &= run_phase(SubmissionRun, args, 'Sending: signed-in submission and DKIM, a mail '
                                                  'to the sink signed in and signed')
+    if args.phase in ('all', 'azlin'):
+        passed &= run_phase(AzlinRun, args, 'azlin: an Azlin account - signed in at the token '
+                                            'server, Inbox and Junk E-mail from the drive, the '
+                                            'read marker, a big message on open, Archive moved '
+                                            'the object, a draft in mail/Drafts/')
     sys.exit(0 if passed else 1)
 
 
