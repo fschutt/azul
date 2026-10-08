@@ -729,8 +729,8 @@ fn frame_field(app: &RefAny, label: &str, field: FrameField, value: f32) -> Dom 
 fn section_title(text: &str) -> Dom {
     Dom::create_p_with_text(text).with_css(
         "margin: 12px 0px 6px 0px; font-size: 13px; font-weight: bold; @theme(flora) { \
-         font-size: 11px; font-weight: normal; text-transform: uppercase; letter-spacing: \
-         0.12em; color: system:secondary-text; }",
+         font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: \
+         system:secondary-text; }",
     )
 }
 
