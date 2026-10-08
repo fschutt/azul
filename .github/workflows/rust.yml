@@ -1,18 +1,18 @@
 # .github/workflows/rust.yml
 #
 # Two modes:
-# - ci: Runs on push/PR, builds everything, runs tests, creates artifacts
+# - ci: builds everything, runs tests, creates artifacts. Runs ON DEMAND, not on every push:
+#   a collaborator's "ci run" comment on a pull request dispatches it on the PR's branch
+#   (ci-command.yml), or `gh workflow run rust.yml --ref <branch> -f run_mode=ci`; and on a
+#   release tag.
 # - deploy: Manual trigger, downloads CI artifacts, deploys to GitHub Pages
 
 name: build
 
 on:
   push:
-    branches:
-      - '**'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
-  pull_request:
 
   workflow_dispatch:
     inputs:
@@ -759,6 +759,12 @@ jobs:
           set -o pipefail
           cargo test -p azul-pim --no-fail-fast 2>&1 | tee azul-pim-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-pim-tests.txt
+
+      - name: Run azul-icons-haiku tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-icons-haiku --no-fail-fast 2>&1 | tee azul-icons-haiku-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-icons-haiku-tests.txt
 
       - name: Run azcloud-kit tests
         run: |

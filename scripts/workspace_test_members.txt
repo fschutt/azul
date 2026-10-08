@@ -45,6 +45,7 @@ tested: AzPhoto              # dll_tests (the raster core: blend modes, tiles, b
 tested: AzSheets             # dll_tests (the engine trait on a fake, the IronCalc adapter, the worker, the UI model)
 tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart lists, task files)
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
+tested: azul-icons-haiku     # dll_tests (names sorted and mapped once, every Material name drawn, every icon an HVIF azul draws)
 tested: azcloud-kit          # dll_tests (the token server's API, sessions, endpoints, the Azlin drive)
 tested: azul-termkit         # dll_tests (the VT parser, panes, sessions, the sample screens)
 tested: AzBuilder            # dll_tests (its lib; its page is also tested by scripts/debugger-ui/builder-dnd-*.mjs)
