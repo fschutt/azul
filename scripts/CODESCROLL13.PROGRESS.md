@@ -38,6 +38,7 @@ Measurement tools (not in the repo): /tmp/codescroll13/measure.py, run.sh (lock 
   lines would split after e.g. AzCode's highlight-done RefreshDom).
 - 0ce7e36fb fix(precascade): PreCascadeTransfers::virtual_views installed on the retained DOM before the
   dataset merge (core/src/diff.rs fingerprint_dom, dll/src/desktop/shell2/common/layout.rs).
+- ce03a115a azcode: a scroll's view kept by clone (the FFI event is not moved out of).
 
 ## IN PROGRESS
 - nothing (nothing compiled - the lead builds).
@@ -55,3 +56,9 @@ Measurement tools (not in the repo): /tmp/codescroll13/measure.py, run.sh (lock 
 - CpuHitTester::rebuild_from_layout_with_gpu reads overflow-x/y per node through get_property_slow
   (winning_inline_in linear scans of theme-conditioned inline props): 6 ms per notch over 4 rebuilds.
 - headless: every wait_frame repaint is a relayout_only of the whole DOM (inflates every headless timing).
+- What a notch costs now: the code view's VirtualView rendered again COLD (window.rs layout_dom_recursive_with_viewport:
+  "children lay out cold by design") - every line in view rebuilt, cascaded and laid out (~15 nodes per code line
+  with colours, two looks per build for the theme blocks), though most lines only moved. Next steps if the
+  re-measure is still too slow: reuse a child DOM's layout across re-renders, or scroll natively inside the view's
+  VirtualView (the explorer's model: pixel-smooth, a re-render per screen; f32 is exact only below ~880k lines).
+- cell_grid / data_table scroll the same way the code view did (app-owned top row, app rebuild per notch).
