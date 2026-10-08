@@ -59,10 +59,10 @@ names! {
     /// The search page and its field.
     SEARCH = "search";
     SEARCH_FIELD = "search-field";
-    /// The address page: its field, its play button, the sample.
+    /// The address dialog's field.
     ADDRESS_FIELD = "address-field";
-    ADDRESS_PLAY = "address-play";
-    ADDRESS_SAMPLE = "address-sample";
+    /// The overlay over the page (more info, a dialog); its panel is `overlay-<name>`.
+    OVERLAY = "overlay";
     /// The picture viewer and slide show.
     PICTURE = "picture";
     PICTURE_CAPTION = "picture-caption";

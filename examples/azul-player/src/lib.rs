@@ -53,6 +53,7 @@
 pub mod app;
 pub mod args;
 pub mod curtain;
+pub mod dialog;
 pub mod gallery;
 pub mod history;
 pub mod ids;
@@ -61,6 +62,7 @@ pub mod look;
 pub mod media;
 pub mod nav;
 pub mod options;
+pub mod overlay;
 pub mod pages;
 pub mod scan;
 pub mod settings;

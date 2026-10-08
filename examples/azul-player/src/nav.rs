@@ -14,8 +14,10 @@ use crate::{
     app::{self, Player},
     gallery::{self, Step},
     library::Shelf,
-    media::{self, Command},
+    dialog,
+    media::{self, Command, CommandRef},
     options::{self, Category},
+    overlay,
     pages::{self, Place, Screen, Section, Tile, View, Zone},
     settings,
     strip::{Action, Needs, CATEGORIES},
@@ -34,10 +36,10 @@ pub enum Act {
     Tile(usize),
     /// The now-playing inset.
     NowPlaying,
-    /// The address page's play button: the address in the field plays.
-    OpenAddress,
-    /// The address page's sample: it plays.
-    Sample,
+    /// A choice of the overlay (more info's row, a dialog's button).
+    Choice(usize),
+    /// Beside the overlay's panel: its Back.
+    Dismiss,
     /// A category of the settings' list.
     SettingsCategory(usize),
     /// A part of a settings page: a row the keys land on, or a button after them.
@@ -91,8 +93,36 @@ pub fn back_in(s: &mut Player) -> bool {
     true
 }
 
-/// Back (a button, Backspace, Escape): a video closes, else the page before comes back.
+/// Back (the back button, Backspace, Escape): leaving now playing while the music is PAUSED
+/// asks first - stop it (its inset goes), or keep it paused for later - else `go_back`.
 pub fn back(app: &RefAny, info: &mut CallbackInfo) -> Update {
+    {
+        let mut app_ref = app.clone();
+        let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        let paused = s.place().screen == Screen::NowPlaying
+            && s.music.as_ref().is_some_and(|m| !m.playing());
+        if paused {
+            let song = s
+                .music
+                .as_ref()
+                .and_then(|m| {
+                    m.current_item(&s).map(|i| i.title.clone()).or_else(|| {
+                        m.current()
+                            .map(|p| crate::library::file_title(std::path::Path::new(p)))
+                    })
+                })
+                .unwrap_or_default();
+            dialog::open(&mut s, overlay::music_paused(&song));
+            return Update::RefreshDom;
+        }
+    }
+    go_back(app, info)
+}
+
+/// Back without a question: a video closes, else the page before comes back.
+pub fn go_back(app: &RefAny, info: &mut CallbackInfo) -> Update {
     let is_video = {
         let mut app_ref = app.clone();
         let Some(s) = app_ref.downcast_ref::<Player>() else {
@@ -231,7 +261,14 @@ pub fn activate(app: &RefAny, info: &mut CallbackInfo, action: Action) -> Update
             Update::RefreshDom
         }
         Action::OpenFile => media::run(app, info, Command::Open),
-        Action::OpenAddress => page(Screen::Address),
+        // Open an address: Media Center's dialog over the strip (the field, play, a sample).
+        Action::OpenAddress => {
+            let mut app_ref = app.clone();
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                dialog::open(&mut s, overlay::address());
+            }
+            Update::RefreshDom
+        }
         Action::Settings => media::run(app, info, Command::Settings),
         Action::MediaOnly => media::run(app, info, Command::Fullscreen),
         Action::Refresh => media::run(app, info, Command::Refresh),
@@ -625,7 +662,7 @@ fn arrow_step(key: VirtualKeyCode) -> Option<Step> {
 }
 
 /// Now playing (the inset, Enter on it).
-fn open_now_playing(app: &RefAny, info: &mut CallbackInfo) -> Update {
+pub fn open_now_playing(app: &RefAny, info: &mut CallbackInfo) -> Update {
     let mut app_ref = app.clone();
     if let Some(mut s) = app_ref.downcast_mut::<Player>() {
         if s.place().screen != Screen::NowPlaying {
@@ -658,7 +695,6 @@ fn enter(app: &RefAny, info: &mut CallbackInfo) -> Update {
                 open_tile(app, info, focus.index)
             }
         }
-        Screen::Address => open_address(app, info, None),
         Screen::NowPlaying | Screen::Picture | Screen::Video => {
             media::run(app, info, Command::PlayPause)
         }
@@ -688,6 +724,8 @@ pub fn open_address(app: &RefAny, info: &mut CallbackInfo, sample: Option<&str>)
         }
         let text = s.address.trim().to_string();
         if media::web_address(&text).is_none() {
+            // The dialog stays (comes back) to have it corrected.
+            dialog::open(&mut s, overlay::address());
             s.notice("An address starts with http:// or https:// and names an MP4 or MOV video.");
             return Update::RefreshDom;
         }
@@ -756,8 +794,8 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
             open_tile(&app, &mut info, index)
         }
         Act::NowPlaying => open_now_playing(&app, &mut info),
-        Act::OpenAddress => open_address(&app, &mut info, None),
-        Act::Sample => open_address(&app, &mut info, Some(crate::ui::SAMPLE_ADDRESS)),
+        Act::Choice(i) => dialog::press(&app, &mut info, Some(i)),
+        Act::Dismiss => dialog::dismiss(&app, &mut info),
         Act::SettingsCategory(i) => {
             let mut app_ref = app.clone();
             if let Some(mut s) = app_ref.downcast_mut::<Player>() {
@@ -800,6 +838,8 @@ pub extern "C" fn on_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 zoned || before != (s.strip.row, s.strip.col())
             }
             Act::Tile(index) => focus_tile(&mut s, index),
+            // An overlay's choice under the pointer takes its focus.
+            Act::Choice(i) => dialog::point(&mut s, i),
             // The settings: the pointer over a category or a row brings the bar of light.
             Act::SettingsCategory(i) | Act::Setting(i) => {
                 let f = &mut s.place_mut().focus;
@@ -823,6 +863,49 @@ pub extern "C" fn on_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// A part took the keyboard focus (Tab): the app's focus follows it.
 pub extern "C" fn on_focus(data: RefAny, info: CallbackInfo) -> Update {
     on_hover(data, info)
+}
+
+/// The right button on a part (a strip item, a tile, the inset): the focus goes to it and its
+/// more info opens - Media Center's, never a desktop context menu.
+pub extern "C" fn on_more(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((app, act)) = data
+        .downcast_ref::<ActRef>()
+        .map(|a| (a.app.clone(), a.act.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    {
+        let mut app_ref = app.clone();
+        let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        if s.overlay.is_some() {
+            return Update::DoNothing;
+        }
+        match act {
+            Act::Strip(row, col) => {
+                s.strip.set(row, col);
+                s.place_mut().focus.zone = Zone::Content;
+            }
+            Act::Tile(index) => {
+                focus_tile(&mut s, index);
+            }
+            Act::NowPlaying => s.place_mut().focus.zone = Zone::Inset,
+            _ => return Update::DoNothing,
+        }
+    }
+    info.prevent_default();
+    dialog::open_more_info(&app)
+}
+
+/// The inset's stop button: the music ends and the inset goes - the click is the button's
+/// alone (it does not also open now playing).
+pub extern "C" fn on_inset_stop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let Some(app) = data.downcast_ref::<CommandRef>().map(|c| c.app.clone()) else {
+        return Update::DoNothing;
+    };
+    media::run(&app, &mut info, Command::Stop)
 }
 
 /// The wheel over the strip or a gallery: a category, or a column, per notch.
@@ -940,9 +1023,18 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
+    // An overlay (more info, a dialog) takes the keys while it shows: it is modal.
+    if let Some(update) = dialog::key(&app, &mut info, key, modifiers) {
+        return update;
+    }
     if key == VirtualKeyCode::O && modifiers.primary_down() {
         info.prevent_default();
         return media::on_open(app, info);
+    }
+    // More info (Media Center's remote button): the menu key, Ctrl+D.
+    if key == VirtualKeyCode::Apps || (key == VirtualKeyCode::D && modifiers.ctrl) {
+        info.prevent_default();
+        return dialog::open_more_info(&app);
     }
     // The settings are AzPlayer's own pages: Ctrl+, (Cmd+, on macOS) their list, F1 the keys.
     if key == VirtualKeyCode::Comma && modifiers.primary_down() {
@@ -972,18 +1064,13 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 | Screen::Section(_)
                 | Screen::Group { .. }
                 | Screen::Search
-                | Screen::Address
                 | Screen::Settings
                 | Screen::SettingsPage(_)
         );
         let zone = s.zone();
-        // A field with words in it (and the keys): Backspace edits it rather than going back.
-        let searching = zone == Zone::Content
-            && match screen {
-                Screen::Search => !s.query.is_empty(),
-                Screen::Address => !s.address.is_empty(),
-                _ => false,
-            };
+        // The search field with words in it (and the keys): Backspace edits it rather than
+        // going back.
+        let searching = zone == Zone::Content && screen == Screen::Search && !s.query.is_empty();
         (screen, searching, media::transport_key(&s, key, gallery), zone)
     };
     // A zone that is not the page: its Enter and its arrows.
@@ -999,9 +1086,9 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
         }
     }
-    // The search and the address fields keep their letters, Space and Backspace.
+    // The search field keeps its letters, Space and Backspace.
     let typing = zone == Zone::Content
-        && matches!(screen, Screen::Search | Screen::Address)
+        && screen == Screen::Search
         && !matches!(
             key,
             VirtualKeyCode::Up
@@ -1015,6 +1102,11 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         );
     if typing {
         return Update::DoNothing;
+    }
+    // More info: I as well, where no field takes the letter.
+    if key == VirtualKeyCode::I && !modifiers.primary_down() && !modifiers.alt {
+        info.prevent_default();
+        return dialog::open_more_info(&app);
     }
     match key {
         VirtualKeyCode::Escape if fullscreen => {
@@ -1043,10 +1135,8 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(step) = arrow_step(key) else {
         return Update::DoNothing;
     };
-    // Left / Right move the caret of the search and address fields.
-    if matches!(screen, Screen::Search | Screen::Address)
-        && matches!(step, Step::Left | Step::Right)
-    {
+    // Left / Right move the caret of the search field.
+    if screen == Screen::Search && matches!(step, Step::Left | Step::Right) {
         return Update::DoNothing;
     }
     // Left / Right skip in what plays full-window as far as the settings say (a minute with

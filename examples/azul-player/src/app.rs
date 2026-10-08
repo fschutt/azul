@@ -43,6 +43,7 @@ use crate::{
     library::{Item, Library, Shelf, Status, LIBRARY_FILE, RECORDED_TV},
     media::{self, Music, VideoSession, Viewer},
     options::{self, Draft, Options},
+    overlay::Overlay,
     pages::{self, Place, Screen, Section, Tile, Zone},
     scan::{self, ArtDone, ArtJob, ArtSource, ScanBatch},
     strip::StripFocus,
@@ -201,6 +202,8 @@ pub struct Player {
     pub options: Options,
     /// What a settings page edits until save.
     pub draft: Option<Draft>,
+    /// The overlay over the page: an item's more info, a dialog (`overlay.rs`).
+    pub overlay: Option<Overlay>,
 }
 
 impl Player {
@@ -266,6 +269,7 @@ impl Player {
             clock_text: wall_clock(),
             options,
             draft: None,
+            overlay: None,
         }
     }
 
@@ -603,7 +607,7 @@ pub fn save_history(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
 }
 
 /// Writes the library file into the data tree, on a Thread.
-fn save_library(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
+pub fn save_library(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
     if let Some((root, key)) = s.root_and_key(LIBRARY_FILE) {
         kit::spawn_file_jobs(
             info,
@@ -705,13 +709,20 @@ extern "C" fn on_scan(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo)
     }
 }
 
-/// A library that changed under a page: its focus stays on a tile that exists.
-fn clamp_focus(app: &RefAny) {
+/// A library that changed under a page (a scan, a deleted file, a forgotten one): its focus
+/// stays on a tile that exists. Only a page of tiles: a settings page's focus is a row.
+pub fn clamp_focus(app: &RefAny) {
     let mut app_ref = app.clone();
     let Some(mut s) = app_ref.downcast_mut::<Player>() else {
         return;
     };
     let place = s.place().clone();
+    if !matches!(
+        place.screen,
+        Screen::Section(_) | Screen::Group { .. } | Screen::Search
+    ) {
+        return;
+    }
     let count = s.page_tiles(&place).len();
     let focus = &mut s.place_mut().focus;
     if count == 0 {

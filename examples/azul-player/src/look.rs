@@ -233,6 +233,8 @@ pub const KEYFRAMES: &str = "\
 @keyframes azp-rise-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0px); } }
 @keyframes azp-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes azp-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes azp-panel-in { from { opacity: 0; transform: translateX(64px); } to { opacity: 1; transform: translateX(0px); } }
+@keyframes azp-dialog-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
 @keyframes azp-burns-0 { 0% { opacity: 0; transform: scale(1.09) translateX(0%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateX(0%); } }
 @keyframes azp-burns-1 { 0% { opacity: 0; transform: scale(1.08) translateX(-2.5%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateX(0%); } }
 @keyframes azp-burns-2 { 0% { opacity: 0; transform: scale(1.08) translateX(2.5%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateX(0%); } }

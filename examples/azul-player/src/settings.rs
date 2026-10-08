@@ -1,8 +1,9 @@
 //! The settings at work (the model is `options.rs`, the pages' look `ui.rs`): the settings'
 //! list opens as a page of the media center; a category's page opens with a DRAFT of what is
 //! set now; Enter or a click on one of its rows turns a check box over, takes a radio list's
-//! choice, removes a library folder, adds one through the folder dialog, looks through the
-//! libraries again; SAVE makes the draft AzPlayer's - the window shows it at once, a library
+//! choice, removes a library folder (asked first, Media Center's question), adds one through
+//! the folder dialog, looks through the libraries again; SAVE makes the draft AzPlayer's - the
+//! window shows it at once, a library
 //! whose folders changed is looked through again - and writes it into the settings file
 //! (appkit's `player/settings.json`, on its file thread); CANCEL and Back drop it.
 //!
@@ -20,9 +21,11 @@ use azul_appkit::ui as kit;
 
 use crate::{
     app::{self, Player},
+    dialog,
     library::Shelf,
     nav,
     options::{self, Category, Draft, Facts, Press, Row},
+    overlay,
     pages::Screen,
 };
 
@@ -151,8 +154,10 @@ pub fn press(app: &RefAny, info: &mut CallbackInfo, index: usize) -> Update {
                 }
                 Then::Nothing
             }
+            // A folder: asked first (Media Center's question, "no" focused).
             Some(Row::Folder { shelf, path }) => {
-                remove_folder(&mut s, shelf, &path);
+                let question = overlay::confirm_remove_folder(shelf, &path.display().to_string());
+                dialog::open(&mut s, question);
                 Then::Nothing
             }
             Some(Row::Button {

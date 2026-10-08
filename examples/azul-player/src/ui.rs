@@ -18,7 +18,7 @@
 
 use azul::{
     callbacks::{SeekBarOnSeekCallbackType, TextInputOnTextInputCallbackType},
-    css::Css,
+    css::{Css, CssDeclaration, CssPropertyWithConditions},
     dom::{AttributeType, TabIndex},
     image::RawImageFormat,
     menu::{Menu, MenuItem, StringMenuItem},
@@ -26,7 +26,8 @@ use azul::{
     prelude::*,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    video::{VideoConfig, VideoPhase, VideoSource},
+    vec::CssPropertyWithConditionsVec,
+    video::{VideoConfig, VideoSource},
     widgets::{SeekBar, TextInput, VideoWidget},
 };
 use azul_appkit::ui as kit;
@@ -41,6 +42,7 @@ use crate::{
     media::{self, Command, CommandRef, Music, VideoSession},
     nav::{self, Act, ActRef},
     options::{self, Category, Row},
+    overlay::{Kind, Overlay},
     pages::{self, Place, Screen, Section, Tile, Zone},
     settings,
     strip::{Entry, CATEGORIES},
@@ -142,6 +144,10 @@ fn root(s: &Player, app: &RefAny) -> Dom {
     if stage.menus_mounted {
         root.add_child(menus(s, app, stage));
     }
+    // An overlay over everything - the menus, a video (a video that does not play says so).
+    if let Some(o) = s.overlay.as_ref() {
+        root.add_child(overlay_layer(s, app, o));
+    }
     root
 }
 
@@ -179,7 +185,6 @@ fn light_seed(s: &Player, place: &Place) -> usize {
         Screen::Section(section) => 7 + section.index(),
         Screen::Group { section, .. } => 13 + section.index(),
         Screen::Search => 21,
-        Screen::Address => 22,
         Screen::NowPlaying => 23,
         Screen::Settings => 24,
         Screen::SettingsPage(category) => 25 + category.index(),
@@ -237,7 +242,6 @@ fn page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
             gallery_page(s, app, place, &title, Some(&sub), stage)
         }
         Screen::Search => search_page(s, app, place, stage),
-        Screen::Address => address_page(s, app, stage),
         Screen::NowPlaying => now_playing_page(s, app, stage),
         Screen::Picture => picture_page(s, app),
         Screen::Video => Dom::create_div(),
@@ -307,6 +311,12 @@ fn act_part(dom: Dom, app: &RefAny, act: Act, name: &str) -> Dom {
             EventFilter::Focus(FocusEventFilter::FocusReceived),
             payload(&act),
             nav::on_focus,
+        )
+        // The right button: the part's more info (Media Center's), never a desktop menu.
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            payload(&act),
+            nav::on_more,
         )
 }
 
@@ -494,6 +504,30 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
                     ),
                     stage,
                 )),
+        )
+        // Stop: the music ends and the inset goes ("there needs to be a way to remove the
+        // currently paused item").
+        .with_child(
+            Dom::create_div()
+                .with_id(ids::id("inset-stop"))
+                .with_css(format!(
+                    "display: flex; flex-shrink: 0; width: 30px; height: 30px; margin: 0px 6px \
+                     0px 4px; cursor: pointer; border-radius: 15px; {NO_DRAG}"
+                ))
+                .with_accessibility_name("Stop the music")
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    RefAny::new(CommandRef {
+                        app: app.clone(),
+                        command: Command::Stop,
+                    }),
+                    nav::on_inset_stop,
+                )
+                .with_child(Dom::create_icon("stop").with_css(format!(
+                    "{} width: 30px; height: 30px; border-radius: 15px; font-size: 16px; {}",
+                    look::ROUND,
+                    look::icon_fade(stage)
+                ))),
         );
     Some(act_part(inset, app, Act::NowPlaying, "Now playing"))
 }
@@ -941,7 +975,7 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
 
 /// What a tile shows: its title, the line under it, its picture (when one was made), the icon
 /// it has without one.
-fn describe(s: &Player, tile: &Tile) -> (String, String, Art, &'static str) {
+pub(crate) fn describe(s: &Player, tile: &Tile) -> (String, String, Art, &'static str) {
     match tile {
         Tile::Group { shelf, group } => {
             let art = app::tile_art(s, tile).and_then(|job| s.art.get(&job.key).cloned().flatten());
@@ -1201,72 +1235,217 @@ fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
     page
 }
 
-/// The sample address the address page offers (the clip AzWidgets' Video card plays).
+/// The sample address the address dialog offers (the clip AzWidgets' Video card plays).
 pub const SAMPLE_ADDRESS: &str =
     "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
 
-/// Open an address: the field (Enter plays what it names), a play button, a sample; the video
-/// plays while it downloads.
-fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
-    let field = TextInput::create_url()
-        .with_text(s.address.as_str())
-        .with_placeholder("https://\u{2026}/video.mp4")
-        .with_accessibility_name("The video's address")
-        .with_on_text_input(app.clone(), nav::on_address as TextInputOnTextInputCallbackType)
-        .dom()
-        .with_id(ids::ADDRESS_FIELD)
-        .with_attribute(AttributeType::Autofocus)
-        .with_css("width: 560px;");
-    let play = Dom::create_div()
-        .with_id(ids::ADDRESS_PLAY)
+// ==== The overlays: more info, the dialogs ====
+
+/// A choice's row in the more-info panel; the panel's and a dialog's width.
+const CHOICE_H: f32 = 54.0;
+const MORE_W: f32 = 440.0;
+const DIALOG_W: f32 = 640.0;
+
+/// An overlay over the page (`overlay.rs`): the page darkens under it (a click there is the
+/// overlay's Back), the panel comes in on a spring and goes with a fade; its choices are big
+/// rows (more info) or buttons (a dialog), the focused one on the bar of light.
+fn overlay_layer(s: &Player, app: &RefAny, o: &Overlay) -> Dom {
+    let dim = Dom::create_div()
+        .with_id(ids::id("overlay-dim"))
         .with_css(format!(
-            "display: flex; width: 44px; height: 44px; margin-left: 14px; cursor: pointer; \
-             border-radius: 22px; :focus {{ box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, \
-             0.95); }}"
-        ))
-        .with_child(Dom::create_icon("play_arrow").with_css(format!(
-            "{} width: 44px; height: 44px; border-radius: 22px; font-size: 24px; {}",
-            look::ROUND,
-            look::icon_fade(stage)
-        )));
-    let sample = Dom::create_p_with_text("try: Big Buck Bunny (10 seconds, 360p)").with_css(format!(
-        "margin: 0px; padding: 4px 10px; border-radius: 4px; font-size: 16px; cursor: pointer; \
-         color: {}; {} :hover {{ color: #ffffff; }} :focus {{ box-shadow: 0px 0px 14px 2px \
-         rgba(118, 196, 255, 0.8); }}",
-        look::ACCENT,
-        look::text_fade(stage)
-    ));
+            "{} background: rgba(0, 6, 20, 0.62); cursor: default; -azul-animation-in: \
+             azp-fade-in 220ms ease-out;",
+            look::FILL
+        ));
+    let panel = match o.kind {
+        Kind::MoreInfo => more_info_panel(app, o),
+        Kind::Dialog | Kind::Address => dialog_panel(s, app, o),
+    };
     Dom::create_div()
-        .with_child(page_title("open an address", stage))
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    "position: absolute; left: 60px; top: 146px; display: flex; flex-direction: \
-                     row; align-items: center;",
-                )
-                .with_child(field)
-                .with_child(act_part(play, app, Act::OpenAddress, "Play the address")),
-        )
-        .with_child(text(
-            "An MP4 or MOV video (H.264) on a web server plays while it downloads; the sound \
-             starts with the picture.",
-            &format!(
-                "position: absolute; left: 62px; top: 212px; right: 60px; font-size: 18px; \
-                 font-weight: 300; color: {};",
-                look::INK_DIM
-            ),
-            stage,
+        .with_id(ids::OVERLAY)
+        .with_css(format!(
+            "{} -azul-animation-out: azp-fade-out 200ms ease-in;",
+            look::FILL
         ))
-        .with_child(
+        .with_child(act_part(dim, app, Act::Dismiss, "Close"))
+        .with_child(panel)
+}
+
+/// More info: a panel along the right of the window - "more info", the item's title in big
+/// type, what it is, then its choices down the panel, the bar of light gliding to the focused
+/// one (a move on a spring).
+#[allow(clippy::cast_precision_loss)]
+fn more_info_panel(app: &RefAny, o: &Overlay) -> Dom {
+    let stage = Curtain::Closed.stage();
+    let mut panel = Dom::create_div()
+        .with_id(ids::id(&format!("overlay-{}", o.name)))
+        .with_css(format!(
+            "position: absolute; top: 0px; right: 0px; bottom: 0px; width: {MORE_W}px; padding: \
+             {:.0}px 30px 30px 34px; box-sizing: border-box; display: flex; flex-direction: \
+             column; background: linear-gradient(to right, rgba(6, 22, 52, 0.93), rgba(10, 36, \
+             80, 0.97)); border-left: 1px solid rgba(255, 255, 255, 0.28); box-shadow: -18px 0px \
+             40px rgba(0, 0, 0, 0.45); -azul-animation-in: azp-panel-in 340ms spring;",
+            BAND_H + 12.0
+        ));
+    panel.add_child(text(
+        "more info",
+        &format!("font-size: 16px; color: {};", look::ACCENT),
+        stage,
+    ));
+    panel.add_child(text(
+        &o.title,
+        "font-size: 34px; font-weight: 300; margin-top: 4px; white-space: nowrap; overflow: \
+         hidden;",
+        stage,
+    ));
+    for line in &o.lines {
+        panel.add_child(text(
+            line,
+            &format!("font-size: 17px; margin-top: 6px; color: {};", look::INK_DIM),
+            stage,
+        ));
+    }
+    let mut list = Dom::create_div().with_css(format!(
+        "position: relative; margin-top: 26px; flex-shrink: 0; height: {:.0}px;",
+        CHOICE_H * o.choices.len() as f32
+    ));
+    list.add_child(
+        Dom::create_div()
+            .with_id(ids::id("overlay-focus"))
+            .with_css(format!(
+                "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {CHOICE_H}px; \
+                 animation: move 240ms spring;",
+                o.focus as f32 * CHOICE_H
+            ))
+            .with_child(Dom::create_div().with_css(look::bar(true, 4.0))),
+    );
+    for (i, c) in o.choices.iter().enumerate() {
+        let ink = if i == o.focus { look::INK } else { look::INK_DIM };
+        let row = Dom::create_div()
+            .with_id(ids::id(&format!("choice-{i}")))
+            .with_css(format!(
+                "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {CHOICE_H}px; \
+                 display: flex; flex-direction: row; align-items: center; cursor: pointer;",
+                i as f32 * CHOICE_H
+            ))
+            .with_child(icon(
+                c.icon,
+                &format!("width: 30px; margin-left: 14px; font-size: 24px; color: {ink};"),
+                stage,
+            ))
+            .with_child(text(
+                &c.label,
+                &format!(
+                    "margin-left: 14px; font-size: 23px; white-space: nowrap; color: {ink};"
+                ),
+                stage,
+            ));
+        list.add_child(act_part(row, app, Act::Choice(i), &c.label));
+    }
+    panel.add_child(list);
+    panel
+}
+
+/// The address field's look in the dialog (the widget's container and its text replaced):
+/// dark glass, big white type.
+fn field_style(css: &str) -> CssPropertyWithConditionsVec {
+    let parsed = Css::parse_inline(css);
+    let mut out = Vec::new();
+    for rule in parsed.rules.as_ref() {
+        for declaration in rule.declarations.as_ref() {
+            if let CssDeclaration::Static(property) = declaration {
+                out.push(CssPropertyWithConditions::simple(property.clone()));
+                out.push(CssPropertyWithConditions::dark_mode(property.clone()));
+            }
+        }
+    }
+    out.into()
+}
+
+/// A dialog: a panel in the middle of the window - its title in big type, its sentences, the
+/// address field (the address dialog: Enter plays what it names), its buttons in a row at its
+/// bottom right, the focused one lit.
+fn dialog_panel(s: &Player, app: &RefAny, o: &Overlay) -> Dom {
+    let stage = Curtain::Closed.stage();
+    let w = DIALOG_W.min(s.window.0 - 40.0).max(280.0);
+    let left = ((s.window.0 - w) / 2.0).max(0.0).round();
+    let mut panel = Dom::create_div()
+        .with_id(ids::id(&format!("overlay-{}", o.name)))
+        .with_css(format!(
+            "position: absolute; left: {left:.0}px; top: 22%; width: {w:.0}px; padding: 30px 34px \
+             26px 34px; box-sizing: border-box; display: flex; flex-direction: column; \
+             border-radius: 8px; background: linear-gradient(to bottom, rgba(16, 52, 108, 0.97), \
+             rgba(6, 24, 58, 0.97)); border: 1px solid rgba(255, 255, 255, 0.32); box-shadow: \
+             0px 18px 50px rgba(0, 0, 0, 0.55); -azul-animation-in: azp-dialog-in 300ms spring;"
+        ));
+    panel.add_child(text(&o.title, "font-size: 32px; font-weight: 300;", stage));
+    for (i, line) in o.lines.iter().enumerate() {
+        let mut line_dom = text(
+            line,
+            &format!("font-size: 18px; margin-top: 10px; color: {};", look::INK_DIM),
+            stage,
+        );
+        if i == 1 && o.name == "video-failed" {
+            // Why the video does not play (what scripts look for).
+            line_dom = line_dom.with_id(ids::NOTE);
+        }
+        panel.add_child(line_dom);
+    }
+    if o.kind == Kind::Address {
+        let field = TextInput::create_url()
+            .with_text(s.address.as_str())
+            .with_placeholder("https://\u{2026}/video.mp4")
+            .with_accessibility_name("The video's address")
+            .with_container_style(field_style(
+                "position: relative; cursor: text; box-sizing: border-box; display: flex; \
+                 flex-direction: row; align-items: center; height: 50px; padding: 0px 14px; \
+                 border-radius: 4px; background: rgba(0, 10, 30, 0.65); border: 1px solid \
+                 rgba(255, 255, 255, 0.5); color: #ffffff; font-size: 20px;",
+            ))
+            .with_label_style(field_style(
+                "display: block; flex-grow: 1; position: relative; overflow-x: auto; overflow-y: \
+                 hidden; scrollbar-width: none; white-space: pre; color: #ffffff; font-size: \
+                 20px;",
+            ))
+            .with_on_text_input(app.clone(), nav::on_address as TextInputOnTextInputCallbackType)
+            .dom()
+            .with_id(ids::ADDRESS_FIELD)
+            .with_attribute(AttributeType::Autofocus);
+        panel.add_child(
             Dom::create_div()
-                .with_css("position: absolute; left: 54px; top: 262px;")
-                .with_child(act_part(
-                    sample.with_id(ids::ADDRESS_SAMPLE),
-                    app,
-                    Act::Sample,
-                    "Play the sample video, Big Buck Bunny",
-                )),
-        )
+                .with_css("margin-top: 18px;")
+                .with_child(field),
+        );
+    }
+    let mut buttons = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; \
+         margin-top: 22px;",
+    );
+    for (i, c) in o.choices.iter().enumerate() {
+        let lit = i == o.focus;
+        let button = Dom::create_div()
+            .with_id(ids::id(&format!("choice-{i}")))
+            .with_css(
+                "position: relative; min-width: 120px; height: 50px; padding: 0px 22px; \
+                 margin-left: 14px; margin-top: 8px; box-sizing: border-box; display: flex; \
+                 flex-direction: row; align-items: center; justify-content: center; cursor: \
+                 pointer; border-radius: 4px; background: linear-gradient(to bottom, rgba(255, \
+                 255, 255, 0.16), rgba(255, 255, 255, 0.04)); border: 1px solid rgba(255, 255, \
+                 255, 0.3);",
+            )
+            .with_child(Dom::create_div().with_css(look::bar(lit, 4.0)))
+            .with_child(text(
+                &c.label,
+                &format!(
+                    "position: relative; font-size: 21px; white-space: nowrap; color: {};",
+                    if lit { look::INK } else { look::INK_DIM }
+                ),
+                stage,
+            ));
+        buttons.add_child(act_part(button, app, Act::Choice(i), &c.label));
+    }
+    panel.add_child(buttons);
+    panel
 }
 
 // ==== The settings ====
@@ -1904,19 +2083,7 @@ fn video_stage(s: &Player, video: &VideoSession, app: &RefAny, stage: Stage) -> 
         ))
         .with_child(video_dom);
     if open {
-        if video.status.phase == VideoPhase::Failed {
-            dom.add_child(
-                Dom::create_p_with_text(
-                    format!(
-                        "This video does not play here: {}",
-                        video.status.message.as_str()
-                    )
-                    .as_str(),
-                )
-                .with_id(ids::NOTE)
-                .with_css(format!("{} left: 32px; top: 88px;", look::PANEL)),
-            );
-        }
+        // A video that does not play says why in Media Center's dialog (`dialog.rs`), over it.
         let osd_text = s
             .osd
             .as_ref()

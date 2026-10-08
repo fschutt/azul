@@ -142,6 +142,31 @@ pub fn play_music(app: &RefAny, info: &mut CallbackInfo, paths: Vec<String>, sta
     }
 }
 
+/// Adds `paths` to the end of the queue: they play after what is queued (more info's "add to
+/// queue"). When nothing plays they play now, and the page stays.
+pub fn queue_music(app: &RefAny, info: &mut CallbackInfo, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    {
+        let mut app_ref = app.clone();
+        let Some(mut guard) = app_ref.downcast_mut::<Player>() else {
+            return;
+        };
+        let s = &mut *guard;
+        if let Some(m) = s.music.as_mut() {
+            m.paths.extend(paths);
+            let n = m.paths.len();
+            // The song after the one heard, if the queue had ended with it.
+            queue_next(s);
+            println!("AZPLAYER_QUEUE {n}");
+            s.notice("Added to the queue.");
+            return;
+        }
+    }
+    play_music(app, info, paths, 0, false);
+}
+
 /// Hands the player the song after the one heard (gapless), once.
 fn queue_next(s: &mut Player) {
     let Some((next, path)) = s.music.as_ref().and_then(|m| {
@@ -513,6 +538,14 @@ pub extern "C" fn on_video_status(
     if save {
         app::save_history(&app, s, &mut info);
     }
+    // A video that does not play here says so in Media Center's dialog (OK and Back close it).
+    if phase_changed && status.phase == VideoPhase::Failed {
+        let title = s.video.as_ref().map(VideoSession::title).unwrap_or_default();
+        crate::dialog::open(
+            s,
+            crate::overlay::video_failed(&title, status.message.as_str()),
+        );
+    }
     if rebuild {
         return Update::RefreshDom;
     }
@@ -855,15 +888,19 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
         Command::Home => return crate::nav::home(app, info),
         // The settings are pages of the media center (`settings.rs`), never the desktop's
         // Options dialog: a video closes first.
-        Command::Settings | Command::About => {
+        Command::Settings => {
             close_video(app, info);
             let mut app_ref = app.clone();
             if let Some(mut s) = app_ref.downcast_mut::<Player>() {
-                if command == Command::About {
-                    crate::settings::open_category(&mut s, crate::options::Category::About);
-                } else {
-                    crate::settings::open(&mut s);
-                }
+                crate::settings::open(&mut s);
+            }
+            return Update::RefreshDom;
+        }
+        // About: Media Center's dialog over the page, not the desktop's About box.
+        Command::About => {
+            let mut app_ref = app.clone();
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                crate::dialog::open_about(&mut s);
             }
             return Update::RefreshDom;
         }
