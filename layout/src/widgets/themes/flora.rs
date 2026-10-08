@@ -7053,11 +7053,11 @@ pub(crate) mod australis {
     }
 
     /// The application button: the RAISED accent stone of a primary command
-    /// (`.btn-primary`, its depth rig and streak) cut as the selected tab is
-    /// - the Azlin design system's gem in its gold setting, the rolled metal
-    /// under it - written in `--fl-on-acc`. The streak brightens under the
-    /// pointer over `--fl-dur-slow` (`.btn-primary::before`); held, the stone
-    /// sinks to its pressed face in `--fl-dur-fast`.
+    /// (`.btn-primary`, its depth rig and streak) cut as the selected tab is,
+    /// the Azlin design system's gem in its gold setting with the rolled
+    /// metal under it, written in `--fl-on-acc`. The streak brightens under
+    /// the pointer over `--fl-dur-slow` (`.btn-primary::before`); held, the
+    /// stone sinks to its pressed face in `--fl-dur-fast`.
     pub(crate) fn app_button(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
         type P = CssPropertyWithConditions;

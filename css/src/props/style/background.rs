@@ -1797,12 +1797,12 @@ pub mod parser {
         Ok((rest, boxes.last().copied()))
     }
 
-    /// Parses the `background` shorthand's layer list - each layer an image,
-    /// a gradient or (the last one) a colour, with an optional `<visual-box>`
-    /// - into its layers and, when any layer names a box, the
-    /// `background-clip` list that goes with them (a layer that names none
-    /// takes the initial `border-box`). Both in paint order, the bottom layer
-    /// first (see [`parse_style_background_content_multiple`]).
+    /// Parses the `background` shorthand's layer list into its layers and,
+    /// when any layer names a box, the `background-clip` list that goes with
+    /// them (a layer that names none takes the initial `border-box`). A layer
+    /// is an image, a gradient or (the last one) a colour, with an optional
+    /// `<visual-box>`. Both lists are in paint order, the bottom layer first
+    /// (see [`parse_style_background_content_multiple`]).
     ///
     /// `var(--fl-gem-sunken) padding-box, var(--fl-rolled-tab) border-box` -
     /// a face on the padding box over a gradient on the border box - is how
