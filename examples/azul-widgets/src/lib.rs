@@ -116,9 +116,11 @@ fn labelled(label: &str, widget: Dom) -> Dom {
 fn captioned(label: &str, content: Dom) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
+        // Under flora flora's label: capitals, tracked out.
         .with_child(Dom::create_span_with_text(label).with_css(
             "font-size: 12px; font-weight: bold; color: system:secondary-text; \
-             margin-bottom: 6px;",
+             margin-bottom: 6px; @theme(flora) { font-size: 11px; text-transform: uppercase; \
+             letter-spacing: 0.12em; }",
         ))
         .with_child(content)
 }
@@ -129,24 +131,28 @@ fn spinner_sample(name: &str, spinner: Dom) -> Dom {
         .with_css("display: flex; flex-direction: column; align-items: center; gap: 6px;")
         .with_child(spinner)
         .with_child(
-            Dom::create_span_with_text(name)
-                .with_css("font-size: 11px; color: system:tertiary-text;"),
+            Dom::create_span_with_text(name).with_css(
+                "font-size: 11px; color: system:tertiary-text; @theme(flora) { font-size: 12px; }",
+            ),
         )
 }
 
 fn section(title: &str, items: Vec<Dom>) -> Dom {
     let mut col =
         Dom::create_div()
+            // Under flora a card is a leaf at flora's 5px on the desk (the page), its
+            // title in capitals.
             .with_css(
                 "display: flex; flex-direction: column; background-color: \
                  system:window-background; border-radius: 10px; padding: 18px; margin-bottom: \
-                 20px;",
+                 20px; @theme(flora) { border-radius: 5px; }",
             )
             // A section title is a heading (the UA gives h2 a top margin;
             // the card's padding is the spacing here).
             .with_child(Dom::create_h2_with_text(title).with_css(
                 "font-size: 18px; font-weight: bold; color: system:text; margin-top: 0px; \
-                 margin-bottom: 14px;",
+                 margin-bottom: 14px; @theme(flora) { font-size: 15px; text-transform: \
+                 uppercase; letter-spacing: 0.08em; }",
             ));
     for it in items {
         col = col.with_child(it);
@@ -164,7 +170,8 @@ fn dock_zones(theme: UiTheme) -> Dom {
             .with_ids_and_classes(vec![IdOrClass::class("dock-zone")])
             .with_css(
                 "flex: 1; min-height: 160px; border: 1px dashed system:tertiary-text; \
-                 border-radius: 8px; padding: 6px; background-color: system:control-background;",
+                 border-radius: 8px; padding: 6px; background-color: system:control-background; \
+                 @theme(flora) { border-radius: 5px; }",
             );
         if let Some(c) = child {
             z = z.with_child(c);
@@ -187,14 +194,16 @@ fn dock_zones(theme: UiTheme) -> Dom {
     .with_css(
         "display: flex; flex-direction: column; background-color: system:window-background; \
          border: 1px solid system:separator; border-radius: 6px; box-shadow: 0px 1px 3px \
-         rgba(16, 24, 40, 0.1);",
+         rgba(16, 24, 40, 0.1); @theme(flora) { border-radius: 3px; box-shadow: 0px 1px 3px \
+         rgba(48, 45, 38, 0.14); }",
     )
     .with_child(
         Dom::create_div()
             .with_css(
                 "display: flex; flex-direction: row; align-items: center; justify-content: \
                  center; height: 18px; background-color: system:selection-background-inactive; \
-                 border-radius: 6px 6px 0px 0px; cursor: grab; -azul-app-region: drag;",
+                 border-radius: 6px 6px 0px 0px; cursor: grab; -azul-app-region: drag; \
+                 @theme(flora) { border-radius: 3px 3px 0px 0px; }",
             )
             .with_child(Dom::create_div().with_css(
                 "width: 36px; height: 4px; border-radius: 2px; background-color: \
@@ -269,7 +278,8 @@ fn menus_section(data: &RefAny, status: &str) -> Dom {
         .with_css(
             "display: flex; align-items: center; justify-content: center; height: 80px; border: \
              1px dashed system:tertiary-text; border-radius: 8px; background-color: \
-             system:control-background; color: system:secondary-text; cursor: context-menu;",
+             system:control-background; color: system:secondary-text; cursor: context-menu; \
+             @theme(flora) { border-radius: 5px; }",
         )
         .with_child(Dom::create_span_with_text(
             "Right-click me for a context menu",
@@ -294,11 +304,13 @@ fn menus_section(data: &RefAny, status: &str) -> Dom {
 const DROP_ZONE_IDLE_CSS: &str =
     "display: flex; flex-direction: column; align-items: center; justify-content: center; \
      min-height: 90px; border: 2px dashed system:tertiary-text; border-radius: 8px; \
-     background-color: system:control-background; color: system:secondary-text; padding: 12px;";
+     background-color: system:control-background; color: system:secondary-text; padding: 12px; \
+     @theme(flora) { border-radius: 5px; }";
 const DROP_ZONE_HOVER_CSS: &str =
     "display: flex; flex-direction: column; align-items: center; justify-content: center; \
      min-height: 90px; border: 2px dashed system:accent; border-radius: 8px; \
-     background-color: system:text-selection-background; color: system:text; padding: 12px;";
+     background-color: system:text-selection-background; color: system:text; padding: 12px; \
+     @theme(flora) { border-radius: 5px; }";
 
 extern "C" fn on_file_hover(mut data: RefAny, info: CallbackInfo) -> Update {
     let hovering = info.is_file_drag_active();
@@ -442,18 +454,21 @@ extern "C" fn on_tab_drop(mut data: RefAny, _: CallbackInfo) -> Update {
 const TAB_ACTIVE_CSS: &str =
     "display: flex; align-items: center; padding: 8px 16px; cursor: grab; background-color: \
      system:window-background; color: system:text; font-weight: bold; border-radius: 6px 6px \
-     0px 0px; -azul-user-select: none;";
+     0px 0px; -azul-user-select: none; @theme(flora) { border-radius: 3px 3px 0px 0px; \
+     text-transform: uppercase; letter-spacing: 0.07em; font-size: 12px; }";
 /// A document tab in the background: recessed between the strip and the pane.
 const TAB_IDLE_CSS: &str =
     "display: flex; align-items: center; padding: 8px 16px; cursor: grab; background-color: \
      system:under-page-background; color: system:secondary-text; font-weight: normal; \
-     border-radius: 6px 6px 0px 0px; -azul-user-select: none;";
+     border-radius: 6px 6px 0px 0px; -azul-user-select: none; @theme(flora) { border-radius: \
+     3px 3px 0px 0px; text-transform: uppercase; letter-spacing: 0.07em; font-size: 12px; \
+     font-weight: bold; }";
 
 fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom {
     let mut strip = Dom::create_div().with_css(
         "display: flex; flex-direction: row; gap: 2px; border-bottom: 1px solid \
          system:separator; background-color: system:background; border-radius: 8px 8px 0px 0px; \
-         padding: 4px 4px 0px 4px;",
+         padding: 4px 4px 0px 4px; @theme(flora) { border-radius: 5px 5px 0px 0px; }",
     );
     for (i, label) in tabs.iter().enumerate() {
         let is_active = i == active;
@@ -496,7 +511,8 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
         .with_css(
             "min-height: 90px; padding: 16px; background-color: system:window-background; \
              border: 1px solid system:separator; border-top-style: none; border-radius: 0px 0px \
-             8px 8px; color: system:secondary-text; font-family: system:monospace;",
+             8px 8px; color: system:secondary-text; font-family: system:monospace; \
+             @theme(flora) { border-radius: 0px 0px 5px 5px; }",
         )
         .with_child(
             Dom::create_span_with_text(format!("// {active_label}")).with_css(
@@ -1110,9 +1126,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
+        // Under flora the page is the desk the cards (leaves) lie on - the field paper
+        // (`system:background`) is lighter than a leaf in flora.
         .with_css(
             "margin: 0; font-family: system:ui; color: system:text; background-color: \
-             system:background; display: flex; flex-direction: column; height: 100%;",
+             system:background; display: flex; flex-direction: column; height: 100%; \
+             @theme(flora) { background-color: system:under-page-background; }",
         )
         .with_child(titlebar)
         .with_child(bar)

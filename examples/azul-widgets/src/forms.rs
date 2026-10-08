@@ -60,7 +60,8 @@ const COLUMNS_CSS: &str = "display: flex; flex-direction: row; gap: 32px;";
 /// The box the submitted form data is printed in.
 const OUTPUT_CSS: &str =
     "display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 6px; \
-     border: 1px solid system:separator; background-color: system:control-background;";
+     border: 1px solid system:separator; background-color: system:control-background; \
+     @theme(flora) { border-radius: 3px; }";
 /// One `name = value` line of the submitted form data.
 const OUTPUT_LINE_CSS: &str = "font-family: system:monospace; font-size: 12px; color: system:text;";
 /// The placeholder line of an empty output box.
