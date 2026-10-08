@@ -3224,8 +3224,8 @@ impl RibbonButton {
         }
     }
 
-    /// Makes this a split button: `on_arrow_click` runs when its ▾ part is
-    /// clicked (see [`Self::on_arrow_click`]); the arrow becomes
+    /// Makes this a split button: `on_arrow_click` runs when its arrow part
+    /// is clicked (see [`Self::on_arrow_click`]); the arrow becomes
     /// [`RibbonArrow::Split`].
     pub fn set_on_arrow_click<C: Into<super::button::ButtonOnClickCallback>>(
         &mut self,

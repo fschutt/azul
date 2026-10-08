@@ -63235,6 +63235,9 @@
                                 },
                                 "selected_row": {
                                     "type": "OptionUsize"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
                                 }
                             }
                         ],
@@ -63559,6 +63562,38 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_lazy_load_scroll(refany, on_lazy_load_scroll)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme: the list keeps this look whatever the app theme",
+                                    "is. Unset (`None`), it follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ListView"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"
@@ -73758,25 +73793,6 @@
                                 },
                                 "fn_body": "object.is_split()"
                             },
-                            "set_on_arrow_click": {
-                                "doc": [
-                                    "Makes this a split button: `on_arrow_click` runs when its ▾ part is",
-                                    "clicked (see [`Self::on_arrow_click`]); the arrow becomes",
-                                    "[`RibbonArrow::Split`]."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "data": "RefAny"
-                                    },
-                                    {
-                                        "on_arrow_click": "ButtonOnClickCallback"
-                                    }
-                                ],
-                                "fn_body": "object.set_on_arrow_click(data, on_arrow_click)"
-                            },
                             "with_on_arrow_click": {
                                 "doc": [
                                     "Builder method: [`Self::set_on_arrow_click`]."
@@ -73796,6 +73812,25 @@
                                     "type": "RibbonButton"
                                 },
                                 "fn_body": "object.with_on_arrow_click(data, on_arrow_click)"
+                            },
+                            "set_on_arrow_click": {
+                                "doc": [
+                                    "Makes this a split button: `on_arrow_click` runs when its arrow part",
+                                    "is clicked (see [`Self::on_arrow_click`]); the arrow becomes",
+                                    "[`RibbonArrow::Split`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_arrow_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_arrow_click(data, on_arrow_click)"
                             }
                         },
                         "repr": "C"
