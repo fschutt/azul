@@ -121,7 +121,7 @@ pub struct Bucket {
     /// The drive of every endpoint asked so far.
     drives: Mutex<Vec<(String, Arc<S3Drive>)>>,
     part_size: usize,
-    parallel: usize,
+    parallel: AtomicUsize,
     clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
 }
 
@@ -131,7 +131,7 @@ impl fmt::Debug for Bucket {
             .field("config", &self.config)
             .field("alternatives", &*lock(&self.alternatives))
             .field("part_size", &self.part_size)
-            .field("parallel", &self.parallel)
+            .field("parallel", &self.parallel())
             .finish_non_exhaustive()
     }
 }
@@ -153,7 +153,7 @@ impl Bucket {
             alternatives: Mutex::new(Vec::new()),
             drives: Mutex::new(Vec::new()),
             part_size: PART_SIZE,
-            parallel: PARALLEL,
+            parallel: AtomicUsize::new(PARALLEL),
             clock: None,
         })
     }
@@ -184,8 +184,14 @@ impl Bucket {
     }
 
     /// Sets how many parts or ranges of one big object are in flight (at least one).
-    pub fn set_parallel(&mut self, parallel: usize) {
-        self.parallel = parallel.max(1);
+    pub fn set_parallel(&self, parallel: usize) {
+        self.parallel.store(parallel.max(1), Ordering::Relaxed);
+    }
+
+    /// How many parts or ranges of one big object are in flight.
+    #[must_use]
+    pub fn parallel(&self) -> usize {
+        self.parallel.load(Ordering::Relaxed)
     }
 
     /// Sets the part size of multipart uploads and ranged downloads (at least one byte; S3
@@ -377,7 +383,7 @@ impl Bucket {
             .step_by(self.part_size)
             .map(|start| (start, (start + part - 1).min(len - 1)))
             .collect();
-        let parts = in_parallel(ranges.len(), self.parallel, |i| {
+        let parts = in_parallel(ranges.len(), self.parallel(), |i| {
             let (start, end) = ranges[i];
             let range = ByteRange::new(start, Some(end)).header_value();
             let reply = self.send(
@@ -503,7 +509,7 @@ impl Bucket {
             })?
             .to_string();
         let parts: Vec<&[u8]> = data.chunks(self.part_size).collect();
-        let etags = in_parallel(parts.len(), self.parallel, |i| {
+        let etags = in_parallel(parts.len(), self.parallel(), |i| {
             let query = vec![
                 pair("partNumber", (i + 1).to_string()),
                 pair("uploadId", upload_id.as_str()),

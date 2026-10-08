@@ -3,6 +3,7 @@
 
 mod account;
 mod bucket;
+mod cloud_drive;
 mod drive;
 mod endpoints;
 mod fake_s3;

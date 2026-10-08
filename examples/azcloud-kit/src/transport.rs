@@ -23,12 +23,28 @@
 //! stream, so an iroh build plugs in an [`IrohDialer`] that makes an azul-storage
 //! [`azul_storage::Transport`] to a node, and the kit does the rest.
 
-use std::time::Duration;
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    sync::{mpsc, Arc, Mutex, MutexGuard, PoisonError},
+    time::Duration,
+};
 
+use azul_appkit::azlin_config::Endpoint;
+use azul_storage::{Credentials, HttpCall, HttpReply, ObjectInfo, S3Config, Transport};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::settings::Settings;
+use crate::{
+    account::Account,
+    bucket::Bucket,
+    drive::TransportFactory,
+    error::{fail, CloudError, CloudResult},
+    now,
+    settings::{redact_url, Settings},
+    state::{read_json, write_json},
+    store::{Conditional, RemoteObject, RemoteStore, BIG_BLOB},
+};
 
 /// How long a probe waits for iroh's answer.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -235,4 +251,390 @@ pub struct TransportReport {
     pub probed: bool,
     /// Set when a request fell back from iroh to HTTPS during the run.
     pub fell_back: Option<String>,
+}
+
+/// Dials a node's S3 over iroh: what a build that links iroh plugs into [`CloudDrive::open`].
+/// The transport it makes sends the same signed requests the HTTPS one does - one request and
+/// its answer per QUIC stream - to the node `target`, through `relay` when one is configured
+/// (`off`, `default` or an address). Dropping the transport closes the connection.
+pub trait IrohDialer: Send + Sync {
+    /// A transport to `target`, ready to send; why not, otherwise.
+    fn dial(&self, target: &IrohTarget, relay: Option<&str>)
+        -> Result<Box<dyn Transport>, String>;
+}
+
+/// One dialed transport, shared by every request of the lane.
+struct Dialed(Arc<dyn Transport>);
+
+impl Transport for Dialed {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        self.0.send(call)
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Keeps the decision in `transport.json` (best effort: a failed write only
+/// costs the next run a probe).
+fn remember(path: &Path, lane: Lane, reason: &str, iroh_error: Option<String>) {
+    let failed = iroh_error.is_some();
+    let memory = TransportMemory {
+        lane,
+        reason: reason.to_string(),
+        decided_at: now(),
+        iroh_failed_at: failed.then(now),
+        iroh_error,
+    };
+    let _ = write_json(path, &memory, false);
+}
+
+/// One signed HEAD of a key that never exists, waited for at most [`PROBE_TIMEOUT`]: any
+/// answer means the pipe works.
+fn probe(bucket: &Arc<Bucket>) -> Result<(), String> {
+    let (answered, answer) = mpsc::channel();
+    let probing = bucket.clone();
+    std::thread::spawn(move || {
+        let _ = answered.send(probing.probe(PROBE_KEY));
+    });
+    match answer.recv_timeout(PROBE_TIMEOUT) {
+        Ok(result) => result,
+        Err(_) => Err(format!("no answer within {} s", PROBE_TIMEOUT.as_secs())),
+    }
+}
+
+/// A bucket over iroh to `target`, probed.
+fn try_iroh(
+    config: &S3Config,
+    credentials: &Credentials,
+    target: &IrohTarget,
+    relay: Option<&str>,
+    dialer: &dyn IrohDialer,
+) -> Result<Arc<Bucket>, String> {
+    let dialed: Arc<dyn Transport> = Arc::from(dialer.dial(target, relay)?);
+    let transports: TransportFactory =
+        Arc::new(move || Box::new(Dialed(dialed.clone())) as Box<dyn Transport>);
+    let bucket = Bucket::new(config.clone(), credentials.clone(), transports)
+        .map_err(|e| e.to_string())?;
+    let bucket = Arc::new(bucket);
+    probe(&bucket)?;
+    Ok(bucket)
+}
+
+/// One bucket of an account's drive over the transport this run chose: iroh when it was asked
+/// for (or `auto` found it answering), HTTPS otherwise and as the fallback. A [`RemoteStore`]:
+/// the sync and the shares talk to it as to any bucket. Blocking: call it from an azul
+/// `Thread`.
+pub struct CloudDrive {
+    https: Bucket,
+    iroh: Option<Arc<Bucket>>,
+    lane: Mutex<Lane>,
+    pref: TransportPref,
+    report: Mutex<TransportReport>,
+    memory_path: PathBuf,
+}
+
+impl fmt::Debug for CloudDrive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CloudDrive")
+            .field("bucket", &self.https.config().bucket)
+            .field("endpoint", &self.https.config().endpoint)
+            .field("lane", &self.lane())
+            .finish_non_exhaustive()
+    }
+}
+
+impl CloudDrive {
+    /// The drive of `account` (its credentials should be fresh: [`Account::ensure_fresh`]), over
+    /// the transport `settings` ask for. HTTPS goes through the account's transports; iroh
+    /// through `dialer` when the build can dial it (`None`: HTTPS only).
+    ///
+    /// # Errors
+    ///
+    /// When the credentials are missing, the endpoint or the bucket cannot be one, or iroh was
+    /// asked for and fails.
+    pub fn open(
+        account: &Account,
+        settings: &Settings,
+        dialer: Option<&dyn IrohDialer>,
+    ) -> CloudResult<CloudDrive> {
+        let credentials = account.credentials()?;
+        let record = account.record();
+        let (endpoint, endpoint_source) = match settings.endpoints.url(Endpoint::S3) {
+            Some(url) => (
+                url.to_string(),
+                settings.endpoints.get(Endpoint::S3).source.label(),
+            ),
+            None => (
+                record.endpoint.clone(),
+                format!("the drive's grant ({})", record.id),
+            ),
+        };
+        let config = S3Config {
+            endpoint: endpoint.clone(),
+            region: record.region.clone(),
+            bucket: record.bucket.clone(),
+            path_style: record.path_style,
+        };
+        let https = Bucket::new(
+            config.clone(),
+            credentials.clone(),
+            account.transports().clone(),
+        )?
+        .with_alternatives(record.node_urls());
+        let target = iroh_target(settings, &record.nodes);
+        let memory_path = account.state().transport_file();
+        let memory: Option<TransportMemory> = read_json(&memory_path).ok().flatten();
+        let pref = settings.transport_pref();
+        let iroh_built = dialer.is_some();
+        let decision = decide(pref, iroh_built, target.as_ref(), memory.as_ref(), now())
+            .map_err(CloudError::Failed)?;
+        let mut report = TransportReport {
+            preference: pref,
+            lane: Lane::Https,
+            reason: String::new(),
+            iroh_built,
+            iroh_target: target.clone(),
+            relay: settings.relay().map(String::from),
+            endpoint: redact_url(&endpoint),
+            endpoint_source,
+            probed: false,
+            fell_back: None,
+        };
+        let mut iroh = None;
+        match (decision, target.as_ref(), dialer) {
+            (Decision::Probe, Some(target), Some(dialer)) => {
+                report.probed = true;
+                match try_iroh(&config, &credentials, target, settings.relay(), dialer) {
+                    Ok(bucket) => {
+                        iroh = Some(bucket);
+                        report.lane = Lane::Iroh;
+                        report.reason = format!("iroh answered ({}, {})", target.id, target.source);
+                        remember(&memory_path, Lane::Iroh, &report.reason, None);
+                    }
+                    Err(e) if pref == TransportPref::Iroh => {
+                        fail!("iroh was asked for and failed: {e}");
+                    }
+                    Err(e) => {
+                        report.reason = format!(
+                            "iroh failed ({e}); https instead, iroh again in {IROH_RETRY_SECS} s"
+                        );
+                        remember(&memory_path, Lane::Https, &report.reason, Some(e));
+                    }
+                }
+            }
+            (Decision::Probe, _, _) => {
+                report.reason = String::from(NO_IROH_NODE);
+            }
+            (Decision::Https(reason), _, _) => report.reason = reason,
+        }
+        Ok(CloudDrive {
+            https,
+            iroh,
+            lane: Mutex::new(report.lane),
+            pref,
+            report: Mutex::new(report),
+            memory_path,
+        })
+    }
+
+    /// The transport now and why.
+    #[must_use]
+    pub fn transport(&self) -> TransportReport {
+        lock(&self.report).clone()
+    }
+
+    /// The lane requests take now.
+    #[must_use]
+    pub fn lane(&self) -> Lane {
+        *lock(&self.lane)
+    }
+
+    /// The bucket's name.
+    #[must_use]
+    pub fn bucket_name(&self) -> &str {
+        self.https.name()
+    }
+
+    /// The HTTPS bucket (its endpoint and credentials: a presigned link is an HTTPS link
+    /// whatever this session's transport).
+    #[must_use]
+    pub fn https_bucket(&self) -> &Bucket {
+        &self.https
+    }
+
+    /// Sets how many parts or ranges of one big object are in flight.
+    pub fn set_parallel(&self, parallel: usize) {
+        self.https.set_parallel(parallel);
+        if let Some(iroh) = &self.iroh {
+            iroh.set_parallel(parallel);
+        }
+    }
+
+    /// The S3 endpoint and where it came from, for messages.
+    #[must_use]
+    pub fn endpoint_label(&self) -> String {
+        let report = self.transport();
+        format!("{} ({})", report.endpoint, report.endpoint_source)
+    }
+
+    /// Closes the iroh connection, if there is one (a goodbye to the node instead of a
+    /// timeout on its side); dropping the drive does the same.
+    pub fn close(self) {}
+
+    fn fall_back(&self, what: &str, error: &CloudError) {
+        *lock(&self.lane) = Lane::Https;
+        let reason = format!("{what} failed over iroh ({error}); https for the rest of the run");
+        {
+            let mut report = lock(&self.report);
+            report.lane = Lane::Https;
+            report.fell_back = Some(reason.clone());
+        }
+        remember(
+            &self.memory_path,
+            Lane::Https,
+            &reason,
+            Some(error.to_string()),
+        );
+    }
+
+    /// Runs `call` on the bucket of the current lane. Over iroh, an error is retried over HTTPS
+    /// (`auto` only) when a probe shows iroh itself failed; an error iroh carried fine is the
+    /// server's, and is returned.
+    fn run<T>(&self, what: &str, call: impl Fn(&Bucket) -> CloudResult<T>) -> CloudResult<T> {
+        let iroh = match (self.lane(), self.iroh.as_ref()) {
+            (Lane::Iroh, Some(iroh)) => iroh,
+            _ => return call(&self.https),
+        };
+        match call(iroh) {
+            Ok(value) => Ok(value),
+            Err(e) if self.pref == TransportPref::Auto => {
+                if probe(iroh).is_ok() {
+                    return Err(e);
+                }
+                self.fall_back(what, &e);
+                call(&self.https)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// PUT (multipart above twice the part size); the ETag.
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn put(&self, key: &str, data: &[u8]) -> CloudResult<String> {
+        self.run("put", |b| b.put(key, data))
+    }
+
+    /// Conditional PUT: `If-Match: <etag>`, or `If-None-Match: *` without one; `None` when
+    /// another writer won (412).
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> CloudResult<Option<String>> {
+        self.run("conditional put", |b| b.put_if(key, data, if_match))
+    }
+
+    /// GET of a small object; `None` when there is none.
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn get(&self, key: &str) -> CloudResult<Option<Vec<u8>>> {
+        self.run("get", |b| b.get(key))
+    }
+
+    /// GET with ranges, several at once, for a big object (a HEAD first).
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn get_big(&self, key: &str) -> CloudResult<Option<Vec<u8>>> {
+        self.run("ranged get", |b| b.get_big(key))
+    }
+
+    /// HEAD: the size and ETag; `None` when there is none.
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn head(&self, key: &str) -> CloudResult<Option<(u64, String)>> {
+        self.run("head", |b| b.head(key))
+    }
+
+    /// DELETE (a missing object is no error).
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn delete(&self, key: &str) -> CloudResult<()> {
+        self.run("delete", |b| b.delete(key))
+    }
+
+    /// Every object under `prefix`, page by page.
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn list_all(&self, prefix: &str) -> CloudResult<Vec<ObjectInfo>> {
+        self.run("list", |b| b.list_all(prefix))
+    }
+
+    /// A conditional GET: `If-None-Match: <etag>` when one is given (the index's poll: a 304
+    /// means nothing changed).
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn get_unless(&self, key: &str, etag: Option<&str>) -> CloudResult<Conditional> {
+        self.run("conditional get", |b| b.get_unless(key, etag))
+    }
+}
+
+impl RemoteStore for CloudDrive {
+    fn get_unless(&self, key: &str, etag: Option<&str>) -> CloudResult<Conditional> {
+        CloudDrive::get_unless(self, key, etag)
+    }
+
+    fn fetch(&self, key: &str, size: u64) -> CloudResult<Option<Vec<u8>>> {
+        if size > BIG_BLOB {
+            self.get_big(key)
+        } else {
+            self.get(key)
+        }
+    }
+
+    fn put(&self, key: &str, data: &[u8]) -> CloudResult<String> {
+        CloudDrive::put(self, key, data)
+    }
+
+    fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> CloudResult<Option<String>> {
+        CloudDrive::put_if(self, key, data, if_match)
+    }
+
+    fn head(&self, key: &str) -> CloudResult<Option<u64>> {
+        Ok(CloudDrive::head(self, key)?.map(|(size, _)| size))
+    }
+
+    fn delete(&self, key: &str) -> CloudResult<()> {
+        CloudDrive::delete(self, key)
+    }
+
+    fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
+        self.run("list", |b| RemoteStore::list(b, prefix))
+    }
 }
