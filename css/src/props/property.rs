@@ -4931,6 +4931,25 @@ impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
 impl_from_css_prop!(StyleCaptionSide, CssProperty::CaptionSide);
 impl_from_css_prop!(StyleEmptyCells, CssProperty::EmptyCells);
 
+/// A shadow property's value on its way from `from` to `to` at `t`
+/// ([`crate::props::style::box_shadow::interpolate_shadow`]): `none`, a
+/// keyword or no value is no shadow, and no shadow is `none`.
+fn tween_shadow_value(
+    from: &StyleBoxShadowValue,
+    to: &StyleBoxShadowValue,
+    t: f32,
+) -> StyleBoxShadowValue {
+    let shadow = |v: &StyleBoxShadowValue| v.get_property().map(|s| **s);
+    match crate::props::style::box_shadow::interpolate_shadow(
+        shadow(from).as_ref(),
+        shadow(to).as_ref(),
+        t,
+    ) {
+        Some(s) => CssPropertyValue::Exact(BoxOrStatic::heap(s)),
+        None => CssPropertyValue::None,
+    }
+}
+
 impl CssProperty {
     #[must_use]
     pub const fn key(&self) -> &'static str {
@@ -5398,37 +5417,49 @@ impl CssProperty {
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::PerspectiveOrigin(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
-            // A single solid colour on both ends is a colour, and a colour
-            // tweens (a switch track fading between its off and on colours).
-            // Gradients, images, layers and unresolved system colours still
-            // take the half-way jump below.
-            // Faces that pair up layer by layer (a solid colour is the
-            // one-layer case, flora's gradient faces the rest) tween every
-            // colour (`interpolate_background_layers`); others switch half way.
+            // A face tweens layer by layer (a solid colour is the one-layer
+            // case, flora's gradient faces and stones the rest), fades in a
+            // layer it adds, and cross-fades into a face of another shape
+            // (`interpolate_background_layers`). No value is no layer: a
+            // background fades in from `none` and out to it. Only a face that
+            // cannot fade (an image) switches half way.
             (Self::BackgroundContent(start), Self::BackgroundContent(end)) => {
                 // A fn, not a closure: the returned slice borrows the argument
                 // (closures get no input-to-output lifetime elision).
-                fn layers(v: &StyleBackgroundContentVecValue) -> Option<&[StyleBackgroundContent]> {
-                    v.get_property().map(StyleBackgroundContentVec::as_slice)
-                }
-                match (layers(start), layers(end)) {
-                    (Some(a), Some(b)) => {
-                        match crate::props::style::background::interpolate_background_layers(
-                            a, b, t,
-                        ) {
-                            Some(mid) => Self::background_content(mid.into()),
-                            None if t > 0.5 => other.clone(),
-                            None => self.clone(),
-                        }
-                    }
-                    _ => {
-                        if t > 0.5 {
-                            other.clone()
-                        } else {
-                            self.clone()
-                        }
+                fn layers(v: &StyleBackgroundContentVecValue) -> &[StyleBackgroundContent] {
+                    match v.get_property() {
+                        Some(layers) => layers.as_slice(),
+                        None => &[],
                     }
                 }
+                match crate::props::style::background::interpolate_background_layers(
+                    layers(start),
+                    layers(end),
+                    t,
+                ) {
+                    Some(mid) => Self::background_content(mid.into()),
+                    None if t > 0.5 => other.clone(),
+                    None => self.clone(),
+                }
+            }
+            // A shadow slot tweens its shadow, fades one in or out, or fades
+            // an inset shadow into an outset one through no shadow
+            // (`interpolate_shadow`): flora's glow, its lip, its pressed well,
+            // its keyboard ring.
+            (Self::BoxShadowLeft(start), Self::BoxShadowLeft(end)) => {
+                Self::BoxShadowLeft(tween_shadow_value(start, end, t))
+            }
+            (Self::BoxShadowRight(start), Self::BoxShadowRight(end)) => {
+                Self::BoxShadowRight(tween_shadow_value(start, end, t))
+            }
+            (Self::BoxShadowTop(start), Self::BoxShadowTop(end)) => {
+                Self::BoxShadowTop(tween_shadow_value(start, end, t))
+            }
+            (Self::BoxShadowBottom(start), Self::BoxShadowBottom(end)) => {
+                Self::BoxShadowBottom(tween_shadow_value(start, end, t))
+            }
+            (Self::TextShadow(start), Self::TextShadow(end)) => {
+                Self::TextShadow(tween_shadow_value(start, end, t))
             }
             // Two lists of the same functions tween function by function, and
             // `none` / no value stands for the identity of the other side's
@@ -5458,14 +5489,7 @@ impl CssProperty {
                 }
             }
             /*
-            animate box shadow:
-            CssProperty::BoxShadowLeft(CssPropertyValue<StyleBoxShadow>),
-            CssProperty::BoxShadowRight(CssPropertyValue<StyleBoxShadow>),
-            CssProperty::BoxShadowTop(CssPropertyValue<StyleBoxShadow>),
-            CssProperty::BoxShadowBottom(CssPropertyValue<StyleBoxShadow>),
-
             animate background:
-            CssProperty::BackgroundContent(CssPropertyValue<StyleBackgroundContentVec>),
             CssProperty::BackgroundPosition(CssPropertyValue<StyleBackgroundPositionVec>),
             CssProperty::BackgroundSize(CssPropertyValue<StyleBackgroundSizeVec>),
             */
@@ -9718,7 +9742,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn interpolate_a_solid_background_colour_tweens_and_a_gradient_jumps() {
+    fn interpolate_a_solid_background_colour_tweens_and_a_stopless_gradient_jumps() {
         use crate::props::style::background::{LinearGradient, StyleBackgroundContent as B};
         let r = resolver();
         let solid = |c: ColorU| CssProperty::background_content(vec![B::Color(c)].into());
@@ -9749,7 +9773,9 @@ mod autotest_generated {
             "the half-way colour lies between the ends, got {c:?}"
         );
 
-        // A gradient has no colour to tween: it keeps the nearer endpoint.
+        // A gradient without stops paints nothing and has nothing to fade
+        // (a gradient WITH stops fades - `background_face_tween_tests`): it
+        // keeps the nearer endpoint.
         let gradient = CssProperty::background_content(
             vec![B::LinearGradient(LinearGradient::default())].into(),
         );
