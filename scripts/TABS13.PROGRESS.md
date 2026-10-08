@@ -24,17 +24,20 @@ Worktree: .claude/worktrees/agent-a44bac5bf68dda4ac, branch worktree-agent-a44ba
 - f93b2bd8e fix(css): background lists in paint order (CSS text was upside down) + layer_value
 - 351af4270 feat(css): background-clip per layer (StyleBackgroundClipVec), shorthand `<visual-box>`
 
+- 6e7b1eaef progress
+- 65a1625bf RED: flora tab rows (tabs.rs theme_tests + australis_tests, ribbon flora_tests,
+  theme_checks flora_css_* transcriptions, background_clips, fades)
+- a85e77131 fix(flora): rule = strip's transparent 2px foot over RULE_METAL; selected tab /
+  app button = stone padding-box over ROLLED_TAB border-box (transparent head, margin-bottom
+  -2px); S = filled band of ROLLED_TAB (tabs::curve_band); run-outs; hover hairline; fades
+- 548e9d653 test: painted flora tab row (layout/tests/a_flora_tab_row_is_cut_from_the_websites_metal.rs)
+
 ## IN PROGRESS
-- theme: the strip's rule = its 2px transparent bottom border over `--fl-rule-metal-bg`
-  (border-box layer under the padding-box face, no new node); selected tab = face padding-box
-  over `--fl-rolled-tab` border-box through a 2px transparent top border, margin-bottom -2px so
-  it covers the rule; the S curves' metal = the band the S covers, filled with the same rolled
-  gradient (path clip); run-outs as children of the tab; unselected tabs' hover border;
-  transitions at the site's effective values.
+- final review, report.
 
 ## NEXT
-- RED tests in tabs.rs / ribbon.rs for the theme, then the theme fix, then update the old
-  flora tab tests (TAB_METAL top edge / inset-shadow rule / margin-bottom 2px pins).
+- (lead) compile + run: css, layout --lib, layout --test all; autofix api.json; regenerate
+  lower_types; bless codegen goldens (families case background-clip).
 
 ## Answered
 - `.fl-tab-foot`: leave the blur out where the tab opens onto paper (coordinator); the tab must
