@@ -2854,6 +2854,7 @@ mod tests {
                 security: account::Security::Tls,
                 auth,
                 folder: None,
+                azlin: None,
             },
         )
         .unwrap();

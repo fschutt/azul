@@ -332,6 +332,15 @@ impl AzlinSession {
                 .is_some_and(|at| at <= now.saturating_add(REFRESH_MARGIN_SECS))
     }
 
+    /// The credentials still work at `now`, with a minute to spare: an action (a move, a mark)
+    /// uses them as they are; only Send/Receive refreshes.
+    pub fn is_valid_at(&self, now: u64) -> bool {
+        self.has_credentials()
+            && self
+                .expires_at
+                .is_none_or(|at| at > now.saturating_add(60))
+    }
+
     /// Where the bucket is: the endpoint the token server reported, or `endpoint_override`
     /// (`$AZLIN_S3_URL`, `--azlin-s3-url`).
     pub fn s3_config(&self, endpoint_override: Option<&str>) -> S3Config {
@@ -832,11 +841,14 @@ mod tests {
             session.needs_refresh(10_000 - REFRESH_MARGIN_SECS),
             "less than the margin left"
         );
+        assert!(session.is_valid_at(10_000 - 61), "an action uses them to the last minute");
+        assert!(!session.is_valid_at(10_000 - 60));
         session.expires_at = None;
         assert!(
             !session.needs_refresh(u64::MAX / 2),
             "long-lived keys never need one"
         );
+        assert!(session.is_valid_at(u64::MAX / 2));
         // A drive token typed into the wizard is a session too.
         assert_eq!(
             AzlinSession::from_secret("dt_f.0.typed", "d_1"),
