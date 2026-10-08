@@ -48,6 +48,29 @@ fn a_bundle_is_a_drives_file_entry_under_the_users_name_without_a_secret() {
 }
 
 #[test]
+fn a_bundle_keeps_the_node_list_and_the_failover_without_duplicates() {
+    let text = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").replace(
+        r#""failover": [], "nodes": []"#,
+        r#""failover": ["http://127.0.0.1:9001", "http://127.0.0.1:9002"],
+           "nodes": [{"name": "n1", "url": "http://127.0.0.1:9001", "ready": true},
+                     {"name": "n3", "public_url": "http://127.0.0.1:9003"}]"#,
+    );
+    let drive = DriveBundle::parse(&text).unwrap();
+    assert_eq!(drive.nodes.len(), 2);
+    assert_eq!(drive.nodes[0]["name"], "n1");
+    assert_eq!(drive.failover.len(), 2);
+    assert_eq!(
+        drive.node_urls(),
+        vec![
+            "http://127.0.0.1:9001",
+            "http://127.0.0.1:9003",
+            "http://127.0.0.1:9002"
+        ]
+    );
+    assert!(parsed().node_urls().is_empty());
+}
+
+#[test]
 fn a_bundle_without_its_token_servers_address_gets_the_one_it_came_from() {
     let text = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")
         .replace(&format!("\"account_url\": \"{TOKEN}\""), "\"account_url\": \"\"");

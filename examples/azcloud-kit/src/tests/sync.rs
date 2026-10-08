@@ -1,5 +1,5 @@
-//! The sync loop against a bucket in memory: two "devices" (two folders, two
-//! local indexes) sharing one [`MemStore`].
+//! The sync loop against an S3 service in memory, through the kit's bucket: two "devices"
+//! (two folders, two local indexes) sharing one bucket.
 
 use std::{
     collections::BTreeMap,
@@ -9,10 +9,16 @@ use std::{
 
 use azul_storage::testing::TempDir;
 
-use super::{
-    local::{hash_bytes, path_of},
-    remote::{blob_key, index_key},
-    *,
+use super::fake_s3::S3Bucket;
+use crate::{
+    sync::{
+        azlin_roots, collect_garbage,
+        local::{hash_bytes, path_of},
+        remote::{blob_key, index_key},
+        sync_folder, LocalRoot, RemoteFile, RemoteIndex, Rules, SyncOptions, SyncReport,
+        DATA_PREFIX, HOME_PREFIX,
+    },
+    CloudResult,
 };
 
 const PREFIX: &str = "e2e/sync/";
@@ -56,14 +62,12 @@ impl Device {
         SyncOptions::new(PREFIX, "d-test", self.name).unwrap()
     }
 
-    async fn sync(&self, store: &MemStore) -> SyncReport {
-        sync_folder(store, &self.root(), &self.index(), &self.opts())
-            .await
-            .unwrap()
+    fn sync(&self, store: &S3Bucket) -> SyncReport {
+        sync_folder(store, &self.root(), &self.index(), &self.opts()).unwrap()
     }
 
-    async fn sync_with(&self, store: &MemStore, opts: &SyncOptions) -> anyhow::Result<SyncReport> {
-        sync_folder(store, &self.root(), &self.index(), opts).await
+    fn sync_with(&self, store: &S3Bucket, opts: &SyncOptions) -> CloudResult<SyncReport> {
+        sync_folder(store, &self.root(), &self.index(), opts)
     }
 
     fn write(&self, key: &str, bytes: &[u8]) {
@@ -103,25 +107,25 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
     }
 }
 
-fn index_of(store: &MemStore) -> RemoteIndex {
+fn index_of(store: &S3Bucket) -> RemoteIndex {
     RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap()
 }
 
-#[tokio::test]
-async fn the_second_sync_of_an_unchanged_folder_uploads_nothing_and_writes_no_index() {
-    let store = MemStore::new();
+#[test]
+fn the_second_sync_of_an_unchanged_folder_uploads_nothing_and_writes_no_index() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("notes/a.md", b"alpha");
     a.write("notes/sub/b.md", b"beta");
     a.write("calc/history.jsonl", b"1+1=2\n");
-    let first = a.sync(&store).await;
+    let first = a.sync(&store);
     assert_eq!(first.files_up, 3);
     assert_eq!(first.blobs_up, 3);
     assert!(first.index_written);
     assert_eq!(first.generation, 1);
 
     store.clear_log();
-    let second = a.sync(&store).await;
+    let second = a.sync(&store);
     assert_eq!(second.files_up, 0, "{}", second.summary());
     assert_eq!(second.blobs_up, 0);
     assert_eq!(second.bytes_up, 0);
@@ -131,26 +135,26 @@ async fn the_second_sync_of_an_unchanged_folder_uploads_nothing_and_writes_no_in
     assert_eq!(store.count("GET"), 1, "one conditional GET of the index");
 }
 
-#[tokio::test]
-async fn two_devices_converge_on_the_same_files() {
-    let store = MemStore::new();
+#[test]
+fn two_devices_converge_on_the_same_files() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     let b = Device::new("dev-b");
     a.write("notes/a.md", b"alpha");
     a.write("notes/old.md", b"old");
     a.write("big/blob.bin", &vec![7u8; 9 * 1024 * 1024]);
-    a.sync(&store).await;
-    let got = b.sync(&store).await;
+    a.sync(&store);
+    let got = b.sync(&store);
     assert_eq!(got.files_down, 3, "{}", got.summary());
     assert_eq!(b.tree(), a.tree());
 
     b.write("notes/a.md", b"alpha, edited on b");
     b.write("notes/new.md", b"new on b");
     b.remove("notes/old.md");
-    let sent = b.sync(&store).await;
+    let sent = b.sync(&store);
     assert_eq!(sent.files_up, 2);
     assert_eq!(sent.deleted_there, 1);
-    let got = a.sync(&store).await;
+    let got = a.sync(&store);
     assert_eq!(got.files_down, 2);
     assert_eq!(got.deleted_here, 1);
     assert_eq!(a.tree(), b.tree());
@@ -158,16 +162,16 @@ async fn two_devices_converge_on_the_same_files() {
     let index = index_of(&store);
     assert!(index.deleted.contains_key("notes/old.md"), "a tombstone");
     // Nothing more to do on either side.
-    assert!(!a.sync(&store).await.index_written);
-    assert!(!b.sync(&store).await.index_written);
+    assert!(!a.sync(&store).index_written);
+    assert!(!b.sync(&store).index_written);
 }
 
-#[tokio::test]
-async fn a_lost_race_rereads_the_index_merges_again_and_retries() {
-    let store = MemStore::new();
+#[test]
+fn a_lost_race_rereads_the_index_merges_again_and_retries() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("x.md", b"x1");
-    a.sync(&store).await;
+    a.sync(&store);
     a.write("x.md", b"x2");
     // Device b commits y.md between a's read of the index and a's write.
     store.before_next_cas(|s| {
@@ -189,7 +193,7 @@ async fn a_lost_race_rereads_the_index_merges_again_and_retries() {
         );
         s.write(&key, index.to_bytes());
     });
-    let report = a.sync(&store).await;
+    let report = a.sync(&store);
     assert_eq!(report.cas_retries, 1, "{}", report.summary());
     assert!(report.index_written);
     assert_eq!(
@@ -203,18 +207,18 @@ async fn a_lost_race_rereads_the_index_merges_again_and_retries() {
     assert!(index.files.contains_key("y.md"), "b's commit survived");
 }
 
-#[tokio::test]
-async fn an_edit_on_both_devices_keeps_both_versions_on_both() {
-    let store = MemStore::new();
+#[test]
+fn an_edit_on_both_devices_keeps_both_versions_on_both() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     let b = Device::new("dev-b");
     a.write("notes/a.md", b"base");
-    a.sync(&store).await;
-    b.sync(&store).await;
+    a.sync(&store);
+    b.sync(&store);
     a.write("notes/a.md", b"edited on a");
     b.write("notes/a.md", b"edited on b!");
-    a.sync(&store).await;
-    let report = b.sync(&store).await;
+    a.sync(&store);
+    let report = b.sync(&store);
     assert_eq!(report.conflicts.len(), 1, "{}", report.summary());
     let copy = report.conflicts[0]
         .split(" -> ")
@@ -229,80 +233,76 @@ async fn an_edit_on_both_devices_keeps_both_versions_on_both() {
         "a committed first"
     );
     assert_eq!(b.read(&copy).as_deref(), Some(&b"edited on b!"[..]));
-    a.sync(&store).await;
+    a.sync(&store);
     assert_eq!(a.tree(), b.tree());
     assert_eq!(a.tree().len(), 2);
 }
 
-#[tokio::test]
-async fn a_delete_travels_and_an_edit_beats_a_delete() {
-    let store = MemStore::new();
+#[test]
+fn a_delete_travels_and_an_edit_beats_a_delete() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     let b = Device::new("dev-b");
     a.write("x.md", b"x");
     a.write("y.md", b"y");
-    a.sync(&store).await;
-    b.sync(&store).await;
+    a.sync(&store);
+    b.sync(&store);
     a.remove("x.md");
-    a.sync(&store).await;
-    assert_eq!(b.sync(&store).await.deleted_here, 1);
+    a.sync(&store);
+    assert_eq!(b.sync(&store).deleted_here, 1);
     assert!(b.read("x.md").is_none());
 
     b.remove("y.md");
     a.write("y.md", b"y, edited on a");
-    b.sync(&store).await;
+    b.sync(&store);
     assert!(!index_of(&store).files.contains_key("y.md"));
-    let report = a.sync(&store).await;
+    let report = a.sync(&store);
     assert_eq!(
         report.files_up,
         1,
         "the edit comes back: {}",
         report.summary()
     );
-    b.sync(&store).await;
+    b.sync(&store);
     assert_eq!(b.read("y.md").as_deref(), Some(&b"y, edited on a"[..]));
 }
 
-#[tokio::test]
-async fn an_emptied_folder_does_not_delete_the_drive() {
-    let store = MemStore::new();
+#[test]
+fn an_emptied_folder_does_not_delete_the_drive() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     for i in 0..20 {
         a.write(&format!("f{i}.txt"), format!("{i}").as_bytes());
     }
-    a.sync(&store).await;
+    a.sync(&store);
     for i in 0..20 {
         a.remove(&format!("f{i}.txt"));
     }
-    let err = a
-        .sync_with(&store, &a.opts())
-        .await
-        .unwrap_err()
-        .to_string();
+    let err = a.sync_with(&store, &a.opts()).unwrap_err().to_string();
     assert!(err.contains("--allow-mass-delete"), "{err}");
     assert_eq!(index_of(&store).files.len(), 20, "nothing was deleted");
     let mut opts = a.opts();
     opts.allow_mass_delete = true;
-    let report = a.sync_with(&store, &opts).await.unwrap();
+    let report = a.sync_with(&store, &opts).unwrap();
     assert_eq!(report.deleted_there, 20);
 }
 
-#[tokio::test]
-async fn a_dry_run_plans_without_writing_anything() {
-    let store = MemStore::new();
+#[test]
+fn a_dry_run_plans_without_writing_anything() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("a.md", b"a");
     let mut opts = a.opts();
     opts.dry_run = true;
-    let report = a.sync_with(&store, &opts).await.unwrap();
+    let report = a.sync_with(&store, &opts).unwrap();
     assert_eq!(report.planned, vec![String::from("up a.md")]);
     assert_eq!(store.count("PUT"), 0);
     assert!(!a.index().exists());
 }
 
-#[tokio::test]
-async fn temporary_lock_and_bookkeeping_files_never_travel() {
-    let store = MemStore::new();
+#[test]
+fn temporary_lock_and_bookkeeping_files_never_travel() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("a.md", b"a");
     a.write("a.md~", b"backup");
@@ -313,42 +313,40 @@ async fn temporary_lock_and_bookkeeping_files_never_travel() {
     a.write("private/diary.md", b"secret");
     let mut b_root = a.root().with_ignore_file();
     b_root.path = a.folder.path().to_path_buf();
-    let report = sync_folder(&store, &b_root, &a.index(), &a.opts())
-        .await
-        .unwrap();
+    let report = sync_folder(&store, &b_root, &a.index(), &a.opts()).unwrap();
     let index = index_of(&store);
     let keys: Vec<&str> = index.files.keys().map(String::as_str).collect();
     assert_eq!(keys, vec![".azcloudignore", "a.md"], "{}", report.summary());
     assert!(report.excluded >= 5, "{report:?}");
 }
 
-#[tokio::test]
-async fn a_damaged_blob_is_refused_and_its_file_left_alone() {
-    let store = MemStore::new();
+#[test]
+fn a_damaged_blob_is_refused_and_its_file_left_alone() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     let b = Device::new("dev-b");
     a.write("a.md", b"good");
-    a.sync(&store).await;
+    a.sync(&store);
     store.write(&blob_key(PREFIX, &hash_bytes(b"good")), b"evil".to_vec());
-    let report = b.sync(&store).await;
+    let report = b.sync(&store);
     assert_eq!(report.files_down, 0);
     assert!(report.errors[0].contains("damaged"), "{:?}", report.errors);
     assert!(b.read("a.md").is_none());
     // Repaired, the next run takes it.
     store.write(&blob_key(PREFIX, &hash_bytes(b"good")), b"good".to_vec());
-    assert_eq!(b.sync(&store).await.files_down, 1);
+    assert_eq!(b.sync(&store).files_down, 1);
 }
 
-#[tokio::test]
-async fn a_download_into_the_data_tree_keeps_its_manifest_right() {
-    let store = MemStore::new();
+#[test]
+fn a_download_into_the_data_tree_keeps_its_manifest_right() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     let mut b = Device::new("dev-b");
     b.data_tree = true;
     b.rules = Rules::azlin_data();
     a.write("contacts/ab12.vcf", b"BEGIN:VCARD\nEND:VCARD\n");
-    a.sync(&store).await;
-    b.sync(&store).await;
+    a.sync(&store);
+    b.sync(&store);
     let manifest = fs::read_to_string(b.folder.path().join(".azlin").join("cache")).unwrap();
     assert!(manifest.contains("contacts/ab12.vcf"), "{manifest}");
     assert!(
@@ -360,9 +358,9 @@ async fn a_download_into_the_data_tree_keeps_its_manifest_right() {
     );
 }
 
-#[tokio::test]
-async fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key() {
-    let store = MemStore::new();
+#[test]
+fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key() {
+    let store = S3Bucket::new();
     let mut a = Device::new("dev-a");
     let mut b = Device::new("dev-b");
     for d in [&mut a, &mut b] {
@@ -377,8 +375,8 @@ async fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key()
         "config.json",
         br#"{"endpoints": {"profile": "production"}}"#,
     );
-    a.sync(&store).await;
-    let report = b.sync(&store).await;
+    a.sync(&store);
+    let report = b.sync(&store);
     assert_eq!(
         report.merged,
         vec![String::from("config.json")],
@@ -409,9 +407,9 @@ async fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key()
     let mut on_b = on_b;
     on_b["currentTheme"] = serde_json::json!("flora");
     b.write("config.json", &serde_json::to_vec(&on_b).unwrap());
-    a.sync(&store).await;
-    b.sync(&store).await;
-    a.sync(&store).await;
+    a.sync(&store);
+    b.sync(&store);
+    a.sync(&store);
     for d in [&a, &b] {
         let v: serde_json::Value = serde_json::from_slice(&d.read("config.json").unwrap()).unwrap();
         assert_eq!(v["currentTheme"], "flora", "{}: {v}", d.name);
@@ -421,36 +419,36 @@ async fn the_shared_config_travels_without_its_endpoints_and_merges_key_by_key()
     assert_eq!(on_a["endpoints"]["profile"], "local");
 }
 
-#[tokio::test]
-async fn a_stale_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_deleted() {
-    let store = MemStore::new();
+#[test]
+fn a_stale_copy_on_a_new_device_of_a_file_deleted_elsewhere_is_deleted() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("old.md", b"old");
     a.write("keep.md", b"keep");
-    a.sync(&store).await;
+    a.sync(&store);
     a.remove("old.md");
-    a.sync(&store).await;
+    a.sync(&store);
     // A device restored from a backup that still holds old.md, never synced.
     let c = Device::new("dev-c");
     c.write("old.md", b"old");
-    let report = c.sync(&store).await;
+    let report = c.sync(&store);
     assert_eq!(report.deleted_here, 1, "{}", report.summary());
     assert!(c.read("old.md").is_none());
     assert_eq!(c.read("keep.md").as_deref(), Some(&b"keep"[..]));
 }
 
-#[tokio::test]
-async fn an_index_that_went_back_deletes_nothing_on_either_side() {
-    let store = MemStore::new();
+#[test]
+fn an_index_that_went_back_deletes_nothing_on_either_side() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("a.md", b"a");
     a.write("b.md", b"b");
-    a.sync(&store).await;
+    a.sync(&store);
     a.write("c.md", b"c");
-    a.sync(&store).await;
+    a.sync(&store);
     // Someone deleted the index; a's base is newer than what is there now.
     store.write(&index_key(PREFIX), RemoteIndex::empty().to_bytes());
-    let report = a.sync(&store).await;
+    let report = a.sync(&store);
     assert!(
         report.notes.iter().any(|n| n.contains("deletes nothing")),
         "{report:?}"
@@ -464,18 +462,18 @@ async fn an_index_that_went_back_deletes_nothing_on_either_side() {
     );
 }
 
-#[tokio::test]
-async fn garbage_collection_deletes_only_old_blobs_no_index_names() {
-    let store = MemStore::new();
+#[test]
+fn garbage_collection_deletes_only_old_blobs_no_index_names() {
+    let store = S3Bucket::new();
     let a = Device::new("dev-a");
     a.write("a.md", b"one");
-    a.sync(&store).await;
+    a.sync(&store);
     a.write("a.md", b"two");
-    a.sync(&store).await;
-    let report = collect_garbage(&store, PREFIX, 3600, false).await.unwrap();
+    a.sync(&store);
+    let report = collect_garbage(&store, PREFIX, 3600, false).unwrap();
     assert_eq!(report.deleted, 0, "young blobs stay: {report:?}");
     assert_eq!(report.kept_young, 1);
-    let report = collect_garbage(&store, PREFIX, -1, false).await.unwrap();
+    let report = collect_garbage(&store, PREFIX, -1, false).unwrap();
     assert_eq!(report.deleted, 1, "{report:?}");
     assert!(store.read(&blob_key(PREFIX, &hash_bytes(b"one"))).is_none());
     assert!(store.read(&blob_key(PREFIX, &hash_bytes(b"two"))).is_some());

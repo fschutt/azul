@@ -1,7 +1,7 @@
 //! One device's state folder (`--state-dir`, `AZCLOUD_HOME`, else
 //! `<OS config folder>/azcloud`): everything this device knows about its
 //! drives, kept OUT of every folder it syncs (the `.azlin` folder syncs, so a
-//! secret there would reach the bucket and every other device - PLAN §13.5).
+//! secret there would reach the bucket and every other device).
 //!
 //! - `drives.json`: the drives, in azul-storage's format without secrets (the
 //!   file AzDrive reads; `AZUL_DRIVES=<state>/drives.json` points it here).
@@ -11,7 +11,7 @@
 //!   keyring's entry names ([`crate::secrets`]).
 //! - `device.json`: this device's id and name (conflict copies, the index's
 //!   `updated_by`).
-//! - `transport.json`: the last transport decision ([`crate::drive`]).
+//! - `transport.json`: the last transport decision ([`crate::transport`]).
 //! - `sync/`: one local index per synced folder ([`crate::sync`]).
 //!
 //! Files are written through a temporary file and a rename, so a crash never
@@ -26,10 +26,12 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use anyhow::{bail, Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::secrets::FileSecrets;
+use crate::{
+    error::{fail, CloudError, CloudResult, Context},
+    secrets::FileSecrets,
+};
 
 /// The drives, in azul-storage's format.
 pub const DRIVES_FILE: &str = "drives.json";
@@ -78,6 +80,20 @@ pub fn clean_device_name(name: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// Ten random characters of lowercase base32 (RFC 4648's alphabet), from the repo's one seed
+/// source: the part of a device id after `dev-`.
+fn random_name() -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut seed = azul_storage::ids::random_seed();
+    (0..10)
+        .map(|_| {
+            let c = char::from(ALPHABET[(seed & 31) as usize]);
+            seed >>= 5;
+            c
+        })
+        .collect()
+}
+
 /// The state folder of one device.
 #[derive(Clone, Debug)]
 pub struct StateDir {
@@ -91,8 +107,9 @@ impl StateDir {
     /// # Errors
     ///
     /// When the folder cannot be made.
-    pub fn open(root: &Path) -> Result<StateDir> {
-        create_private_dir(root).with_context(|| format!("the state folder {}", root.display()))?;
+    pub fn open(root: &Path) -> CloudResult<StateDir> {
+        create_private_dir(root)
+            .with_context(|| format!("the state folder {}", root.display()))?;
         Ok(StateDir {
             root: root.to_path_buf(),
         })
@@ -135,12 +152,12 @@ impl StateDir {
     /// # Errors
     ///
     /// When `device.json` cannot be read or written.
-    pub fn device(&self, name: Option<&str>) -> Result<Device> {
+    pub fn device(&self, name: Option<&str>) -> CloudResult<Device> {
         let path = self.root.join(DEVICE_FILE);
         if let Some(device) = read_json::<Device>(&path)? {
             return Ok(device);
         }
-        let id = format!("dev-{}", &azlin_proto::random_id("")[..10]);
+        let id = format!("dev-{}", random_name());
         let env_name = std::env::var(DEVICE_VAR).ok();
         let name = name
             .or(env_name.as_deref())
@@ -162,7 +179,7 @@ impl StateDir {
     /// # Errors
     ///
     /// When the lock is still held after `wait`, or the file cannot be made.
-    pub fn lock(&self, name: &str, wait: Duration) -> Result<StateLock> {
+    pub fn lock(&self, name: &str, wait: Duration) -> CloudResult<StateLock> {
         let path = self.root.join(format!("{name}.lock"));
         let start = Instant::now();
         loop {
@@ -181,7 +198,7 @@ impl StateDir {
                         continue;
                     }
                     if start.elapsed() >= wait {
-                        bail!(
+                        fail!(
                             "{} is held by another azcloud; remove the file if none runs",
                             path.display()
                         );
@@ -326,11 +343,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8], private: bool) -> std::io::Result
 /// # Errors
 ///
 /// When the file cannot be read or is not the JSON of a `T`.
-pub fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
+pub fn read_json<T: DeserializeOwned>(path: &Path) -> CloudResult<Option<T>> {
     match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .with_context(|| format!("{} cannot be read", path.display())),
+        Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| {
+            CloudError::failed(format!("{} cannot be read: {e}", path.display()))
+        }),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e).with_context(|| format!("{}", path.display())),
     }
@@ -341,73 +358,9 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>> {
 /// # Errors
 ///
 /// When it cannot be written.
-pub fn write_json<T: Serialize>(path: &Path, value: &T, private: bool) -> Result<()> {
-    let mut text = serde_json::to_string_pretty(value)?;
+pub fn write_json<T: Serialize>(path: &Path, value: &T, private: bool) -> CloudResult<()> {
+    let mut text = serde_json::to_string_pretty(value)
+        .map_err(|e| CloudError::failed(format!("{}: {e}", path.display())))?;
     text.push('\n');
     write_atomic(path, text.as_bytes(), private).with_context(|| format!("{}", path.display()))
-}
-
-#[cfg(test)]
-mod tests {
-    use azul_storage::testing::TempDir;
-
-    use super::*;
-
-    #[test]
-    fn a_device_is_minted_once_and_its_name_is_safe_in_a_file_name() {
-        let dir = TempDir::new("azcloud-device");
-        let state = StateDir::open(&dir.path().join("state")).unwrap();
-        let first = state.device(Some("Ann's MacBook / Pro")).unwrap();
-        assert!(first.id.starts_with("dev-"), "{first:?}");
-        assert_eq!(first.name, "Ann-s-MacBook-Pro");
-        let again = state.device(Some("other")).unwrap();
-        assert_eq!(again, first, "the second call reads it");
-        assert_eq!(clean_device_name("  "), None);
-        assert_eq!(clean_device_name("a/../b").as_deref(), Some("a-..-b"));
-        assert_eq!(
-            clean_device_name(&"x".repeat(80)).map(|n| n.len()),
-            Some(32)
-        );
-    }
-
-    #[test]
-    fn a_lock_is_exclusive_until_dropped() {
-        let dir = TempDir::new("azcloud-lock");
-        let state = StateDir::open(dir.path()).unwrap();
-        let held = state.lock("refresh", Duration::ZERO).unwrap();
-        assert!(state.lock("refresh", Duration::ZERO).is_err());
-        drop(held);
-        assert!(state.lock("refresh", Duration::ZERO).is_ok());
-    }
-
-    #[test]
-    fn a_folder_that_holds_the_state_folder_or_lies_in_it_overlaps() {
-        let dir = TempDir::new("azcloud-overlap");
-        let state = StateDir::open(&dir.path().join("home").join("state")).unwrap();
-        assert!(state.overlaps(&dir.path().join("home")));
-        assert!(state.overlaps(&dir.path().join("home").join("state").join("sync")));
-        assert!(!state.overlaps(&dir.path().join("data")));
-        assert!(!state.overlaps(&dir.path().join("home").join("stateful")));
-    }
-
-    #[test]
-    fn an_atomic_write_replaces_the_file_whole_and_a_private_one_is_the_users_only() {
-        let dir = TempDir::new("azcloud-write");
-        let path = dir.path().join("a").join("secrets.json");
-        write_atomic(&path, b"one", true).unwrap();
-        write_atomic(&path, b"two", true).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"two");
-        let leftovers: Vec<_> = fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .flatten()
-            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
-            .collect();
-        assert!(leftovers.is_empty(), "no temporary file is left");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(&path).unwrap().permissions().mode();
-            assert_eq!(mode & 0o077, 0, "{mode:o}");
-        }
-    }
 }

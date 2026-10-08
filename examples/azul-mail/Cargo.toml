@@ -32,6 +32,9 @@ azul-icons-haiku = { path = "../azul-icons-haiku" }
 # `azul` feature is AzulTransport, azul's HTTP client under an Azlin account's S3 drive and its
 # token server calls (azlin.rs).
 azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The Azlin cloud client the apps share: an Azlin account's token server calls, the drive bundle
+# they answer, the address checks and the credentials' margins (azlin.rs).
+azcloud-kit = { path = "../azcloud-kit" }
 # The same features azul-layout builds chrono with: UTC dates for the files, local dates for the list.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # A sync IMAP client over any Read + Write stream (it runs on an azul Thread). No TLS feature: the

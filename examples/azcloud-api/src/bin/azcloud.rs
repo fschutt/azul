@@ -1,26 +1,36 @@
-//! `azcloud`: the Azlin cloud client on the command line - the e2e test of
-//! the crate when it runs against `azctl dev up` (AZDRIVE-INTEGRATION.md §3)
-//! and the tool that shows where every endpoint came from (`azcloud config`).
-//! See [`USAGE`]. With `--json` every command prints one JSON object (`"ok":
-//! false` and the error when it failed); exit code 0 ok, 1 failed, 2 usage.
+//! `azcloud`: the Azlin cloud client on the command line - the end-to-end test of
+//! azcloud-kit when it runs against a local stack, and the tool that shows where
+//! every endpoint came from (`azcloud config`). See [`USAGE`]. With `--json` every
+//! command prints one JSON object (`"ok": false` and the error when it failed);
+//! exit code 0 ok, 1 failed, 2 usage.
+//!
+//! Everything but the transports is azcloud-kit's: the account, the state folder,
+//! the settings, the bucket, the sync, the links. This binary brings reqwest for
+//! HTTPS and, with the `iroh` feature, the dialer of "S3 over iroh"; their futures
+//! run on one tokio runtime while the kit's blocking calls wait on the main thread.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
     process::ExitCode,
+    sync::Arc,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use azcloud_api::{
+use azcloud_api::{https::HttpsTransport, os_dirs, HTTPS_TIMEOUT};
+use azcloud_kit::{
     account::{Account, AccountFile, JoinCode},
-    drive::Drive,
+    drive::TransportFactory,
     settings::{Flags, Settings},
     share,
     state::{write_atomic, StateDir, ACCOUNT_FILE},
     sync::{self, local::hash_bytes, LocalRoot, SyncOptions},
+    transport::{CloudDrive, IrohDialer},
+    CloudError,
 };
 use azul_appkit::azlin_config::{Endpoint, EndpointFlags};
+use azul_storage::Transport;
 use serde_json::{json, Value};
 
 const USAGE: &str = "\
@@ -240,31 +250,54 @@ impl Args {
 /// What a command prints: its JSON and its text.
 type Output = (Value, String);
 
+/// How the commands reach the network: HTTPS for the token server and the bucket, and the
+/// dialer of S3 over iroh when this build has one.
+struct Net {
+    transports: TransportFactory,
+    dialer: Option<Box<dyn IrohDialer>>,
+}
+
 fn rfc3339(unix: i64) -> String {
     if unix <= 0 {
         String::from("never (a long-lived key)")
     } else {
-        azlin_proto::time::rfc3339(unix)
+        azcloud_kit::rfc3339(unix)
+    }
+}
+
+/// A listing's time as S3 writes it (`2026-10-08T09:15:00.000Z`).
+fn listing_time(unix: Option<u64>) -> String {
+    match unix {
+        Some(secs) => {
+            let stamp = azul_storage::time::iso8601(secs);
+            format!("{}.000Z", stamp.trim_end_matches('Z'))
+        }
+        None => String::new(),
     }
 }
 
 fn open_state(settings: &Settings) -> Result<StateDir> {
-    StateDir::open(settings.state_path()?)
+    Ok(StateDir::open(settings.state_path()?)?)
 }
 
 /// The account of this device's state folder, its credentials renewed when
 /// they are due (unless `--no-refresh`).
-async fn open_account(settings: &Settings, args: &Args) -> Result<Account> {
+fn open_account(settings: &Settings, net: &Net, args: &Args) -> Result<Account> {
     let state = open_state(settings)?;
-    let mut account = Account::open(&state, settings.token_url()?, args.value("--drive"))?;
+    let mut account = Account::open(
+        &state,
+        settings.token_url()?,
+        net.transports.clone(),
+        args.value("--drive"),
+    )?;
     if !args.on("--no-refresh") {
-        account.ensure_fresh().await?;
+        account.ensure_fresh()?;
     }
     Ok(account)
 }
 
-async fn open_drive(settings: &Settings, account: &Account, args: &Args) -> Result<Drive> {
-    let mut drive = Drive::open(account, settings).await?;
+fn open_drive(settings: &Settings, net: &Net, account: &Account, args: &Args) -> Result<CloudDrive> {
+    let drive = CloudDrive::open(account, settings, net.dialer.as_deref())?;
     if let Some(parallel) = args.number::<usize>("--parallel")? {
         drive.set_parallel(parallel);
     }
@@ -297,14 +330,14 @@ fn cmd_config(settings: &Settings) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_signup(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let state = open_state(settings)?;
     let device = state.device(args.value("--device-name"))?;
     let tier = args.value("--tier").unwrap_or("100GB");
     let name = args.value("--name").unwrap_or("Azlin Storage");
     let token_url = settings.token_url()?;
     let token_source = settings.endpoints.get(Endpoint::Token).source.label();
-    let account = Account::signup(&state, token_url, tier, name).await?;
+    let account = Account::signup(&state, token_url, net.transports.clone(), tier, name)?;
     let r = account.record();
     let value = json!({
         "ok": true, "drive": r.id, "bucket": r.bucket, "endpoint": r.endpoint, "tier": r.tier,
@@ -328,9 +361,9 @@ async fn cmd_signup(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_invite(settings: &Settings, args: &Args) -> Result<Output> {
-    let account = open_account(settings, args).await?;
-    let code = account.invite(args.value("--member")).await?;
+fn cmd_invite(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let account = open_account(settings, net, args)?;
+    let code = account.invite(args.value("--member"))?;
     let encoded = code.encode();
     match args.path("--out") {
         Some(path) => {
@@ -357,7 +390,7 @@ async fn cmd_invite(settings: &Settings, args: &Args) -> Result<Output> {
     }
 }
 
-async fn cmd_join(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let text = match (
         args.path("--code-file"),
         args.rest().first().map(String::as_str),
@@ -376,7 +409,7 @@ async fn cmd_join(settings: &Settings, args: &Args) -> Result<Output> {
     let state = open_state(settings)?;
     let device = state.device(args.value("--device-name"))?;
     let token_url = settings.token_url()?;
-    let account = Account::join(&state, token_url, &code).await?;
+    let account = Account::join(&state, token_url, net.transports.clone(), &code)?;
     let r = account.record();
     let moved =
         (code.token_url.trim_end_matches('/') != token_url.trim_end_matches('/')).then(|| {
@@ -398,9 +431,14 @@ async fn cmd_join(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_status(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_status(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let state = open_state(settings)?;
-    let account = Account::open(&state, settings.token_url()?, args.value("--drive"))?;
+    let account = Account::open(
+        &state,
+        settings.token_url()?,
+        net.transports.clone(),
+        args.value("--drive"),
+    )?;
     let r = account.record();
     let s3 = match settings.endpoints.url(Endpoint::S3) {
         Some(url) => format!(
@@ -409,11 +447,11 @@ async fn cmd_status(settings: &Settings, args: &Args) -> Result<Output> {
         ),
         None => format!("{} (the drive's grant)", r.endpoint),
     };
-    let due = account.needs_refresh(azcloud_api::now());
+    let due = account.needs_refresh(azcloud_kit::now());
     let note = token_note(&account);
     let value = json!({
         "ok": true, "drive": r.id, "name": r.name, "bucket": r.bucket, "member": r.member,
-        "s3": s3, "token_url": account.api().base(), "drive_token_url": r.token_url,
+        "s3": s3, "token_url": account.token_url(), "drive_token_url": r.token_url,
         "expires_at": rfc3339(r.expires_at), "refresh_due": due,
         "refreshed_at": rfc3339(r.refreshed_at), "nodes": r.nodes, "failover": r.failover,
         "read_only": r.read_only, "quota_bytes": r.quota_bytes, "note": note,
@@ -445,18 +483,23 @@ async fn cmd_status(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_info(settings: &Settings, args: &Args) -> Result<Output> {
-    let account = open_account(settings, args).await?;
-    let mut info = account.info().await?;
+fn cmd_info(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let account = open_account(settings, net, args)?;
+    let mut info = account.info()?;
     let text = format!("{}\n", serde_json::to_string_pretty(&info)?);
     info["ok"] = json!(true);
     Ok((info, text))
 }
 
-async fn cmd_refresh(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_refresh(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let state = open_state(settings)?;
-    let mut account = Account::open(&state, settings.token_url()?, args.value("--drive"))?;
-    account.refresh().await?;
+    let mut account = Account::open(
+        &state,
+        settings.token_url()?,
+        net.transports.clone(),
+        args.value("--drive"),
+    )?;
+    account.refresh()?;
     let r = account.record();
     let value = json!({"ok": true, "drive": r.id, "expires_at": rfc3339(r.expires_at),
                        "nodes": r.nodes.len(), "failover": r.failover});
@@ -469,11 +512,11 @@ async fn cmd_refresh(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_transport(settings: &Settings, args: &Args) -> Result<Output> {
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
+fn cmd_transport(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
     let report = drive.transport();
-    drive.close().await;
+    drive.close();
     let mut value = serde_json::to_value(&report)?;
     value["ok"] = json!(true);
     let target = report
@@ -505,14 +548,11 @@ async fn cmd_transport(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-fn lane_name(drive: &Drive) -> String {
-    serde_json::to_value(drive.lane())
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default()
+fn lane_name(drive: &CloudDrive) -> String {
+    drive.lane().name().to_string()
 }
 
-async fn cmd_up(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let file = args
         .rest()
         .first()
@@ -529,32 +569,31 @@ async fn cmd_up(settings: &Settings, args: &Args) -> Result<Output> {
         ),
     };
     sync::remote::check_key(&key)?;
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
     let bytes = data.len();
     let blake3 = hash_bytes(&data);
-    let etag = drive.put(&key, data).await?;
+    let etag = drive.put(&key, &data)?;
     let lane = lane_name(&drive);
-    drive.close().await;
+    drive.close();
     let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3, "etag": etag,
                        "transport": lane});
     let text = format!("up {key}: {bytes} bytes over {lane} (BLAKE3 {blake3})\n");
     Ok((value, text))
 }
 
-async fn cmd_down(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let (key, file) = match args.rest() {
         [key, file, ..] => (key.clone(), PathBuf::from(file)),
         _ => bail!("azcloud down <key> <file>"),
     };
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
     let data = drive
-        .get_big(&key)
-        .await?
+        .get_big(&key)?
         .ok_or_else(|| anyhow!("the drive has no {key}"))?;
     let lane = lane_name(&drive);
-    drive.close().await;
+    drive.close();
     write_atomic(&file, &data, false).with_context(|| format!("{}", file.display()))?;
     let blake3 = hash_bytes(&data);
     let value = json!({"ok": true, "key": key, "bytes": data.len(), "blake3": blake3,
@@ -567,32 +606,38 @@ async fn cmd_down(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_ls(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_ls(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let prefix = args.rest().first().map(String::as_str).unwrap_or("");
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
-    let objects = drive.list_all(prefix).await?;
-    drive.close().await;
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
+    let objects = drive.list_all(prefix)?;
+    drive.close();
     let mut text = String::new();
     for o in &objects {
-        text.push_str(&format!("{:>12} {} {}\n", o.size, o.last_modified, o.key));
+        text.push_str(&format!(
+            "{:>12} {} {}\n",
+            o.size,
+            listing_time(o.modified),
+            o.key
+        ));
     }
     text.push_str(&format!("{} objects under {prefix:?}\n", objects.len()));
     let value = json!({"ok": true, "prefix": prefix, "objects": objects.iter().map(|o| json!({
-        "key": o.key, "size": o.size, "etag": o.etag, "last_modified": o.last_modified,
+        "key": o.key, "size": o.size, "etag": o.etag.clone().unwrap_or_default(),
+        "last_modified": listing_time(o.modified),
     })).collect::<Vec<_>>()});
     Ok((value, text))
 }
 
-async fn cmd_rm(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_rm(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let key = args
         .rest()
         .first()
         .ok_or_else(|| anyhow!("azcloud rm <key>"))?;
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
-    drive.delete(key).await?;
-    drive.close().await;
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
+    drive.delete(key)?;
+    drive.close();
     Ok((json!({"ok": true, "key": key}), format!("deleted {key}\n")))
 }
 
@@ -607,7 +652,7 @@ fn default_prefix(dir: &Path) -> String {
     format!("sync/{}/", name.replace(['/', '\\'], "-"))
 }
 
-async fn cmd_sync(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let roots: Vec<(LocalRoot, String)> = if args.on("--azlin") {
         if !args.rest().is_empty() || args.value("--prefix").is_some() {
             bail!("sync --azlin takes no folder and no prefix: it syncs the data root and the .azlin folder");
@@ -637,7 +682,7 @@ async fn cmd_sync(settings: &Settings, args: &Args) -> Result<Output> {
             .unwrap_or_else(|| default_prefix(&dir));
         vec![(LocalRoot::folder(&dir), prefix)]
     };
-    let account = open_account(settings, args).await?;
+    let account = open_account(settings, net, args)?;
     let state = account.state().clone();
     let device = state.device(args.value("--device-name"))?;
     for (root, _) in &roots {
@@ -650,7 +695,7 @@ async fn cmd_sync(settings: &Settings, args: &Args) -> Result<Output> {
             );
         }
     }
-    let drive = open_drive(settings, &account, args).await?;
+    let drive = open_drive(settings, net, &account, args)?;
     let mut reports = Vec::new();
     let mut text = String::new();
     for (mut root, prefix) in roots {
@@ -668,12 +713,12 @@ async fn cmd_sync(settings: &Settings, args: &Args) -> Result<Output> {
         }
         let index_path =
             sync::local::index_path(&state.sync_dir(), &opts.bucket, &opts.prefix, &root.path);
-        let report = sync::sync_folder(&drive, &root, &index_path, &opts).await;
-        let report = match report {
+        let report = match sync::sync_folder(&drive, &root, &index_path, &opts) {
             Ok(report) => report,
             Err(e) => {
-                drive.close().await;
-                return Err(e.context(format!("sync {} <-> {prefix}", root.path.display())));
+                let what = format!("sync {} <-> {prefix}", root.path.display());
+                drive.close();
+                return Err(e.context(what).into());
             }
         };
         text.push_str(&report.summary());
@@ -699,30 +744,28 @@ async fn cmd_sync(settings: &Settings, args: &Args) -> Result<Output> {
     }
     let lane = lane_name(&drive);
     let transport = drive.transport();
-    drive.close().await;
+    drive.close();
     let ok = reports.iter().all(|r| r.errors.is_empty());
     let value = json!({"ok": ok, "transport": lane, "transport_reason": transport.reason,
                        "device": device.name, "reports": reports});
     Ok((value, text))
 }
 
-async fn cmd_share(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_share(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let key = args
         .rest()
         .first()
         .ok_or_else(|| anyhow!("azcloud share <key> [--expires S] [--prefix P]"))?;
     let expires = args.number::<i64>("--expires")?.unwrap_or(3600);
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
-    let endpoint = drive.https_bucket().endpoint.clone();
-    let now = azcloud_api::now();
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
+    let endpoint = drive.https_bucket().config().endpoint.clone();
+    let now = azcloud_kit::now();
     let link = match args.value("--prefix") {
-        Some(prefix) => {
-            share::synced_link(&drive, &account, &endpoint, prefix, key, expires, now).await
-        }
+        Some(prefix) => share::synced_link(&drive, &account, &endpoint, prefix, key, expires, now),
         None => share::public_link(&account, &endpoint, key, expires, now),
     };
-    drive.close().await;
+    drive.close();
     let link = link?;
     let mut value = serde_json::to_value(&link)?;
     value["ok"] = json!(true);
@@ -738,15 +781,15 @@ async fn cmd_share(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_lockdown(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_lockdown(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     if !args.on("--yes") {
         bail!(
             "a lockdown revokes every other device, key and public link of the drive at once; \
              run again with --yes"
         );
     }
-    let mut account = open_account(settings, args).await?;
-    let value = share::lockdown(&mut account).await?;
+    let mut account = open_account(settings, net, args)?;
+    let value = share::lockdown(&mut account)?;
     let text = format!(
         "locked down: {}; this device continues with new credentials, every other one must join \
          again\n",
@@ -755,14 +798,14 @@ async fn cmd_lockdown(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_lockdown_cancel(settings: &Settings, args: &Args) -> Result<Output> {
-    let account = open_account(settings, args).await?;
-    let mut value = share::lockdown_cancel(&account).await?;
+fn cmd_lockdown_cancel(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let account = open_account(settings, net, args)?;
+    let mut value = share::lockdown_cancel(&account)?;
     value["ok"] = json!(true);
     Ok((value, String::from("the pending lockdown was cancelled\n")))
 }
 
-async fn cmd_restore(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_restore(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let prefix = args
         .rest()
         .first()
@@ -770,8 +813,8 @@ async fn cmd_restore(settings: &Settings, args: &Args) -> Result<Output> {
     let as_of = args
         .value("--as-of")
         .ok_or_else(|| anyhow!("azcloud restore <prefix> --as-of <RFC 3339>"))?;
-    let account = open_account(settings, args).await?;
-    let mut value = share::restore(&account, prefix, as_of).await?;
+    let account = open_account(settings, net, args)?;
+    let mut value = share::restore(&account, prefix, as_of)?;
     let text = format!(
         "restore of {prefix:?} as of {as_of} queued: {} (azcloud restore-status <it>)\n",
         value["request_id"].as_str().unwrap_or("?")
@@ -780,19 +823,19 @@ async fn cmd_restore(settings: &Settings, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
-async fn cmd_restore_status(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_restore_status(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let id = args
         .rest()
         .first()
         .ok_or_else(|| anyhow!("azcloud restore-status <request id>"))?;
-    let account = open_account(settings, args).await?;
-    let mut value = share::restore_status(&account, id).await?;
+    let account = open_account(settings, net, args)?;
+    let mut value = share::restore_status(&account, id)?;
     let text = format!("{}\n", serde_json::to_string_pretty(&value)?);
     value["ok"] = json!(true);
     Ok((value, text))
 }
 
-async fn cmd_gc(settings: &Settings, args: &Args) -> Result<Output> {
+fn cmd_gc(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let prefixes: Vec<String> = if args.on("--azlin") {
         vec![sync::DATA_PREFIX.to_string(), sync::HOME_PREFIX.to_string()]
     } else {
@@ -803,17 +846,16 @@ async fn cmd_gc(settings: &Settings, args: &Args) -> Result<Output> {
             .ok_or_else(|| anyhow!("azcloud gc <prefix> | gc --azlin"))?]
     };
     let grace = args.number::<i64>("--grace-hours")?.unwrap_or(24) * 3600;
-    let account = open_account(settings, args).await?;
-    let drive = open_drive(settings, &account, args).await?;
+    let account = open_account(settings, net, args)?;
+    let drive = open_drive(settings, net, &account, args)?;
     let mut reports = Vec::new();
     let mut text = String::new();
     for prefix in prefixes {
-        let report = sync::collect_garbage(&drive, &prefix, grace, args.on("--dry-run")).await;
-        let report = match report {
+        let report = match sync::collect_garbage(&drive, &prefix, grace, args.on("--dry-run")) {
             Ok(report) => report,
             Err(e) => {
-                drive.close().await;
-                return Err(e);
+                drive.close();
+                return Err(e.into());
             }
         };
         text.push_str(&format!(
@@ -832,12 +874,12 @@ async fn cmd_gc(settings: &Settings, args: &Args) -> Result<Output> {
         ));
         reports.push(report);
     }
-    drive.close().await;
+    drive.close();
     Ok((json!({"ok": true, "reports": reports}), text))
 }
 
-async fn run(args: &Args) -> Result<Output> {
-    let settings = Settings::from_process(&args.flags());
+fn run(args: &Args, net: &Net) -> Result<Output> {
+    let settings = Settings::from_process(&args.flags(), &os_dirs());
     let command = args
         .positional
         .first()
@@ -845,27 +887,55 @@ async fn run(args: &Args) -> Result<Output> {
         .unwrap_or("help");
     match command {
         "config" => cmd_config(&settings),
-        "signup" => cmd_signup(&settings, args).await,
-        "invite" => cmd_invite(&settings, args).await,
-        "join" => cmd_join(&settings, args).await,
-        "status" => cmd_status(&settings, args).await,
-        "info" => cmd_info(&settings, args).await,
-        "refresh" => cmd_refresh(&settings, args).await,
-        "transport" => cmd_transport(&settings, args).await,
-        "up" => cmd_up(&settings, args).await,
-        "down" => cmd_down(&settings, args).await,
-        "ls" => cmd_ls(&settings, args).await,
-        "rm" => cmd_rm(&settings, args).await,
-        "sync" => cmd_sync(&settings, args).await,
-        "share" => cmd_share(&settings, args).await,
-        "lockdown" => cmd_lockdown(&settings, args).await,
-        "lockdown-cancel" => cmd_lockdown_cancel(&settings, args).await,
-        "restore" => cmd_restore(&settings, args).await,
-        "restore-status" => cmd_restore_status(&settings, args).await,
-        "gc" => cmd_gc(&settings, args).await,
+        "signup" => cmd_signup(&settings, net, args),
+        "invite" => cmd_invite(&settings, net, args),
+        "join" => cmd_join(&settings, net, args),
+        "status" => cmd_status(&settings, net, args),
+        "info" => cmd_info(&settings, net, args),
+        "refresh" => cmd_refresh(&settings, net, args),
+        "transport" => cmd_transport(&settings, net, args),
+        "up" => cmd_up(&settings, net, args),
+        "down" => cmd_down(&settings, net, args),
+        "ls" => cmd_ls(&settings, net, args),
+        "rm" => cmd_rm(&settings, net, args),
+        "sync" => cmd_sync(&settings, net, args),
+        "share" => cmd_share(&settings, net, args),
+        "lockdown" => cmd_lockdown(&settings, net, args),
+        "lockdown-cancel" => cmd_lockdown_cancel(&settings, net, args),
+        "restore" => cmd_restore(&settings, net, args),
+        "restore-status" => cmd_restore_status(&settings, net, args),
+        "gc" => cmd_gc(&settings, net, args),
         "help" => Ok((json!({"ok": true, "usage": USAGE}), USAGE.to_string())),
         other => bail!("unknown command {other:?} (azcloud help)"),
     }
+}
+
+/// The error as printed: its chain, and what to do when the token server refused this
+/// device's drive token.
+fn error_text(e: &anyhow::Error) -> String {
+    let signed_out = e
+        .chain()
+        .any(|cause| cause.downcast_ref::<CloudError>().is_some_and(CloudError::is_sign_in));
+    if signed_out {
+        format!("{e:#}; this device must join the drive again (azcloud join <code>)")
+    } else {
+        format!("{e:#}")
+    }
+}
+
+/// The network of this run on `runtime`: HTTPS always (one client: every bucket and token
+/// server call shares its connections), iroh when this build has it.
+fn net_on(runtime: &tokio::runtime::Runtime) -> Result<Net> {
+    let https = HttpsTransport::new(runtime.handle().clone(), HTTPS_TIMEOUT)?;
+    let transports: TransportFactory =
+        Arc::new(move || Box::new(https.clone()) as Box<dyn Transport>);
+    #[cfg(feature = "iroh")]
+    let dialer: Option<Box<dyn IrohDialer>> = Some(Box::new(
+        azcloud_api::iroh_lane::IrohLane::new(runtime.handle().clone()),
+    ));
+    #[cfg(not(feature = "iroh"))]
+    let dialer: Option<Box<dyn IrohDialer>> = None;
+    Ok(Net { transports, dialer })
 }
 
 fn main() -> ExitCode {
@@ -892,7 +962,9 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match runtime.block_on(run(&args)) {
+    // The kit blocks this thread while the runtime's threads do the network.
+    let outcome = net_on(&runtime).and_then(|net| run(&args, &net));
+    let code = match outcome {
         Ok((value, text)) => {
             let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(true);
             if json_mode {
@@ -910,13 +982,16 @@ fn main() -> ExitCode {
             }
         }
         Err(e) => {
+            let text = error_text(&e);
             if json_mode {
-                println!("{}", json!({"ok": false, "error": format!("{e:#}")}));
+                println!("{}", json!({"ok": false, "error": text}));
             }
-            eprintln!("azcloud: {e:#}");
+            eprintln!("azcloud: {text}");
             ExitCode::from(1)
         }
-    }
+    };
+    runtime.shutdown_background();
+    code
 }
 
 #[cfg(test)]

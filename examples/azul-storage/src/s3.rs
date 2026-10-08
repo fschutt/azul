@@ -2,8 +2,9 @@
 //!
 //! Six calls of the S3 API, each signed with SigV4: ListObjectsV2 (with
 //! continuation tokens), GetObject (with `Range`), PutObject, CopyObject,
-//! DeleteObject and HeadObject. Error answers become [`ServiceError`]s that say what the
-//! service said. The requests are built here and sent through a
+//! DeleteObject and HeadObject; any other request (a conditional write, a multipart
+//! upload) is signed the same way by [`S3Drive::send_raw`]. Error answers become
+//! [`ServiceError`]s that say what the service said. The requests are built here and sent through a
 //! [`Transport`], so the same code runs over azul's HTTP client in the apps and
 //! over a recording fake in the tests.
 
@@ -271,6 +272,12 @@ fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
     }
 }
 
+/// The body of a ListObjectsV2 answer as a page, as [`Drive::list`] reads it (for a listing
+/// sent with [`S3Drive::send_raw`]).
+pub fn parse_listing(xml: &str) -> Result<ListPage, DriveError> {
+    xml::parse_list(xml)
+}
+
 /// A bucket, reached through a [`Transport`].
 pub struct S3Drive {
     config: S3Config,
@@ -481,6 +488,40 @@ impl S3Drive {
             self.endpoint.scheme,
             sigv4::canonical_query(&query)
         ))
+    }
+
+    /// One signed request of the S3 API that the [`Drive`] calls do not cover - a conditional
+    /// write (`If-Match`, `If-None-Match: *`), a conditional read, a multipart upload: on the
+    /// object `key`, or on the bucket itself without one. `query` and the `extra` headers are
+    /// signed with the rest; `content_type` names the body and is not signed. The answer comes
+    /// back whatever its status ([`S3Drive::failure_of`] reads a failed one); an `Err` is a key
+    /// S3 cannot take or a request that got no answer at all.
+    pub fn send_raw(
+        &self,
+        method: Method,
+        key: Option<&str>,
+        query: Vec<(String, String)>,
+        extra: Vec<(String, String)>,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<HttpReply, DriveError> {
+        let path = match key {
+            Some(key) => {
+                check_s3_key(key)?;
+                self.object_path(key)
+            }
+            None => self.bucket_path(),
+        };
+        let call = self.build(method, path, query, extra, body, content_type);
+        self.send(&call)
+    }
+
+    /// The error of a failed answer to a request on `key` (`None`: on the bucket itself): a
+    /// missing key and a bad range are their own variants, everything else the service's
+    /// [`crate::ServiceError`].
+    #[must_use]
+    pub fn failure_of(reply: &HttpReply, key: Option<&str>) -> DriveError {
+        failure(reply, key)
     }
 
     fn send(&self, call: &HttpCall) -> Result<HttpReply, DriveError> {

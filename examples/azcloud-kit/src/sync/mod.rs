@@ -1,5 +1,5 @@
-//! Sync: one folder on this device against one prefix of the drive (PLAN
-//! §12.3 in its first, unencrypted form; [`remote`] has the layout).
+//! Sync: one folder on this device against one prefix of the drive (unencrypted;
+//! [`remote`] has the layout).
 //!
 //! A run:
 //!
@@ -31,26 +31,27 @@
 //! The Azlin tree ([`azlin_roots`]) is two such folders: the data root of
 //! every app to `azlin/data/`, the `.azlin` folder to `azlin/config/`, whose
 //! `config.json` syncs key by key without the machine-local `endpoints`.
+//!
+//! Every call blocks (call it from an azul `Thread`); small blobs travel several at once on
+//! threads of the run's own, against any [`RemoteStore`].
 
 pub mod local;
 pub mod merge;
 pub mod remote;
 pub mod rules;
-pub mod store;
-
-#[cfg(test)]
-mod tests;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Mutex, MutexGuard, PoisonError,
+    },
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
 use azul_storage::{Drive as _, LocalDrive};
-use futures::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -59,11 +60,12 @@ pub use self::{
     merge::Action,
     remote::{normalize_prefix, RemoteFile, RemoteIndex, Tombstone},
     rules::Rules,
-    store::{MemStore, RemoteObject, RemoteStore},
 };
+pub use crate::store::{Conditional, RemoteObject, RemoteStore};
 use crate::{
-    drive::Conditional,
+    error::{fail, CloudError, CloudResult, Context},
     state::{read_json, write_json},
+    store::BIG_BLOB,
 };
 
 /// The data root of every Azlin app, in the drive.
@@ -105,7 +107,7 @@ impl SyncOptions {
     /// # Errors
     ///
     /// When `prefix` is no prefix a sync may take.
-    pub fn new(prefix: &str, bucket: &str, device: &str) -> Result<SyncOptions> {
+    pub fn new(prefix: &str, bucket: &str, device: &str) -> CloudResult<SyncOptions> {
         Ok(SyncOptions {
             prefix: normalize_prefix(prefix)?,
             bucket: bucket.to_string(),
@@ -291,8 +293,44 @@ impl SyncReport {
 
 /// Today, `2026-10-08` (UTC), for conflict copies.
 fn today() -> String {
-    let stamp = azlin_proto::time::rfc3339(crate::now());
+    let stamp = crate::rfc3339(crate::now());
     stamp.get(..10).unwrap_or(&stamp).to_string()
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `work` of every job on up to `parallel` threads of this run; the results in the jobs'
+/// order (every job runs, whatever the others did).
+fn each_in_parallel<J: Sync, R: Send>(
+    jobs: &[J],
+    parallel: usize,
+    work: impl Fn(&J) -> R + Sync,
+) -> Vec<R> {
+    if jobs.is_empty() {
+        return Vec::new();
+    }
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<R>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
+    std::thread::scope(|scope| {
+        for _ in 0..parallel.max(1).min(jobs.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some(job) = jobs.get(i) else {
+                    break;
+                };
+                let result = work(job);
+                lock(&results)[i] = Some(result);
+            });
+        }
+    });
+    results
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// The last index a run saw, kept beside the local index: what a 304 stands
@@ -331,24 +369,24 @@ fn save_cache(index_path: &Path, etag: Option<&str>, index: &RemoteIndex) {
 
 /// The index and its ETag (`None`: there is none yet). With `cached`, a
 /// conditional GET: a 304 answers with the cached copy.
-async fn read_index<S: RemoteStore>(
+fn read_index<S: RemoteStore + ?Sized>(
     store: &S,
     key: &str,
     cached: Option<&(String, RemoteIndex)>,
-) -> Result<(RemoteIndex, Option<String>)> {
+) -> CloudResult<(RemoteIndex, Option<String>)> {
     let etag = cached.map(|(etag, _)| etag.as_str());
-    match store.get_unless(key, etag).await? {
+    match store.get_unless(key, etag)? {
         Conditional::NotFound => Ok((RemoteIndex::empty(), None)),
         Conditional::NotModified => match cached {
             Some((etag, index)) => Ok((index.clone(), Some(etag.clone()))),
-            None => bail!("the drive answered 304 to an unconditional GET of {key}"),
+            None => fail!("the drive answered 304 to an unconditional GET of {key}"),
         },
         Conditional::Found { body, etag } => {
             let etag = etag.filter(|e| !e.is_empty()).ok_or_else(|| {
-                anyhow!(
+                CloudError::failed(format!(
                     "the drive's S3 service sent no ETag for {key}; the sync needs conditional \
                      writes (If-Match)"
-                )
+                ))
             })?;
             Ok((RemoteIndex::parse(&body)?, Some(etag)))
         }
@@ -356,19 +394,18 @@ async fn read_index<S: RemoteStore>(
 }
 
 /// The blob `hash`, checked against its name.
-async fn fetch_blob<S: RemoteStore>(
+fn fetch_blob<S: RemoteStore + ?Sized>(
     store: &S,
     prefix: &str,
     hash: &str,
     size: u64,
-) -> Result<Vec<u8>> {
+) -> CloudResult<Vec<u8>> {
     let key = remote::blob_key(prefix, hash);
     let bytes = store
-        .fetch(&key, size)
-        .await?
-        .ok_or_else(|| anyhow!("the blob {key} is missing from the drive"))?;
+        .fetch(&key, size)?
+        .ok_or_else(|| CloudError::failed(format!("the blob {key} is missing from the drive")))?;
     if local::hash_bytes(&bytes) != hash {
-        bail!("the blob {key} is damaged: its BLAKE3 is not its name");
+        fail!("the blob {key} is damaged: its BLAKE3 is not its name");
     }
     Ok(bytes)
 }
@@ -379,7 +416,7 @@ fn guard_mass_delete(
     scan: &Scan,
     base: &BTreeMap<String, BaseEntry>,
     opts: &SyncOptions,
-) -> Result<()> {
+) -> CloudResult<()> {
     if opts.allow_mass_delete {
         return Ok(());
     }
@@ -388,9 +425,9 @@ fn guard_mass_delete(
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
         .count();
     if here > MASS_DELETE_MIN && here * 2 > scan.files.len() {
-        bail!(
+        fail!(
             "the drive says {here} of this folder's {} files were deleted elsewhere. That looks \
-             like a mistake (or ransomware, PLAN C12), so nothing was changed; run again with \
+             like a mistake (or ransomware), so nothing was changed; run again with \
              --allow-mass-delete if it is right",
             scan.files.len()
         );
@@ -400,7 +437,7 @@ fn guard_mass_delete(
         .filter(|a| matches!(a, Action::DeleteRemote { .. }))
         .count();
     if there > MASS_DELETE_MIN && there * 2 > base.len() {
-        bail!(
+        fail!(
             "{there} of the {} files this folder held at its last sync are gone from it (an \
              emptied or unmounted folder?). Nothing was changed; run again with \
              --allow-mass-delete if they were deleted on purpose",
@@ -422,7 +459,7 @@ struct Merged {
 /// and the base's (fetched by its hash; a blob collected since merges as an
 /// empty object), all without machine-local keys.
 #[allow(clippy::too_many_arguments)]
-async fn merge_json_files<S: RemoteStore>(
+fn merge_json_files<S: RemoteStore + ?Sized>(
     store: &S,
     root: &LocalRoot,
     actions: &[Action],
@@ -430,7 +467,7 @@ async fn merge_json_files<S: RemoteStore>(
     remote: &RemoteIndex,
     prefix: &str,
     report: &mut SyncReport,
-) -> Result<BTreeMap<String, Merged>> {
+) -> CloudResult<BTreeMap<String, Merged>> {
     let mut out = BTreeMap::new();
     for action in actions {
         let Action::MergeJson { key } = action else {
@@ -446,11 +483,11 @@ async fn merge_json_files<S: RemoteStore>(
         let theirs_file = remote
             .files
             .get(key)
-            .ok_or_else(|| anyhow!("{key} vanished from the index"))?;
-        let theirs_blob = fetch_blob(store, prefix, &theirs_file.hash, theirs_file.size).await?;
+            .ok_or_else(|| CloudError::failed(format!("{key} vanished from the index")))?;
+        let theirs_blob = fetch_blob(store, prefix, &theirs_file.hash, theirs_file.size)?;
         let theirs = object(theirs_blob.as_slice());
         let base_object = match base.get(key) {
-            Some(entry) => match fetch_blob(store, prefix, &entry.hash, 0).await {
+            Some(entry) => match fetch_blob(store, prefix, &entry.hash, 0) {
                 Ok(bytes) => object(bytes.as_slice()),
                 Err(_) => Map::new(),
             },
@@ -497,7 +534,11 @@ enum Outcome {
     Changed(String),
 }
 
-async fn upload_one<S: RemoteStore>(store: &S, prefix: &str, job: &BlobJob) -> Result<Outcome> {
+fn upload_one<S: RemoteStore + ?Sized>(
+    store: &S,
+    prefix: &str,
+    job: &BlobJob,
+) -> CloudResult<Outcome> {
     let bytes = match &job.source {
         BlobSource::File(path) => match fs::read(path) {
             Ok(bytes) => bytes,
@@ -517,11 +558,11 @@ async fn upload_one<S: RemoteStore>(store: &S, prefix: &str, job: &BlobJob) -> R
         )));
     }
     let key = remote::blob_key(prefix, &job.hash);
-    if bytes.len() as u64 > store::BIG_BLOB && store.head(&key).await?.is_some() {
+    if bytes.len() as u64 > BIG_BLOB && store.head(&key)?.is_some() {
         return Ok(Outcome::Existed);
     }
     let n = bytes.len() as u64;
-    store.put(&key, bytes).await?;
+    store.put(&key, &bytes)?;
     Ok(Outcome::Uploaded(n))
 }
 
@@ -543,7 +584,7 @@ fn uploaded_hash<'a>(
 /// Uploads every blob the plan needs that the drive may not hold; the keys
 /// whose upload has to wait for the next run (their file changed).
 #[allow(clippy::too_many_arguments)]
-async fn upload_blobs<S: RemoteStore>(
+fn upload_blobs<S: RemoteStore + ?Sized>(
     store: &S,
     root: &LocalRoot,
     actions: &[Action],
@@ -553,7 +594,7 @@ async fn upload_blobs<S: RemoteStore>(
     known: &mut BTreeSet<String>,
     opts: &SyncOptions,
     report: &mut SyncReport,
-) -> Result<BTreeSet<String>> {
+) -> CloudResult<BTreeSet<String>> {
     let mut jobs = Vec::new();
     let mut queued: BTreeSet<String> = BTreeSet::new();
     for action in actions {
@@ -592,20 +633,16 @@ async fn upload_blobs<S: RemoteStore>(
         });
     }
     let (small, big): (Vec<BlobJob>, Vec<BlobJob>) =
-        jobs.into_iter().partition(|j| j.size <= store::BIG_BLOB);
+        jobs.into_iter().partition(|j| j.size <= BIG_BLOB);
     let prefix = opts.prefix.as_str();
-    let mut outcomes: Vec<(String, String, Result<Outcome>)> =
-        stream::iter(small.into_iter().map(|job| async move {
-            let outcome = upload_one(store, prefix, &job).await;
-            (job.key, job.hash, outcome)
-        }))
-        .buffer_unordered(opts.parallel.max(1))
-        .collect()
-        .await;
+    let mut outcomes: Vec<(String, String, CloudResult<Outcome>)> =
+        each_in_parallel(&small, opts.parallel, |job| {
+            (job.key.clone(), job.hash.clone(), upload_one(store, prefix, job))
+        });
     // A big blob goes alone: its parts travel in parallel already.
-    for job in big {
-        let outcome = upload_one(store, prefix, &job).await;
-        outcomes.push((job.key, job.hash, outcome));
+    for job in &big {
+        let outcome = upload_one(store, prefix, job);
+        outcomes.push((job.key.clone(), job.hash.clone(), outcome));
     }
     let mut abandoned = BTreeSet::new();
     for (key, hash, outcome) in outcomes {
@@ -729,7 +766,7 @@ struct Download {
 
 /// Applies the committed index here and updates `base`.
 #[allow(clippy::too_many_arguments)]
-async fn apply_local<S: RemoteStore>(
+fn apply_local<S: RemoteStore + ?Sized>(
     store: &S,
     root: &LocalRoot,
     actions: &[Action],
@@ -840,19 +877,36 @@ async fn apply_local<S: RemoteStore>(
     }
     let (small, big): (Vec<Download>, Vec<Download>) = downloads
         .into_iter()
-        .partition(|d| d.size <= store::BIG_BLOB);
+        .partition(|d| d.size <= BIG_BLOB);
     let prefix = opts.prefix.as_str();
-    let fetches = stream::iter(small.into_iter().map(|d| async move {
-        let blob = fetch_blob(store, prefix, &d.hash, d.size).await;
-        (d, blob)
-    }))
-    .buffer_unordered(opts.parallel.max(1));
-    let mut fetches = std::pin::pin!(fetches);
-    while let Some((d, blob)) = fetches.next().await {
-        write_download(&drive, root, d, blob, base, report);
+    if !small.is_empty() {
+        // The blobs come in on threads of their own, at most `parallel` waiting to be
+        // written; the files are written here, one at a time, as they arrive.
+        let next = AtomicUsize::new(0);
+        let (small, next) = (&small, &next);
+        std::thread::scope(|scope| {
+            let (sender, fetched) = mpsc::sync_channel(opts.parallel.max(1));
+            for _ in 0..opts.parallel.max(1).min(small.len()) {
+                let sender = sender.clone();
+                scope.spawn(move || loop {
+                    let i = next.fetch_add(1, Ordering::SeqCst);
+                    let Some(d) = small.get(i) else {
+                        break;
+                    };
+                    let blob = fetch_blob(store, prefix, &d.hash, d.size);
+                    if sender.send((i, blob)).is_err() {
+                        break;
+                    }
+                });
+            }
+            drop(sender);
+            for (i, blob) in fetched {
+                write_download(&drive, root, &small[i], blob, base, report);
+            }
+        });
     }
-    for d in big {
-        let blob = fetch_blob(store, prefix, &d.hash, d.size).await;
+    for d in &big {
+        let blob = fetch_blob(store, prefix, &d.hash, d.size);
         write_download(&drive, root, d, blob, base, report);
     }
 }
@@ -863,15 +917,15 @@ async fn apply_local<S: RemoteStore>(
 fn write_download(
     drive: &LocalDrive,
     root: &LocalRoot,
-    d: Download,
-    blob: Result<Vec<u8>>,
+    d: &Download,
+    blob: CloudResult<Vec<u8>>,
     base: &mut BTreeMap<String, BaseEntry>,
     report: &mut SyncReport,
 ) {
     let blob = match blob {
         Ok(blob) => blob,
         Err(e) => {
-            report.errors.push(format!("download {}: {e:#}", d.key));
+            report.errors.push(format!("download {}: {e}", d.key));
             return;
         }
     };
@@ -909,12 +963,12 @@ fn write_download(
 /// delete, the race is lost [`MAX_ATTEMPTS`] times, or the drive refuses a
 /// request. Nothing is changed here before the index was committed; errors
 /// of single files after that are in the report's `errors`.
-pub async fn sync_folder<S: RemoteStore>(
+pub fn sync_folder<S: RemoteStore + ?Sized>(
     store: &S,
     root: &LocalRoot,
     index_path: &Path,
     opts: &SyncOptions,
-) -> Result<SyncReport> {
+) -> CloudResult<SyncReport> {
     let mut report = SyncReport {
         root: root.path.display().to_string(),
         prefix: opts.prefix.clone(),
@@ -944,7 +998,7 @@ pub async fn sync_folder<S: RemoteStore>(
     let mut attempt = 0u32;
     let (committed, actions, merged, reset, etag) = loop {
         attempt += 1;
-        let (remote, etag) = read_index(store, &index_key, cached.as_ref()).await?;
+        let (remote, etag) = read_index(store, &index_key, cached.as_ref())?;
         // The index went back (deleted, replaced): this side's base no longer
         // describes it, so nothing is deleted on either side this run.
         let reset = remote.generation < index.generation;
@@ -982,8 +1036,7 @@ pub async fn sync_folder<S: RemoteStore>(
             &remote,
             &opts.prefix,
             &mut report,
-        )
-        .await?;
+        )?;
         let abandoned = upload_blobs(
             store,
             root,
@@ -994,8 +1047,7 @@ pub async fn sync_folder<S: RemoteStore>(
             &mut known,
             opts,
             &mut report,
-        )
-        .await?;
+        )?;
         actions.retain(|a| !abandoned.contains(a.key()));
         let next = next_index(
             &remote,
@@ -1009,10 +1061,7 @@ pub async fn sync_folder<S: RemoteStore>(
         if next == remote {
             break (remote, actions, merged, reset, etag);
         }
-        match store
-            .put_if(&index_key, next.to_bytes(), etag.as_deref())
-            .await?
-        {
+        match store.put_if(&index_key, &next.to_bytes(), etag.as_deref())? {
             Some(new_etag) => {
                 report.index_written = true;
                 break (next, actions, merged, reset, Some(new_etag));
@@ -1020,14 +1069,14 @@ pub async fn sync_folder<S: RemoteStore>(
             None => {
                 report.cas_retries += 1;
                 if attempt >= opts.max_attempts {
-                    bail!(
+                    fail!(
                         "other devices committed {attempt} times while this one tried; nothing \
                          was changed here - run again"
                     );
                 }
                 // The cached copy is stale: read the index whole again.
                 cached = None;
-                tokio::time::sleep(Duration::from_millis(50 * u64::from(attempt))).await;
+                std::thread::sleep(Duration::from_millis(50 * u64::from(attempt)));
             }
         }
     };
@@ -1047,8 +1096,7 @@ pub async fn sync_folder<S: RemoteStore>(
         opts,
         &mut base,
         &mut report,
-    )
-    .await;
+    );
     index.files = base;
     index.generation = committed.generation;
     index.scanned_at_ns = scan.started_ns;
@@ -1079,14 +1127,14 @@ pub struct GcReport {
 /// # Errors
 ///
 /// When the index or the listing cannot be read, or a delete is refused.
-pub async fn collect_garbage<S: RemoteStore>(
+pub fn collect_garbage<S: RemoteStore + ?Sized>(
     store: &S,
     prefix: &str,
     grace_secs: i64,
     dry_run: bool,
-) -> Result<GcReport> {
+) -> CloudResult<GcReport> {
     let prefix = normalize_prefix(prefix)?;
-    let (index, _) = read_index(store, &remote::index_key(&prefix), None).await?;
+    let (index, _) = read_index(store, &remote::index_key(&prefix), None)?;
     let referenced = index.referenced();
     let mut report = GcReport {
         prefix: prefix.clone(),
@@ -1094,7 +1142,7 @@ pub async fn collect_garbage<S: RemoteStore>(
         ..GcReport::default()
     };
     let now = crate::now();
-    for blob in store.list(&remote::blobs_prefix(&prefix)).await? {
+    for blob in store.list(&remote::blobs_prefix(&prefix))? {
         report.blobs += 1;
         let hash = blob.key.rsplit('/').next().unwrap_or("");
         if referenced.contains(hash) {
@@ -1106,7 +1154,7 @@ pub async fn collect_garbage<S: RemoteStore>(
             continue;
         }
         if !dry_run {
-            store.delete(&blob.key).await?;
+            store.delete(&blob.key)?;
         }
         report.deleted += 1;
         report.bytes_freed += blob.size;

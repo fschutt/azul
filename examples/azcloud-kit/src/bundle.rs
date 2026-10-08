@@ -66,6 +66,27 @@ pub struct DriveBundle {
     pub tier: Option<String>,
     /// Paid until, in seconds since 1970.
     pub period_until: Option<u64>,
+    /// The drive's nodes as the token server lists them (ordered by the server; `name`, `url`
+    /// or `public_url`, `ready`, an iroh id when the server names one).
+    pub nodes: Vec<Value>,
+    /// Where a request goes when the block endpoint does not answer.
+    pub failover: Vec<String>,
+}
+
+/// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
+/// `failover` list, without duplicates: the endpoints after the block endpoint.
+#[must_use]
+pub fn node_urls(nodes: &[Value], failover: &[String]) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    let from_nodes = nodes
+        .iter()
+        .filter_map(|n| n["url"].as_str().or_else(|| n["public_url"].as_str()));
+    for url in from_nodes.chain(failover.iter().map(String::as_str)) {
+        if !url.is_empty() && !urls.iter().any(|u| u == url) {
+            urls.push(url.to_string());
+        }
+    }
+    urls
 }
 
 impl fmt::Debug for DriveBundle {
@@ -136,6 +157,16 @@ impl DriveBundle {
             read_only: value["read_only"].as_bool().unwrap_or(false),
             tier: value["tier"].as_str().map(str::to_string),
             period_until: time_of(&value["period_until"]),
+            nodes: value["nodes"].as_array().cloned().unwrap_or_default(),
+            failover: value["failover"]
+                .as_array()
+                .map(|urls| {
+                    urls.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 
@@ -143,6 +174,12 @@ impl DriveBundle {
     #[must_use]
     pub fn drive_id(&self) -> &str {
         &self.entry.id
+    }
+
+    /// The direct node URLs and the failover list, without duplicates ([`node_urls`]).
+    #[must_use]
+    pub fn node_urls(&self) -> Vec<String> {
+        node_urls(&self.nodes, &self.failover)
     }
 
     /// The drives-file entry under the user's `name`; an Azlin drive whose bundle names no

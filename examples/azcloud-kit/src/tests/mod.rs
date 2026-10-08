@@ -1,10 +1,24 @@
 //! Unit tests of the kit: the token server and the bucket are a fake [`Transport`] that answers
 //! as the real ones do (the token server's JSON, S3's XML) and records every call.
 
+mod account;
+mod bucket;
+mod cloud_drive;
 mod drive;
 mod endpoints;
+mod fake_s3;
+mod secrets;
 mod session;
+mod settings;
+mod share;
+mod state;
+mod sync;
+mod sync_local;
+mod sync_merge;
+mod sync_remote;
+mod sync_rules;
 mod token;
+mod transport;
 
 use std::sync::{Arc, Mutex};
 

@@ -8,6 +8,12 @@
 //! | `POST /v1/checkout`                   | a paid drive: where the browser pays              |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the drive, once) / declined   |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
+//! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
+//! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
+//! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
+//! | `POST /v1/drives/{id}/lockdown/cancel`| a pending recovery-key lockdown called off        |
+//! | `POST /v1/drives/{id}/restore`        | a prefix as it was at a time (queued)             |
+//! | `GET /v1/drives/{id}/restore/{req}`   | a restore's progress                              |
 //!
 //! Blocking, through azul-storage's [`Transport`]: call it from an azul `Thread`.
 
@@ -335,6 +341,35 @@ impl<'a> TokenServer<'a> {
         bearer: Option<&str>,
         body: Option<&Value>,
     ) -> Result<Value, TokenError> {
+        let reply = self.send(method, path, bearer, body)?;
+        serde_json::from_slice(&reply.body)
+            .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
+    }
+
+    /// [`Self::call`] of an account call, whose answer may be empty (`null` then).
+    fn call_or_null(
+        &self,
+        method: Method,
+        path: &str,
+        bearer: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<Value, TokenError> {
+        let reply = self.send(method, path, bearer, body)?;
+        if reply.body.iter().all(u8::is_ascii_whitespace) {
+            return Ok(Value::Null);
+        }
+        serde_json::from_slice(&reply.body)
+            .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
+    }
+
+    /// One request; the answer when it says 2xx, its refusal otherwise.
+    fn send(
+        &self,
+        method: Method,
+        path: &str,
+        bearer: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<HttpReply, TokenError> {
         let mut headers = vec![(String::from("accept"), String::from("application/json"))];
         if let Some(token) = bearer {
             headers.push((String::from("authorization"), format!("Bearer {token}")));
@@ -354,8 +389,7 @@ impl<'a> TokenServer<'a> {
         if !reply.is_success() {
             return Err(refusal(&reply));
         }
-        serde_json::from_slice(&reply.body)
-            .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))
+        Ok(reply)
     }
 
     /// The storage tiers and their prices.
@@ -431,15 +465,33 @@ impl<'a> TokenServer<'a> {
     /// NEXT drive token: the one given is spent, and spending it again makes the token server
     /// revoke this device.
     pub fn refresh(&self, drive_id: &str, drive_token: &str) -> Result<DriveBundle, TokenError> {
+        self.refresh_with(drive_id, drive_token, &json!({}))
+    }
+
+    /// [`Self::refresh`] that tells the token server what this device calls the drive: the
+    /// answer's drive carries `name` instead of the server's default one.
+    pub fn refresh_named(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        name: &str,
+    ) -> Result<DriveBundle, TokenError> {
+        self.refresh_with(drive_id, drive_token, &json!({ "name": name.trim() }))
+    }
+
+    fn refresh_with(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        body: &Value,
+    ) -> Result<DriveBundle, TokenError> {
         let drive_id = drive_id.trim();
         if drive_id.is_empty() {
             return Err(TokenError::Config(String::from("The drive has no id.")));
         }
-        if drive_token.trim().is_empty() {
-            return Err(TokenError::SignIn(String::from("there is no drive token")));
-        }
+        let token = token_of(drive_token)?;
         let path = format!("/v1/drives/{}/credentials", uri_encode(drive_id, true));
-        let value = self.call(Method::Post, &path, Some(drive_token.trim()), Some(&json!({})))?;
+        let value = self.call(Method::Post, &path, Some(token), Some(body))?;
         let bundle = DriveBundle::from_value(&value)?;
         if bundle.drive_id() != drive_id {
             return Err(TokenError::Protocol(format!(
@@ -449,4 +501,99 @@ impl<'a> TokenServer<'a> {
         }
         Ok(bundle)
     }
+
+    // ==== A drive's account calls, with this device's drive token ====
+
+    /// The drive's state as the token server keeps it (`GET /v1/drives/{id}`): its tier, quota,
+    /// read-only flag, members, a pending lockdown.
+    pub fn info(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
+        let path = format!("/v1/drives/{}", check_id(drive_id)?);
+        self.call_or_null(Method::Get, &path, Some(token_of(drive_token)?), None)
+    }
+
+    /// A new member token family of the drive (`POST /v1/drives/{id}/members`): what a second
+    /// device joins with, `{"member", "drive_token"}`. `member` names it, else the token server
+    /// does.
+    pub fn add_member(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        member: Option<&str>,
+    ) -> Result<Value, TokenError> {
+        let path = format!("/v1/drives/{}/members", check_id(drive_id)?);
+        let body = match member {
+            Some(member) => json!({ "member": member }),
+            None => json!({}),
+        };
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+    }
+
+    /// The immediate lockdown by this device (`POST /v1/drives/{id}/lockdown`): every other
+    /// token family, key and public link of the drive is revoked at once; the answer is this
+    /// device's new grant (a bundle).
+    pub fn lockdown(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
+        let path = format!("/v1/drives/{}/lockdown", check_id(drive_id)?);
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
+    }
+
+    /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel`; a 409
+    /// when none is pending).
+    pub fn lockdown_cancel(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
+        let path = format!("/v1/drives/{}/lockdown/cancel", check_id(drive_id)?);
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
+    }
+
+    /// Queues a restore of `prefix` (a key or a folder) as it was at `as_of` (RFC 3339; `POST
+    /// /v1/drives/{id}/restore`): `{"request_id", "status"}`.
+    pub fn restore(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        prefix: &str,
+        as_of: &str,
+    ) -> Result<Value, TokenError> {
+        let path = format!("/v1/drives/{}/restore", check_id(drive_id)?);
+        let body = json!({ "prefix": prefix, "as_of": as_of });
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+    }
+
+    /// A restore's progress (`GET /v1/drives/{id}/restore/{request}`).
+    pub fn restore_status(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        request: &str,
+    ) -> Result<Value, TokenError> {
+        let path = format!(
+            "/v1/drives/{}/restore/{}",
+            check_id(drive_id)?,
+            check_id(request)?
+        );
+        self.call_or_null(Method::Get, &path, Some(token_of(drive_token)?), None)
+    }
+}
+
+/// A drive token to send; refused when there is none (this device must sign in first).
+fn token_of(drive_token: &str) -> Result<&str, TokenError> {
+    let token = drive_token.trim();
+    if token.is_empty() {
+        return Err(TokenError::SignIn(String::from("there is no drive token")));
+    }
+    Ok(token)
+}
+
+/// A drive or request id as it may stand in a URL path: letters, digits, `_` and `-` (the token
+/// server's `d_` and base32). Anything else is refused before it reaches a URL.
+pub fn check_id(id: &str) -> Result<&str, TokenError> {
+    let ok = !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if !ok {
+        return Err(TokenError::Config(format!(
+            "{id:?} is not a drive or request id"
+        )));
+    }
+    Ok(id)
 }

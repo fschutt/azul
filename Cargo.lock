@@ -134,6 +134,7 @@ dependencies = [
 name = "AzMail"
 version = "0.1.0"
 dependencies = [
+ "azcloud-kit",
  "azul-appkit",
  "azul-dll",
  "azul-icons-haiku",
@@ -1143,6 +1144,7 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-storage",
+ "blake3",
  "serde",
  "serde_json",
 ]

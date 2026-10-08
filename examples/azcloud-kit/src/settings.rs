@@ -6,9 +6,11 @@
 //!
 //! [`Settings::resolve`] is pure (the environment, the OS folders and the
 //! file reader come in), so the tests check the precedence without touching
-//! the machine; [`Settings::from_process`] is the real run. [`Settings::report`]
-//! is what `azcloud config` prints: a value that came from a built-in default
-//! says so, which is how an address nobody configured is found.
+//! the machine; [`Settings::from_process`] reads this process's environment and
+//! the config file, with the OS folders the caller found (azul's `FilePath` in an
+//! app, the `dirs` crate in the `azcloud` command line). [`Settings::report`] is
+//! what `azcloud config` prints: a value that came from a built-in default says
+//! so, which is how an address nobody configured is found.
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +20,7 @@ use azul_appkit::azlin_config::{
 };
 use serde_json::{json, Value};
 
-use crate::drive::TransportPref;
+use crate::{error::CloudError, transport::TransportPref};
 
 /// The variable naming this device's state folder.
 pub const STATE_VAR: &str = "AZCLOUD_HOME";
@@ -26,13 +28,12 @@ pub const STATE_VAR: &str = "AZCLOUD_HOME";
 pub const STATE_FLAG: &str = "--state-dir";
 /// The state folder's name in the OS config folder.
 pub const STATE_DIR_NAME: &str = "azcloud";
-/// The variable choosing the transport: `auto`, `iroh`, `https`
-/// (AZDRIVE-INTEGRATION.md §3 names it).
+/// The variable choosing the transport: `auto`, `iroh`, `https`.
 pub const TRANSPORT_VAR: &str = "AZCLOUD_TRANSPORT";
 /// The flag choosing it.
 pub const TRANSPORT_FLAG: &str = "--transport";
 /// The variable pinning the iroh node to dial (its endpoint id: the node's
-/// Ed25519 key, hex or base32), as `azctl test client --iroh` sets it.
+/// Ed25519 key, hex or base32).
 pub const IROH_NODE_VAR: &str = "AZLIN_IROH_NODE";
 /// The flag pinning it.
 pub const IROH_NODE_FLAG: &str = "--iroh-node";
@@ -92,25 +93,13 @@ impl PathSetting {
 }
 
 /// The OS folders a run starts from: the ones azul's `FilePath::get_home_dir`,
-/// `get_config_dir` and `get_data_dir` return (both use `dirs`), so the data
-/// root here is the one the apps write.
+/// `get_config_dir` and `get_data_dir` return, so the data root here is the one
+/// the apps write.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OsDirs {
     pub home: Option<PathBuf>,
     pub config: Option<PathBuf>,
     pub data: Option<PathBuf>,
-}
-
-impl OsDirs {
-    /// This user's.
-    #[must_use]
-    pub fn of_this_user() -> OsDirs {
-        OsDirs {
-            home: dirs::home_dir(),
-            config: dirs::config_dir(),
-            data: dirs::data_dir(),
-        }
-    }
 }
 
 /// Everything a run decided.
@@ -194,12 +183,12 @@ fn non_blank_var(env: &dyn Fn(&str) -> Option<String>, var: &str) -> Option<Stri
 }
 
 impl Settings {
-    /// This process's settings: its environment, this user's OS folders, the
+    /// This process's settings: its environment, the OS folders `os`, the
     /// config file they name.
     #[must_use]
-    pub fn from_process(flags: &Flags) -> Settings {
+    pub fn from_process(flags: &Flags, os: &OsDirs) -> Settings {
         let env = |name: &str| std::env::var(name).ok();
-        Settings::resolve(flags, &env, &OsDirs::of_this_user(), &AzlinConfig::load)
+        Settings::resolve(flags, &env, os, &AzlinConfig::load)
     }
 
     /// The settings from `flags`, the environment `env`, the OS folders `os`
@@ -277,12 +266,12 @@ impl Settings {
     /// # Errors
     ///
     /// When no layer gave one (a profile without a token server).
-    pub fn token_url(&self) -> anyhow::Result<&str> {
+    pub fn token_url(&self) -> Result<&str, CloudError> {
         self.endpoints.url(Endpoint::Token).ok_or_else(|| {
-            anyhow::anyhow!(
+            CloudError::failed(format!(
                 "no token server: set endpoints.token in {}, AZLIN_TOKEN_URL or --token-url",
                 self.config_file_label()
-            )
+            ))
         })
     }
 
@@ -297,11 +286,10 @@ impl Settings {
     /// # Errors
     ///
     /// When no layer named one (no home folder and no `AZCLOUD_HOME`).
-    pub fn state_path(&self) -> anyhow::Result<&Path> {
-        self.state_dir
-            .path
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("no state folder: set AZCLOUD_HOME or pass --state-dir"))
+    pub fn state_path(&self) -> Result<&Path, CloudError> {
+        self.state_dir.path.as_deref().ok_or_else(|| {
+            CloudError::failed("no state folder: set AZCLOUD_HOME or pass --state-dir")
+        })
     }
 
     fn config_file_label(&self) -> String {
@@ -577,193 +565,5 @@ fn azlin_home(flags: &Flags, env: &dyn Fn(&str) -> Option<String>, os: &OsDirs) 
             "the shared config's folder in the home folder",
         ),
         None => PathSetting::none(Source::Unset, "no home folder"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use azul_appkit::azlin_config::{EndpointsSection, Profile};
-
-    use super::*;
-
-    fn os() -> OsDirs {
-        OsDirs {
-            home: Some(PathBuf::from("/home/ann")),
-            config: Some(PathBuf::from("/home/ann/.config")),
-            data: Some(PathBuf::from("/home/ann/.local/share")),
-        }
-    }
-
-    fn no_file(_: &Path) -> (AzlinConfig, Option<String>) {
-        (AzlinConfig::default(), None)
-    }
-
-    fn no_env(_: &str) -> Option<String> {
-        None
-    }
-
-    #[test]
-    fn with_nothing_configured_every_folder_and_endpoint_is_a_built_in_default_and_says_so() {
-        let s = Settings::resolve(&Flags::default(), &no_env, &os(), &no_file);
-        assert_eq!(
-            s.config_file.path,
-            Some(PathBuf::from("/home/ann/.azlin/config.json"))
-        );
-        assert_eq!(
-            s.state_dir.path,
-            Some(PathBuf::from("/home/ann/.config/azcloud"))
-        );
-        assert_eq!(
-            s.data_root.path,
-            Some(PathBuf::from("/home/ann/.local/share/Azlin"))
-        );
-        assert_eq!(s.azlin_home.path, Some(PathBuf::from("/home/ann/.azlin")));
-        assert_eq!(s.transport_pref(), TransportPref::Auto);
-        let defaults = s.defaults_in_use().join("\n");
-        for expected in [
-            "profile local",
-            "token = http://127.0.0.1:8081 (profile local)",
-            "transport = auto",
-            "state folder",
-            "data root",
-        ] {
-            assert!(defaults.contains(expected), "{expected:?} in {defaults}");
-        }
-        assert!(
-            !defaults.contains("s3 ="),
-            "the S3 endpoint is the drive's, not a default"
-        );
-    }
-
-    #[test]
-    fn the_config_file_the_environment_and_the_flags_are_layered_in_that_order() {
-        let load = |_: &Path| -> (AzlinConfig, Option<String>) {
-            let mut c = AzlinConfig::default();
-            c.endpoints.profile = Some(Profile::Local);
-            c.endpoints
-                .set(Endpoint::Token, Some("http://127.0.0.1:18081"))
-                .unwrap();
-            (c, None)
-        };
-        let env = |name: &str| -> Option<String> {
-            match name {
-                "AZLIN_CONFIG" => Some(String::from("/tmp/e2e/config.json")),
-                "AZCLOUD_TRANSPORT" => Some(String::from("https")),
-                "AZCLOUD_HOME" => Some(String::from("/tmp/e2e/state")),
-                "AZLIN_DATA" => Some(String::from(" /tmp/e2e/data ")),
-                "AZLIN_IROH_NODE" => Some("ab".repeat(32)),
-                "AZLIN_IROH_ADDR" => Some(String::from("127.0.0.1:41000")),
-                _ => None,
-            }
-        };
-        let s = Settings::resolve(&Flags::default(), &env, &os(), &load);
-        assert_eq!(
-            s.config_file.path,
-            Some(PathBuf::from("/tmp/e2e/config.json"))
-        );
-        assert_eq!(s.config_file.source, Source::Env("AZLIN_CONFIG"));
-        assert_eq!(
-            s.endpoints.url(Endpoint::Token),
-            Some("http://127.0.0.1:18081")
-        );
-        assert_eq!(
-            s.endpoints.get(Endpoint::Token).source,
-            Source::File(PathBuf::from("/tmp/e2e/config.json"))
-        );
-        assert_eq!(s.transport_pref(), TransportPref::Https);
-        assert_eq!(s.state_dir.path, Some(PathBuf::from("/tmp/e2e/state")));
-        assert_eq!(s.data_root.path, Some(PathBuf::from("/tmp/e2e/data")));
-        assert_eq!(s.data_root.source, Source::Env("AZLIN_DATA"));
-        assert_eq!(s.iroh_addr.value.as_deref(), Some("127.0.0.1:41000"));
-
-        let flags = Flags {
-            transport: Some(String::from("iroh")),
-            state_dir: Some(PathBuf::from("/srv/state")),
-            config: Some(PathBuf::from("/srv/config.json")),
-            endpoints: EndpointFlags {
-                token: Some(String::from("https://token.test")),
-                ..EndpointFlags::default()
-            },
-            ..Flags::default()
-        };
-        let s = Settings::resolve(&flags, &env, &os(), &load);
-        assert_eq!(s.config_file.source, Source::Flag("--config"));
-        assert_eq!(s.transport_pref(), TransportPref::Iroh);
-        assert_eq!(s.state_dir.path, Some(PathBuf::from("/srv/state")));
-        assert_eq!(s.endpoints.url(Endpoint::Token), Some("https://token.test"));
-    }
-
-    #[test]
-    fn a_shared_config_switched_off_leaves_the_profile_and_a_bad_value_is_ignored_with_a_reason() {
-        let env = |name: &str| -> Option<String> {
-            match name {
-                "AZLIN_CONFIG" => Some(String::from("off")),
-                "AZCLOUD_TRANSPORT" => Some(String::from("carrier-pigeon")),
-                "AZLIN_IROH_ADDR" => Some(String::from("localhost")),
-                _ => None,
-            }
-        };
-        let s = Settings::resolve(&Flags::default(), &env, &os(), &no_file);
-        assert_eq!(s.config_file.path, None);
-        assert_eq!(
-            s.endpoints.get(Endpoint::Token).source,
-            Source::Profile(Profile::Local)
-        );
-        assert_eq!(s.transport_pref(), TransportPref::Auto);
-        assert_eq!(s.transport.rejected.len(), 1);
-        assert_eq!(s.iroh_addr.value, None);
-        assert_eq!(s.iroh_addr.rejected.len(), 1);
-        let (json, text) = s.report(None);
-        assert_eq!(json["transport"]["rejected"][0]["value"], "carrier-pigeon");
-        assert!(text.contains("IGNORED"), "{text}");
-    }
-
-    #[test]
-    fn the_report_names_the_source_of_every_endpoint_and_hides_passwords_in_addresses() {
-        let env = |name: &str| -> Option<String> {
-            (name == "AZLIN_TOKEN_URL").then(|| String::from("http://ann:secret@127.0.0.1:8081"))
-        };
-        let s = Settings::resolve(&Flags::default(), &env, &os(), &no_file);
-        let (json, text) = s.report(Some("http://127.0.0.1:9000"));
-        assert_eq!(json["endpoints"]["token"]["kind"], "env");
-        assert_eq!(
-            json["endpoints"]["token"]["source"],
-            "environment AZLIN_TOKEN_URL"
-        );
-        assert_eq!(json["endpoints"]["s3"]["kind"], "unset");
-        assert_eq!(
-            json["endpoints"]["s3"]["from_drive"],
-            "http://127.0.0.1:9000"
-        );
-        assert_eq!(json["endpoints"]["meet"]["kind"], "profile");
-        assert!(!text.contains("secret"), "{text}");
-        assert!(!json.to_string().contains("secret"), "{json}");
-        assert_eq!(
-            redact_url("https://u:p@host.test:1/x"),
-            "https://***@host.test:1/x"
-        );
-        assert_eq!(redact_url("http://host.test/a@b"), "http://host.test/a@b");
-    }
-
-    #[test]
-    fn a_file_section_is_read_through_the_loader_it_is_given() {
-        let load = |path: &Path| -> (AzlinConfig, Option<String>) {
-            assert_eq!(path, Path::new("/home/ann/.azlin/config.json"));
-            let (c, problem) = AzlinConfig::parse(
-                r#"{"endpoints": {"profile": "trial", "meet": "http://127.0.0.1:8787"}}"#,
-            );
-            (c, problem)
-        };
-        let s = Settings::resolve(&Flags::default(), &no_env, &os(), &load);
-        assert_eq!(s.endpoints.profile, Profile::Trial);
-        assert_eq!(
-            s.endpoints.url(Endpoint::Token),
-            Some("https://token-trial.azlin.io")
-        );
-        assert_eq!(
-            s.endpoints.url(Endpoint::Meet),
-            Some("http://127.0.0.1:8787")
-        );
-        assert!(EndpointsSection::default().is_empty());
     }
 }

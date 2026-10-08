@@ -618,3 +618,144 @@ fn a_copy_the_service_does_not_confirm_fails() {
         Err(DriveError::Protocol(_))
     ));
 }
+
+#[test]
+fn a_raw_get_signs_exactly_like_the_drives_own_get() {
+    // The same request as the_get_object_signature_matches_an_independent_sigv4_computation.
+    let fake = Fake::default();
+    fake.answer(200, &[], "hello");
+    let reply = local_drive(&fake)
+        .send_raw(
+            Method::Get,
+            Some("mail/inbox/0001.eml"),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "",
+        )
+        .unwrap();
+    assert_eq!(reply.body, b"hello");
+    let call = fake.last();
+    assert_eq!(call.url, "http://127.0.0.1:9000/azdrive/mail/inbox/0001.eml");
+    assert_eq!(
+        header(&call, "authorization"),
+        Some(
+            "AWS4-HMAC-SHA256 Credential=AKIDTEST/20130524/us-east-1/s3/aws4_request, \
+             SignedHeaders=host;x-amz-content-sha256;x-amz-date, \
+             Signature=cfb20a8140b1d84d3d5018d5cccad359a0bcb9a8ef6764732b51341545fe5f6d"
+        )
+    );
+}
+
+#[test]
+fn a_raw_request_signs_its_extra_headers_and_hands_back_any_status() {
+    let fake = Fake::default();
+    fake.answer(
+        412,
+        &[],
+        "<Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions \
+         you specified did not hold</Message></Error>",
+    );
+    let reply = local_drive(&fake)
+        .send_raw(
+            Method::Put,
+            Some("sync/.azlin/index.json"),
+            Vec::new(),
+            vec![(String::from("if-match"), String::from("\"v1\""))],
+            b"{}".to_vec(),
+            "application/json",
+        )
+        .expect("a 412 is an answer, not a failure to send");
+    assert_eq!(reply.status, 412);
+    let call = fake.last();
+    assert_eq!(call.method, Method::Put);
+    assert_eq!(
+        call.url,
+        "http://127.0.0.1:9000/azdrive/sync/.azlin/index.json"
+    );
+    assert_eq!(header(&call, "if-match"), Some("\"v1\""));
+    assert_eq!(call.content_type, "application/json");
+    assert_eq!(
+        header(&call, "x-amz-content-sha256"),
+        Some(sigv4::sha256_hex(b"{}").as_str())
+    );
+    assert!(header(&call, "authorization")
+        .unwrap()
+        .contains("SignedHeaders=host;if-match;x-amz-content-sha256;x-amz-date,"));
+    match S3Drive::failure_of(&reply, Some("sync/.azlin/index.json")) {
+        DriveError::Service(e) => {
+            assert_eq!(e.status, 412);
+            assert_eq!(e.code, "PreconditionFailed");
+        }
+        other => panic!("not the service's refusal: {other:?}"),
+    }
+}
+
+#[test]
+fn a_raw_request_carries_its_query_and_reaches_the_bucket_without_a_key() {
+    let fake = Fake::default();
+    fake.answer(200, &[], "<InitiateMultipartUploadResult/>");
+    fake.answer(200, &[], EMPTY_LISTING);
+    let drive = local_drive(&fake);
+    drive
+        .send_raw(
+            Method::Post,
+            Some("big.bin"),
+            vec![(String::from("uploads"), String::new())],
+            Vec::new(),
+            Vec::new(),
+            "",
+        )
+        .unwrap();
+    assert_eq!(fake.last().url, "http://127.0.0.1:9000/azdrive/big.bin?uploads=");
+    let reply = drive
+        .send_raw(
+            Method::Get,
+            None,
+            vec![
+                (String::from("list-type"), String::from("2")),
+                (String::from("prefix"), String::from("a/")),
+            ],
+            Vec::new(),
+            Vec::new(),
+            "",
+        )
+        .unwrap();
+    assert_eq!(
+        fake.last().url,
+        "http://127.0.0.1:9000/azdrive?list-type=2&prefix=a%2F"
+    );
+    let page = crate::s3::parse_listing(std::str::from_utf8(&reply.body).unwrap()).unwrap();
+    assert!(page.objects.is_empty() && page.next.is_none());
+    assert!(
+        drive
+            .send_raw(Method::Get, Some(""), Vec::new(), Vec::new(), Vec::new(), "")
+            .is_err(),
+        "an empty key is refused before anything is sent"
+    );
+    assert_eq!(fake.calls().len(), 2);
+}
+
+#[test]
+fn a_failed_raw_answer_reads_as_the_drives_own_error() {
+    let missing = HttpReply {
+        status: 404,
+        headers: Vec::new(),
+        body: b"<Error><Code>NoSuchKey</Code><Message>gone</Message></Error>".to_vec(),
+    };
+    assert_eq!(
+        S3Drive::failure_of(&missing, Some("a.txt")),
+        DriveError::NotFound {
+            key: String::from("a.txt")
+        }
+    );
+    let busy = HttpReply {
+        status: 503,
+        headers: Vec::new(),
+        body: Vec::new(),
+    };
+    assert!(matches!(
+        S3Drive::failure_of(&busy, None),
+        DriveError::Service(e) if e.status == 503 && e.code == "ServiceUnavailable"
+    ));
+}
