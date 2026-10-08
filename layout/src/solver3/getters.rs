@@ -11326,6 +11326,58 @@ mod memory_font_tier_tests {
         assert_eq!(fallback, ["sans-serif"]);
     }
 
+    /// With nothing installed (wasm, the PDF writer, the golden dumps) the
+    /// resolver's last resort ranks every font the cache holds by style
+    /// alone - the bundled faces of other families included - so an italic
+    /// `sans-serif` came back as flora's EB Garamond italic and the face
+    /// registered for `sans-serif` itself never got its turn. A font held in
+    /// memory is not an installed font: the family's own face goes first.
+    #[test]
+    fn an_italic_generic_keeps_the_face_registered_for_it_when_nothing_is_installed() {
+        use crate::text3::cache::{FontManager, FontSelector, FontStyle};
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fonts/azul-mock-prop.ttf"
+        ))
+        .expect("tests/fonts/azul-mock-prop.ttf");
+        let mut fonts = FontManager::<azul_css::props::basic::FontRef>::new(FcFontCache::default())
+            .expect("font manager");
+        let own = fonts.register_named_font_in_tier(
+            "sans-serif",
+            &bytes,
+            vec![UnicodeRange { start: 0x20, end: 0x7E }],
+            MemoryFontTier::Fallback,
+        );
+        let stack = vec![FontSelector {
+            family: "sans-serif".to_string(),
+            style: FontStyle::Italic,
+            ..FontSelector::default()
+        }];
+        let collected = CollectedFontStacks {
+            font_stacks: vec![stack],
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        let resolved = resolve_font_chains_with_registry(
+            &collected,
+            &fonts.fc_cache,
+            None,
+            Some(&[]),
+            &fonts.memory_families,
+        );
+        let chain = resolved.chains.values().next().expect("the stack's chain");
+        let first = chain
+            .css_fallbacks
+            .iter()
+            .find_map(|g| g.fonts.first())
+            .map(|m| m.id);
+        assert_eq!(
+            first,
+            Some(own),
+            "the face registered for `sans-serif` must come before a style match of another family"
+        );
+    }
+
     /// Registering both tiers for one family must not make it ambiguous: the
     /// primary face wins and the fallback is not also offered.
     #[test]
