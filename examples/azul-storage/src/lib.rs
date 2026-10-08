@@ -21,13 +21,20 @@
 //!   which goes through azul's `HttpRequestConfig`, the tests a fake.
 //! - [`ScopedDrive`]: any drive seen through a grant (a key prefix, read-only or writable). This is
 //!   the seam for RBAC and the access links the database hands out.
+//! - `OpendalDrive` (feature `opendal`): a data source Apache OpenDAL reaches - WebDAV, FTP,
+//!   Google Drive, Dropbox, OneDrive, GitHub, GCS, Azure, ... ([`catalog`] lists them). OpenDAL's
+//!   HTTP goes through the same [`Transport`] as the S3 client's.
+//! - `DatabaseDrive` (feature `sql`): a PostgreSQL, MySQL or SQLite database browsed as files:
+//!   its tables are folders, every row a JSON file, a table's rows a CSV file.
 //!
 //! Configuration ([`config`]): the list of drives the user added lives in
-//! `<config dir>/azul-storage/drives.json` WITHOUT secrets; the credentials
-//! live in the OS keyring under [`config::keyring_key`], as
-//! [`Credentials::to_keyring_secret`]. Nothing here logs a secret or puts one
-//! in `Debug` output.
+//! `<config dir>/azul-storage/drives.json` WITHOUT secrets; the secrets (an S3
+//! drive's credentials, an Azlin drive's session, a data source's passwords and
+//! tokens) live in the OS keyring under [`config::keyring_key`]. The Add drive
+//! dialog's sources and their forms are [`catalog`]. Nothing here logs a secret
+//! or puts one in `Debug` output.
 
+pub mod catalog;
 pub mod config;
 pub mod ids;
 pub mod key;
@@ -45,6 +52,19 @@ pub(crate) mod xml;
 #[cfg(feature = "azul")]
 pub mod azul_transport;
 
+/// The one tokio runtime the async back-ends (OpenDAL, the database drivers) run on.
+#[cfg(any(feature = "opendal", feature = "sql"))]
+pub mod runtime;
+
+/// Data sources through Apache OpenDAL (the module is not called `opendal`: that is the crate's
+/// name).
+#[cfg(feature = "opendal")]
+pub mod opendal_drive;
+
+/// Databases browsed as files.
+#[cfg(feature = "sql")]
+pub mod database;
+
 /// A temporary folder for tests: this crate's, and the apps' through the `testing` feature.
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -54,7 +74,12 @@ mod tests;
 
 use std::{fmt, path::PathBuf};
 
+pub use config::SecretOptions;
+#[cfg(feature = "sql")]
+pub use database::DatabaseDrive;
 pub use local::LocalDrive;
+#[cfg(feature = "opendal")]
+pub use opendal_drive::OpendalDrive;
 pub use s3::{Credentials, S3Config, S3Drive};
 pub use scoped::ScopedDrive;
 pub use transport::{HttpCall, HttpReply, Method, Transport};

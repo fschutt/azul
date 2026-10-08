@@ -29,11 +29,68 @@ serde_json = "1"
 # libazul.
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
 
+# ---- feature `opendal`: data sources through Apache OpenDAL (OpendalDrive) ----
+# No default features: no reqwest, no HTTP transport of OpenDAL's own - its HTTP
+# goes through azul-storage's `Transport` (azul's HTTP client in the apps), no
+# services registered before main. The services: the ones that build on macOS,
+# Windows and Linux from Rust alone (see src/catalog.rs for the ones left out).
+opendal = { version = "0.59.4", default-features = false, optional = true, features = [
+    "executors-tokio",
+    "services-webdav",
+    "services-http",
+    "services-ftp",
+    "services-webhdfs",
+    "services-gcs",
+    "services-azblob",
+    "services-azdls",
+    "services-azfile",
+    "services-b2",
+    "services-swift",
+    "services-oss",
+    "services-cos",
+    "services-obs",
+    "services-upyun",
+    "services-gdrive",
+    "services-dropbox",
+    "services-onedrive",
+    "services-koofr",
+    "services-pcloud",
+    "services-seafile",
+    "services-yandex-disk",
+    "services-github",
+    "services-lakefs",
+    "services-vercel-blob",
+    "services-dbfs",
+    "services-ipfs",
+    "services-redis",
+] }
+# OpenDAL's HTTP transport trait speaks `http` 1.x requests and responses and
+# streams its bodies (the versions OpenDAL 0.59 itself pins).
+http = { version = "1.4", optional = true }
+futures = { version = "0.3", default-features = false, features = ["std"], optional = true }
+# ---- feature `sql`: databases browsed as files (DatabaseDrive) ----
+# sqlx 0.8 is the driver OpenDAL's postgresql / mysql / sqlite services use; no
+# macros, no migrations; rustls with ring and the webpki roots; SQLite bundled
+# (compiled from its C source by `cc`: no system library).
+sqlx = { version = "0.8.6", default-features = false, optional = true, features = [
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+    "sqlite",
+    "postgres",
+    "mysql",
+] }
+# The one runtime of both (src/runtime.rs).
+tokio = { version = "1.52", default-features = false, optional = true, features = ["rt", "rt-multi-thread"] }
+
 [features]
 default = []
 azul = ["dep:azul"]
 # `testing::TempDir` for the apps' tests (a dev-dependency turns it on).
 testing = []
+# Data sources through Apache OpenDAL (OpendalDrive; the catalog's OpenDAL entries).
+opendal = ["dep:opendal", "dep:http", "dep:futures", "dep:tokio"]
+# Databases browsed as files (DatabaseDrive; the catalog's database entries).
+sql = ["dep:sqlx", "dep:tokio"]
 
 [lib]
 name = "azul_storage"
