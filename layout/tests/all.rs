@@ -963,3 +963,5 @@ mod a_flora_spin_recolours_only_the_accent;
 mod a_node_that_comes_in_is_drawn_from_its_first_keyframe;
 #[path = "a_virtual_views_content_inherits_from_its_host.rs"]
 mod a_virtual_views_content_inherits_from_its_host;
+#[path = "a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect.rs"]
+mod a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect;
