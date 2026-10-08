@@ -24,9 +24,13 @@ fn scripted() -> bool {
 
 /// The debug server's port: the caller's `AZ_DEBUG`, else 8080.
 fn debug_port() -> String {
-    std::env::var("AZ_DEBUG")
-        .ok()
-        .filter(|p| !p.trim().is_empty())
+    port_from(std::env::var("AZ_DEBUG").ok().as_deref())
+}
+
+/// [`debug_port`] from `AZ_DEBUG`'s value.
+fn port_from(var: Option<&str>) -> String {
+    var.filter(|p| !p.trim().is_empty())
+        .map(String::from)
         .unwrap_or_else(|| "8080".to_string())
 }
 
@@ -61,4 +65,20 @@ pub fn run_app() {
 pub extern "C" fn android_main(app: azul::dll::AndroidApp) {
     azul::dll::android_main_glue(app);
     run_app();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::port_from;
+
+    #[test]
+    fn the_debug_port_is_az_debug_else_one_the_local_stack_leaves_free() {
+        assert_eq!(port_from(Some("9123")), "9123");
+        assert_eq!(port_from(Some("  ")), port_from(None), "blank is unset");
+        assert_ne!(
+            port_from(None),
+            "8080",
+            "8080 is the local stack's sqld (iso/docs/GETTING-STARTED.md)"
+        );
+    }
 }
