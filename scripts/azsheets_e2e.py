@@ -191,7 +191,10 @@ def first_session(binary, args, logs, data_dir, out):
         # 9. Options (appkit's settings page) and About (the standard About box).
         app.focus_grid()
         app.key("comma", primary=True)
-        app.until("the settings page", lambda: app.has_id("appkit-theme") and app.has_id("appkit-mode"))
+        # AzSheets's theme is pinned (FLORA11: Writer flora, Sheets flora:green, Show flora:red):
+        # the General page says so instead of offering the theme picker; the mode is shared.
+        app.until("the settings page", lambda: app.has_id("appkit-mode")
+                  and (app.has_id("appkit-theme") or app.shows("is always set in")))
         app.screenshot(os.path.join(out, "options.png"))
         # OK returns to the workbook; About is the backstage's (File > About).
         app.click(selector="#appkit-settings-ok")

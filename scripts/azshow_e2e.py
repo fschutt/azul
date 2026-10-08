@@ -275,7 +275,10 @@ def body(args, logs, out):
 
         # ---- Options and About ----
         app.click(text="Options")
-        app.until("the settings page", lambda: app.has_id("appkit-theme") and app.has_id("appkit-mode"))
+        # AzShow's theme is pinned (FLORA11: Writer flora, Sheets flora:green, Show flora:red):
+        # the General page says so instead of offering the theme picker; the mode is shared.
+        app.until("the settings page", lambda: app.has_id("appkit-mode")
+                  and (app.has_id("appkit-theme") or app.shows("is always set in")))
         shot("07-options")
         # OK returns to the backstage; About is its own page there.
         app.click(selector="#appkit-settings-ok")
