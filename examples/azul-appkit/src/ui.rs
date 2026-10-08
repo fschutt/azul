@@ -68,7 +68,7 @@ use crate::{
     files::{run_jobs, FileJob, FileOutcome},
     look::{self, CategoryItem},
     migrate,
-    options::{categories, category_id, category_index, Category, Snapshot},
+    options::{categories, category_id, category_index, notice_after_save, Category, Snapshot},
     settings::{AppSettings, SETTINGS_FILE},
     shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
 };
@@ -588,17 +588,20 @@ extern "C" fn on_settings_saved(mut kit: RefAny, mut msg: RefAny, _info: Callbac
     let Some(mut k) = kit.downcast_mut::<Kit>() else {
         return Update::DoNothing;
     };
-    match reply.outcomes.iter().find_map(FileOutcome::error) {
-        Some(e) => {
-            k.notice = format!("The settings could not be saved: {e}");
-            println!("{}_SETTINGS_ERROR {e}", k.spec.binary.to_uppercase());
-        }
-        None => {
-            k.notice.clear();
-            println!("{}_SETTINGS_SAVED {}", k.spec.binary.to_uppercase(), k.settings_key());
-        }
+    let error = reply.outcomes.iter().find_map(FileOutcome::error);
+    match &error {
+        Some(e) => println!("{}_SETTINGS_ERROR {e}", k.spec.binary.to_uppercase()),
+        None => println!(
+            "{}_SETTINGS_SAVED {}",
+            k.spec.binary.to_uppercase(),
+            k.settings_key()
+        ),
     }
-    Update::RefreshDom
+    if notice_after_save(&mut k.notice, error.as_deref()) {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 /// Sets one of the app's own values and saves the settings file.
