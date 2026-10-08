@@ -9,11 +9,13 @@
 
 use std::{fmt, sync::Arc, time::Duration};
 
-use azul_storage::keyring::KeyringStore;
+use azul_storage::{config::keyring_key, keyring::KeyringStore};
 
 use crate::{
+    bundle::DriveBundle,
     error::CloudResult,
     lock::{HeldLock, LockDir},
+    session::AzlinSession,
 };
 
 /// How long a change waits for another process's change of the same entry: a refresh holds the
@@ -83,5 +85,28 @@ impl SharedKeyring {
     /// When the keyring cannot remove it.
     pub fn delete(&self, key: &str) -> CloudResult<()> {
         Ok(self.keyring.delete(key)?)
+    }
+
+    /// The session of a new drive (`bundle`: a sign-up, a paid checkout's) into the drive's
+    /// keyring entry - unless the entry holds a session of that drive already, which stays (it
+    /// may have rotated since: the sign-up's token is spent then). Under the drive's lock, as
+    /// every refresh of the drive is. The entry's text now, and whether it was there already.
+    ///
+    /// # Errors
+    ///
+    /// When the lock cannot be taken or the keyring cannot be read or written.
+    pub fn keep_new_drive(&self, bundle: &DriveBundle) -> CloudResult<(String, bool)> {
+        let key = keyring_key(bundle.drive_id());
+        let _lock = self.lock(&key)?;
+        if let Some(text) = self.get(&key)? {
+            let ours = AzlinSession::from_keyring_secret(&text)
+                .is_ok_and(|session| session.drive_id == bundle.drive_id());
+            if ours {
+                return Ok((text, true));
+            }
+        }
+        let text = bundle.session().to_keyring_secret();
+        self.set(&key, &text)?;
+        Ok((text, false))
     }
 }

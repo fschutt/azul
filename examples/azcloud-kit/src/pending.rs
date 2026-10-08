@@ -17,14 +17,12 @@
 
 use std::fmt;
 
-use azul_storage::config::keyring_key;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     bundle::DriveBundle,
     claim::{ClaimError, ClaimKey},
     error::{fail, CloudError, CloudResult},
-    session::AzlinSession,
     shared::SharedKeyring,
     token::{CheckoutStatus, TokenError, TokenServer},
 };
@@ -226,7 +224,7 @@ pub fn poll(server: &TokenServer<'_>, shared: &SharedKeyring, checkout: &Pending
     };
     match server.checkout_status(&checkout.checkout_id, &claim) {
         Ok(CheckoutStatus::Pending) => Polled::Pending,
-        Ok(CheckoutStatus::Approved(bundle)) => match take_drive(shared, &bundle) {
+        Ok(CheckoutStatus::Approved(bundle)) => match shared.keep_new_drive(&bundle) {
             Ok((session, already)) => Polled::Claimed(Box::new(Claimed {
                 bundle: *bundle,
                 session,
@@ -258,22 +256,4 @@ fn drop_it(shared: &SharedKeyring, checkout: &PendingCheckout, why: String) -> P
         Ok(false) => Polled::Settled,
         Err(e) => Polled::Kept(format!("{why}; it could not be taken off the list: {e}")),
     }
-}
-
-/// The session of `bundle`'s drive into the keyring - unless the keyring has one of the drive
-/// already, which stays (it may have rotated: the sign-up's token is spent then). Under the
-/// drive's lock, as every refresh of the drive is. The keyring's text and whether it was there.
-fn take_drive(shared: &SharedKeyring, bundle: &DriveBundle) -> CloudResult<(String, bool)> {
-    let key = keyring_key(bundle.drive_id());
-    let _lock = shared.lock(&key)?;
-    if let Some(text) = shared.get(&key)? {
-        let ours = AzlinSession::from_keyring_secret(&text)
-            .is_ok_and(|session| session.drive_id == bundle.drive_id());
-        if ours {
-            return Ok((text, true));
-        }
-    }
-    let text = bundle.session().to_keyring_secret();
-    shared.set(&key, &text)?;
-    Ok((text, false))
 }
