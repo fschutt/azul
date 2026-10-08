@@ -12,6 +12,8 @@ _build/
 **/*.rs.bk
 *.pdf
 *.bin
+# ... except the built-in textures azul-layout `include_bytes!`s (texture.rs).
+!layout/assets/textures/*.bin
 *.json.gz
 *.iso
 *.img
