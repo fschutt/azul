@@ -328,19 +328,50 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
     // Only the lines that fit (LOOK: a 15-minute block squeezed two lines into 6 px each): a
     // short block says "title, time" on one line.
     let lines = week::block_lines(height);
+    // "Join meeting" is how one joins from the week, so it is never clipped away (a clipped
+    // button takes no click): a block with room for a line of its own (title, time, then the
+    // button) gets that line; a shorter one - an hour at the default zoom has two lines - puts
+    // the button at the end of its last line, which gives way.
+    let join = e.meeting.as_ref().filter(|m| !m.pending).map(|_| {
+        Button::create("Join meeting")
+            .with_on_click(
+                RefAny::new(EventRef {
+                    app: app.clone(),
+                    id: e.id.clone(),
+                }),
+                crate::on_join_meeting,
+            )
+            .dom()
+    });
+    let join_inline = join.is_some() && lines < 3;
+    let mut join = join;
+    let last_line = |text: String, css: &str, join: Option<Dom>| -> Dom {
+        match join {
+            Some(button) => Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; gap: 4px; min-width: 0;")
+                .with_child(
+                    Dom::create_span_with_text(text)
+                        .with_css(format!("{css} flex-shrink: 1; min-width: 0;")),
+                )
+                .with_child(button.with_css("flex-shrink: 0;")),
+            None => Dom::create_span_with_text(text).with_css(css),
+        }
+    };
     if lines == 1 {
-        dom.add_child(
-            Dom::create_span_with_text(format!("{}, {time}", e.title)).with_css(CLIPPED_TITLE),
-        );
+        let inline = if join_inline { join.take() } else { None };
+        dom.add_child(last_line(
+            format!("{}, {time}", e.title),
+            CLIPPED_TITLE,
+            inline,
+        ));
     } else {
         dom.add_child(Dom::create_span_with_text(e.title.as_str()).with_css(CLIPPED_TITLE));
-        dom.add_child(Dom::create_span_with_text(time.as_str()).with_css(CLIPPED_LINE));
+        let inline = if join_inline { join.take() } else { None };
+        dom.add_child(last_line(time.clone(), CLIPPED_LINE, inline));
     }
     if lines >= 3 && !e.location.is_empty() {
         dom.add_child(Dom::create_span_with_text(e.location.as_str()).with_css(CLIPPED_LINE));
     }
-    // The meeting's line stays whatever the height (its "Join meeting" is how one joins from
-    // the week); the block clips what does not fit.
     if let Some(m) = &e.meeting {
         if m.pending {
             dom.add_child(
@@ -348,17 +379,8 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
                     "{CLIPPED_LINE} font-size: 11px; font-style: italic;"
                 )),
             );
-        } else {
-            let target = RefAny::new(EventRef {
-                app: app.clone(),
-                id: e.id.clone(),
-            });
-            dom.add_child(
-                Button::create("Join meeting")
-                    .with_on_click(target, crate::on_join_meeting)
-                    .dom()
-                    .with_css("margin-top: 3px;"),
-            );
+        } else if let Some(button) = join {
+            dom.add_child(button.with_css("margin-top: 3px;"));
         }
     }
     let name = format!("{}, {time}", e.title);

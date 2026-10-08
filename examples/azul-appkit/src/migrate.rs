@@ -20,11 +20,7 @@
 //! - idempotent: once the folder is moved there is nothing left to do (one
 //!   `is_dir` check per legacy folder at each start).
 
-use std::{
-    fs,
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{fs, io::Write, path::Path};
 
 use azul_storage::time::{iso8601, now_unix};
 
@@ -229,7 +225,7 @@ mod tests {
         std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 
-    fn root_of(os: &Path) -> PathBuf {
+    fn root_of(os: &Path) -> std::path::PathBuf {
         os.join(ROOT_DIR)
     }
 
