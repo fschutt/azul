@@ -11453,6 +11453,11 @@ pub trait PlatformWindow {
         // frame as the click that asked for it. Outermost only: the pump
         // itself applies changes through `apply_user_change`, which can run
         // nested passes, and those must not drain the queue mid-delivery.
+        //
+        // A resume's rebuild is already RAISED, for every window, by
+        // `invoke_completed_requests` (this pass's caller may drop the result
+        // below - a popup's close protocol does); the result only lets this
+        // pass's own frame take it.
         if depth == 0 {
             if let Some((resume_result, resume_update)) = self.invoke_completed_requests() {
                 result = result.max(resume_result);
@@ -11461,7 +11466,6 @@ pub trait PlatformWindow {
                     azul_core::callbacks::Update::RefreshDom
                         | azul_core::callbacks::Update::RefreshDomAllWindows
                 ) {
-                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                 }
             }
@@ -13839,7 +13843,9 @@ pub trait PlatformWindow {
         // Resumable-API completions issued by the timers / writebacks above
         // (or by an OS delegate that answered a deferred mobile picker since
         // the last frame) are delivered here, after their requesting
-        // activation has returned and before this frame is rendered.
+        // activation has returned and before this frame is rendered. A
+        // resume's rebuild of the OTHER windows was raised inside (see
+        // `invoke_completed_requests`); this window's frame is decided below.
         if let Some((resume_changes_result, resume_update)) = self.invoke_completed_requests() {
             max_changes_result = max_changes_result.max(resume_changes_result);
             if resume_changes_result != ProcessEventResult::DoNothing {
@@ -14364,8 +14370,6 @@ pub trait PlatformWindow {
 
     // PROVIDED: Thread Callback Invocation (Cross-Platform Implementation)
 
-    /// Invoke all pending thread callbacks (writeback messages).
-    ///
     /// Deliver every completed resumable-API request (`azul_layout::request`):
     /// `FileDialog::open_file`, `FilePath::read_bytes`, `HttpRequestConfig::http_get`
     /// and friends park `{data, on_result}` in the runtime queue and this is
@@ -14383,6 +14387,10 @@ pub trait PlatformWindow {
     /// and from the outermost `process_window_events` pass, so a request
     /// issued from a click resumes before that frame is rendered — the
     /// documented "on desktop it may run within the same frame" guarantee.
+    ///
+    /// A resume that answers `RefreshDom` (or `RefreshDomAllWindows`) has its
+    /// rebuild RAISED here - for this window and every other one - not only
+    /// reported in the returned `Update`: see the end of the body for why.
     ///
     /// Returns `None` when nothing was delivered.
     fn invoke_completed_requests(
@@ -14426,6 +14434,35 @@ pub trait PlatformWindow {
                 changes_result = changes_result.max(r);
             }
             update.max_self(round_update);
+        }
+
+        // A resume's rebuild is RAISED here, as a request every window's frame
+        // path reads, for this window AND every other one - never only
+        // reported in the return value, for two reasons:
+        //
+        // - The queue is PROCESS-wide: a completion is delivered by whichever
+        //   window's pass drains it first after the answer arrived (an answer
+        //   a worker produces - every HTTP request - lands in an arbitrary
+        //   window's pass). That need not be the window that shows what the
+        //   resume changed: the resume is the app's activation, not this
+        //   window's, so its `RefreshDom` is every window's.
+        // - The delivering pass may be one whose result its caller drops: a
+        //   popup's close protocol (`poll_transient_mailbox` ->
+        //   `request_window_close`), `adopt_app_mode`'s pass. A rebuild that
+        //   only lived in the return value died with it.
+        //
+        // AzCalendar's meeting registration was answered while the draft's
+        // popover closed: the popover's close pass delivered it, its
+        // `RefreshDom` went down with the popover, and the week kept "AzMeet
+        // link waits for the server" until an unrelated click
+        // (`headless/tests/request_resumes.rs`).
+        if matches!(
+            update,
+            azul_core::callbacks::Update::RefreshDom
+                | azul_core::callbacks::Update::RefreshDomAllWindows
+        ) {
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.request_regeneration_all_windows();
         }
 
         delivered_any.then_some((changes_result, update))

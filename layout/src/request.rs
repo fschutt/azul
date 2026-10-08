@@ -42,8 +42,11 @@
 //! * FIFO. Nested completions (a resume that issues and immediately completes another request) are
 //!   appended to the end, never recursed into.
 //! * Entries are delivered by whichever window pumps next. Synchronous completions (every desktop
-//!   dialog / file / http call) are pumped by the requesting window right after the requesting
-//!   activation returns, so in practice a request resumes on the window that issued it.
+//!   dialog and file call) are pumped by the requesting window right after the requesting
+//!   activation returns. A deferred one (every HTTP request, answered by a worker; a mobile
+//!   picker) is delivered by whichever window drains the queue first after the answer - another
+//!   window, or a popup in its close pass. The shells therefore raise a resume's `RefreshDom` for
+//!   every window (`PlatformWindow::invoke_completed_requests` in the dll).
 //! * The queue holds a clone of the app's `data` until delivery, keeping the `RefAny` alive across
 //!   the gap. There is no cancellation in v1.
 
