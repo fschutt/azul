@@ -393,7 +393,7 @@ impl Drive for OpendalDrive {
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         ops::check_folder(prefix)?;
         if self.capability.delete_with_recursive {
-            return runtime::block_on(async { self.op.remove_all(prefix).await })?
+            return runtime::block_on(async { self.op.delete_with(prefix).recursive(true).await })?
                 .map_err(|e| drive_error(&e, prefix));
         }
         ops::delete_by_listing(self, prefix)
