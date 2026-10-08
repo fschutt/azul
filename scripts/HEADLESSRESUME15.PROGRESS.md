@@ -23,12 +23,13 @@ fast-forwarded to fix/input-bugs-2026-09-19 @ b46726f3d). Nothing compiled or ru
 ## DONE
 - 2262aeb21 RED test A: headless/tests/request_resumes.rs
   `a_request_answered_while_its_popover_closes_rebuilds_the_window_that_shows_the_answer`
-- (fix 1, next commit) `invoke_completed_requests` raises a resume's rebuild for this window AND
+- 3312a6cea fix 1: `invoke_completed_requests` raises a resume's rebuild for this window AND
   every other one (event.rs); request.rs module doc corrected (doc only)
+- (next commit) RED test B
+  `a_screen_readers_press_that_asks_for_a_rebuild_is_shown_after_one_turn_of_the_loop`
 
 ## IN PROGRESS
-- RED test B (screen reader's press, Phase 1b) + fix 2 (headless end-of-turn frame gate, initial
-  request retired by the initial layout)
+- fix 2 (headless end-of-turn frame gate, initial request retired by the initial layout)
 
 ## NEXT
 - the report

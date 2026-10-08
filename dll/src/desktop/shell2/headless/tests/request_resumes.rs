@@ -16,6 +16,12 @@
 //! down with the closing popover: the week kept showing "AzMeet link waits for
 //! the server" until an unrelated click rebuilt it.
 //!
+//! The headless loop had a second hole of the same shape: it serviced a frame
+//! only when one of its phases REPORTED work, while every desktop loop ends its
+//! turn with a gate that reads the window's flags. A rebuild raised as a flag
+//! alone - a screen reader's press, a resume delivered in a pass whose result
+//! is dropped - waited for an unrelated event.
+//!
 //! The presses here are a screen reader's, the ingress AzCalendar's script
 //! used: the module needs the `a11y` feature (see its `mod` line).
 
@@ -224,5 +230,85 @@ fn a_request_answered_while_its_popover_closes_rebuilds_the_window_that_shows_th
             && !texts.iter().any(|t| t.contains("waits for the server")),
         "the resume's RefreshDom must rebuild the week that shows the meeting line, with no \
          further event; it went down with the closing popover: {texts:?}"
+    );
+}
+
+/// What [`press_layout`] shows: whether its button was pressed.
+struct Pressed {
+    pressed: bool,
+}
+
+/// The button's Click: the page changes, so the DOM must be rebuilt.
+extern "C" fn mark_pressed(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut p) = data.downcast_mut::<Pressed>() {
+        p.pressed = true;
+    }
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// `body > p` saying whether the 120x40 button `.press` below it was pressed.
+extern "C" fn press_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        events::{EventFilter, HoverEventFilter},
+    };
+    let pressed = data.downcast_ref::<Pressed>().is_some_and(|p| p.pressed);
+    Dom::create_body()
+        .with_child(Dom::create_p_with_text(if pressed {
+            "Pressed"
+        } else {
+            "Not pressed"
+        }))
+        .with_child(
+            Dom::create_div()
+                .with_class("press".into())
+                .with_css("width: 120px; height: 40px;")
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: mark_pressed as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: data.clone(),
+                    }]
+                    .into(),
+                ),
+        )
+}
+
+/// A screen reader's press (`HeadlessWindow::inject_accessibility_action`,
+/// the headless twin of AT-SPI `do_action` / UIA Invoke / an NSAccessibility
+/// press) whose callback asks for a rebuild. The loop drains it in Phase 1b,
+/// which ends in `request_redraw` - a flag no later phase read, so the turn
+/// ended with the page unchanged. One turn must show it.
+#[test]
+fn a_screen_readers_press_that_asks_for_a_rebuild_is_shown_after_one_turn_of_the_loop() {
+    let state = Arc::new(RefCell::new(RefAny::new(Pressed { pressed: false })));
+    let mut window = make_window_with(&state, press_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+    let press = node_with_class(&window, "press").expect("harness: the button is laid out");
+
+    window.inject_accessibility_action(
+        azul_core::dom::DomId::ROOT_ID,
+        press,
+        azul_core::dom::AccessibilityAction::Default,
+    );
+    window.pump_once(false);
+
+    let pressed = state
+        .borrow_mut()
+        .downcast_ref::<Pressed>()
+        .is_some_and(|p| p.pressed);
+    assert!(pressed, "harness: the press ran the button's Click callback");
+    let texts = shown_texts(&window);
+    assert!(
+        texts.iter().any(|t| t == "Pressed"),
+        "the press's RefreshDom must be served by the turn that ran it; it waited for an \
+         unrelated event: {texts:?}"
     );
 }
