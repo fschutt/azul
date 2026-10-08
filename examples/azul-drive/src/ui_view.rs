@@ -1306,9 +1306,11 @@ pub(crate) fn items_in_view(s: &DriveState) -> Range<usize> {
         let (width, height) = s.content_estimate();
         let layout = s.settings.layout;
         let columns = ((width / layout.cell_width()).floor().max(1.0)) as usize;
-        let rows = ((height / (layout.icon_px() + 40.0)).ceil() as usize).max(1) + 1;
+        let rows = ((height / (layout.icon_px() + 40.0)).ceil() as usize)
+            .max(1)
+            .saturating_add(1);
         let start = s.grid_view.top_row.saturating_mul(columns);
-        return start..start.saturating_add(rows * columns);
+        return start..start.saturating_add(rows.saturating_mul(columns));
     }
     let model = folder_model(s, view_width(s));
     let lines =

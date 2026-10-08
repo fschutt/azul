@@ -1378,6 +1378,8 @@ fn scanned(
     s.listing_done = true;
     s.loading = false;
     if let Some(mut fresh) = s.refreshing.take() {
+        // The rows read again show the old sizes and dates until their own stats are in.
+        listing::carry_stats(&s.entries, &mut fresh);
         browse::sort_entries(&mut fresh, sort);
         s.entries = fresh;
     }

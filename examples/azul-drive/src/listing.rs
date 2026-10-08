@@ -123,7 +123,8 @@ pub fn lines_of(group_sizes: &[usize], open: &[bool], columns: usize, grouped: b
         if shown {
             let mut start = at;
             while start < at + size {
-                let end = (start + columns).min(at + size);
+                // Saturating: `columns` may be usize::MAX (an infinite width).
+                let end = start.saturating_add(columns).min(at + size);
                 lines.push(Line::Items { start, end });
                 start = end;
             }
@@ -285,6 +286,27 @@ pub fn apply_stats(rows: &mut [Entry], stats: &[Stat]) -> usize {
     changed
 }
 
+/// The rows a refresh read again (`fresh`, every one unknown) keep what the old rows knew - a
+/// size, a date - until their own stats are in. They stay unknown, so the rows in view are
+/// stat'ed again and a sort by Size waits for the new sizes: F5 never blanks the Size and Date
+/// columns while it reads. (A row's key says its kind: a folder's ends with `/`.)
+pub fn carry_stats(old: &[Entry], fresh: &mut [Entry]) {
+    if old.is_empty() {
+        return;
+    }
+    let by_key: std::collections::HashMap<&str, &Entry> = old
+        .iter()
+        .filter(|e| e.known)
+        .map(|e| (e.key.as_str(), e))
+        .collect();
+    for row in fresh.iter_mut().filter(|r| !r.known) {
+        if let Some(was) = by_key.get(row.key.as_str()) {
+            row.size = was.size;
+            row.modified = was.modified;
+        }
+    }
+}
+
 /// What the status line says about a listing of `count` items: "12,345 items", while the scan
 /// still runs "12,345 items so far".
 #[must_use]
@@ -439,6 +461,51 @@ mod tests {
                 Line::Header { group: 1 },
                 Line::Items { start: 3, end: 5 },
             ]
+        );
+    }
+
+    /// F5 keeps the old rows' sizes and dates on the rows it read again, unknown still (their
+    /// stats are asked for again): the Size column does not blank while the folder is read.
+    #[test]
+    fn a_refresh_shows_the_old_sizes_until_the_new_ones_are_in() {
+        let mut old = vec![
+            scanned_entry("", "a.txt", false),
+            scanned_entry("", "b.txt", false),
+            scanned_entry("", "dir", true),
+        ];
+        let stats = [
+            Stat {
+                key: String::from("a.txt"),
+                size: Some(5),
+                modified: Some(10),
+            },
+            Stat {
+                key: String::from("dir/"),
+                size: None,
+                modified: Some(20),
+            },
+        ];
+        assert_eq!(apply_stats(&mut old, &stats), 2);
+        let mut fresh = vec![
+            scanned_entry("", "a.txt", false),
+            scanned_entry("", "b.txt", false),
+            scanned_entry("", "c.txt", false),
+            scanned_entry("", "dir", true),
+        ];
+        carry_stats(&old, &mut fresh);
+        let seen: Vec<(Option<u64>, Option<u64>, bool)> = fresh
+            .iter()
+            .map(|e| (e.size, e.modified, e.known))
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                (Some(5), Some(10), false),
+                (None, None, false),
+                (None, None, false),
+                (None, Some(20), false),
+            ],
+            "a.txt and dir/ keep what they showed; b.txt was never stat'ed, c.txt is new"
         );
     }
 
