@@ -40,11 +40,15 @@ fast-forwarded to a4d14a02c). No cargo here; the lead builds and runs everything
 - 0246239fa A4: the ribbon (Home / Share / View; Computer at This PC), the File menu, no title
   row (tabs in the titlebar), window title = path, --open, Move to / Copy to recent folders +
   the system folder dialog, Print, Hide selected items.
-- (E2E commit) A6: scripts/azdrive_e2e.py (ribbon, breadcrumb, File menu, 3,000 files) and
+- 0c29b7c77 A6: scripts/azdrive_e2e.py (ribbon, breadcrumb, File menu, 3,000 files) and
   examples/azul-drive/scripts/browse.py.
+- 88a14361c the open folder's own crumb refreshes it; selected_entries' empty fast path.
+- 7e1cfb4e2 Share > Copy link: S3Drive::presigned_get_url (SigV4 query signature, 7 days at
+  most, checked against AWS's documented example) for the selected files of an S3 drive.
 
 ## IN PROGRESS
-- an independent compile review of the app diff (sub-agent); fixes from it.
+- independent compile reviews (sub-agents, read-only): the app diff, and the widget diff
+  (ribbon_file_menu.rs, address_bar.rs, ribbon.rs hook, themes); fixes from them.
 
 ## NEXT
 - final report (api.json list = the sub-agent's report + nothing app-specific).
