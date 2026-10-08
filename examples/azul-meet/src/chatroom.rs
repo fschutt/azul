@@ -627,6 +627,24 @@ impl ChatRoom {
 
     // ---- what the user does ----
 
+    /// The messages an earlier visit kept in this device's files (`chat.jsonl`): listed in their
+    /// places (one from before the numbers first), and a copy the Worker still has is not listed
+    /// a second time. How many were new here.
+    pub fn restore(&mut self, earlier: Vec<RoomMessage>) -> usize {
+        let mut added = 0;
+        for mut message in earlier {
+            if !self.seen.insert(message.id.clone()) {
+                continue;
+            }
+            if message.seq.is_none() {
+                message.seq = Some(0);
+            }
+            self.insert_listed(message);
+            added += 1;
+        }
+        added
+    }
+
     /// Join: as a member with the link, or a knock without it.
     pub fn join(&mut self) {
         if matches!(self.state, Membership::Outside | Membership::Left) {

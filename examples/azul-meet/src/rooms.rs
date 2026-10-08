@@ -1,9 +1,11 @@
 //! The pure logic of AzMeet rooms, free of azul types so `cargo test -p AzMeet` checks it without
-//! a window: reading a meeting link, choosing which side of a pair dials, diffing the peers list
-//! between two polls, planning the dials, and choosing the iroh relays.
+//! a window: reading a meeting link (and the invite secret in its fragment), choosing which side
+//! of a pair dials, diffing the peers list between two polls, planning the dials, choosing the
+//! iroh relays and the meeting server, and saying when a meeting is.
 //!
-//! The meeting server is the `meet` Worker (azul-apps `cf-workers/meet`). It mints a room id
-//! (the credential) and a short code, and holds each participant's iroh ticket.
+//! The meeting server is the `meet` Worker (azul-apps `cf-workers/meet`). AzMeet mints a room id
+//! (the credential) and an invite secret itself and registers the room with the Worker, which
+//! gives it a short code and holds each participant's signed iroh ticket (CRYPTO.md).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,11 +40,39 @@ impl RoomKey {
     }
 }
 
+/// A meeting link as read: the room it names, and the invite secret of its fragment
+/// (`azlin://meet/<room>#<secret>`, CRYPTO.md section 4) when it has one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomLink {
+    pub key: RoomKey,
+    /// 26 characters of the id alphabet; `None` for a code, or a link without its fragment (a
+    /// knock).
+    pub secret: Option<String>,
+}
+
+/// The invite secret of a link's fragment: `#<secret>` or `#k=<secret>`, in any case.
+fn fragment_secret(fragment: &str) -> Option<String> {
+    let f = fragment.trim();
+    let f = f.strip_prefix("k=").unwrap_or(f).to_ascii_lowercase();
+    (f.len() == ID_LEN && f.chars().all(|c| ID_ALPHABET.contains(c))).then_some(f)
+}
+
 /// Reads `azlin://meet/<key>`, the landing page `http(s)://<host>/rooms/<key>`, or a bare key,
-/// where the key is a room id or a room code.
-pub fn parse_room_link(input: &str) -> Option<RoomKey> {
+/// where the key is a room id or a room code, with the invite secret of a `#` fragment.
+pub fn parse_room_link(input: &str) -> Option<RoomLink> {
     let s = input.trim();
-    let s = s.split(|c: char| c == '?' || c == '#').next().unwrap_or("");
+    let (s, fragment) = s.split_once('#').unwrap_or((s, ""));
+    let key = parse_link_key(s)?;
+    let secret = match &key {
+        RoomKey::Id(_) => fragment_secret(fragment),
+        RoomKey::Code(_) => None,
+    };
+    Some(RoomLink { key, secret })
+}
+
+/// The room a link names, without its fragment.
+fn parse_link_key(input: &str) -> Option<RoomKey> {
+    let s = input.split('?').next().unwrap_or("");
     let s = s.trim_end_matches('/');
     if let Some(key) = strip_prefix_ignore_case(s, APP_LINK_PREFIX) {
         return parse_room_key(key);
@@ -99,7 +129,11 @@ pub fn dials(me: &str, other: &str) -> bool {
 pub struct PeerRecord {
     pub node_id: String,
     pub ticket: String,
+    /// The name: the member's (from its sealed record) once the announcement is verified.
     pub name: String,
+    /// The device that signed the announcement, and its signature (CRYPTO.md section 10).
+    pub device: Option<String>,
+    pub sig: Option<String>,
 }
 
 /// How the peers list changed between two polls.
@@ -235,9 +269,9 @@ pub fn transport_label(relay: &Relay, relay_only: bool) -> String {
     }
 }
 
-/// The meeting server when none was saved, `AZMEET_WORKER` is not set and none is built in: the
-/// local mock (`cf-workers/meet/dev-server.mjs`).
-pub const LOCAL_WORKER: &str = "http://127.0.0.1:8787";
+/// What the meeting server field shows while it is empty: an example, never an address AzMeet
+/// would use by itself.
+pub const SERVER_PLACEHOLDER: &str = "https://meet.example.com";
 /// The longest meeting server address taken.
 const MAX_SERVER_CHARS: usize = 2048;
 
@@ -250,8 +284,10 @@ pub enum ServerSource {
     Saved,
     /// `AZMEET_WORKER`.
     Environment,
-    /// Built in: `PRODUCTION_WORKER`, else [`LOCAL_WORKER`].
+    /// Built in: `PRODUCTION_WORKER` (`AZMEET_DEFAULT_WORKER` at build time).
     BuiltIn,
+    /// None anywhere: the start screen asks for one. AzMeet never guesses an address.
+    Unset,
 }
 
 /// A meeting server address as typed: trimmed, without trailing slashes. `None` unless it is an
@@ -275,8 +311,8 @@ pub fn normalize_server(input: &str) -> Option<String> {
 }
 
 /// The meeting server the start screen's field shows at start, and where it came from: the one
-/// saved last time, else `AZMEET_WORKER`, else `built_in` (else [`LOCAL_WORKER`]). A candidate that
-/// is no meeting server address is passed over.
+/// saved last time, else `AZMEET_WORKER`, else `built_in`, else none ([`ServerSource::Unset`],
+/// an empty address). A candidate that is no meeting server address is passed over.
 pub fn server_prefill(
     saved: Option<&str>,
     env: Option<&str>,
@@ -288,8 +324,10 @@ pub fn server_prefill(
     if let Some(server) = env.and_then(normalize_server) {
         return (server, ServerSource::Environment);
     }
-    let server = normalize_server(built_in).unwrap_or_else(|| LOCAL_WORKER.to_string());
-    (server, ServerSource::BuiltIn)
+    match normalize_server(built_in) {
+        Some(server) => (server, ServerSource::BuiltIn),
+        None => (String::new(), ServerSource::Unset),
+    }
 }
 
 /// The meeting server at start: the command line's `--worker` (`flag`) for this run, over
@@ -307,11 +345,44 @@ pub fn server_choice(
     }
 }
 
-/// Whether AzMeet opens its in-process demo instead of the start screen: only when nothing was
-/// configured (the built-in default) and nothing answers there. A saved or configured server that
-/// does not answer gets the start screen, which says so next to the field.
-pub fn opens_demo(source: ServerSource, answers: bool) -> bool {
-    source == ServerSource::BuiltIn && !answers
+/// The link others join with: the Worker's app link of the room (`azlin://meet/<room>`) with the
+/// invite secret as its fragment (CRYPTO.md section 4); the bare link without a secret.
+#[must_use]
+pub fn link_with_secret(link: &str, secret: Option<&str>) -> String {
+    let base = link.split('#').next().unwrap_or(link);
+    match secret {
+        Some(secret) => format!("{base}#{secret}"),
+        None => base.to_string(),
+    }
+}
+
+/// `n` minutes as people say it: "5 min", "2 h", "2 h 5 min", "3 days".
+fn span(minutes: u64) -> String {
+    match minutes {
+        0..=59 => format!("{} min", minutes.max(1)),
+        60..=1439 if minutes % 60 == 0 => format!("{} h", minutes / 60),
+        60..=1439 => format!("{} h {} min", minutes / 60, minutes % 60),
+        _ if minutes / 1440 == 1 => String::from("1 day"),
+        _ => format!("{} days", minutes / 1440),
+    }
+}
+
+/// Where a meeting with these times (seconds since 1970) stands at `now`: "starts in 25 min",
+/// "started 5 min ago, ends in 55 min", "ended 2 h ago".
+#[must_use]
+pub fn meeting_status(starts: u64, ends: u64, now: u64) -> String {
+    let minutes = |a: u64, b: u64| a.saturating_sub(b).div_ceil(60);
+    if now < starts {
+        format!("starts in {}", span(minutes(starts, now)))
+    } else if now < ends {
+        format!(
+            "started {} ago, ends in {}",
+            span(minutes(now, starts)),
+            span(minutes(ends, now))
+        )
+    } else {
+        format!("ended {} ago", span(minutes(now, ends)))
+    }
 }
 
 #[cfg(test)]
@@ -334,47 +405,90 @@ mod tests {
             node_id: node_id.to_string(),
             ticket: ticket.to_string(),
             name: name.to_string(),
+            device: None,
+            sig: None,
         }
+    }
+
+    /// The room a link names.
+    fn key_of(input: &str) -> Option<RoomKey> {
+        parse_room_link(input).map(|l| l.key)
+    }
+
+    const SECRET: &str = "k7qz2m9x4c8v1b6n3r5t0w2y8p";
+
+    #[test]
+    fn a_links_fragment_carries_the_invite_secret_and_a_code_carries_none() {
+        let link = parse_room_link(&format!("azlin://meet/{ID}#{SECRET}")).unwrap();
+        assert_eq!(link.key, RoomKey::Id(ID.to_string()));
+        assert_eq!(link.secret.as_deref(), Some(SECRET));
+        let web = parse_room_link(&format!("https://meet.example.com/rooms/{ID}#k={}", SECRET.to_uppercase()));
+        assert_eq!(web.and_then(|l| l.secret).as_deref(), Some(SECRET), "k= and any case");
+        assert_eq!(parse_room_link(&format!("azlin://meet/{ID}")).unwrap().secret, None, "a knock");
+        assert_eq!(parse_room_link(&format!("azlin://meet/{ID}#short")).unwrap().secret, None);
+        assert_eq!(parse_room_link(&format!("{CODE}#{SECRET}")).unwrap().secret, None, "a code has no secret");
+        assert_eq!(
+            link_with_secret(&format!("azlin://meet/{ID}"), Some(SECRET)),
+            format!("azlin://meet/{ID}#{SECRET}")
+        );
+        assert_eq!(
+            link_with_secret(&format!("azlin://meet/{ID}#old"), None),
+            format!("azlin://meet/{ID}"),
+            "the bare link"
+        );
+    }
+
+    #[test]
+    fn a_meetings_times_read_as_people_say_them() {
+        let starts = 1_760_000_000;
+        let ends = starts + 3600;
+        assert_eq!(meeting_status(starts, ends, starts - 25 * 60), "starts in 25 min");
+        assert_eq!(meeting_status(starts, ends, starts - 125 * 60), "starts in 2 h 5 min");
+        assert_eq!(meeting_status(starts, ends, starts - 120 * 60), "starts in 2 h");
+        assert_eq!(meeting_status(starts, ends, starts - 3 * 86_400), "starts in 3 days");
+        assert_eq!(meeting_status(starts, ends, starts - 30), "starts in 1 min", "never 0");
+        assert_eq!(meeting_status(starts, ends, starts + 300), "started 5 min ago, ends in 55 min");
+        assert_eq!(meeting_status(starts, ends, ends + 7200), "ended 2 h ago");
     }
 
     #[test]
     fn an_app_link_names_the_room() {
-        assert_eq!(parse_room_link(&format!("azlin://meet/{ID}")), id());
-        assert_eq!(parse_room_link(&format!("AZLIN://meet/{ID}/")), id());
-        assert_eq!(parse_room_link(&format!("azlin://meet/{CODE}")), code());
+        assert_eq!(key_of(&format!("azlin://meet/{ID}")), id());
+        assert_eq!(key_of(&format!("AZLIN://meet/{ID}/")), id());
+        assert_eq!(key_of(&format!("azlin://meet/{CODE}")), code());
     }
 
     #[test]
     fn the_landing_page_address_names_the_room() {
         assert_eq!(
-            parse_room_link(&format!("https://meet.example.com/rooms/{ID}")),
+            key_of(&format!("https://meet.example.com/rooms/{ID}")),
             id()
         );
         assert_eq!(
-            parse_room_link(&format!("https://meet.example.com/rooms/{ID}/")),
+            key_of(&format!("https://meet.example.com/rooms/{ID}/")),
             id()
         );
         assert_eq!(
-            parse_room_link(&format!("https://meet.example.com/rooms/{ID}?x=1#top")),
+            key_of(&format!("https://meet.example.com/rooms/{ID}?x=1#top")),
             id()
         );
         assert_eq!(
-            parse_room_link(&format!("http://127.0.0.1:8787/rooms/{ID}")),
+            key_of(&format!("http://127.0.0.1:8787/rooms/{ID}")),
             id()
         );
         assert_eq!(
-            parse_room_link(&format!("https://example.com/meet/rooms/{CODE}")),
+            key_of(&format!("https://example.com/meet/rooms/{CODE}")),
             code()
         );
     }
 
     #[test]
     fn a_bare_id_or_code_is_read_in_any_case_with_space_around_it() {
-        assert_eq!(parse_room_link(&format!("  {ID}\n")), id());
-        assert_eq!(parse_room_link(&ID.to_uppercase()), id());
-        assert_eq!(parse_room_link("XQ4-8KD-2NM"), code());
-        assert_eq!(parse_room_link("xq48kd2nm"), code());
-        assert_eq!(parse_room_link("xq4 8kd 2nm"), code());
+        assert_eq!(key_of(&format!("  {ID}\n")), id());
+        assert_eq!(key_of(&ID.to_uppercase()), id());
+        assert_eq!(key_of("XQ4-8KD-2NM"), code());
+        assert_eq!(key_of("xq48kd2nm"), code());
+        assert_eq!(key_of("xq4 8kd 2nm"), code());
         assert_eq!(parse_room_key(ID), id());
         assert_eq!(parse_room_key(CODE), code());
     }
@@ -591,7 +705,8 @@ mod tests {
         );
         assert_eq!(
             server_prefill(None, None, ""),
-            (String::from(LOCAL_WORKER), ServerSource::BuiltIn)
+            (String::new(), ServerSource::Unset),
+            "no address anywhere: none is guessed"
         );
     }
 
@@ -639,15 +754,6 @@ mod tests {
         ] {
             assert_eq!(normalize_server(bad), None, "{bad}");
         }
-    }
-
-    #[test]
-    fn only_a_built_in_server_that_does_not_answer_opens_the_demo() {
-        assert!(opens_demo(ServerSource::BuiltIn, false));
-        assert!(!opens_demo(ServerSource::BuiltIn, true));
-        assert!(!opens_demo(ServerSource::Saved, false));
-        assert!(!opens_demo(ServerSource::Environment, false));
-        assert!(!opens_demo(ServerSource::CommandLine, false));
     }
 
     /// `--worker` is this run's meeting server even over the saved one (a script's worker is
