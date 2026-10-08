@@ -1,8 +1,10 @@
 //! Unit tests of the kit: the token server and the bucket are a fake [`Transport`] that answers
 //! as the real ones do (the token server's JSON, S3's XML) and records every call.
 
+mod bucket;
 mod drive;
 mod endpoints;
+mod fake_s3;
 mod secrets;
 mod session;
 mod settings;
