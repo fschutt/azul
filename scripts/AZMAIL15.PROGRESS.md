@@ -6,15 +6,15 @@ AzMail for hard-coded endpoints. Worktree branch `worktree-agent-a53601a48788117
 (fast-forwarded to 5d78255a4). No compiling here (house rule): the lead builds and runs tests.
 
 ## DONE
-- (nothing committed yet)
+- 84c184e5c docs: examples/azul-mail/AZLIN_MAIL.md (layout, naming, convergence, 50 MB)
+- 0e8efd2df azlin.rs: names, markers, AzlinSession, CloudAccount + TokenServer, Endpoints (tests)
+- 48f959d2c azlin_sync.rs: sync_account, move / delete / upload / push_marks / fetch (tests);
+  IndexEntry.remote, FolderReport.pushed/removed
 
 ## IN PROGRESS
-- examples/azul-mail/AZLIN_MAIL.md (the layout, naming, convergence, 50 MB)
+- account kind "azlin" (account.json v2) + wizard + Send/Receive glue
 
 ## NEXT
-1. azlin.rs: session, token server client (trait CloudAccount), naming, markers, endpoints
-2. azlin_sync.rs: bucket -> local cache sync, push of local-only mail, flags, move / delete /
-   draft upload, on-demand fetch of big messages
 3. account kind "azlin" (account.json v2), the wizard's Azlin drive page, Send/Receive glue
 4. ribbon: Archive / Delete / Junk / Move for Azlin accounts; drafts upload
 5. scripts: azlin_mock_stack.py (Python token server + AzDrive's stdlib S3),
