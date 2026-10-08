@@ -577,6 +577,18 @@ fn result_px(text: &str, view: View) -> usize {
     }
 }
 
+/// The last `max` characters of `text`, an ellipsis before them: a long
+/// expression shows where it is being typed (an overflowing line is cut at
+/// its END, right-aligned or not).
+fn tail(text: &str, max: usize) -> String {
+    let n = text.chars().count();
+    if n <= max || max < 2 {
+        return text.to_string();
+    }
+    let kept: String = text.chars().skip(n - (max - 1)).collect();
+    format!("\u{2026}{kept}")
+}
+
 /// The expression typeset (the graphing view): the evaluated expression and
 /// `=` after it, `y =` before a function, the entry with its holes.
 fn typeset(c: &Calculator) -> Option<M> {
@@ -621,8 +633,9 @@ fn display(s: &CalcApp, view: View) -> Dom {
         if open > 0 && !c.just_evaluated {
             expression.push_str(&format!("   ({open} open)"));
         }
+        let fits = if view == View::Programmer { 64 } else { 40 };
         column.add_child(
-            Dom::create_div_with_text(AzString::from(expression))
+            Dom::create_div_with_text(AzString::from(tail(&expression, fits)))
                 .with_id(ids::EXPRESSION)
                 .with_css(look::EXPR_LINE),
         );
@@ -2166,6 +2179,15 @@ mod tests {
         }
         assert_eq!(pin_for_key(VirtualKeyCode::Key2), Some(Pin::Programmer));
         assert_eq!(pin_for_key(VirtualKeyCode::Key9), None);
+    }
+
+    #[test]
+    fn a_long_expression_shows_its_end() {
+        assert_eq!(tail("12 \u{d7} 3", 40), "12 \u{d7} 3");
+        let long = "1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12";
+        let shown = tail(long, 20);
+        assert_eq!(shown.chars().count(), 20);
+        assert!(shown.starts_with('\u{2026}') && shown.ends_with("11 + 12"), "{shown}");
     }
 
     #[test]
