@@ -114,7 +114,7 @@ impl StyleBoxShadow {
             blur_radius: length(self.blur_radius, other.blur_radius),
             spread_radius: length(self.spread_radius, other.spread_radius),
             clip_mode: self.clip_mode,
-            color: self.color.interpolate(&other.color, t),
+            color: self.color.interpolate_premultiplied(&other.color, t),
         }
     }
 }

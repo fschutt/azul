@@ -558,6 +558,36 @@ impl ColorU {
         }
     }
 
+    /// `self` on its way to `other` at `t` the way CSS mixes two colours of
+    /// different alpha (CSS Color 4 s12.3): in premultiplied space, each
+    /// colour weighed by its own alpha. A colour fading in from `transparent`
+    /// keeps its hue all the way instead of passing through a darker grey (a
+    /// plain mix of the channels drags it toward transparent's black). Two
+    /// colours of one alpha mix exactly as [`Self::interpolate`] mixes them.
+    #[must_use]
+    pub(crate) fn interpolate_premultiplied(&self, other: &Self, t: f32) -> Self {
+        if self.a == other.a {
+            return self.interpolate(other, t);
+        }
+        let (a0, a1) = (f32::from(self.a), f32::from(other.a));
+        let a = a0 + (a1 - a0) * t;
+        if a.is_nan() || a <= 0.0 {
+            // Nothing is shown (or `t` is not a number): the end that has
+            // no alpha.
+            return if t < 0.5 { *self } else { *other };
+        }
+        let channel = |c0: u8, c1: u8| {
+            let (p0, p1) = (f32::from(c0) * a0, f32::from(c1) * a1);
+            channel_to_u8(libm::roundf((p0 + (p1 - p0) * t) / a))
+        };
+        Self {
+            r: channel(self.r, other.r),
+            g: channel(self.g, other.g),
+            b: channel(self.b, other.b),
+            a: channel_to_u8(libm::roundf(a)),
+        }
+    }
+
     /// Lighten a color by a percentage (0.0 to 1.0).
     /// Returns a new color blended towards white, preserving the original alpha.
     #[must_use]

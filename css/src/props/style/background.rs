@@ -336,7 +336,7 @@ fn interpolate_background_layer(
         return Some(from.clone());
     }
     match (from, to) {
-        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate(b, t))),
+        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(b, t))),
         (B::LinearGradient(a), B::LinearGradient(b)) => {
             interpolate_linear_gradient(a, b, t).map(B::LinearGradient)
         }
@@ -468,7 +468,7 @@ fn interpolate_stop_colour(
 ) -> Option<ColorOrSystem> {
     match (from, to) {
         (ColorOrSystem::Color(a), ColorOrSystem::Color(b)) => {
-            Some(ColorOrSystem::Color(a.interpolate(&b, t)))
+            Some(ColorOrSystem::Color(a.interpolate_premultiplied(&b, t)))
         }
         _ => None,
     }

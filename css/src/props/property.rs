@@ -5190,10 +5190,14 @@ impl CssProperty {
         let t = t.clamp(0.0, 1.0);
 
         match (self, other) {
+            // Colours mix premultiplied, as CSS mixes them: an ink or an edge
+            // that comes in from `transparent` keeps its hue on the way.
             (Self::TextColor(col_start), Self::TextColor(col_end)) => {
                 let col_start = col_start.get_property().copied().unwrap_or_default();
                 let col_end = col_end.get_property().copied().unwrap_or_default();
-                Self::text_color(col_start.interpolate(&col_end, t))
+                Self::text_color(StyleTextColor {
+                    inner: col_start.inner.interpolate_premultiplied(&col_end.inner, t),
+                })
             }
             (Self::FontSize(fs_start), Self::FontSize(fs_end)) => {
                 let fs_start = fs_start.get_property().copied().unwrap_or_default();
@@ -5360,22 +5364,30 @@ impl CssProperty {
             (Self::BorderTopColor(start), Self::BorderTopColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderTopColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                }))
             }
             (Self::BorderRightColor(start), Self::BorderRightColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderRightColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                }))
             }
             (Self::BorderLeftColor(start), Self::BorderLeftColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderLeftColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                }))
             }
             (Self::BorderBottomColor(start), Self::BorderBottomColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderBottomColor(CssPropertyValue::Exact(start.interpolate(&end, t)))
+                Self::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                }))
             }
             (Self::BorderTopWidth(start), Self::BorderTopWidth(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
@@ -10818,25 +10830,14 @@ mod shadow_tween_tests {
         // A hover wash over a transparent rest (a toolbar key, a list row, a
         // tab): half way it is the wash at half strength, not a darker grey
         // dragged toward transparent's black.
+        use crate::props::style::background::StyleBackgroundContent as B;
         let r = linear();
-        let clear = CssProperty::background_content(
-            vec![crate::props::style::background::StyleBackgroundContent::Color(
-                ColorU::TRANSPARENT,
-            )]
-            .into(),
-        );
+        let fill = |c: ColorU| CssProperty::background_content(vec![B::Color(c)].into());
         let wash = ColorU::new(204, 232, 255, 255);
-        let lit = CssProperty::background_content(
-            vec![crate::props::style::background::StyleBackgroundContent::Color(wash)].into(),
-        );
         assert_eq!(
-            clear.interpolate(&lit, 0.5, &r),
-            CssProperty::background_content(
-                vec![crate::props::style::background::StyleBackgroundContent::Color(
-                    ColorU::new(204, 232, 255, 128)
-                )]
-                .into()
-            )
+            fill(ColorU::TRANSPARENT).interpolate(&fill(wash), 0.5, &r),
+            fill(ColorU::new(204, 232, 255, 128)),
+            "half way, the wash at half strength"
         );
         let edge = |c: ColorU| {
             CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor { inner: c }))
