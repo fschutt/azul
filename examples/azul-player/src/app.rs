@@ -94,42 +94,52 @@ const TAG_SAVE: u64 = 2;
 
 // ==== State ====
 
-/// The folders the libraries read.
+/// The folders the libraries read: each library one or more (the settings' library setup adds
+/// and removes them).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Folders {
-    pub music: PathBuf,
-    pub pictures: PathBuf,
-    pub videos: PathBuf,
-    pub tv: PathBuf,
+    pub music: Vec<PathBuf>,
+    pub pictures: Vec<PathBuf>,
+    pub videos: Vec<PathBuf>,
+    pub tv: Vec<PathBuf>,
 }
 
 impl Folders {
-    /// The folders asked for on the command line, else the user's own (`FilePath`'s, else the
-    /// home folder's `Music`, `Pictures`, `Videos`); recorded TV is in the videos folder.
+    /// A library's folders: the one asked for on the command line (for this run), else the
+    /// ones the settings keep (`saved`), else the user's own (`FilePath`'s, else the home
+    /// folder's `Music`, `Pictures`, `Videos`); recorded TV is in the (first) videos folder.
     #[must_use]
-    pub fn resolve(asked: &FolderArgs) -> Folders {
+    pub fn resolve(asked: &FolderArgs, saved: &Folders) -> Folders {
         let path = |p: OptionFilePath| -> Option<PathBuf> {
             p.into_option()
                 .map(|dir| PathBuf::from(dir.inner.as_str()))
                 .filter(|p| !p.as_os_str().is_empty())
         };
         let home = path(FilePath::get_home_dir()).unwrap_or_default();
-        let music = asked
-            .music
-            .clone()
-            .or_else(|| path(FilePath::get_audio_dir()))
-            .unwrap_or_else(|| home.join("Music"));
-        let pictures = asked
-            .pictures
-            .clone()
-            .or_else(|| path(FilePath::get_picture_dir()))
-            .unwrap_or_else(|| home.join("Pictures"));
-        let videos = asked
-            .videos
-            .clone()
-            .or_else(|| path(FilePath::get_video_dir()))
-            .unwrap_or_else(|| home.join("Videos"));
-        let tv = asked.tv.clone().unwrap_or_else(|| videos.join(RECORDED_TV));
+        let pick = |asked: &Option<PathBuf>, saved: &Vec<PathBuf>, own: PathBuf| -> Vec<PathBuf> {
+            match asked {
+                Some(dir) => vec![dir.clone()],
+                None if !saved.is_empty() => saved.clone(),
+                None => vec![own],
+            }
+        };
+        let music = pick(
+            &asked.music,
+            &saved.music,
+            path(FilePath::get_audio_dir()).unwrap_or_else(|| home.join("Music")),
+        );
+        let pictures = pick(
+            &asked.pictures,
+            &saved.pictures,
+            path(FilePath::get_picture_dir()).unwrap_or_else(|| home.join("Pictures")),
+        );
+        let videos = pick(
+            &asked.videos,
+            &saved.videos,
+            path(FilePath::get_video_dir()).unwrap_or_else(|| home.join("Videos")),
+        );
+        let first_videos = videos.first().cloned().unwrap_or_else(|| home.join("Videos"));
+        let tv = pick(&asked.tv, &saved.tv, first_videos.join(RECORDED_TV));
         Folders {
             music,
             pictures,
@@ -138,14 +148,39 @@ impl Folders {
         }
     }
 
-    /// The folder of `shelf`.
+    /// The folders of `shelf`.
     #[must_use]
-    pub fn of(&self, shelf: Shelf) -> &PathBuf {
+    pub fn of(&self, shelf: Shelf) -> &[PathBuf] {
         match shelf {
             Shelf::Music => &self.music,
             Shelf::Pictures => &self.pictures,
             Shelf::Videos => &self.videos,
             Shelf::Tv => &self.tv,
+        }
+    }
+
+    /// The folders of `shelf`, to change.
+    pub fn of_mut(&mut self, shelf: Shelf) -> &mut Vec<PathBuf> {
+        match shelf {
+            Shelf::Music => &mut self.music,
+            Shelf::Pictures => &mut self.pictures,
+            Shelf::Videos => &mut self.videos,
+            Shelf::Tv => &mut self.tv,
+        }
+    }
+
+    /// The folders of `shelf` for a sentence ("~/Music and /Volumes/Disk/Music").
+    #[must_use]
+    pub fn shown(&self, shelf: Shelf) -> String {
+        let names: Vec<String> = self
+            .of(shelf)
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        match names.len() {
+            0 => String::from("no folder"),
+            1 => names[0].clone(),
+            n => format!("{} and {}", names[..n - 1].join(", "), names[n - 1]),
         }
     }
 }
@@ -209,7 +244,7 @@ pub struct Player {
 
 impl Player {
     fn new(kit: RefAny, args: Args) -> Self {
-        let folders = Folders::resolve(&args.folders);
+        let folders = Folders::resolve(&args.folders, &Folders::default());
         let window = args.kit.size.unwrap_or((1100.0, 700.0));
         let mut nav = vec![Place::new(Screen::Start)];
         let screen = args.kit.screen.clone().unwrap_or_default();
@@ -575,13 +610,17 @@ pub fn scan_all(app: &RefAny, info: &mut CallbackInfo) {
         if s.scanning[i].is_some() {
             continue;
         }
-        let folder = s.folders.of(shelf).clone();
-        // Recorded TV is its own library: the video scan leaves its folder out.
-        let skip = (shelf == Shelf::Videos).then(|| s.folders.tv.clone());
+        let roots = s.folders.of(shelf).to_vec();
+        // Recorded TV is its own library: the video scan leaves its folders out.
+        let skip = if shelf == Shelf::Videos {
+            s.folders.tv.clone()
+        } else {
+            Vec::new()
+        };
         s.scanning[i] = Some(Vec::new());
         s.library.shelf_mut(shelf).status = Status::Scanning;
-        s.library.shelf_mut(shelf).folder = folder.to_string_lossy().into_owned();
-        scan::spawn_scan(info, app, shelf, folder, skip, on_scan as WriteBackCallbackType);
+        s.library.shelf_mut(shelf).folder = s.folders.shown(shelf);
+        scan::spawn_scan(info, app, shelf, roots, skip, on_scan as WriteBackCallbackType);
     }
 }
 
@@ -605,23 +644,15 @@ extern "C" fn on_scan(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo)
             .iter()
             .position(|x| *x == batch.shelf)
             .unwrap_or(0);
+        // What this scan found so far: its first batch starts over, a file is taken once.
         let found = s.scanning[i].get_or_insert_with(Vec::new);
-        if batch.first {
-            found.clear();
-        }
-        found.extend(batch.items);
+        crate::library::gather(found, batch.items, batch.first);
         let empty = s.library.shelf(batch.shelf).items.is_empty();
         if batch.done {
             let items = s.scanning[i].take().unwrap_or_default();
+            // The scan's items REPLACE what the last start remembered.
             let shelf = s.library.shelf_mut(batch.shelf);
-            let changed = shelf.items != items;
-            shelf.items = items;
-            shelf.cut = batch.cut;
-            shelf.status = if batch.missing {
-                Status::Missing
-            } else {
-                Status::Ready
-            };
+            let changed = shelf.take_scan(items, batch.cut, batch.missing);
             println!(
                 "AZPLAYER_SCAN {} {} {}",
                 batch.shelf.word().replace(' ', "-"),

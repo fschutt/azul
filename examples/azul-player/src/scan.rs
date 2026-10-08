@@ -2,9 +2,9 @@
 //! write-backs, a batch at a time, so no callback ever waits on the disk, a decoder or a big
 //! picture:
 //!
-//! - THE LIBRARY SCAN of one folder: the files found (`library::find_files`), a song's tags and
-//!   whether it has a cover (azul's `AudioFileDecoder`, which streams the file - never reads it
-//!   whole), a video's length (its `mvhd` box, read in place);
+//! - THE LIBRARY SCAN of a library's folders: the files found, each once (`library::find_files`),
+//!   a song's tags and whether it has a cover (azul's `AudioFileDecoder`, which streams the file -
+//!   never reads it whole), a video's length (its `mvhd` box, read in place);
 //! - THE PICTURES: a picture's thumbnail, a song's cover, the picture viewer's window-sized copy -
 //!   decoded and scaled down on the worker (`RawImage::decode_image_bytes_any`,
 //!   `RawImage::thumbnail`); the `ImageRef` is made there too (it is shared across threads).
@@ -42,9 +42,10 @@ fn told_to_stop(receiver: &mut ThreadReceiver) -> bool {
 
 struct ScanInit {
     shelf: Shelf,
-    folder: PathBuf,
-    /// A folder inside it that another library reads (recorded TV inside the videos).
-    skip: Option<PathBuf>,
+    /// The library's folders.
+    roots: Vec<PathBuf>,
+    /// The folders inside them that another library reads (recorded TV inside the videos).
+    skip: Vec<PathBuf>,
     on_batch: WriteBackCallbackType,
 }
 
@@ -58,18 +59,18 @@ pub struct ScanBatch {
     pub done: bool,
     /// The scan stopped at the file limit.
     pub cut: bool,
-    /// The folder is not there.
+    /// None of the library's folders is there.
     pub missing: bool,
 }
 
-/// Scans `folder` for `shelf` on a Thread; `on_batch(app, ScanBatch, info)` gets the items on
-/// the UI thread, a batch at a time.
+/// Scans the folders `roots` for `shelf` on a Thread; `on_batch(app, ScanBatch, info)` gets the
+/// items on the UI thread, a batch at a time.
 pub fn spawn_scan(
     info: &mut CallbackInfo,
     app: &RefAny,
     shelf: Shelf,
-    folder: PathBuf,
-    skip: Option<PathBuf>,
+    roots: Vec<PathBuf>,
+    skip: Vec<PathBuf>,
     on_batch: WriteBackCallbackType,
 ) {
     info.add_thread(
@@ -77,7 +78,7 @@ pub fn spawn_scan(
         Thread::create(
             RefAny::new(ScanInit {
                 shelf,
-                folder,
+                roots,
                 skip,
                 on_batch,
             }),
@@ -110,9 +111,9 @@ fn read_tags(item: &mut Item) {
 }
 
 extern "C" fn scan_thread(mut init: RefAny, mut sender: ThreadSender, mut receiver: ThreadReceiver) {
-    let Some((shelf, folder, skip, on_batch)) = init
+    let Some((shelf, roots, skip, on_batch)) = init
         .downcast_ref::<ScanInit>()
-        .map(|i| (i.shelf, i.folder.clone(), i.skip.clone(), i.on_batch))
+        .map(|i| (i.shelf, i.roots.clone(), i.skip.clone(), i.on_batch))
     else {
         return;
     };
@@ -122,7 +123,7 @@ extern "C" fn scan_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
             RefAny::new(batch),
         )))
     };
-    if !folder.is_dir() {
+    if !library::any_folder_there(&roots) {
         let _ = send(ScanBatch {
             shelf,
             items: Vec::new(),
@@ -133,7 +134,7 @@ extern "C" fn scan_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
         });
         return;
     }
-    let (paths, cut) = library::find_files(shelf, &folder, skip.as_deref());
+    let (paths, cut) = library::find_files(shelf, &roots, &skip);
     let mut items = Vec::with_capacity(BATCH);
     let mut first = true;
     for path in paths {

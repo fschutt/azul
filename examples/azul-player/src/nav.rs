@@ -131,11 +131,11 @@ pub fn missing(s: &Player, action: Action) -> Option<String> {
     match action.needs() {
         Needs::Songs if s.items(Shelf::Music).is_empty() => Some(format!(
             "There is no music in {}.",
-            s.folders.music.display()
+            s.folders.shown(Shelf::Music)
         )),
         Needs::Pictures if s.items(Shelf::Pictures).is_empty() => Some(format!(
             "There are no pictures in {}.",
-            s.folders.pictures.display()
+            s.folders.shown(Shelf::Pictures)
         )),
         _ => None,
     }
@@ -335,7 +335,7 @@ pub fn open_view(app: &RefAny, info: &mut CallbackInfo, view: usize) -> Update {
             .map(|i| i.path.clone())
             .collect();
         if paths.is_empty() {
-            let why = format!("There are no pictures in {}.", s.folders.pictures.display());
+            let why = format!("There are no pictures in {}.", s.folders.shown(Shelf::Pictures));
             s.notice(&why);
         } else {
             media::show_pictures(&mut s, paths, 0, true);

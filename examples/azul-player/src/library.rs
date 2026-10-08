@@ -156,21 +156,118 @@ pub fn file_title(path: &Path) -> String {
         .to_string()
 }
 
-/// The files of `shelf` under `folder` (any depth up to [`MAX_DEPTH`], at most [`MAX_FILES`]),
-/// sorted by path; hidden files and folders (a leading dot) are skipped, links are not followed,
-/// unreadable folders are skipped silently, and `skip` (a folder another library reads, the
-/// recorded TV inside the videos folder) is left out. The `bool` says whether the list was cut
-/// at [`MAX_FILES`].
+/// The folders a scan never walks into, by their extension (any case): the packages macOS
+/// shows as ONE file. A photo library keeps every photo several times inside - Photos'
+/// `Photos Library.photoslibrary` the original and the JPEGs it made of it
+/// (`resources/derivatives/<id>_1_105_c.jpeg`, `.../masters/<id>_4_5005_c.jpeg`: an iPhone's
+/// HEIC photo, which the scan does not take, showed as exactly those two), iPhoto's and
+/// Aperture's theirs, Lightroom's previews theirs; an app bundle has its own pictures. A library
+/// folder added by hand INSIDE one is still read (a root is never skipped).
+pub const PACKAGE_EXTENSIONS: [&str; 12] = [
+    "photoslibrary",
+    "photolibrary",
+    "migratedphotolibrary",
+    "aplibrary",
+    "imovielibrary",
+    "fcpbundle",
+    "tvlibrary",
+    "musiclibrary",
+    "lrdata",
+    "app",
+    "bundle",
+    "framework",
+];
+
+/// The folders a scan never walks into, by their name (any case): Photo Booth's library (its
+/// `Pictures` and their `Originals`: every picture twice), a NAS's thumbnails (Synology's
+/// `@eaDir`), Windows' recycle bin and its system folder.
+pub const SKIPPED_FOLDERS: [&str; 5] = [
+    "Photo Booth Library",
+    "@eaDir",
+    "#recycle",
+    "$RECYCLE.BIN",
+    "System Volume Information",
+];
+
+/// Whether the walk leaves out the folder `name` it found inside a library folder: hidden ones
+/// (a leading dot), the packages of [`PACKAGE_EXTENSIONS`] and the folders of
+/// [`SKIPPED_FOLDERS`].
 #[must_use]
-pub fn find_files(shelf: Shelf, folder: &Path, skip: Option<&Path>) -> (Vec<PathBuf>, bool) {
-    fn walk(
+pub fn skips_folder(name: &str) -> bool {
+    if name.starts_with('.') {
+        return true;
+    }
+    if SKIPPED_FOLDERS.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+        return true;
+    }
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| {
+            PACKAGE_EXTENSIONS
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(ext))
+        })
+}
+
+/// Whether the walk leaves out the file `name`: hidden files, among them the AppleDouble
+/// sidecars (`._IMG_1234.JPG`: a file's Finder data and resource fork, which macOS writes next
+/// to every file on a disk that is not its own - an exFAT card, a NAS share - and which has a
+/// picture's extension but is no picture).
+#[must_use]
+pub fn skips_file(name: &str) -> bool {
+    name.starts_with('.')
+}
+
+/// What makes a file or folder ONE thing however it is reached: its device and inode where the
+/// system has them (a second name of it - another case of the name, a hard link, one folder
+/// reached from two library folders), else its path.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Identity {
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Inode(u64, u64),
+    Path(PathBuf),
+}
+
+/// The identity of `path` (`meta`: what the file system said about it, links not followed).
+fn identity(path: &Path, meta: Option<&std::fs::Metadata>) -> Identity {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Some(m) = meta {
+            return Identity::Inode(m.dev(), m.ino());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = meta;
+    Identity::Path(path.to_path_buf())
+}
+
+/// The files of `shelf` under the library folders `roots` (any depth up to [`MAX_DEPTH`], at
+/// most [`MAX_FILES`]), sorted by path, EACH FILE ONCE: the roots are read where they really
+/// are (`fs::canonicalize`: a link to a folder, `..`), a folder reached a second time (one root
+/// inside another, the same folder under two names) is not read again and a file met a second
+/// time is not taken again. Hidden files and folders, AppleDouble sidecars and packages are
+/// left out ([`skips_folder`], [`skips_file`]); links inside are not followed; unreadable
+/// folders are skipped silently; `skip` (the folders another library reads - recorded TV
+/// inside the videos folder) is left out. The `bool` says whether the list was cut at
+/// [`MAX_FILES`].
+#[must_use]
+pub fn find_files(shelf: Shelf, roots: &[PathBuf], skip: &[PathBuf]) -> (Vec<PathBuf>, bool) {
+    struct Walk<'a> {
         shelf: Shelf,
-        dir: &Path,
-        skip: Option<&Path>,
-        depth: usize,
-        out: &mut Vec<PathBuf>,
-    ) -> bool {
+        skip: &'a [Identity],
+        folders: std::collections::HashSet<Identity>,
+        files: std::collections::HashSet<Identity>,
+        out: Vec<PathBuf>,
+    }
+    /// `true`: the list is full.
+    fn walk(w: &mut Walk<'_>, dir: &Path, meta: Option<&std::fs::Metadata>, depth: usize) -> bool {
         if depth > MAX_DEPTH {
+            return false;
+        }
+        let id = identity(dir, meta);
+        if w.skip.contains(&id) || !w.folders.insert(id) {
             return false;
         }
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -179,34 +276,74 @@ pub fn find_files(shelf: Shelf, folder: &Path, skip: Option<&Path>) -> (Vec<Path
         let mut entries: Vec<std::fs::DirEntry> = entries.flatten().collect();
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
-            if entry.file_name().to_string_lossy().starts_with('.') {
-                continue;
-            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
             let path = entry.path();
             match entry.file_type() {
                 Ok(t) if t.is_dir() => {
-                    if skip.is_some_and(|s| s == path.as_path()) {
+                    if skips_folder(&name) {
                         continue;
                     }
-                    if walk(shelf, &path, skip, depth + 1, out) {
+                    let meta = entry.metadata().ok();
+                    if walk(w, &path, meta.as_ref(), depth + 1) {
                         return true;
                     }
                 }
-                Ok(t) if t.is_file() && shelf.takes(&path) => {
-                    if out.len() >= MAX_FILES {
+                Ok(t) if t.is_file() && !skips_file(&name) && w.shelf.takes(&path) => {
+                    let meta = entry.metadata().ok();
+                    if !w.files.insert(identity(&path, meta.as_ref())) {
+                        continue;
+                    }
+                    if w.out.len() >= MAX_FILES {
                         return true;
                     }
-                    out.push(path);
+                    w.out.push(path);
                 }
                 _ => {}
             }
         }
         false
     }
-    let mut out = Vec::new();
-    let cut = walk(shelf, folder, skip, 0, &mut out);
+    let real = |p: &PathBuf| std::fs::canonicalize(p).ok();
+    let skip: Vec<Identity> = skip
+        .iter()
+        .filter_map(real)
+        .map(|p| {
+            let meta = std::fs::metadata(&p).ok();
+            identity(&p, meta.as_ref())
+        })
+        .collect();
+    let mut w = Walk {
+        shelf,
+        skip: &skip,
+        folders: std::collections::HashSet::new(),
+        files: std::collections::HashSet::new(),
+        out: Vec::new(),
+    };
+    // The outer folders first: a folder inside another is then met as part of it (once).
+    let mut roots: Vec<PathBuf> = roots.iter().filter_map(real).collect();
+    roots.sort_by_key(|p| p.components().count());
+    let mut cut = false;
+    for root in roots {
+        let meta = std::fs::metadata(&root).ok();
+        if !meta.as_ref().is_some_and(std::fs::Metadata::is_dir) {
+            continue;
+        }
+        if walk(&mut w, &root, meta.as_ref(), 0) {
+            cut = true;
+            break;
+        }
+    }
+    let mut out = w.out;
     out.sort();
     (out, cut)
+}
+
+/// Whether any of `roots` is a folder that is there (a library whose every folder is missing
+/// says so).
+#[must_use]
+pub fn any_folder_there(roots: &[PathBuf]) -> bool {
+    roots.iter().any(|p| p.is_dir())
 }
 
 /// The length of an MP4 / MOV file from its `moov/mvhd` box, read where it is (the boxes before
@@ -596,6 +733,37 @@ impl Library {
     }
 }
 
+/// A batch of a running scan into `found` (what it found so far): the first batch starts
+/// over, a file already in it is not taken again.
+pub fn gather(found: &mut Vec<Item>, batch: Vec<Item>, first: bool) {
+    if first {
+        found.clear();
+    }
+    for item in batch {
+        if !found.iter().any(|f| f.path == item.path) {
+            found.push(item);
+        }
+    }
+}
+
+impl Shelved {
+    /// A finished scan's items REPLACE the library's (the ones the last start remembered are
+    /// never kept beside them), each file once. `true`: they changed.
+    pub fn take_scan(&mut self, mut found: Vec<Item>, cut: bool, missing: bool) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        found.retain(|item| seen.insert(item.path.clone()));
+        let changed = self.items != found;
+        self.items = found;
+        self.cut = cut;
+        self.status = if missing {
+            Status::Missing
+        } else {
+            Status::Ready
+        };
+        changed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -630,22 +798,106 @@ mod tests {
             std::fs::write(&path, b"x").unwrap();
         }
         let tv = root.join(RECORDED_TV);
-        let (found, cut) = find_files(Shelf::Videos, &root, Some(&tv));
+        let (found, cut) = find_files(Shelf::Videos, &[root.clone()], &[tv.clone()]);
+        // The files are where the folder really is (a temporary folder may be behind a link).
+        let real_root = std::fs::canonicalize(&root).unwrap();
         let names: Vec<String> = found
             .iter()
-            .map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"))
+            .map(|p| p.strip_prefix(&real_root).unwrap().to_string_lossy().replace('\\', "/"))
             .collect();
         assert_eq!(names, vec!["a/01 One.MOV", "a/deep/er/x.m4v", "b/02 Two.mp4"]);
         assert!(!cut);
-        let (pictures, _) = find_files(Shelf::Pictures, &root, None);
+        let (pictures, _) = find_files(Shelf::Pictures, &[root.clone()], &[]);
         assert_eq!(pictures.len(), 1);
-        let (tv_found, _) = find_files(Shelf::Tv, &tv, None);
+        let (tv_found, _) = find_files(Shelf::Tv, &[tv.clone()], &[]);
         assert_eq!(tv_found.len(), 1);
-        assert!(find_files(Shelf::Music, &root.join("missing"), None).0.is_empty());
+        assert!(find_files(Shelf::Music, &[root.join("missing")], &[]).0.is_empty());
+        assert!(!any_folder_there(&[root.join("missing")]));
+        assert!(any_folder_there(&[root.join("missing"), root.clone()]));
         let item = Item::from_path(&found[0]);
         assert_eq!(item.title, "01 One");
         assert_eq!(item.folder, "a");
         assert_eq!(item.size, 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// "Every photo is detected twice" (2026-10-08): the picture scan walked into the photo
+    /// libraries under ~/Pictures (Photos keeps each photo's JPEGs twice inside its package),
+    /// took macOS's AppleDouble sidecars, and nothing kept a folder reached from two library
+    /// folders - or a library remembered from the last start - from being counted again.
+    #[test]
+    fn each_picture_is_found_once_whatever_reaches_it_twice() {
+        let root = std::env::temp_dir().join(format!("azplayer-twice-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for p in [
+            "a.jpg",
+            "._a.jpg",
+            "Trip/b.png",
+            "Trip/._b.png",
+            "Photos Library.photoslibrary/originals/0/x.jpeg",
+            "Photos Library.photoslibrary/resources/derivatives/0/x_1_105_c.jpeg",
+            "Photos Library.photoslibrary/resources/derivatives/masters/0/x_4_5005_c.jpeg",
+            "Photo Booth Library/Pictures/p.jpg",
+            "Photo Booth Library/Originals/p.jpg",
+            "Lightroom Catalog Previews.lrdata/1/c.jpg",
+            "Trip.2024/c.jpg",
+        ] {
+            let path = root.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"x").unwrap();
+        }
+        let names = |found: &[PathBuf]| -> Vec<String> {
+            let real_root = std::fs::canonicalize(&root).unwrap();
+            found
+                .iter()
+                .map(|p| p.strip_prefix(&real_root).unwrap().to_string_lossy().replace('\\', "/"))
+                .collect()
+        };
+        // Sorted as paths are: by their parts ("Trip" before "Trip.2024", capitals first).
+        let expected = vec!["Trip/b.png", "Trip.2024/c.jpg", "a.jpg"];
+        // The library folder, once.
+        let (found, _) = find_files(Shelf::Pictures, &[root.clone()], &[]);
+        assert_eq!(names(&found), expected, "no package, no sidecar, a dotted name is a folder");
+        // The same folder twice, a folder inside it, and the folder under another name.
+        let roots = vec![
+            root.join("Trip"),
+            root.clone(),
+            root.join("Trip").join(".."),
+            root.clone(),
+        ];
+        let (found, _) = find_files(Shelf::Pictures, &roots, &[]);
+        assert_eq!(names(&found), expected, "overlapping library folders: each picture once");
+        // A package added by hand is read (a library folder is never skipped).
+        let deliberate = root.join("Photos Library.photoslibrary").join("originals");
+        let (found, _) = find_files(Shelf::Pictures, &[root.clone(), deliberate], &[]);
+        assert_eq!(found.len(), 4, "the three, and the original asked for: {found:?}");
+        assert!(skips_folder("Photos Library.photoslibrary"));
+        assert!(skips_folder("photo booth library"));
+        assert!(skips_folder("@eaDir"));
+        assert!(!skips_folder("Trip.2024"));
+        assert!(skips_file("._IMG_1234.JPG"));
+
+        // A rescan over the library the last start remembered: the scan's items REPLACE the
+        // remembered ones, each once - even a batch that brings one again.
+        let mut shelved = Shelved::default();
+        for path in &found {
+            shelved.items.push(Item::from_path(path));
+        }
+        let remembered = shelved.items.len();
+        let mut so_far = shelved.items.clone();
+        let items: Vec<Item> = found.iter().map(|p| Item::from_path(p)).collect();
+        gather(&mut so_far, items[..2].to_vec(), true);
+        assert_eq!(so_far.len(), 2, "the first batch starts over");
+        gather(&mut so_far, items[1..].to_vec(), false);
+        assert_eq!(so_far.len(), items.len(), "a file a batch brings again is not taken again");
+        let changed = shelved.take_scan(so_far, false, false);
+        assert!(!changed, "the same files: nothing changed");
+        assert_eq!(shelved.items.len(), remembered, "never the remembered ones beside them");
+        assert_eq!(shelved.status, Status::Ready);
+        let mut twice = items.clone();
+        twice.extend(items.clone());
+        shelved.take_scan(twice, false, false);
+        assert_eq!(shelved.items.len(), items.len(), "each file once");
         let _ = std::fs::remove_dir_all(&root);
     }
 

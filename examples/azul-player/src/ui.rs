@@ -875,7 +875,7 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
     }
     let shelf = page_shelf(place)?;
     let shelved = s.library.shelf(shelf);
-    let folder = s.folders.of(shelf).display().to_string();
+    let folder = s.folders.shown(shelf);
     let kind = match (&place.screen, shelf) {
         (Screen::Section(Section::Movies), _) => "movies (videos of 40 minutes or more)",
         (_, Shelf::Music) => "music",
