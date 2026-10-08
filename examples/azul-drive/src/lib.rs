@@ -1,26 +1,34 @@
 //! AzDrive: a file manager on the public azul API that looks and works like
-//! Windows' File Explorer (7 / 10).
+//! Windows 8's File Explorer, with a Finder window for its body.
 //!
-//! The window is the S5 `BrowserShell`: the app-drawn title row; the
-//! navigation row (Back / Forward / Recent locations / Up, the breadcrumb with
-//! a menu per crumb and the typed path, Refresh, "Search <folder>") over the
-//! command bar (New folder, New item, Cut, Copy, Paste, Rename, Delete, Undo,
-//! Properties, Upload / Download on a cloud drive, Sort, the Large icons /
-//! List / Details views, Select all, "See more" with every other command;
-//! the Navigation / Preview / Details pane switches and the Options at its
-//! right end - the drive commands on This PC). Under it the body is a Finder
-//! window in the app theme (`look`: flora's linen, leaves and Garamond
-//! capitals; Office 2010's silver in flat): the navigation pane is Finder's
-//! source list (`ui_sidebar`: FAVORITES - Quick access, the standard
+//! The window is the S5 `BrowserShell` without a title row: Windows 8's
+//! ribbon (`ui_ribbon`: File - a mini backstage in a popup under its tab -,
+//! Home, Share, View; Computer at This PC) whose tab strip is the window's
+//! title bar, over Explorer's address row (round Back / Forward, Recent
+//! locations, Up, the breadcrumb box - a chevron per crumb dropping its
+//! folders, the first crumbs folded into « when the path is long, a click on
+//! its empty part for the typed path - with Refresh at its end, "Search
+//! <folder>"). The window's title is the open place's path. Under it the body
+//! is a Finder window in the app theme (`look`: flora's linen, leaves and
+//! Garamond capitals; Office 2010's silver in flat): the navigation pane is
+//! Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the standard
 //! folders, the pins -, LOCATIONS - This PC and the drives on this computer,
-//! their folders listed lazily -, CLOUD - the S3 drives with their state -,
-//! the transfers' activity, + and the actions); the content is a leaf on the
-//! page (This PC's drive tiles, Quick access's pinned folders, or a folder in
-//! one of Explorer's eight layouts - Details by default, the icon layouts on
-//! azul's IconGrid - grouped or not, with check boxes or not) with Finder's
-//! path bar and status line ("N items, N selected, X available") at its foot;
-//! the preview pane OR the details pane at the right, a leaf too.
-//! The Options and About are the backstage (See more > Options, the gear).
+//! their folders listed when a row opens -, CLOUD - the S3 drives with their
+//! state -, the transfers' activity, + and the actions); the content is a leaf
+//! on the page (This PC's drive tiles, Quick access's pinned folders, or a
+//! folder in one of Explorer's eight layouts - Details by default, the icon
+//! layouts on azul's IconGrid - grouped or not, with check boxes or not) with
+//! Finder's path bar and status line ("N items, N selected, X available") at
+//! its foot; the preview pane OR the details pane at the right, a leaf too.
+//! The Options and About are the backstage (View > Options, File > Help).
+//!
+//! A folder of any size opens at once (`listing`, `jobs`): its scan reads the
+//! names and kinds with one `read_dir` - no stat per entry - and streams them
+//! in batches into the rows (kept in the view's order), a navigation stops it;
+//! the views are virtual (only the rows in view and a screen either side are
+//! built); the rows in view get their sizes and dates (a stat each), the
+//! folders among them their item counts (one `read_dir` each) and the pictures
+//! their thumbnails, nothing else.
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
@@ -51,6 +59,7 @@
 //! - `--data-dir <dir>` (`$AZLIN_DATA`): the data root (azul-appkit).
 //! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
 //!   window instead of a modal dialog window (scripts: the debug server drives the main window).
+//! - `--open <path>`: open at a place as the address bar names it (File > Open new window).
 //!
 //! On stdout, for scripts: `AZDRIVE_PLACE quick-access | this-pc | <drive id> <prefix or />`,
 //! `AZDRIVE_LISTED <drive id> <prefix or /> <entries>`, `AZDRIVE_TREE <drive id>
@@ -58,8 +67,9 @@
 //! `AZDRIVE_SORT <column> <asc|desc>`, `AZDRIVE_GROUP <name>`, `AZDRIVE_PANES <nav> <preview> <details>`,
 //! `AZDRIVE_TRANSFER <id> planned|conflict|done|failed|cancelled <n>`, `AZDRIVE_DONE <what> <key>`,
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
-//! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`.
-//! Keys and secrets are never printed.
+//! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
+//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
+//! `AZDRIVE_NEW_WINDOW <path>`. Keys and secrets are never printed.
 
 mod actions;
 pub mod args;
@@ -1014,6 +1024,7 @@ pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState)
 pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
     let mut state = info.get_current_window_state();
     let title = window_title(s);
+    println!("AZDRIVE_TITLE {title}");
     if state.title.as_str() != title {
         state.title = AzString::from(title);
         info.modify_window_state(state);
