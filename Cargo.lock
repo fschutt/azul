@@ -1143,6 +1143,7 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-storage",
+ "blake3",
  "serde",
  "serde_json",
 ]

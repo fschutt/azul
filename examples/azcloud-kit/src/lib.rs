@@ -25,6 +25,7 @@
 pub mod bundle;
 pub mod drive;
 pub mod endpoints;
+pub mod error;
 pub mod session;
 pub mod token;
 
@@ -34,5 +35,36 @@ mod tests;
 pub use bundle::DriveBundle;
 pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
+pub use error::{CloudError, CloudResult};
 pub use session::AzlinSession;
 pub use token::{Checkout, CheckoutStatus, Tier, Tiers, TokenError, TokenServer};
+
+/// Now, in seconds since 1970-01-01 UTC.
+#[must_use]
+pub fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Now, in nanoseconds since 1970-01-01 UTC.
+#[must_use]
+pub fn now_ns() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// `2026-10-08T09:15:00Z`: seconds since 1970 as RFC 3339 (UTC); a time before 1970 as 1970.
+#[must_use]
+pub fn rfc3339(unix: i64) -> String {
+    azul_storage::time::iso8601(u64::try_from(unix).unwrap_or(0))
+}
+
+/// RFC 3339 (`2026-10-08T09:15:00Z`, with or without milliseconds) to seconds since 1970.
+#[must_use]
+pub fn parse_rfc3339(text: &str) -> Option<i64> {
+    azul_storage::time::parse_iso8601(text).and_then(|t| i64::try_from(t).ok())
+}

@@ -25,6 +25,13 @@ azul-storage = { path = "../azul-storage" }
 azul-appkit = { path = "../azul-appkit" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The sync's content addresses: every blob is named by its BLAKE3 (no new crate: azul's tree has
+# 1.8.7 already).
+blake3 = "1.8"
+
+[dev-dependencies]
+# The one temporary folder for tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
 
 [lib]
 name = "azcloud_kit"
