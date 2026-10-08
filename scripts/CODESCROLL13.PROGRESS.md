@@ -26,16 +26,20 @@ Measurement tools (not in the repo): /tmp/codescroll13/measure.py, run.sh (lock 
   only its own VirtualView for a Scroll; CodeView never did.
 
 ## DONE
-- (nothing committed yet besides this file)
+- f6ab76d52 test(code_view): RED - a wheel notch scrolls a code view without rebuilding the window
+  (layout/tests/a_wheel_notch_..., code_view_tests::the_view_is_one_tab_stop_hosting_a_virtual_view,
+  azcode_e2e.py wheel step: RED on the 04:25 build - "five wheel notches ... rebuilt the window 5 times").
+- 18d977394 fix(code_view): a scroll renders the view's own lines, not the window (CodeView = view node +
+  VirtualView `render_lines`; Scroll -> `rerender_lines`; AzCode answers Scroll with DoNothing).
+- 716137961 code_view: lines_dom binds the pinned theme before the match.
 
 ## IN PROGRESS
-- RED: layout/tests/a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window.rs + code_view_tests
-  (the view hosts a VirtualView) + azcode_e2e.py (dom_regenerations 0 across wheel notches).
+- nothing (nothing compiled - the lead builds).
 
-## NEXT
-- GREEN: CodeView = host node (handlers, focus, a11y) + VirtualView child rendering the lines from the
-  shared state; a Scroll re-renders that view (trigger_virtual_view_rerender); AzCode returns DoNothing for
-  Scroll.
+## NEXT (lead)
+- cargo test -p azul-layout --lib code_view; --test all a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;
+  --lib widgets:: (manifest lints: code_view now `fixtures::sample_with_lines`); build dylib + AzCode;
+  scripts/azcode_e2e.py; re-measure with /tmp/codescroll13/measure.py (or scripts/azcode_scroll_probe.py).
 
 ## Open questions / follow-ups (engine, not fixed here)
 - A RefreshDom that changes one subtree re-cascades the whole window and recomputes intrinsic sizes of every
