@@ -405,7 +405,7 @@ pub fn choose(app: &RefAny, info: &mut CallbackInfo, act: Do) -> Update {
                 if let Some(mut s) = app_ref.downcast_mut::<Player>() {
                     // Left at the start: it opens there.
                     s.history.set_position(&path, 0.0, 0.0);
-                }
+                };
             }
             media::open_video(app, info, &path);
             Update::RefreshDom
