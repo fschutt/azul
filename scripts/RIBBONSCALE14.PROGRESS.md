@@ -36,9 +36,16 @@ x = 1378 in a 1280 px window). No compiling (house rule): the lead builds and ru
 - aa9b408d5 RED ribbon scaling: layout/src/widgets/ribbon_scaling_tests.rs (+ mod line) and
   layout/tests/a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it.rs (all.rs)
 - 87d238b8e fix: the scaling, the collapsed group + popup, flora's group_popup_style
+- (next) test: a scaled ribbon declares its structure once for every theme
+- Python port of the estimate (/tmp, not committed): View tab 1225.5 px as built (fits 1280),
+  1000 -> Panes medium + Layout 2 cells, 800 -> + Options / Show/hide / Current view icons,
+  600 -> + Panes icons + Show/hide collapsed. AzWriter Home 1210 (fits 1280), 900 -> Styles 2
+  cells + Editing / Paragraph icons, 700 -> + Font icons.
 
 ## IN PROGRESS
-- second review pass (compile risks, lints), report
+- (none) - report to the lead.
 
 ## NEXT
-- report: api.json entries, tests to run, what to look at, risks.
+- Only if the lead's build / tests fail: fix in ribbon.rs / ribbon_scaling_tests.rs / core
+  callbacks.rs, one commit each. Tuning knobs: TEXT_WIDTH_FACTOR (1.1), FIT_SLACK_PX (4),
+  GALLERY_MIN_CELLS (2), CUSTOM_FRAME_PX (8).
