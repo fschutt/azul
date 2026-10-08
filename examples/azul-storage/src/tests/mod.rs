@@ -14,5 +14,9 @@ mod time;
 mod transfer;
 mod xml;
 
+/// The OpenDAL drive (feature `opendal`).
+#[cfg(feature = "opendal")]
+mod opendal_drive;
+
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
