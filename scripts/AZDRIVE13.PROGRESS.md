@@ -45,10 +45,19 @@ fast-forwarded to a4d14a02c). No cargo here; the lead builds and runs everything
 - 88a14361c the open folder's own crumb refreshes it; selected_entries' empty fast path.
 - 7e1cfb4e2 Share > Copy link: S3Drive::presigned_get_url (SigV4 query signature, 7 days at
   most, checked against AWS's documented example) for the selected files of an S3 drive.
-
-## IN PROGRESS
-- independent compile reviews (sub-agents, read-only): the app diff, and the widget diff
-  (ribbon_file_menu.rs, address_bar.rs, ribbon.rs hook, themes); fixes from them.
+- acae883b4 E2E: `printed` is re.findall - "Name (asc|desc)" answered tuples, never "desc".
+- Independent compile reviews (read-only sub-agents): app diff - no compile error found (given
+  the api.json entries), four logic bugs; widget diff - no compile error found (api.json /
+  codegen must follow: the dll transmutes AddressBar and RibbonAppButton).
+- 8d60194e8 RED: a failed stat never answered; lines_of overflow at usize::MAX columns; E2E
+  step 20 recount (Counted: 17 files + 6 = 23 after F5).
+- 41c829455 a sort by Size / Date always ends with its sort (failed stats answered; an answer
+  that changed nothing keeps the chain going).
+- 7562b380d F5 counts subfolders again (asked once per listing, not per window).
+- 751eaaefd the rows in view from the view's real box (recorded by the virtual view) and the
+  window's real height (start, window-created, resize).
+- 3f94a4170 a failed open / unlock ends the listing ("This folder could not be read.").
+- de303b0e5 saturating line / grid arithmetic; F5 keeps old sizes until the new ones are in.
 
 ## NEXT
-- final report (api.json list = the sub-agent's report + nothing app-specific).
+- the lead: api.json entries (final report), codegen, build, the tests and the E2E.
