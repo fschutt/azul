@@ -701,6 +701,9 @@ fn call_layout(
 
     let info =
         LayoutCallbackInfo::new(&ref_data, window_state.size.clone(), window_state.theme);
+    // The page this DOM is built for, for the widgets whose structure depends
+    // on its width (the ribbon scales a tab that does not fit down to it).
+    let _window_scope = azul_core::callbacks::WindowSizeScope::enter(window_state.size.dimensions);
     // `invoke` hands the host-invoker thunk its host handle (through
     // `info.get_ctx()`); calling `cb` directly would return the kind's
     // default (empty body).

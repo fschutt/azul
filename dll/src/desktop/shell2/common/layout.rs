@@ -571,6 +571,13 @@ pub fn regenerate_layout(
     // cb:<name> span so "app builds the DOM" separates from engine solving.
     let _cb_span =
         azul_layout::probe::Probe::span_for_fn(current_window_state.layout_callback.cb as usize);
+    // The window this DOM is built for, for the widgets the callback builds:
+    // one whose structure depends on the window's width (the ribbon scales a
+    // tab that does not fit down to it) asks through
+    // `build_window_width_less_than`, which records its question with the
+    // callback's own - drained below, replayed on every resize.
+    let window_scope =
+        azul_core::callbacks::WindowSizeScope::enter(current_window_state.size.dimensions);
     // `invoke` hands the callback its stored ctx (host-handle for managed
     // FFIs, PyCallableWrapper for Python, None for native Rust) through
     // `info.get_ctx()`; calling `cb` directly, the host-invoker thunk would
@@ -578,6 +585,7 @@ pub fn regenerate_layout(
     let user_dom = current_window_state
         .layout_callback
         .invoke((*app_data_borrowed).clone(), callback_info);
+    drop(window_scope);
     drop(_cb_span);
 
     drop(app_data_borrowed); // Release borrow
