@@ -1762,3 +1762,169 @@ mod remap_rules_tests {
         assert_eq!(SEEN_DARK.load(AtomicOrdering::SeqCst), 1);
     }
 }
+
+/// A pack's condition (`IconProviderHandle::set_pack_condition`): the pack
+/// takes part in the search for a bare name only while its `apply-if` holds
+/// under the lookup's live context - the flora theme's icon pack, searched
+/// before Material under flora and not at all under flat.
+#[cfg(test)]
+mod pack_condition_tests {
+    use core::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+
+    use azul_css::dynamic_selector::DynamicSelectorContext;
+
+    use super::*;
+    use crate::refany::RefAny;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct PackIcon {
+        id: u32,
+    }
+
+    const MATERIAL: u32 = 1;
+    const HAIKU: u32 = 2;
+
+    fn icon(id: u32) -> RefAny {
+        RefAny::new(PackIcon { id })
+    }
+
+    fn id_of(found: Option<RefAny>) -> Option<u32> {
+        let mut data = found?;
+        let id = data.downcast_ref::<PackIcon>().map(|d| d.id);
+        id
+    }
+
+    /// A window's context under the app theme chain `names`.
+    fn theme(names: &[&str]) -> DynamicSelectorContext {
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.theme_chain = azul_css::StringVec::from_vec(
+            names
+                .iter()
+                .map(|t| azul_css::AzString::from((*t).to_string()))
+                .collect(),
+        );
+        ctx
+    }
+
+    fn in_theme(inner: &IconProviderInner, spec: &str, names: &[&str]) -> Option<u32> {
+        id_of(inner.lookup_spec_in_context(spec, &theme(names)))
+    }
+
+    /// As an app has it: its own pack registered first (before `App::create`
+    /// adds the Material icons), ranked first and conditioned on flora - so
+    /// neither the registration order nor the rank keeps it out under flat.
+    fn material_and_flora_pack(resolver: IconResolverCallbackType) -> IconProviderHandle {
+        let mut h = IconProviderHandle::with_resolver(resolver);
+        h.register_icon("haiku", "inbox", icon(HAIKU));
+        h.register_icon("material-icons", "inbox", icon(MATERIAL));
+        h.set_pack_rank("haiku", 0);
+        h.set_pack_condition("haiku", "theme=flora");
+        h
+    }
+
+    fn pack() -> IconProviderHandle {
+        material_and_flora_pack(default_icon_resolver)
+    }
+
+    #[test]
+    fn a_flora_pack_answers_a_name_under_flora_and_material_answers_it_under_flat() {
+        let h = pack();
+        assert_eq!(in_theme(&h.inner, "inbox", &["flora", "flat"]), Some(HAIKU));
+        assert_eq!(in_theme(&h.inner, "inbox", &["flat"]), Some(MATERIAL));
+    }
+
+    #[test]
+    fn a_spin_of_flora_is_flora_and_a_theme_over_flat_is_not() {
+        let h = pack();
+        assert_eq!(
+            in_theme(&h.inner, "inbox", &["flora:green", "flora", "flat"]),
+            Some(HAIKU)
+        );
+        assert_eq!(in_theme(&h.inner, "inbox", &["xyz", "flat"]), Some(MATERIAL));
+    }
+
+    #[test]
+    fn a_name_only_the_conditional_pack_has_is_not_found_while_its_condition_fails() {
+        let mut h = pack();
+        h.register_icon("haiku", "haiku-only", icon(3));
+        assert_eq!(in_theme(&h.inner, "haiku-only", &["flat"]), None);
+        assert_eq!(in_theme(&h.inner, "haiku-only", &["flora", "flat"]), Some(3));
+        // A fallback list goes on to its next entry instead.
+        assert_eq!(
+            in_theme(&h.inner, "haiku-only,inbox", &["flat"]),
+            Some(MATERIAL)
+        );
+    }
+
+    #[test]
+    fn a_pack_qualified_spec_reaches_a_conditional_pack_under_any_theme() {
+        let h = pack();
+        assert_eq!(in_theme(&h.inner, "haiku:inbox", &["flat"]), Some(HAIKU));
+    }
+
+    #[test]
+    fn a_lookup_without_a_window_context_passes_a_conditional_pack_by() {
+        let h = pack();
+        assert_eq!(id_of(h.lookup("inbox")), Some(MATERIAL));
+        assert!(h.has_icon("inbox"));
+    }
+
+    #[test]
+    fn the_users_remap_rule_still_beats_the_flora_pack() {
+        let mut h = pack();
+        h.register_icon("user-icons", "rule-0", icon(9));
+        h.add_icon_remap_rule("inbox", "", "user-icons:rule-0");
+        assert_eq!(in_theme(&h.inner, "inbox", &["flora", "flat"]), Some(9));
+    }
+
+    #[test]
+    fn a_condition_nobody_understands_keeps_the_pack_out() {
+        let mut h = pack();
+        h.set_pack_condition("haiku", "theme");
+        assert_eq!(
+            in_theme(&h.inner, "inbox", &["flora", "flat"]),
+            Some(MATERIAL)
+        );
+    }
+
+    #[test]
+    fn an_empty_condition_makes_the_pack_unconditional_again() {
+        let mut h = pack();
+        h.set_pack_condition("haiku", "");
+        assert_eq!(in_theme(&h.inner, "inbox", &["flat"]), Some(HAIKU));
+    }
+
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+    extern "C" fn recording_resolver(
+        icon_data: OptionRefAny,
+        _original: &NodeData,
+        _style: &SystemStyle,
+    ) -> Dom {
+        let mut seen = 0;
+        if let Some(mut data) = icon_data.into_option() {
+            if let Some(d) = data.downcast_ref::<PackIcon>() {
+                seen = d.id;
+            }
+        }
+        SEEN.store(seen, AtomicOrdering::SeqCst);
+        Dom::create_div()
+    }
+
+    /// `CallbackInfo::set_theme` rebuilds every window, whose context then
+    /// carries the new chain: the next resolution pass draws the other
+    /// theme's icon. The `SystemStyle` stays the same throughout, so this
+    /// also proves the resolution cache is keyed on the theme chain.
+    #[test]
+    fn switching_the_theme_switches_the_icon_on_the_next_pass() {
+        let shared = SharedIconProvider::from_handle(material_and_flora_pack(recording_resolver));
+        let style = SystemStyle::default();
+        let pass = |names: &[&str]| {
+            let mut dom = Dom::create_icon("inbox");
+            resolve_icons_in_dom_with_context(&mut dom, &shared, &style, Some(&theme(names)));
+            SEEN.load(AtomicOrdering::SeqCst)
+        };
+        assert_eq!(pass(&["flat"]), MATERIAL, "flat: Material's");
+        assert_eq!(pass(&["flora", "flat"]), HAIKU, "flora: the next pass draws Haiku's");
+        assert_eq!(pass(&["flat"]), MATERIAL, "and flat again: Material's");
+    }
+}

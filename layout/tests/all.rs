@@ -969,6 +969,8 @@ mod a_presentational_attribute_loses_to_any_author_css;
 mod an_hvif_icon_is_drawn_at_its_size;
 #[path = "an_hvif_icon_resolves_at_the_size_it_is_shown.rs"]
 mod an_hvif_icon_resolves_at_the_size_it_is_shown;
+#[path = "a_flora_icon_pack_draws_haiku_under_flora_and_material_under_flat.rs"]
+mod a_flora_icon_pack_draws_haiku_under_flora_and_material_under_flat;
 
 #[path = "a_flora_spin_recolours_only_the_accent.rs"]
 mod a_flora_spin_recolours_only_the_accent;

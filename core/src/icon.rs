@@ -500,6 +500,12 @@ pub struct IconProviderInner {
     /// chain, so `icons/xyz/pink/` beats `icons/xyz/` beats the app's own
     /// packs. Packs without a rank are searched after every ranked pack.
     pub pack_ranks: BTreeMap<String, u32>,
+    /// Pack conditions: a pack listed here takes part in the search for a
+    /// bare icon name only while all its terms hold under the lookup's live
+    /// context - the flora theme's icon pack under `theme=flora`
+    /// ([`IconProviderHandle::set_pack_condition`]). Like a rank, a setting
+    /// about the pack NAME.
+    pub pack_conditions: BTreeMap<String, Vec<IconRuleCondition>>,
     /// Remap rules, icon name (lowercase) -> its rules in the order they were
     /// added. See [`IconRemapRule`].
     pub remap: BTreeMap<String, Vec<IconRemapRule>>,
@@ -514,6 +520,7 @@ impl Default for IconProviderInner {
             resolver: default_icon_resolver,
             pack_order: Vec::new(),
             pack_ranks: BTreeMap::new(),
+            pack_conditions: BTreeMap::new(),
             remap: BTreeMap::new(),
             app_name: String::new(),
         }
@@ -938,6 +945,32 @@ impl IconProviderHandle {
     /// registered first.
     pub fn set_pack_rank(&mut self, pack_name: &str, rank: u32) {
         self.inner.pack_ranks.insert(pack_name.to_string(), rank);
+    }
+
+    /// Let a pack take part in the search for a bare icon name only while
+    /// `apply_if` holds ([`parse_icon_apply_if`]: `theme=flora`, `mode=dark`,
+    /// `os=...`, `contrast=high`, `app=...`; the comma is AND). It is
+    /// evaluated at every lookup against the window's live context, so a
+    /// theme switch brings the pack in or takes it out with the next frame.
+    /// The flora theme's own icons, searched first under flora and not at
+    /// all under any other theme: `set_pack_rank(pack, 0)` and
+    /// `set_pack_condition(pack, "theme=flora")`.
+    ///
+    /// A pack-qualified spec (`pack:name`) still reaches the pack, the
+    /// user's remap rules still come first, and a lookup without a window
+    /// context (`lookup`, `has_icon`) passes the pack by. A term nobody
+    /// understands never holds: a typo keeps the pack out instead of making
+    /// it unconditional. An empty `apply_if` removes the condition; like the
+    /// rank, the condition belongs to the pack NAME.
+    pub fn set_pack_condition(&mut self, pack_name: &str, apply_if: &str) {
+        let conditions = parse_icon_apply_if(apply_if);
+        if conditions.is_empty() {
+            self.inner.pack_conditions.remove(pack_name);
+        } else {
+            self.inner
+                .pack_conditions
+                .insert(pack_name.to_string(), conditions);
+        }
     }
 
     /// Add a global remap rule: while `apply_if` holds
