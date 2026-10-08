@@ -3,6 +3,7 @@
 
 mod account;
 mod bucket;
+mod claim;
 mod cloud_drive;
 mod drive;
 mod endpoints;
