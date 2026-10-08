@@ -10161,6 +10161,44 @@ mod autotest_generated {
         assert_eq!(first_family("flora", "Menlo"), "Menlo", "a named family is the author's");
     }
 
+    /// A UA's default serif is the UA's to choose (a browser's "serif font"
+    /// setting), and flora's is its reading hand: under flora a generic
+    /// `serif` - what a feed article, a book page or a mail names, and the
+    /// default of text that names nothing - is set in EB Garamond, then
+    /// Georgia. Flat keeps the platform's serif; `sans-serif` and
+    /// `monospace` stay what they are under every theme.
+    #[test]
+    fn under_flora_the_generic_serif_is_eb_garamond() {
+        use azul_css::dynamic_selector::DynamicSelectorContext;
+        let stack = |theme: &str, family: &str| -> Vec<String> {
+            let css = format!("font-family: {family};");
+            let dom = Dom::create_body().with_child(
+                Dom::create_p()
+                    .with_css(&css)
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Aa")),
+            );
+            let ctx = DynamicSelectorContext::default().with_app_theme(theme);
+            let sd = StyledDom::create_from_dom_with_context(dom, Some(ctx));
+            let props =
+                get_style_properties(&sd, NodeId::new(2), None, PhysicalSize::new(800.0, 600.0));
+            match props.font_stack {
+                FontStack::Stack(stack) => stack.into_iter().map(|s| s.family).collect(),
+                FontStack::Ref(_) => panic!("{family}: a font reference, not a stack"),
+            }
+        };
+        assert_eq!(stack("flat", "serif")[0], "serif", "flat keeps the platform's serif");
+        let flora = stack("flora", "serif");
+        assert_eq!(flora[0], "EB Garamond", "{flora:?}");
+        assert_eq!(flora[1], "Georgia", "{flora:?}");
+        assert_eq!(stack("flora:gold", "serif")[0], "EB Garamond", "a spin");
+        let article = stack("flora", "Charter, serif");
+        assert_eq!(article[0], "Charter", "a named family first: {article:?}");
+        assert_eq!(article[1], "EB Garamond", "then flora's serif: {article:?}");
+        assert_eq!(stack("flora", "sans-serif")[0], "sans-serif", "a sans stays a sans");
+        assert_eq!(stack("flora", "monospace")[0], "monospace");
+        assert_eq!(stack("flat", "serif")[0], "serif", "the memo keeps the themes apart");
+    }
+
     #[test]
     fn build_font_selector_stack_does_not_duplicate_a_generic_the_author_already_listed() {
         // Case-insensitive: "MONOSPACE" must suppress the "monospace" fallback.
