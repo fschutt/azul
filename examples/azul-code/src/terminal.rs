@@ -361,8 +361,10 @@ pub fn panel(app: &RefAny, st: &AppState) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(
+                    // Under flora the underline is the stone (its glow at night).
                     "font-size: 11px; padding: 4px 0px; margin-right: 16px; \
-                     border-bottom: 1px solid var(--az-accent, #0078D4);",
+                     border-bottom: 1px solid var(--az-accent, #0078D4); @theme(flora) { \
+                     border-bottom: 1px solid system:accent; }",
                 )
                 .with_child(Dom::create_span_with_text("TERMINAL")),
         );
