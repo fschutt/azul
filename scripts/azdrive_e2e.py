@@ -9,7 +9,7 @@ node layout, AzDrive's stdout markers and the files on disk:
         window title (the path), the address row (round Back / Forward, Recent, Up, the
         breadcrumb box with its location icon, crumbs and chevrons, Refresh in the box);
         Finder's body - the source list's FAVORITES (Quick access, the sample's Documents /
-        Pictures / Music), LOCATIONS (This PC, Home, Azlin), CLOUD ("Add S3 drive"), This PC's
+        Pictures / Music), LOCATIONS (This PC, Home, Azlin), CLOUD ("Add drive..."), This PC's
         row selected, the path bar and the status line at the foot of the content's leaf;
      1b. the source list: a click on Documents goes there (its row selected, the path bar's
         trail), Down walks to Pictures, Enter opens it, Left climbs to FAVORITES' title, Left
@@ -403,7 +403,7 @@ def run(args, logs):
             app.until("the ribbon's %s tab" % tab, lambda: app.ribbon_node(tab) is not None)
         if app.ribbon_node("Home") is not None or app.ribbon_node("Share") is not None:
             raise Failure("This PC shows Home / Share: Windows 8 shows Computer and View there")
-        for tool in ("Add S3 drive", "Add folder as drive", "Remove drive", "Properties",
+        for tool in ("Add drive", "Add folder as drive", "Remove drive", "Properties",
                      "Refresh"):
             app.until("Computer's %s" % tool, lambda: app.ribbon_node(tool) is not None)
         if app.nodes_with_class(TITLEBAR):

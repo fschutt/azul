@@ -568,6 +568,14 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                             AzString::from(endpoint.as_str()),
                         )
                         .with_property(AzString::from("Region"), AzString::from(region.as_str())),
+                    DriveLocation::Opendal { options, .. }
+                    | DriveLocation::Database { options, .. } => {
+                        let mut pane = pane;
+                        for (name, value) in crate::ui_dialogs::source_rows(&slot.entry, options) {
+                            pane = pane.with_property(AzString::from(name), AzString::from(value));
+                        }
+                        pane
+                    }
                 }
             }
             None => DetailsPane::create(AzString::from(browse::THIS_PC))

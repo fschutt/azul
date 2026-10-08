@@ -107,18 +107,28 @@ extern "C" fn on_answer(mut data: RefAny, _info: CallbackInfo, result: RefAny) -
     Update::DoNothing
 }
 
-fn method_of(method: Method) -> HttpMethod {
+/// azul's verb for `method`. azul's `HttpMethod` has GET, HEAD, POST, PUT, PATCH and DELETE
+/// only: WebDAV's verbs (PROPFIND, MKCOL, COPY, MOVE, ...) cannot be sent through it yet
+/// (layout/src/http.rs `HttpMethod`), so a WebDAV source fails with this sentence until the
+/// engine sends any verb.
+fn method_of(method: Method) -> Result<HttpMethod, String> {
     match method {
-        Method::Get => HttpMethod::Get,
-        Method::Head => HttpMethod::Head,
-        Method::Put => HttpMethod::Put,
-        Method::Post => HttpMethod::Post,
-        Method::Delete => HttpMethod::Delete,
+        Method::Get => Ok(HttpMethod::Get),
+        Method::Head => Ok(HttpMethod::Head),
+        Method::Put => Ok(HttpMethod::Put),
+        Method::Post => Ok(HttpMethod::Post),
+        Method::Delete => Ok(HttpMethod::Delete),
+        Method::Patch => Ok(HttpMethod::Patch),
+        other => Err(format!(
+            "azul's HTTP client cannot send {} requests yet (WebDAV needs them)",
+            other.as_str()
+        )),
     }
 }
 
 impl Transport for AzulTransport {
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        let method = method_of(call.method)?;
         let (sender, receiver) = mpsc::channel::<Answer>();
         let mut config = HttpRequestConfig::create()
             .with_timeout(self.timeout_secs)
@@ -132,7 +142,7 @@ impl Transport for AzulTransport {
             reply: Mutex::new(Some(sender)),
         };
         let _request = config.http_request(
-            method_of(call.method),
+            method,
             call.url.as_str(),
             U8Vec::from(call.body.clone()),
             call.content_type.as_str(),

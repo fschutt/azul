@@ -8,9 +8,9 @@
 //!   opens its folders under it (its triangle; listed lazily, one listing per opening), a
 //!   folder the user added has Finder's eject button, which forgets it;
 //! - CLOUD: the S3 drives, each with its state (syncing - the count of its transfers as a pill
-//!   -, its keys still in the keyring, connected) and its eject button, then "Add S3 drive";
+//!   -, its keys still in the keyring, connected) and its eject button, then "Add drive";
 //! - under the list the ACTIVITY area while transfers run, wait or failed (a click opens the
-//!   transfers), and the + (Add S3 drive, Add a folder, Pin) and actions (Options) buttons.
+//!   transfers), and the + (Add drive, Add a folder, Pin) and actions (Options) buttons.
 //!
 //! A section title has a disclosure triangle (a click opens or closes the section); the row of
 //! the place the window shows has the rounded highlight; a folder's row takes dropped items (a
@@ -142,7 +142,7 @@ pub(crate) enum RowKind {
     Section(Section),
     /// A place to go to.
     Go(Place),
-    /// Cloud's "Add S3 drive".
+    /// Cloud's "Add drive".
     AddDrive,
 }
 
@@ -362,7 +362,7 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
             drive_rows(src, i, drive, &mut out);
         }
         out.push(
-            Row::new(RowKind::AddDrive, "Add S3 drive\u{2026}", "add_link")
+            Row::new(RowKind::AddDrive, "Add drive\u{2026}", "add_link")
                 .with_id(ids::SIDE_ADD_DRIVE),
         );
     }
@@ -383,7 +383,7 @@ pub(crate) enum SideMove {
     Focus(usize),
     /// Row `n` (a section, a drive, a folder) opens (`true`) or closes.
     Open(usize, bool),
-    /// Row `n` is activated: its place opens, its section opens or closes, "Add S3 drive".
+    /// Row `n` is activated: its place opens, its section opens or closes, "Add drive".
     Activate(usize),
     /// Row `n`'s menu opens.
     Menu(usize),
@@ -708,7 +708,7 @@ extern "C" fn on_row_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// The + under the list: Add S3 drive, Add a folder as a drive, Pin the open folder.
+/// The + under the list: Add drive, Add a folder as a drive, Pin the open folder.
 extern "C" fn on_add_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
     let Some(s) = data.downcast_ref::<DriveState>() else {
@@ -724,7 +724,7 @@ extern "C" fn on_add_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
         format!("Pin \"{}\" to Favorites", s.place_name())
     };
     let items = vec![
-        menu_item(&app, "Add S3 drive\u{2026}", Action::AddDrive, false),
+        menu_item(&app, "Add drive\u{2026}", Action::AddDrive, false),
         menu_item(&app, "Add a folder as a drive\u{2026}", Action::AddLocalDrive, false),
         MenuItem::separator(),
         menu_item(
@@ -818,7 +818,7 @@ fn section_dom(app: &RefAny, row: &Row, section: Section, stop: bool) -> Dom {
     dom
 }
 
-/// A place's row (or "Add S3 drive"): its triangle (or the room for one), its icon, its name,
+/// A place's row (or "Add drive"): its triangle (or the room for one), its icon, its name,
 /// a cloud drive's state and pill, an added drive's eject button.
 fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
     let selected = shows(&s.place, row);
@@ -990,7 +990,7 @@ fn small_button(icon: &str, label: &str, id: AzString, data: RefAny, callback: C
         .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
 }
 
-/// The bar under the list: + (Add S3 drive, Add a folder, Pin) and the actions (Options).
+/// The bar under the list: + (Add drive, Add a folder, Pin) and the actions (Options).
 fn foot(app: &RefAny) -> Dom {
     Dom::create_div()
         .with_css(look::SIDEBAR_FOOT)
@@ -1270,7 +1270,7 @@ mod tests {
                 "Azlin",
                 "Cloud",
                 "Bucket",
-                "Add S3 drive\u{2026}",
+                "Add drive\u{2026}",
             ],
             "a pinned standard folder shows once"
         );

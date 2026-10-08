@@ -68,10 +68,27 @@
 //! `AZDRIVE_TRANSFER <id> planned|conflict|done|failed|cancelled <n>`, `AZDRIVE_DONE <what> <key>`,
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
-//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
-//! `AZDRIVE_NEW_WINDOW <path>`. Keys and secrets are never printed.
+//! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
+//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`,
+//! `AZDRIVE_FILE_MENU <action>`, `AZDRIVE_NEW_WINDOW <path>`. Keys, passwords, tokens and
+//! payment pages are never printed.
+//!
+//! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
+//! Options' Drives) is a modal dialog - a transient window over the window: Buy storage (Azlin's
+//! tiers from the token server, a test drive on a development server, a checkout paid in the
+//! browser; azcloud-kit) or Connect data source (azul-storage's catalog: S3-compatible storage,
+//! a folder on this computer, OpenDAL's services with the feature `opendal`, PostgreSQL / MySQL /
+//! SQLite browsed as tables with `sql`; a form per source, "Test connection", "Add drive").
+//! `--token-url <url>` / `--profile <name>` name the token server (else `$AZLIN_TOKEN_URL`, the
+//! shared Azlin config, the profile's).
 
 mod actions;
+/// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
+mod add_drive;
+#[cfg(test)]
+mod add_drive_tests;
+/// What the Add drive dialog's buttons start, and the answers of its jobs.
+mod add_flow;
 pub mod args;
 pub mod browse;
 pub mod fileops;
@@ -84,6 +101,8 @@ pub mod listing;
 mod look;
 pub mod model;
 pub mod preview;
+/// The Add drive dialog's pages.
+mod ui_add_drive;
 mod ui_dialogs;
 mod ui_panes;
 /// Windows 8's ribbon and its File menu.
@@ -117,7 +136,7 @@ use azul_storage::{
     config::{self, DriveEntry, DriveLocation, DrivesFile},
     key, Credentials, Drive, DriveError, LocalDrive,
 };
-use browse::{DriveForm, Entry, History, Place};
+use browse::{Entry, History, Place};
 use fileops::{ConflictChoice, Plan, SourceItem, TransferKind, TransferQueue};
 use jobs::{Done, FolderSize, Job, JobInit, Outcome, PreviewContent};
 use model::{Selection, Settings, TypeAhead};
@@ -133,7 +152,9 @@ pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
     name: "AzDrive",
     version: env!("CARGO_PKG_VERSION"),
     summary: "A file manager like Windows Explorer for the Azlin data tree, the folders of this \
-              computer and S3 buckets (AWS S3, Cloudflare R2, MinIO).",
+              computer, S3 buckets, Azlin cloud storage and the data sources OpenDAL reaches \
+              (WebDAV, FTP, Google Drive, Dropbox, OneDrive, GitHub, ...), with databases \
+              browsed as tables.",
     license: "MIT",
     app_folder: "drive",
 };
@@ -153,11 +174,17 @@ const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0 + 25.0 + 23.0;
 
 // ==== Drives ====
 
+/// The sessions of Azlin drives that refreshed their credentials on a worker thread, as
+/// (drive id, keyring text): the UI thread stores each in the keyring (`store_rotated`) - the
+/// drive token they replace is spent.
+pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<(String, String)>>>;
+
 /// A drive.
 pub(crate) struct Slot {
     pub entry: DriveEntry,
-    /// An S3 drive's keys, once read from the keyring or typed in.
-    pub credentials: Option<Credentials>,
+    /// The text of the drive's keyring entry, once read or typed in: an S3 drive's keys, an
+    /// Azlin drive's session, a data source's secret settings. Never printed.
+    pub secret: Option<String>,
     /// The drive, once it could be opened; shared with the worker threads.
     pub drive: Option<Arc<dyn Drive>>,
 }
@@ -166,27 +193,71 @@ impl Slot {
     pub fn new(entry: DriveEntry) -> Self {
         Slot {
             entry,
-            credentials: None,
+            secret: None,
             drive: None,
         }
     }
 
     /// Whether opening it waits for the keyring.
     pub fn locked(&self) -> bool {
-        self.drive.is_none() && self.credentials.is_none() && self.entry.needs_keyring()
+        self.drive.is_none() && self.secret.is_none() && self.entry.needs_keyring()
     }
 
-    /// The drive, opened on first use.
-    pub fn open(&mut self) -> Result<Arc<dyn Drive>, DriveError> {
+    /// The drive, opened on first use: an Azlin drive through azcloud-kit (it refreshes its
+    /// credentials; a rotated session lands in `rotated`, its token server is the one the entry
+    /// names, else `token_url`), every other one through azul-storage.
+    pub fn open(
+        &mut self,
+        rotated: &RotatedSessions,
+        token_url: Option<&str>,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
         if let Some(drive) = &self.drive {
             return Ok(drive.clone());
         }
-        let drive: Arc<dyn Drive> = Arc::from(self.entry.open(
-            self.credentials.clone(),
-            Box::new(AzulTransport::new(USER_AGENT)),
-        )?);
+        let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
+            let secret = self.secret.as_deref().ok_or_else(|| DriveError::Denied {
+                message: format!(
+                    "\"{}\" has no session (the keyring has no entry for it)",
+                    self.entry.name
+                ),
+            })?;
+            let session = azcloud_kit::AzlinSession::from_keyring_secret(secret)
+                .map_err(|e| DriveError::InvalidConfig(e.to_string()))?;
+            let queue = rotated.clone();
+            let id = self.entry.id.clone();
+            let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
+                Box::new(AzulTransport::new(USER_AGENT)) as Box<dyn azul_storage::Transport>
+            });
+            Arc::new(azcloud_kit::AzlinDrive::new(
+                &self.entry,
+                session,
+                token_url.unwrap_or_default(),
+                transports,
+                Box::new(move |session: &azcloud_kit::AzlinSession| {
+                    if let Ok(mut queue) = queue.lock() {
+                        queue.push((id.clone(), session.to_keyring_secret()));
+                    }
+                }),
+            )?)
+        } else {
+            Arc::from(self.entry.open_with_secret(
+                self.secret.as_deref(),
+                Box::new(AzulTransport::new(USER_AGENT)),
+            )?)
+        };
         self.drive = Some(drive.clone());
         Ok(drive)
+    }
+
+    /// An S3 drive's keys (an Azlin drive's current ones), for a presigned link.
+    pub fn credentials(&self) -> Option<Credentials> {
+        match &self.entry.location {
+            DriveLocation::S3 { .. } => self
+                .secret
+                .as_deref()
+                .and_then(|s| Credentials::from_keyring_secret(s).ok()),
+            _ => None,
+        }
     }
 
     pub fn is_local(&self) -> bool {
@@ -198,6 +269,11 @@ impl Slot {
         self.entry.id == HOME_ID || self.entry.id == DATA_ID
     }
 
+    /// The drive is browsed, not written (a database, a web server, an IPFS gateway).
+    pub fn read_only(&self) -> bool {
+        azul_storage::catalog::service_of(&self.entry).is_some_and(|s| s.read_only)
+    }
+
     /// The icon of the drive's tiles and tree rows.
     pub fn icon(&self) -> &'static str {
         if self.entry.id == HOME_ID {
@@ -206,18 +282,21 @@ impl Slot {
             "folder_special"
         } else if self.is_local() {
             "storage"
+        } else if self.entry.azlin().is_some() {
+            "cloud_done"
+        } else if let Some(spec) = azul_storage::catalog::service_of(&self.entry)
+            .filter(|_| !matches!(self.entry.location, DriveLocation::S3 { .. }))
+        {
+            spec.icon
         } else {
             "cloud"
         }
     }
 
-    /// What the drive is.
-    pub fn kind(&self) -> &'static str {
-        if self.is_local() {
-            "Local Disk"
-        } else {
-            "S3 bucket"
-        }
+    /// What the drive is: "Local Disk", "S3 bucket", "Azlin cloud drive", "WebDAV", "SQLite
+    /// database".
+    pub fn kind(&self) -> String {
+        azul_storage::catalog::kind_label(&self.entry)
     }
 }
 
@@ -341,15 +420,9 @@ pub(crate) struct PropertiesState {
 
 /// The dialog (or the inline sheet) open over the window.
 pub(crate) enum Popup {
-    /// "Add drive" (or new keys for a drive whose keyring entry is gone: `editing`).
-    AddDrive {
-        form: DriveForm,
-        editing: Option<String>,
-        serial: u64,
-        testing: bool,
-        tested: Option<Result<String, String>>,
-        error: String,
-    },
+    /// "Add drive": Buy storage or Connect data source (or new secrets for a drive whose keyring
+    /// entry is gone: the dialog's `editing`).
+    AddDrive(add_drive::AddDialog),
     /// A delete that cannot be undone (a cloud drive, Shift+Delete, the trash).
     ConfirmDelete {
         drive_id: String,
@@ -384,7 +457,7 @@ pub(crate) struct TreeState {
     pub favorites_open: bool,
     /// LOCATIONS: This PC and the drives on this computer.
     pub locations_open: bool,
-    /// CLOUD: the S3 drives and "Add S3 drive".
+    /// CLOUD: the S3 drives and "Add drive".
     pub cloud_open: bool,
     pub expanded: HashSet<TreeKey>,
     pub loaded: HashMap<TreeKey, Vec<String>>,
@@ -509,6 +582,11 @@ pub(crate) struct DriveState {
     /// azul-appkit's kit: the data root, the theme and mode saved in `drive/settings.json`, the
     /// Options' Appearance / Data / Shortcuts / About sections, the `--shot` timer.
     pub kit: RefAny,
+    /// The Azlin token server of this run (Buy storage; the refreshes of Azlin drives that
+    /// name none): `--token-url`, the environment, the shared Azlin config, the profile.
+    pub token: azcloud_kit::TokenEndpoint,
+    /// Azlin drives' sessions rotated on a worker thread, for the keyring.
+    pub rotated: RotatedSessions,
 }
 
 impl DriveState {
@@ -753,7 +831,9 @@ impl DriveState {
     pub fn local_dir(&self, index: usize, prefix: &str) -> Option<PathBuf> {
         match &self.slots.get(index)?.entry.location {
             DriveLocation::Local { root } => Some(jobs::path_in(Path::new(root), prefix)),
-            DriveLocation::S3 { .. } => None,
+            DriveLocation::S3 { .. }
+            | DriveLocation::Opendal { .. }
+            | DriveLocation::Database { .. } => None,
         }
     }
 
@@ -794,7 +874,12 @@ pub(crate) fn open_current(s: &mut DriveState) -> Option<Arc<dyn Drive>> {
 
 /// Drive `index`, opened on first use; an error is shown.
 pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
-    let opened = s.slots.get_mut(index)?.open();
+    let rotated = s.rotated.clone();
+    let token_url = s.token.url.clone();
+    let opened = s
+        .slots
+        .get_mut(index)?
+        .open(&rotated, token_url.as_deref());
     match opened {
         Ok(drive) => Some(drive),
         Err(e) => {
@@ -1158,12 +1243,57 @@ pub(crate) fn save_settings(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
 
 /// A keyring operation in flight or queued (the keyring answers one at a time).
 pub(crate) enum KeyringOp {
-    /// Reading an S3 drive's keys to open it.
+    /// Reading a drive's keyring entry (keys, a session, secret settings) to open it.
     Unlock { drive_id: String },
     /// Saving a new drive's keys.
     Store { drive_id: String },
+    /// Saving an Azlin drive's rotated session (quietly: only a failure is said).
+    Rotate { drive_id: String },
     /// Removing a forgotten drive's keys.
     Forget,
+}
+
+/// Whether `secret` is what the keyring entry of `entry` holds: an S3 drive's keys, an Azlin
+/// drive's session, a data source's secret settings. `Err` says what it is not.
+pub(crate) fn check_secret(entry: &DriveEntry, secret: &str) -> Result<(), String> {
+    if entry.azlin().is_some() {
+        return azcloud_kit::AzlinSession::from_keyring_secret(secret)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+    match &entry.location {
+        DriveLocation::S3 { .. } => Credentials::from_keyring_secret(secret)
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        DriveLocation::Opendal { .. } | DriveLocation::Database { .. } => {
+            azul_storage::SecretOptions::from_keyring_secret(secret)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        DriveLocation::Local { .. } => Ok(()),
+    }
+}
+
+/// Stores the sessions Azlin drives rotated on worker threads (each one's drive token is the
+/// next refresh's; the one before is spent).
+pub(crate) fn store_rotated(info: &mut CallbackInfo, s: &mut DriveState) {
+    let rotated: Vec<(String, String)> = match s.rotated.lock() {
+        Ok(mut queue) => queue.drain(..).collect(),
+        Err(_) => return,
+    };
+    for (drive_id, secret) in rotated {
+        if let Some(index) = s.slot_index(&drive_id) {
+            s.slots[index].secret = Some(secret.clone());
+        }
+        keyring(
+            info,
+            s,
+            KeyringOp::Rotate {
+                drive_id: drive_id.clone(),
+            },
+            KeyringCall::Store(config::keyring_key(&drive_id), secret),
+        );
+    }
 }
 
 /// The request behind a [`KeyringOp`]. Holds a secret while queued; never printed.
@@ -1228,9 +1358,9 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
             let is_current = s.current_drive() == Some(index);
             match &result {
                 KeyringResult::Retrieved(secret) => {
-                    match Credentials::from_keyring_secret(secret.as_str()) {
-                        Ok(credentials) => {
-                            s.slots[index].credentials = Some(credentials);
+                    match check_secret(&s.slots[index].entry, secret.as_str()) {
+                        Ok(()) => {
+                            s.slots[index].secret = Some(secret.as_str().to_string());
                             s.clear_notice();
                             if is_current {
                                 start_listing(&mut info, &app, s, false);
@@ -1266,14 +1396,36 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                         s.listing_failed = true;
                     }
                     s.tree.pending.retain(|node| node.0 != drive_id);
-                    s.error(format!(
-                        "\"{name}\" cannot be opened: {}. Enter its keys again.",
-                        keyring_problem(other)
-                    ));
-                    if is_current && matches!(other, KeyringResult::NotFound) {
-                        actions::open_drive_form(s, Some(index));
+                    if s.slots[index].entry.azlin().is_some() {
+                        // A drive token cannot be typed in: the drive is bought (or joined) again.
+                        s.error(format!(
+                            "\"{name}\" cannot be opened: {}. Its drive token is gone; remove \
+                             the drive and add it again.",
+                            keyring_problem(other)
+                        ));
+                    } else {
+                        s.error(format!(
+                            "\"{name}\" cannot be opened: {}. Enter its keys again.",
+                            keyring_problem(other)
+                        ));
+                        if is_current && matches!(other, KeyringResult::NotFound) {
+                            actions::open_drive_form(s, Some(index));
+                        }
                     }
                 }
+            }
+        }
+        KeyringOp::Rotate { drive_id } => {
+            if !matches!(result, KeyringResult::Stored) {
+                let name = s
+                    .slot_index(&drive_id)
+                    .map(|i| s.slots[i].entry.name.clone())
+                    .unwrap_or_default();
+                s.error(format!(
+                    "The new session of \"{name}\" could not be saved: {}. AzDrive keeps it until \
+                     it closes; after that the drive must be added again.",
+                    keyring_problem(&result)
+                ));
             }
         }
         KeyringOp::Store { drive_id } => {
@@ -1432,6 +1584,9 @@ pub(crate) extern "C" fn on_job_done(
     if !still_running {
         s.running = s.running.saturating_sub(1);
     }
+    // An Azlin drive may have refreshed its credentials during the job: its new session (and
+    // drive token) goes to the keyring before anything else.
+    store_rotated(&mut info, s);
     match outcome {
         Outcome::Scanned {
             serial,
@@ -1647,23 +1802,16 @@ pub(crate) extern "C" fn on_job_done(
             )),
         },
         Outcome::Tested { serial, result } => {
-            println!(
-                "AZDRIVE_TESTED {}",
-                if result.is_ok() { "ok" } else { "error" }
-            );
-            if let Some(Popup::AddDrive {
-                serial: open_serial,
-                testing,
-                tested,
-                ..
-            }) = s.popup.as_mut()
-            {
-                if *open_serial == serial {
-                    *testing = false;
-                    *tested = Some(result.map_err(|e| e.to_string()));
-                }
-            }
+            add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
         }
+        Outcome::Tiers { serial, result } => add_flow::tiers_answered(s, serial, result),
+        Outcome::Bought { serial, result } => {
+            add_flow::bought(&mut info, &handle, s, serial, result);
+        }
+        Outcome::CheckoutStarted { serial, result } => {
+            add_flow::checkout_started(&mut info, &handle, s, serial, result);
+        }
+        Outcome::PaymentEnded { serial, why } => add_flow::payment_ended(s, serial, why),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -1920,6 +2068,23 @@ pub fn start() {
         Some(file) => Some(file.clone()),
         None => config::drives_file(None, config_dir.clone()),
     };
+    // The Azlin token server (Buy storage; the refreshes of Azlin drives that name none):
+    // `--token-url` / `--profile`, the environment, the shared Azlin config (`AZLIN_CONFIG`,
+    // else ~/.azlin/config.json - not in a `--shot` run), the profile's address.
+    let user_home = path_of(FilePath::get_home_dir().into_option());
+    let token = azcloud_kit::endpoints::token_endpoint(
+        args.token_url.as_deref(),
+        args.profile.as_deref(),
+        &|var: &str| std::env::var(var).ok(),
+        if args.kit.shot.is_some() {
+            None
+        } else {
+            user_home.as_deref()
+        },
+    );
+    for problem in &token.problems {
+        eprintln!("[azdrive] {problem}");
+    }
     // The kit resolves the data root (--data-dir, $AZLIN_DATA, <data dir>/Azlin) and reads the
     // theme and mode saved last time, before the window exists.
     let kit = azul_appkit::ui::create_kit(
@@ -2084,6 +2249,8 @@ pub fn start() {
         thumbnails_pending: HashSet::new(),
         audio: None,
         kit,
+        token,
+        rotated: RotatedSessions::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

@@ -8,11 +8,10 @@ walk the source list, go Back / Forward / Up.
     2. starts AzDrive headless (AZ_BACKEND=headless, the debug server on --debug-port) with a
        temporary Home folder, drives file and Downloads folder (`--home`, `--drives`,
        `--downloads`); it opens on "This PC";
-    3. through AzDrive's debug server: This PC's "Add S3 drive" on the ribbon's Computer tab,
-       types name,
-       endpoint, region, bucket, access key and secret key into the form, clicks "Test
-       connection" (asserts it says "Connection OK" after exactly one ListObjectsV2 call) and
-       "Save drive";
+    3. through AzDrive's debug server: This PC's "Add drive" on the ribbon's Computer tab,
+       the dialog's Connect data source > S3-compatible storage, types name, endpoint, region,
+       bucket, access key and secret key into the form, clicks "Test connection" (asserts it
+       says "Connection OK" after exactly one ListObjectsV2 call) and "Add drive";
     4. asserts the drives file names the drive and holds neither key, and the source list shows
        the drive in CLOUD (its row selected, its eject button);
     5. double-clicks the "mail" and "inbox" folders (the view shows 0001.eml), and asserts that
@@ -390,8 +389,9 @@ def run(args, logs):
         app.until("AzDrive's window", lambda: app.shows("This PC"))
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
 
-        # 3. The "Add drive" form: This PC's ribbon tab, Computer > Network > Add S3 drive.
-        ribbon_click(app, "Add S3 drive")
+        # 3. The Add drive dialog: This PC's ribbon tab, Computer > Network > Add drive; its
+        # Connect data source > S3-compatible storage opens the bucket's form.
+        ribbon_click(app, "Add drive")
         dom = None
         if args.window_dialogs:
             def dialog_dom():
@@ -400,20 +400,32 @@ def run(args, logs):
                 return ids[-1] if ids else None
             dom = app.until("the dialog window's DOM (list_doms)", dialog_dom)
             log("the dialog is DOM %s" % dom)
+        app.until("the Add drive dialog's choices", lambda: app.shows("Connect data source", dom_id=dom))
+        app.must("click", dom_id=dom, selector="#__azdrive_add_choice_connect")
+        app.until("the dialog's sources", lambda: app.printed("AZDRIVE_ADD_PAGE", r"sources"))
+        app.must("click", dom_id=dom, selector="#__azdrive_add_service_s3")
+        app.until("the S3 form", lambda: app.printed("AZDRIVE_ADD_PAGE", r"form s3"))
         app.until("the Add drive form", lambda: app.shows("Test connection", dom_id=dom))
-        # The form's ids carry the app prefix `__azdrive_` (src/ids.rs); an older build used
-        # the bare names.
-        found = app.op("get_node_layout", dom_id=dom, selector="#__azdrive_add_name")
-        prefixed = isinstance(found, dict) and found.get("status") != "error"
+        # The name field holds the source's own name: typed over (End, a Backspace per character;
+        # every key_down has its key_up).
+        mods = {"shift": False, "ctrl": False, "alt": False, "meta": False}
+        app.must("focus_node", dom_id=dom, selector="#__azdrive_add_name")
+        time.sleep(0.15)
+        for key in ["end"] + ["backspace"] * len("S3-compatible storage"):
+            app.must("key_down", key=key, modifiers=mods)
+            app.must("key_up", key=key, modifiers=mods)
+        time.sleep(0.15)
+        app.must("text_input", dom_id=dom, text=DRIVE_NAME)
+        time.sleep(0.15)
+        # The form's fields are its source's settings (azul-storage src/catalog.rs).
         for short, text in (
-            ("add_name", DRIVE_NAME),
-            ("add_endpoint", server.url),
-            ("add_region", REGION),
-            ("add_bucket", BUCKET),
-            ("add_access_key", ACCESS),
-            ("add_secret_key", SECRET),
+            ("add_field_endpoint", server.url),
+            ("add_field_region", REGION),
+            ("add_field_bucket", BUCKET),
+            ("add_field_access_key_id", ACCESS),
+            ("add_field_secret_access_key", SECRET),
         ):
-            selector = "#__azdrive_" + short if prefixed else "#" + short.replace("_", "-")
+            selector = "#__azdrive_" + short
             app.must("focus_node", dom_id=dom, selector=selector)
             time.sleep(0.15)
             app.must("text_input", dom_id=dom, text=text)
@@ -431,7 +443,7 @@ def run(args, logs):
             raise Failure("Test connection made %r, not one ListObjectsV2 with max-keys=1" % calls)
         log("Test connection: one ListObjectsV2 call, max-keys=1, answered OK")
 
-        app.must("click", dom_id=dom, text="Save drive")
+        app.must("click", dom_id=dom, selector="#__azdrive_add_save")
         added = app.until("the drive to be saved (AZDRIVE_ADDED)", lambda: app.printed("AZDRIVE_ADDED"))
         drive_id = added[-1]
         app.until("the drive's root listing", lambda: app.printed("AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id)))

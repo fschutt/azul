@@ -439,10 +439,10 @@ fn this_pc(s: &DriveState, app: &RefAny) -> Dom {
             ShellEmptyState::create(AzString::from("No cloud drive yet."))
                 .with_icon(AzString::from("cloud_queue"))
                 .with_detail(AzString::from(
-                    "Add an AWS S3, Cloudflare R2 or MinIO bucket; its keys stay in the system \
-                     keyring.",
+                    "Buy Azlin storage, or connect S3, WebDAV, Google Drive, GitHub or a \
+                     database; keys and passwords stay in the system keyring.",
                 ))
-                .with_action_label(AzString::from("Add S3 drive"))
+                .with_action_label(AzString::from("Add drive"))
                 .with_on_action(action_ref(app, Action::AddDrive), on_action as ButtonOnClickCallbackType)
                 .dom()
         } else {

@@ -6,7 +6,8 @@
 
 use std::fmt;
 
-/// The HTTP verbs the drives use.
+/// The HTTP verbs the drives use: the S3 client's five, PATCH (the REST APIs of the consumer
+/// clouds OpenDAL reaches) and WebDAV's (OpenDAL's WebDAV service).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Method {
     Get,
@@ -14,9 +15,37 @@ pub enum Method {
     Put,
     Post,
     Delete,
+    Patch,
+    Options,
+    /// WebDAV: a folder's listing, an item's properties.
+    Propfind,
+    /// WebDAV: set an item's properties.
+    Proppatch,
+    /// WebDAV: a new folder.
+    Mkcol,
+    /// WebDAV: a server-side copy.
+    Copy,
+    /// WebDAV: a server-side move.
+    Move,
 }
 
 impl Method {
+    /// Every verb, for [`Method::parse`].
+    pub const ALL: [Method; 12] = [
+        Method::Get,
+        Method::Head,
+        Method::Put,
+        Method::Post,
+        Method::Delete,
+        Method::Patch,
+        Method::Options,
+        Method::Propfind,
+        Method::Proppatch,
+        Method::Mkcol,
+        Method::Copy,
+        Method::Move,
+    ];
+
     /// The wire name.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -26,7 +55,22 @@ impl Method {
             Method::Put => "PUT",
             Method::Post => "POST",
             Method::Delete => "DELETE",
+            Method::Patch => "PATCH",
+            Method::Options => "OPTIONS",
+            Method::Propfind => "PROPFIND",
+            Method::Proppatch => "PROPPATCH",
+            Method::Mkcol => "MKCOL",
+            Method::Copy => "COPY",
+            Method::Move => "MOVE",
         }
+    }
+
+    /// The verb of a wire name (any case); `None` for one the drives never send.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Method> {
+        Method::ALL
+            .into_iter()
+            .find(|m| m.as_str().eq_ignore_ascii_case(name.trim()))
     }
 }
 

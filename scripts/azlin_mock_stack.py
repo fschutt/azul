@@ -15,7 +15,15 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     the whole family (401 token_reuse), after
                                                     which every token of it is refused (401
                                                     credentials_revoked)
-    GET /health, GET /v1/health, GET /v1/tiers
+    GET /health, GET /v1/health
+    GET /v1/tiers                                   200 the price ladder (tiers.rs: sizes, cents
+                                                    a month / a year, EUR, the methods)
+    POST /v1/checkout {"tier", "months", "method"}  201 a checkout: its pay_url, its amount
+    GET /v1/checkout/<id>                           200 pending | approved (with the drive
+                                                    bundle as "signup", ONCE) | declined
+    POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
+                                                    approves (the drive is made), others decline
+    GET /v1/pay/<id>                                200 the payment page (HTML)
 
   Errors are {"error": "<code>", "message": "<sentence>"} with azlin-token's codes (no_such_drive,
   unauthorized, token_reuse, credentials_revoked, bad_tier, not_found). Ids look like the real
@@ -56,16 +64,48 @@ sys.path.insert(0, os.path.join(REPO, 'examples', 'azul-drive', 'scripts'))
 
 import s3_server  # noqa: E402
 
-# The tiers azlin-token knows (tiers.rs); a sign-up without one gets the first.
-TIERS = {
-    '100GB': 100_000_000_000,
-    '500GB': 500_000_000_000,
-    '1TB': 1_000_000_000_000,
-    '2TB': 2_000_000_000_000,
-    '6TB': 6_000_000_000_000,
-    '12TB': 12_000_000_000_000,
-}
+# The tiers azlin-token knows (tiers.rs): id, bytes, cents a month, cents a year; a sign-up
+# without one gets the first.
+TIER_LADDER = [
+    ('100GB', 100_000_000_000, 99, 990),
+    ('500GB', 500_000_000_000, 299, 2990),
+    ('1TB', 1_000_000_000_000, 499, 4990),
+    ('2TB', 2_000_000_000_000, 899, 8990),
+    ('6TB', 6_000_000_000_000, 1999, 19990),
+    ('12TB', 12_000_000_000_000, 3499, 34990),
+]
+TIERS = {tier: quota for tier, quota, _, _ in TIER_LADDER}
 DEFAULT_TIER = '100GB'
+# What a checkout takes (payments.rs), and the test provider's cards: the first approves, the
+# second declines.
+METHODS = ['sepa', 'bank_transfer', 'prepaid', 'voucher', 'app_store', 'card']
+PREPAY_MONTHS = [1, 3, 6, 12, 24]
+APPROVING_CARD = '4242424242424242'
+DECLINING_CARD = '4000000000000002'
+
+
+def tier_list():
+    """GET /v1/tiers as azlin-token answers it (tiers.rs `ladder`)."""
+    return {
+        'tiers': [{'id': tier, 'quota_bytes': quota, 'price_cents_month': month,
+                   'price_cents_year': year, 'currency': 'EUR', 'first_month_free': True,
+                   'prepay_months': PREPAY_MONTHS}
+                  for tier, quota, month, year in TIER_LADDER],
+        'methods': METHODS,
+        'legal': {
+            'withdrawal_consent': 'I agree that the service starts immediately and acknowledge '
+                                  'that I lose my right of withdrawal once the service has begun.',
+            'sepa_prenotification': 'The amount will be debited from your account on the 1st of '
+                                    'each month; the first debit follows the free month.',
+            'small_amount_invoice': True,
+        },
+    }
+
+
+def price_cents(tier, months):
+    """A tier's price for `months` months (payments: the yearly price per 12 months)."""
+    month, year = next((m, y) for t, _, m, y in TIER_LADDER if t == tier)
+    return (months // 12) * year + (months % 12) * month
 DEFAULT_TTL = 12 * 3600
 REGION = s3_server.DEFAULT_REGION
 ACCESS_KEY = 'AZLINMOCKKEY'
@@ -105,6 +145,7 @@ class TokenState:
         self.lock = threading.Lock()
         self.drives = {}
         self.families = {}
+        self.checkouts = {}
         self.base_url = ''
 
     def new_token(self, family):
@@ -168,6 +209,67 @@ class TokenState:
                                      'used': [], 'revoked': None}
             token = self.new_token(family)
             return self.bundle(drive, token)
+
+    def checkout(self, body):
+        """POST /v1/checkout (payments.rs `create_checkout`): a checkout to pay on its page."""
+        tier = str(body.get('tier') or '').strip().upper().replace(' ', '')
+        if tier not in TIERS:
+            raise ApiError(400, 'bad_tier', 'unknown tier')
+        method = body.get('method') or 'sepa'
+        if method not in METHODS:
+            raise ApiError(400, 'bad_method', 'unknown payment method')
+        months = body.get('months', 1)
+        if months not in PREPAY_MONTHS:
+            raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
+        if method == 'bank_transfer' and months < 12:
+            raise ApiError(400, 'bad_method', 'bank transfer is for yearly plans')
+        amount = price_cents(tier, months)
+        with self.lock:
+            checkout_id = random_id('ck_')
+            self.checkouts[checkout_id] = {'tier': tier, 'method': method, 'months': months,
+                                           'amount': amount, 'status': 'pending', 'signup': None}
+        return {'checkout_id': checkout_id,
+                'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
+                'tier': tier, 'method': method, 'months': months, 'amount_cents': amount,
+                'currency': 'EUR', 'vat_country': None, 'first_month_free': True,
+                'withdrawal_consent_required': True, 'mock': True}
+
+    def checkout_status(self, checkout_id):
+        """GET /v1/checkout/<id>: pending | approved (with the drive, handed over ONCE) |
+        declined."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            out = {'checkout_id': checkout_id, 'status': checkout['status'],
+                   'tier': checkout['tier'], 'months': checkout['months'],
+                   'amount_cents': checkout['amount']}
+            if checkout['status'] == 'approved' and checkout['signup'] is not None:
+                out['signup'] = checkout['signup']
+                checkout['signup'] = None
+            return out
+
+    def pay(self, checkout_id, body):
+        """POST /v1/checkout/<id>/pay (the test provider's page posts here): the approving card
+        (or `prepaid`) makes the drive, anything else declines."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None:
+                raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            if checkout['status'] != 'pending':
+                return {'status': checkout['status']}
+            tier = checkout['tier']
+        card = ''.join(c for c in str(body.get('card_number') or '') if c.isdigit())
+        if card == APPROVING_CARD or body.get('prepaid') is True:
+            bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+            with self.lock:
+                checkout['status'] = 'approved'
+                checkout['signup'] = bundle
+            return {'status': 'approved'}
+        with self.lock:
+            checkout['status'] = 'declined'
+        return {'status': 'declined',
+                'reason': 'declined' if card == DECLINING_CARD else 'no payment details'}
 
     def refresh(self, drive_id, bearer):
         with self.lock:
@@ -246,11 +348,33 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.command == 'GET' and segments == ['v1', 'tiers']:
-            self.answer(200, {'tiers': [{'id': t, 'quota_bytes': q} for t, q in TIERS.items()]})
+            self.answer(200, tier_list())
             return
         if self.command == 'POST' and segments == ['v1', 'drives']:
             body = self.body()
             self.answer(201, state.signup(body or {}))
+            return
+        if self.command == 'POST' and segments == ['v1', 'checkout']:
+            self.answer(201, state.checkout(self.body() or {}))
+            return
+        if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'checkout']:
+            self.answer(200, state.checkout_status(segments[2]))
+            return
+        if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'checkout'] \
+                and segments[3] == 'pay':
+            self.answer(200, state.pay(segments[2], self.body() or {}))
+            return
+        if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'pay']:
+            page = ('<!doctype html><title>Azlin mock payment</title><h1>Mock payment for '
+                    'checkout %s</h1><p>POST JSON to /v1/checkout/%s/pay: {"card_number": '
+                    '"4242 4242 4242 4242"} approves.</p>' % (segments[2], segments[2]))
+            body = page.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.server.record({'method': self.command, 'path': self.path, 'status': 200})
             return
         if self.command == 'POST' and len(segments) == 4 and segments[:2] == ['v1', 'drives'] \
                 and segments[3] == 'credentials':

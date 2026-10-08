@@ -28,7 +28,7 @@ use azul_storage::{
 };
 
 use crate::{
-    browse::{self, Column, DriveForm, Place},
+    browse::{self, Column, Place},
     fileops::{self, ConflictChoice, Plan, SourceItem, TransferKind, TransferReport},
     go,
     jobs::{Job, PreviewContent},
@@ -214,6 +214,29 @@ pub(crate) fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
 /// Why `action` cannot run now, or `None` when it can (the ribbon greys the
 /// control and says why).
 pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
+    // A source AzDrive browses but does not write (a database, a web server).
+    let read_only = s.current_drive().is_some_and(|i| s.slots[i].read_only());
+    if read_only
+        && matches!(
+            action,
+            Action::NewFolder
+                | Action::NewItemMenu
+                | Action::NewTextDocument
+                | Action::NewEmptyFile
+                | Action::Paste
+                | Action::Rename
+                | Action::Delete
+                | Action::DeletePermanently
+                | Action::DeleteMenu
+                | Action::MoveToMenu
+                | Action::Upload
+                | Action::Zip
+        )
+    {
+        return Some(String::from(
+            "This drive is browsed, not written (a database, a web server).",
+        ));
+    }
     let in_folder = s.current_drive().is_some();
     let selected = !s.selection.is_empty() && in_folder;
     let need_folder = || {
@@ -1348,8 +1371,9 @@ fn paste(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     }
 }
 
-/// Where an item is, as text: the file's path on this computer, or the
-/// `s3://bucket/key` of a cloud object.
+/// Where an item is, as text: the file's path on this computer, the `s3://bucket/key` of a
+/// cloud object, `<scheme>://<key>` of a data source's (`webdav://docs/a.txt`,
+/// `sqlite://customers/rows/1.json`).
 pub(crate) fn item_location(s: &DriveState, drive_id: &str, item_key: &str) -> String {
     let Some(index) = s.slot_index(drive_id) else {
         return item_key.to_string();
@@ -1363,6 +1387,8 @@ pub(crate) fn item_location(s: &DriveState, drive_id: &str, item_key: &str) -> S
             path.display().to_string()
         }
         DriveLocation::S3 { bucket, .. } => format!("s3://{bucket}/{item_key}"),
+        DriveLocation::Opendal { scheme, .. } => format!("{scheme}://{item_key}"),
+        DriveLocation::Database { engine, .. } => format!("{}://{item_key}", engine.key()),
     }
 }
 
@@ -2370,7 +2396,7 @@ fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
         s.info("Copied the items' paths (a link to share is a cloud drive's).");
         return;
     };
-    let Some(credentials) = s.slots[index].credentials.clone() else {
+    let Some(credentials) = s.slots[index].credentials() else {
         s.error("The drive's keys are not read yet: open one of its folders first.");
         return;
     };
@@ -2932,136 +2958,21 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
 pub(crate) fn close_popup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     match s.popup {
         Some(Popup::Conflict { id, .. }) => cancel_transfer(info, app, s, id),
+        // A payment waited for is waited for no more.
+        Some(Popup::AddDrive(_)) => crate::add_flow::cancel(s),
         _ => s.popup = None,
     }
 }
 
 // ==== Drives ====
 
-/// Opens the "Add drive" form; with `editing`, prefilled from that drive to
-/// enter its keys again.
+/// Opens the Add drive dialog; with `editing`, the form of that drive again (its keyring entry
+/// is gone: its settings filled in, its secrets to type anew).
 pub(crate) fn open_drive_form(s: &mut DriveState, editing: Option<usize>) {
-    let mut form = DriveForm::default();
-    let mut editing_id = None;
-    if let Some(slot) = editing.and_then(|i| s.slots.get(i)) {
-        if let Some(config) = slot.entry.s3_config() {
-            form.name = slot.entry.name.clone();
-            form.endpoint = config.endpoint;
-            form.region = config.region;
-            form.bucket = config.bucket;
-            form.path_style = config.path_style;
-            editing_id = Some(slot.entry.id.clone());
-        }
+    match editing {
+        Some(index) => crate::add_flow::open_editing(s, index),
+        None => crate::add_flow::open(s),
     }
-    s.popups_opened += 1;
-    s.popup = Some(Popup::AddDrive {
-        form,
-        editing: editing_id,
-        serial: s.popups_opened,
-        testing: false,
-        tested: None,
-        error: String::new(),
-    });
-}
-
-/// "Test connection": ONE listing call with the form's keys.
-pub(crate) fn test_connection(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    let Some(Popup::AddDrive {
-        form,
-        serial,
-        testing,
-        tested,
-        error,
-        ..
-    }) = s.popup.as_mut()
-    else {
-        return;
-    };
-    if *testing {
-        return;
-    }
-    match form.check() {
-        Ok((config, credentials)) => {
-            *testing = true;
-            *tested = None;
-            error.clear();
-            let serial = *serial;
-            spawn(
-                info,
-                app,
-                s,
-                Job::Test {
-                    serial,
-                    config,
-                    credentials,
-                },
-            );
-        }
-        Err(problem) => *error = problem,
-    }
-}
-
-/// "Save drive": the entry into the drives file (no secrets), the keys
-/// into the keyring.
-pub(crate) fn save_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    let Some(Popup::AddDrive {
-        form,
-        editing,
-        error,
-        ..
-    }) = s.popup.as_mut()
-    else {
-        return;
-    };
-    let id = editing
-        .clone()
-        .unwrap_or_else(|| config::new_drive_id(form.name.trim()));
-    let (entry, credentials) = match form.entry(&id).and_then(|entry| {
-        let (_, credentials) = form.check()?;
-        Ok((entry, credentials))
-    }) {
-        Ok(parts) => parts,
-        Err(problem) => {
-            *error = problem;
-            return;
-        }
-    };
-    let Some(file_path) = s.drives_file.clone() else {
-        *error = String::from("There is no configuration folder to save the drive in.");
-        return;
-    };
-    let saved = DrivesFile::load(&file_path).and_then(|mut file| {
-        file.add(entry.clone());
-        file.save(&file_path)
-    });
-    if let Err(e) = saved {
-        *error = format!("The drive could not be saved: {e}");
-        return;
-    }
-    let secret = credentials.to_keyring_secret();
-    let index = match s.slot_index(&id) {
-        Some(index) => {
-            s.slots[index] = Slot::new(entry);
-            index
-        }
-        None => {
-            s.slots.push(Slot::new(entry));
-            s.slots.len() - 1
-        }
-    };
-    s.slots[index].credentials = Some(credentials);
-    s.popup = None;
-    s.selected_drive = Some(index);
-    println!("AZDRIVE_ADDED {id}");
-    crate::keyring(
-        info,
-        s,
-        KeyringOp::Store {
-            drive_id: id.clone(),
-        },
-        KeyringCall::Store(config::keyring_key(&id), secret),
-    );
-    go(info, app, s, Place::folder(&id, ""), true);
 }
 
 /// "Add a folder as a drive": the OS's folder dialog picked one.

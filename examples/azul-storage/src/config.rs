@@ -1,17 +1,32 @@
 //! The drives a user added, shared by the apps (AzDrive shows them, AzMail
 //! exports to one): `<config dir>/azul-storage/drives.json`, WITHOUT secrets.
-//! Each drive's credentials are one OS keyring entry, [`keyring_key`], holding
-//! [`Credentials::to_keyring_secret`].
+//! Each drive's secrets are one OS keyring entry, [`keyring_key`]: an S3
+//! drive's [`Credentials::to_keyring_secret`], an Azlin drive's session
+//! (azcloud-kit's; it reads as credentials too), a data source's
+//! [`SecretOptions`].
 //!
 //! ```json
 //! { "format": "azul-storage.drives", "version": 1, "drives": [
 //!   { "id": "k3f9...", "name": "S3 Drive",
 //!     "location": { "kind": "s3", "endpoint": "https://s3.eu-central-1.amazonaws.com",
 //!                   "region": "eu-central-1", "bucket": "felix-azlin", "path_style": false,
-//!                   "auth": { "type": "keyring" } } } ] }
+//!                   "auth": { "type": "keyring" } } },
+//!   { "id": "d_k3f9", "name": "Azlin Storage",
+//!     "location": { "kind": "s3", "endpoint": "...", "region": "us-east-1", "bucket": "d-k3f9",
+//!                   "path_style": true,
+//!                   "auth": { "type": "azlin", "drive_id": "d_k3f9", "account_url": "..." } } },
+//!   { "id": "nas-1a2b", "name": "NAS",
+//!     "location": { "kind": "opendal", "scheme": "webdav",
+//!                   "options": { "endpoint": "https://nas.example/dav", "username": "ann" },
+//!                   "keyring": true } },
+//!   { "id": "shop-3c4d", "name": "Shop",
+//!     "location": { "kind": "database", "engine": "sqlite",
+//!                   "options": { "path": "/data/shop.sqlite" } } } ] }
 //! ```
 
 use std::{
+    collections::BTreeMap,
+    fmt,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -45,6 +60,61 @@ pub enum DriveAuth {
         prefix: String,
         can_write: bool,
     },
+    /// An Azlin cloud drive, as the token server's bundle describes it: temporary S3
+    /// credentials (12 h) and a drive token that rotates on every refresh, both in the keyring
+    /// entry [`keyring_key`] as azcloud-kit's session text. azcloud-kit opens it and refreshes
+    /// the credentials at `account_url` (the token server the drive came from; empty: the one
+    /// the app is configured with). [`DriveEntry::open_with_secret`] opens it with the
+    /// credentials the session holds, without refreshing them.
+    Azlin {
+        drive_id: String,
+        #[serde(default)]
+        account_url: String,
+    },
+}
+
+/// The database engines a [`DriveLocation::Database`] can be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseEngine {
+    Sqlite,
+    Postgres,
+    Mysql,
+}
+
+impl DatabaseEngine {
+    /// Every engine, in the order the Add drive dialog lists them.
+    pub const ALL: [DatabaseEngine; 3] = [
+        DatabaseEngine::Postgres,
+        DatabaseEngine::Mysql,
+        DatabaseEngine::Sqlite,
+    ];
+
+    /// The name in the drives file: `sqlite`, `postgres`, `mysql`.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            DatabaseEngine::Sqlite => "sqlite",
+            DatabaseEngine::Postgres => "postgres",
+            DatabaseEngine::Mysql => "mysql",
+        }
+    }
+
+    /// What it is called: `SQLite`, `PostgreSQL`, `MySQL`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            DatabaseEngine::Sqlite => "SQLite",
+            DatabaseEngine::Postgres => "PostgreSQL",
+            DatabaseEngine::Mysql => "MySQL",
+        }
+    }
+}
+
+/// Whether a flag of the drives file is off (it is not written then).
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Where a drive's files are.
@@ -62,6 +132,95 @@ pub enum DriveLocation {
         #[serde(default)]
         auth: DriveAuth,
     },
+    /// A data source Apache OpenDAL reaches (azul-storage's feature `opendal`): `scheme` names
+    /// the service (`webdav`, `gdrive`, `ftp`, ... - [`crate::catalog`] lists them), `options`
+    /// holds its PLAIN settings (an endpoint, a user name, a folder); the secret ones
+    /// (passwords, tokens, keys) are the keyring entry [`keyring_key`] as [`SecretOptions`]
+    /// when `keyring` says there are any.
+    Opendal {
+        scheme: String,
+        #[serde(default)]
+        options: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        keyring: bool,
+    },
+    /// A database browsed as files (feature `sql`): its tables are folders, every row a JSON
+    /// file, a table's rows together a CSV file. `options` holds the connection's plain
+    /// settings (`host`, `port`, `database`, `user`, `sslmode`; SQLite's `path`); a password is
+    /// the keyring entry as [`SecretOptions`] when `keyring` says so.
+    Database {
+        engine: DatabaseEngine,
+        #[serde(default)]
+        options: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        keyring: bool,
+    },
+}
+
+/// The secret settings of a data source (a password, a token, an account key), by the name of
+/// the setting: the ONE text its keyring entry holds (JSON). `Debug` shows the names, never a
+/// value.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct SecretOptions(BTreeMap<String, String>);
+
+impl SecretOptions {
+    #[must_use]
+    pub fn new() -> Self {
+        SecretOptions(BTreeMap::new())
+    }
+
+    /// Sets the secret setting `key`.
+    pub fn insert(&mut self, key: &str, value: &str) {
+        self.0.insert(key.to_string(), value.to_string());
+    }
+
+    /// The secret setting `key`, if there is one.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).map(String::as_str)
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Every secret setting, by name.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.0.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
+    /// The text of the keyring entry (JSON).
+    #[must_use]
+    pub fn to_keyring_secret(&self) -> String {
+        serde_json::to_string(&self.0).unwrap_or_default()
+    }
+
+    /// Reads [`Self::to_keyring_secret`] back.
+    pub fn from_keyring_secret(secret: &str) -> Result<Self, DriveError> {
+        // The parser's message is not passed on: it could quote the secret.
+        serde_json::from_str::<BTreeMap<String, String>>(secret)
+            .map(SecretOptions)
+            .map_err(|_| {
+                DriveError::InvalidConfig(String::from(
+                    "the keyring entry does not hold a data source's settings",
+                ))
+            })
+    }
+}
+
+impl fmt::Debug for SecretOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map()
+            .entries(self.0.keys().map(|k| (k, "<hidden>")))
+            .finish()
+    }
+}
+
+impl FromIterator<(String, String)> for SecretOptions {
+    fn from_iter<I: IntoIterator<Item = (String, String)>>(iter: I) -> Self {
+        SecretOptions(iter.into_iter().collect())
+    }
 }
 
 /// One drive of the list.
@@ -76,7 +235,9 @@ pub struct DriveEntry {
 
 impl DriveEntry {
     /// The drive this entry describes. An S3 drive needs `credentials` (from the
-    /// keyring); a local one ignores them and the transport.
+    /// keyring; an Azlin drive's are the ones its session holds, used as they are); a
+    /// local one ignores them and the transport. A data source (OpenDAL, a database)
+    /// opens with [`Self::open_with_secret`].
     pub fn open(
         &self,
         credentials: Option<Credentials>,
@@ -87,8 +248,11 @@ impl DriveEntry {
             DriveLocation::Local { root } => Ok(Box::new(LocalDrive::without_manifest(
                 PathBuf::from(root),
             ))),
+            DriveLocation::Opendal { .. } | DriveLocation::Database { .. } => {
+                self.open_with_secret(None, transport)
+            }
             DriveLocation::S3 { auth, .. } => match auth {
-                DriveAuth::Keyring => {
+                DriveAuth::Keyring | DriveAuth::Azlin { .. } => {
                     let credentials = credentials.ok_or_else(|| DriveError::Denied {
                         message: format!(
                             "\"{}\" has no credentials (the keyring has no entry for it)",
@@ -108,6 +272,90 @@ impl DriveEntry {
         }
     }
 
+    /// The drive this entry describes, with the text of its keyring entry (`None`: there is
+    /// none): an S3 drive's credentials, an Azlin drive's session (its credentials are used as
+    /// they are - azcloud-kit's drive refreshes them), a data source's [`SecretOptions`]. A
+    /// local folder needs nothing. Sends nothing: an OpenDAL source or a database checks its
+    /// settings here and connects on its first call.
+    pub fn open_with_secret(
+        &self,
+        secret: Option<&str>,
+        transport: Box<dyn Transport>,
+    ) -> Result<Box<dyn Drive>, DriveError> {
+        match &self.location {
+            DriveLocation::Local { .. } => self.open(None, transport),
+            DriveLocation::S3 { .. } => {
+                let credentials = secret.map(Credentials::from_keyring_secret).transpose()?;
+                self.open(credentials, transport)
+            }
+            DriveLocation::Opendal {
+                scheme,
+                options,
+                keyring,
+            } => {
+                let secrets = self.secret_options(secret, *keyring)?;
+                #[cfg(feature = "opendal")]
+                {
+                    Ok(Box::new(crate::opendal_drive::OpendalDrive::open(
+                        scheme, options, &secrets, transport,
+                    )?))
+                }
+                #[cfg(not(feature = "opendal"))]
+                {
+                    let _ = (options, secrets, transport);
+                    Err(DriveError::Unsupported(format!(
+                        "\"{}\" is a {scheme} source, and this app was built without OpenDAL \
+                         (azul-storage's feature \"opendal\")",
+                        self.name
+                    )))
+                }
+            }
+            DriveLocation::Database {
+                engine,
+                options,
+                keyring,
+            } => {
+                let secrets = self.secret_options(secret, *keyring)?;
+                #[cfg(feature = "sql")]
+                {
+                    let _ = transport;
+                    Ok(Box::new(crate::database::DatabaseDrive::open(
+                        *engine, options, &secrets,
+                    )?))
+                }
+                #[cfg(not(feature = "sql"))]
+                {
+                    let _ = (options, secrets, transport);
+                    Err(DriveError::Unsupported(format!(
+                        "\"{}\" is a {} database, and this app was built without the database \
+                         drivers (azul-storage's feature \"sql\")",
+                        self.name,
+                        engine.name()
+                    )))
+                }
+            }
+        }
+    }
+
+    /// A data source's secret settings: its keyring text read back, or none when the entry
+    /// keeps none (`keyring` off).
+    fn secret_options(
+        &self,
+        secret: Option<&str>,
+        keyring: bool,
+    ) -> Result<SecretOptions, DriveError> {
+        match secret {
+            Some(text) if !text.trim().is_empty() => SecretOptions::from_keyring_secret(text),
+            _ if keyring => Err(DriveError::Denied {
+                message: format!(
+                    "\"{}\" has no password or token (the keyring has no entry for it)",
+                    self.name
+                ),
+            }),
+            _ => Ok(SecretOptions::new()),
+        }
+    }
+
     /// The bucket settings of an S3 drive.
     #[must_use]
     pub fn s3_config(&self) -> Option<S3Config> {
@@ -124,20 +372,42 @@ impl DriveEntry {
                 bucket: bucket.clone(),
                 path_style: *path_style,
             }),
-            DriveLocation::Local { .. } => None,
+            DriveLocation::Local { .. }
+            | DriveLocation::Opendal { .. }
+            | DriveLocation::Database { .. } => None,
         }
     }
 
-    /// Whether opening it needs credentials from the keyring.
+    /// Whether opening it needs its keyring entry: an S3 drive's keys, an Azlin drive's
+    /// session, a data source's secret settings (when it has any).
     #[must_use]
     pub fn needs_keyring(&self) -> bool {
-        matches!(
-            self.location,
-            DriveLocation::S3 {
-                auth: DriveAuth::Keyring,
-                ..
+        match &self.location {
+            DriveLocation::S3 { auth, .. } => {
+                matches!(auth, DriveAuth::Keyring | DriveAuth::Azlin { .. })
             }
-        )
+            DriveLocation::Opendal { keyring, .. } | DriveLocation::Database { keyring, .. } => {
+                *keyring
+            }
+            DriveLocation::Local { .. } => false,
+        }
+    }
+
+    /// The Azlin drive's id and the token server it came from (empty: the app's), for an
+    /// Azlin drive.
+    #[must_use]
+    pub fn azlin(&self) -> Option<(&str, &str)> {
+        match &self.location {
+            DriveLocation::S3 {
+                auth:
+                    DriveAuth::Azlin {
+                        drive_id,
+                        account_url,
+                    },
+                ..
+            } => Some((drive_id.as_str(), account_url.as_str())),
+            _ => None,
+        }
     }
 }
 

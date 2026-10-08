@@ -52,7 +52,7 @@ pub const SIDE_CLOUD: AzString = AzString::from_const_str("__azdrive_side_cloud"
 /// The rows of the places that are always there.
 pub const SIDE_QUICK_ACCESS: AzString = AzString::from_const_str("__azdrive_side_quick_access");
 pub const SIDE_THIS_PC: AzString = AzString::from_const_str("__azdrive_side_this_pc");
-/// Cloud's "Add S3 drive" row.
+/// Cloud's "Add drive" row.
 pub const SIDE_ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_side_add_drive");
 /// The activity area (the transfers) and the buttons under the list.
 pub const SIDE_ACTIVITY: AzString = AzString::from_const_str("__azdrive_side_activity");
@@ -105,16 +105,53 @@ pub const LEAF: AzString = AzString::from_const_str("__azdrive_leaf");
 pub const PATH_BAR: AzString = AzString::from_const_str("__azdrive_path_bar");
 pub const STATUS_LINE: AzString = AzString::from_const_str("__azdrive_status_line");
 
-/// The "Add drive" form and its fields.
+/// The "Add drive" dialog (ui_add_drive.rs): its content on every page, the pages, their
+/// controls. A source's row is `__azdrive_add_service_<source id>`, a form's field
+/// `__azdrive_add_field_<key>`, a tier `__azdrive_add_tier_<index>` (the functions below).
 pub const ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_add_drive");
+pub const ADD_CHOOSE: AzString = AzString::from_const_str("__azdrive_add_choose");
+pub const ADD_BUY: AzString = AzString::from_const_str("__azdrive_add_buy");
+pub const ADD_SOURCES: AzString = AzString::from_const_str("__azdrive_add_sources");
+pub const ADD_FORM: AzString = AzString::from_const_str("__azdrive_add_form");
+pub const ADD_CHOICE_BUY: AzString = AzString::from_const_str("__azdrive_add_choice_buy");
+pub const ADD_CHOICE_CONNECT: AzString = AzString::from_const_str("__azdrive_add_choice_connect");
+pub const ADD_BACK: AzString = AzString::from_const_str("__azdrive_add_back");
+/// The drive's name (a form's, and Buy storage's).
 pub const ADD_NAME: AzString = AzString::from_const_str("__azdrive_add_name");
-pub const ADD_ENDPOINT: AzString = AzString::from_const_str("__azdrive_add_endpoint");
-pub const ADD_REGION: AzString = AzString::from_const_str("__azdrive_add_region");
-pub const ADD_BUCKET: AzString = AzString::from_const_str("__azdrive_add_bucket");
-pub const ADD_ACCESS_KEY: AzString = AzString::from_const_str("__azdrive_add_access_key");
-pub const ADD_SECRET_KEY: AzString = AzString::from_const_str("__azdrive_add_secret_key");
+pub const ADD_TEST: AzString = AzString::from_const_str("__azdrive_add_test");
+pub const ADD_SAVE: AzString = AzString::from_const_str("__azdrive_add_save");
+pub const ADD_CANCEL: AzString = AzString::from_const_str("__azdrive_add_cancel");
+pub const ADD_YEARLY: AzString = AzString::from_const_str("__azdrive_add_yearly");
+pub const ADD_CREATE_TEST: AzString = AzString::from_const_str("__azdrive_add_create_test");
+pub const ADD_BUY_BUTTON: AzString = AzString::from_const_str("__azdrive_add_buy_button");
+pub const ADD_STOP: AzString = AzString::from_const_str("__azdrive_add_stop");
+pub const ADD_RETRY: AzString = AzString::from_const_str("__azdrive_add_retry");
 pub const ADD_STATUS: AzString = AzString::from_const_str("__azdrive_add_status");
 pub const ADD_ERROR: AzString = AzString::from_const_str("__azdrive_add_error");
+
+/// A source's row of the Add drive dialog: `__azdrive_add_service_webdav`.
+#[must_use]
+pub fn add_service(id: &str) -> AzString {
+    AzString::from(format!("__azdrive_add_service_{}", id_part(id)))
+}
+
+/// A form's field: `__azdrive_add_field_endpoint`.
+#[must_use]
+pub fn add_field(key: &str) -> AzString {
+    AzString::from(format!("__azdrive_add_field_{}", id_part(key)))
+}
+
+/// A path field's "Choose..." button: `__azdrive_add_choose_root`.
+#[must_use]
+pub fn add_choose(key: &str) -> AzString {
+    AzString::from(format!("__azdrive_add_choose_{}", id_part(key)))
+}
+
+/// A tier of Buy storage: `__azdrive_add_tier_0`.
+#[must_use]
+pub fn add_tier(index: usize) -> AzString {
+    AzString::from(format!("__azdrive_add_tier_{index}"))
+}
 /// The "delete for good?" question.
 pub const CONFIRM_DELETE: AzString = AzString::from_const_str("__azdrive_confirm_delete");
 /// "Move to / Copy to > Choose location" and its typed path.

@@ -1,0 +1,31 @@
+[package]
+name = "azcloud-kit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The Azlin cloud client the desktop apps share: the token server's API (the
+    storage tiers, a development sign-up, a checkout and its status, the
+    refresh of a drive's credentials with its rotating drive token), the
+    drive bundle it answers with, the session an app keeps in the OS keyring,
+    the token server's address from the shared Azlin config, and an Azlin
+    drive that refreshes its 12-hour credentials by itself. Blocking: every
+    call goes through azul-storage's `Transport` (azul's HTTP client in the
+    apps, a fake in the tests), from an azul `Thread`. No azul types, no
+    dependency on the service's own crates.
+"""
+publish = false
+
+[dependencies]
+# The `Transport` seam, the S3 drive the credentials open, the drives-file entry and
+# the time and URL helpers (no new crates: azul-storage is the apps' storage layer).
+azul-storage = { path = "../azul-storage" }
+# The shared Azlin config's `endpoints` (profile, token server) - resolve_endpoints.
+azul-appkit = { path = "../azul-appkit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azcloud_kit"
+path = "src/lib.rs"
