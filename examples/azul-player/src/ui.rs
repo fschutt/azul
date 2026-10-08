@@ -1800,6 +1800,24 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
             ))
             .with_child(art_face(art, &album, art_size, art_size, "album", stage)),
     );
+    // The page's own zone is the music itself (Enter plays and pauses, Left / Right skip):
+    // while the keys are there the cover wears the focus's glow - over it, not clipped by it.
+    page.add_child(
+        Dom::create_div()
+            .with_id(ids::id("np-glow"))
+            .with_css(format!(
+                "position: absolute; left: {left}px; top: 96px; width: {art_size}px; height: \
+                 {art_size}px;"
+            ))
+            .with_child(Dom::create_div().with_css(look::glow(
+                s.zone() == Zone::Content,
+                1.0,
+                art_size,
+                art_size,
+                4.0,
+                stage,
+            ))),
+    );
     let position = music.state.position_s.max(0.0);
     let duration = music.state.duration_s.max(0.0);
     let time_css = format!(

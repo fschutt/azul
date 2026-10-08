@@ -51,7 +51,11 @@ pub fn more_info(s: &Player) -> Option<Overlay> {
         Screen::Start if s.zone() == Zone::Content => {
             let entry = s.strip.entry();
             let mut lines = vec![s.strip.category().name.to_string()];
-            if let Some(why) = entry.never.map(str::to_string).or_else(|| nav::missing(s, entry.action)) {
+            let why = entry
+                .never
+                .map(str::to_string)
+                .or_else(|| nav::missing(s, entry.action));
+            if let Some(why) = why {
                 lines.push(why);
             }
             Some(overlay::more_info(
