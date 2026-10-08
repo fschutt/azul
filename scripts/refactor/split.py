@@ -25,6 +25,13 @@ What the script writes, and the ONLY changes it makes to the code:
 * An item that had no visibility of its own gets `pub(super) ` (only that
   token) so its siblings can still name it; so do the struct fields and impl
   members the plan lists in `member_visibility` - nothing else.
+* A moved item's path that starts `super::x`, x in the plan's `super_paths`
+  (a sibling of the old file's module), becomes `super::super::x` - the
+  same item, named from one module further down (found as tokens by
+  item_index, so never in a comment or string).
+* mod.rs re-exports each module with `pub use` if it holds a `pub` item,
+  `pub(crate) use` otherwise; a module holding `pub(crate)` items gets the
+  plan's `pub_crate_module_attrs` on its `mod` line (see the comment there).
 * An inline `mod x { .. }` listed in `outline_modules` becomes `mod x;` (its
   attributes stay on the declaration) and its body moves verbatim - indentation
   included, so no string literal can change - to `<dir>/x.rs`. Its module path,
@@ -50,14 +57,19 @@ class PlanError(Exception):
     pass
 
 
-def run_index(index_bin, path):
-    out = subprocess.run([index_bin, path, "--members"], capture_output=True, text=True)
+def run_index(index_bin, path, super_names=()):
+    cmd = [index_bin, path, "--members"]
+    if super_names:
+        cmd += ["--super-paths", ",".join(super_names)]
+    out = subprocess.run(cmd, capture_output=True, text=True)
     if out.returncode != 0:
         raise PlanError(f"item_index failed on {path}:\n{out.stderr}")
-    items, members = [], {}
+    items, members, supers = [], {}, {}
     for line in out.stdout.splitlines():
         f = line.split("\t")
-        if f[0] == "ITEM":
+        if f[0] == "SUPER":
+            supers.setdefault(int(f[1]), []).append((int(f[2]), int(f[3]), f[4]))
+        elif f[0] == "ITEM":
             items.append(
                 {
                     "idx": int(f[1]),
@@ -80,7 +92,7 @@ def run_index(index_bin, path):
                     "vis_at": None if f[6] == "-" else tuple(int(x) for x in f[6].split(":")),
                 }
             )
-    return items, members
+    return items, members, supers
 
 
 def preamble_of(plan, doc, use_items):
@@ -119,7 +131,7 @@ def split(plan, root, index_bin, dry_run):
     if not text.endswith("\n"):
         raise PlanError(f"{src_rel} does not end with a newline")
     lines = text.splitlines(keepends=True)
-    items, members = run_index(index_bin, src)
+    items, members, supers = run_index(index_bin, src, plan.get("super_paths", []))
 
     # ---- chunks: every line belongs to exactly one place -----------------
     prev_end = 0
@@ -177,19 +189,32 @@ def split(plan, root, index_bin, dry_run):
     if unplaced:
         raise PlanError("the plan does not place:\n  " + "\n  ".join(unplaced))
 
-    # ---- visibility tokens ---------------------------------------------------
-    inserts = {}  # 0-based line index -> list of char columns
+    # ---- visibility tokens and `super::` paths -------------------------------
+    inserts = {}  # 0-based line index -> list of (char column, text)
 
-    def insert_at(pos, what):
+    def insert_at(pos, what, text=PUB_SUPER):
         line0, col = pos[0] - 1, pos[1]
         line = lines[line0]
-        before = line[col - 1] if col > 0 else " "
-        at = line[col] if col < len(line) else ""
-        # The token goes between whitespace and the start of a keyword or
-        # identifier - anything else means the index and the text disagree.
-        if before not in " \t" or not (at.isalpha() or at == "_"):
-            raise PlanError(f"{what}: no token boundary at line {pos[0]} col {col}: {line!r}")
-        inserts.setdefault(line0, []).append(col)
+        if text == PUB_SUPER:
+            before = line[col - 1] if col > 0 else " "
+            at = line[col] if col < len(line) else ""
+            # The token goes between whitespace and the start of a keyword or
+            # identifier - anything else means the index and the text disagree.
+            if before not in " \t" or not (at.isalpha() or at == "_"):
+                raise PlanError(f"{what}: no token boundary at line {pos[0]} col {col}: {line!r}")
+        elif not line[col:].startswith("super::"):
+            raise PlanError(f"{what}: no `super::` at line {pos[0]} col {col}: {line!r}")
+        inserts.setdefault(line0, []).append((col, text))
+
+    # A moved item's `super::x` (x a sibling of the old file's module) names
+    # the same item one module further down as `super::super::x`.
+    path_log = []
+    for it in items:
+        if dest[it["idx"]] in ("mod.rs", "outline"):
+            continue
+        for line, col, name in supers.get(it["idx"], []):
+            insert_at((line, col), f"{key_of(it)}: super::{name}", "super::")
+            path_log.append(f"{key_of(it)}: line {line} super::{name} -> super::super::{name}")
 
     vis_log = []
     for it in items:
@@ -216,8 +241,8 @@ def split(plan, root, index_bin, dry_run):
 
     def emit(line0):
         line = lines[line0]
-        for col in sorted(inserts.get(line0, []), reverse=True):
-            line = line[:col] + PUB_SUPER + line[col:]
+        for col, text in sorted(inserts.get(line0, []), reverse=True):
+            line = line[:col] + text + line[col:]
         return line
 
     def chunk(it, upto=None):
@@ -232,8 +257,21 @@ def split(plan, root, index_bin, dry_run):
         mod_rs += chunk(it)
     mod_rs += [l + "\n" for l in plan.get("mod_rs_plumbing", [])]
     mod_rs.append("\n")
+    # Each module is re-exported with `pub use` when it holds a `pub` item (the
+    # old file's public paths), with `pub(crate) use` otherwise: a `pub` glob
+    # wider than its items is `unreachable_pub`, a private one
+    # `clippy::wildcard_imports` (CI denies warnings), and the siblings name
+    # the items through `use super::*` either way. A module holding
+    # `pub(crate)` items gets the plan's `pub_crate_module_attrs` (clippy's
+    # `redundant_pub_crate` would rather call them `pub`, which a `pub use`
+    # glob would publish): the items keep the visibility they had.
+    mod_rs += [l + "\n" for l in plan.get("mod_block_comment", [])]
     for name in module_names:
-        mod_rs.append(f"mod {name};\npub use {name}::*;\n")
+        vis = {it["vis"] for it in items if dest[it["idx"]] == name}
+        reexport = "pub use" if "pub" in vis else "pub(crate) use"
+        if "pub(crate)" in vis:
+            mod_rs += [l + "\n" for l in plan.get("pub_crate_module_attrs", [])]
+        mod_rs.append(f"mod {name};\n{reexport} {name}::*;\n")
     for it in items:
         if dest[it["idx"]] == "mod.rs" and it["kind"] != "use":
             mod_rs += chunk(it)
@@ -286,6 +324,8 @@ def split(plan, root, index_bin, dry_run):
             n_items = 0  # an outlined module's body: its items are inside it
         summary.append(f"  {name:<50} {len(content):>6} lines  {n_items:>3} items")
     summary.append(f"  visibility: {len(vis_log)} `pub(super)` tokens")
+    summary.append(f"  paths: {len(path_log)} `super::x` -> `super::super::x`")
+    vis_log += path_log
     if not dry_run:
         os.makedirs(out_dir, exist_ok=True)
         for name, content in files.items():

@@ -6,12 +6,13 @@
     "#[allow(clippy::wildcard_imports)]",
     "// the text layout cache's items, re-exported from the sibling modules by mod.rs"
   ],
-  "mod_rs_plumbing": [
-    "",
-    "// The submodules name their text3 sibling `super::dense`, as this file's code",
-    "// always did; this keeps that path resolving one module further down.",
-    "use super::dense;"
+  "super_paths": ["dense"],
+  "mod_block_comment": [
+    "// The modules of what was one file. Every item keeps the visibility it had there: a",
+    "// `pub(crate)` one in a private module is what clippy would rather call `pub`, which a",
+    "// `pub use` would publish."
   ],
+  "pub_crate_module_attrs": ["#[allow(clippy::redundant_pub_crate)]"],
   "keep_in_mod_rs": [],
   "outline_modules": [
     "shape_outside_and_ruby_tests",

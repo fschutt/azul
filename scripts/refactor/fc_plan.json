@@ -6,12 +6,13 @@
     "#[allow(clippy::wildcard_imports)]",
     "// the formatting contexts' items, re-exported from the sibling modules by mod.rs"
   ],
-  "mod_rs_plumbing": [
-    "",
-    "// The submodules name their solver3 siblings `super::x`, as this file's code",
-    "// always did; these keep that path resolving one module further down.",
-    "use super::{calc, geometry, svg, PositionVec};"
+  "super_paths": ["calc", "geometry", "svg", "PositionVec"],
+  "mod_block_comment": [
+    "// The modules of what was one file. Every item keeps the visibility it had there: a",
+    "// `pub(crate)` one in a private module is what clippy would rather call `pub`, which a",
+    "// `pub use` would publish."
   ],
+  "pub_crate_module_attrs": ["#[allow(clippy::redundant_pub_crate)]"],
   "keep_in_mod_rs": [],
   "outline_modules": [
     "autotest_generated",

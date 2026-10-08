@@ -18,6 +18,10 @@
 //! * `extra`: `body=<open>:<close>` for an inline `mod x { .. }` (the lines of
 //!   its braces), `self=<Type> trait=<Trait>` for an `impl`, `-` otherwise.
 //! * `--members` adds the fields of structs and the fns / consts of impls.
+//! * `--super-paths a,b` adds `SUPER <item idx> <line> <col> <name>` for every
+//!   path that STARTS with `super::<name>` (tokens, so never in a comment or a
+//!   string; `super::super::x` is not one), wherever it stands in the item -
+//!   macro arguments and fn-local `use` included.
 
 use std::{env, fs, process::ExitCode};
 
@@ -40,6 +44,28 @@ fn token_lines(ts: TokenStream, lo: &mut usize, hi: &mut usize) {
         }
         if end.line != 0 {
             *hi = (*hi).max(end.line);
+        }
+    }
+}
+
+/// Every `super` token that starts a path `super::<name>` with `name` in `names`.
+fn super_paths(ts: TokenStream, names: &[String], out: &mut Vec<(LineColumn, String)>) {
+    let tokens: Vec<TokenTree> = ts.into_iter().collect();
+    let is_colon = |t: Option<&TokenTree>| matches!(t, Some(TokenTree::Punct(p)) if p.as_char() == ':');
+    for (i, tt) in tokens.iter().enumerate() {
+        match tt {
+            TokenTree::Group(g) => super_paths(g.stream(), names, out),
+            TokenTree::Ident(id) if id == "super" => {
+                let starts_path = !(i >= 2 && is_colon(tokens.get(i - 1)) && is_colon(tokens.get(i - 2)));
+                let followed = is_colon(tokens.get(i + 1)) && is_colon(tokens.get(i + 2));
+                if let (true, true, Some(TokenTree::Ident(next))) = (starts_path, followed, tokens.get(i + 3)) {
+                    let next = next.to_string();
+                    if names.contains(&next) {
+                        out.push((id.span().start(), next));
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -107,6 +133,12 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let members = args.iter().any(|a| a == "--members");
+    let super_names: Vec<String> = args
+        .iter()
+        .position(|a| a == "--super-paths")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.split(',').filter(|n| !n.is_empty()).map(str::to_string).collect())
+        .unwrap_or_default();
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -172,6 +204,13 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
         println!("ITEM\t{idx}\t{kind}\t{key}\t{start}\t{end}\t{vis}\t{ins}\t{extra}");
+        if !super_names.is_empty() {
+            let mut found = Vec::new();
+            super_paths(item.to_token_stream(), &super_names, &mut found);
+            for (lc, name) in found {
+                println!("SUPER\t{idx}\t{}\t{}\t{name}", lc.line, lc.column);
+            }
+        }
         if !members {
             continue;
         }

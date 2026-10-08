@@ -13,9 +13,11 @@ comments included.
    * the generated preamble of a plan module's file (`//!` line, the copy of
      the old `use` items, the plan's `glob_preamble` lines, `use super::*;`) -
      rebuilt from the old file and the plan and compared line by line,
-   * `mod x;` / `pub use x::*;`, the plan's `mod_rs_plumbing` lines, blank lines,
+   * `mod x;` / `[pub[(crate)]] use x::*;`, the plan's `mod_rs_plumbing` lines,
+     blank lines,
    * an outlined module's `mod x {` -> `mod x;` and its dropped closing `}`,
-   * a line that differs from an old line only by an inserted `pub(super) `,
+   * a line that differs from an old line only by inserted `pub(super) ` tokens
+     and / or `super::x` -> `super::super::x` for the plan's `super_paths`,
    * for an extraction (`--blocks MANIFEST` from extract.py): exactly the
      spec's hand-written head / tail / call lines, counted as a multiset.
    Anything else is UNCLASSIFIED and fails the run (`--hand-written-ok` only
@@ -90,6 +92,15 @@ def new_files(paths):
 
 def strip_pub_super(line):
     return line.replace("pub(super) ", "")
+
+
+def undo_super_paths(line, names):
+    """`super::super::x` -> `super::x` for the plan's `super_paths` names: the
+    inverse of split.py's path rewrite (applied to BOTH sides, so a line that
+    always said `super::super::x` - a test module's - still compares equal)."""
+    for name in names:
+        line = re.sub(r"\bsuper::super::%s\b" % re.escape(name), "super::%s" % name, line)
+    return line
 
 
 def find_run(haystack, needle):
@@ -178,10 +189,18 @@ def main():
     old_only = old_count - new_count
     new_only = new_count - old_count
 
-    plumbing = set(l.rstrip() for l in plan.get("mod_rs_plumbing", []))
+    plumbing = set(
+        l.rstrip()
+        for key in ("mod_rs_plumbing", "mod_block_comment", "pub_crate_module_attrs")
+        for l in plan.get(key, [])
+    )
     outlined = set(plan.get("outline_modules", []))
     modules = set(m["name"] for m in plan.get("modules", []))
+    super_names = plan.get("super_paths", [])
     hand_written = []
+
+    def norm(line):
+        return undo_super_paths(strip_pub_super(line), super_names)
 
     def take(counter, line, n=1):
         counter[line] -= n
@@ -191,7 +210,7 @@ def main():
     for line in list(new_only.elements()):
         if new_only[line] <= 0:
             continue
-        m = re.fullmatch(r"(pub )?use (\w+)::\*;", line)
+        m = re.fullmatch(r"(pub(\(crate\))? )?use (\w+)::\*;", line)
         if line == "":
             classes["blank"] += 1
             take(new_only, line)
@@ -210,17 +229,21 @@ def main():
             classes["mod declaration"] += 1
             take(new_only, line)
             continue
-        if m and m.group(2) in modules:
+        if m and m.group(3) in modules:
             classes["glob re-export"] += 1
             take(new_only, line)
             continue
-        if "pub(super) " in line:
-            stripped = strip_pub_super(line)
-            if old_only.get(stripped, 0) > 0:
-                classes["visibility: + pub(super)"] += 1
-                take(new_only, line)
-                take(old_only, stripped)
-                continue
+        original = norm(line)
+        if original != line and old_only.get(original, 0) > 0:
+            kinds = []
+            if "pub(super) " in line:
+                kinds.append("+ pub(super)")
+            if undo_super_paths(line, super_names) != line:
+                kinds.append("super::x -> super::super::x")
+            classes["visibility / path: " + ", ".join(kinds)] += 1
+            take(new_only, line)
+            take(old_only, original)
+            continue
     for line in list(old_only.elements()):
         if old_only[line] <= 0:
             continue
@@ -249,18 +272,18 @@ def main():
     unclassified_old = sorted(old_only.elements())
 
     # ---- 3. order: every old item is one contiguous run ------------------------
-    normalized = {f: [strip_pub_super(l) for l in lines] for f, lines in new.items()}
+    normalized = {f: [norm(l) for l in lines] for f, lines in new.items()}
     order_failures = []
     for it in old_items:
         if it["kind"] == "mod" and it["name"] in outlined:
             body = it["extra"].split("=", 1)[1].split(":")
             o, c = int(body[0]), int(body[1])
-            body_lines = [strip_pub_super(l) for l in it["lines"][o - it["start"] + 1 : c - it["start"]]]
+            body_lines = [norm(l) for l in it["lines"][o - it["start"] + 1 : c - it["start"]]]
             target = [f for f in new if os.path.basename(f) == f"{it['name']}.rs"]
             if not target or find_run(normalized[target[0]], body_lines) < 0:
                 order_failures.append(f"outlined `mod {it['name']}`: its body is not one run in {it['name']}.rs")
             continue
-        needle = [strip_pub_super(l) for l in it["lines"]]
+        needle = [norm(l) for l in it["lines"]]
         if args.blocks and it["kind"] == "fn" and it["name"] in json.load(open(args.blocks))["split_fns"]:
             continue  # checked block by block below
         if not any(find_run(lines, needle) >= 0 for lines in normalized.values()):
@@ -269,14 +292,21 @@ def main():
         spec = json.load(open(args.blocks, encoding="utf-8"))
         old_by_file = {p: [l.rstrip() for l in t.split("\n")] for p, t in old_texts.items()}
         for b in spec["blocks"]:
-            lines = [strip_pub_super(l) for l in old_by_file[b["file"]][b["start"] - 1 : b["end"]]]
+            lines = [norm(l) for l in old_by_file[b["file"]][b["start"] - 1 : b["end"]]]
             if not any(find_run(l, lines) >= 0 for l in normalized.values()):
                 order_failures.append(f"block {b['name']} ({b['file']}:{b['start']}-{b['end']}) is not one contiguous run")
 
     # ---- 4. forbidden ----------------------------------------------------------
     added = (new_count - old_count)
     forbidden_hits = []
+    # The plan's `pub_crate_module_attrs` are declared plumbing for mod.rs's
+    # `mod` lines: exempt there, and only there.
+    declared_attrs = set(l.rstrip() for l in plan.get("pub_crate_module_attrs", []))
     for line in added.elements():
+        if line in declared_attrs and all(
+            os.path.basename(f) == "mod.rs" for f, _, l in compared_new if l == line
+        ):
+            continue
         for rx, what in FORBIDDEN:
             if rx.search(line):
                 forbidden_hits.append(f"{what}: {line.strip()}  ({where(compared_new, line)})")
