@@ -387,7 +387,13 @@ pub fn panel(app: &RefAny, st: &AppState) -> Dom {
     };
     Dom::create_div()
         .with_id(ids::PANEL)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;")
+        // The split pane is a block: the panel takes its whole height itself
+        // (`flex-grow` alone left it as tall as its header, and the terminal
+        // under it 0 px tall - its view never rendered a row).
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; height: 100%; min-height: 0px; \
+             min-width: 0px;",
+        )
         .with_child(header)
         .with_child(
             // Positioned: the terminal fills it.
