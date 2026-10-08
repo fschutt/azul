@@ -489,6 +489,12 @@ pub mod url;
 /// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
 /// via vk-video into the shared GL texture.
 pub mod video;
+/// `<webview>` POD types: the node's configuration, the events a web view
+/// reports and the commands an app sends it.
+///
+/// The engine half lives in `azul_layout::managers::webview`, the native
+/// views in `azul-dll` (`shell2/common/webview.rs` and each backend).
+pub mod webview;
 /// Window configuration, input state, and platform-specific options.
 pub mod window;
 /// XML and XHTML parsing for declarative UI definitions.

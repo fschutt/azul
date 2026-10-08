@@ -1112,3 +1112,25 @@ fn an_encoded_string_decodes_back_to_itself_in_every_mode() {
         );
     }
 }
+
+/// azul's `<webview>` (no element of the HTML Standard) is embedded content
+/// like `<embed>`: void, so `<webview src=..>` and `<webview src=../>` both
+/// end where they start and `</webview>` is nothing - what follows a web
+/// view is its sibling, never content of it, in the lenient loader and in
+/// the strict ones alike.
+#[test]
+fn a_webview_is_void_with_or_without_a_slash() {
+    check(
+        &[(
+            "<webview src=\"https://example.com/a\"/>a<webview src=b>c</webview>d<p>e</p>",
+            "webview[src=https://example.com/a] \"a\" webview[src=b] \"cd\" p{\"e\"}",
+        )],
+        true,
+        body_of,
+    );
+    assert_eq!(
+        strict(TreeRules::Xml, "<webview>x</webview>y"),
+        ("webview \"xy\"".into(), 0)
+    );
+    assert!(rules::is("webview", rules::VOID));
+}
