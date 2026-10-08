@@ -30529,7 +30529,8 @@ fn size_transition_start(
 
 /// A colour-carrying paint transition prop: `(colour, the painted colour it
 /// is)` - `TextColor`, a single-solid `background` and the four
-/// `border-*-color`s are the patchable set; anything else (gradients, images,
+/// `border-*-color`s are the patchable set. A background of gradients or of
+/// several layers is [`transition_patch_layers`]'; anything else (images,
 /// shadows) falls back to the DL rebuild.
 fn transition_patch_color(
     prop: &azul_css::props::property::CssProperty,
