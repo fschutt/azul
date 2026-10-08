@@ -190,6 +190,11 @@ fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(d) = dialog(s) else {
         return;
     };
+    // What is missing first, in the form's order (building checks again).
+    if let Err(problem) = d.check() {
+        d.error = problem;
+        return;
+    }
     let id = d
         .editing
         .clone()
@@ -205,7 +210,7 @@ fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         d.error = problem;
         return;
     }
-    add_slot(info, app, s, new.entry, new.secret);
+    add_slot(info, app, s, new.entry, new.secret, true);
 }
 
 /// Writes `entry` into the drives file at `path` (replacing the drive with its id).
@@ -223,14 +228,16 @@ fn save_entry(path: Option<&std::path::Path>, entry: &DriveEntry) -> Result<(), 
         .map_err(|e: DriveError| format!("The drive could not be saved: {e}"))
 }
 
-/// A new (or re-keyed) drive joins the source list with its secret (into the keyring too), the
-/// dialog closes, and the window opens the drive.
+/// A new (or re-keyed) drive joins the source list with its secret (into the keyring too); with
+/// `from_dialog` (the open dialog made it) the dialog closes and the window opens the drive - a
+/// drive whose payment arrived after its dialog closed just joins the list.
 pub(crate) fn add_slot(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     entry: DriveEntry,
     secret: Option<String>,
+    from_dialog: bool,
 ) {
     let id = entry.id.clone();
     let local = matches!(entry.location, azul_storage::config::DriveLocation::Local { .. });
@@ -245,10 +252,10 @@ pub(crate) fn add_slot(
         }
     };
     s.slots[index].secret = secret.clone();
-    if matches!(s.popup, Some(Popup::AddDrive(_))) {
+    if from_dialog {
         cancel(s);
+        s.selected_drive = Some(index);
     }
-    s.selected_drive = Some(index);
     if local {
         s.tree.locations_open = true;
         refresh_disks(s);
@@ -256,6 +263,7 @@ pub(crate) fn add_slot(
         s.tree.cloud_open = true;
     }
     println!("AZDRIVE_ADDED {id}");
+    let name = s.slots[index].entry.name.clone();
     if let Some(secret) = secret {
         keyring(
             info,
@@ -266,10 +274,13 @@ pub(crate) fn add_slot(
             KeyringCall::Store(config::keyring_key(&id), secret),
         );
     } else {
-        let name = s.slots[index].entry.name.clone();
         s.success(format!("\"{name}\" is a drive now."));
     }
-    go(info, app, s, Place::folder(&id, ""), true);
+    if from_dialog {
+        go(info, app, s, Place::folder(&id, ""), true);
+    } else {
+        s.info(format!("\"{name}\" is ready: it is in the source list."));
+    }
 }
 
 // ==== Buy storage ====
@@ -452,13 +463,21 @@ pub(crate) fn checkout_started(
 /// "Stop waiting": the payment page stays where it is; the dialog asks no more.
 fn stop_waiting(s: &mut DriveState) {
     if let Some(d) = dialog(s) {
-        if let BuyStep::Paying { cancel, .. } = &d.step {
-            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
+        let stopped = match &d.step {
+            BuyStep::Paying {
+                cancel,
+                checkout_id,
+            } => {
+                cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                format!(
+                    "Stopped waiting for the payment of checkout {checkout_id}. A payment made \
+                     now still creates the drive at the token server."
+                )
+            }
+            _ => String::from("Stopped waiting."),
+        };
         d.step = BuyStep::Idle;
-        d.notice = String::from(
-            "Stopped waiting. A payment made now still creates the drive at the token server.",
-        );
+        d.notice = stopped;
     }
 }
 
@@ -499,20 +518,15 @@ pub(crate) fn bought(
         }
     };
     let entry = bundle.entry_named(&name, &token_url);
-    if let Err(problem) = save_entry(file_path.as_deref(), &entry) {
-        match dialog_of(s, serial) {
-            Some(d) => {
-                d.step = BuyStep::Idle;
-                d.notice = problem;
-            }
-            None => s.error(problem),
-        }
-        // The session still goes to the keyring: the drive token is the only way back in.
-    }
+    let saved = save_entry(file_path.as_deref(), &entry);
     let secret = bundle.session().to_keyring_secret();
-    if !open {
-        // Not into the window's dialog: straight into the list.
-        s.info(format!("\"{}\" is ready.", entry.name));
+    // The session goes to the keyring even when the drives file cannot take the entry: the
+    // drive token is the only way back into a paid drive.
+    add_slot(info, app, s, entry, Some(secret), open);
+    if let Err(problem) = saved {
+        // Said in the window (the dialog closed with the drive).
+        s.error(format!(
+            "{problem} The drive works until AzDrive closes; its session is in the keyring."
+        ));
     }
-    add_slot(info, app, s, entry, Some(secret));
 }
