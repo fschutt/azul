@@ -1580,6 +1580,15 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
                 .with_css("padding: 16px; opacity: 0.7;")
                 .with_child(Dom::create_span_with_text(AzString::from("Loading...")));
         }
+        if s.listing_failed {
+            return ShellEmptyState::create(AzString::from("This folder could not be read."))
+                .with_icon(AzString::from("folder_off"))
+                .with_detail(AzString::from(
+                    "The message above says why; Refresh (F5) tries again.",
+                ))
+                .dom()
+                .with_id(ids::EMPTY_FOLDER);
+        }
         let (title, detail) = if s.search.trim().is_empty() {
             (
                 "This folder is empty.",

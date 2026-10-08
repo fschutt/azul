@@ -415,6 +415,9 @@ pub(crate) struct DriveState {
     pub loading: bool,
     /// The scan of the open folder has handed over its last batch.
     pub listing_done: bool,
+    /// The open folder could not be listed (its drive did not open, its keys could not be
+    /// read, the scan failed): the content says so instead of calling the folder empty.
+    pub listing_failed: bool,
     /// The listing the rows belong to; an answer for an older one is dropped.
     pub list_serial: u64,
     /// The running scan's stop: set when the window goes elsewhere, so a big folder left
@@ -827,6 +830,10 @@ pub(crate) fn start_listing(
         return;
     };
     let Some(drive) = open_slot(s, index) else {
+        // The drive cannot be opened (the message says why): nothing is being listed, so
+        // nothing is waited for - the content says so instead of "Loading...".
+        s.listing_done = true;
+        s.listing_failed = true;
         return;
     };
     cancel_listing(s);
@@ -834,6 +841,7 @@ pub(crate) fn start_listing(
     s.list_cancel = cancel.clone();
     s.list_serial += 1;
     s.listing_done = false;
+    s.listing_failed = false;
     s.stats_asked.clear();
     s.counts_asked.clear();
     if refresh && !s.entries.is_empty() {
@@ -999,6 +1007,7 @@ pub(crate) fn go(
     s.entries.clear();
     s.refreshing = None;
     s.listing_done = false;
+    s.listing_failed = false;
     s.stats_asked.clear();
     s.counts.clear();
     s.counts_asked.clear();
@@ -1240,12 +1249,22 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                         }
                         Err(e) => {
                             s.loading = false;
+                            if is_current {
+                                // No listing follows: the folder waits for nothing.
+                                s.listing_done = true;
+                                s.listing_failed = true;
+                            }
                             s.error(format!("The keys of \"{name}\" cannot be read: {e}."));
                         }
                     }
                 }
                 other => {
                     s.loading = false;
+                    if is_current {
+                        // No listing follows: the folder waits for nothing.
+                        s.listing_done = true;
+                        s.listing_failed = true;
+                    }
                     s.tree.pending.retain(|node| node.0 != drive_id);
                     s.error(format!(
                         "\"{name}\" cannot be opened: {}. Enter its keys again.",
@@ -1347,6 +1366,7 @@ fn scanned(
     if let Some(e) = error {
         s.loading = false;
         s.listing_done = true;
+        s.listing_failed = true;
         s.refreshing = None;
         s.error(format!("Could not list this folder: {e}"));
         return;
@@ -2003,6 +2023,7 @@ pub fn start() {
         entries: Vec::new(),
         loading: false,
         listing_done: false,
+        listing_failed: false,
         list_serial: 0,
         list_cancel: Arc::new(AtomicBool::new(false)),
         refreshing: None,
