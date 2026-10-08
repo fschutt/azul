@@ -1862,6 +1862,18 @@ mod label_convention {
                 .dom(),
             ),
             (
+                "standard_dialogs (message box with steps)",
+                super::standard_dialogs::MessageBox::create(
+                    super::standard_dialogs::MessageBoxKind::Warning,
+                    AzString::from("Order 3 servers at Hetzner?"),
+                    AzString::from("Hetzner bills from the order on."),
+                )
+                .with_steps(labels(&["Order 3 x SX65-2", "Provision each into a slot"]))
+                .with_buttons(labels(&["Cancel", "Order"]), 1)
+                .with_destructive_button(1, AzString::from("Costs money."))
+                .dom(),
+            ),
+            (
                 "standard_dialogs (about)",
                 super::standard_dialogs::AboutDialog::create(
                     AzString::from("AzOffice"),

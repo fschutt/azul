@@ -1771,6 +1771,178 @@ mod standard_dialog_tests {
         );
     }
 
+    /// A confirmation in a message box: what it is about to do, numbered
+    /// under the text, and the button that orders in the danger face.
+    fn confirm(log: &Log) -> MessageBox {
+        MessageBox::create(
+            MessageBoxKind::Warning,
+            AzString::from("Order 3 x SX65 at Hetzner Robot?"),
+            AzString::from("Hetzner bills from the order on."),
+        )
+        .with_steps(strs(&[
+            "Order 3 x SX65-2 at Hetzner, EUR 104.00 a month each",
+            "Wait until the servers show up",
+            "Provision each into a slot",
+        ]))
+        .with_detail(AzString::from("azctl block order --yes"))
+        .with_buttons(strs(&["Cancel", "Order"]), 1)
+        .with_destructive_button(1, AzString::from("Costs money: EUR 312.00 a month."))
+        .with_on_event(
+            RefAny::new(log.clone()),
+            record as StandardDialogOnEventCallbackType,
+        )
+    }
+
+    /// What assistive technology hears after a node's name and role.
+    fn description_of(node: &Dom) -> Option<String> {
+        node.root
+            .get_accessibility_info()
+            .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string()))
+    }
+
+    #[test]
+    fn a_message_box_numbers_the_steps_of_what_it_confirms_under_its_text() {
+        let log = new_log();
+        for theme in checks::BOTH {
+            let dom = confirm(&log).with_theme(theme).dom();
+            assert_eq!(
+                texts(&dom),
+                vec![
+                    "Order 3 x SX65 at Hetzner Robot?",
+                    "Hetzner bills from the order on.",
+                    "1.",
+                    "Order 3 x SX65-2 at Hetzner, EUR 104.00 a month each",
+                    "2.",
+                    "Wait until the servers show up",
+                    "3.",
+                    "Provision each into a slot",
+                    "azctl block order --yes",
+                    "Cancel",
+                    "Order"
+                ],
+                "{}: the title, the text, the steps, the detail, the buttons",
+                theme.name()
+            );
+            let list = tc::find(&dom, MESSAGE_BOX_STEPS_CLASS).expect("the steps");
+            assert_eq!(
+                list.root.get_accessibility_info().map(|a| a.role),
+                Some(AccessibilityRole::List),
+                "{}",
+                theme.name()
+            );
+            let items: Vec<(AccessibilityRole, String)> = list
+                .children
+                .as_ref()
+                .iter()
+                .filter_map(|c| c.root.get_accessibility_info())
+                .map(|a| {
+                    let name = a
+                        .accessibility_name
+                        .as_ref()
+                        .map(|n| n.as_str().to_string())
+                        .unwrap_or_default();
+                    (a.role, name)
+                })
+                .collect();
+            assert_eq!(
+                items,
+                vec![
+                    (
+                        AccessibilityRole::ListItem,
+                        String::from("1. Order 3 x SX65-2 at Hetzner, EUR 104.00 a month each")
+                    ),
+                    (
+                        AccessibilityRole::ListItem,
+                        String::from("2. Wait until the servers show up")
+                    ),
+                    (
+                        AccessibilityRole::ListItem,
+                        String::from("3. Provision each into a slot")
+                    ),
+                ],
+                "{}: every step a list item read with its number",
+                theme.name()
+            );
+            let alert = description_of(&dom).unwrap_or_default();
+            assert!(
+                alert.starts_with("Hetzner bills from the order on.")
+                    && alert.contains("1. Order 3 x SX65-2")
+                    && alert.contains("3. Provision each into a slot"),
+                "{}: the alert says what will happen: {alert:?}",
+                theme.name()
+            );
+        }
+        let plain = message(&log).with_theme(UiTheme::Flat).dom();
+        assert!(
+            tc::find(&plain, MESSAGE_BOX_STEPS_CLASS).is_none(),
+            "no steps, no list"
+        );
+        assert_eq!(
+            description_of(&plain).as_deref(),
+            Some("Your changes will be lost if you don't save them."),
+            "without steps the alert says its text"
+        );
+    }
+
+    /// The destructive button (it orders, deletes, overwrites) is the
+    /// Button's danger face in either theme - and a screen reader hears
+    /// why, which the colour cannot tell it. It still reports its index.
+    #[test]
+    fn a_destructive_button_wears_the_danger_face_and_tells_a_screen_reader_why() {
+        let log = new_log();
+        for theme in checks::BOTH {
+            let dom = confirm(&log).with_theme(theme).dom();
+            let danger = tc::find_all(&dom, ButtonType::Danger.class_name());
+            assert_eq!(danger.len(), 1, "{}: one destructive button", theme.name());
+            assert_eq!(texts(danger[0]), vec!["Order"], "{}", theme.name());
+            assert_eq!(
+                description_of(danger[0]).as_deref(),
+                Some("Costs money: EUR 312.00 a month."),
+                "{}: the warning is its description",
+                theme.name()
+            );
+            assert!(
+                tc::find(&dom, ButtonType::Primary.class_name()).is_none(),
+                "{}: the destructive default button wears the danger face, not the accent",
+                theme.name()
+            );
+            let cancel = tc::find(&dom, ButtonType::Default.class_name()).expect("Cancel");
+            assert_eq!(texts(cancel), vec!["Cancel"], "{}", theme.name());
+            assert_eq!(
+                description_of(cancel),
+                None,
+                "{}: Cancel destroys nothing",
+                theme.name()
+            );
+        }
+
+        let delete = MessageBox::create(
+            MessageBoxKind::Warning,
+            AzString::from("Delete Report.docx?"),
+            AzString::from("It goes for good."),
+        )
+        .with_buttons(strs(&["Delete", "Cancel"]), 1)
+        .with_destructive_button(0, AzString::from(""))
+        .with_theme(UiTheme::Flat)
+        .dom();
+        let button = tc::find(&delete, ButtonType::Danger.class_name()).expect("Delete");
+        assert_eq!(texts(button), vec!["Delete"]);
+        assert_eq!(
+            description_of(button).as_deref(),
+            Some(DESTRUCTIVE_REASON),
+            "no warning given: the general one"
+        );
+        let default = tc::find(&delete, ButtonType::Primary.class_name()).expect("Cancel");
+        assert_eq!(texts(default), vec!["Cancel"], "Cancel stays the default");
+
+        click(confirm(&log).with_theme(UiTheme::Flat).dom(), "Order").expect("the button");
+        let got = log.lock().expect("log").clone();
+        assert_eq!(
+            (got[0].kind, got[0].index),
+            (StandardDialogEventKind::Button, 1)
+        );
+    }
+
     #[test]
     fn the_about_box_names_the_app_its_version_and_its_credits() {
         let log = new_log();
@@ -2010,6 +2182,10 @@ mod standard_dialog_tests {
         pinned(message(&new_log()), t, MessageBox::set_theme).dom()
     }
 
+    fn confirm_dom(t: OptionUiTheme) -> Dom {
+        pinned(confirm(&new_log()), t, MessageBox::set_theme).dom()
+    }
+
     fn about_dom(t: OptionUiTheme) -> Dom {
         pinned(
             AboutDialog::create(AzString::from("AzOffice"), AzString::from("1.0"))
@@ -2056,6 +2232,7 @@ mod standard_dialog_tests {
     fn every_standard_dialog_follows_the_app_theme() {
         for (name, dialog) in [
             ("message_box", message_dom as DialogFn),
+            ("message_box (steps, destructive)", confirm_dom as DialogFn),
             ("about_dialog", about_dom as DialogFn),
             ("progress_dialog", progress_dom as DialogFn),
             ("login_dialog", login_dom as DialogFn),
