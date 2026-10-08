@@ -10,13 +10,14 @@ AzMail for hard-coded endpoints. Worktree branch `worktree-agent-a53601a48788117
 - 0e8efd2df azlin.rs: names, markers, AzlinSession, CloudAccount + TokenServer, Endpoints (tests)
 - 48f959d2c azlin_sync.rs: sync_account, move / delete / upload / push_marks / fetch (tests);
   IndexEntry.remote, FolderReport.pushed/removed
+- 7fcaa56bc account kind "azlin" (account.json v2), AccountForm, MailArgs switches
+- e9deeec7e UI: wizard Azlin page, Send/Receive (refresh + rotated token to keyring), Archive /
+  Junk / Delete / Move, marks pushed, big message fetched on open, drafts uploaded
 
 ## IN PROGRESS
-- account kind "azlin" (account.json v2) + wizard + Send/Receive glue
+- scripts: mock stack, seed, conformance, e2e --phase azlin
 
 ## NEXT
-3. account kind "azlin" (account.json v2), the wizard's Azlin drive page, Send/Receive glue
-4. ribbon: Archive / Delete / Junk / Move for Azlin accounts; drafts upload
 5. scripts: azlin_mock_stack.py (Python token server + AzDrive's stdlib S3),
    azmail_seed_azlin.py, azlin_token_conformance.py, azmail_e2e.py --phase azlin
 6. hard-coding audit of AzMail
