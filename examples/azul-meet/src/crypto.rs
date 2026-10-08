@@ -101,7 +101,7 @@ pub fn new_message_id() -> Result<String, CryptoError> {
 pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
+    for &b in bytes {
         out.push(char::from(DIGITS[usize::from(b >> 4)]));
         out.push(char::from(DIGITS[usize::from(b & 15)]));
     }
@@ -220,7 +220,7 @@ fn open_b64(
 /// `bytes` with spaces after them up to the next multiple of `step` (at least one step).
 fn padded(bytes: &[u8], step: usize) -> Zeroizing<Vec<u8>> {
     let target = bytes.len().div_ceil(step).max(1) * step;
-    let mut out = Zeroizing::new(Vec::with_capacity(target));
+    let mut out = Zeroizing::new(Vec::<u8>::with_capacity(target));
     out.extend_from_slice(bytes);
     out.resize(target, b' ');
     out
@@ -605,7 +605,7 @@ impl Eq for RoomKey {}
 /// The id of key `bytes`: the first 16 bytes of `H("azmeet/v1/key-id\n" || key)` in hex.
 #[must_use]
 pub fn key_id_of(bytes: &[u8; KEY_LEN]) -> String {
-    let mut input = Zeroizing::new(Vec::with_capacity(17 + KEY_LEN));
+    let mut input = Zeroizing::new(Vec::<u8>::with_capacity(17 + KEY_LEN));
     input.extend_from_slice(b"azmeet/v1/key-id\n");
     input.extend_from_slice(bytes);
     hex(&sha256(&input)[..16])
@@ -675,7 +675,7 @@ pub fn seal_key(
         &salt,
         seal_info(room, key.id(), recipient).as_bytes(),
     );
-    let mut plain = Zeroizing::new(Vec::with_capacity(KEY_LEN + invite_secret.len()));
+    let mut plain = Zeroizing::new(Vec::<u8>::with_capacity(KEY_LEN + invite_secret.len()));
     plain.extend_from_slice(&key.bytes[..]);
     plain.extend_from_slice(invite_secret.as_bytes());
     let aad = seal_aad(room, key.id(), epoch, sender, recipient);
@@ -1072,7 +1072,11 @@ mod tests {
     fn a_name_seals_for_the_holders_of_the_link_bound_to_its_device() {
         let invite = Invite::new(ROOM, SECRET).unwrap();
         let sealed = invite.seal_name(DEVICE_A, "Ada Lovelace").unwrap();
-        assert!(!sealed.contains("Ada"));
+        let raw = decode_base64(&sealed).expect("base64");
+        assert!(
+            !raw.windows(3).any(|w| w == b"Ada"),
+            "the name is not in the sealed bytes"
+        );
         assert_eq!(
             invite.open_name(DEVICE_A, &sealed).as_deref(),
             Some("Ada Lovelace")

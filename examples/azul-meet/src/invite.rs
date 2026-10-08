@@ -91,8 +91,16 @@ mod tests {
             "bound to its room"
         );
         assert_eq!(invite_key(ROOM, "short"), None);
-        assert_eq!(invite_key(ROOM, "k7qz2m9x4c8v1b6n3r5t0w2y8u"), None, "u is not in it");
-        assert_eq!(invite_key(ROOM, &SECRET.to_uppercase()), None, "lower case only");
+        assert_eq!(
+            invite_key(ROOM, "k7qz2m9x4c8v1b6n3r5t0w2y8u"),
+            None,
+            "u is not in it"
+        );
+        assert_eq!(
+            invite_key(ROOM, &SECRET.to_uppercase()),
+            None,
+            "lower case only"
+        );
     }
 
     #[test]
@@ -101,6 +109,10 @@ mod tests {
         assert!(is_secret(&secret), "{secret}");
         assert_eq!(secret, "z".repeat(26));
         assert_eq!(secret_from([0, 0, 0]), "0".repeat(26));
-        assert_ne!(secret_from([1, 2, 3]), secret_from([1, 2, 2]), "the third word counts");
+        assert_ne!(
+            secret_from([1, 2, 3]),
+            secret_from([1, 2, 2]),
+            "the third word counts"
+        );
     }
 }

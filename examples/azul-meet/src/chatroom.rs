@@ -282,8 +282,6 @@ pub struct WireRoom {
     #[serde(default)]
     pub code: String,
     #[serde(default)]
-    pub link: String,
-    #[serde(default)]
     pub invite_key: Option<String>,
     #[serde(default)]
     pub kind: Option<String>,
@@ -291,8 +289,6 @@ pub struct WireRoom {
     pub starts_at: Option<String>,
     #[serde(default)]
     pub ends_at: Option<String>,
-    #[serde(default)]
-    pub expires: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -557,18 +553,6 @@ impl ChatRoom {
             .map(|k| (k.epoch, k.key.id(), k.members.len()))
     }
 
-    /// The highest epoch seen in the room.
-    #[must_use]
-    pub fn epoch(&self) -> u64 {
-        self.max_epoch
-    }
-
-    /// The name this device shows here.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     /// The departures this device saw (kept in its files: a replayed record stays refused).
     #[must_use]
     pub fn departed(&self) -> &BTreeMap<String, u64> {
@@ -581,12 +565,6 @@ impl ChatRoom {
             let seen = self.departed.entry(device).or_insert(0);
             *seen = (*seen).max(ts);
         }
-    }
-
-    /// A request is on its way.
-    #[must_use]
-    pub fn busy(&self) -> bool {
-        self.in_flight.is_some()
     }
 
     /// This device's estimate of the Worker's clock (ms), from its last answer.
@@ -1191,6 +1169,13 @@ impl ChatRoom {
     /// The room's record; false when this device refuses the room (no invite key, or not the one
     /// of the link).
     fn take_room(&mut self, room: &WireRoom, changes: &mut Changes) -> bool {
+        if room.room != self.room {
+            self.close(
+                changes,
+                "The meeting server sent another room than this one.",
+            );
+            return false;
+        }
         if !room.code.is_empty() {
             self.code = room.code.clone();
         }
@@ -2503,6 +2488,20 @@ mod tests {
         let read = settle(&mut ben, &mut w);
         assert_eq!(ben.room.state, Membership::Closed);
         assert!(read.problem.unwrap().contains("not end-to-end encrypted"));
+        // An answer about another room than the one asked for is refused too.
+        let mut cleo = device(3, "Cleo", &id, None);
+        let mut changes = Changes::default();
+        let elsewhere = WireRoom {
+            room: "0".repeat(26),
+            code: String::new(),
+            invite_key: None,
+            kind: None,
+            starts_at: None,
+            ends_at: None,
+        };
+        assert!(!cleo.room.take_room(&elsewhere, &mut changes));
+        assert_eq!(cleo.room.state, Membership::Closed);
+        assert!(changes.problem.unwrap().contains("another room"));
     }
 
     #[test]
