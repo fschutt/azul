@@ -881,3 +881,48 @@ fn flat_and_flora_scale_a_tab_alike_and_flora_keeps_its_invariants() {
     );
     tc::assert_theme_invariants("flora ribbon, scaled", &flora_dom);
 }
+
+/// A ribbon that follows the app theme is built in both looks and merged
+/// node by node: both must take the same steps, and the structure of what
+/// the steps build - the collapsed group's button, its popup panel - is the
+/// ribbon's base, declared once for every theme.
+#[test]
+fn a_scaled_ribbon_declares_its_structure_once_for_every_theme() {
+    use azul_css::props::property::CssPropertyType;
+
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    let log = log();
+    let narrow = steps(&view_groups_without_check_boxes(&log))
+        .last()
+        .expect("the steps")
+        .1
+        + FIT_SLACK_PX;
+    for t in BOTH {
+        let dom = under(t, || {
+            Ribbon::new(RibbonTabVec::from_vec(vec![RibbonTab::new(s("View"))
+                .with_groups(RibbonGroupVec::from_vec(
+                    view_groups_without_check_boxes(&log),
+                ))]))
+            .with_available_width(narrow)
+            .dom_desktop()
+        });
+        assert!(
+            tc::find(&dom, RIBBON_GROUP_COLLAPSED_CLASS).is_some(),
+            "built for {}: the narrowest step collapses groups",
+            t.name()
+        );
+        assert_structure_is_shared(
+            &format!("a scaled ribbon built for {}", t.name()),
+            &dom,
+            &[(
+                "__azul-native-ribbon-tab-active",
+                CssPropertyType::Position,
+                "flora hangs the Australis curves off its selected tab",
+            )],
+        );
+    }
+}
