@@ -81,13 +81,16 @@ impl Light {
             (7.0, 10.0, 0.46),
             (-6.0, 5.0, 0.36),
         ];
-        let (x, y, o) = STEPS[seed % STEPS.len()];
+        let step = seed % STEPS.len();
+        let (x, y, o) = STEPS[step];
         Light {
             near_x: x,
             near_y: y,
             near_opacity: o,
             far_x: -x * 0.6,
-            far_opacity: 0.5 + (seed % 3) as f32 * 0.12,
+            // Of the step, not the seed: the far light comes round with the rest (on its
+            // own period of three, seed 5 lit page 0 differently).
+            far_opacity: 0.5 + (step % 3) as f32 * 0.12,
         }
     }
 }
