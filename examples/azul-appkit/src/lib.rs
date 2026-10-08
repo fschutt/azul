@@ -43,7 +43,8 @@
 //!   Options dialog (the app's own categories, then General, Data, Shortcuts,
 //!   About; a header line, banded sections, OK / Cancel), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
-//!   config (`--theme` / `--mode` over the settings file), the `--shot`
+//!   config (`--theme` / `--mode` over the settings file; Haiku's icons, the
+//!   flora theme's, from azul-icons-haiku), the `--shot`
 //!   screenshot timer, and [`files`] jobs on an azul `Thread`.
 //!
 //! Everything but `pieces` and `ui` is plain Rust and tested without a window:

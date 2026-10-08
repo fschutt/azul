@@ -181,9 +181,12 @@ pub struct HvifIconData {
 /// under 4 KiB; untrusted input is refused rather than parsed).
 pub const MAX_HVIF_ICON_BYTES: usize = 64 * 1024;
 
-/// The size an HVIF icon is shown at when its `<icon>` states none (its
-/// font size, as a glyph icon would be).
-const DEFAULT_HVIF_ICON_SIZE: f32 = 24.0;
+/// The size an HVIF icon is DRAWN at when its `<icon>` states none inline:
+/// its box is then `1em` - the font size the cascade gives it, as a glyph
+/// icon's would be - and this picture is scaled into it, so it is drawn big
+/// enough to stay crisp at the usual 14 - 32 px.
+#[cfg_attr(not(feature = "cpurender"), allow(dead_code))] // only the rasteriser reads it
+const UNSIZED_HVIF_ICON_SIZE: f32 = 32.0;
 
 /// Register an HVIF icon (Haiku Vector Icon Format) under `icon_name` in
 /// `pack_name`, with its metadata ([`IconMeta::for_image`] for full-colour
@@ -508,6 +511,24 @@ fn create_image_icon_from_original(
     original: &NodeData,
     system_style: &SystemStyle,
 ) -> Dom {
+    image_icon_in_box(
+        img,
+        LayoutWidth::px(img.width),
+        LayoutHeight::px(img.height),
+        original,
+        system_style,
+    )
+}
+
+/// [`create_image_icon_from_original`] with the box the icon gets where its
+/// `<icon>` states no `width` / `height` of its own.
+fn image_icon_in_box(
+    img: &ImageIconData,
+    width: LayoutWidth,
+    height: LayoutHeight,
+    original: &NodeData,
+    system_style: &SystemStyle,
+) -> Dom {
     let mut dom = Dom::create_image(img.image.clone());
 
     // Copy appropriate styles from original
@@ -524,14 +545,10 @@ fn create_image_icon_from_original(
             .any(|p| matches!(&p.property, CssProperty::Height(_)));
 
         if !has_width {
-            props_vec.push(CssPropertyWithConditions::simple(CssProperty::width(
-                LayoutWidth::px(img.width),
-            )));
+            props_vec.push(CssPropertyWithConditions::simple(CssProperty::width(width)));
         }
         if !has_height {
-            props_vec.push(CssPropertyWithConditions::simple(CssProperty::height(
-                LayoutHeight::px(img.height),
-            )));
+            props_vec.push(CssPropertyWithConditions::simple(CssProperty::height(height)));
         }
 
         // Apply SystemStyle-aware filters
@@ -666,10 +683,17 @@ fn create_svg_icon_from_original(
 }
 
 /// An HVIF icon as the image it draws at the size its `<icon>` is shown at:
-/// the `<icon>`'s own font size (a glyph icon's size - the ribbon's 32 px
-/// large icons, a 16 px menu icon), else its width, else
-/// [`DEFAULT_HVIF_ICON_SIZE`]; drawn at that size times the oversample, so
-/// its level of detail and its hinting are the ones for that size.
+/// the `<icon>`'s own inline font size (a glyph icon's size - the ribbon's
+/// 32 px large icons, a 16 px menu icon), else its inline width; drawn at
+/// that size times the oversample, so its level of detail and its hinting
+/// are the ones for that size.
+///
+/// An `<icon>` that states neither inline - sized by a stylesheet
+/// (`Dom::with_css("font-size: 16px")`, a class) or by the font size it
+/// inherits - gets a `1em` box: as big as its text, as the glyph it stands
+/// in for would be. The resolver runs before the cascade, so that size is
+/// not known here; the picture is drawn at [`UNSIZED_HVIF_ICON_SIZE`] and
+/// scaled into the box.
 #[cfg(feature = "cpurender")]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded icon pixel size
 fn create_hvif_icon_from_original(
@@ -694,9 +718,8 @@ fn create_hvif_icon_from_original(
             _ => None,
         })
     });
-    let logical = stated
-        .filter(|s| s.is_finite() && *s > 0.0)
-        .unwrap_or(DEFAULT_HVIF_ICON_SIZE);
+    let stated = stated.filter(|s| s.is_finite() && *s > 0.0);
+    let logical = stated.unwrap_or(UNSIZED_HVIF_ICON_SIZE);
     let device = ((logical * SVG_ICON_OVERSAMPLE).ceil().max(1.0) as u32)
         .min(crate::cpurender::hvif::MAX_HVIF_SIZE);
     let Some(pixmap) = crate::cpurender::hvif::render_hvif(&hvif.icon, device) else {
@@ -714,7 +737,17 @@ fn create_hvif_icon_from_original(
         return Dom::create_div();
     };
     let as_image = ImageIconData::with_meta(image, logical, logical, hvif.meta.clone());
-    create_image_icon_from_original(&as_image, original, system_style)
+    if stated.is_some() {
+        return create_image_icon_from_original(&as_image, original, system_style);
+    }
+    let one_em = || azul_css::props::basic::PixelValue::em(1.0);
+    image_icon_in_box(
+        &as_image,
+        LayoutWidth::Px(one_em()),
+        LayoutHeight::Px(one_em()),
+        original,
+        system_style,
+    )
 }
 
 /// Without the rasteriser there is nothing to draw an HVIF icon with.

@@ -26,6 +26,8 @@ azul-pim = { path = "../azul-pim" }
 # The Azlin apps' skeleton: switches, the data root, settings.json, the settings page, the
 # shortcut table, file jobs on a Thread.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# Haiku's icons, which the kit registers for the flora theme: their credit in the About box.
+azul-icons-haiku = { path = "../azul-icons-haiku" }
 # The drive every durable write goes through (LocalDrive today, S3 later) and the id seed; its
 # `azul` feature is AzulTransport, azul's HTTP client under an Azlin account's S3 drive and its
 # token server calls (azlin.rs).

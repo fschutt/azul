@@ -1427,6 +1427,8 @@ pub fn start() {
             args::Mode::Dark => DarkLightMode::Dark,
         }));
     }
+    // The kit's icons: Haiku's under flora, Material under flat.
+    azul_appkit::ui::add_kit_icons(&mut config);
     let app = App::create(RefAny::new(state), config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.size.dimensions = LogicalSize::create(1280.0, 900.0);

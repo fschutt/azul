@@ -500,6 +500,12 @@ pub struct IconProviderInner {
     /// chain, so `icons/xyz/pink/` beats `icons/xyz/` beats the app's own
     /// packs. Packs without a rank are searched after every ranked pack.
     pub pack_ranks: BTreeMap<String, u32>,
+    /// Pack conditions: a pack listed here takes part in the search for a
+    /// bare icon name only while all its terms hold under the lookup's live
+    /// context - the flora theme's icon pack under `theme=flora`
+    /// ([`IconProviderHandle::set_pack_condition`]). Like a rank, a setting
+    /// about the pack NAME.
+    pub pack_conditions: BTreeMap<String, Vec<IconRuleCondition>>,
     /// Remap rules, icon name (lowercase) -> its rules in the order they were
     /// added. See [`IconRemapRule`].
     pub remap: BTreeMap<String, Vec<IconRemapRule>>,
@@ -514,6 +520,7 @@ impl Default for IconProviderInner {
             resolver: default_icon_resolver,
             pack_order: Vec::new(),
             pack_ranks: BTreeMap::new(),
+            pack_conditions: BTreeMap::new(),
             remap: BTreeMap::new(),
             app_name: String::new(),
         }
@@ -751,10 +758,28 @@ impl IconProviderInner {
             .collect()
     }
 
-    /// The first pack, in lookup order, that has `name_lower`.
-    fn find_in_packs(&self, name_lower: &str) -> Option<(&str, &RefAny)> {
+    /// Does the pack `pack_name` take part in the search for a bare name
+    /// under `context`? A pack without a condition always does; one with a
+    /// condition ([`IconProviderHandle::set_pack_condition`]) only while all
+    /// its terms hold - and never without a context to hold under.
+    fn pack_takes_part(&self, pack_name: &str, context: Option<&DynamicSelectorContext>) -> bool {
+        match self.pack_conditions.get(pack_name) {
+            None => true,
+            Some(conditions) => context
+                .is_some_and(|ctx| conditions.iter().all(|c| c.matches(ctx, &self.app_name))),
+        }
+    }
+
+    /// The first pack, in lookup order, that has `name_lower` and takes part
+    /// under `context`.
+    fn find_in_packs(
+        &self,
+        name_lower: &str,
+        context: Option<&DynamicSelectorContext>,
+    ) -> Option<(&str, &RefAny)> {
         self.packs_in_lookup_order()
             .into_iter()
+            .filter(|(pack_name, _)| self.pack_takes_part(pack_name, context))
             .find_map(|(pack_name, pack)| pack.get(name_lower).map(|d| (pack_name, d)))
     }
 
@@ -767,13 +792,26 @@ impl IconProviderInner {
     /// pack). The first entry that resolves wins, so markup can express
     /// per-platform fallbacks: `<icon>ios:open_menu,kde:three-lines,menu</icon>`.
     /// Icon names are case-insensitive; pack names are case-sensitive.
+    ///
+    /// No window context: a pack with a condition takes no part in the
+    /// search ([`Self::lookup_spec_in_context`] evaluates it).
     #[must_use]
     pub fn lookup_spec(&self, spec: &str) -> Option<RefAny> {
+        self.lookup_spec_with(spec, None)
+    }
+
+    /// [`Self::lookup_spec`] with the packs' conditions evaluated under
+    /// `context` (`None`: the conditional packs sit out).
+    fn lookup_spec_with(
+        &self,
+        spec: &str,
+        context: Option<&DynamicSelectorContext>,
+    ) -> Option<RefAny> {
         // Verbatim first: a registered name is always found as-is (names may
         // legally contain ':', ',' or whitespace). The spec syntax below only
         // applies when nothing is registered under the literal name.
         let verbatim = spec.to_lowercase();
-        if let Some((_, data)) = self.find_in_packs(&verbatim) {
+        if let Some((_, data)) = self.find_in_packs(&verbatim, context) {
             return Some(data.clone());
         }
 
@@ -787,8 +825,10 @@ impl IconProviderInner {
                 None => (None, entry),
             };
             let name_lower = name.to_lowercase();
+            // A pack-qualified entry names its pack: a condition (which
+            // decides whether the pack joins the SEARCH) does not apply.
             let found = pack.map_or_else(
-                || self.find_in_packs(&name_lower).map(|(_, d)| d),
+                || self.find_in_packs(&name_lower, context).map(|(_, d)| d),
                 |p| self.icons.get(p).and_then(|pack| pack.get(&name_lower)),
             );
             if let Some(data) = found {
@@ -834,11 +874,12 @@ impl IconProviderInner {
                     .iter()
                     .all(|c| c.matches(context, &self.app_name))
             })
-            .find_map(|(_, _, rule)| self.lookup_spec(&rule.target))
+            .find_map(|(_, _, rule)| self.lookup_spec_with(&rule.target, Some(context)))
     }
 
     /// [`Self::lookup_spec`] with the remap rules applied first, evaluated
-    /// against `context` - the live window's - at this lookup.
+    /// against `context` - the live window's - at this lookup, as are the
+    /// packs' conditions (the flora theme's pack sits out under flat).
     ///
     /// Remap first, then the spec's own fallback list: the spec is the
     /// app's statement (`ios:open_menu,kde:three-lines,menu`), the rules the
@@ -865,7 +906,7 @@ impl IconProviderInner {
                 }
             }
         }
-        self.lookup_spec(spec)
+        self.lookup_spec_with(spec, Some(context))
     }
 }
 
@@ -940,6 +981,32 @@ impl IconProviderHandle {
         self.inner.pack_ranks.insert(pack_name.to_string(), rank);
     }
 
+    /// Let a pack take part in the search for a bare icon name only while
+    /// `apply_if` holds ([`parse_icon_apply_if`]: `theme=flora`, `mode=dark`,
+    /// `os=...`, `contrast=high`, `app=...`; the comma is AND). It is
+    /// evaluated at every lookup against the window's live context, so a
+    /// theme switch brings the pack in or takes it out with the next frame.
+    /// The flora theme's own icons, searched first under flora and not at
+    /// all under any other theme: `set_pack_rank(pack, 0)` and
+    /// `set_pack_condition(pack, "theme=flora")`.
+    ///
+    /// A pack-qualified spec (`pack:name`) still reaches the pack, the
+    /// user's remap rules still come first, and a lookup without a window
+    /// context (`lookup`, `has_icon`) passes the pack by. A term nobody
+    /// understands never holds: a typo keeps the pack out instead of making
+    /// it unconditional. An empty `apply_if` removes the condition; like the
+    /// rank, the condition belongs to the pack NAME.
+    pub fn set_pack_condition(&mut self, pack_name: &str, apply_if: &str) {
+        let conditions = parse_icon_apply_if(apply_if);
+        if conditions.is_empty() {
+            self.inner.pack_conditions.remove(pack_name);
+        } else {
+            self.inner
+                .pack_conditions
+                .insert(pack_name.to_string(), conditions);
+        }
+    }
+
     /// Add a global remap rule: while `apply_if` holds
     /// ([`parse_icon_apply_if`]; empty = always), `icon_name` is drawn as
     /// `target_spec`. Rules for one name are tried in the order they were
@@ -983,9 +1050,10 @@ impl IconProviderHandle {
     }
 
     /// Look up an icon across all packs in lookup order, returning the pack
-    /// name and data reference (first match wins)
+    /// name and data reference (first match wins; without a window context,
+    /// so a conditional pack sits out)
     fn lookup_with_pack(&self, icon_name: &str) -> Option<(&str, &RefAny)> {
-        self.inner.find_in_packs(&icon_name.to_lowercase())
+        self.inner.find_in_packs(&icon_name.to_lowercase(), None)
     }
 
     /// Look up an icon by spec (bare name, `pack:name`, or a comma-separated

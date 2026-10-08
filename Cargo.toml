@@ -16,6 +16,7 @@ members = [
     "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
     "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
+    "examples/azul-icons-haiku", # azul-icons-haiku: Haiku's icons (HVIF, MIT) under Material names, the flora theme's icon pack (azul-appkit registers it)
     "examples/azul-calculator", # AzCalculator: Standard / Scientific / Programmer / Date / Convert on the S9 UtilityShell (azul-appkit)
     "examples/azul-contacts", # AzContacts: the address book on the S4 PimShell, one contacts/<uuid>.vcf per contact (azul-appkit)
     "examples/azul-setup", # AzSetup: a fake AzOffice installer (the wizard pages, the settings dialog, the standard dialogs), the headless E2E

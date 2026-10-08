@@ -7674,9 +7674,11 @@ fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
 /// The app with its one window.
 fn run(me: MeetState) {
     let (theme, mode) = launch_look();
-    let config = AppConfig::create()
+    let mut config = AppConfig::create()
         .with_theme(AzString::from(theme.name()))
         .with_mode(mode_option(mode.index()));
+    // The kit's icons: Haiku's under flora, Material under flat.
+    kit::add_kit_icons(&mut config);
     let app = App::create(RefAny::new(me), config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.flags.decorations = WindowDecorations::NoTitle;

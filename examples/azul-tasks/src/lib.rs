@@ -506,13 +506,15 @@ pub fn start() {
         s.appearance = saved;
     }
     let (theme, mode) = appearance::effective(&args, &s.appearance);
-    let config = AppConfig::create()
+    let mut config = AppConfig::create()
         .with_theme(theme.name())
         .with_mode(match mode {
             azul_appkit::args::ModePref::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
             azul_appkit::args::ModePref::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
             azul_appkit::args::ModePref::System => OptionDarkLightMode::None,
         });
+    // The kit's icons: Haiku's under flora, Material under flat.
+    azul_appkit::ui::add_kit_icons(&mut config);
     let app = App::create(RefAny::new(s), config);
     let mut window = WindowCreateOptions::create(layout);
     let (w, h) = args.size.unwrap_or((1280.0, 800.0));

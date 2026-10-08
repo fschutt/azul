@@ -29,6 +29,9 @@ csv = "1.4"
 # No link mode here: the `azul` feature below adds link-dynamic; `look` alone leaves it to the
 # app's own azul dependency (AzMeet links statically on android / ios).
 azul = { path = "../../dll", package = "azul-dll", default-features = false, optional = true }
+# Haiku's icons, the flora theme's icon pack: `ui::app_config` registers them for every app
+# (the `azul` feature); the About rows credit them.
+azul-icons-haiku = { path = "../azul-icons-haiku" }
 
 [features]
 default = []
@@ -38,7 +41,7 @@ default = []
 look = ["dep:azul"]
 # The shared UI (settings page, title row, --shot, file jobs on a Thread).
 # The apps turn it on; the unit tests of the plain modules need no libazul.
-azul = ["look", "azul/link-dynamic"]
+azul = ["look", "azul/link-dynamic", "azul-icons-haiku/azul"]
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).

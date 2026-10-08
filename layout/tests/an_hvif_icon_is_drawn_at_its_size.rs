@@ -8,7 +8,7 @@ use azul_layout::cpurender::hvif::render_hvif_to_raw_image;
 
 fn icon(name: &str) -> Vec<u8> {
     let path = format!(
-        "{}/../examples/azul-mail/icons/haiku/{name}.hvif",
+        "{}/../examples/azul-icons-haiku/icons/{name}.hvif",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
@@ -27,7 +27,7 @@ fn at(image: &azul_core::resources::RawImage, x: usize, y: usize) -> (u8, u8, u8
 
 #[test]
 fn the_paper_is_its_gradient_the_outline_black_the_corner_clear() {
-    let image = render_hvif_to_raw_image(&icon("message"), 64).expect("drawn");
+    let image = render_hvif_to_raw_image(&icon("File_New_Mail"), 64).expect("drawn");
     assert_eq!((image.width, image.height), (64, 64));
     // The paper away from the fold: the gradient's yellow, shaded.
     let (r, g, b, a) = at(&image, 46, 38);
@@ -42,7 +42,7 @@ fn the_paper_is_its_gradient_the_outline_black_the_corner_clear() {
 #[test]
 fn an_icon_is_drawn_at_any_size() {
     for size in [16, 24, 32, 48, 128] {
-        let image = render_hvif_to_raw_image(&icon("message"), size).expect("drawn");
+        let image = render_hvif_to_raw_image(&icon("File_New_Mail"), size).expect("drawn");
         assert_eq!(image.width, size as usize);
         let azul_core::resources::RawImageData::U8(bytes) = &image.pixels else {
             panic!("8-bit");
@@ -50,13 +50,13 @@ fn an_icon_is_drawn_at_any_size() {
         let covered = bytes.as_ref().chunks(4).filter(|p| p[3] > 0).count();
         assert!(covered > (size * size / 5) as usize, "{size} px: {covered} pixels drawn");
     }
-    assert!(render_hvif_to_raw_image(&icon("message"), 0).is_err());
+    assert!(render_hvif_to_raw_image(&icon("File_New_Mail"), 0).is_err());
     assert!(render_hvif_to_raw_image(b"not an icon", 32).is_err());
 }
 
 #[test]
-fn every_icon_azmail_ships_draws() {
-    let dir = format!("{}/../examples/azul-mail/icons/haiku", env!("CARGO_MANIFEST_DIR"));
+fn every_icon_azul_icons_haiku_ships_draws() {
+    let dir = format!("{}/../examples/azul-icons-haiku/icons", env!("CARGO_MANIFEST_DIR"));
     let mut count = 0;
     for entry in std::fs::read_dir(&dir).expect("the icons") {
         let path = entry.expect("an entry").path();
@@ -67,6 +67,6 @@ fn every_icon_azmail_ships_draws() {
             count += 1;
         }
     }
-    assert!(count >= 30, "{count} icons");
+    assert!(count >= 70, "{count} icons");
 }
 
