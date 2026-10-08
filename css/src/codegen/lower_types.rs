@@ -215,7 +215,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::ListStylePosition(v) => prop_value(v, "ListStylePosition", "StyleListStylePositionValue", "StyleListStylePosition", Some("list_style_position")),
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
         P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
-        P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipValue", "StyleBackgroundClip", Some("background_clip")),
+        P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipVecValue", "StyleBackgroundClipVec", Some("background_clip")),
         P::FontVariantNumeric(v) => prop_value(v, "FontVariantNumeric", "StyleFontVariantNumericValue", "StyleFontVariantNumeric", None),
     }
 }
@@ -2094,6 +2094,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("OptionStringPair", "option"),
     ("OptionStringVec", "option"),
     ("OptionStyleAnimation", "option"),
+    ("OptionStyleBackgroundClip", "option"),
     ("OptionStyleBackgroundContent", "option"),
     ("OptionStyleBackgroundPosition", "option"),
     ("OptionStyleBackgroundRepeat", "option"),
@@ -2751,7 +2752,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleBackfaceVisibility", "css"),
     ("StyleBackfaceVisibilityValue", "css"),
     ("StyleBackgroundClip", "css"),
-    ("StyleBackgroundClipValue", "css"),
+    ("StyleBackgroundClipVec", "vec"),
+    ("StyleBackgroundClipVecDestructor", "vec"),
+    ("StyleBackgroundClipVecDestructorType", "vec"),
+    ("StyleBackgroundClipVecSlice", "css"),
+    ("StyleBackgroundClipVecValue", "css"),
     ("StyleBackgroundContent", "css"),
     ("StyleBackgroundContentValue", "css"),
     ("StyleBackgroundContentVec", "vec"),
@@ -3831,7 +3836,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("ListStylePosition", "StyleListStylePositionValue", "list_style_position"),
     ("StringSet", "StringSetValue", "string_set"),
     ("Zoom", "StyleZoomValue", ""),
-    ("BackgroundClip", "StyleBackgroundClipValue", "background_clip"),
+    ("BackgroundClip", "StyleBackgroundClipVecValue", "background_clip"),
     ("FontVariantNumeric", "StyleFontVariantNumericValue", ""),
 ];
 
@@ -6370,6 +6375,12 @@ impl Lower for crate::props::style::background::StyleBackgroundClip {
             Self::ContentBox => "ContentBox",
         };
         Expr::unit("StyleBackgroundClip", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::style::background::StyleBackgroundClipVec {
+    fn lower(&self) -> Expr {
+        Expr::vec("StyleBackgroundClipVec", "StyleBackgroundClip", self.as_slice().iter().map(Lower::lower).collect())
     }
 }
 

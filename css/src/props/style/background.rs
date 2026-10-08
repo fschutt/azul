@@ -11,8 +11,9 @@ use crate::props::basic::{
     color::parse_color_or_system,
     error::{InvalidValueErr, InvalidValueErrOwned},
     parse::{
-        parse_image, parse_parentheses, split_string_respect_comma, CssImageParseError,
-        CssImageParseErrorOwned, ParenthesisParseError, ParenthesisParseErrorOwned,
+        parse_image, parse_parentheses, split_string_respect_comma,
+        split_string_respect_whitespace, CssImageParseError, CssImageParseErrorOwned,
+        ParenthesisParseError, ParenthesisParseErrorOwned,
     },
 };
 use crate::{
@@ -1044,10 +1045,12 @@ impl PrintAsCssValue for StyleBackgroundRepeatVec {
     }
 }
 
-/// The `background-clip` property (CSS Backgrounds 3 s3.7): the box a
-/// background is painted within - the border box (the initial value), the
-/// padding box or the content box. One value for every layer of the
-/// background (a comma list keeps its first).
+/// One layer's `background-clip` (CSS Backgrounds 3 s3.7): the box the layer
+/// is painted within - the border box (the initial value), the padding box or
+/// the content box. The property is a list, one box per layer
+/// ([`StyleBackgroundClipVec`]): a gradient on the border box under a face on
+/// the padding box shows only through a transparent border, which is how a
+/// metal edge is cut.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -1076,6 +1079,53 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundClip {
             Self::PaddingBox => "StyleBackgroundClip::PaddingBox".to_string(),
             Self::ContentBox => "StyleBackgroundClip::ContentBox".to_string(),
         }
+    }
+}
+
+impl_option!(
+    StyleBackgroundClip,
+    OptionStyleBackgroundClip,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_vec!(
+    StyleBackgroundClip,
+    StyleBackgroundClipVec,
+    StyleBackgroundClipVecDestructor,
+    StyleBackgroundClipVecDestructorType,
+    StyleBackgroundClipVecSlice,
+    OptionStyleBackgroundClip
+);
+impl_vec_debug!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_partialord!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_ord!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_clone!(
+    StyleBackgroundClip,
+    StyleBackgroundClipVec,
+    StyleBackgroundClipVecDestructor
+);
+impl_vec_partialeq!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_eq!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_hash!(StyleBackgroundClip, StyleBackgroundClipVec);
+
+// In CSS order, the top layer's box first: the vec is in paint order, like
+// the layers it clips (see `parse_style_background_content_multiple`).
+impl PrintAsCssValue for StyleBackgroundClipVec {
+    fn print_as_css_value(&self) -> String {
+        self.iter()
+            .rev()
+            .map(PrintAsCssValue::print_as_css_value)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundClipVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleBackgroundClipVec::from_const_slice(STYLE_BACKGROUND_CLIP_{}_ITEMS)",
+            self.get_hash()
+        )
     }
 }
 
@@ -1679,23 +1729,119 @@ pub mod parser {
         }
     }
 
-    /// Parses a `background-clip` value: `border-box`, `padding-box` or
-    /// `content-box`. Of a comma list (one value per layer) the first
-    /// applies to every layer.
+    /// Parses ONE layer's `background-clip`: `border-box`, `padding-box` or
+    /// `content-box`.
     /// # Errors
     ///
-    /// Returns an error if `input` is not a valid CSS `background-clip` value.
+    /// Returns an error if `input` is not one of the three boxes.
     pub fn parse_style_background_clip(
         input: &str,
     ) -> Result<StyleBackgroundClip, InvalidValueErr<'_>> {
-        let first = input.split(',').next().unwrap_or(input);
-        match first.trim() {
-            "border-box" => Ok(StyleBackgroundClip::BorderBox),
-            "padding-box" => Ok(StyleBackgroundClip::PaddingBox),
-            "content-box" => Ok(StyleBackgroundClip::ContentBox),
-            _ => Err(InvalidValueErr(input)),
+        visual_box(input.trim()).ok_or(InvalidValueErr(input))
+    }
+
+    /// Parses `background-clip` - one box per layer, `padding-box,
+    /// border-box` - into paint order (the bottom layer's box first, see
+    /// [`parse_style_background_content_multiple`]).
+    /// # Errors
+    ///
+    /// Returns an error if a value of the list is not one of the three boxes.
+    pub fn parse_style_background_clip_multiple(
+        input: &str,
+    ) -> Result<StyleBackgroundClipVec, InvalidValueErr<'_>> {
+        let mut clips = split_string_respect_comma(input)
+            .iter()
+            .map(|i| parse_style_background_clip(i))
+            .collect::<Result<Vec<_>, _>>()?;
+        clips.reverse();
+        Ok(clips.into())
+    }
+
+    /// The box a `<visual-box>` keyword names.
+    fn visual_box(word: &str) -> Option<StyleBackgroundClip> {
+        match word {
+            "border-box" => Some(StyleBackgroundClip::BorderBox),
+            "padding-box" => Some(StyleBackgroundClip::PaddingBox),
+            "content-box" => Some(StyleBackgroundClip::ContentBox),
+            _ => None,
         }
     }
+
+    /// One layer of the `background` shorthand without its `<visual-box>`
+    /// keywords, and the box it is clipped to: the shorthand writes them
+    /// before or after the image, one keyword setting the layer's origin AND
+    /// its clip, of two the first the origin and the second the clip (CSS
+    /// Backgrounds 3 s3.10). azul sizes a layer to its clip box, so the clip
+    /// is the box that counts. `None` when the layer names no box.
+    fn strip_visual_boxes(
+        layer: &str,
+    ) -> Result<(&str, Option<StyleBackgroundClip>), CssBackgroundParseError<'_>> {
+        let mut rest = layer.trim();
+        let mut boxes = Vec::new();
+        while let Some(first) = split_string_respect_whitespace(rest).first().copied() {
+            let Some(b) = visual_box(first) else { break };
+            boxes.push(b);
+            rest = rest[first.len()..].trim_start();
+        }
+        // After the image: written later, so they come after the leading ones.
+        let mut trailing = Vec::new();
+        while let Some(last) = split_string_respect_whitespace(rest).last().copied() {
+            let Some(b) = visual_box(last) else { break };
+            trailing.push(b);
+            rest = rest[..rest.len() - last.len()].trim_end();
+        }
+        boxes.extend(trailing.into_iter().rev());
+        if boxes.len() > 2 {
+            return Err(CssBackgroundParseError::Error(layer));
+        }
+        Ok((rest, boxes.last().copied()))
+    }
+
+    /// Parses the `background` shorthand's layer list - each layer an image,
+    /// a gradient or (the last one) a colour, with an optional `<visual-box>`
+    /// - into its layers and, when any layer names a box, the
+    /// `background-clip` list that goes with them (a layer that names none
+    /// takes the initial `border-box`). Both in paint order, the bottom layer
+    /// first (see [`parse_style_background_content_multiple`]).
+    ///
+    /// `var(--fl-gem-sunken) padding-box, var(--fl-rolled-tab) border-box` -
+    /// a face on the padding box over a gradient on the border box - is how
+    /// flora.css shows a gradient through a transparent border.
+    /// # Errors
+    ///
+    /// Returns an error if a layer is not a valid background layer.
+    pub fn parse_style_background_layers(
+        input: &str,
+    ) -> Result<BackgroundLayers, CssBackgroundParseError<'_>> {
+        let mut layers = Vec::new();
+        let mut clips = Vec::new();
+        let mut names_a_box = false;
+        for layer in split_string_respect_comma(input) {
+            let (image, clip) = strip_visual_boxes(layer)?;
+            // A layer that is only a box paints no image (`none`).
+            let content = if image.is_empty() && clip.is_some() {
+                StyleBackgroundContent::Color(ColorU::TRANSPARENT)
+            } else {
+                parse_style_background_content(image)?
+            };
+            names_a_box |= clip.is_some();
+            layers.push(content);
+            clips.push(clip.unwrap_or_default());
+        }
+        layers.reverse();
+        clips.reverse();
+        let clips = if names_a_box {
+            Some(StyleBackgroundClipVec::from_vec(clips))
+        } else {
+            None
+        };
+        Ok((layers.into(), clips))
+    }
+
+    /// What the `background` shorthand sets: its layers, and their
+    /// `background-clip` list when a layer names its box
+    /// ([`parse_style_background_layers`]).
+    pub type BackgroundLayers = (StyleBackgroundContentVec, Option<StyleBackgroundClipVec>);
 
     // -- Gradient Parsing Logic --
 
@@ -4540,6 +4686,60 @@ mod tests {
             assert_eq!(grad.stops.len(), 2);
             assert_eq!(grad.angle, AngleValue::deg(90.0));
         }
+    }
+
+    #[test]
+    fn a_clip_list_is_one_box_per_layer_in_paint_order() {
+        use StyleBackgroundClip::{BorderBox, ContentBox, PaddingBox};
+        let clips = parse_style_background_clip_multiple("padding-box, border-box").unwrap();
+        assert_eq!(clips.as_slice(), &[BorderBox, PaddingBox], "the bottom layer's box first");
+        assert_eq!(clips.print_as_css_value(), "padding-box, border-box");
+        assert_eq!(
+            parse_style_background_clip_multiple(" content-box ").unwrap().as_slice(),
+            &[ContentBox]
+        );
+        assert!(parse_style_background_clip_multiple("padding-box, margin-box").is_err());
+        assert!(parse_style_background_clip("padding-box, border-box").is_err(), "one box");
+    }
+
+    #[test]
+    fn a_background_layer_names_its_box_before_or_after_its_image() {
+        use StyleBackgroundClip::{BorderBox, ContentBox, PaddingBox};
+        // flora.css's metal edge: a face on the padding box over a gradient
+        // on the border box. Paint order: the border-box gradient first.
+        let (layers, clips) = parse_style_background_layers(
+            "linear-gradient(red, red) padding-box, linear-gradient(blue, blue) border-box",
+        )
+        .unwrap();
+        assert_eq!(layers.len(), 2);
+        assert!(layers
+            .as_slice()
+            .iter()
+            .all(|l| matches!(l, StyleBackgroundContent::LinearGradient(_))));
+        assert_eq!(clips.unwrap().as_slice(), &[BorderBox, PaddingBox]);
+
+        // A layer that names no box takes the initial border box; a list
+        // that names none sets no clip at all.
+        let (_, clips) = parse_style_background_layers("url(a.png) content-box, red").unwrap();
+        assert_eq!(clips.unwrap().as_slice(), &[BorderBox, ContentBox]);
+        let (layers, clips) = parse_style_background_layers("url(a.png), red").unwrap();
+        assert_eq!(layers.len(), 2);
+        assert!(clips.is_none());
+
+        // Before the image too; of two boxes the second is the clip (the
+        // first is the origin).
+        let (_, clips) = parse_style_background_layers("padding-box url(a.png)").unwrap();
+        assert_eq!(clips.unwrap().as_slice(), &[PaddingBox]);
+        let (_, clips) =
+            parse_style_background_layers("url(a.png) border-box content-box").unwrap();
+        assert_eq!(clips.unwrap().as_slice(), &[ContentBox]);
+        let (layers, clips) = parse_style_background_layers("padding-box").unwrap();
+        assert_eq!(layers.as_slice(), &[StyleBackgroundContent::Color(ColorU::TRANSPARENT)]);
+        assert_eq!(clips.unwrap().as_slice(), &[PaddingBox]);
+
+        // Three boxes, or a layer that is not an image, is no background.
+        assert!(parse_style_background_layers("red padding-box border-box content-box").is_err());
+        assert!(parse_style_background_layers("red,, blue padding-box").is_err());
     }
 
     #[test]

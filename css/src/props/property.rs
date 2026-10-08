@@ -555,7 +555,7 @@ pub type StyleListStyleTypeValue = CssPropertyValue<StyleListStyleType>;
 pub type StyleListStylePositionValue = CssPropertyValue<StyleListStylePosition>;
 pub type StringSetValue = CssPropertyValue<StringSet>;
 pub type StyleZoomValue = CssPropertyValue<StyleZoom>;
-pub type StyleBackgroundClipValue = CssPropertyValue<StyleBackgroundClip>;
+pub type StyleBackgroundClipVecValue = CssPropertyValue<StyleBackgroundClipVec>;
 pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -877,7 +877,9 @@ pub enum CssProperty {
     ListStylePosition(StyleListStylePositionValue),
     StringSet(StringSetValue),
     Zoom(StyleZoomValue),
-    BackgroundClip(StyleBackgroundClipValue),
+    /// One box per background layer, in the layers' paint order (the bottom
+    /// layer's first, like `BackgroundContent`'s).
+    BackgroundClip(StyleBackgroundClipVecValue),
     FontVariantNumeric(StyleFontVariantNumericValue),
 }
 
@@ -3776,7 +3778,7 @@ pub fn parse_css_property(
                     .into(),
             ),
             CssPropertyType::BackgroundClip => CssProperty::BackgroundClip(
-                parse_style_background_clip(value)
+                parse_style_background_clip_multiple(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
@@ -4448,10 +4450,16 @@ pub fn parse_combined_css_property(
             )])
         }
         Background => {
-            let background_content = parse_style_background_content_multiple(value)?;
-            Ok(vec![CssProperty::BackgroundContent(
-                CssPropertyValue::Exact(background_content),
-            )])
+            // A layer may name its box (`<image> padding-box`): the shorthand
+            // then sets `background-clip` as well, one box per layer.
+            let (background_content, clips) = parse_style_background_layers(value)?;
+            let mut props = vec![CssProperty::BackgroundContent(CssPropertyValue::Exact(
+                background_content,
+            ))];
+            if let Some(clips) = clips {
+                props.push(CssProperty::BackgroundClip(CssPropertyValue::Exact(clips)));
+            }
+            Ok(props)
         }
         Flex => {
             // parse shorthand into grow/shrink/basis
@@ -4923,7 +4931,7 @@ impl_from_css_prop!(StyleListStyleType, CssProperty::ListStyleType);
 impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
 impl_from_css_prop!(StyleZoom, CssProperty::Zoom);
-impl_from_css_prop!(StyleBackgroundClip, CssProperty::BackgroundClip);
+impl_from_css_prop!(StyleBackgroundClipVec, CssProperty::BackgroundClip);
 impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
@@ -6179,8 +6187,9 @@ impl CssProperty {
     pub const fn zoom(input: StyleZoom) -> Self {
         Self::Zoom(CssPropertyValue::Exact(input))
     }
+    /// `background-clip`: one box per layer, in the layers' paint order.
     #[must_use]
-    pub const fn background_clip(input: StyleBackgroundClip) -> Self {
+    pub const fn background_clip(input: StyleBackgroundClipVec) -> Self {
         Self::BackgroundClip(CssPropertyValue::Exact(input))
     }
     #[must_use]
@@ -7466,7 +7475,7 @@ impl CssProperty {
         }
     }
     #[must_use]
-    pub const fn as_background_clip(&self) -> Option<&StyleBackgroundClipValue> {
+    pub const fn as_background_clip(&self) -> Option<&StyleBackgroundClipVecValue> {
         match self {
             Self::BackgroundClip(f) => Some(f),
             _ => None,
@@ -8234,8 +8243,8 @@ impl CssProperty {
         Self::Zoom(StyleZoomValue::Exact(input))
     }
     #[must_use]
-    pub const fn const_background_clip(input: StyleBackgroundClip) -> Self {
-        Self::BackgroundClip(StyleBackgroundClipValue::Exact(input))
+    pub const fn const_background_clip(input: StyleBackgroundClipVec) -> Self {
+        Self::BackgroundClip(StyleBackgroundClipVecValue::Exact(input))
     }
     #[must_use]
     pub const fn const_font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
@@ -9019,7 +9028,7 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         ),
         CssProperty::BackgroundClip(p) => format!(
             "CssProperty::BackgroundClip({})",
-            print_css_property_value(p, tabs, "StyleBackgroundClip")
+            print_css_property_value(p, tabs, "StyleBackgroundClipVec")
         ),
         CssProperty::FontVariantNumeric(p) => format!(
             "CssProperty::FontVariantNumeric({})",

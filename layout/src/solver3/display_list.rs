@@ -6516,19 +6516,21 @@ where
             });
         }
         if !background_contents.is_empty() {
-            let (area, radius) = match super::getters::get_background_clip(
-                self.ctx.styled_dom,
-                dom_id,
-                node_state,
-            ) {
-                StyleBackgroundClip::BorderBox => (border_box, border_radius),
-                StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
-                StyleBackgroundClip::ContentBox => (
-                    inset_rect(padding_box, padding),
-                    inset_radius(padding_radius, padding),
-                ),
-            };
-            for layer in background_contents {
+            // Each layer within its own clip box: a gradient on the border
+            // box under a face on the padding box shows only through the
+            // border (a metal edge).
+            let clips =
+                super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
+            let layers = background_contents.len();
+            for (i, layer) in background_contents.iter().enumerate() {
+                let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
+                    StyleBackgroundClip::BorderBox => (border_box, border_radius),
+                    StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
+                    StyleBackgroundClip::ContentBox => (
+                        inset_rect(padding_box, padding),
+                        inset_radius(padding_radius, padding),
+                    ),
+                };
                 builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
             }
         }

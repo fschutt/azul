@@ -2646,21 +2646,23 @@ pub fn get_background_contents(
         .collect()
 }
 
-/// The `background-clip` of `node_id` (CSS Backgrounds 3 s3.7): the box its
-/// background is painted within; `border-box`, the initial value, when it
-/// declares none.
+/// The `background-clip` boxes of `node_id` (CSS Backgrounds 3 s3.7), one per
+/// background layer in the layers' paint order - a shorter list repeats from
+/// the top layer (`display_list::layer_value`). Empty when none is declared:
+/// every layer then fills the border box, the initial value.
 #[must_use]
-pub fn get_background_clip(
+pub fn get_background_clips(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
-) -> azul_css::props::style::StyleBackgroundClip {
+) -> Vec<azul_css::props::style::StyleBackgroundClip> {
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom
         .css_property_cache
         .ptr
         .get_background_clip(node_data, &node_id, node_state)
-        .and_then(|v| v.get_property().copied())
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
         .unwrap_or_default()
 }
 

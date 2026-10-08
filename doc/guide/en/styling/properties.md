@@ -121,6 +121,9 @@ background: builtin(vellum-overlay), #f2f1ed;
 - `background-position` accepts a length pair or `top`/`bottom`/`left`/`right`/`center`. Type `StyleBackgroundPosition`.
 - `background-size` accepts a length pair, `cover`, `contain`, or `auto`. Type `StyleBackgroundSize`.
 - `background-repeat` accepts `repeat`, `repeat-x`, `repeat-y`, `no-repeat`, `round`, or `space`. Type `StyleBackgroundRepeat`.
+- `background-clip` accepts `border-box` (the default), `padding-box`, or `content-box`, one per layer. In the `background` shorthand a layer names its box after its image: `background: linear-gradient(#2F4A85, #1E3260) padding-box, linear-gradient(#FFFDF3, #C6B279) border-box;` with a transparent border shows the second gradient only through the border. Type `StyleBackgroundClipVec`.
+
+In code (`CssProperty::background_content`, `background_clip`, ...) the per-layer lists are in paint order: the bottom layer first, the reverse of the CSS comma list.
 
 Gradient direction accepts angles (`90deg`), `to <side>` syntax
 (`to top right`), or corner directions.
