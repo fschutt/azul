@@ -3866,6 +3866,19 @@ mod autotest_generated {
     /// of a whole dom resolve in one linear pass (`ScrollChains`).
     #[test]
     fn the_a11y_tree_places_its_nodes_with_linear_scroll_chain_work() {
+        // Laid out with the stack the engine lays out on, the main thread's
+        // 8 MiB: a debug build's block layout takes ~36 KiB a level of the
+        // chain (~7 KiB in release), and the 61 levels outgrew the test
+        // harness's 2 MiB threads.
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(a11y_tree_places_a_deep_chain_with_linear_work)
+            .expect("a thread for the deep chain")
+            .join()
+            .expect("the deep chain");
+    }
+
+    fn a11y_tree_places_a_deep_chain_with_linear_work() {
         use crate::solver3::scroll_chain::BOX_ANCHOR_CALLS;
 
         const DEPTH: usize = 60;
