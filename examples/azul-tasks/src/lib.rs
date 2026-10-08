@@ -20,7 +20,8 @@
 //! repeating task leaves its next occurrence behind (`recur.rs`). Reminders (`reminders.rs`)
 //! show as a banner in the window and as an OS notification while the app runs.
 //!
-//! Environment: `AZTASKS_DATA` - the data folder (default `<user data dir>/Azlin`);
+//! Environment: `AZTASKS_DATA` - the data folder (default `AZLIN_DATA`, the Azlin apps' data
+//! root, else `<user data dir>/Azlin`);
 //! `AZTASKS_TICK_MS` - how often reminders are checked (default 5000).
 //! Command line: `args.rs` (`--sample`, `--data`, `--screen`, `--theme`, `--mode`, `--view`,
 //! `--size`). On stdout, for scripts: see `state.rs` and `jobs.rs`, plus `AZTASKS_REMINDER
@@ -416,7 +417,8 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// The data folder: `--data`, else `AZTASKS_DATA`, else `<user data dir>/Azlin`.
+/// The data folder: `--data`, else `AZTASKS_DATA`, else `AZLIN_DATA` (the root every Azlin app
+/// shares), else `<user data dir>/Azlin`.
 fn data_root(args: &Args) -> PathBuf {
     root_from(
         args.data.as_deref(),
@@ -436,11 +438,13 @@ fn root_from(
     azlin_var: Option<&str>,
     user_data: Option<PathBuf>,
 ) -> PathBuf {
-    let _ = azlin_var;
     if let Some(dir) = flag {
         return dir.to_path_buf();
     }
     if let Some(dir) = tasks_var.filter(|v| !v.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    if let Some(dir) = azlin_var.map(str::trim).filter(|v| !v.is_empty()) {
         return PathBuf::from(dir);
     }
     user_data
