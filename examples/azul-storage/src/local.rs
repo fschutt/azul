@@ -455,6 +455,35 @@ impl Drive for LocalDrive {
         Ok(())
     }
 
+    /// The bytes go into a temporary file next to the target as they are read, then the
+    /// file is renamed over it: a reader never sees half a file, a failed read leaves the
+    /// old one.
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        let path = self.path_of(key)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if path.is_dir() {
+            return Err(DriveError::InvalidKey {
+                key: key.to_string(),
+                reason: "a folder has this name",
+            });
+        }
+        let tmp = temp_sibling(&path);
+        let written = File::create(&tmp)
+            .and_then(|mut file| std::io::copy(body, &mut file))
+            .and_then(|written| fs::rename(&tmp, &path).map(|()| written));
+        let written = match written {
+            Ok(written) => written,
+            Err(e) => {
+                let _ = fs::remove_file(&tmp);
+                return Err(DriveError::Io(format!("{key}: {e}")));
+            }
+        };
+        self.record_file(key);
+        Ok(written)
+    }
+
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
         match fs::symlink_metadata(&path) {

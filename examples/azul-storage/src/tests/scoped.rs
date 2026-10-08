@@ -1,5 +1,5 @@
 use super::TempDir;
-use crate::{Drive, DriveError, ListRequest, LocalDrive, ScopedDrive};
+use crate::{Drive, DriveError, ListRequest, LocalDrive, Precondition, ScopedDrive};
 
 fn seeded(tmp: &TempDir) -> LocalDrive {
     let drive = LocalDrive::new(tmp.path());
@@ -68,4 +68,40 @@ fn a_scope_prefix_must_be_a_folder() {
     assert!(ScopedDrive::new(seeded(&tmp), "users/ann", false).is_err());
     assert!(ScopedDrive::new(LocalDrive::new(tmp.path()), "../", false).is_err());
     assert!(ScopedDrive::new(LocalDrive::new(tmp.path()), "", false).is_ok());
+}
+
+#[test]
+fn a_scope_streams_and_writes_conditionally_under_its_prefix_and_a_read_only_one_refuses() {
+    let tmp = TempDir::new("scoped-put-from");
+    let writable = ScopedDrive::new(seeded(&tmp), "users/ann/", true).unwrap();
+    assert_eq!(
+        writable
+            .put_from("docs/c.txt", &mut &b"streamed"[..])
+            .unwrap(),
+        8
+    );
+    assert_eq!(
+        std::fs::read(tmp.path().join("users/ann/docs/c.txt")).unwrap(),
+        b"streamed"
+    );
+    // The scope answers what its drive answers: a folder on disk keeps no versions.
+    assert!(matches!(
+        writable.put_if("docs/d.txt", b"x", &Precondition::Absent),
+        Err(DriveError::Unsupported(_))
+    ));
+
+    let read_only = ScopedDrive::new(LocalDrive::new(tmp.path()), "users/ann/", false).unwrap();
+    assert!(matches!(
+        read_only.put_from("docs/e.txt", &mut &b"x"[..]),
+        Err(DriveError::Denied { .. })
+    ));
+    assert!(matches!(
+        read_only.put_if("docs/e.txt", b"x", &Precondition::Absent),
+        Err(DriveError::Denied { .. })
+    ));
+    assert!(!tmp.path().join("users/ann/docs/e.txt").exists());
+    assert!(matches!(
+        writable.put_from("../ben/x.txt", &mut &b"x"[..]),
+        Err(DriveError::InvalidKey { .. })
+    ));
 }

@@ -8,7 +8,9 @@
 //!
 //! One trait, [`Drive`], with blocking calls: `list` (paged, S3 semantics:
 //! "folders" are common prefixes), `get`, `get_range`, `put`, `delete`,
-//! `head`. The apps call it from an azul `Thread`, never from a callback.
+//! `head`; `put_from` streams a reader in, `put_if` writes only when the
+//! object is absent or unchanged (a bucket's conditional PUT). The apps call
+//! it from an azul `Thread`, never from a callback.
 //!
 //! Backends:
 //! - [`LocalDrive`]: a folder on disk. Keys are `/`-separated paths under its root; `..`, `.`,
@@ -73,7 +75,7 @@ pub mod testing;
 #[cfg(test)]
 mod tests;
 
-use std::{fmt, path::PathBuf};
+use std::{fmt, io::Read, path::PathBuf};
 
 pub use config::SecretOptions;
 #[cfg(feature = "sql")]
@@ -207,6 +209,16 @@ impl ByteRange {
     }
 }
 
+/// What must hold for a conditional write ([`Drive::put_if`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Precondition {
+    /// No object has the key yet (S3 `If-None-Match: *`).
+    Absent,
+    /// The object is still the version with this entity tag, as [`ObjectInfo::etag`] shows it
+    /// (S3 `If-Match`).
+    Matches(String),
+}
+
 /// An error answer of an S3-compatible service, from its XML error body.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ServiceError {
@@ -295,6 +307,9 @@ pub enum DriveError {
     /// The drive's settings cannot work (an endpoint that is not a URL, a bucket name
     /// that cannot be in one, a keyring entry that is not credentials).
     InvalidConfig(String),
+    /// A conditional write lost ([`Drive::put_if`]): the object was there already, or it
+    /// changed since it was read (S3: 412 Precondition Failed). Nothing was written.
+    Conflict { key: String },
 }
 
 impl fmt::Display for DriveError {
@@ -316,6 +331,9 @@ impl fmt::Display for DriveError {
             DriveError::Protocol(message) => write!(f, "unexpected answer: {message}"),
             DriveError::Unsupported(message) => write!(f, "not supported yet: {message}"),
             DriveError::InvalidConfig(message) => write!(f, "{message}"),
+            DriveError::Conflict { key } => {
+                write!(f, "\"{key}\" was written by someone else in the meantime")
+            }
         }
     }
 }
@@ -343,6 +361,34 @@ pub trait Drive: Send + Sync {
     fn delete(&self, key: &str) -> Result<(), DriveError>;
     /// The object's size, date and tag, without its bytes.
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError>;
+
+    /// Creates or replaces the object with what `body` reads, to its end; returns the
+    /// bytes written. By default they are read into memory and put at once (a bucket
+    /// takes an object in one request); a folder on disk copies them into its temporary
+    /// file piece by piece, so a big file never sits in memory whole.
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes)?;
+        self.put(key, &bytes)?;
+        Ok(bytes.len() as u64)
+    }
+
+    /// Writes the object only when `condition` holds, in one step no other writer can
+    /// come between (S3 `If-None-Match: *` / `If-Match`). `Ok` with the new version's
+    /// entity tag when the drive tells it; [`DriveError::Conflict`] when the condition
+    /// did not hold (nothing written); [`DriveError::Unsupported`] from a drive that
+    /// cannot ask (the default: a folder on disk keeps no versions).
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let _ = (bytes, condition);
+        Err(DriveError::Unsupported(format!(
+            "writing \"{key}\" only if it is unchanged"
+        )))
+    }
 
     /// Copies the object `from` to `to` within this drive (replacing `to`
     /// when it is there; conflicts are the caller's). A folder is not one
@@ -414,6 +460,17 @@ impl<D: Drive + ?Sized> Drive for Box<D> {
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         (**self).head(key)
     }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        (**self).put_from(key, body)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        (**self).put_if(key, bytes, condition)
+    }
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         (**self).copy(from, to)
     }
@@ -452,6 +509,17 @@ impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
         (**self).head(key)
+    }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        (**self).put_from(key, body)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        (**self).put_if(key, bytes, condition)
     }
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         (**self).copy(from, to)
