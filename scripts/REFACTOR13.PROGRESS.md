@@ -79,7 +79,9 @@ sizing::calculate_intrinsic_sizes 832.
 - [x] tools (bac146663): item_index, split.py, extract.py, verify_moved.py, frame_sizes.py,
       locked_cargo.sh; negative controls (changed constant, swapped lines, todo!()) FAIL verify.
 - [x] Phase A: golden tests + RED depth test + goldens + merged-tip baseline
-- [ ] Phase B: fc.rs split by script (plan: scripts/refactor/fc_plan.json)
+- [x] Phase B (ec1a3d78f; tool fixes c7a6ab771): fc.rs -> fc/ (17 modules + 6 outlined test
+      modules). verify OK (0 unclassified); lib 9518 pass, all 2289 pass + depth RED + 7 ignored,
+      names identical, goldens match; clippy: no new warning (1569 -> 1564, see commit).
 - [ ] Phase C: layout_bfc extraction (spec: scripts/refactor/bfc_extract.json)
 - [ ] Phase D: text3/cache.rs split by script (plan: scripts/refactor/text3_cache_plan.json)
 
@@ -90,10 +92,10 @@ sizing::calculate_intrinsic_sizes 832.
 
 ## NEXT
 
-Phase B: `python3 scripts/refactor/split.py scripts/refactor/fc_plan.json`, then
-`verify_moved.py --old-rev HEAD --old layout/src/solver3/fc.rs --new layout/src/solver3/fc
---plan scripts/refactor/fc_plan.json`, `cargo check -p azul-layout --tests`, plumbing into the
-plan and re-run.
+Phase C: `python3 scripts/refactor/extract.py scripts/refactor/bfc_extract.json --manifest
+scripts/refactor/bfc_extract.manifest.json`, then `verify_moved.py --old-rev HEAD --old
+layout/src/solver3/fc/bfc.rs --new layout/src/solver3/fc/bfc.rs --blocks
+scripts/refactor/bfc_extract.manifest.json`, build, measure frames, depth test.
 
 ## Bugs noticed (not fixed - the refactor never changes behaviour)
 
