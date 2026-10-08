@@ -425,7 +425,8 @@ pub(crate) struct DriveState {
     pub refreshing: Option<Vec<Entry>>,
     /// The rows whose size and date were asked for (the ones in view; a sort's).
     pub stats_asked: HashSet<String>,
-    /// The item counts of the open folder's subfolders (their keys), and the ones asked for.
+    /// The item counts of the open folder's subfolders (their keys), and the ones asked for
+    /// during this listing (a listing asks again; the old count shows until the new one is in).
     pub counts: HashMap<String, usize>,
     pub counts_asked: HashSet<String>,
     /// Where the folder view's last scroll left it: its offset and its height (px).
@@ -873,7 +874,8 @@ pub(crate) fn start_tree_listing(
 }
 
 /// Counts the items of the local folders `keys` of drive `index` (`""`: its root), the ones not
-/// counted or asked for yet - one `read_dir` each, on a worker thread.
+/// asked for during this listing - one `read_dir` each, on a worker thread. A listing asks
+/// again (F5, a change on disk): the old count shows until the new one is in.
 pub(crate) fn request_counts(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -886,7 +888,7 @@ pub(crate) fn request_counts(
     };
     let keys: Vec<String> = keys
         .into_iter()
-        .filter(|k| !s.counts.contains_key(k) && !s.counts_asked.contains(k))
+        .filter(|k| !s.counts_asked.contains(k))
         .collect();
     if keys.is_empty() {
         return;
