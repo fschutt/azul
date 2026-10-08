@@ -27,12 +27,23 @@ immediately to the hover state without interpolating the gradient, glow, etc."
   Illuminated (hero-primary) at 0.42s and the stone's edges/shadows on --fl-ease.
 
 ## DONE
-- RED: css/src/props/property.rs `background_face_tween_tests` (moved stops,
+- aec1b2443 RED: css/src/props/property.rs `background_face_tween_tests` (moved stops,
   radial stone, colour<->gradient, cross-fade, layer fade in/out, from none, images) and
   `shadow_tween_tests`; layout/tests/a_hovered_button_passes_through_the_faces_in_between.rs.
+- 1662afad5 fix(css): background layers pair (all gradient kinds, moving stops, colour as a
+  one-colour gradient), fade added layers, cross-fade the rest; shadows tween / fade in-out.
+- (next commit) fix(flora): stone + metal-edged command fade at flora.css's pace
+  (`LIT_FACE`: background 1.2s --fl-ease, edges + shadows 1.2s ease; press 0.14s).
 
 ## IN PROGRESS
-- Engine fix: css background layers + shadows.
+- Review pass; report.
 
 ## NEXT
-- Engine fix in css (background layers, shadows), flora durations, report.
+- Report to the lead (tests to run, what to look at, risks).
+
+## Choices (for the report)
+- Mismatched faces cross-fade (new over old at t; old kept whole under an opaque new face,
+  faded under a translucent one). Images / unresolved system colours keep the half-way switch.
+- Inset <-> outset shadow: fade out, then fade in (one slot holds one shadow).
+- Known trade-off: flora's keyboard ring is box-shadow slots (azul has no outline), so it now
+  fades in with the face's shadow pace instead of popping after a half-way delay.

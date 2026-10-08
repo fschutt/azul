@@ -844,8 +844,10 @@ pub const FL_EASE: azul_css::props::basic::animation::AnimationTiming =
     );
 
 /// What a flora control's face is made of - what its fade tweens: the fill,
-/// the four border colours, the ink and the four shadow slots (a shadow
-/// switches half way; a face whose layers pair up tweens colour by colour).
+/// the four border colours, the ink and the four shadow slots. Every one of
+/// them passes through the values in between: a face tweens layer by layer
+/// (or cross-fades into a face of another shape), a shadow tweens its
+/// lengths and its colour, and comes or goes as a fade.
 pub(crate) const FLORA_FACE: &[&str] = &[
     "background",
     "border-top-color",
@@ -859,12 +861,47 @@ pub(crate) const FLORA_FACE: &[&str] = &[
     "-azul-box-shadow-bottom",
 ];
 
+/// The curve one property of a flora fade moves on.
+type FadeCurve = azul_css::props::basic::animation::AnimationTiming;
+
+/// What changes as light moves across a stone - or across the field of a
+/// metal-edged command - and on which curve: flora.css's `.btn-primary` /
+/// `.btn-hero-primary` transition, the face on `--fl-ease`, the edge and the
+/// shadows (the lip, the gold rim, the bloom, the well) on `ease`. The ink is
+/// not on the list (it is not on flora.css's either): a stone's ink is the
+/// same in every state.
+pub(crate) const LIT_FACE: &[(&str, FadeCurve)] = &[
+    ("background", FL_EASE),
+    ("border-top-color", FadeCurve::Ease),
+    ("border-right-color", FadeCurve::Ease),
+    ("border-bottom-color", FadeCurve::Ease),
+    ("border-left-color", FadeCurve::Ease),
+    ("-azul-box-shadow-left", FadeCurve::Ease),
+    ("-azul-box-shadow-right", FadeCurve::Ease),
+    ("-azul-box-shadow-top", FadeCurve::Ease),
+    ("-azul-box-shadow-bottom", FadeCurve::Ease),
+];
+
 /// The fade a flora control declares - `decl::state_fade` on flora's curve:
 /// `props` follow the pointer over `ms` on `--fl-ease`, and a press takes
 /// `--fl-dur-fast` ("a face that was lit on top flips to lit on the bottom
 /// in --fl-dur-fast, then eases back out over --fl-dur when released").
 #[must_use]
 pub(crate) fn flora_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithConditions; 2] {
+    let tweens: Vec<(&'static str, FadeCurve)> =
+        props.iter().map(|name| (*name, FL_EASE)).collect();
+    flora_fade_on_curves(&tweens, ms)
+}
+
+/// [`flora_fade`] with a curve of its own for each property (`(name,
+/// curve)`, as [`LIT_FACE`]): over `ms` as the pointer comes and goes, over
+/// `--fl-dur-fast` on the same curves while pressed - flora.css's
+/// `.btn:active` changes the duration only.
+#[must_use]
+pub(crate) fn flora_fade_on_curves(
+    tweens: &[(&'static str, FadeCurve)],
+    ms: u32,
+) -> [CssPropertyWithConditions; 2] {
     use azul_css::props::{
         basic::{
             animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
@@ -874,14 +911,14 @@ pub(crate) fn flora_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
     };
     let list = |duration: u32| {
         CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
-            props
+            tweens
                 .iter()
-                .map(|name| StyleAnimation {
-                    name: AzString::from_const_str(*name),
+                .map(|&(name, timing)| StyleAnimation {
+                    name: AzString::from_const_str(name),
                     duration: CssDuration::from_millis(duration),
                     delay: CssDuration::from_millis(0),
                     iterations: AnimationIterationCount::Count(1),
-                    timing: FL_EASE,
+                    timing,
                     clip: true,
                 })
                 .collect(),
@@ -1444,8 +1481,10 @@ fn flora_disabled_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWit
 /// ([`FloraButtonKind`]) - in five states: rest, hover (the face lifts; on a
 /// stone the metal comes up), pressed (sunken, at once), focus (the double
 /// ring) and disabled (the disabled paper). Its label is set in flora's
-/// capitals. Every state change fades on `--fl-ease`: `--fl-dur` for paper,
-/// `--fl-dur-slow` for light moving across a stone.
+/// capitals. Every state change fades, at flora.css's pace: paper and the
+/// quiet note over `--fl-dur` on `--fl-ease`; a stone and the metal-edged
+/// command over `--fl-dur-slow`, the face on `--fl-ease` and the edge and the
+/// glow on `ease` (`LIT_FACE`); a press over `--fl-dur-fast`.
 #[must_use]
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
@@ -1581,14 +1620,18 @@ pub fn button(btn: Button) -> Dom {
             // pseudo-state, so a dark resting value pushed after a
             // `dark_on_hover` twin would shadow it.
             container_style.extend(flora_button_states(kind, has_label));
-            // Light moves across a stone slowly; paper changes state at the
-            // house pace. A press is quick either way (`flora_fade`).
-            let ms = if matches!(kind, FloraButtonKind::Stone(_)) {
-                FL_DUR_SLOW_MS
-            } else {
-                FL_DUR_MS
-            };
-            container_style.extend(flora_fade(FLORA_FACE, ms));
+            // Light moves slowly across a stone and across the field of a
+            // metal-edged command, its edge and its glow coming up on their
+            // own curve (`LIT_FACE`); paper and the quiet note change state
+            // at the house pace. A press is quick either way.
+            container_style.extend(match kind {
+                FloraButtonKind::Stone(_) | FloraButtonKind::Illuminated => {
+                    flora_fade_on_curves(LIT_FACE, FL_DUR_SLOW_MS)
+                }
+                FloraButtonKind::Standard | FloraButtonKind::Quiet => {
+                    flora_fade(FLORA_FACE, FL_DUR_MS)
+                }
+            });
         }
         // The keyboard ring, last: it wins the Left and Bottom slots over a
         // hovered rim and a pressed well. A disabled command keeps its stop.

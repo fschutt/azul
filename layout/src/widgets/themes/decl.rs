@@ -989,7 +989,9 @@ pub(crate) fn state_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
 }
 
 /// What a button's face is made of: the properties [`state_fade`] tweens for
-/// flat's and flora's Button (its fill and its four border colours).
+/// flat's Button and its toolbar keys (the fill and the four border colours;
+/// flora's commands name their shadows too - `flora::FLORA_FACE`,
+/// `flora::LIT_FACE`).
 pub(crate) const BUTTON_FACE: &[&str] = &[
     "background",
     "border-top-color",
