@@ -49,19 +49,22 @@ Stdout: `AZDRIVE_ADD_PAGE choose|buy|sources|form <service>`, `AZDRIVE_TIERS <n>
 
 ## DONE
 
-(none yet)
+- da3ef5fc5 RED / 276042fd0 azul-storage: DriveAuth::Azlin, DriveLocation::Opendal / Database,
+  SecretOptions, open_with_secret, catalog (5 groups, 32 sources, forms), Method verbs,
+  runtime, Cargo features `opendal` / `sql`.
+- 389810579 RED / a3931c0c3 azul-storage: OpendalDrive + TransportHttp (OpenDAL's HTTP through
+  the app's Transport).
+- 0e7f97158 RED / 4e28fec34 azcloud-kit (new workspace member): token, bundle, session,
+  endpoints, drive (AzlinDrive).
+- A fork (database helper) builds tables.rs + database.rs (sqlx tables-as-folders) in its own
+  worktree; merged when it reports.
 
 ## IN PROGRESS
 
-- azul-storage foundations: Method verbs, DriveAuth::Azlin, DriveLocation::Opendal /
-  Database, SecretOptions, catalog, runtime; RED tests first.
+- AzDrive: the Add drive dialog.
 
 ## NEXT
 
-1. azul-storage: opendal.rs (OpendalDrive + HttpTransport over Transport), tests on OpenDAL's
-   memory service and a fake transport.
-2. azul-storage: tables.rs (pure database-as-files layout) + database.rs (sqlx), SQLite test.
-3. azcloud-kit crate: token / bundle / session / endpoints / drive + tests.
 4. AzDrive: add_drive.rs (pure dialog model) + ui_add_drive.rs + jobs + wiring (ribbon Home
    and Computer, sidebar row and + menu, Options > Drives), Azlin drives open via azcloud-kit.
 5. E2E: scripts/azdrive_add_e2e.py (+ mock token server: prices, checkout), update browse.py
