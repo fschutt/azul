@@ -2592,7 +2592,7 @@ mod chrome_text_is_not_selectable {
 
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
-mod theme_contrast {
+pub(crate) mod theme_contrast {
     //! Every widget follows the theme it is rendered in.
     //!
     //! The widget demo on a dark desktop painted a dark text field on a white
@@ -2834,6 +2834,24 @@ mod theme_contrast {
             }
         }
         out
+    }
+
+    /// [`findings`] in ONE of the four combinations a user can run: the
+    /// widget `build`s for the app theme `theme` (its `ThemeScope`, so a
+    /// widget that follows the app theme builds that theme's structure) and
+    /// is cascaded the way a window running `theme` in `mode` cascades it -
+    /// the theme's `@theme(<name>)` blocks live, the others dropped. The
+    /// probes above ask the default theme only; this asks flora too.
+    pub(crate) fn findings_under(
+        theme: crate::widgets::themes::UiTheme,
+        mode: DarkLightMode,
+        name: &str,
+        build: impl FnOnce() -> Dom,
+    ) -> Vec<String> {
+        let mut p = probe(mode);
+        p.ctx = p.ctx.with_app_theme(theme.name());
+        let dom = crate::widgets::themes::theme_blocks::checks::under(theme, build);
+        findings(&format!("{name} [{}]", theme.name()), dom, &p)
     }
 
     fn assert_follow_the_theme(widgets: Vec<(&'static str, Dom)>) {

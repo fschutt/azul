@@ -2722,3 +2722,421 @@ mod roving_tabindex_tests {
         );
     }
 }
+
+/// The list FOLLOWS the app theme (the user, 2026-10-08: "the list view in
+/// AzDrive (and in general?) doesn't follow the theme"). It painted one
+/// hard-coded look under every theme - a #FCFCFC field, a white-to-grey
+/// header, black titles, no stripes and no selection - so under flora it was
+/// a flat island, and under flat it was not even flat's (Office 2010's)
+/// paper. Now each theme paints the whole list in its own colours, by day
+/// and by night: the ground, the header band and its titles, the stripes,
+/// the selection; and every text reads.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{props::basic::color::ColorOrSystem, system::DarkLightMode};
+
+    use super::*;
+    use crate::widgets::themes::{
+        decl, flat, flora,
+        theme_blocks::checks::{live_inline, under, BOTH},
+        theme_checks as tc, UiTheme,
+    };
+
+    fn cols(names: &[&str]) -> StringVec {
+        StringVec::from_vec(names.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    }
+
+    /// One row of the caller's own cells (spans, as the C example builds them).
+    fn row(cells: &[&str]) -> ListViewRow {
+        ListViewRow {
+            cells: DomVec::from_vec(
+                cells
+                    .iter()
+                    .map(|t| Dom::create_span_with_text(AzString::from(*t)))
+                    .collect::<Vec<_>>(),
+            ),
+            height: None.into(),
+        }
+    }
+
+    /// Four files sorted by their size, the fourth selected: rows 1 and 3 are
+    /// the stripes, row 3 is the selection AND the list's Tab stop.
+    fn files() -> ListView {
+        ListView::create(cols(&["Name", "Size", "Type"]))
+            .with_rows(ListViewRowVec::from_vec(vec![
+                row(&["report.pdf", "2 MB", "PDF"]),
+                row(&["photo.png", "4 MB", "Image"]),
+                row(&["notes.txt", "1 KB", "Text"]),
+                row(&["budget.xlsx", "340 KB", "Sheet"]),
+            ]))
+            .with_sorted_by(Some(1_usize).into())
+            .with_selected_row(Some(3_usize).into())
+    }
+
+    fn header(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[0]
+    }
+
+    fn rows(dom: &Dom) -> &[Dom] {
+        dom.children.as_ref()[1].children.as_ref()
+    }
+
+    /// A column header's title (`<p>`).
+    fn title(column: &Dom) -> &Dom {
+        &column.children.as_ref()[0]
+    }
+
+    fn fill(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).as_ref().and_then(tc::bg_color)
+    }
+
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn property(node: &Dom, ty: CssPropertyType) -> Option<CssProperty> {
+        tc::resolve(node, ty, false, None)
+    }
+
+    fn right_rule(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::resolve(node, CssPropertyType::BorderRightColor, dark, None)
+            .as_ref()
+            .and_then(tc::border_color)
+    }
+
+    /// Every colour one declaration paints: a fill (a gradient's every stop),
+    /// an ink, a border, a shadow.
+    fn colours(p: &CssProperty) -> Vec<ColorU> {
+        let stop = |c: &ColorOrSystem| match c {
+            ColorOrSystem::Color(c) => Some(*c),
+            ColorOrSystem::System(_) => None,
+        };
+        match p {
+            CssProperty::BackgroundContent(v) => v
+                .get_property()
+                .map(|layers| {
+                    layers
+                        .as_ref()
+                        .iter()
+                        .flat_map(|layer| match layer {
+                            StyleBackgroundContent::Color(c) => vec![*c],
+                            StyleBackgroundContent::LinearGradient(g) => {
+                                g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
+                            }
+                            StyleBackgroundContent::RadialGradient(g) => {
+                                g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
+                            }
+                            StyleBackgroundContent::ConicGradient(g) => {
+                                g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
+                            }
+                            _ => Vec::new(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner).into_iter().collect(),
+            p => tc::border_color(p)
+                .or_else(|| tc::shadow_color_and_reach(p).map(|(c, _)| c))
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    /// Every colour a theme module declares: its palette by day and by night,
+    /// and the faces and states it names on top of it.
+    fn palette(theme: UiTheme) -> Vec<ColorU> {
+        match theme {
+            UiTheme::Flat => {
+                use flat::*;
+                vec![
+                    LIGHT_PG, LIGHT_SUR, LIGHT_DESK, LIGHT_STRIP, LIGHT_TRACK, LIGHT_BD, LIGHT_BD2,
+                    LIGHT_BD3, LIGHT_BD4, LIGHT_BD5, LIGHT_SEP, LIGHT_SEP2, LIGHT_INK, LIGHT_INK2,
+                    LIGHT_INTRO, LIGHT_SOFT1, LIGHT_SOFT2, LIGHT_SOFT3, LIGHT_ICON, LIGHT_RT,
+                    LIGHT_RB, LIGHT_HT, LIGHT_HB, LIGHT_PT, LIGHT_PB, LIGHT_FLD, LIGHT_FLD2,
+                    LIGHT_DISBG, LIGHT_DISTX, LIGHT_QT, LIGHT_QT2, LIGHT_ACC, LIGHT_DEEP,
+                    LIGHT_SOFT, LIGHT_GLOW, LIGHT_ON_ACC, DARK_PG, DARK_SUR, DARK_DESK, DARK_STRIP,
+                    DARK_TRACK, DARK_BD, DARK_BD2, DARK_BD3, DARK_BD4, DARK_BD5, DARK_SEP,
+                    DARK_SEP2, DARK_INK, DARK_INK2, DARK_INTRO, DARK_SOFT1, DARK_SOFT2, DARK_SOFT3,
+                    DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
+                    DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
+                    DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
+                    // Office 2010's faces.
+                    LIGHT_HOVER_BORDER, DARK_HOVER_BORDER, LIGHT_PRESSED_BORDER,
+                    DARK_PRESSED_BORDER, LIGHT_SELECTION_TOP, LIGHT_SELECTION_BOTTOM,
+                    LIGHT_SELECTION_BORDER, DARK_SELECTION_TOP, DARK_SELECTION_BOTTOM,
+                    DARK_SELECTION_BORDER,
+                    // The row and field states.
+                    LIGHT_ROW_HOVER, DARK_ROW_HOVER, FIELD_RING,
+                    // The list's own header and row states.
+                    LIGHT_LIST_HEADER_HOVER_LINE, LIGHT_LIST_HEADER_HOVER_TOP,
+                    LIGHT_LIST_HEADER_HOVER_MID, LIGHT_LIST_HEADER_HOVER_BOTTOM,
+                    LIGHT_LIST_HEADER_PRESSED, LIGHT_LIST_HEADER_PRESSED_BORDER,
+                    LIGHT_LIST_HEADER_PRESSED_SHADOW, LIGHT_LIST_ROW_HOVER_BORDER,
+                ]
+            }
+            UiTheme::Flora => {
+                use flora::*;
+                vec![
+                    LIGHT_PG, LIGHT_SUR, LIGHT_DESK, LIGHT_STRIP, LIGHT_TRACK, LIGHT_BD, LIGHT_BD2,
+                    LIGHT_BD3, LIGHT_BD4, LIGHT_BD5, LIGHT_SEP, LIGHT_SEP2, LIGHT_INK, LIGHT_INK2,
+                    LIGHT_INTRO, LIGHT_SOFT1, LIGHT_SOFT2, LIGHT_SOFT3, LIGHT_ICON, LIGHT_RT,
+                    LIGHT_RB, LIGHT_HT, LIGHT_HB, LIGHT_PT, LIGHT_PB, LIGHT_FLD, LIGHT_FLD2,
+                    LIGHT_DISBG, LIGHT_DISTX, LIGHT_QT, LIGHT_QT2, LIGHT_ACC, LIGHT_DEEP,
+                    LIGHT_SOFT, LIGHT_GLOW, LIGHT_ON_ACC, DARK_PG, DARK_SUR, DARK_DESK, DARK_STRIP,
+                    DARK_TRACK, DARK_BD, DARK_BD2, DARK_BD3, DARK_BD4, DARK_BD5, DARK_SEP,
+                    DARK_SEP2, DARK_INK, DARK_INK2, DARK_INTRO, DARK_SOFT1, DARK_SOFT2, DARK_SOFT3,
+                    DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
+                    DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
+                    DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
+                    // The metal rule.
+                    TAB_METAL,
+                ]
+            }
+        }
+    }
+
+    /// Whether `c` is one of `palette`'s colours: the same RGB (a wash is a
+    /// palette colour at an alpha - a spin keeps the alpha too), or nothing
+    /// at all (a transparent ring slot).
+    fn is_one_of(c: ColorU, palette: &[ColorU]) -> bool {
+        c.a == 0 || palette.iter().any(|p| p.r == c.r && p.g == c.g && p.b == c.b)
+    }
+
+    #[test]
+    fn under_either_theme_an_empty_list_is_that_themes_field_in_its_ink() {
+        for theme in BOTH {
+            let (paper, ink) = match theme {
+                UiTheme::Flat => ([flat::LIGHT_PG, flat::DARK_PG], [flat::LIGHT_INK, flat::DARK_INK]),
+                UiTheme::Flora => (
+                    [flora::LIGHT_FLD, flora::DARK_FLD],
+                    [flora::LIGHT_INK, flora::DARK_INK],
+                ),
+            };
+            under(theme, || {
+                let dom = ListView::create(cols(&["Name"])).dom();
+                for (i, dark) in [false, true].into_iter().enumerate() {
+                    assert_eq!(
+                        fill(&dom, dark),
+                        Some(paper[i]),
+                        "{theme:?} (dark: {dark}): the list's ground"
+                    );
+                    assert_eq!(
+                        tc::text_color(&dom, dark),
+                        Some(ink[i]),
+                        "{theme:?} (dark: {dark}): the list's ink"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn every_colour_a_list_paints_is_one_of_its_themes() {
+        for theme in BOTH {
+            let palette = palette(theme);
+            under(theme, || {
+                let dom = files().dom();
+                let mut foreign = Vec::new();
+                for (path, node) in tc::nodes(&dom) {
+                    for (p, _) in live_inline(node) {
+                        for c in colours(&p) {
+                            if !is_one_of(c, &palette) {
+                                foreign.push(alloc::format!("{path} {:?}: {c:?}", p.get_type()));
+                            }
+                        }
+                    }
+                }
+                assert!(
+                    foreign.is_empty(),
+                    "a list built for {theme:?} paints colours its theme does not have:\n  {}",
+                    foreign.join("\n  ")
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn a_selected_row_wears_its_themes_selection_by_day_and_by_night() {
+        for theme in BOTH {
+            under(theme, || {
+                let dom = files().dom();
+                let picked = &rows(&dom)[3];
+                for dark in [false, true] {
+                    match theme {
+                        UiTheme::Flat => {
+                            let (top, foot, rim) = if dark {
+                                (
+                                    flat::DARK_SELECTION_TOP,
+                                    flat::DARK_SELECTION_BOTTOM,
+                                    flat::DARK_SELECTION_BORDER,
+                                )
+                            } else {
+                                (
+                                    flat::LIGHT_SELECTION_TOP,
+                                    flat::LIGHT_SELECTION_BOTTOM,
+                                    flat::LIGHT_SELECTION_BORDER,
+                                )
+                            };
+                            assert_eq!(
+                                layers(picked, dark),
+                                vec![decl::face(top, foot)],
+                                "flat (dark: {dark}): Office 2010's light-blue selection face"
+                            );
+                            assert_eq!(
+                                tc::border_top_color(picked, dark, None),
+                                Some(rim),
+                                "flat (dark: {dark}): in its blue rim"
+                            );
+                        }
+                        UiTheme::Flora => {
+                            let (wash, ink) = if dark {
+                                (flora::DARK_ACC, flora::DARK_ON_ACC)
+                            } else {
+                                (flora::LIGHT_SOFT, flora::LIGHT_DEEP)
+                            };
+                            assert_eq!(
+                                fill(picked, dark),
+                                Some(wash),
+                                "flora (dark: {dark}): the accent's wash (flora.css ::selection)"
+                            );
+                            assert_eq!(
+                                tc::text_color(picked, dark),
+                                Some(ink),
+                                "flora (dark: {dark}): written in the wash's own ink"
+                            );
+                        }
+                    }
+                    assert_ne!(
+                        layers(&rows(&dom)[2], dark),
+                        layers(picked, dark),
+                        "{theme:?} (dark: {dark}): an unselected row is not the selection"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn every_other_row_is_striped_in_its_themes_band() {
+        for theme in BOTH {
+            let band = match theme {
+                UiTheme::Flat => [flat::LIGHT_SUR, flat::DARK_SUR],
+                UiTheme::Flora => [flora::LIGHT_SUR, flora::DARK_SUR],
+            };
+            under(theme, || {
+                let dom = files().dom();
+                for (i, dark) in [false, true].into_iter().enumerate() {
+                    assert_eq!(
+                        fill(&rows(&dom)[1], dark),
+                        Some(band[i]),
+                        "{theme:?} (dark: {dark}): the second row is a stripe"
+                    );
+                    for plain in [0, 2] {
+                        assert_eq!(
+                            fill(&rows(&dom)[plain], dark),
+                            None,
+                            "{theme:?} (dark: {dark}): row {plain} lies on the list's ground"
+                        );
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn the_header_is_its_themes_band_and_flora_titles_the_columns_in_garamond_capitals() {
+        for theme in BOTH {
+            under(theme, || {
+                let dom = files().dom();
+                let band = header(&dom);
+                let name = &band.children.as_ref()[0];
+                let size = &band.children.as_ref()[1];
+                for dark in [false, true] {
+                    let (face, ink, rule, accent) = match (theme, dark) {
+                        (UiTheme::Flat, false) => (
+                            decl::face(flat::LIGHT_RT, flat::LIGHT_RB),
+                            flat::LIGHT_INK2,
+                            flat::LIGHT_SEP,
+                            flat::LIGHT_ACC,
+                        ),
+                        (UiTheme::Flat, true) => (
+                            decl::face(flat::DARK_RT, flat::DARK_RB),
+                            flat::DARK_INK2,
+                            flat::DARK_SEP,
+                            flat::DARK_SOFT,
+                        ),
+                        (UiTheme::Flora, false) => (
+                            flora::RAISED_FACE_LIGHT,
+                            flora::LIGHT_INTRO,
+                            flora::LIGHT_SEP,
+                            flora::LIGHT_ACC,
+                        ),
+                        (UiTheme::Flora, true) => (
+                            flora::RAISED_FACE_DARK,
+                            flora::DARK_INTRO,
+                            flora::DARK_SEP,
+                            flora::DARK_GLOW,
+                        ),
+                    };
+                    assert_eq!(layers(band, dark), vec![face], "{theme:?} (dark: {dark}): the band");
+                    assert_eq!(
+                        tc::text_color(title(name), dark),
+                        Some(ink),
+                        "{theme:?} (dark: {dark}): a column's title"
+                    );
+                    assert_eq!(
+                        right_rule(name, dark),
+                        Some(rule),
+                        "{theme:?} (dark: {dark}): the separator between two columns"
+                    );
+                    assert_eq!(
+                        tc::text_color(title(size), dark),
+                        Some(accent),
+                        "{theme:?} (dark: {dark}): the sorted column's title is the accent"
+                    );
+                    assert_eq!(
+                        tc::text_color(&size.children.as_ref()[1], dark),
+                        Some(accent),
+                        "{theme:?} (dark: {dark}): and so is its sort arrow"
+                    );
+                }
+                if theme == UiTheme::Flora {
+                    assert_eq!(
+                        property(title(name), CssPropertyType::FontFamily),
+                        Some(CssProperty::const_font_family(flora::FONT_CAPS)),
+                        "flora sets its chrome in EB Garamond"
+                    );
+                    assert_eq!(
+                        property(title(name), CssPropertyType::TextTransform),
+                        Some(CssProperty::TextTransform(StyleTextTransform::Uppercase.into())),
+                        "in capitals"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn every_text_of_a_list_reads_at_least_two_to_one_in_both_themes_by_day_and_by_night() {
+        let mut bad = Vec::new();
+        for theme in BOTH {
+            for mode in [DarkLightMode::Light, DarkLightMode::Dark] {
+                bad.extend(crate::widgets::theme_contrast::findings_under(
+                    theme,
+                    mode,
+                    "list_view",
+                    || files().dom(),
+                ));
+                bad.extend(crate::widgets::theme_contrast::findings_under(
+                    theme,
+                    mode,
+                    "list_view (empty)",
+                    || ListView::create(cols(&["Name", "Size"])).dom(),
+                ));
+            }
+        }
+        assert!(bad.is_empty(), "{} text(s) do not read:\n  {}", bad.len(), bad.join("\n  "));
+    }
+}
