@@ -4100,7 +4100,13 @@ pub fn get_style_properties_for_state(
                 // the names stay in lock-step with the font-loading pass.
                 let platform = system_style.map(|ss| &ss.platform);
                 FontStack::Stack(at_optical_size(
-                    build_font_selector_stack_memo(&font_families, platform, fc_weight, fc_style),
+                    build_font_selector_stack_memo_themed(
+                        &font_families,
+                        platform,
+                        structural_theme_of(styled_dom),
+                        fc_weight,
+                        fc_style,
+                    ),
                     font_size,
                 ))
             },
@@ -4626,26 +4632,41 @@ use rust_fontconfig::{
 
 use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, FontStyle};
 
-/// Memoised [`build_font_selector_stack`].
-///
-/// Building the stack is PURE — the same (families, platform, weight,
-/// style) always yields the same selectors — but it was being rebuilt for
-/// every text node during intrinsic sizing and again during inline layout.
-/// On a document whose body sets one `font-family` that every block
-/// inherits, that is the identical eight-selector stack constructed 82
-/// times per pagination, each build allocating a `String` per selector plus
-/// a lowercase copy and a fontconfig alias lookup per generic. It measured
-/// 18% of a warm release-mode pagination (`bfss_*` spans) and was the
-/// single largest source of short-lived allocations in the layout pass.
-///
-/// The memo is per-thread (layout is single-threaded per document, so no
-/// lock) and keyed on everything the builder reads, so a document that
-/// changes family, weight, style or platform gets a fresh build — see the
-/// `memo_is_keyed_on_*` tests.
-#[allow(clippy::implicit_hasher)]
+/// The themed memo outside every theme (the tests' spelling).
+#[cfg(test)]
 fn build_font_selector_stack_memo(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
+    fc_weight: FcWeight,
+    fc_style: FontStyle,
+) -> Vec<FontSelector> {
+    build_font_selector_stack_memo_themed(font_families, platform, None, fc_weight, fc_style)
+}
+
+/// Memoised [`build_font_selector_stack_themed`], for a document cascaded
+/// under the structural app theme `theme` ([`structural_theme_of`]), which
+/// decides the hand of the `system:` text roles.
+///
+/// Building the stack is PURE — the same (families, platform, theme,
+/// weight, style) always yields the same selectors — but it was being
+/// rebuilt for every text node during intrinsic sizing and again during
+/// inline layout. On a document whose body sets one `font-family` that
+/// every block inherits, that is the identical eight-selector stack
+/// constructed 82 times per pagination, each build allocating a `String`
+/// per selector plus a lowercase copy and a fontconfig alias lookup per
+/// generic. It measured 18% of a warm release-mode pagination (`bfss_*`
+/// spans) and was the single largest source of short-lived allocations in
+/// the layout pass.
+///
+/// The memo is per-thread (layout is single-threaded per document, so no
+/// lock) and keyed on everything the builder reads, so a document that
+/// changes family, weight, style, platform or app theme gets a fresh build —
+/// see the `memo_is_keyed_on_*` tests.
+#[allow(clippy::implicit_hasher)]
+fn build_font_selector_stack_memo_themed(
+    font_families: &StyleFontFamilyVec,
+    platform: Option<&azul_css::system::Platform>,
+    theme: Option<&str>,
     fc_weight: FcWeight,
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
@@ -4685,6 +4706,8 @@ fn build_font_selector_stack_memo(
         }
         core::mem::discriminant(&fc_weight).hash(&mut h);
         core::mem::discriminant(&fc_style).hash(&mut h);
+        // The theme decides what the `system:` text roles expand to.
+        theme.hash(&mut h);
         h.finish()
     };
 
@@ -4694,7 +4717,8 @@ fn build_font_selector_stack_memo(
     }
 
     let _p = crate::probe::Probe::span("font_stack_build");
-    let built = build_font_selector_stack(font_families, platform, fc_weight, fc_style);
+    let built =
+        build_font_selector_stack_themed(font_families, platform, theme, fc_weight, fc_style);
     MEMO.with(|m| {
         let mut m = m.borrow_mut();
         if m.len() >= MAX_ENTRIES {
@@ -4735,11 +4759,42 @@ fn is_apple_system_ui_alias(family: &str, platform: &azul_css::system::Platform)
         || family.eq_ignore_ascii_case("BlinkMacSystemFont"))
 }
 
-/// Build a fontconfig `FontSelector` stack from a list of CSS font families.
+/// The themed builder outside every theme (the tests' spelling).
+#[cfg(test)]
+fn build_font_selector_stack(
+    font_families: &StyleFontFamilyVec,
+    platform: Option<&azul_css::system::Platform>,
+    fc_weight: FcWeight,
+    fc_style: FontStyle,
+) -> Vec<FontSelector> {
+    build_font_selector_stack_themed(font_families, platform, None, fc_weight, fc_style)
+}
+
+/// The structural app theme `styled_dom` was cascaded under (`flora` for
+/// `flora:green`, the first compiled-in theme of its context's chain), which
+/// decides the hand the `system:` text roles are set in
+/// ([`crate::text3::ui_fonts::theme_font_families`]). `None` for a DOM
+/// cascaded without a context.
+fn structural_theme_of(styled_dom: &StyledDom) -> Option<&str> {
+    styled_dom
+        .css_property_cache
+        .ptr
+        .dynamic_context
+        .as_deref()
+        .and_then(|ctx| azul_css::dynamic_selector::structural_app_theme(ctx.theme_chain.as_slice()))
+}
+
+/// Build a fontconfig `FontSelector` stack from a list of CSS font families,
+/// for a document cascaded under the structural app theme `theme`
+/// ([`structural_theme_of`]).
 ///
-/// Shared by `get_style_properties` and `collect_font_stacks_from_styled_dom`.
-/// `Ref` families are skipped (callers handle embedded fonts via `FontStack::Ref`),
-/// `SystemType` families expand to the platform's fallback chain, and the generic
+/// Shared by `get_style_properties` and `collect_font_stacks_from_styled_dom`,
+/// both with the DOM's theme, so the stack a run shapes with is a stack the
+/// loader resolved. `Ref` families are skipped (callers handle embedded fonts
+/// via `FontStack::Ref`), `SystemType` families expand to the platform's
+/// fallback chain - or, for a text role the theme has a hand of its own for
+/// (flora: EB Garamond, [`crate::text3::ui_fonts::theme_font_families`]), to
+/// that hand at the role's weight - and the generic
 /// `sans-serif`/`serif`/`monospace` fallbacks are appended if not already present.
 ///
 /// Generic families are pushed AS generics. rust-fontconfig expands them
@@ -4758,9 +4813,10 @@ fn is_apple_system_ui_alias(family: &str, platform: &azul_css::system::Platform)
 // extend the lifetime of a freshly-computed Platform and hand back a reference to it;
 // map_or_else cannot express this (the closure would return a dangling local ref).
 #[allow(clippy::option_if_let_else)]
-fn build_font_selector_stack(
+fn build_font_selector_stack_themed(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
+    theme: Option<&str>,
     fc_weight: FcWeight,
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
@@ -4801,7 +4857,18 @@ fn build_font_selector_stack(
             } else {
                 fc_style
             };
-            if matches!(
+            if let Some(hand) = crate::text3::ui_fonts::theme_font_families(theme, system_type) {
+                // The theme's own hand for this role (flora: Garamond).
+                for font_name in hand {
+                    stack.push(FontSelector {
+                        family: (*font_name).to_string(),
+                        weight: system_weight,
+                        style: system_style,
+                        unicode_ranges: Vec::new(),
+                        optical_size: 0,
+                    });
+                }
+            } else if matches!(
                 system_type,
                 azul_css::system::SystemFontType::Ui | azul_css::system::SystemFontType::UiBold
             ) {
@@ -5204,8 +5271,15 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
         let fc_weight = super::fc::convert_font_weight(font_weight);
         let fc_style = super::fc::convert_font_style(font_style);
 
-        let mut font_stack =
-            build_font_selector_stack(&font_families, Some(platform), fc_weight, fc_style);
+        // Under the DOM's theme, as `get_style_properties` builds it: flora's
+        // `system:` text roles load flora's hand.
+        let mut font_stack = build_font_selector_stack_themed(
+            &font_families,
+            Some(platform),
+            structural_theme_of(styled_dom),
+            fc_weight,
+            fc_style,
+        );
         // The optical size the key was collected under (see Phase 1): the
         // stack carries it into its chain key, as `get_style_properties`'s
         // stack does (`at_optical_size`, the same rounding).

@@ -36,6 +36,39 @@ use rust_fontconfig::UnicodeRange;
 /// The family flora's chrome is set in.
 pub const EB_GARAMOND: &str = "EB Garamond";
 
+/// Flora's hand, as a family list: `--font-serif` / `--font-caps`,
+/// `'EB Garamond', Georgia, 'Times New Roman', serif`. The bundled face
+/// first, so it holds on every machine; a character outside its slice falls
+/// back per glyph through the rest.
+pub const FLORA_HAND: &[&str] = &[EB_GARAMOND, "Georgia", "Times New Roman", "serif"];
+
+/// The families the app theme whose structural theme is `theme` (`flora`
+/// for `flora:green`; `None` outside every theme) sets the `system:` font
+/// role `role` in, where that theme has a hand of its own - else `None`, and
+/// the role takes the platform's face (`SystemFontType::get_fallback_chain`,
+/// `system-ui` for the UI).
+///
+/// Flora writes every TEXT role in Garamond: running text (`--font-serif`)
+/// and the chrome - the user's ruling for flora on the desktop, and what
+/// flora.css's own UI hand (`--font-ui: 'Grenze', 'EB Garamond', Georgia,
+/// serif`) renders as wherever Grenze is not installed, which is every
+/// desktop: azul bundles Garamond, not Grenze. So `system:ui`, `system:serif`,
+/// `system:title`, `system:menu` and `system:small` (and their bold
+/// spellings) are [`FLORA_HAND`]; monospace keeps the platform's code face.
+/// Every other theme (flat, native) keeps the platform's faces.
+#[must_use]
+pub fn theme_font_families(
+    theme: Option<&str>,
+    role: azul_css::system::SystemFontType,
+) -> Option<&'static [&'static str]> {
+    use azul_css::system::SystemFontType as Role;
+    match (theme?, role) {
+        ("flora", Role::Monospace | Role::MonospaceBold | Role::MonospaceItalic) => None,
+        ("flora", _) => Some(FLORA_HAND),
+        _ => None,
+    }
+}
+
 const EB_GARAMOND_REGULAR_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-Regular.ttf.br");
 const EB_GARAMOND_BOLD_BR: &[u8] = include_bytes!("../../assets/fonts/ui/EBGaramond-Bold.ttf.br");
@@ -110,6 +143,30 @@ pub fn eb_garamond_ranges() -> Vec<UnicodeRange> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flora_sets_every_text_role_in_garamond_and_keeps_the_code_face() {
+        use azul_css::system::SystemFontType as Role;
+        for role in [
+            Role::Ui,
+            Role::UiBold,
+            Role::Title,
+            Role::TitleBold,
+            Role::Menu,
+            Role::Small,
+            Role::Serif,
+            Role::SerifBold,
+        ] {
+            assert_eq!(theme_font_families(Some("flora"), role), Some(FLORA_HAND), "{role:?}");
+            assert_eq!(theme_font_families(Some("flat"), role), None, "flat: {role:?}");
+            assert_eq!(theme_font_families(None, role), None, "no theme: {role:?}");
+        }
+        for role in [Role::Monospace, Role::MonospaceBold, Role::MonospaceItalic] {
+            assert_eq!(theme_font_families(Some("flora"), role), None, "{role:?}");
+        }
+        assert_eq!(FLORA_HAND.first(), Some(&EB_GARAMOND), "the bundled face first");
+        assert_eq!(FLORA_HAND.last(), Some(&"serif"), "a serif to the end, as flora.css");
+    }
 
     #[test]
     fn both_garamond_faces_decompress_to_truetype() {
