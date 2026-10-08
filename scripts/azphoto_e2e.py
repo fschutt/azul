@@ -36,6 +36,12 @@ import time
 import urllib.error
 import urllib.request
 
+# The user's shared Azlin config (~/.azlin/config.json) stays out of the test: the app
+# reads and writes one of its own (scripts/azlin_e2e.py does the same for the others).
+if not os.environ.get("AZLIN_CONFIG"):
+    os.environ["AZLIN_CONFIG"] = os.path.join(
+        tempfile.mkdtemp(prefix="azlin-e2e-config-"), "config.json")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 

@@ -22,6 +22,16 @@ import time
 import urllib.error
 import urllib.request
 
+# The shared Azlin config (~/.azlin/config.json: the theme every app opens in) is the
+# user's. Every app a test starts - through `App` or a script's own launcher, which all
+# copy os.environ - reads and writes one of its own instead, the same file for the whole
+# run (a check across a restart still sees what the first start saved): a test that picks
+# a theme never changes the user's apps, and the user's theme never leaks into what a
+# test expects. A caller that sets AZLIN_CONFIG itself keeps its own.
+if not os.environ.get("AZLIN_CONFIG"):
+    os.environ["AZLIN_CONFIG"] = os.path.join(
+        tempfile.mkdtemp(prefix="azlin-e2e-config-"), "config.json")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
