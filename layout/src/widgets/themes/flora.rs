@@ -10352,3 +10352,156 @@ pub(crate) fn icon_grid_extras_look() -> crate::widgets::icon_grid::IconGridExtr
         placeholder: decl::radius(4).to_vec(),
     }
 }
+
+#[cfg(test)]
+mod flora16_look_tests {
+    //! The flora looks the apps showed wrong (FLORA16's audit): labels and
+    //! commands not in flora's capitals, a fill without a night value, a
+    //! wash borrowed from flat, token inks that are not flora.css's.
+
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, ModeCondition},
+        props::{
+            basic::color::{ColorOrSystem, ColorU},
+            property::{CssProperty, CssPropertyType},
+            style::{text::StyleTextTransform, StyleBackgroundContent},
+        },
+    };
+
+    use super::*;
+
+    /// The last declaration of `ty` in `props` that holds AT REST by day
+    /// (`dark` false) or at night: no pseudo-state, no other condition.
+    fn at_rest(
+        props: &[CssPropertyWithConditions],
+        ty: CssPropertyType,
+        dark: bool,
+    ) -> Option<CssProperty> {
+        props
+            .iter()
+            .filter(|p| {
+                p.property.get_type() == ty
+                    && p.apply_if.as_ref().iter().all(|c| match c {
+                        DynamicSelector::Mode(ModeCondition::Dark) => dark,
+                        DynamicSelector::Mode(ModeCondition::Light) => !dark,
+                        _ => false,
+                    })
+            })
+            .map(|p| p.property.clone())
+            .last()
+    }
+
+    fn in_capitals(props: &[CssPropertyWithConditions]) -> bool {
+        matches!(
+            at_rest(props, CssPropertyType::TextTransform, false),
+            Some(CssProperty::TextTransform(v))
+                if v.get_property() == Some(&StyleTextTransform::Uppercase)
+        )
+    }
+
+    fn fill(props: &[CssPropertyWithConditions], dark: bool) -> Option<ColorU> {
+        at_rest(props, CssPropertyType::BackgroundContent, dark)
+            .and_then(|p| super::super::theme_checks::bg_color(&p))
+    }
+
+    fn ink(props: &[CssPropertyWithConditions], dark: bool) -> Option<ColorU> {
+        match at_rest(props, CssPropertyType::TextColor, dark)? {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    /// A segment of a flora segmented control is a command: Garamond
+    /// capitals, as every flora button and tab (it was 13px mixed case next
+    /// to OK / CANCEL).
+    #[test]
+    fn a_flora_segment_is_set_in_capitals() {
+        let segment = segmented_skin().segment;
+        for (selected, first, last) in [(false, true, false), (true, false, true)] {
+            let v = segment(selected, first, last);
+            assert!(in_capitals(v.as_ref()), "selected {selected}");
+            assert!(
+                matches!(
+                    at_rest(v.as_ref(), CssPropertyType::FontFamily, false),
+                    Some(CssProperty::FontFamily(f)) if f.get_property() == Some(&FONT_CAPS)
+                ),
+                "in flora's capitals hand"
+            );
+        }
+    }
+
+    /// The filled part of a flora slider lifts to the stone's glow at night
+    /// (flora.css: the accent INK lifts to `--fl-glow` on a dark ground): the
+    /// day stone on the night trough read 1.5 - 2:1.
+    #[test]
+    fn a_flora_slider_fill_lifts_to_the_glow_at_night() {
+        let dom = slider_fill();
+        let last_stop = |dark: bool| -> Option<ColorU> {
+            let p = super::super::theme_checks::background(&dom, dark)?;
+            match super::super::theme_checks::bg_layers(&p).first()? {
+                StyleBackgroundContent::LinearGradient(g) => {
+                    match g.stops.as_ref().last()?.color {
+                        ColorOrSystem::Color(c) => Some(c),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        };
+        assert_eq!(last_stop(false), Some(LIGHT_ACC), "by day the stone");
+        assert_eq!(last_stop(true), Some(LIGHT_GLOW), "at night the stone's glow");
+    }
+
+    /// The lit range of a flora date picker is flora's selection wash - the
+    /// stone's soft tint by day, its deep tone at night - not flat's blue.
+    #[test]
+    fn a_flora_date_range_is_washed_in_floras_selection() {
+        let look = date_picker_look();
+        assert_eq!(fill(&look.day_in_range, false), Some(LIGHT_SOFT));
+        assert_eq!(fill(&look.day_in_range, true), Some(DARK_DEEP));
+    }
+
+    /// A settings section's title is `.fl-label`: capitals in the label ink
+    /// (`--fl-soft1`), not semibold brass.
+    #[test]
+    fn a_flora_settings_section_title_is_floras_label() {
+        let title = shell_look().settings_section_title;
+        assert!(in_capitals(&title));
+        assert_eq!(ink(&title, false), Some(LIGHT_SOFT1));
+        assert_eq!(ink(&title, true), Some(DARK_SOFT1));
+    }
+
+    /// A small flora label (`.fl-label`: a list's group header, a field's
+    /// key) is set in capitals.
+    #[test]
+    fn floras_small_label_is_set_in_capitals() {
+        assert!(in_capitals(&flora_label()));
+    }
+
+    /// The code view's token inks are flora.css's own (its Prism tokens
+    /// "recut in the house palette"), the comments in the panel's dim ink.
+    #[test]
+    fn the_code_views_tokens_are_flora_css_inks() {
+        use crate::widgets::code_view::CodeTokenKind as K;
+        let look = code_view_look();
+        let token = |k: K, dark: bool| ink(&look.tokens[k as usize], dark);
+        for dark in [false, true] {
+            for (k, want) in [
+                (K::Keyword, ColorU::rgb(0xD2, 0xC7, 0x9E)),
+                (K::StringLiteral, ColorU::rgb(0xA3, 0xC0, 0xAB)),
+                (K::Function, ColorU::rgb(0xD3, 0xB7, 0x9C)),
+                (K::Type, ColorU::rgb(0xD3, 0xB7, 0x9C)),
+                (K::Number, ColorU::rgb(0xA9, 0xB6, 0xD8)),
+                (K::Constant, ColorU::rgb(0xA9, 0xB6, 0xD8)),
+                (K::Operator, ColorU::rgb(0xCB, 0xC7, 0xB4)),
+                (K::Punctuation, ColorU::rgb(0xA9, 0xA5, 0x97)),
+                (K::Tag, ColorU::rgb(0xC9, 0xA4, 0x9C)),
+                (K::Attribute, ColorU::rgb(0xC9, 0xA4, 0x9C)),
+            ] {
+                assert_eq!(token(k, dark), Some(want), "{k:?} (dark {dark})");
+            }
+        }
+        assert_eq!(token(K::Comment, false), Some(ColorU::rgb(0x92, 0x8D, 0x80)));
+        assert_eq!(token(K::Comment, true), Some(ColorU::rgb(0x85, 0x85, 0x85)));
+    }
+}

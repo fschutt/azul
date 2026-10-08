@@ -1072,6 +1072,61 @@ mod todo_bar_tests {
         );
     }
 
+    /// The node whose direct text child reads `text`, and its parent: a
+    /// button's label and the button.
+    fn label_and_button<'a>(dom: &'a Dom, text: &str) -> Option<(&'a Dom, &'a Dom)> {
+        for child in dom.children.as_ref() {
+            let holds = child.children.as_ref().iter().any(|t| {
+                matches!(t.root.get_node_type(), NodeType::Text(s) if s.as_ref().as_str() == text)
+            });
+            if holds {
+                return Some((child, dom));
+            }
+            if let Some(found) = label_and_button(child, text) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Under flora a task's title is DATA, set as flora's text link
+    /// (flora.css `a`: brass ink, underlined, in the running hand) - not as
+    /// its quiet command (`.btn-quiet`: a boxed note in capitals), which
+    /// turned "Reply to Alice" into "REPLY TO ALICE" (AzMail's and
+    /// AzCalendar's To-Do bars).
+    #[test]
+    fn under_flora_a_task_title_is_a_text_link_not_a_command() {
+        use azul_css::props::{
+            property::{CssProperty, CssPropertyType},
+            style::text::StyleTextTransform,
+        };
+
+        use crate::widgets::themes::flora;
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = bar(&log).with_theme(UiTheme::Flora).dom();
+        let (label, button) = label_and_button(&dom, "Reply to Alice").expect("the task's title");
+        let transform = theme_checks::resolve(label, CssPropertyType::TextTransform, false, None);
+        assert!(
+            !matches!(
+                &transform,
+                Some(CssProperty::TextTransform(v))
+                    if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "a title keeps its case: {transform:?}"
+        );
+        assert_eq!(theme_checks::text_color(label, false), Some(flora::LIGHT_QT), "brass ink");
+        assert_eq!(theme_checks::text_color(label, true), Some(flora::DARK_QT));
+        let width = theme_checks::resolve(button, CssPropertyType::BorderTopWidth, false, None);
+        assert!(
+            !matches!(
+                &width,
+                Some(CssProperty::BorderTopWidth(w))
+                    if w.get_property().is_some_and(|w| w.inner.number.get() > 0.0)
+            ),
+            "no box around a link: {width:?}"
+        );
+    }
+
     #[test]
     fn a_bar_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
         let log: Log = Arc::new(Mutex::new(Vec::new()));
