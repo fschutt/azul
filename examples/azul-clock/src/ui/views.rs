@@ -69,13 +69,22 @@ fn row_css(gap: u32) -> String {
     format!("display: flex; flex-direction: row; align-items: center; column-gap: {gap}px;")
 }
 
+// Under flora (`@theme(flora)` after the flat values; flat is unchanged): the figures are
+// flora's Garamond (its figures are tabular and lining - they keep their width as they tick),
+// secondary text is the label ink rather than a faded ink, the rules are the grid's.
 const COLUMN: &str = "display: flex; flex-direction: column;";
 const SPACER: &str = "flex-grow: 1;";
-const SECONDARY: &str = "font-size: 12px; opacity: 0.7;";
-const EMPTY: &str = "padding: 24px; opacity: 0.7; font-size: 14px; text-align: center;";
+const SECONDARY: &str = "font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; color: \
+                         system:secondary-text; }";
+const EMPTY: &str = "padding: 24px; opacity: 0.7; font-size: 14px; text-align: center; \
+                     @theme(flora) { opacity: 1; color: system:secondary-text; }";
 /// A scrolling list that fills the rest of the screen.
 const LIST: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 4px 12px;";
-const ROW: &str = "display: flex; flex-direction: row; align-items: center; column-gap: 12px; padding: 8px 4px; border-bottom: 1px solid rgba(128,128,128,0.25);";
+const ROW: &str = "display: flex; flex-direction: row; align-items: center; column-gap: 12px; padding: 8px 4px; border-bottom: 1px solid rgba(128,128,128,0.25); @theme(flora) { border-bottom: 1px solid system:grid; }";
+/// A time, a lap, a countdown: flat's monospace, flora's Garamond (appended after the
+/// part's own `font-family: monospace`).
+const FIGURES_FLORA: &str = "@theme(flora) { font-family: EB Garamond, Georgia, serif; \
+                             font-variant-numeric: tabular-nums lining-nums; }";
 
 // ==== The mode row ====
 
@@ -165,37 +174,45 @@ fn status_line(s: &ClockApp, now: DateTime<Utc>) -> Dom {
     let id = if s.notice.is_empty() { ids::STATUS } else { ids::NOTICE };
     Dom::create_div()
         .with_id(id)
-        .with_css("padding: 6px 12px; font-size: 12px; border-top: 1px solid rgba(128,128,128,0.25);")
+        .with_css(
+            "padding: 6px 12px; font-size: 12px; border-top: 1px solid rgba(128,128,128,0.25); \
+             @theme(flora) { border-top: 1px solid system:grid; }",
+        )
         .with_child(Dom::create_span_with_text(text))
 }
 
 // ==== World ====
 
 /// An analog face: twelve ticks and three hands, rotated divs (CSS
-/// `transform: rotate`), no canvas.
+/// `transform: rotate`), no canvas. Flat draws it in a mid grey with a red
+/// second hand; flora in its inks - the ring and ticks in the quiet ink, the
+/// hour and minute hands in the ink, the second hand and the hub in the
+/// stone (its glow at night).
 fn analog_face(hour: u32, minute: u32, second: u32, size: f32) -> Dom {
     let c = size / 2.0;
     let mut face = Dom::create_div().with_id(ids::FACE).with_css(format!(
         "position: relative; width: {size}px; height: {size}px; border-radius: {c}px; \
-         border: 2px solid rgba(128,128,128,0.6); flex-shrink: 0;"
+         border: 2px solid rgba(128,128,128,0.6); flex-shrink: 0; @theme(flora) {{ border: 2px \
+         solid system:tertiary-text; }}"
     ));
     for i in 0..12 {
         let long = i % 3 == 0;
         let (w, h) = if long { (3.0, 12.0) } else { (2.0, 6.0) };
         face.add_child(Dom::create_div().with_css(format!(
             "position: absolute; left: {}px; top: 4px; width: {w}px; height: {h}px; \
-             background: rgba(128,128,128,0.9); transform-origin: {}px {}px; transform: rotate({}deg);",
+             background: rgba(128,128,128,0.9); transform-origin: {}px {}px; transform: rotate({}deg); \
+             @theme(flora) {{ background: system:tertiary-text; }}",
             c - w / 2.0,
             w / 2.0,
             c - 4.0,
             i * 30
         )));
     }
-    let hand = |degrees: f32, width: f32, length: f32, color: &str, class: AzString| {
+    let hand = |degrees: f32, width: f32, length: f32, color: &str, flora: &str, class: AzString| {
         Dom::create_div().with_class(class).with_css(format!(
             "position: absolute; left: {}px; top: {}px; width: {width}px; height: {length}px; \
              background: {color}; border-radius: {}px; transform-origin: {}px {length}px; \
-             transform: rotate({degrees:.1}deg);",
+             transform: rotate({degrees:.1}deg); @theme(flora) {{ background: {flora}; }}",
             c - width / 2.0,
             c - length,
             width / 2.0,
@@ -205,11 +222,14 @@ fn analog_face(hour: u32, minute: u32, second: u32, size: f32) -> Dom {
     let seconds = second as f32;
     let minutes = minute as f32 + seconds / 60.0;
     let hours = (hour % 12) as f32 + minutes / 60.0;
-    face.add_child(hand(hours * 30.0, 5.0, size * 0.25, "rgba(128,128,128,1)", ids::HAND_HOUR));
-    face.add_child(hand(minutes * 6.0, 3.0, size * 0.36, "rgba(128,128,128,1)", ids::HAND_MINUTE));
-    face.add_child(hand(seconds * 6.0, 1.5, size * 0.42, "#d0453c", ids::HAND_SECOND));
+    let ink = "system:text";
+    let stone = "system:accent";
+    face.add_child(hand(hours * 30.0, 5.0, size * 0.25, "rgba(128,128,128,1)", ink, ids::HAND_HOUR));
+    face.add_child(hand(minutes * 6.0, 3.0, size * 0.36, "rgba(128,128,128,1)", ink, ids::HAND_MINUTE));
+    face.add_child(hand(seconds * 6.0, 1.5, size * 0.42, "#d0453c", stone, ids::HAND_SECOND));
     face.with_child(Dom::create_div().with_css(format!(
-        "position: absolute; left: {}px; top: {}px; width: 8px; height: 8px; border-radius: 4px; background: #d0453c;",
+        "position: absolute; left: {}px; top: {}px; width: 8px; height: 8px; border-radius: 4px; \
+         background: #d0453c; @theme(flora) {{ background: {stone}; }}",
         c - 4.0,
         c - 4.0
     )))
@@ -255,7 +275,7 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
         .with_child(
             Dom::create_div()
                 .with_id(ids::FACE_TIME)
-                .with_css("font-size: 28px; font-weight: 600; font-family: monospace;")
+                .with_css(format!("font-size: 28px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"))
                 .with_child(text(&format!("{clock_text} {abbreviation}"))),
         )
         .with_child(line(&date, "font-size: 14px;"))
@@ -295,7 +315,7 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                 )
                 .with_child(line(
                     &fmt::clock(r.hour, r.minute, twelve),
-                    "font-size: 22px; font-family: monospace;",
+                    &format!("font-size: 22px; font-family: monospace; {FIGURES_FLORA}"),
                 ))
                 .with_child(button("Up", app, Action::CityUp(i)))
                 .with_child(button("Remove", app, Action::CityRemove(i)))
@@ -357,7 +377,10 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
                         .with_css(format!("{} flex-grow: 1; cursor: pointer;{dim}", row_css(16)))
                         .with_child(line(
                             &fmt::clock(a.hour, a.minute, twelve),
-                            "font-size: 30px; font-family: monospace; min-width: 110px;",
+                            &format!(
+                                "font-size: 30px; font-family: monospace; min-width: 110px; \
+                                 {FIGURES_FLORA}"
+                            ),
                         ))
                         .with_child(
                             Dom::create_div()
@@ -393,7 +416,8 @@ fn alarms_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
     if !s.os_rings.0 {
         column.add_child(line(
             &format!("Alarms ring while AzClock runs ({}).", s.os_rings.1),
-            "padding: 4px 12px; font-size: 12px; opacity: 0.7;",
+            "padding: 4px 12px; font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; \
+             color: system:secondary-text; }",
         ));
     }
     column
@@ -526,15 +550,26 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
     }
     for r in w.rows() {
         let badge = r.mark.label();
+        // Under flora the fastest lap is the leaf stone, the slowest the clay (their glows at
+        // night) - flora's alternates, not flat's green and red.
         let color = match r.mark {
-            LapMark::Fastest => " color: #2e8b57;",
-            LapMark::Slowest => " color: #d0453c;",
+            LapMark::Fastest => {
+                " color: #2e8b57; @theme(flora) { color: #44684F; @media (prefers-color-scheme: \
+                 dark) { color: #7FA98C; } }"
+            }
+            LapMark::Slowest => {
+                " color: #d0453c; @theme(flora) { color: #7E4A42; @media (prefers-color-scheme: \
+                 dark) { color: #B3837A; } }"
+            }
             LapMark::None => "",
         };
         list.add_child(
             Dom::create_div()
                 .with_class(ids::LAP_ROW)
-                .with_css(format!("{} padding: 4px; font-family: monospace;{color}", row_css(12)))
+                .with_css(format!(
+                    "{} padding: 4px; font-family: monospace; {FIGURES_FLORA}{color}",
+                    row_css(12)
+                ))
                 .with_child(line(&r.number.to_string(), "width: 48px;"))
                 .with_child(line(&fmt::lap(r.lap_ms), "width: 120px;"))
                 .with_child(line(&fmt::lap(r.total_ms), "width: 120px;"))
@@ -551,7 +586,9 @@ fn stopwatch_view(s: &ClockApp, app: &RefAny) -> Dom {
                     // The fast tick retexts this text node in place (its marker).
                     Dom::create_div()
                         .with_id(ids::STOPWATCH_BOX)
-                        .with_css("font-size: 48px; font-weight: 600; font-family: monospace;")
+                        .with_css(format!(
+                            "font-size: 48px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"
+                        ))
                         .with_child(
                             Dom::create_text_do_not_use_without_block_level_wrapper(fmt::stopwatch(w.elapsed(now)))
                                 .with_marker(OptionString::Some(ids::STOPWATCH_TIME)),
@@ -778,7 +815,10 @@ fn ringing(s: &ClockApp, r: &Ringing, app: &RefAny, now: DateTime<Utc>) -> Dom {
     let content = Dom::create_div()
         .with_id(ids::RING)
         .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 12px; padding: 24px 32px; min-width: 320px;")
-        .with_child(line(&big, "font-size: 52px; font-weight: 600; font-family: monospace;"))
+        .with_child(line(
+            &big,
+            &format!("font-size: 52px; font-weight: 600; font-family: monospace; {FIGURES_FLORA}"),
+        ))
         .with_child(line(&label, "font-size: 20px;"))
         .with_child(line(
             &format!("{} {}", local.format("%A"), fmt::clock(local.hour(), local.minute(), twelve)),

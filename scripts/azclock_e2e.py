@@ -15,7 +15,8 @@
     5. Timer: "Tea" is shown; the 1 min preset starts a third timer file;
     6. Stopwatch: the sample's 04:17.36 with five laps; Reset, Start, Lap, Stop;
     7. the settings page (Mod+,): the Clock section, Flora + Dark saved, OK closes it;
-    8. a screenshot of every screen;
+    8. a screenshot of every screen (Alarms, World and Timer under flora by night and by day,
+       each after the theme's fades: <screen>-flora-dark.png, <screen>-flora-light.png);
     9. with --ring: the 1 min timer rings (AZCLOCK_RING timer), the overlay shows "Time is up",
        Dismiss ends it.
 
@@ -177,7 +178,16 @@ def body(args, logs, out):
         for screen in ["Alarms", "World", "Timer"]:
             app.click(text=screen)
             app.frame(2)
+            app.settle()
             app.screenshot(os.path.join(out, "%s-flora-dark.png" % screen.lower()))
+        # Flora by day too (the debug server's mode; the settings keep the dark one).
+        app.must("set_mode", mode="light")
+        for screen in ["Alarms", "World", "Timer"]:
+            app.click(text=screen)
+            app.frame(2)
+            app.settle()
+            app.screenshot(os.path.join(out, "%s-flora-light.png" % screen.lower()))
+        app.must("set_mode", mode="dark")
 
         # 9. A ring (a minute long: --ring).
         if RING:
