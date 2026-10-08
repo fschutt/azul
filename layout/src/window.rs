@@ -6382,6 +6382,18 @@ impl LayoutWindow {
                 DarkLightMode::Light
             });
         }
+        // Under flora (or a spin of it) the room is flora's: the `system:`
+        // keywords name its tokens - the leaf, the field paper, the ink, the
+        // rules, the stone of the spin - so an app's own panes and text match
+        // the flora widgets around them (`widgets::themes::flora_palette`).
+        // Every other theme keeps the desktop's palette.
+        #[cfg(feature = "widgets")]
+        if let Some(palette) = crate::widgets::themes::flora_palette::for_chain(
+            ctx.theme_chain.as_slice(),
+            ctx.mode == azul_css::system::DarkLightMode::Dark,
+        ) {
+            ctx.system_colors = palette;
+        }
         ctx
     }
 

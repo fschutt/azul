@@ -2,6 +2,9 @@ use azul_css::impl_option;
 
 pub mod flat;
 pub mod flora;
+/// Flora's `system:` palette: the `system:` colour keywords under the app
+/// theme flora (and its spins).
+pub mod flora_palette;
 /// Flora's spins (`flora:green`, `flora:red`, ...): the accent ramp swapped
 /// in a built DOM, the rest of flora as it is.
 pub mod spin;
