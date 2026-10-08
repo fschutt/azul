@@ -865,13 +865,31 @@ impl NodeHierarchyItemVec {
 
 impl NodeDataContainerRef<'_, NodeHierarchyItem> {
     /// Returns the number of descendant nodes under the given parent.
+    ///
+    /// Descendants are contiguous after the node in pre-order, so they end
+    /// where the first node that is NOT below it starts: the node's next
+    /// sibling - or, for a last child, the next sibling of its nearest
+    /// ancestor that has one; the end of the tree only when no ancestor does.
+    /// (The end of the tree was taken for every last child, so a node closing
+    /// its parent's children claimed every node after it: a Switch's colour
+    /// fade, patched over its "subtree", recoloured the switches below it.)
     #[inline]
     #[must_use]
     pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
-        let next_item_index = self[parent_id]
-            .next_sibling_id()
-            .map_or_else(|| self.len(), |s| s.index());
+        let mut node = parent_id;
+        let mut next_item_index = self.len();
+        // At most one step per node: a malformed parent chain cannot loop.
+        for _ in 0..self.len() {
+            if let Some(next) = self[node].next_sibling_id() {
+                next_item_index = next.index();
+                break;
+            }
+            match self[node].parent_id() {
+                Some(parent) if parent.index() < self.len() => node = parent,
+                _ => break,
+            }
+        }
         // saturating: a malformed FastDom can leave next_sibling <= parent,
         // which would underflow-panic the subtraction.
         next_item_index
