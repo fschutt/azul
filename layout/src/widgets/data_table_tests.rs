@@ -770,6 +770,184 @@ fn a_filter_that_leaves_nothing_says_so() {
     assert!(geo_of(&small()).vbar.is_some());
 }
 
+// ---- rows that change: the order follows them ----
+
+/// The app's rows in the tests of a table whose rows change: one amount
+/// each, in column 1 ("Amount", a Number column); column 0 names the row.
+struct Amounts(Vec<f64>);
+
+extern "C" fn amount_cells(mut data: RefAny, at: DataTableCellRef) -> DataTableCell {
+    let Some(rows) = data.downcast_ref::<Amounts>() else {
+        return DataTableCell::empty();
+    };
+    match (at.column, rows.0.get(at.row as usize)) {
+        (0, Some(_)) => DataTableCell::create_text(AzString::from(format!("R{}", at.row))),
+        (1, Some(v)) => DataTableCell::create(AzString::from(format!("{v:.2}")), *v),
+        _ => DataTableCell::empty(),
+    }
+}
+
+/// A table over `amounts` (every row of it in view) showing `view`.
+fn amounts_table(amounts: &[f64], view: DataTableView) -> DataTable {
+    let columns = DataTableColumnVec::from_vec(vec![
+        DataTableColumn::create(AzString::from_const_str("Row"), 80.0, DataTableSortKind::Text),
+        DataTableColumn::create(AzString::from_const_str("Amount"), 90.0, DataTableSortKind::Number),
+    ]);
+    DataTable::create(columns, u32::try_from(amounts.len()).expect("a few rows"))
+        .with_viewport(400.0, 300.0)
+        .with_data_source(
+            RefAny::new(Amounts(amounts.to_vec())),
+            amount_cells as DataTableDataSourceCallbackType,
+        )
+        .with_view(view)
+}
+
+/// The app's rows the table shows as it is built, top to bottom.
+fn shown_rows(t: DataTable) -> Vec<u32> {
+    resolve(t).rows.iter().filter_map(|r| r.row).collect()
+}
+
+/// The order `view`'s query makes of `amounts`, as the handlers make it.
+fn ordered_over(amounts: &[f64], view: DataTableView) -> DataTableView {
+    let t = amounts_table(amounts, view);
+    let plan = plan_of(&t.view, t.columns.as_slice());
+    order_now(&t, t.view.clone(), &plan)
+}
+
+/// A view sorted by the amount (column 1), `direction`.
+fn by_amount(direction: DataTableSortDirection) -> DataTableView {
+    let mut v = DataTableView::create();
+    v.set_sort(DataTableSortKeyVec::from_vec(vec![DataTableSortKey::create(1, direction)]));
+    v
+}
+
+/// A refresh brings two rows and changes a value: the app says its rows
+/// changed (`invalidate_order`) and the table's next build shows every row
+/// in the order the view's sort makes of the NEW rows - not the old order,
+/// which knew four rows and left the new ones out.
+#[test]
+fn rows_that_change_are_shown_in_the_order_the_views_sort_makes_of_them() {
+    let first = [5.0, 1.0, 7.0, 3.0];
+    let refreshed = [5.0, 9.0, 7.0, 3.0, 8.0, 0.5];
+    let sorted = ordered_over(&first, by_amount(DataTableSortDirection::Descending));
+    assert_eq!(sorted.order.as_slice(), &[2, 0, 3, 1], "7, 5, 3, 1");
+
+    let mut view = sorted;
+    view.invalidate_order();
+    assert!(view.is_sorting(), "the order was made of other rows");
+    assert_eq!(
+        shown_rows(amounts_table(&refreshed, view)),
+        vec![1, 4, 2, 0, 3, 5],
+        "9, 8, 7, 5, 3, 0.5: every row, by the sort the view keeps"
+    );
+
+    let mut up = ordered_over(&first, by_amount(DataTableSortDirection::Ascending));
+    up.invalidate_order();
+    assert_eq!(
+        shown_rows(amounts_table(&refreshed, up)),
+        vec![5, 3, 0, 2, 4, 1],
+        "0.5, 3, 5, 7, 8, 9: ascending stays ascending"
+    );
+}
+
+/// A filter is a query too: the rows that pass it are found again among
+/// the new rows.
+#[test]
+fn a_filter_is_applied_again_to_rows_that_change() {
+    let mut v = DataTableView::create();
+    v.set_filter(1, DataTableSortKind::Number, AzString::from(">4"));
+    let mut view = ordered_over(&[5.0, 1.0, 7.0, 3.0], v);
+    assert_eq!(view.order.as_slice(), &[0, 2]);
+    view.invalidate_order();
+    assert_eq!(
+        shown_rows(amounts_table(&[5.0, 9.0, 7.0, 3.0, 8.0, 0.5], view)),
+        vec![0, 1, 2, 4],
+        "the rows over 4, in the app's order"
+    );
+}
+
+/// A refresh is not a new query: the scroll position, the selection and
+/// the sort stay where the user left them, and the old order shows until
+/// the new one is made. A view without a sort or a filter shows the app's
+/// order, which is always current: nothing to wait for.
+#[test]
+fn invalidating_the_order_keeps_the_scroll_position_the_selection_and_the_sort() {
+    let mut v = ordered_over(&[5.0, 1.0, 7.0, 3.0], by_amount(DataTableSortDirection::Descending));
+    v.top = 2;
+    v.selection.select_keys(U64Vec::from_vec(vec![0, 3]));
+    let before = v.clone();
+    v.invalidate_order();
+    assert_eq!(v.top, before.top, "the scroll position stays");
+    assert_eq!(v.selection, before.selection, "the selection stays");
+    assert_eq!(v.sort, before.sort, "the sort stays");
+    assert_eq!(v.order, before.order, "the old order shows until the new one is made");
+    assert_ne!(v.query_serial, before.query_serial, "an order job for the old rows is dropped");
+
+    let mut plain = DataTableView::create();
+    plain.invalidate_order();
+    assert!(!plain.is_sorting() && !plain.ordered, "the app's order: nothing to wait for");
+}
+
+/// The app sets a sort itself (a saved view, its own "Sort by amount"
+/// button) without starting the query: a table of up to
+/// `DATA_TABLE_SYNC_ROWS` rows shows that order at its next build, as a
+/// header click would have - never "Sorting..." over the app's order.
+#[test]
+fn a_small_table_shows_a_sort_the_app_set_itself_at_its_next_build() {
+    let view = by_amount(DataTableSortDirection::Descending);
+    assert!(view.is_sorting(), "nothing ordered it yet");
+    let resolved = resolve(small().with_view(view.clone()));
+    assert!(!resolved.table.view.is_sorting(), "ordered at the build");
+    let first = resolved.rows[0].row.expect("a row in view");
+    assert_eq!(fixtures::amount(first), 25.0, "the biggest amount first");
+    let dom = small().with_view(view).with_theme(UiTheme::Flat).dom();
+    let mut seen = Vec::new();
+    texts(&dom, &mut seen);
+    assert!(!seen.iter().any(|t| t.starts_with("Sorting")), "{seen:?}");
+}
+
+/// An app's callback that starts the query of the table it carries.
+extern "C" fn query_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(t) = data.downcast_ref::<DataTable>() {
+        t.start_query(&mut info);
+    }
+    Update::DoNothing
+}
+
+/// A table of more rows than a build orders: after the app's rows changed
+/// it shows the old order and says it is sorting, and the app's
+/// `start_query` (in any of its callbacks) starts the job that reads the
+/// new rows' keys - before `invalidate_order` it had nothing to start.
+#[test]
+fn a_big_table_whose_rows_changed_is_ordered_again_through_start_query() {
+    let rows: u32 = 100_000;
+    let view = by_amount(DataTableSortDirection::Ascending);
+    let serial = view.query_serial;
+    let mut view = view.with_order(serial, (0..rows).collect());
+    assert!(!view.is_sorting());
+    view.invalidate_order();
+    let big = small().with_row_count(rows).with_view(view);
+    let mut seen = Vec::new();
+    texts(&big.clone().with_theme(UiTheme::Flat).dom(), &mut seen);
+    assert!(seen.iter().any(|t| t == "Sorting 100,000 rows..."), "{seen:?}");
+
+    let caller = Dom::create_div().with_callback(
+        EventFilter::Hover(HoverEventFilter::Click),
+        RefAny::new(big),
+        azul_core::callbacks::CoreCallback {
+            cb: query_now as usize,
+            ctx: azul_core::refany::OptionRefAny::None,
+        },
+    );
+    let styled = StyledDom::create_from_dom(caller);
+    let (_, changes) = rv::fire(&styled, id(NodeId::new(0)), EventFilter::Hover(HoverEventFilter::Click))
+        .expect("the app's callback runs");
+    assert!(
+        changes.iter().any(|c| matches!(c, crate::callbacks::CallbackChange::AddTimer { .. })),
+        "the order job's timer reads the new rows' keys"
+    );
+}
+
 #[test]
 fn a_table_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
     checks::assert_follows_the_app_theme(
