@@ -127,3 +127,85 @@ fn a_callback_image_in_a_background_layer_is_drawn_for_the_layers_rect() {
     assert_eq!(again.len(), 1);
     assert_eq!(again[0].1.get_hash(), image.get_hash(), "the same frame");
 }
+
+/// The light's azimuth and the node's `--azul-bevel` every frame of
+/// [`lit_canvas`] was rendered under.
+static LIT: Mutex<Vec<(f32, Option<String>)>> = Mutex::new(Vec::new());
+
+/// A canvas that records the material light and a custom property of its
+/// node, and paints its rect opaque white.
+extern "C" fn lit_canvas(_data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
+    let bevel = info
+        .get_custom_property("azul-bevel".into())
+        .into_option()
+        .map(|s| s.as_str().to_string());
+    LIT.lock()
+        .expect("not poisoned")
+        .push((info.get_material_light().azimuth_deg, bevel));
+    let physical = info.get_bounds().get_physical_size();
+    let (w, h) = (
+        physical.width.max(1) as usize,
+        physical.height.max(1) as usize,
+    );
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(vec![255_u8; w * h * 4].into()),
+        width: w,
+        height: h,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    })
+    .expect("an RGBA8 frame")
+}
+
+#[test]
+fn a_new_material_light_renders_a_background_callback_again() {
+    use azul_layout::texture::MaterialLight;
+
+    let canvas = ImageRef::callback(
+        RenderImageCallback::create(lit_canvas).to_core(),
+        RefAny::new(()),
+    );
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lw.image_cache.add_css_image_id("lit-canvas".into(), canvas);
+    let dom = Dom::create_body().with_child(Dom::create_div().with_css(
+        "width: 80px; height: 30px; --azul-bevel: 5px; background: url(lit-canvas);",
+    ));
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        StyledDom::create_from_dom(dom),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the div lays out");
+    lw.prepare_frame_content();
+    let first = image_items(&lw)[0].1.get_hash();
+    assert_eq!(
+        LIT.lock().expect("not poisoned").as_slice(),
+        &[(135.0, Some("5px".to_string()))],
+        "rendered once, under the default light (from the upper left), seeing its node's \
+         custom property"
+    );
+
+    assert!(
+        !lw.set_material_light(MaterialLight::DEFAULT),
+        "the light the window has is no change"
+    );
+    assert_eq!(LIT.lock().expect("not poisoned").len(), 1);
+
+    assert!(lw.set_material_light(MaterialLight::from_direction(270.0, 30.0)));
+    assert_eq!(
+        LIT.lock().expect("not poisoned").last().map(|(az, _)| *az),
+        Some(270.0),
+        "a new light renders the background again, at once (before the next frame registers \
+         its images)"
+    );
+    let second = image_items(&lw)[0].1.get_hash();
+    assert_ne!(first, second, "the item carries the new frame");
+    lw.prepare_frame_content();
+    assert_eq!(LIT.lock().expect("not poisoned").len(), 2, "and only once");
+}

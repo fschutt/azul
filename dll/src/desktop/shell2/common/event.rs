@@ -6766,6 +6766,20 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
+            // The window's material light: its material backgrounds render
+            // again (patched into the display list right away), and the
+            // frame shows them. The same light again is nothing.
+            CallbackChange::SetMaterialLight { light } => {
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.set_material_light(*light));
+                if changed {
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
             CallbackChange::MediaTransport { node, op } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.media_player_manager.apply(*node, *op);

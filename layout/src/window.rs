@@ -1092,6 +1092,12 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         image_cache: _,
         content_overlay: _,
         image_callback_inputs: _,
+        // One entry per background item drawing a callback image (a frame
+        // each, shared with the render cache): bounded by such items.
+        background_image_frames: _,
+        // A light and a counter.
+        material_light: _,
+        background_frames_generation: _,
         content_journal: _,
         caret_text_snapshot: _,
         scroll_manager: _,
@@ -1669,6 +1675,18 @@ pub struct LayoutWindow {
     /// `update_all_image_callbacks`) - a canvas at rest mints no new
     /// `ImageRef` and repaints nothing (AzReview never idled, FB3).
     pub image_callback_inputs: BTreeMap<(DomId, NodeId), ImageCallbackInputs>,
+    /// The frames of callback images used as BACKGROUND layers
+    /// (`background: url(id)` / `builtin(<name>)` naming a callback image),
+    /// per item: what each was rendered from and the frame patched into the
+    /// display list ([`Self::resolve_background_image_callbacks`]).
+    pub background_image_frames: BTreeMap<BackgroundFrameKey, BackgroundFrame>,
+    /// The light the window's built-in materials are lit by
+    /// (`CallbackInfo::set_material_light`).
+    pub material_light: crate::texture::MaterialLight,
+    /// Bumped by every new [`Self::material_light`] and every
+    /// `update_all_image_callbacks`: a background frame rendered under an
+    /// older one renders again.
+    pub background_frames_generation: u64,
     /// Frame-scoped journal of applied content changes (what the RENDERER may
     /// still need: old images for backends compositing a not-fully-redrawn
     /// buffer, retention = swapchain depth). Fed by the same chokepoint;
@@ -2493,6 +2511,9 @@ impl LayoutWindow {
             image_cache: crate::texture::image_cache_with_builtin_textures(),
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
+            background_image_frames: BTreeMap::new(),
+            material_light: crate::texture::MaterialLight::DEFAULT,
+            background_frames_generation: 0,
             content_journal: crate::overlay::ContentJournal::default(),
             caret_text_snapshot: None,
             layout_results: BTreeMap::new(),
@@ -3091,6 +3112,16 @@ impl LayoutWindow {
         #[cfg(feature = "a11y")]
         if result.is_ok() {
             self.update_a11y_tree();
+        }
+
+        // A callback image painted as a BACKGROUND layer (a built-in material,
+        // `background: url(id)` naming a callback image) gets its frame for
+        // this pass's rects now: no renderer can draw the declared callback,
+        // and the GL path registers this pass's images before it prepares the
+        // next frame. Before the patch verification below, so the patched and
+        // the wholesale list carry the same frames.
+        if result.is_ok() {
+            self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
         }
 
         // Every layout pass ends here — full rebuild, pre-cascade relayout,
@@ -8587,6 +8618,7 @@ impl LayoutWindow {
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(&OptionGlContextPtr::None);
+        self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
     }
 
     /// The app asked for a new frame of one canvas (`update_image_callback`):
@@ -8596,9 +8628,34 @@ impl LayoutWindow {
     }
 
     /// The app asked for a new frame of every canvas
-    /// (`update_all_image_callbacks`, e.g. an animating GL texture).
+    /// (`update_all_image_callbacks`, e.g. an animating GL texture) - the
+    /// callback images painted as backgrounds too.
     pub fn invalidate_all_image_callbacks(&mut self) {
         self.image_callback_inputs.clear();
+        // Not cleared: a patched item is recognised by its frame's entry.
+        self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
+    }
+
+    /// Light the window's built-in materials with `light`
+    /// (`CallbackInfo::set_material_light`). Returns whether it is a new
+    /// light: then every frame of a callback image renders again on the next
+    /// frame (a callback reads the light through
+    /// `RenderImageCallbackInfo::get_material_light`), and the caller
+    /// repaints.
+    pub fn set_material_light(&mut self, light: crate::texture::MaterialLight) -> bool {
+        if self.material_light == light {
+            return false;
+        }
+        self.material_light = light;
+        self.background_frames_generation = self.background_frames_generation.wrapping_add(1);
+        // Image nodes: their inputs do not carry the light.
+        self.image_callback_inputs.clear();
+        // The backgrounds now, not at the next frame's preparation: the GL
+        // path registers a frame's images before it prepares the frame, and
+        // a frame patched in after that would be missing for one frame -
+        // every frame, while a timer sweeps the rays.
+        self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
+        true
     }
 
     /// The GL/WR twin of [`Self::prepare_frame_content`]: same journal clock,
@@ -8616,6 +8673,7 @@ impl LayoutWindow {
         let fingerprint = self.manager_state_fingerprint();
         self.content_journal.record_manager_state(fingerprint);
         self.invoke_image_callbacks_into_overlay(gl_context);
+        self.resolve_background_image_callbacks(gl_context);
     }
 
     /// `[focus, selection, scroll]` fingerprints for the journal diff.
@@ -9609,13 +9667,26 @@ impl LayoutWindow {
                 dom: dom_id,
                 node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
             };
-            let info = crate::callbacks::RenderImageCallbackInfo::new(
+            // What the callback may read beyond its size: the window's
+            // material light, the node's custom properties, where it sits.
+            let mut extras = crate::callbacks::RenderImageCallbackExtras::new(self.material_light);
+            if let Some(lr) = self.layout_results.get(&dom_id) {
+                extras.custom_properties = node_custom_properties(&lr.styled_dom, node_id).0;
+            }
+            if let Some(rect) = self.get_node_bounds(dom_id, node_id) {
+                extras.origin = LogicalPosition::new(rect.origin.x as f32, rect.origin.y as f32);
+            }
+            let mut info = crate::callbacks::RenderImageCallbackInfo::new(
                 domnode_id,
                 bounds,
                 gl_context,
                 &self.image_cache,
                 &self.font_manager.fc_cache,
             );
+            // SAFETY: `extras` (and the styled DOM its map points into, which
+            // nothing mutates until the frames are applied below) outlives the
+            // invocation.
+            unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
             let produced = match image_ref.get_data() {
                 DecodedImage::Callback(core_callback) if core_callback.callback.cb != 0 => {
                     let cb =
@@ -9643,6 +9714,241 @@ impl LayoutWindow {
                 node_id,
                 image,
             });
+        }
+    }
+
+    /// Callback images painted as BACKGROUND layers: `background: url(id)`
+    /// or `builtin(<name>)` naming an image the window's cache holds as a
+    /// `RenderImageCallback` - the built-in materials are such images. The
+    /// display list carries the DECLARED callback image (what the cache holds
+    /// under the id), which no renderer can draw: the CPU raster painted the
+    /// grey "never invoked" placeholder for it and WebRender nothing. This
+    /// invokes the callback for each such item's own rect - its size, its
+    /// corner radii and window position, its node's custom properties
+    /// ([`crate::callbacks::RenderImageCallbackExtras`]), the window's
+    /// material light - and patches the produced frame into the item.
+    ///
+    /// Remembered per item ([`BackgroundFrameKey`] -> [`BackgroundFrame`]): a
+    /// frame at rest is not rendered again; an item the display list rebuilt
+    /// with the declared image gets the remembered frame back; a changed input
+    /// (a new light, a resize, a pressed state's custom property, an explicit
+    /// `update_all_image_callbacks`) renders it anew. Frames no item uses any
+    /// more are dropped.
+    ///
+    /// Runs where a display list is made (the layout funnel,
+    /// [`Self::regenerate_display_list_for_dom`]), when the light changes and
+    /// in every frame's preparation. Free when no css id names a callback
+    /// image and no frame is remembered: one pass over the window's css ids.
+    pub fn resolve_background_image_callbacks(&mut self, gl_context: &OptionGlContextPtr) {
+        use azul_core::resources::{DecodedImage, ImageRefHash};
+
+        use crate::solver3::display_list::DisplayListItem;
+
+        struct Render {
+            inputs: BackgroundFrameInputs,
+            declared: ImageRef,
+            bounds: LogicalRect,
+            radii: [f32; 4],
+            custom_properties: *const azul_css::custom_properties::CustomPropertyMap,
+        }
+
+        let declared: BTreeMap<ImageRefHash, ImageRef> = self
+            .image_cache
+            .image_id_map
+            .values()
+            .filter(|image| image.is_callback())
+            .map(|image| (image.get_hash(), image.clone()))
+            .collect();
+        if declared.is_empty() && self.background_image_frames.is_empty() {
+            return;
+        }
+        // An item patched before carries its frame: known by the frame's id.
+        let produced: BTreeMap<ImageRefHash, BackgroundFrameKey> = self
+            .background_image_frames
+            .iter()
+            .map(|(key, frame)| (frame.frame.get_hash(), *key))
+            .collect();
+        let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
+        let generation = self.background_frames_generation;
+
+        // Phase 1: every item that draws a declared callback image or one of
+        // the frames, and what it would be rendered from now.
+        let mut seen: BTreeSet<BackgroundFrameKey> = BTreeSet::new();
+        let mut renders: BTreeMap<BackgroundFrameKey, Render> = BTreeMap::new();
+        let mut patches: BTreeMap<DomId, Vec<(usize, BackgroundFrameKey)>> = BTreeMap::new();
+        for (dom_id, lr) in &self.layout_results {
+            let node_data = lr.styled_dom.node_data.as_container();
+            for (index, item) in lr.display_list.items.iter().enumerate() {
+                let DisplayListItem::Image {
+                    bounds,
+                    image,
+                    border_radius,
+                } = item
+                else {
+                    continue;
+                };
+                let hash = image.get_hash();
+                let declared_hash = if declared.contains_key(&hash) {
+                    hash
+                } else if let Some(key) = produced.get(&hash) {
+                    key.declared
+                } else {
+                    continue;
+                };
+                let node = lr.display_list.node_mapping.get(index).copied().flatten();
+                // An image node's own callback is the overlay's
+                // (`invoke_image_callbacks_into_overlay`), not a background.
+                if let Some(NodeType::Image(own)) = node
+                    .and_then(|n| node_data.get(n))
+                    .map(azul_core::dom::NodeData::get_node_type)
+                {
+                    if own.get_hash() == declared_hash {
+                        continue;
+                    }
+                }
+                let rect = *bounds.inner();
+                let key = BackgroundFrameKey {
+                    dom: *dom_id,
+                    node,
+                    declared: declared_hash,
+                    rect_bits: [
+                        rect.origin.x.to_bits(),
+                        rect.origin.y.to_bits(),
+                        rect.size.width.to_bits(),
+                        rect.size.height.to_bits(),
+                    ],
+                };
+                seen.insert(key);
+                let radii = [
+                    border_radius.top_left,
+                    border_radius.top_right,
+                    border_radius.bottom_right,
+                    border_radius.bottom_left,
+                ];
+                let (custom_properties, custom_properties_hash) = node.map_or(
+                    (core::ptr::null(), 0),
+                    |n| node_custom_properties(&lr.styled_dom, n),
+                );
+                let inputs = BackgroundFrameInputs {
+                    hidpi_factor,
+                    radii_bits: radii.map(f32::to_bits),
+                    generation,
+                    custom_properties_hash,
+                };
+                match self.background_image_frames.get(&key) {
+                    Some(remembered) if remembered.inputs == inputs => {
+                        if remembered.frame.get_hash() != hash {
+                            patches.entry(*dom_id).or_default().push((index, key));
+                        }
+                    }
+                    _ => {
+                        // Gone from the cache (the app removed the id): the
+                        // item keeps the last frame it has.
+                        let Some(declared_image) = declared.get(&declared_hash) else {
+                            continue;
+                        };
+                        renders.entry(key).or_insert_with(|| Render {
+                            inputs,
+                            declared: declared_image.clone(),
+                            bounds: rect,
+                            radii,
+                            custom_properties,
+                        });
+                        patches.entry(*dom_id).or_default().push((index, key));
+                    }
+                }
+            }
+        }
+
+        // Phase 2: render what is not remembered (nothing above is mutated
+        // until phase 3, so the custom-property pointers stay valid).
+        let mut rendered: Vec<(BackgroundFrameKey, BackgroundFrame)> = Vec::new();
+        for (key, render) in renders {
+            let DecodedImage::Callback(core_callback) = render.declared.get_data() else {
+                continue;
+            };
+            if core_callback.callback.cb == 0 {
+                continue;
+            }
+            let extras = crate::callbacks::RenderImageCallbackExtras {
+                border_radii: render.radii,
+                origin: render.bounds.origin,
+                material_light: self.material_light,
+                custom_properties: render.custom_properties,
+            };
+            let domnode_id = DomNodeId {
+                dom: key.dom,
+                node: NodeHierarchyItemId::from_crate_internal(key.node),
+            };
+            let bounds = HidpiAdjustedBounds {
+                logical_size: render.bounds.size,
+                hidpi_factor,
+            };
+            let mut info = crate::callbacks::RenderImageCallbackInfo::new(
+                domnode_id,
+                bounds,
+                gl_context,
+                &self.image_cache,
+                &self.font_manager.fc_cache,
+            );
+            // SAFETY: `extras` outlives the invocation right below.
+            unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
+            let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
+            let refany = core_callback.refany.clone();
+            let produced =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb.invoke(refany, info)))
+                    .ok();
+            // A callback answering with another callback would be asked
+            // forever: only a drawable frame is kept (a panic is asked again).
+            if let Some(frame) = produced.filter(|frame| !frame.is_callback()) {
+                rendered.push((
+                    key,
+                    BackgroundFrame {
+                        inputs: render.inputs,
+                        frame,
+                    },
+                ));
+            }
+        }
+
+        // Phase 3: remember, forget what no item draws, patch the items.
+        for (key, frame) in rendered {
+            self.background_image_frames.insert(key, frame);
+        }
+        self.background_image_frames.retain(|key, _| seen.contains(key));
+        for (dom_id, items) in patches {
+            let Some(lr) = self.layout_results.get_mut(&dom_id) else {
+                continue;
+            };
+            let frames: Vec<(usize, ImageRef)> = items
+                .into_iter()
+                .filter_map(|(index, key)| {
+                    self.background_image_frames
+                        .get(&key)
+                        .map(|f| (index, f.frame.clone()))
+                })
+                .collect();
+            if frames.is_empty() {
+                continue;
+            }
+            // The solver's structural-identity cache may hold this very list:
+            // hand it the patched one, or the next relayout over the same tree
+            // serves the declared callbacks back (as `apply_image_change`).
+            let cache_serves_this = dom_id == DomId::ROOT_ID
+                && self
+                    .layout_cache
+                    .cached_display_list
+                    .as_ref()
+                    .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lr.display_list));
+            let display_list = Arc::make_mut(&mut lr.display_list);
+            for (index, frame) in frames {
+                let _ = display_list.patch_item_image(index, frame);
+            }
+            if cache_serves_this {
+                if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                    cached.5 = lr.display_list.clone();
+                }
+            }
         }
     }
 
@@ -23253,6 +23559,10 @@ impl LayoutWindow {
                 // answer "no, it owes a repaint" forever. See the twin clear at
                 // the end of `layout_and_generate_display_list`.
                 self.text_edit_manager.display_list_dirty = false;
+                // The list was built with the declared callback images of its
+                // background layers: their frames go in now, before a renderer
+                // registers the list's images (`resolve_background_image_callbacks`).
+                self.resolve_background_image_callbacks(&OptionGlContextPtr::None);
                 // Incremental a11y update: only push the edited node's
                 // updated value + cursor, not the entire tree.
                 #[cfg(feature = "a11y")]
@@ -25895,6 +26205,13 @@ impl LayoutWindow {
             // may have changed the data a canvas draws from, so each of its
             // canvases renders once more.
             image_callback_inputs,
+            // Dropped for the rebuilt DOM like the canvases' inputs; the next
+            // frame finds the items again (the material render cache keeps
+            // an identical surface from rendering twice).
+            background_image_frames,
+            // The window's light, keyed by nothing.
+            material_light: _,
+            background_frames_generation: _,
             content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
@@ -26175,6 +26492,7 @@ impl LayoutWindow {
         // already installed.
         content_overlay.remap_node_ids(dom, map);
         image_callback_inputs.retain(|(d, _), _| *d != dom);
+        background_image_frames.retain(|key, _| key.dom != dom);
         // The journal's old-image entries are keyed by pre-swap NodeIds and a
         // generation swap repaints everything anyway — drop this DOM's history
         // rather than remapping it.
@@ -26288,6 +26606,88 @@ impl ImageCallbackInputs {
             hidpi_factor: bounds.hidpi_factor,
         }
     }
+}
+
+/// The pseudo-state whose custom properties a node in `state` shows to a
+/// render callback: the most specific one it is in - a pressed button is
+/// `:active` before it is `:hover`, a disabled one `:disabled` before all.
+fn custom_property_state(
+    state: &azul_core::styled_dom::StyledNodeState,
+) -> azul_css::dynamic_selector::PseudoStateType {
+    use azul_css::dynamic_selector::PseudoStateType;
+
+    if state.disabled {
+        PseudoStateType::Disabled
+    } else if state.active {
+        PseudoStateType::Active
+    } else if state.focused {
+        PseudoStateType::Focus
+    } else if state.hover {
+        PseudoStateType::Hover
+    } else if state.checked {
+        PseudoStateType::CheckedTrue
+    } else {
+        PseudoStateType::Normal
+    }
+}
+
+/// The custom properties `node` sees in its current state (a pointer into
+/// `styled_dom`'s cascade, for [`crate::callbacks::RenderImageCallbackExtras`])
+/// and a hash of them (a frame rendered from other values renders again).
+fn node_custom_properties(
+    styled_dom: &StyledDom,
+    node: NodeId,
+) -> (*const azul_css::custom_properties::CustomPropertyMap, u64) {
+    use std::hash::{Hash, Hasher};
+
+    let state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+    let map = styled_dom
+        .get_css_property_cache()
+        .custom_property_envs
+        .map_for(node.index(), custom_property_state(&state));
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    map.hash(&mut hasher);
+    (core::ptr::from_ref(map), hasher.finish())
+}
+
+/// Which background item a frame of a callback image is for
+/// ([`LayoutWindow::background_image_frames`]): the DOM, the node the item
+/// paints (the canvas background's tiles paint none), the declared callback
+/// image and the item's rect, logical px (bit patterns: origin x / y, width,
+/// height). A rect that moves is a new item - a callback may draw what lies
+/// at its place in the window (the materials' god rays do).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BackgroundFrameKey {
+    pub dom: DomId,
+    pub node: Option<NodeId>,
+    pub declared: azul_core::resources::ImageRefHash,
+    pub rect_bits: [u32; 4],
+}
+
+/// What a background frame was rendered from besides its key: the scale
+/// factor, the item's corner radii (bit patterns), the window's generation
+/// of lights and explicit updates, and the node's custom properties (a hash
+/// of its map in its current state).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackgroundFrameInputs {
+    pub hidpi_factor: azul_core::resources::DpiScaleFactor,
+    pub radii_bits: [u32; 4],
+    /// [`LayoutWindow::background_frames_generation`] when it rendered.
+    pub generation: u64,
+    pub custom_properties_hash: u64,
+}
+
+/// A frame of a callback image painted as a background layer, and what it
+/// was rendered from.
+#[derive(Debug, Clone)]
+pub struct BackgroundFrame {
+    pub inputs: BackgroundFrameInputs,
+    pub frame: ImageRef,
 }
 
 /// Remap the `NodeId` inside a `ScrollbarHitId`. `None` = the scroll container
