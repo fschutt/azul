@@ -97,6 +97,9 @@ jobs:
       - name: Release contracts (naming, widget wiring, sparse checkout, api.json)
         run: python3 scripts/preflight_contracts.py
 
+      - name: Public tree (no credentials, no agent notes)
+        run: python3 scripts/check_public_tree.py --self-test && python3 scripts/check_public_tree.py
+
       - name: Backends must not touch content state
         run: |
           set -e

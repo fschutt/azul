@@ -1,12 +1,11 @@
 # AzMail: what it needs (exploration, 2026-09-30)
 
 Research and evidence only, nothing is built. Branch `wt/x-mail-explore`, cut from `34a8fe46f`.
-Paths are relative to the azul repo unless they start with `azul-apps/` (= `../azul-apps`).
+Paths are relative to the azul repo. (The private planning notes it cites by name are not part of this repository.)
 
 This builds on three earlier notes, which it corrects where the code has moved:
-`azul-apps/planning/core/mail.md` (the UI plan), `azul-apps/planning/engines/mail-transport.md`
-(micromail, 2026-09-15) and `azul-apps/planning/foundation/09-text-editing-clipboard-html.md`
-(editing and HTML, 2026-09-15). The storage model follows the 2026-09-30 ruling: durable data is
+the mail UI plan, the mail-transport note (micromail, 2026-09-15) and the editing and HTML note
+(2026-09-15), all private planning notes. The storage model follows the 2026-09-30 ruling: durable data is
 files in S3 per user, "spam" is a folder, and the DB holds only minting, invites, transient state
 and access links.
 
@@ -505,8 +504,8 @@ and presigned URLs).
 - The mock takes `POST /__email` (envelope plus raw MIME) in place of Email Routing.
 - The same HTTP conformance tests run against `wrangler dev`, whose local email trigger the tests
   drive, and against the mock.
-- The existing `meet` Worker's mock is Node (`azul-apps` branch `cf-workers-meet`,
-  `cf-workers/meet/dev-server.mjs`). The mail mock should start in Python.
+- The existing `meet` Worker's mock is Node (`dev-server.mjs` next to that Worker). The mail mock
+  should start in Python.
 
 ---
 
@@ -526,8 +525,8 @@ and presigned URLs).
   `default-features = false`, and `Cargo.lock:5290-5302` lists no rustls under micromail.
 - **Transport:** `layout/src/telemetry/crash_mail.rs:257-270` calls `micromail::Mailer::send_sync`
   with ports `[25, 587, 2525]` and `use_tls: true` (`:56-57`).
-- **The flagging report:** `azul-apps/planning/engines/mail-transport.md` (2026-09-15; no
-  `scripts/*.md` mentions micromail). Re-checked against the published source, it still holds.
+- **The flagging report:** the mail-transport planning note (2026-09-15; no `scripts/*.md`
+  mentions micromail). Re-checked against the published source, it still holds.
   Paths below are in `~/.cargo/registry/src/*/micromail-0.1.0/src`:
 
 | Bug | Where | Effect |
@@ -568,8 +567,7 @@ telemetry::crash_mail::smtp_sink_tests`.
 
 ### 4.3 Verdict: the send path
 
-- **Crash and problem reports:** **HTTPS POST to the `crash` Worker** (C2 in
-  `azul-apps/planning/build-ledger.md`).
+- **Crash and problem reports:** **HTTPS POST to the `crash` Worker** (C2 of the build ledger).
   - Transport: azul's `http` feature (ureq with rustls-rustcrypto), which telemetry already uses.
   - Store: the Worker writes `crash/<app>/<version>/<yyyy>/<mm>/<id>.json` in R2.
   - Notify: it mails the owner through Cloudflare Email Service's `send_email` binding to a
@@ -726,7 +724,7 @@ In `div[contenteditable] > blockquote > blockquote > p > "abc|def"`:
 
 ## 7. Phased build plan (each M-task is one agent)
 
-Every task is RED first. "Worker" tasks happen in `azul-apps/cf-workers/<name>` with a Python mock
+Every task is RED first. "Worker" tasks happen in the Workers' own repository with a Python mock
 and one shared conformance suite.
 
 **Phase 0: fix what this exploration proved** (engine and transport; independent of AzMail)
