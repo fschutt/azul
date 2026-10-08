@@ -8359,3 +8359,9 @@ mod office_2010_kinds_tests {
         assert_eq!(panel.children.as_ref().len(), names.len());
     }
 }
+
+/// Office's ribbon scaling: the steps a tab too wide for its ribbon takes,
+/// the collapsed group's popup and the width the ribbon asks its window.
+#[cfg(test)]
+#[path = "ribbon_scaling_tests.rs"]
+mod ribbon_scaling_tests;
