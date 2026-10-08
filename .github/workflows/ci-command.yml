@@ -1,11 +1,15 @@
 # "ci run": CI on demand. CI does not run on every push (rust.yml and supply-chain.yml run on
 # a release tag and when dispatched); a collaborator who writes a comment starting with
-# "ci run" on a pull request starts both on the pull request's branch, and ci-report.yml
+# "ci run" on a pull request starts both on the pull request's branch, and this workflow
 # answers in the same pull request when each one has finished.
 #
+# The answer comes from this workflow's own `report` jobs, which wait for the runs: a run
+# dispatched with the GITHUB_TOKEN does not trigger workflow_run, so ci-report.yml only hears
+# about runs a person dispatched (`gh workflow run ...` or the Actions tab).
+#
 # GitHub runs issue_comment workflows from the DEFAULT branch, so this file works once it is
-# on master. Until then (or without a pull request): `gh workflow run rust.yml --ref <branch>
-# -f run_mode=ci` and `gh workflow run supply-chain.yml --ref <branch>`.
+# on master. Without a pull request: `gh workflow run rust.yml --ref <branch> -f run_mode=ci`
+# and `gh workflow run supply-chain.yml --ref <branch>`.
 
 name: ci command
 
@@ -33,8 +37,13 @@ jobs:
     concurrency:
       group: ci-command-${{ github.event.issue.number }}
       cancel-in-progress: false
+    outputs:
+      build: ${{ steps.dispatch.outputs.build }}
+      supply: ${{ steps.dispatch.outputs.supply }}
+      sha: ${{ steps.dispatch.outputs.sha }}
     steps:
       - name: Dispatch build and supply chain on the pull request's branch
+        id: dispatch
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,21 +61,82 @@ jobs:
           fi
           ref=$(gh pr view "$PR" -R "$REPO" --json headRefName -q .headRefName)
           sha=$(gh pr view "$PR" -R "$REPO" --json headRefOid -q .headRefOid)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
           gh workflow run rust.yml -R "$REPO" --ref "$ref" -f run_mode=ci
           gh workflow run supply-chain.yml -R "$REPO" --ref "$ref"
-          # The dispatched runs, to link them (a dispatch does not answer with its run).
+          # The dispatched runs, to link and watch them (a dispatch does not answer with its run).
           links=""
-          for wf in rust.yml supply-chain.yml; do
+          for pair in build:rust.yml supply:supply-chain.yml; do
+            key=${pair%%:*}
+            wf=${pair#*:}
+            id=""
             url=""
             for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
               sleep 5
-              url=$(gh run list -R "$REPO" --workflow "$wf" --branch "$ref" --event workflow_dispatch \
-                --limit 5 --json url,headSha -q "map(select(.headSha == \"$sha\")) | .[0].url // empty")
-              [ -n "$url" ] && break
+              read -r id url < <(gh run list -R "$REPO" --workflow "$wf" --branch "$ref" --event workflow_dispatch \
+                --limit 5 --json databaseId,url,headSha \
+                -q "map(select(.headSha == \"$sha\")) | (.[0] // empty) | \"\(.databaseId) \(.url)\"") || true
+              [ -n "$id" ] && break
             done
+            echo "$key=$id" >> "$GITHUB_OUTPUT"
             links="$links
           - $wf: ${url:-not found yet - see the Actions tab}"
           done
           gh pr comment "$PR" -R "$REPO" --body "CI started on \`${sha:0:9}\` ($ref):$links
 
           The result is posted here when each run finishes."
+
+  report:
+    name: Report ${{ matrix.run }}
+    needs: ci_run
+    if: needs.ci_run.outputs.sha != ''
+    runs-on: ubuntu-22.04
+    # A full build run takes about 75 minutes; the job limit is 6 hours.
+    timeout-minutes: 350
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [build, supply]
+    steps:
+      - name: Wait for the run and comment its result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          SHA: ${{ needs.ci_run.outputs.sha }}
+          WHICH: ${{ matrix.run }}
+          BUILD_ID: ${{ needs.ci_run.outputs.build }}
+          SUPPLY_ID: ${{ needs.ci_run.outputs.supply }}
+        run: |
+          set -euo pipefail
+          if [ "$WHICH" = build ]; then RUN_ID="$BUILD_ID"; else RUN_ID="$SUPPLY_ID"; fi
+          if [ -z "$RUN_ID" ]; then
+            echo "no run to watch"
+            exit 0
+          fi
+          while [ "$(gh run view "$RUN_ID" -R "$REPO" --json status -q .status)" != "completed" ]; do
+            sleep 60
+          done
+          read -r name conclusion url < <(gh run view "$RUN_ID" -R "$REPO" --json name,conclusion,url \
+            -q '"\(.name | gsub(" "; "_")) \(.conclusion) \(.url)"')
+          name=${name//_/ }
+          case "$conclusion" in
+            success) verdict="green" ;;
+            cancelled) verdict="cancelled (a newer run of the branch, or by hand)" ;;
+            *) verdict="**red** ($conclusion)" ;;
+          esac
+          failed=$(gh run view "$RUN_ID" -R "$REPO" --json jobs \
+            -q '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "- " + .name' | head -40)
+          body="$name on \`${SHA:0:9}\`: $verdict - $url"
+          if [ -n "$failed" ]; then
+            body="$body
+
+          Failed jobs:
+          $failed"
+          fi
+          gh pr comment "$PR" -R "$REPO" --body "$body"

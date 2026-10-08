@@ -1,6 +1,8 @@
-# The answer to "ci run" (ci-command.yml): when a dispatched build or supply-chain run
-# finishes, its result - green, or red with the jobs that failed - goes into the open pull
-# request of its branch. Like every workflow_run workflow, it runs from the default branch.
+# The answer to a build or supply-chain run a PERSON dispatched (`gh workflow run ...`, the
+# Actions tab): when it finishes, its result - green, or red with the jobs that failed - goes
+# into the open pull request of its branch. Runs the "ci run" bot dispatches (ci-command.yml)
+# are reported by that workflow's own report jobs: a run dispatched with the GITHUB_TOKEN does
+# not trigger workflow_run. Like every workflow_run workflow, this runs from the default branch.
 
 name: ci report
 
@@ -15,7 +17,9 @@ permissions:
 jobs:
   report:
     name: Report the run in its pull request
-    if: github.event.workflow_run.event == 'workflow_dispatch'
+    if: >-
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'
     runs-on: ubuntu-22.04
     permissions:
       actions: read
