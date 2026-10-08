@@ -40680,22 +40680,6 @@
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::const_empty_cells(input)"
                             },
-                            "background_clip": {
-                                "fn_args": [
-                                    {
-                                        "input": "StyleBackgroundClip"
-                                    }
-                                ],
-                                "fn_body": "azul_css::props::property::CssProperty::background_clip(input)"
-                            },
-                            "const_background_clip": {
-                                "fn_args": [
-                                    {
-                                        "input": "StyleBackgroundClip"
-                                    }
-                                ],
-                                "fn_body": "azul_css::props::property::CssProperty::const_background_clip(input)"
-                            },
                             "font_variant_numeric": {
                                 "fn_args": [
                                     {
@@ -40703,6 +40687,25 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::font_variant_numeric(input)"
+                            },
+                            "background_clip": {
+                                "doc": [
+                                    "`background-clip`: one box per layer, in the layers' paint order."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "input": "StyleBackgroundClipVec"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::background_clip(input)"
+                            },
+                            "const_background_clip": {
+                                "fn_args": [
+                                    {
+                                        "input": "StyleBackgroundClipVec"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::const_background_clip(input)"
                             }
                         },
                         "functions": {
