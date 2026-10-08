@@ -1,0 +1,613 @@
+//! `<webview>`: the engine half (the node and its events are
+//! `azul_core::webview`).
+//!
+//! A window's shell owns the native views - a `WKWebView`, a `WebView2`, a
+//! recorder in the headless backend. This owns everything about them that is
+//! the same on every platform:
+//!
+//! - WHICH views exist. A view is keyed by its node across rebuilds
+//!   ([`NodeIdRemap`]) and named by a [`WebViewId`] for its lifetime, so an app
+//!   rebuilding its DOM every frame keeps ONE native view - the page, its
+//!   scroll and its sign-in state all live in that view. Mounting creates it,
+//!   unmounting destroys it, a changed `src` on the same node navigates it
+//!   ([`WebViewManager::reconcile`], at the tail of every layout pass).
+//! - WHERE they are. The display lists reserve each view's content box
+//!   (`DisplayListItem::WebView`); [`WebViewManager::sync_placements`] places
+//!   it from `crate::headless::painted_webviews` - the live scroll offsets and
+//!   every enclosing clip - each frame. A mounted view the lists did not paint
+//!   this frame (`display: none` above it, `visibility: hidden`) or that is
+//!   scrolled out of its box is HIDDEN, never destroyed.
+//! - WHAT the backend must do: an op queue ([`WebViewOp`]) the shell drains.
+//! - WHAT the app is told. A backend's report ([`WebViewReport`]) becomes a
+//!   component event at the view's node ([`WebViewManager::begin_report`]);
+//!   its payload is the view's last event, which `CallbackInfo::
+//!   get_webview_event` reads; the answer to a navigation request
+//!   ([`WebViewManager::finish_report`]) goes back to the backend.
+//!
+//! A window whose shell has no backend - a platform without one yet, a
+//! system without the library ([`WebViewPlatform`]) - creates nothing: each
+//! web view gets a `WebViewLoadFailed` with the reason, and the DOM pass
+//! ([`insert_unavailable_fallback`]) puts that reason into the view's box.
+
+use alloc::{format, string::String, vec::Vec};
+
+use azul_core::{
+    dom::{Dom, DomId, DomNodeId, NodeType},
+    events::SyntheticEvent,
+    geom::LogicalRect,
+    task::Instant,
+    webview::{
+        create_webview_event, WebViewCommand, WebViewConfig, WebViewEvent, WebViewLoadError,
+    },
+};
+use azul_css::AzString;
+
+use super::{NodeIdMap, NodeIdRemap};
+use crate::headless::PaintedWebView;
+
+/// Why a window without a web view backend shows no page, when its shell
+/// did not say more ([`WebViewPlatform::default`]).
+pub const NO_BACKEND: &str = "this platform has no web view backend yet";
+
+/// How many navigations a view remembers ([`MountedWebView::navigations`]).
+pub const MAX_NAVIGATION_RECORDS: usize = 32;
+
+/// The CSS of the paragraph a `<webview>` shows instead of a page.
+const FALLBACK_CSS: &str = "margin: 0; padding: 8px; box-sizing: border-box; width: 100%; \
+                            height: 100%; overflow: hidden; background: #f3f3f3; color: \
+                            #555555; font-size: 13px;";
+
+/// A web view's identity for its lifetime: what the backend and the debug
+/// server name it by. Never reused within a window.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WebViewId(pub u64);
+
+/// Where a web view is shown, in window logical coordinates - what the
+/// backend applies to its native view.
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct WebViewPlacement {
+    /// The content box the page fills; may reach past the window.
+    pub rect: LogicalRect,
+    /// The part of `rect` that shows: the native view is cut to it.
+    pub clip: LogicalRect,
+    /// Whether anything of it shows. A hidden view keeps its page.
+    pub visible: bool,
+}
+
+impl WebViewPlacement {
+    /// Not shown: where a view starts, and where it goes while its node is
+    /// not painted.
+    pub const HIDDEN: Self = Self {
+        rect: LogicalRect::zero(),
+        clip: LogicalRect::zero(),
+        visible: false,
+    };
+
+    /// Where the display lists put it.
+    #[must_use]
+    pub const fn of(painted: &PaintedWebView) -> Self {
+        match painted.clip {
+            Some(clip) => Self {
+                rect: painted.rect,
+                clip,
+                visible: true,
+            },
+            None => Self {
+                rect: painted.rect,
+                clip: LogicalRect::zero(),
+                visible: false,
+            },
+        }
+    }
+}
+
+/// What a window's web view backend must do, in queue order
+/// ([`WebViewManager::take_ops`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum WebViewOp {
+    /// A `<webview>` mounted: create its native view (hidden until placed)
+    /// with this store, and load `src` (nothing for an empty one).
+    Create {
+        id: WebViewId,
+        config: WebViewConfig,
+        src: AzString,
+    },
+    /// Load `url` (a changed `src`, or `CallbackInfo::webview_navigate`).
+    Navigate { id: WebViewId, url: AzString },
+    /// Load the current page again.
+    Reload { id: WebViewId },
+    /// One entry back in the view's history.
+    GoBack { id: WebViewId },
+    /// Move, resize, clip, show or hide the native view.
+    Place {
+        id: WebViewId,
+        placement: WebViewPlacement,
+    },
+    /// Its node unmounted: destroy the native view.
+    Destroy { id: WebViewId },
+}
+
+impl WebViewOp {
+    /// The view the op is for.
+    #[must_use]
+    pub const fn id(&self) -> WebViewId {
+        match self {
+            Self::Create { id, .. }
+            | Self::Navigate { id, .. }
+            | Self::Reload { id }
+            | Self::GoBack { id }
+            | Self::Place { id, .. }
+            | Self::Destroy { id } => *id,
+        }
+    }
+}
+
+/// What a backend (or the debug server's simulation) reports about one view.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WebViewReport {
+    /// The view.
+    pub id: WebViewId,
+    /// For a `NavigationRequested`: the backend's handle of the decision it
+    /// waits for (answered with the shell's `decide_navigation`); `0` for
+    /// any other report, and for a simulated one nobody waits for.
+    pub request: u64,
+    /// What happened.
+    pub event: WebViewEvent,
+}
+
+/// One top-level navigation a view was asked about, and the answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebViewNavigationRecord {
+    /// Where it went (or would have).
+    pub url: AzString,
+    /// A server redirect of a navigation under way.
+    pub is_redirect: bool,
+    /// Whether it went ahead (no callback cancelled it, no `file://`).
+    pub allowed: bool,
+}
+
+/// One mounted `<webview>`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MountedWebView {
+    /// Its identity for its lifetime.
+    pub id: WebViewId,
+    /// Its node, kept current across rebuilds.
+    pub node: DomNodeId,
+    /// The store it was created with.
+    pub config: WebViewConfig,
+    /// The node's `src` at the last layout.
+    pub src: AzString,
+    /// The page it is on (or going to): the last allowed navigation, then
+    /// the page a load finished on. Empty before the first.
+    pub url: AzString,
+    /// The page's title, as last reported.
+    pub title: AzString,
+    /// A navigation went ahead and has neither finished nor failed.
+    pub loading: bool,
+    /// Where the backend was last told it is.
+    pub placement: WebViewPlacement,
+    /// The last [`MAX_NAVIGATION_RECORDS`] navigations it was asked about.
+    pub navigations: Vec<WebViewNavigationRecord>,
+    /// The last event it reported: what a callback at its node reads.
+    pub last_event: Option<WebViewEvent>,
+    /// The backend was told to create it (and has to be told to destroy it).
+    known: bool,
+}
+
+/// Whether a window can show web views.
+#[derive(Debug, Clone)]
+pub enum WebViewPlatform {
+    /// The shell has a backend: views are created through the op queue.
+    Backend,
+    /// No backend: every web view shows this reason instead of a page.
+    Absent(AzString),
+    /// No backend, and the reason is the probe's (a missing system library,
+    /// found by trying to load it). It is called only while a web view
+    /// exists - an app without one loads nothing - and caches its answer.
+    Probe(fn() -> AzString),
+}
+
+impl Default for WebViewPlatform {
+    fn default() -> Self {
+        Self::Absent(AzString::from_const_str(NO_BACKEND))
+    }
+}
+
+/// One `<webview>` node a layout pass found
+/// (`LayoutWindow::reconcile_webviews`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FoundWebView {
+    /// The node.
+    pub node: DomNodeId,
+    /// Its config.
+    pub config: WebViewConfig,
+    /// Its `src` attribute (empty without one).
+    pub src: AzString,
+}
+
+/// The `<webview>`s of one window - see the module docs.
+#[derive(Debug, Default)]
+pub struct WebViewManager {
+    views: Vec<MountedWebView>,
+    /// The last id handed out; ids start at 1.
+    last_id: u64,
+    ops: Vec<WebViewOp>,
+    platform: WebViewPlatform,
+    /// Reports the debug server simulated, for the shell to deliver like a
+    /// backend's.
+    simulated: Vec<WebViewReport>,
+}
+
+impl WebViewManager {
+    /// No views, and no backend until the shell says it has one.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// What the shell can do: set once, when it creates the window.
+    pub fn set_platform(&mut self, platform: WebViewPlatform) {
+        self.platform = platform;
+    }
+
+    /// Whether a backend creates the views.
+    #[must_use]
+    pub const fn has_backend(&self) -> bool {
+        matches!(self.platform, WebViewPlatform::Backend)
+    }
+
+    /// Why this window shows no page in a web view; `None` with a backend.
+    /// Runs a [`WebViewPlatform::Probe`] (which caches its own answer).
+    #[must_use]
+    pub fn unavailable_reason(&self) -> Option<AzString> {
+        match &self.platform {
+            WebViewPlatform::Backend => None,
+            WebViewPlatform::Absent(reason) => Some(reason.clone()),
+            WebViewPlatform::Probe(probe) => Some(probe()),
+        }
+    }
+
+    /// The backend could not create a view after all (its library did not
+    /// load): no web view in this window from now on. Every view is told
+    /// with a `WebViewLoadFailed` (the events to dispatch are returned) and
+    /// nothing more is queued for the backend; the shell rebuilds the DOM so
+    /// the views show the reason.
+    pub fn set_absent(&mut self, reason: &AzString, now: &Instant) -> Vec<SyntheticEvent> {
+        self.platform = WebViewPlatform::Absent(reason.clone());
+        self.ops.clear();
+        (0..self.views.len())
+            .map(|i| {
+                self.views[i].known = false;
+                self.fail(i, reason, now)
+            })
+            .collect()
+    }
+
+    /// Every mounted view.
+    #[must_use]
+    pub fn views(&self) -> &[MountedWebView] {
+        &self.views
+    }
+
+    /// The view of the `<webview>` node `node`.
+    #[must_use]
+    pub fn view_at(&self, node: DomNodeId) -> Option<&MountedWebView> {
+        self.views.iter().find(|v| v.node == node)
+    }
+
+    /// The view `id`.
+    #[must_use]
+    pub fn get(&self, id: WebViewId) -> Option<&MountedWebView> {
+        self.views.iter().find(|v| v.id == id)
+    }
+
+    /// The last event the web view at `node` reported - the payload of the
+    /// web view event a callback at that node is running for.
+    #[must_use]
+    pub fn event_of(&self, node: DomNodeId) -> Option<&WebViewEvent> {
+        self.view_at(node)?.last_event.as_ref()
+    }
+
+    /// The backend's work since it last asked, in order.
+    pub fn take_ops(&mut self) -> Vec<WebViewOp> {
+        core::mem::take(&mut self.ops)
+    }
+
+    /// Whether the shell has anything to do: queued ops or simulated reports.
+    #[must_use]
+    pub fn has_pending_work(&self) -> bool {
+        !self.ops.is_empty() || !self.simulated.is_empty()
+    }
+
+    /// Bring the views in line with the `<webview>` nodes a layout pass
+    /// `found`: a view whose node is gone (or no web view any more) is
+    /// destroyed, a changed `src` navigates, a changed store makes a new view
+    /// (a store is fixed when a native view is created), a new node creates
+    /// one. Without a backend nothing is created: the returned events tell
+    /// each new view's app why (`WebViewLoadFailed`), for the caller to queue
+    /// with the other lifecycle events.
+    pub fn reconcile(&mut self, found: &[FoundWebView], now: &Instant) -> Vec<SyntheticEvent> {
+        let mut events = Vec::new();
+        for view in core::mem::take(&mut self.views) {
+            if found.iter().any(|f| f.node == view.node) {
+                self.views.push(view);
+            } else {
+                self.destroy(view.id, view.known);
+            }
+        }
+        if found.is_empty() {
+            return events;
+        }
+        let absent = self.unavailable_reason();
+        for f in found {
+            if let Some(i) = self.views.iter().position(|v| v.node == f.node) {
+                if self.views[i].config == f.config {
+                    if self.views[i].src != f.src {
+                        self.views[i].src = f.src.clone();
+                        match &absent {
+                            None => self.ops.push(WebViewOp::Navigate {
+                                id: self.views[i].id,
+                                url: f.src.clone(),
+                            }),
+                            Some(reason) => events.push(self.fail(i, reason, now)),
+                        }
+                    }
+                    continue;
+                }
+                let replaced = self.views.remove(i);
+                self.destroy(replaced.id, replaced.known);
+            }
+            self.last_id += 1;
+            let id = WebViewId(self.last_id);
+            self.views.push(MountedWebView {
+                id,
+                node: f.node,
+                config: f.config,
+                src: f.src.clone(),
+                url: AzString::from_const_str(""),
+                title: AzString::from_const_str(""),
+                loading: false,
+                placement: WebViewPlacement::HIDDEN,
+                navigations: Vec::new(),
+                last_event: None,
+                known: absent.is_none(),
+            });
+            match &absent {
+                None => self.ops.push(WebViewOp::Create {
+                    id,
+                    config: f.config,
+                    src: f.src.clone(),
+                }),
+                Some(reason) => {
+                    let i = self.views.len() - 1;
+                    events.push(self.fail(i, reason, now));
+                }
+            }
+        }
+        events
+    }
+
+    /// Place every view where the display lists put it this frame
+    /// (`crate::headless::painted_webviews`); a view not among them is
+    /// hidden. Only a CHANGED placement is queued for the backend.
+    pub fn sync_placements(&mut self, painted: &[PaintedWebView]) {
+        if !self.has_backend() {
+            return;
+        }
+        for view in &mut self.views {
+            let placement = painted
+                .iter()
+                .find(|p| {
+                    p.dom_id == view.node.dom
+                        && view.node.node.into_crate_internal() == Some(p.node_id)
+                })
+                .map_or(WebViewPlacement::HIDDEN, WebViewPlacement::of);
+            if placement != view.placement {
+                view.placement = placement;
+                self.ops.push(WebViewOp::Place {
+                    id: view.id,
+                    placement,
+                });
+            }
+        }
+    }
+
+    /// A callback's command (`CallbackInfo::webview_navigate`, ...) for the
+    /// web view at `node`, queued for the backend. `false` when there is no
+    /// such view, or no backend to drive it.
+    pub fn queue_command(&mut self, node: DomNodeId, command: &WebViewCommand) -> bool {
+        if !self.has_backend() {
+            return false;
+        }
+        let Some(id) = self.view_at(node).map(|v| v.id) else {
+            return false;
+        };
+        self.ops.push(match command {
+            WebViewCommand::Navigate(url) => WebViewOp::Navigate {
+                id,
+                url: url.clone(),
+            },
+            WebViewCommand::Reload => WebViewOp::Reload { id },
+            WebViewCommand::GoBack => WebViewOp::GoBack { id },
+        });
+        true
+    }
+
+    /// A report the debug server simulated (`simulate_webview_*`): delivered
+    /// by the shell like a backend's.
+    pub fn push_simulated(&mut self, report: WebViewReport) {
+        self.simulated.push(report);
+    }
+
+    /// The simulated reports not delivered yet.
+    pub fn take_simulated(&mut self) -> Vec<WebViewReport> {
+        core::mem::take(&mut self.simulated)
+    }
+
+    /// Start delivering `report`: `Some(event)` to dispatch at the view's
+    /// node (its payload is now the view's last event), or `None` when the
+    /// app is not asked - the view is gone, or the navigation is to a
+    /// `file://` page, which a web view never loads. Either way
+    /// [`Self::finish_report`] answers it.
+    pub fn begin_report(&mut self, report: &WebViewReport, now: &Instant) -> Option<SyntheticEvent> {
+        if let WebViewEvent::NavigationRequested(nav) = &report.event {
+            if is_file_url(nav.url.as_str()) {
+                return None;
+            }
+        }
+        let view = self.views.iter_mut().find(|v| v.id == report.id)?;
+        let event = create_webview_event(&report.event, view.node, now);
+        view.last_event = Some(report.event.clone());
+        Some(event)
+    }
+
+    /// The report was dispatched (`dispatched`; `prevented`: a callback
+    /// called `prevent_default`) or not: record what it changed on its view
+    /// and, for a navigation request, return whether the navigation goes
+    /// ahead - the answer the backend waits for. A navigation goes ahead when
+    /// it was dispatched and nobody cancelled it.
+    pub fn finish_report(
+        &mut self,
+        report: &WebViewReport,
+        dispatched: bool,
+        prevented: bool,
+    ) -> Option<bool> {
+        let view = self.views.iter_mut().find(|v| v.id == report.id);
+        match &report.event {
+            WebViewEvent::NavigationRequested(nav) => {
+                let allowed = dispatched && !prevented && !is_file_url(nav.url.as_str());
+                if let Some(view) = view {
+                    if view.navigations.len() >= MAX_NAVIGATION_RECORDS {
+                        view.navigations.remove(0);
+                    }
+                    view.navigations.push(WebViewNavigationRecord {
+                        url: nav.url.clone(),
+                        is_redirect: nav.is_redirect,
+                        allowed,
+                    });
+                    if allowed {
+                        view.url = nav.url.clone();
+                        view.loading = true;
+                    }
+                }
+                Some(allowed)
+            }
+            WebViewEvent::LoadFinished(url) => {
+                if let Some(view) = view {
+                    view.url = url.clone();
+                    view.loading = false;
+                }
+                None
+            }
+            WebViewEvent::TitleChanged(title) => {
+                if let Some(view) = view {
+                    view.title = title.clone();
+                }
+                None
+            }
+            WebViewEvent::LoadFailed(_) => {
+                if let Some(view) = view {
+                    view.loading = false;
+                }
+                None
+            }
+        }
+    }
+
+    /// Tell the view at `index` it cannot load its `src`: its last event
+    /// becomes the failure, and the event to dispatch is returned.
+    fn fail(&mut self, index: usize, reason: &AzString, now: &Instant) -> SyntheticEvent {
+        let view = &mut self.views[index];
+        let event = WebViewEvent::LoadFailed(WebViewLoadError {
+            url: view.src.clone(),
+            reason: reason.clone(),
+        });
+        view.loading = false;
+        let synthetic = create_webview_event(&event, view.node, now);
+        view.last_event = Some(event);
+        synthetic
+    }
+
+    /// Queue the destruction of view `id` - unless the backend never saw it:
+    /// a creation still queued is dropped with everything else queued for it
+    /// (a view created and destroyed before the backend looked never
+    /// existed), and a view a backendless window never created needs none.
+    fn destroy(&mut self, id: WebViewId, known: bool) {
+        let created_unseen = self
+            .ops
+            .iter()
+            .any(|op| matches!(op, WebViewOp::Create { id: created, .. } if *created == id));
+        self.ops.retain(|op| op.id() != id);
+        if known && !created_unseen {
+            self.ops.push(WebViewOp::Destroy { id });
+        }
+    }
+}
+
+/// A view is keyed by its node, and node ids are arena indices that shift
+/// when the DOM is rebuilt: without this the view would follow a live but
+/// WRONG node after a rebuild that inserted a sibling above it. A node the
+/// rebuild unmounted takes its view with it.
+impl NodeIdRemap for WebViewManager {
+    fn remap_node_ids(&mut self, dom: DomId, map: &NodeIdMap) {
+        for mut view in core::mem::take(&mut self.views) {
+            if let Some(node) = map.resolve_dom_node_id(dom, view.node) {
+                view.node = node;
+                self.views.push(view);
+            } else {
+                self.destroy(view.id, view.known);
+            }
+        }
+    }
+}
+
+/// Whether `url` is a `file:` URL - a page a web view never loads.
+fn is_file_url(url: &str) -> bool {
+    url.trim_start()
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
+}
+
+/// Whether `dom` holds a `<webview>` anywhere.
+#[must_use]
+pub fn dom_has_webview(dom: &Dom) -> bool {
+    matches!(dom.root.get_node_type(), NodeType::WebView(_))
+        || dom.children.iter().any(dom_has_webview)
+}
+
+/// The text a `<webview>` shows when this window cannot show its page.
+#[must_use]
+pub fn unavailable_text(reason: &str) -> String {
+    format!("This page cannot be shown here: {reason}")
+}
+
+/// Give every `<webview>` of `dom` that has no content of its own a
+/// paragraph saying why it shows no page ([`unavailable_text`]), laid out in
+/// its box (a replaced element's children are an overlay of its box). A web
+/// view the app gave content keeps it: that IS its fallback. Returns whether
+/// anything was inserted.
+pub fn insert_unavailable_fallback(dom: &mut Dom, reason: &str) -> bool {
+    fn walk(dom: &mut Dom, text: &str) -> bool {
+        if matches!(dom.root.get_node_type(), NodeType::WebView(_)) {
+            if !dom.children.is_empty() {
+                return false;
+            }
+            let fallback =
+                Dom::create_p_with_text(AzString::from(text)).with_css(FALLBACK_CSS);
+            dom.set_children(vec![fallback].into());
+            return true;
+        }
+        let mut inserted = false;
+        for child in dom.children.iter_mut() {
+            inserted |= walk(child, text);
+        }
+        inserted
+    }
+    let text = unavailable_text(reason);
+    let inserted = walk(dom, &text);
+    if inserted {
+        // The counts of every ancestor of a web view that got a child.
+        let _ = dom.fixup_children_estimated();
+    }
+    inserted
+}
