@@ -134,85 +134,15 @@ const TREE_TOGGLE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str(TREE_TOGGLE_CLASS_NAME))];
 const TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
 
-// -- Font --
-
-const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
-const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
-    StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
-
-// -- Colors --
-
-const TEXT_COLOR: ColorU = ColorU {
-    r: 30,
-    g: 30,
-    b: 30,
-    a: 255,
-};
-/// The selected row: Outlook 2010's navigation pane - the light selection
-/// blue (#C1DCFC) under the ordinary ink.
-const SELECTED_BG: ColorU = ColorU {
-    r: 193,
-    g: 220,
-    b: 252,
-    a: 255,
-};
-const SELECTED_TEXT: ColorU = TEXT_COLOR;
-/// The tree is a FIELD, like the list view next to it: it draws its own
-/// surface. Without one the control was transparent and inherited whatever it
-/// happened to sit on, which is why it read as a floating list of labels
-/// rather than a pane. Same value as `__azul_native_list-container`.
-const FIELD_BG: ColorU = ColorU {
-    r: 252,
-    g: 252,
-    b: 252,
-    a: 255,
-};
-// -- Dark theme --
-//
-// Inline CSS carries `@theme dark` conditions (`dark_theme`), and a later
-// property wins, so each dark value is declared right after the light one it
-// replaces. These are DEFAULTS: an app that wants the exact platform palette
-// still overrides them, but a tree must not be a white box in a dark window.
-const FIELD_BG_DARK: ColorU = ColorU {
-    r: 31,
-    g: 31,
-    b: 31,
-    a: 255,
-};
-const TEXT_COLOR_DARK: ColorU = ColorU {
-    r: 230,
-    g: 230,
-    b: 230,
-    a: 255,
-};
-const SELECTED_BG_DARK: ColorU = ColorU {
-    r: 46,
-    g: 74,
-    b: 110,
-    a: 255,
-};
-const ICON_COLOR_DARK: ColorU = ColorU {
-    r: 176,
-    g: 176,
-    b: 176,
-    a: 255,
-};
-const ICON_COLOR: ColorU = ColorU {
-    r: 100,
-    g: 100,
-    b: 100,
-    a: 255,
-};
-
 // ---- R5: the parts' BASE - the structure every theme's tree shares ----
 //
 // A theme's part is its base below, THEN its skin (paint and metrics): the
-// `*_STYLE` statics for flat (`themes::flat::tree_view_look`), and
-// `themes::flora::tree_view_look` for flora. The base comes first in every
-// theme, so an unpinned tree (`TreeViewLook::of`) declares it once, outside
-// every `@theme` block. The leaf spacer has no skin: `LEAF_SPACER_STYLE` is
-// its whole style in every theme.
+// `TREE_..._STYLE` statics of `themes::flat` (`themes::flat::tree_view_look`),
+// and `themes::flora::tree_view_look` for flora - every colour the tree paints
+// is its theme's. The base comes first in every theme, so an unpinned tree
+// (`TreeViewLook::of`) declares it once, outside every `@theme` block. The
+// leaf spacer has no skin: `LEAF_SPACER_STYLE` is its whole style in every
+// theme.
 
 /// The tree's structure: a column of rows that scrolls when it overflows.
 pub(crate) static TREE_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
@@ -267,187 +197,11 @@ pub(crate) static BADGE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-// -- Tree container style: flat's, on `TREE_CONTAINER_BASE` --
-
-pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(FIELD_BG)]),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
-            FIELD_BG_DARK,
-        )]),
-    )),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR_DARK,
-    })),
-];
-
-// -- Row style (each tree node row): flat's, on `ROW_BASE` --
-
-pub(crate) static ROW_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        2,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(2),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(4),
-    )),
-    // Hover, light and dark. Declared in the theme module — see
-    // `themes::flat::ROW_HOVER` — because the dark half needs a palette this
-    // file cannot see. The pair used to live here, with the dark twin spelled
-    // out by hand through `with_single_condition`.
-    crate::widgets::themes::flat::ROW_HOVER,
-    crate::widgets::themes::flat::ROW_HOVER_DARK,
-];
-
-// -- Selected row style: flat's, on `ROW_BASE` --
-// NOTE: Intentionally repeats the padding of ROW_STYLE because const-slice
-// styling does not support runtime composition. If you change the padding in
-// ROW_STYLE, update ROW_SELECTED_STYLE to match (the layout is `ROW_BASE`,
-// shared by both).
-
-pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        2,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(2),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(SELECTED_BG)]),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: SELECTED_TEXT,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
-            SELECTED_BG_DARK,
-        )]),
-    )),
-    // The selected label is the ordinary ink on the light blue, so by night
-    // it is the night's ink on the night's blue.
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR_DARK,
-    })),
-];
-
-// -- Children container style: flat's, on `CHILDREN_BASE` --
-
-pub(crate) static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(16),
-    )),
-];
-
-// -- Disclosure icon style: flat's, on `ICON_BASE` --
-// NOTE: Icon font-size (16px) must match LEAF_SPACER_STYLE width so that
-// leaf nodes align with parent nodes that have a disclosure icon.
-
-pub(crate) static ICON_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: ICON_COLOR,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: ICON_COLOR_DARK,
-    })),
-];
-
 // -- Leaf spacer (same width as icon, for alignment) --
 
 pub(crate) static LEAF_SPACER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-];
-
-// -- Label style: flat's, on `LABEL_BASE` --
-
-pub(crate) static LABEL_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(4),
-    )),
-    // The text colour is declared HERE, on the node that carries the text,
-    // not only on the container: a CONDITIONAL inline value does not reach
-    // a child through inheritance, so labels kept the light colour and came
-    // out near-black on the dark surface. The light half is the container's
-    // own ink (`TREE_CONTAINER_STYLE`), which the label inherited anyway: it
-    // is declared beside its dark twin so the pair is whole wherever the tree
-    // is built (`widgets::theme_pairs`, the shells' navigation pane).
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR_DARK,
-    })),
-];
-
-// -- Badge style: flat's, on `BADGE_BASE` --
-//
-// The count after a label (a mail folder's unread messages): semibold, in
-// the accent (Outlook's blue count) - on a selected row in the label's ink.
-
-const BADGE_INK: ColorU = ColorU {
-    r: 0,
-    g: 102,
-    b: 204,
-    a: 255,
-};
-const BADGE_INK_DARK: ColorU = ColorU {
-    r: 110,
-    g: 170,
-    b: 255,
-    a: 255,
-};
-
-pub(crate) static BADGE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(6),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(2),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: BADGE_INK,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: BADGE_INK_DARK,
-    })),
-];
-
-/// On a selected row the count is written like the label beside it
-/// (`LABEL_STYLE`'s ink).
-pub(crate) static BADGE_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(6),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(2),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: TEXT_COLOR_DARK,
-    })),
 ];
 
 // ============================================================================
@@ -1421,7 +1175,17 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        widgets::{roving::test_support as rv, themes::UiTheme},
+        widgets::{
+            roving::test_support as rv,
+            // Flat's skins of the tree's parts (they are the theme's, in
+            // `themes::flat`), under the names the assertions read.
+            themes::flat::{
+                TREE_CHILDREN_STYLE as CHILDREN_STYLE, TREE_CONTAINER_STYLE,
+                TREE_ICON_STYLE as ICON_STYLE, TREE_LABEL_STYLE as LABEL_STYLE,
+                TREE_ROW_SELECTED_STYLE as ROW_SELECTED_STYLE, TREE_ROW_STYLE as ROW_STYLE,
+            },
+            themes::UiTheme,
+        },
         window::LayoutWindow,
         window_state::FullWindowState,
     };
@@ -3429,6 +3193,36 @@ mod theme_tests {
             tc::background(&flora, false),
             "the two looks are two looks"
         );
+    }
+
+    /// Every colour the flat tree paints is one flat's theme module declares
+    /// (THEME12): the tree carried ten colours of its own in its widget file
+    /// - a #FCFCFC field, a neutral grey for its chevrons, a blue of its own
+    /// for its counts - none of them Office 2010's. Pinned, and following the
+    /// app theme, alike.
+    #[test]
+    fn every_colour_the_flat_tree_paints_is_one_of_flats() {
+        use crate::widgets::themes::theme_blocks::checks::under;
+        let nodes = || {
+            tree()
+                .with_child(TreeViewNode::new("Inbox").with_badge(AzString::from("3")))
+                .with_child(
+                    TreeViewNode::new("Sent")
+                        .with_badge(AzString::from("1"))
+                        .with_selected(true),
+                )
+        };
+        for dom in [
+            TreeView::new(nodes()).with_theme(UiTheme::Flat).dom(),
+            under(UiTheme::Flat, || TreeView::new(nodes()).dom()),
+        ] {
+            let foreign = tc::foreign_colours(&dom, UiTheme::Flat);
+            assert!(
+                foreign.is_empty(),
+                "the flat tree paints colours flat does not have:\n  {}",
+                foreign.join("\n  ")
+            );
+        }
     }
 }
 

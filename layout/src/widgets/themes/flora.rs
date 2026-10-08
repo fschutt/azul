@@ -9069,6 +9069,123 @@ pub(crate) fn data_table(t: crate::widgets::data_table::DataTableResolved) -> Do
     crate::widgets::data_table::build(t, &data_table_look())
 }
 
+// ==== list_view ====
+//
+// A flora list is a ledger on the field paper (`--fl-fld`, the night field
+// by night): the rows in the ink, every other one on the surface tone (the
+// data table's band), the cells a faint `--fl-sep2` rule apart. Its header
+// is the raised paper face (`--fl-rT` -> `--fl-rB`) closed by a `--fl-bd`
+// hairline; the column titles are flora's chrome - EB Garamond capitals in
+// `--fl-intro`, a `--fl-sep` separator between two - the sorted one's title
+// and arrow in the accent (its glow by night). A title lifts to the hover
+// face with a brass rule under it (the metal edge comes up; the night gold
+// after dark) and sinks to the pressed face. A row washes to the accent's
+// soft tint under the pointer; the selected row is flora.css's `::selection`
+// - the accent's soft wash written in its deep tone by day, the accent stone
+// written in the paper ink by night - and the row the keyboard is on is
+// ringed in the accent (its glow by night). Every accent colour is the base
+// ramp's, so a spin (`flora:green`, ...) recuts the list with the rest of
+// flora.
+
+/// A row under the pointer: the accent's soft wash at 60 % by day (flora's
+/// `--fl-hov` strength), the accent at 35 % by night - translucent over the
+/// paper or a stripe, and recut by a spin, which keeps the alpha.
+const LIST_ROW_HOVER_LIGHT: ColorU = ColorU {
+    a: 153,
+    ..LIGHT_SOFT
+};
+/// See [`LIST_ROW_HOVER_LIGHT`].
+const LIST_ROW_HOVER_DARK: ColorU = ColorU { a: 90, ..DARK_ACC };
+
+/// Flora's list-view look (`list_view::ListViewLook`): the skin of every
+/// part, laid over the list's base.
+#[must_use]
+pub(crate) fn list_view_look() -> crate::widgets::list_view::ListViewLook {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let ui = || P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY));
+
+    // The list: field paper, in the ink (the caller's cells inherit it).
+    let mut list = decl::themed_fill(LIGHT_FLD, DARK_FLD).to_vec();
+    list.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    // The header: the raised paper face, closed by a hairline.
+    let mut header = vec![decl::px_height(24.0)];
+    header.extend(decl::themed_layers(
+        vec![RAISED_FACE_LIGHT],
+        vec![RAISED_FACE_DARK],
+    ));
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    // A column title's box: a separator on its right, a transparent foot the
+    // brass rule colours under the pointer. States last: a resting dark twin
+    // matches in every state.
+    let mut column = decl::padding(0, 0, 0, 7).to_vec();
+    column.extend(decl::border_right(1));
+    column.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    column.extend(decl::border_bottom(1));
+    column.extend(decl::themed_border_bottom_color(
+        ColorU::TRANSPARENT,
+        ColorU::TRANSPARENT,
+    ));
+    column.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    column.extend(P::themed_on_hover(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: TAB_METAL }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_QT }),
+    ));
+    column.extend(decl::active_layers(
+        vec![PRESSED_FACE_LIGHT],
+        vec![PRESSED_FACE_DARK],
+    ));
+
+    // A title: flora's chrome capitals.
+    let mut title = caps(CAPS_LABEL);
+    title.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+    let mut sort_arrow = vec![decl::font_size(14)];
+    sort_arrow.extend(decl::themed_ink(LIGHT_ACC, DARK_GLOW));
+
+    // A row: its ring slot (a transparent hairline the focus ring colours);
+    // the accent's wash under the pointer; the accent's ring on focus.
+    let mut row = decl::padding(3, 0, 3, 0).to_vec();
+    row.extend(decl::ring_slot());
+    row.extend(decl::hover_fill(LIST_ROW_HOVER_LIGHT, LIST_ROW_HOVER_DARK));
+    row.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    // A stripe: the surface tone - and the hover wash again after it, or the
+    // resting band would beat the hover.
+    let mut row_alternate = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    row_alternate.extend(decl::hover_fill(LIST_ROW_HOVER_LIGHT, LIST_ROW_HOVER_DARK));
+
+    // The selection (flora.css's `::selection`): the soft wash in the deep
+    // tone by day, the stone in the paper ink by night - the same under the
+    // pointer.
+    let mut row_selected = decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec();
+    row_selected.extend(decl::themed_ink(LIGHT_DEEP, DARK_ON_ACC));
+    row_selected.extend(decl::hover_fill(LIGHT_SOFT, DARK_ACC));
+
+    // A cell: the title's padding and a faint ledger rule on its right (as
+    // wide as its column's title box, which has its separator).
+    let mut cell = decl::padding(0, 0, 0, 7).to_vec();
+    cell.extend([decl::font_size(12), ui()]);
+    cell.extend(decl::border_right(1));
+    cell.extend(decl::themed_border_right_color(LIGHT_SEP2, DARK_SEP2));
+
+    crate::widgets::list_view::ListViewLook {
+        list,
+        header,
+        column,
+        title,
+        title_sorted: decl::themed_ink(LIGHT_ACC, DARK_GLOW).to_vec(),
+        sort_arrow,
+        row,
+        row_alternate,
+        row_selected,
+        cell,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
 // ==== chart ====
 //
 // The flora chart is a leaf laid on the page (flora's surface, its night

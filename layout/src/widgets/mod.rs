@@ -2111,19 +2111,12 @@ mod theme_pairs {
     /// message contains the prefix (`the_known_list_masks_only_live_findings`
     /// rejects an entry that masks nothing).
     const KNOWN_HALF_PAIRS: &[(&str, &str, &str)] = &[
-        // A dark text twin with NO light half is the migration's "no opinion"
-        // shape: the light window takes the UA default on purpose (and since
-        // the UA text colour is themed and cascaded, the twin is belt and
-        // braces). Listed rather than paired, because inventing a light value
-        // here would be exactly the "light value moved" the migration forbids.
-        (
-            "list_view",
-            "node root declares a dark twin for color (states [])",
-            "light text = the UA default by design; the dark twin predates the themed UA colour",
-        ),
+        // The list view's root used to be listed here (a dark ink with no
+        // light half): it follows the app theme now, every theme's ink with
+        // its twin (`themes::flat::list_view_look`, `flora::list_view_look`).
         // The tree view's label used to be listed here twice (its root row's
         // and its first child's label): the label now declares its light ink
-        // beside the dark twin (`tree_view::LABEL_STYLE`), so the pair is
+        // beside the dark twin (`themes::flat::TREE_LABEL_STYLE`), so the pair is
         // whole wherever the tree is built - the shells' navigation pane
         // embeds it at paths no mask could name.
     ];
@@ -2592,7 +2585,7 @@ mod chrome_text_is_not_selectable {
 
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
-mod theme_contrast {
+pub(crate) mod theme_contrast {
     //! Every widget follows the theme it is rendered in.
     //!
     //! The widget demo on a dark desktop painted a dark text field on a white
@@ -2834,6 +2827,24 @@ mod theme_contrast {
             }
         }
         out
+    }
+
+    /// [`findings`] in ONE of the four combinations a user can run: the
+    /// widget `build`s for the app theme `theme` (its `ThemeScope`, so a
+    /// widget that follows the app theme builds that theme's structure) and
+    /// is cascaded the way a window running `theme` in `mode` cascades it -
+    /// the theme's `@theme(<name>)` blocks live, the others dropped. The
+    /// probes above ask the default theme only; this asks flora too.
+    pub(crate) fn findings_under(
+        theme: crate::widgets::themes::UiTheme,
+        mode: DarkLightMode,
+        name: &str,
+        build: impl FnOnce() -> Dom,
+    ) -> Vec<String> {
+        let mut p = probe(mode);
+        p.ctx = p.ctx.with_app_theme(theme.name());
+        let dom = crate::widgets::themes::theme_blocks::checks::under(theme, build);
+        findings(&format!("{name} [{}]", theme.name()), dom, &p)
     }
 
     fn assert_follow_the_theme(widgets: Vec<(&'static str, Dom)>) {
