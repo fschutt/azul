@@ -1269,6 +1269,46 @@ impl CompositorState {
         let px_x = this_m.tx.round() as i32;
         let px_y = this_m.ty.round() as i32;
 
+        // An opacity or filter GROUP with layers inside it (a transformed
+        // descendant, a scroll frame, an inner group): the effect applies to
+        // the group's content AND those layers (CSS Color 4 `opacity`, Filter
+        // Effects 1), so they are flattened into a copy of the group's pixels
+        // first - each composited in the group's own space - and the result
+        // is faded / filtered once. Composited straight onto `output` after
+        // the group, they escaped it: flora's unchecked check box (an
+        // opacity-0 mark around a rotated, layered tick) showed its tick.
+        let is_group = layer_id != self.root_layer
+            && !layer.is_backdrop_filter
+            && (layer.opacity < 1.0 || !layer.filters.is_empty())
+            && !layer.children.is_empty();
+        if is_group {
+            let dpi = f64::from(dpi_factor);
+            let mut flattened = layer.pixbuf.clone_pixmap();
+            // A child's window-absolute origin, rebased into this layer's
+            // content space - `child_base` below without the mapping to the
+            // output (that is applied once, to the flattened group).
+            let local_base = mat3_translation(
+                -(layout_offset_device_px(layer.bounds.origin.x, dpi)
+                    + layout_offset_device_px(layer.scroll_offset.0, dpi)),
+                -(layout_offset_device_px(layer.bounds.origin.y, dpi)
+                    + layout_offset_device_px(layer.scroll_offset.1, dpi)),
+            );
+            for child_id in &layer.children {
+                self.composite_layer_recursive(*child_id, &mut flattened, local_base, None, dpi_factor);
+            }
+            if !layer.filters.is_empty() {
+                apply_layer_filters(&mut flattened, &layer.filters, dpi_factor);
+            }
+            if is_pure_translation {
+                blit_pixmap_clipped(&flattened, output, px_x, px_y, layer.opacity, clip);
+            } else if is_affine {
+                blit_pixmap_affine_clipped(&flattened, output, &this_m, layer.opacity, clip);
+            } else {
+                blit_pixmap_projective_clipped(&flattened, output, &this_h, layer.opacity, clip);
+            }
+            return;
+        }
+
         // For root layer, just blit directly
         if layer_id == self.root_layer {
             blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
