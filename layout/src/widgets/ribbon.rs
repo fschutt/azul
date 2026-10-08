@@ -8264,6 +8264,47 @@ mod office_2010_kinds_tests {
         assert_eq!(texts(&ch[0]), vec!["Ignore", "Clean Up", "Junk"]);
     }
 
+    /// A row at a group's top level is one control tall - RibbonX's `box` -
+    /// and Office stacks it three to a column with the small items, as
+    /// Explorer's Show/hide stacks its three check boxes. AzDrive's three
+    /// check rows stood side by side and pushed Options out of a 1280 px
+    /// window.
+    #[test]
+    fn a_row_at_a_groups_top_level_stacks_with_the_small_items() {
+        let check_row = |label: &str| {
+            RibbonItem::Row(
+                RibbonRow::new()
+                    .with_item(RibbonItem::Check(CheckBox::create(false)))
+                    .with_item(RibbonItem::Custom(crate::widgets::widget_p_with_text(
+                        AzString::from(label),
+                    ))),
+            )
+        };
+        let group = RibbonGroup::new(AzString::from("Show/hide"))
+            .with_item(check_row("Item check boxes"))
+            .with_item(check_row("File name extensions"))
+            .with_item(check_row("Hidden items"))
+            .with_item(RibbonItem::LargeButton(button(
+                "visibility_off",
+                "Hide selected items",
+            )));
+        let items = items_of(group);
+        let ch = items.children.as_ref();
+        assert_eq!(ch.len(), 2, "[the three rows in a column, the large button]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-column"));
+        let rows = ch[0].children.as_ref();
+        assert_eq!(rows.len(), 3);
+        assert!(
+            rows.iter().all(|r| has_class(r, "__azul-native-ribbon-row")),
+            "each row as the app built it, one under the other"
+        );
+        assert_eq!(
+            texts(&ch[0]),
+            vec!["Item check boxes", "File name extensions", "Hidden items"]
+        );
+        assert!(matches!(ch[1].root.get_node_type(), NodeType::Button));
+    }
+
     #[test]
     fn a_list_gallery_shows_its_commands_icon_beside_name_in_columns_of_three() {
         let names = [
