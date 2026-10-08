@@ -5659,6 +5659,26 @@ fn call_signer_ts(s: &MeetState) -> Option<u64> {
         .map(|c| c.server_now(wall_ms()))
 }
 
+/// The ticket this endpoint announces names its addresses as they are now: the `Ready` event's
+/// may predate its home relay (or a new network), and without the relay in the ticket a peer
+/// behind NAT cannot be reached where no address lookup runs (azcloud's lesson, 10267afec). A
+/// changed ticket is announced at once; a peer not connected yet dials the new one.
+fn refresh_ticket(s: &mut MeetState) {
+    let (Some(endpoint), Some(room)) = (s.endpoint.as_ref(), s.room.as_mut()) else {
+        return;
+    };
+    if room.ticket.is_empty() {
+        // Not ready yet: the `Ready` event brings the first one.
+        return;
+    }
+    let now = endpoint.ticket().as_str().to_string();
+    if !now.is_empty() && now != room.ticket {
+        eprintln!("[azmeet] {}: this endpoint's addresses changed: announcing them", s.name);
+        room.ticket = now;
+        room.announced_at = None;
+    }
+}
+
 /// Every 2 seconds: in a room, announce when due (once this device is a member there), else read
 /// the peers list; on the start screen, ask a meeting server that did not answer again now and
 /// then.
@@ -5666,6 +5686,7 @@ extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     let job = match data.downcast_mut::<MeetState>() {
         Some(mut guard) => {
             let s = &mut *guard;
+            refresh_ticket(s);
             let ts = call_signer_ts(s);
             let signer = s.identity.as_ref().zip(ts);
             let job = s.room.as_mut().and_then(|room| room.next_job(signer));
