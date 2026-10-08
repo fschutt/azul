@@ -297,7 +297,8 @@ fn mode_option(mode: ModePref) -> OptionDarkLightMode {
     }
 }
 
-/// The app config: the app theme and the mode this run uses.
+/// The app config: the app theme and the mode this run uses, and the kit's
+/// icons ([`add_kit_icons`]).
 #[must_use]
 pub fn app_config(kit: &RefAny) -> AppConfig {
     let mut kit = kit.clone();
@@ -305,9 +306,20 @@ pub fn app_config(kit: &RefAny) -> AppConfig {
         Some(k) => k.effective(),
         None => (Theme::default(), ModePref::default()),
     };
-    AppConfig::create()
+    let mut config = AppConfig::create()
         .with_theme(theme.name())
-        .with_mode(mode_option(mode))
+        .with_mode(mode_option(mode));
+    add_kit_icons(&mut config);
+    config
+}
+
+/// The icons every Azlin app draws with besides azul's Material ones:
+/// Haiku's (`azul_icons_haiku`), the flora theme's - searched before the
+/// Material icons while the app theme is flora, a theme switch from the
+/// settings page included, and not at all under flat. [`app_config`] adds
+/// them; an app that builds its own `AppConfig` calls this on it.
+pub fn add_kit_icons(config: &mut AppConfig) {
+    azul_icons_haiku::register(&mut config.icon_provider);
 }
 
 /// The main window: the app's title, `NoTitle` (the app draws the title row),

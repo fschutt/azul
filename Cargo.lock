@@ -135,6 +135,7 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-dll",
+ "azul-icons-haiku",
  "azul-pim",
  "azul-storage",
  "base64 0.22.1",
@@ -1116,6 +1117,7 @@ name = "azul-appkit"
 version = "0.1.0"
 dependencies = [
  "azul-dll",
+ "azul-icons-haiku",
  "azul-storage",
  "csv",
  "serde",

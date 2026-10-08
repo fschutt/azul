@@ -21,9 +21,12 @@ pub struct AboutInfo {
     pub app_folder: &'static str,
 }
 
-/// The About rows: version, license, where the data lives, the toolkit.
+/// The About rows: version, license, where the data lives, the toolkit,
+/// the icons the kit gives every app (Haiku's, the flora theme's -
+/// `ui::app_config` registers them).
 #[must_use]
 pub fn about_rows(info: &AboutInfo, data_root: &Path) -> Vec<(String, String)> {
+    let (icons, icons_license) = azul_icons_haiku::CREDIT;
     vec![
         ("Version".to_string(), info.version.to_string()),
         ("License".to_string(), info.license.to_string()),
@@ -34,6 +37,7 @@ pub fn about_rows(info: &AboutInfo, data_root: &Path) -> Vec<(String, String)> {
                 .to_string(),
         ),
         ("Built with".to_string(), "azul (azul.rs)".to_string()),
+        ("Icons".to_string(), format!("{icons}, {icons_license}")),
     ]
 }
 
@@ -64,8 +68,10 @@ mod tests {
         let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["Version", "License", "Data folder", "Built with"]
+            vec!["Version", "License", "Data folder", "Built with", "Icons"]
         );
+        // Haiku's icons are MIT: every app that ships them says so.
+        assert_eq!(rows[4].1, "Haiku's icon set (Haiku, Inc.), MIT");
         assert_eq!(rows[0].1, "0.1.0");
         assert_eq!(
             rows[2].1,
