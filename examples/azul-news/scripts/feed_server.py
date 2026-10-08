@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A local web of feeds for AzNews' end-to-end test (scripts/aznews_e2e.py).
 
-    python3 examples/azul-news/scripts/feed_server.py [--port 8790]
+    python3 examples/azul-news/scripts/feed_server.py [--port N]   (default: a free port, printed)
 
 Serves, on 127.0.0.1 only:
 
@@ -216,7 +216,8 @@ def make_server(port=0):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", type=int, default=8790)
+    # A free port by default (FEED_SERVER says which): 8790 is the local stack's meeting server.
+    parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args(argv)
     server, _site = make_server(args.port)
     print("FEED_SERVER http://127.0.0.1:%d" % server.server_port, flush=True)
