@@ -543,7 +543,7 @@ impl AddressBar {
     }
 
     /// How wide the bar is, in px: the trail's leading segments that do not
-    /// fit fold into the « menu (0 never folds) - see
+    /// fit fold into the overflow menu at its start (0 never folds) - see
     /// [`Self::available_width`].
     pub const fn set_available_width(&mut self, px: f32) {
         self.available_width = px;
