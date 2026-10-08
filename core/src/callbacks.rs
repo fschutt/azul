@@ -1152,6 +1152,113 @@ pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
     (alloc::vec::Vec::new(), false)
 }
 
+/// The window a DOM is BUILT for, per thread: what a widget whose STRUCTURE
+/// depends on the window's width asks from its `dom()`, which has no
+/// [`LayoutCallbackInfo`] (the ribbon scales a tab that does not fit down to
+/// the width it has, as Office's does). The size twin of
+/// `app_theme::ThemeScope`, and the seam shape of the size-query recorder
+/// above: the engine enters a scope around the `layout()` call, the build
+/// runs synchronously on the calling thread, and a widget asks through
+/// [`build_window_width_less_than`] - never a bare read, so its question is
+/// recorded with the callback's own and replayed on every resize.
+#[cfg(feature = "std")]
+mod build_window {
+    use crate::geom::LogicalSize;
+
+    std::thread_local! {
+        /// The window the DOM being built on this thread is for, while a
+        /// [`super::WindowSizeScope`] is entered.
+        pub(super) static SIZE: core::cell::Cell<Option<LogicalSize>> =
+            const { core::cell::Cell::new(None) };
+    }
+}
+
+/// While alive, the DOM built on this thread is built for a window of the
+/// size it was entered with ([`build_window_width_less_than`]). The engine
+/// enters one around every `layout()` call; dropping it restores the scope
+/// around it, so scopes nest. Bound to the thread that entered it.
+#[must_use = "the scope ends when the guard is dropped"]
+pub struct WindowSizeScope {
+    #[cfg(feature = "std")]
+    previous: Option<LogicalSize>,
+    /// `!Send`: the scope belongs to the thread whose build it frames.
+    _thread_bound: core::marker::PhantomData<*const ()>,
+}
+
+impl WindowSizeScope {
+    /// Build for a window of `size` (logical px) until the returned guard is
+    /// dropped.
+    pub fn enter(size: LogicalSize) -> Self {
+        #[cfg(feature = "std")]
+        let previous = build_window::SIZE
+            .try_with(|scoped| scoped.replace(Some(size)))
+            .ok()
+            .flatten();
+        #[cfg(not(feature = "std"))]
+        let _ = size;
+        Self {
+            #[cfg(feature = "std")]
+            previous,
+            _thread_bound: core::marker::PhantomData,
+        }
+    }
+}
+
+impl Drop for WindowSizeScope {
+    fn drop(&mut self) {
+        #[cfg(feature = "std")]
+        {
+            let previous = self.previous.take();
+            let _ = build_window::SIZE.try_with(|scoped| scoped.set(previous));
+        }
+    }
+}
+
+impl core::fmt::Debug for WindowSizeScope {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WindowSizeScope").finish_non_exhaustive()
+    }
+}
+
+/// For a widget's `dom()`: is the window the DOM is being built for narrower
+/// than `px` (logical px)? `None` outside a build (no [`WindowSizeScope`]):
+/// there is no window to ask, and nothing is recorded.
+///
+/// Recorded exactly like [`LayoutCallbackInfo::window_width_less_than`]: the
+/// question is the build's, so the engine replays it on every resize - one
+/// that flips the answer re-runs `layout()` and the widget is built anew for
+/// the new width, one that keeps every answer re-flows the DOM as it is. A
+/// widget asks only about the widths it would change at (the ribbon: the
+/// width of each of its scaling steps, widest first, until one fits).
+#[must_use]
+pub fn build_window_width_less_than(px: f32) -> Option<bool> {
+    let width = build_window_size()?.width;
+    let answer = width < px;
+    record_size_query(SizeQuery {
+        axis: SizeQueryAxis::Width,
+        op: SizeQueryOp::LessThan,
+        threshold_px: px,
+        answer,
+    });
+    Some(answer)
+}
+
+/// The window the DOM being built on this thread is for ([`WindowSizeScope`]).
+#[cfg(feature = "std")]
+fn build_window_size() -> Option<LogicalSize> {
+    build_window::SIZE
+        .try_with(core::cell::Cell::get)
+        .ok()
+        .flatten()
+}
+
+/// Without `std` there is no thread-local scope: no DOM is ever built for a
+/// window a widget can ask about.
+#[cfg(not(feature = "std"))]
+const fn build_window_size() -> Option<LogicalSize> {
+    None
+}
+
 /// Which facet of the OS style a `layout()` callback read.
 ///
 /// An "appearance change" is never one event. The light/dark polarity flips,

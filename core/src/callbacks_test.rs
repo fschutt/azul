@@ -2214,3 +2214,86 @@ mod app_theme_tests {
         assert_eq!(info.get_window_id().as_str(), "azcalendar-editor-2");
     }
 }
+
+#[cfg(test)]
+mod build_window_tests {
+    //! The window a DOM is BUILT for: what lets a widget whose structure
+    //! depends on the window's width (the ribbon scales a tab that does not
+    //! fit down to it, as Office's does) ask that width from its `dom()`,
+    //! which has no `LayoutCallbackInfo` - the size twin of the theme scope
+    //! above. The engine enters a [`WindowSizeScope`] around `layout()`; a
+    //! widget asks [`build_window_width_less_than`], which records its
+    //! question with the callback's own (`window_width_less_than`), so a
+    //! resize that changes the answer re-runs `layout()` and any other
+    //! resize re-flows the DOM as it is.
+    use super::*;
+    use crate::geom::LogicalSize;
+
+    fn width_query(threshold_px: f32, answer: bool) -> SizeQuery {
+        SizeQuery {
+            axis: SizeQueryAxis::Width,
+            op: SizeQueryOp::LessThan,
+            threshold_px,
+            answer,
+        }
+    }
+
+    #[test]
+    fn a_widget_built_for_a_window_asks_its_width_through_the_recorded_channel() {
+        let _ = take_recorded_size_queries();
+        let _window = WindowSizeScope::enter(LogicalSize::new(800.0, 600.0));
+        assert_eq!(build_window_width_less_than(1000.0), Some(true));
+        assert_eq!(
+            build_window_width_less_than(800.0),
+            Some(false),
+            "strictly narrower, as `window_width_less_than` asks"
+        );
+        let (queries, overflowed) = take_recorded_size_queries();
+        assert!(!overflowed);
+        assert_eq!(
+            queries,
+            vec![width_query(1000.0, true), width_query(800.0, false)],
+            "both questions are the build's, for a resize to replay"
+        );
+        assert!(
+            queries[1].flips_at(LogicalSize::new(799.0, 600.0)),
+            "a window shrinking below the width the widget asked about rebuilds it"
+        );
+        assert!(
+            !queries[0].flips_at(LogicalSize::new(900.0, 600.0)),
+            "one that keeps every answer re-flows the DOM it has"
+        );
+    }
+
+    #[test]
+    fn outside_a_dom_build_there_is_no_window_to_ask() {
+        let _ = take_recorded_size_queries();
+        assert_eq!(build_window_width_less_than(1000.0), None);
+        assert!(
+            take_recorded_size_queries().0.is_empty(),
+            "and nothing is recorded: no layout() replays it"
+        );
+    }
+
+    #[test]
+    fn a_window_size_scope_restores_the_outer_window_and_belongs_to_its_thread() {
+        let _outer = WindowSizeScope::enter(LogicalSize::new(800.0, 600.0));
+        {
+            let _inner = WindowSizeScope::enter(LogicalSize::new(400.0, 300.0));
+            assert_eq!(build_window_width_less_than(500.0), Some(true));
+        }
+        assert_eq!(
+            build_window_width_less_than(500.0),
+            Some(false),
+            "leaving the inner scope restores the outer window"
+        );
+        let elsewhere = std::thread::spawn(|| build_window_width_less_than(500.0))
+            .join()
+            .expect("the probe thread");
+        assert_eq!(
+            elsewhere, None,
+            "another thread's DOM build is not inside this window's scope"
+        );
+        let _ = take_recorded_size_queries();
+    }
+}

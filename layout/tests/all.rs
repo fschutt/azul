@@ -997,3 +997,5 @@ mod a_flora_tab_row_is_cut_from_the_websites_metal;
 mod a_flex_items_negative_margin_overhangs_its_row_without_growing_it;
 #[path = "a_node_mounted_inside_a_virtual_view_hears_its_after_mount.rs"]
 mod a_node_mounted_inside_a_virtual_view_hears_its_after_mount;
+#[path = "a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it.rs"]
+mod a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it;
