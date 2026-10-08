@@ -13,8 +13,9 @@
 //! - [`generate_key`]: a new RSA 2048 key (micromail's generator), the private half as PEM (a
 //!   [`Secret`]: no `Display`, never logged), the public half as base64 SubjectPublicKeyInfo -
 //!   the form OpenDKIM (`d2i_PUBKEY`), Gmail and every provider publish and verify.
-//! - [`check_published`] / [`dns_report`]: asks DNS (UDP, the public resolvers micromail's DNS
-//!   uses) for the record, the domain's DMARC and SPF records; [`txt_records`] reads the answer.
+//! - [`check_published`] / [`dns_report`]: asks DNS (UDP: this run's resolvers, `--dns-servers`
+//!   or [`DNS_SERVERS_VAR`], else the public ones micromail's DNS uses) for the record, the
+//!   domain's DMARC and SPF records; [`txt_records`] reads the answer.
 //!
 //! Signing itself is micromail's (`send.rs`, `sign`); nothing here sends mail.
 
@@ -364,9 +365,47 @@ pub fn match_record(records: &[String], public_key: &str) -> Published {
     }
 }
 
-/// The TXT records at `name`, asked of the public resolvers.
+/// The resolvers the DKIM / DMARC / SPF check asks, in the environment: IP addresses separated
+/// by commas (`192.168.1.1, [::1]`); `--dns-servers` wins. Unset: microdns' public resolvers
+/// (1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4), which a network that lets no DNS out but its own
+/// resolver's does not reach.
+pub const DNS_SERVERS_VAR: &str = "AZMAIL_DNS_SERVERS";
+
+/// The resolvers of this run ([`use_dns_servers`]); unset: microdns' public ones.
+static DNS_SERVERS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// The resolvers `value` names, as microdns asks them (`<server>:53`: an IPv6 address in
+/// brackets); `None` when it names no IP address. Names that are no address are left out: the
+/// resolvers themselves cannot be looked up.
+pub fn parse_dns_servers(value: &str) -> Option<Vec<String>> {
+    let servers: Vec<String> = value
+        .split([',', ' ', ';'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| {
+            match s.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>() {
+                Ok(std::net::IpAddr::V4(ip)) => Some(ip.to_string()),
+                Ok(std::net::IpAddr::V6(ip)) => Some(format!("[{ip}]")),
+                Err(_) => None,
+            }
+        })
+        .collect();
+    (!servers.is_empty()).then_some(servers)
+}
+
+/// Asks `servers` instead of the public resolvers from now on (once, at the start: the switch,
+/// else [`DNS_SERVERS_VAR`]).
+pub fn use_dns_servers(servers: Vec<String>) {
+    let _ = DNS_SERVERS.set(servers);
+}
+
+/// The TXT records at `name`, asked of this run's resolvers (the public ones by default).
 fn lookup_txt(name: &str) -> Result<Vec<String>, String> {
-    let packet = microdns::lookup_dns_records(name, DNS_TYPE_TXT, None)
+    let config = DNS_SERVERS.get().map(|servers| microdns::DnsConfig {
+        servers: servers.clone(),
+        ..microdns::DnsConfig::default()
+    });
+    let packet = microdns::lookup_dns_records(name, DNS_TYPE_TXT, config)
         .map_err(|e| format!("DNS could not be asked for {name}: {e}"))?;
     txt_records(&packet).map_err(|e| format!("{name}: {e}"))
 }
@@ -433,6 +472,26 @@ pub fn dns_report(selector: &str, domain: &str, public_key: &str) -> DnsReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_resolvers_to_ask_are_ip_addresses_an_ipv6_one_in_brackets() {
+        assert_eq!(
+            parse_dns_servers(" 192.168.1.1, ::1;[fd00::53] 10.0.0.1 "),
+            Some(vec![
+                String::from("192.168.1.1"),
+                String::from("[::1]"),
+                String::from("[fd00::53]"),
+                String::from("10.0.0.1"),
+            ])
+        );
+        assert_eq!(
+            parse_dns_servers("dns.example.org, 9.9.9.9"),
+            Some(vec![String::from("9.9.9.9")]),
+            "a name is no resolver address"
+        );
+        assert_eq!(parse_dns_servers(""), None);
+        assert_eq!(parse_dns_servers("resolver"), None);
+    }
 
     /// 2026-10-01T08:30:00Z
     const OCT_1: i64 = 1_790_843_400;

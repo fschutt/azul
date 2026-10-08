@@ -1856,6 +1856,19 @@ pub fn start() {
     if let Some(url) = &endpoints.token_url {
         eprintln!("[azmail] the Azlin token server of this run: {url}");
     }
+    // The resolvers of the DKIM / DMARC / SPF check: the switch, else the environment, else
+    // microdns' public ones.
+    let dns = args
+        .dns_servers
+        .clone()
+        .or_else(|| std::env::var(dkim::DNS_SERVERS_VAR).ok())
+        .filter(|v| !v.trim().is_empty());
+    if let Some(text) = dns {
+        match dkim::parse_dns_servers(&text) {
+            Some(servers) => dkim::use_dns_servers(servers),
+            None => eprintln!("[azmail] no IP address in the DNS servers {text:?}: left out"),
+        }
+    }
     let azmail_var = std::env::var(account::DATA_VAR).ok();
     let data_root = kit_data_root(&kit_ref);
     let root_path = account::data_root(azmail_var.as_deref(), &data_root);
