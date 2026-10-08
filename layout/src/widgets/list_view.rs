@@ -649,7 +649,12 @@ impl ListView {
         let column_style = part(COLUMN_BASE, &look.column);
         let title_style = part(TITLE_BASE, &look.title);
         let sorted_title_style = stacked(title_style.clone(), &look.title_sorted);
+        // A row is plain or a stripe (every other one), the selection over
+        // either: the four styles, stacked once rather than per row.
         let row_style = part(ROW_BASE, &look.row);
+        let stripe_style = stacked(row_style.clone(), &look.row_alternate);
+        let selected_style = stacked(row_style.clone(), &look.row_selected);
+        let selected_stripe_style = stacked(stripe_style.clone(), &look.row_selected);
         let cell_style = part(CELL_BASE, &look.cell);
 
         let mut list_classes = vec![Class(AzString::from_const_str(LIST_CLASS_NAME))];
@@ -721,17 +726,14 @@ impl ListView {
                             .into_iter()
                             .enumerate()
                             .map(|(row_index, row)| {
-                                // Every other row is a stripe; the selection
-                                // goes over its stripe.
-                                let mut style = row_style.clone();
-                                if row_index % 2 == 1 {
-                                    style = stacked(style, &look.row_alternate);
-                                }
-                                if selected_row == Some(row_index) {
-                                    style = stacked(style, &look.row_selected);
-                                }
+                                let style = match (row_index % 2 == 1, selected_row == Some(row_index)) {
+                                    (false, false) => &row_style,
+                                    (true, false) => &stripe_style,
+                                    (false, true) => &selected_style,
+                                    (true, true) => &selected_stripe_style,
+                                };
                                 let row_dom = Dom::create_div()
-                                    .with_css_props(style)
+                                    .with_css_props(style.clone())
                                     .with_ids_and_classes(ROW_CLASS)
                                     .with_tab_index(crate::widgets::roving::item_tab_index(
                                         row_index, row_stop,
