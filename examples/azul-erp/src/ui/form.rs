@@ -100,7 +100,7 @@ fn form_dom(s: &Erp, app: &RefAny, view: &View, draft: &FormDraft) -> Dom {
         children.push(
             column(general.iter().map(|why| text(why)).collect())
                 .with_id(ids::FORM_PROBLEMS)
-                .with_css("padding: 6px 0px; font-size: 12px; color: #c42b1c;"),
+                .with_css(format!("padding: 6px 0px; font-size: 12px; {}", super::PROBLEM_INK)),
         );
     }
     let mut buttons = Dom::create_div().with_css(
@@ -138,11 +138,17 @@ fn field_row(label: &str, control: Dom, problem: Option<&str>) -> Dom {
         .with_child(
             text(label)
                 .with_class(ids::FIELD_LABEL)
-                .with_css("font-size: 12px; opacity: 0.8; padding-bottom: 2px;"),
+                .with_css(format!(
+                    "font-size: 12px; opacity: 0.8; padding-bottom: 2px; {}",
+                    super::QUIET_FLORA
+                )),
         )
         .with_child(control);
     if let Some(why) = problem {
-        row.add_child(text(why).with_css("font-size: 12px; color: #c42b1c; padding-top: 2px;"));
+        row.add_child(text(why).with_css(format!(
+            "font-size: 12px; padding-top: 2px; {}",
+            super::PROBLEM_INK
+        )));
     }
     row
 }

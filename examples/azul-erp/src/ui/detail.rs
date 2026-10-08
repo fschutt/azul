@@ -55,7 +55,10 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
                 .with_child(heading)
                 .with_child(
                     text(&asset.value(sub, &ctx).display())
-                        .with_css("padding-left: 8px; font-size: 13px; opacity: 0.7;"),
+                        .with_css(format!(
+                            "padding-left: 8px; font-size: 13px; opacity: 0.7; {}",
+                            super::QUIET_FLORA
+                        )),
                 );
         }
         header.add_child(heading);
@@ -64,7 +67,14 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
                 text(&asset.value(status, &ctx).display())
                     .with_id(ids::DETAIL_STATUS)
                     .with_class(ids::PILL)
-                    .with_css("margin-left: 10px; padding: 2px 8px; border-radius: 10px; font-size: 12px; border: 1px solid #8888;"),
+                    // Under flora flora.css's `.pill`: a quiet badge at the house radius,
+                    // its edge the theme's, its label in the label ink's capitals.
+                    .with_css(
+                        "margin-left: 10px; padding: 2px 8px; border-radius: 10px; font-size: 12px; \
+                         border: 1px solid #8888; @theme(flora) { border-radius: 3px; border: 1px \
+                         solid system:separator; color: system:secondary-text; font-size: 11px; \
+                         font-weight: bold; text-transform: uppercase; letter-spacing: 0.07em; }",
+                    ),
             );
         }
         header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
