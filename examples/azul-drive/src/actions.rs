@@ -22,8 +22,9 @@ use azul::{
     vec::StyledTextRunVec,
 };
 use azul_storage::{
+    azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
-    key, Drive, DriveError, LocalDrive,
+    key, Drive, DriveError, LocalDrive, S3Drive,
 };
 
 use crate::{
@@ -34,10 +35,9 @@ use crate::{
     keys::{self, Command, Key, Mods, Step},
     listing,
     model::{self, GroupBy, ViewLayout},
-    open_current, open_drive, place_up,
-    preview,
-    refresh, save_settings, spawn, ui_view, with_state, ClipboardItems, DriveState, KeyringCall,
-    KeyringOp, Popup, PreviewState, PropertiesState, Renaming, Slot, TransferJob, UndoOp,
+    open_current, open_drive, place_up, preview, refresh, save_settings, spawn, ui_view,
+    with_state, ClipboardItems, DriveState, KeyringCall, KeyringOp, Popup, PreviewState,
+    PropertiesState, Renaming, Slot, TransferJob, UndoOp,
 };
 
 // ==== Actions ====
@@ -124,10 +124,15 @@ pub(crate) enum Action {
     /// Another AzDrive window - a process of its own - at the open place.
     NewWindow,
     /// A terminal in the open folder: the system's, or Azlin's AzTerm.
-    OpenTerminal { azterm: bool },
+    OpenTerminal {
+        azterm: bool,
+    },
     /// Forget the places visited (Recent locations, Frequent places) and / or where Back and
     /// Forward go.
-    ClearHistory { recent: bool, back_forward: bool },
+    ClearHistory {
+        recent: bool,
+        back_forward: bool,
+    },
     /// The Options at the keyboard shortcuts (File > Help).
     Shortcuts,
     /// Pin a folder to Quick access, or unpin it (File > Frequent places' pins).
@@ -284,7 +289,9 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             Some(_) => Some(String::from(
                 "A terminal opens in a folder of this computer; this folder is in an S3 bucket.",
             )),
-            None => Some(String::from("Open a folder of a drive on this computer first.")),
+            None => Some(String::from(
+                "Open a folder of a drive on this computer first.",
+            )),
         },
         Action::Print => need_selection().or_else(|| {
             if !s.current_drive().is_some_and(|i| s.slots[i].is_local()) {
@@ -292,7 +299,9 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
                     "Printing goes through this computer: download the file first.",
                 ))
             } else if s.selected_entries().iter().any(|e| e.is_folder) {
-                Some(String::from("Select files to print; a folder does not print."))
+                Some(String::from(
+                    "Select files to print; a folder does not print.",
+                ))
             } else {
                 None
             }
@@ -494,7 +503,12 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::EasyAccessMenu => {
             let items = vec![
                 able_item(app, s, "Pin to Quick access", Action::Pin),
-                menu_item(app, "Add a folder as a drive...", Action::AddLocalDrive, false),
+                menu_item(
+                    app,
+                    "Add a folder as a drive...",
+                    Action::AddLocalDrive,
+                    false,
+                ),
             ];
             open_menu_below(info, items);
         }
@@ -596,8 +610,13 @@ fn system_terminal(dir: &std::path::Path) -> std::io::Result<()> {
             .map(|_| ());
     }
     let mut last = std::io::Error::new(std::io::ErrorKind::NotFound, "no terminal emulator");
-    for program in ["x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"]
-    {
+    for program in [
+        "x-terminal-emulator",
+        "gnome-terminal",
+        "konsole",
+        "xfce4-terminal",
+        "xterm",
+    ] {
         match Command::new(program).current_dir(dir).spawn() {
             Ok(_) => return Ok(()),
             Err(e) => last = e,
@@ -627,13 +646,23 @@ fn print_selected(s: &mut DriveState) {
     let result = if cfg!(windows) {
         paths.iter().try_for_each(|path| {
             std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", "Start-Process", "-Verb", "Print", "-FilePath"])
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Start-Process",
+                    "-Verb",
+                    "Print",
+                    "-FilePath",
+                ])
                 .arg(path)
                 .spawn()
                 .map(|_| ())
         })
     } else {
-        std::process::Command::new("lp").args(&paths).spawn().map(|_| ())
+        std::process::Command::new("lp")
+            .args(&paths)
+            .spawn()
+            .map(|_| ())
     };
     match result {
         Ok(()) => {
@@ -2308,13 +2337,81 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
 
 // ==== Share ====
 
-/// Share: the selected items' addresses on the clipboard.
+/// Share > Copy link: on a cloud drive a link to each selected file that anyone holding it can
+/// download for seven days - an S3 presigned URL, signed here with the drive's keys (nothing is
+/// sent); a folder has no such link, its address goes along. On a drive on this computer, the
+/// items' paths.
 fn share_link(info: &mut CallbackInfo, s: &mut DriveState) {
-    copy_path(info, s);
-    s.info(
-        "Copied the items' addresses (a file path, or an s3:// address; signed web links need \
-         the access-link server).",
-    );
+    /// How long a copied link lets anyone download its file (S3's longest).
+    const LINK_SECS: u64 = 7 * 24 * 3600;
+    let Some(index) = s.current_drive() else {
+        return;
+    };
+    let Some(config) = s.slots[index].entry.s3_config() else {
+        copy_path(info, s);
+        s.info("Copied the items' paths (a link to share is a cloud drive's).");
+        return;
+    };
+    let Some(credentials) = s.slots[index].credentials.clone() else {
+        s.error("The drive's keys are not read yet: open one of its folders first.");
+        return;
+    };
+    let drive = match S3Drive::new(
+        config,
+        credentials,
+        Box::new(AzulTransport::new(crate::USER_AGENT)),
+    ) {
+        Ok(drive) => drive,
+        Err(e) => {
+            s.error(format!("No link can be made: {e}"));
+            return;
+        }
+    };
+    let drive_id = s.slots[index].entry.id.clone();
+    let made: Result<(Vec<String>, usize), String> = {
+        let mut links = Vec::new();
+        let mut files = 0;
+        let mut failed = None;
+        for entry in s.selected_entries() {
+            if entry.is_folder {
+                links.push(item_location(s, &drive_id, &entry.key));
+                continue;
+            }
+            match drive.presigned_get_url(&entry.key, LINK_SECS) {
+                Ok(url) => {
+                    links.push(url);
+                    files += 1;
+                }
+                Err(e) => {
+                    failed = Some(format!("No link to \"{}\": {e}", entry.name));
+                    break;
+                }
+            }
+        }
+        match failed {
+            Some(why) => Err(why),
+            None => Ok((links, files)),
+        }
+    };
+    let (links, files) = match made {
+        Ok(made) => made,
+        Err(why) => {
+            s.error(why);
+            return;
+        }
+    };
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(links.join("\n")),
+        styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
+    });
+    println!("AZDRIVE_DONE link {files}");
+    // A folder has no download link (S3 signs one object per link), so its address went along.
+    s.info(match files {
+        0 => String::from("A folder has no download link: copied its s3:// address."),
+        1 => String::from("Copied a link: anyone holding it can download the file for 7 days."),
+        n => format!("Copied {n} links: anyone holding one can download its file for 7 days."),
+    });
 }
 
 /// Email: a new message in the mail app with the items' addresses.

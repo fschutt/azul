@@ -562,6 +562,51 @@ fn a_copy_error_inside_a_200_answer_fails() {
     ));
 }
 
+/// AWS's reference example of a presigned URL ("Authenticating Requests: Using Query
+/// Parameters"): GET examplebucket's test.txt, valid 24 hours from 2013-05-24, signed with the
+/// documentation's example keys - the signature is the documented one, and nothing is sent.
+#[test]
+fn a_presigned_link_carries_the_documented_signature_and_sends_nothing() {
+    let fake = Fake::default();
+    let drive = S3Drive::new(
+        S3Config {
+            endpoint: "https://s3.amazonaws.com".to_string(),
+            region: "us-east-1".to_string(),
+            bucket: "examplebucket".to_string(),
+            path_style: false,
+        },
+        Credentials::new(
+            "AKIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        ),
+        Box::new(fake.clone()),
+    )
+    .expect("the reference configuration")
+    .with_clock(|| NOW);
+    let url = drive.presigned_get_url("test.txt", 86_400).expect("a link");
+    assert!(
+        url.starts_with("https://examplebucket.s3.amazonaws.com/test.txt?"),
+        "{url}"
+    );
+    for part in [
+        "X-Amz-Algorithm=AWS4-HMAC-SHA256",
+        "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request",
+        "X-Amz-Date=20130524T000000Z",
+        "X-Amz-Expires=86400",
+        "X-Amz-SignedHeaders=host",
+        "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404",
+    ] {
+        assert!(url.contains(part), "{part} in {url}");
+    }
+    assert!(fake.calls().is_empty(), "a link is made, not fetched");
+    // S3 takes seven days at most; a longer wish is cut to it.
+    let week = drive
+        .presigned_get_url("test.txt", 30 * 86_400)
+        .expect("a link");
+    assert!(week.contains("X-Amz-Expires=604800"), "{week}");
+    assert!(drive.presigned_get_url("", 60).is_err(), "no key, no link");
+}
+
 #[test]
 fn a_copy_the_service_does_not_confirm_fails() {
     // A 200 without a CopyObjectResult is no copy (a server that ignored
