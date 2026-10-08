@@ -2215,6 +2215,11 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
                 *flags |= DOM_HAS_FONT_VARIANT_NUMERIC;
             }
         }
+        CssProperty::TextOverflow(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_TEXT_OVERFLOW;
+            }
+        }
         CssProperty::HyphenationLanguage(v) => {
             if v.get_property().is_some() {
                 *flags |= DOM_HAS_HYPHENATION_LANGUAGE;

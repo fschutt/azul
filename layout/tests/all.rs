@@ -967,3 +967,5 @@ mod a_node_that_comes_in_is_drawn_from_its_first_keyframe;
 mod a_virtual_views_content_inherits_from_its_host;
 #[path = "a_long_status_text_leaves_the_zoom_in_its_bar.rs"]
 mod a_long_status_text_leaves_the_zoom_in_its_bar;
+#[path = "a_line_too_long_for_its_box_ends_in_an_ellipsis.rs"]
+mod a_line_too_long_for_its_box_ends_in_an_ellipsis;

@@ -219,7 +219,6 @@ const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
 const APPROX_STRIKETHROUGH_OFFSET_RATIO: f32 = 0.3;
 const APPROX_OVERLINE_OFFSET_RATIO: f32 = 0.85;
-const APPROX_ELLIPSIS_WIDTH_RATIO: f32 = 0.6;
 const DEFAULT_A4_WIDTH_PT: f32 = 595.0;
 const DEFAULT_SHADOW_FONT_SIZE_PX: f32 = 16.0;
 
@@ -7499,6 +7498,7 @@ where
             // to full scroll content size. Text must be clipped to the viewport
             // when overflow is hidden/scroll/auto, not to the full content size.
             let mut viewport_clip_rect = content_box_rect;
+            let own_content_width = content_box_rect.size.width;
 
             // `position: relative` on an inline box moves the runs of its
             // text (CSS 2.2 9.4.3) - percentages against this content box,
@@ -7677,6 +7677,17 @@ where
                 }
             }
 
+            // `text-overflow: ellipsis`: cut at the box's own content edge
+            // (`content_box_rect` may have grown to the scrolled extent).
+            let ellipsis = node.dom_node_id.and_then(|dom_id| {
+                self.text_overflow_ellipsis(
+                    dom_id,
+                    inline_layout,
+                    cached_layout.dense.as_deref(),
+                    own_content_width,
+                )
+            });
+
             self.paint_inline_content(
                 builder,
                 content_box_rect,
@@ -7687,6 +7698,7 @@ where
                 &cached_layout.glyph_runs,
                 run_shifts.as_deref(),
                 node_index,
+                ellipsis.as_ref(),
             );
 
             if pushed_text_shadow {
@@ -8611,7 +8623,173 @@ where
         shifts
     }
 
+    /// `text-overflow: ellipsis` (CSS Overflow 3 §3.1) for the IFC rooted at
+    /// `dom_id`, whose content box is `content_width` wide: the ellipsis,
+    /// shaped in the root's style, and the lines it ends. `None` - decided
+    /// without a cascade walk wherever no node of the DOM declares the
+    /// property - when the root does not ask for it, its inline axis does not
+    /// clip (`overflow-x: visible` has no end edge to cut at), its lines are
+    /// not left-to-right horizontal ones, or no line runs past the end edge.
+    fn text_overflow_ellipsis(
+        &self,
+        dom_id: NodeId,
+        layout: &UnifiedLayout,
+        dense: Option<&crate::text3::dense::DenseText>,
+        content_width: f32,
+    ) -> Option<TextOverflowEllipsis> {
+        use azul_css::props::{
+            layout::{overflow::StyleTextOverflow, wrapping::LayoutWritingMode},
+            style::text::StyleDirection,
+        };
+
+        use crate::solver3::getters::{
+            get_direction_property, get_text_overflow_property, get_writing_mode, MultiValue,
+        };
+
+        let sd = self.ctx.styled_dom;
+        let declared = sd
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .map_or(true, |cc| {
+                cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_OVERFLOW != 0
+            });
+        if !declared {
+            return None;
+        }
+        let state = self.get_styled_node_state(dom_id);
+        if !matches!(
+            get_text_overflow_property(sd, dom_id, &state),
+            MultiValue::Exact(StyleTextOverflow::Ellipsis)
+        ) {
+            return None;
+        }
+        if !matches!(
+            get_overflow_x(sd, dom_id, &state),
+            MultiValue::Exact(
+                LayoutOverflow::Hidden
+                    | LayoutOverflow::Scroll
+                    | LayoutOverflow::Auto
+                    | LayoutOverflow::Clip
+            )
+        ) {
+            return None;
+        }
+        if matches!(
+            get_direction_property(sd, dom_id, &state),
+            MultiValue::Exact(StyleDirection::Rtl)
+        ) || matches!(
+            get_writing_mode(sd, dom_id, &state),
+            MultiValue::Exact(mode) if mode != LayoutWritingMode::HorizontalTb
+        ) {
+            return None;
+        }
+        // Under dense-text retention the stored items are the empty sentinel.
+        let expanded;
+        let items: &[crate::text3::cache::PositionedItem] = if layout.items.is_empty() {
+            expanded = dense?.to_unified_items();
+            &expanded
+        } else {
+            &layout.items
+        };
+        // Most clipped boxes fit their text: nothing to shape.
+        if !items
+            .iter()
+            .any(|item| item.position.x + item.item.bounds().width > content_width + 0.5)
+        {
+            return None;
+        }
+        let style = Arc::new(super::getters::get_style_properties(
+            sd,
+            dom_id,
+            self.ctx.system_style.as_ref(),
+            azul_css::props::basic::PhysicalSize {
+                width: self.ctx.viewport_size.width,
+                height: self.ctx.viewport_size.height,
+            },
+        ));
+        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let glyphs = crate::text3::cache::shape_ellipsis(
+            &style,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
+        );
+        if glyphs.is_empty() {
+            return None;
+        }
+        let advance: f32 = glyphs.iter().map(|g| g.advance + g.kerning).sum();
+        let cuts = ellipsis_cuts(items, content_width, advance);
+        if cuts.is_empty() {
+            return None;
+        }
+        Some(TextOverflowEllipsis {
+            glyphs,
+            font_size_px: style.font_size_px,
+            color: super::getters::get_used_text_color(sd, dom_id, &state),
+            cuts,
+        })
+    }
+
+    /// Paints the ellipsis at the end of every line `ellipsis` cuts (the
+    /// glyphs it replaces are left out of the runs), the content box's top
+    /// left at `origin`.
+    fn paint_ellipses(
+        &self,
+        builder: &mut DisplayListBuilder,
+        ellipsis: &TextOverflowEllipsis,
+        origin: LogicalPosition,
+        clip_rect: LogicalRect,
+        source_node_index: usize,
+        uniform_bg: Option<(ColorU, WindowLogicalRect)>,
+    ) {
+        for cut in &ellipsis.cuts {
+            let mut pen_x = origin.x + cut.x;
+            let baseline_y = origin.y + cut.baseline;
+            // One run per face (the ellipsis may come from a fallback face).
+            let mut run: Vec<GlyphInstance> = Vec::with_capacity(ellipsis.glyphs.len());
+            let mut run_hash = ellipsis.glyphs.first().map_or(0, |g| g.font_hash);
+            for g in &ellipsis.glyphs {
+                if g.font_hash != run_hash && !run.is_empty() {
+                    builder.push_text_run(
+                        core::mem::take(&mut run),
+                        FontHash::from_hash(run_hash),
+                        ellipsis.font_size_px,
+                        ellipsis.color,
+                        clip_rect,
+                        Some(source_node_index),
+                        uniform_bg,
+                    );
+                    run_hash = g.font_hash;
+                }
+                run.push(GlyphInstance {
+                    index: u32::from(g.glyph_id),
+                    point: LogicalPosition::new(pen_x + g.offset.x, baseline_y - g.offset.y),
+                    size: LogicalSize::zero(),
+                });
+                pen_x += g.advance + g.kerning;
+            }
+            if !run.is_empty() {
+                builder.push_text_run(
+                    run,
+                    FontHash::from_hash(run_hash),
+                    ellipsis.font_size_px,
+                    ellipsis.color,
+                    clip_rect,
+                    Some(source_node_index),
+                    uniform_bg,
+                );
+            }
+        }
+    }
+
     /// Converts the rich layout information from `text3` into drawing commands.
+    ///
+    /// `ellipsis`: the root's `text-overflow: ellipsis`, where it cuts lines
+    /// ([`Self::text_overflow_ellipsis`]): the glyphs past a cut are left out
+    /// of their runs, their decorations end at it, and the ellipsis is painted
+    /// after the text.
     ///
     /// `run_shifts` (parallel to `glyph_runs`, `None` when nothing moves):
     /// how far `position: relative` on an inline box moves each run - its
@@ -8631,6 +8809,7 @@ where
         glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
         run_shifts: Option<&[LogicalPosition]>,
         source_node_index: usize,
+        ellipsis: Option<&TextOverflowEllipsis>,
     ) {
         let shift_of_run = |i: usize| {
             run_shifts
@@ -8642,14 +8821,15 @@ where
         // TODO: Handle z-index within inline content (e.g. background images)
         // NOTE: Text decorations (underline, strikethrough, overline) are handled in
         // push_text_layout_to_display_list TODO: Text shadows not yet implemented
-        // NOTE: Text-overflow ellipsis is handled via apply_text_overflow_ellipsis()
-        // which can be called as a post-processing step on the display list when
-        // the node has overflow:hidden and text-overflow:ellipsis CSS properties.
+        // NOTE: `text-overflow: ellipsis` is paint, from `ellipsis` (the root's,
+        // see `text_overflow_ellipsis`): the glyphs past each cut are not
+        // painted, the ellipsis is painted after what stays. The layout keeps
+        // every glyph (selection, hit-testing and copying see the whole text).
         // +spec:overflow:7807b1 - text-overflow ellipsis side depends on direction (RTL clips left,
-        // LTR clips right); not yet implemented +spec:overflow:bbf9c1 - text-overflow
+        // LTR clips right); only LTR lines are cut so far +spec:overflow:bbf9c1 - text-overflow
         // ellipsis should only truncate content that is actually clipped; as content
-        // scrolls into view, show it instead of ellipsis TODO: Handle text overflowing
-        // (based on container_rect and overflow behavior)
+        // scrolls into view, show it instead of ellipsis (the cut is at the box's unscrolled
+        // end edge)
 
         // Calculate actual content bounds from the layout
         // Use these bounds instead of container_rect to avoid inflated bounds
@@ -8934,8 +9114,18 @@ where
             // relative to (0,0) of the IFC). (#25) The runs are stored
             // compact; this expansion builds the same Vec the pre-#25 code
             // built by copy-then-offset — construct instead of memcpy.
-            let offset_glyphs: Vec<GlyphInstance> =
+            let mut offset_glyphs: Vec<GlyphInstance> =
                 glyph_run.glyphs.to_vec_offset(run_origin.x, run_origin.y);
+            // What the ellipsis replaces is not painted (it is still laid
+            // out: hit-testing, selection and copying see it).
+            if let Some(ellipsis) = ellipsis {
+                offset_glyphs.retain(|g| {
+                    !ellipsis.hides(g.point.x - run_origin.x, g.point.y - run_origin.y)
+                });
+                if offset_glyphs.is_empty() {
+                    continue;
+                }
+            }
 
             // Store only the font hash in the display list to keep it lean
             let uniform_bg = if glyph_run.background_content.is_empty() {
@@ -9056,8 +9246,13 @@ where
                     (glyph_run.glyphs.first(), glyph_run.glyphs.last())
                 {
                     let decoration_start_x = run_origin.x + first_glyph.point.x;
-                    // Under the last letter too (`end_x`: the pen after it).
-                    let decoration_end_x = run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
+                    // Under the last letter too (`end_x`: the pen after it) -
+                    // and not under what an ellipsis replaces.
+                    let mut decoration_end_x =
+                        run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
+                    if let Some(cut) = ellipsis.and_then(|e| e.cut_at(first_glyph.point.y)) {
+                        decoration_end_x = decoration_end_x.min(run_origin.x + cut.x);
+                    }
                     let decoration_width = decoration_end_x - decoration_start_x;
 
                     // Use font metrics to determine decoration positions
@@ -9105,6 +9300,19 @@ where
                     }
                 }
             }
+        }
+
+        // The ellipses, after the text they end (in the root's colour, on the
+        // background the IFC proved).
+        if let Some(ellipsis) = ellipsis {
+            self.paint_ellipses(
+                builder,
+                ellipsis,
+                container_rect.origin,
+                viewport_clip_rect,
+                source_node_index,
+                ifc_uniform_bg,
+            );
         }
 
         // THIRD PASS: Generate hit-test areas for text runs
@@ -11797,109 +12005,106 @@ struct BreakProperties {
 // TEXT-OVERFLOW STUB
 // ============================================================================
 
-/// Applies text-overflow ellipsis handling to a display list.
-///
-/// CSS UI Module Level 3, section 6.2 (text-overflow):
-/// When inline content overflows a block container that has `overflow: hidden`
-/// (or clip/scroll) and `text-overflow: ellipsis`, the overflowing text should
-/// be replaced with an ellipsis character (U+2026) or a custom string.
-///
-/// This is a display-list post-processing step that modifies glyph runs
-/// to show an ellipsis when text overflows its container. It operates on
-/// the assumption that the container already has a `PushClip` that clips
-/// the overflow -- this function additionally replaces the trailing glyphs
-/// with an ellipsis so the user gets a visual indicator of truncation.
-///
-/// # Parameters
-/// - `display_list`: The display list to modify (text items may be clipped/replaced)
-/// - `container_bounds`: The bounds of the containing block (overflow boundary)
-/// - `_ellipsis`: The ellipsis string (currently unused; U+2026 glyph index is used)
-///
-/// # Algorithm
-/// 1. For each Text item in the display list, check if any glyphs extend past the container's right
-///    edge (inline-end in LTR).
-/// 2. If so, find the last glyph that fits entirely within the container, accounting for the width
-///    of the ellipsis character.
-/// 3. Remove all glyphs after that point.
-/// 4. Append an ellipsis glyph (U+2026 = glyph index 0x2026 as a fallback; proper glyph lookup
-///    requires font metrics not available here).
-///
-/// Note: This is a best-effort implementation. A pixel-perfect version would
-/// need access to font metrics to measure the exact ellipsis glyph width and
-/// to look up the correct glyph index for the ellipsis in each font.
-// +spec:overflow:f175b9 - bidi ellipsis: characters visually at the end edge of the line are hidden
-// for ellipsis
-pub(crate) fn apply_text_overflow_ellipsis(
-    display_list: &mut DisplayList,
-    container_bounds: LogicalRect,
-    _ellipsis: &str,
-) {
-    let container_right = container_bounds.origin.x + container_bounds.size.width;
+/// Where `text-overflow: ellipsis` cuts one line of an inline formatting
+/// context (CSS Overflow 3 §3.1), in the IFC's own coordinates (its content
+/// box's top left at 0, 0).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EllipsisCut {
+    /// The line's band on the block axis: a glyph whose baseline lies in it is
+    /// one of the line's.
+    pub top: f32,
+    pub bottom: f32,
+    /// The end edge of what stays, where the ellipsis starts: everything the
+    /// line holds from here on is hidden.
+    pub x: f32,
+    /// The baseline the ellipsis sits on: the last kept character's (the
+    /// one its glyph run is painted on).
+    pub baseline: f32,
+}
 
-    // Approximate ellipsis width as ~0.6 * font_size (typical for "..." in most fonts).
-    // This is a heuristic; proper implementation requires font metric access.
-    for item in &mut display_list.items {
-        if let DisplayListItem::Text {
-            glyphs,
-            font_size_px,
-            clip_rect,
-            ..
-        } = item
-        {
-            if glyphs.is_empty() {
-                continue;
-            }
+impl EllipsisCut {
+    /// Whether the glyph with its pen at (`x`, `baseline`) is one the cut
+    /// hides: on this line, at or past where the ellipsis starts.
+    fn hides(&self, x: f32, baseline: f32) -> bool {
+        baseline >= self.top - 0.5 && baseline <= self.bottom + 0.5 && x >= self.x - 0.01
+    }
+}
 
-            // Check if any glyph extends past the container right edge
-            let last_glyph = &glyphs[glyphs.len() - 1];
-            let last_glyph_right = last_glyph.point.x + last_glyph.size.width;
-
-            if last_glyph_right <= container_right {
-                continue; // No overflow, nothing to do
-            }
-
-            // Estimate ellipsis width
-            let ellipsis_width = *font_size_px * APPROX_ELLIPSIS_WIDTH_RATIO;
-            let truncation_edge = container_right - ellipsis_width;
-
-            // Find the last glyph that fits before the truncation edge
-            let mut keep_count = 0;
-            for (i, glyph) in glyphs.iter().enumerate() {
-                let glyph_right = glyph.point.x + glyph.size.width;
-                if glyph_right > truncation_edge {
-                    break;
-                }
-                keep_count = i + 1;
-            }
-
-            // Truncate the glyphs
-            glyphs.truncate(keep_count);
-
-            // Append an ellipsis glyph. We use Unicode codepoint U+2026
-            // (HORIZONTAL ELLIPSIS) as the glyph index. This is a common
-            // convention; renderers that use proper glyph IDs will need to
-            // map this to the font's actual glyph index.
-            let ellipsis_x = glyphs.last().map_or(container_bounds.origin.x, |last| {
-                last.point.x + last.size.width
-            });
-
-            let ellipsis_glyph = GlyphInstance {
-                index: 0x2026, // U+2026 HORIZONTAL ELLIPSIS
-                point: LogicalPosition::new(
-                    ellipsis_x,
-                    glyphs
-                        .first()
-                        .map_or(container_bounds.origin.y, |g| g.point.y),
-                ),
-                size: LogicalSize::new(ellipsis_width, *font_size_px),
-            };
-
-            glyphs.push(ellipsis_glyph);
-
-            // Update the clip rect to match the container bounds so
-            // the ellipsis is visible but nothing past it is shown
-            *clip_rect = container_bounds.into();
+/// The lines of `items` (a laid-out IFC, in line order) that run past the end
+/// edge `end_x`, each cut for an ellipsis `advance` wide: CSS Overflow 3 §3.1,
+/// "implementations must hide characters and atomic inline-level elements at
+/// the end edge of the line as necessary to fit the ellipsis, and place the
+/// ellipsis immediately adjacent to the end edge of the remaining inline
+/// content. The first character or atomic inline-level element on a line must
+/// be clipped rather than ellipsed." Only the lines that overflow are cut; a
+/// line that fits keeps everything. Left-to-right lines: the end edge is the
+/// right one.
+pub(crate) fn ellipsis_cuts(
+    items: &[crate::text3::cache::PositionedItem],
+    end_x: f32,
+    advance: f32,
+) -> Vec<EllipsisCut> {
+    let right = |item: &crate::text3::cache::PositionedItem| item.position.x + item.item.bounds().width;
+    let mut cuts = Vec::new();
+    let mut start = 0;
+    while start < items.len() {
+        let line_index = items[start].line_index;
+        let end = items[start..]
+            .iter()
+            .position(|item| item.line_index != line_index)
+            .map_or(items.len(), |n| start + n);
+        let line = &items[start..end];
+        start = end;
+        if !line.iter().any(|item| right(item) > end_x + 0.5) {
+            continue;
         }
+        let mut order: Vec<&crate::text3::cache::PositionedItem> = line.iter().collect();
+        order.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
+        let fits = end_x - advance + 0.01;
+        let kept = 1 + order[1..].iter().take_while(|item| right(item) <= fits).count();
+        let last = order[kept - 1];
+        let on_baseline = order[..kept]
+            .iter()
+            .rev()
+            .find(|item| matches!(item.item, ShapedItem::Cluster(_)))
+            .copied()
+            .unwrap_or(last);
+        let (ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
+        let top = line.iter().map(|item| item.position.y).fold(f32::INFINITY, f32::min);
+        let bottom = line
+            .iter()
+            .map(|item| item.position.y + item.item.bounds().height)
+            .fold(f32::NEG_INFINITY, f32::max);
+        cuts.push(EllipsisCut {
+            top,
+            bottom,
+            x: right(last),
+            baseline: on_baseline.position.y + ascent,
+        });
+    }
+    cuts
+}
+
+/// The ellipsis of an IFC whose root asks for `text-overflow: ellipsis`, and
+/// the lines it ends: the glyphs, shaped in the root's style, and its paint.
+struct TextOverflowEllipsis {
+    glyphs: Vec<crate::text3::cache::Glyph>,
+    font_size_px: f32,
+    color: ColorU,
+    cuts: Vec<EllipsisCut>,
+}
+
+impl TextOverflowEllipsis {
+    /// The cut of the line a glyph with its baseline at `baseline` is on.
+    fn cut_at(&self, baseline: f32) -> Option<&EllipsisCut> {
+        self.cuts
+            .iter()
+            .find(|cut| baseline >= cut.top - 0.5 && baseline <= cut.bottom + 0.5)
+    }
+
+    /// Whether a glyph with its pen at (`x`, `baseline`), IFC-local, is hidden.
+    fn hides(&self, x: f32, baseline: f32) -> bool {
+        self.cuts.iter().any(|cut| cut.hides(x, baseline))
     }
 }
 
@@ -15359,138 +15564,59 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // apply_text_overflow_ellipsis
+    // ellipsis_cuts (text-overflow: ellipsis)
     // ---------------------------------------------------------------------
 
-    #[test]
-    fn ellipsis_leaves_non_overflowing_text_alone() {
-        let container = rect(0.0, 0.0, 100.0, 20.0);
-        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 10.0, 10.0)]; // right edge 18 < 100
-        let mut dl = list_of(vec![text_item(
-            Some(0),
-            rect(0.0, 0.0, 100.0, 20.0),
-            glyphs.clone(),
-        )]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs: g, .. } => {
-                assert_eq!(g.len(), glyphs.len());
-                assert_eq!(g.iter().map(|x| x.index).collect::<Vec<_>>(), vec![1, 2]);
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    /// A line of `n` items 10 wide and 20 tall from x = 0, at `y`.
+    #[cfg(feature = "text_layout")]
+    fn line_of(line_index: usize, n: usize, y: f32) -> Vec<PositionedItem> {
+        (0..n)
+            .map(|i| positioned(line_index, i as f32 * 10.0, y, 10.0, 20.0))
+            .collect()
     }
 
     #[test]
-    fn ellipsis_truncates_overflowing_text_and_appends_u2026() {
-        let container = rect(0.0, 0.0, 50.0, 20.0);
-        // Glyphs at x = 0,10,20,30,40,50 each 8 wide => right edges 8,18,28,38,48,58.
-        let glyphs: Vec<_> = (0..6)
-            .map(|i| glyph(i + 1, (i as f32) * 10.0, 10.0))
-            .collect();
-        let mut dl = list_of(vec![text_item(
-            Some(0),
-            rect(0.0, 0.0, 500.0, 20.0),
-            glyphs,
-        )]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text {
-                glyphs: g,
-                clip_rect,
-                ..
-            } => {
-                // font_size 16 => ellipsis width 9.6 => truncation edge 40.4;
-                // glyph right edges 8/18/28/38 fit, 48 does not.
-                assert_eq!(g.len(), 5, "4 kept glyphs + 1 ellipsis");
-                assert_eq!(
-                    g.last().unwrap().index,
-                    0x2026,
-                    "U+2026 HORIZONTAL ELLIPSIS"
-                );
-                assert_eq!(g[3].index, 4, "the last kept glyph");
-                // The clip rect is retargeted to the container so nothing spills past it.
-                assert_eq!(clip_rect.into_inner(), container);
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    #[cfg(feature = "text_layout")]
+    fn a_line_that_fits_is_not_cut() {
+        assert!(ellipsis_cuts(&line_of(0, 5, 0.0), 50.0, 12.0).is_empty());
+        assert!(ellipsis_cuts(&line_of(0, 5, 0.0), 50.4, 12.0).is_empty());
     }
 
     #[test]
-    fn ellipsis_on_a_container_too_narrow_for_any_glyph_leaves_only_the_ellipsis() {
-        // keep_count == 0 => glyphs.truncate(0) => `glyphs.last()` is None. The fallback
-        // must anchor the ellipsis to the container origin instead of panicking.
-        let container = rect(3.0, 4.0, 1.0, 20.0);
-        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 10.0, 10.0)];
-        let mut dl = list_of(vec![text_item(
-            Some(0),
-            rect(0.0, 0.0, 500.0, 20.0),
-            glyphs,
-        )]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs: g, .. } => {
-                assert_eq!(g.len(), 1);
-                assert_eq!(g[0].index, 0x2026);
-                assert_eq!(
-                    g[0].point,
-                    LogicalPosition::new(3.0, 4.0),
-                    "anchored to the container origin"
-                );
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    #[cfg(feature = "text_layout")]
+    fn an_overflowing_line_keeps_what_fits_beside_the_ellipsis() {
+        // Ten items to x = 100 in a box 50 wide, an ellipsis 12 wide: what
+        // ends by x = 38 stays (three items), the ellipsis starts at 30.
+        let cuts = ellipsis_cuts(&line_of(0, 10, 4.0), 50.0, 12.0);
+        assert_eq!(cuts.len(), 1);
+        let cut = cuts[0];
+        assert_eq!(cut.x, 30.0);
+        assert_eq!((cut.top, cut.bottom), (4.0, 24.0));
+        assert_eq!(cut.baseline, 4.0 + 16.0, "the last kept item's baseline");
+        assert!(cut.hides(30.0, cut.baseline), "the first hidden item");
+        assert!(cut.hides(90.0, cut.baseline));
+        assert!(!cut.hides(20.0, cut.baseline), "the last kept item");
+        assert!(!cut.hides(40.0, 60.0), "a glyph of another line");
     }
 
     #[test]
-    fn ellipsis_skips_empty_runs_and_non_text_items() {
-        let container = rect(0.0, 0.0, 1.0, 20.0);
-        let mut dl = list_of(vec![
-            text_item(Some(0), rect(0.0, 0.0, 500.0, 20.0), Vec::new()),
-            DisplayListItem::PopClip,
-            DisplayListItem::Rect {
-                bounds: rect(0.0, 0.0, 900.0, 20.0).into(),
-                color: opaque(),
-                border_radius: BorderRadius::default(),
-            },
-        ]);
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs, .. } => {
-                assert!(glyphs.is_empty(), "an empty run is left alone")
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
-        assert_eq!(dl.items.len(), 3, "no items added or removed");
+    #[cfg(feature = "text_layout")]
+    fn the_first_item_of_a_line_is_clipped_rather_than_ellipsed() {
+        let cuts = ellipsis_cuts(&line_of(0, 10, 0.0), 5.0, 12.0);
+        assert_eq!(cuts.len(), 1);
+        assert_eq!(cuts[0].x, 10.0, "the first item stays, the ellipsis after it");
     }
 
     #[test]
-    fn ellipsis_with_a_nan_font_size_does_not_panic() {
-        // A NaN ellipsis width makes every `glyph_right > truncation_edge` comparison
-        // false, so nothing is truncated — but an ellipsis is still appended.
-        let container = rect(0.0, 0.0, 50.0, 20.0);
-        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 100.0, 10.0)];
-        let mut dl = list_of(vec![DisplayListItem::Text {
-            glyphs,
-            font_hash: FontHash::invalid(),
-            font_size_px: f32::NAN,
-            color: opaque(),
-            clip_rect: rect(0.0, 0.0, 500.0, 20.0).into(),
-            source_node_index: None,
-        }]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs: g, .. } => {
-                assert_eq!(g.len(), 3, "both glyphs kept + ellipsis");
-                assert_eq!(g.last().unwrap().index, 0x2026);
-                assert!(g.last().unwrap().size.width.is_nan());
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    #[cfg(feature = "text_layout")]
+    fn every_line_is_cut_on_its_own() {
+        let mut items = line_of(0, 10, 0.0);
+        items.extend(line_of(1, 3, 20.0));
+        items.extend(line_of(2, 8, 40.0));
+        let cuts = ellipsis_cuts(&items, 50.0, 12.0);
+        assert_eq!(cuts.len(), 2, "the line that fits is not cut: {cuts:?}");
+        assert_eq!((cuts[0].top, cuts[0].x), (0.0, 30.0));
+        assert_eq!((cuts[1].top, cuts[1].x), (40.0, 30.0));
     }
 
     // ---------------------------------------------------------------------

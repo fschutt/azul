@@ -10103,6 +10103,32 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
     }
 }
 
+/// The ellipsis `text-overflow: ellipsis` ends a cut line with (CSS Overflow
+/// 3 §3.1), shaped in `style` - the BLOCK's: the ellipsis "is styled and
+/// baseline-aligned according to the block", whatever the text it follows.
+/// U+2026, or three full stops where the block's face has no ellipsis (the
+/// substitution the spec allows). Empty while no face is loaded
+/// ([`shape_placeholder_text`], which shapes it the same way: a one-line
+/// string no DOM node holds).
+pub(crate) fn shape_ellipsis<T: ParsedFontTrait>(
+    style: &Arc<StyleProperties>,
+    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
+) -> Vec<Glyph> {
+    let ellipsis = shape_placeholder_text(
+        "\u{2026}",
+        style,
+        font_chain_cache,
+        fc_cache,
+        loaded_fonts,
+    );
+    if !ellipsis.is_empty() && ellipsis.iter().all(|g| g.glyph_id != 0) {
+        return ellipsis;
+    }
+    shape_placeholder_text("...", style, font_chain_cache, fc_cache, loaded_fonts)
+}
+
 fn shape_with_font_fallback<T: ParsedFontTrait>(
     text: &str,
     script: Script,
