@@ -53,6 +53,7 @@ pub mod account;
 pub mod args;
 pub mod auth;
 pub mod azlin;
+pub mod azlin_sync;
 pub mod compose;
 pub mod dkim;
 pub mod folders;

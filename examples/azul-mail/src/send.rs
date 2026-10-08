@@ -857,6 +857,7 @@ pub fn outbox_index(entries: &[OutboxEntry]) -> Vec<IndexEntry> {
             flags: vec![String::from("\\Seen")],
             size: 0,
             path: format!("{OUTBOX_DIR}/{}.eml", entry.id),
+            remote: String::new(),
         })
         .collect()
 }

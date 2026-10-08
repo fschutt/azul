@@ -329,6 +329,11 @@ pub struct IndexEntry {
     pub size: u64,
     /// The `.eml` file's key (`mail/<folder>/<yyyy>/<mm>/<uid>.eml`).
     pub path: String,
+    /// An Azlin account's message: its object's key in the drive (`mail/Inbox/<name>.eml`,
+    /// `AZLIN_MAIL.md`); empty for an IMAP account's, and for mail filed here that is not in the
+    /// drive yet (the next Send/Receive puts it there).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub remote: String,
 }
 
 /// The index file: one JSON object per line, by UID, one line per UID (the later entry wins).
@@ -428,6 +433,7 @@ mod tests {
             flags: vec![String::from("\\Seen")],
             size: 1234,
             path: message_key("inbox", 2026, 9, uid),
+            remote: String::new(),
         }
     }
 
