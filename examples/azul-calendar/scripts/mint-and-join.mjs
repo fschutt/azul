@@ -346,7 +346,7 @@ try {
   log(`dev server up on ${worker}`);
 
   // AZMEET_NAME / AZMEET_RELAY are for the AzMeet that "Join meeting" starts (it inherits them).
-  const cal = start('azcalendar', calBin, ['--screen', 'week'], {
+  const calApp = start('azcalendar', calBin, ['--screen', 'week'], {
     AZ_BACKEND: 'headless',
     AZ_DEBUG: String(debugCal),
     AZCAL_DATA: data,
@@ -377,19 +377,19 @@ try {
   await press(debugCal, cal('draft-save'));
 
   const link = await until('AzCalendar to save the event (AZCAL_LINK on stdout)', async () => {
-    const minted = printed(cal.out, 'AZCAL_LINK');
+    const minted = printed(calApp.out, 'AZCAL_LINK');
     if (minted) return minted;
     // Asking the window also wakes the app's loop; a form error says why nothing was saved.
     const problem = (await texts(debugCal)).find((t) => FORM_ERRORS.some((e) => t.startsWith(e)));
     if (problem) throw new Error(`the form says: ${problem}`);
     return null;
   });
-  const saved = printed(cal.out, 'AZCAL_SAVED');
+  const saved = printed(calApp.out, 'AZCAL_SAVED');
   log(`AzCalendar saved ${saved} with ${link}`);
   // The link is made in AzCalendar and saved at once (it works offline); registering its room
   // with the meeting server follows, and rewrites the file with the server's answer.
   const synced = await until('AzCalendar to register the link with the meeting server (AZCAL_SYNCED)', async () => {
-    const done = printed(cal.out, 'AZCAL_SYNCED');
+    const done = printed(calApp.out, 'AZCAL_SYNCED');
     if (done) return done;
     await texts(debugCal); // wakes the app's loop
     return null;
@@ -470,7 +470,7 @@ try {
   // "Join meeting" in AzCalendar starts AzMeet with the link.
   await click(debugCal, 'Join meeting');
   const pid = await until('AzCalendar to start AzMeet (AZCAL_JOIN_PID on stdout)', async () =>
-    printed(cal.out, 'AZCAL_JOIN_PID'),
+    printed(calApp.out, 'AZCAL_JOIN_PID'),
   );
   launched.push(Number(pid));
   log(`AzCalendar started AzMeet (pid ${pid})`);
