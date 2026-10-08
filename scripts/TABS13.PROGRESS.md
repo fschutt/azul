@@ -20,15 +20,22 @@ Worktree: .claude/worktrees/agent-a44bac5bf68dda4ac, branch worktree-agent-a44ba
   `<visual-box>` per layer (`... padding-box, ... border-box` does not parse).
 
 ## DONE
-(none yet)
+- c462141d6 RED: the_first_background_layer_is_painted_on_top, each_background_layer_is_clipped_to_its_own_box
+- f93b2bd8e fix(css): background lists in paint order (CSS text was upside down) + layer_value
+- 351af4270 feat(css): background-clip per layer (StyleBackgroundClipVec), shorthand `<visual-box>`
 
 ## IN PROGRESS
-- RED tests for the two engine gaps.
+- theme: the strip's rule = its 2px transparent bottom border over `--fl-rule-metal-bg`
+  (border-box layer under the padding-box face, no new node); selected tab = face padding-box
+  over `--fl-rolled-tab` border-box through a 2px transparent top border, margin-bottom -2px so
+  it covers the rule; the S curves' metal = the band the S covers, filled with the same rolled
+  gradient (path clip); run-outs as children of the tab; unselected tabs' hover border;
+  transitions at the site's effective values.
 
 ## NEXT
-- fix E2 (layer order), fix E1 (per-layer clip), then the theme (rule node, rolled metal on the
-  S band and the tab, run-outs, transitions), then the tests in tabs.rs / ribbon.rs.
+- RED tests in tabs.rs / ribbon.rs for the theme, then the theme fix, then update the old
+  flora tab tests (TAB_METAL top edge / inset-shadow rule / margin-bottom 2px pins).
 
-## Open questions
-- `.fl-tab-foot` (blurred accent bleeding into the band): the app's tabs open onto a leaf, not
-  the blue band - left out unless the lead wants it.
+## Answered
+- `.fl-tab-foot`: leave the blur out where the tab opens onto paper (coordinator); the tab must
+  be open at its foot - no line - and the rule runs only under the unselected tabs to both edges.
