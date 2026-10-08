@@ -505,6 +505,8 @@ extern "C" fn on_files(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo
             }
         }
         println!("AZPLAYER_HISTORY {}", s.history.entries.len());
+        // The page it opens on, announced like every page it goes to after.
+        println!("AZPLAYER_PAGE {}", s.place().screen.key());
         println!(
             "AZPLAYER_LIBRARY cached {} {} {} {}",
             s.library.music.items.len(),
