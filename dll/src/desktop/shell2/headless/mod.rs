@@ -1757,8 +1757,9 @@ impl HeadlessWindow {
 
     /// One turn of this window's loop: the injected events, the virtual views, the
     /// accessibility actions, (root only) the notifications and global hotkeys, the timers and
-    /// threads with the frames they ask for, and a close the callbacks requested. `run()` turns
-    /// it for the root window; [`Self::pump_children`] for every child window.
+    /// threads with the frames they ask for, a close the callbacks requested, and the frame a
+    /// raised regeneration flag still owes. `run()` turns it for the root window;
+    /// [`Self::pump_children`] for every child window.
     pub fn pump_once(&mut self, is_root: bool) {
         // ── Phase 0: another window asked every window to rebuild ─
         let generation = self
@@ -2361,6 +2362,25 @@ impl HeadlessWindow {
             );
             self.close();
         }
+
+        // ── Phase 2c: the frame a raised flag still owes ─────
+        // Every desktop loop ends its turn with a gate that reads the
+        // window's FLAGS, not its phases' results: X11's render gate,
+        // Wayland's frame-callback re-arm, the Windows loop's
+        // `regeneration_pending()` sweep (run.rs), macOS's timer tick. This
+        // loop serviced a frame only when a phase REPORTED one, so a request
+        // raised as a flag alone sat until an unrelated event forced a frame:
+        // a screen reader's press (Phase 1b ends in `request_redraw`, which
+        // no later phase reads), a resume delivered in a pass whose result
+        // its caller drops, a request a frame's own lifecycle callbacks
+        // raised mid-flight. `service_frame` picks the pass from the flags
+        // (relayout-only first, so nothing is rebuilt that was not asked
+        // for). A closed window owes nothing.
+        if self.is_open()
+            && (self.common.regeneration_pending() || self.common.resize_relayout_pending())
+        {
+            self.service_frame(azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
     }
 
     /// Spawns a window for every pending create request and pumps the open child windows
@@ -2468,6 +2488,9 @@ impl HeadlessWindow {
     /// first layout.
     fn start_as_child(&mut self) {
         self.invoke_create_callback();
+        // Retires the request the window is born with, as `run()`'s initial
+        // layout does (see there).
+        let initial = self.common.regen_epoch();
         if let Err(e) = self.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
@@ -2475,6 +2498,7 @@ impl HeadlessWindow {
                 e
             );
         }
+        self.common.clear_regeneration_unless_reraised(initial);
     }
 
     /// Poll the next event from the queue.
@@ -3337,7 +3361,14 @@ impl HeadlessWindow {
         self.invoke_create_callback();
 
         // -- Perform initial layout (same as every platform) --
+        // It IS the frame the window was born owing
+        // (`RegenerationState::pending_initial`), with the create callback's
+        // asks already applied: it retires those requests, as every desktop
+        // backend's first frame does. Left raised, the first turn's frame
+        // gate (`pump_once`, Phase 2c) rebuilt the DOM again for nothing. A
+        // request the layout's own lifecycle callbacks raise stays.
         log_debug!(LogCategory::Layout, "[Headless] Performing initial layout");
+        let initial = self.common.regen_epoch();
         if let Err(e) = self.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
@@ -3345,6 +3376,7 @@ impl HeadlessWindow {
                 e
             );
         }
+        self.common.clear_regeneration_unless_reraised(initial);
 
         // -- Optional one-shot PNG snapshot --
         // `AZ_HEADLESS_SNAPSHOT_PATH=/tmp/out.png` writes the very

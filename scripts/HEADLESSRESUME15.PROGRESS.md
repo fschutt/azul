@@ -25,11 +25,18 @@ fast-forwarded to fix/input-bugs-2026-09-19 @ b46726f3d). Nothing compiled or ru
   `a_request_answered_while_its_popover_closes_rebuilds_the_window_that_shows_the_answer`
 - 3312a6cea fix 1: `invoke_completed_requests` raises a resume's rebuild for this window AND
   every other one (event.rs); request.rs module doc corrected (doc only)
-- (next commit) RED test B
+- c79b29f4d RED test B
   `a_screen_readers_press_that_asks_for_a_rebuild_is_shown_after_one_turn_of_the_loop`
+- (next commit) fix 2: headless `pump_once` Phase 2c frame gate (`regeneration_pending()` /
+  `resize_relayout_pending()`, open windows only); `run()` / `start_as_child()` retire the
+  born-with request with the initial layout (epoch + `clear_regeneration_unless_reraised`)
 
 ## IN PROGRESS
-- fix 2 (headless end-of-turn frame gate, initial request retired by the initial layout)
-
-## NEXT
 - the report
+
+## For the lead (build / run)
+- `cargo test --release -p azul-dll --lib request_resumes` (default features carry a11y +
+  debug-server; `--features build-dll` works too). Both tests RED on b46726f3d, GREEN with the fixes.
+- RED pass: reverse-apply fix 1 (3312a6cea) -> test A red; reverse-apply fix 2 -> test B red.
+- Then the suites the gate touches: dll `--lib --features build-dll` (headless e2e_host / idle_cpu /
+  child_window_tests) and `--test close_requested_headless`.
