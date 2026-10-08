@@ -669,6 +669,22 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 });
             }
 
+            // A `<webview>` has no natural size at all - its page lays itself
+            // out in whatever box it gets - so it is the 300x150 of every
+            // replaced element without one, sized from the outside. Its
+            // children (the "no web view here" fallback) never size it.
+            if matches!(node_data.get_node_type(), NodeType::WebView(_)) {
+                return Ok(IntrinsicSizes {
+                    min_content_width: 300.0,
+                    max_content_width: 300.0,
+                    preferred_width: None,
+                    min_content_height: 150.0,
+                    max_content_height: 150.0,
+                    preferred_height: None,
+                    preferred_aspect_ratio: None,
+                });
+            }
+
             // +spec:containing-block:bb5a12 - replaced element intrinsic sizes using initial
             // containing block +spec:display-property:7127f9 - intrinsic sizes of
             // replaced elements without natural sizes (300x150 fallback, aspect ratio)
@@ -2324,10 +2340,9 @@ pub fn calculate_used_size_for_node(
     let is_vertical = !wm_ctx.is_horizontal();
 
     // +spec:display-property:06e0b1 - form controls (non-image) treated as non-replaced
-    // Determine if this element is a replaced element (images, virtual views)
+    // Determine if this element is a replaced element (images, virtual views, web views)
     let node_data = &styled_dom.node_data.as_container()[id];
-    let is_replaced =
-        matches!(node_data.get_node_type(), NodeType::Image(_)) || node_data.is_virtual_view_node();
+    let is_replaced = node_data.is_sized_replaced_node();
 
     // +spec:width-calculation:79cdf8 - inline non-replaced: width property does not apply
     // +spec:width-calculation:972e86 - §10.3.1: width property does not apply to inline

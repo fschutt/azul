@@ -421,8 +421,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // elements, height is determined first (as for inline replaced elements), so treat
             // it as "not auto" in the constraint equation even if CSS says auto.
             let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-            let is_replaced = matches!(node_data.node_type, NodeType::Image(_))
-                || node_data.is_virtual_view_node();
+            let is_replaced = node_data.is_sized_replaced_node();
             let height_is_auto = css_height.is_auto() && !is_replaced;
             // +spec:overflow:941a06 - resolve auto inset properties: if only one is auto, solved to
             // zero via constraint; if both auto, use static position

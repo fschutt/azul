@@ -4207,10 +4207,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
 
     // Get overflow properties
     // +spec:overflow:48890c - overflow:hidden treated as overflow:clip on replaced elements
-    let is_replaced = matches!(
-        styled_dom.node_data.as_container()[dom_id].get_node_type(),
-        NodeType::Image(_) | NodeType::VirtualView
-    );
+    let is_replaced = styled_dom.node_data.as_container()[dom_id].is_sized_replaced_node();
     let overflow_x = {
         let v = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
         if is_replaced && v == LayoutOverflow::Hidden {
@@ -4629,10 +4626,7 @@ fn collect_box_props(
         // have rendering dictated by CSS model "These properties apply to all elements, but
         // vertical margins will not have  any effect on non-replaced inline elements."
         LayoutDisplay::Inline => {
-            let is_replaced = matches!(
-                node_data.get_node_type(),
-                NodeType::Image(_) | NodeType::VirtualView
-            );
+            let is_replaced = node_data.is_sized_replaced_node();
             if is_replaced {
                 unresolved_margin
             } else {
@@ -5052,13 +5046,15 @@ fn blockify_flex_item_if_table_internal(nodes: &mut [LayoutNode], node_idx: usiz
 
 /// Returns true if the node is a replaced element per CSS Display 3 Appendix B.
 /// Replaced elements (img, canvas, embed, object, audio, video, input, textarea,
-/// select, br, wbr, meter, progress, virtual views) cannot be un-boxed by
-/// `display: contents` and always establish an independent formatting context.
+/// select, br, wbr, meter, progress, virtual views, web views) cannot be
+/// un-boxed by `display: contents` and always establish an independent
+/// formatting context.
 pub(crate) const fn is_replaced_element(node_data: &NodeData) -> bool {
     matches!(
         node_data.get_node_type(),
         NodeType::Image(_)
             | NodeType::VirtualView
+            | NodeType::WebView(_)
             | NodeType::Br
             | NodeType::Wbr
             | NodeType::Meter

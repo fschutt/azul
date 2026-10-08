@@ -1966,6 +1966,7 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
         I::HitTestArea { .. } => "dl:hit",
         I::VirtualView { .. } => "dl:vview",
         I::VirtualViewPlaceholder { .. } => "dl:vview_ph",
+        I::WebView { .. } => "dl:webview",
     }
 }
 
@@ -3019,6 +3020,9 @@ pub fn render_single_item(
                 );
             }
         }
+        // The native web view is the platform's to draw, over the window:
+        // the item only reserves its rect (`DisplayListItem::WebView`).
+        DisplayListItem::WebView { .. } => {}
 
         // Gradient rendering
         DisplayListItem::LinearGradient {

@@ -3295,6 +3295,19 @@ impl NodeData {
         matches!(self.node_type, NodeType::VirtualView)
     }
 
+    /// Whether this node is a replaced element the layout sizes from its own
+    /// box - an image, a `VirtualView` or a `<webview>`: no flow content, an
+    /// intrinsic size (its natural one, or 300x150), and a `width` / `height`
+    /// that apply even when it is inline. The one predicate the solver's
+    /// sizing paths share, so another kind of embedded view is one arm here.
+    #[must_use]
+    pub const fn is_sized_replaced_node(&self) -> bool {
+        matches!(
+            self.node_type,
+            NodeType::Image(_) | NodeType::VirtualView | NodeType::WebView(_)
+        )
+    }
+
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
     // in the future (which is why the fields are all private).
 
