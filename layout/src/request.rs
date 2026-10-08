@@ -444,6 +444,10 @@ pub mod mock {
         /// `(url pattern, answer)`: an exact URL, a prefix ending in `*`, or
         /// `*` for everything; first match wins.
         http: Vec<(String, MockHttp)>,
+        /// The URL patterns (as in `http`) a scripted run fetches for real,
+        /// unmocked: `AZ_E2E_ALLOW_HTTP`, the local stack a script drives the
+        /// app against; `None` = read the variable on first use.
+        http_allowed: Option<Vec<String>>,
         audio_devices: Option<(Vec<AzString>, Vec<AzString>)>,
         video_decode_none: bool,
         saved_files: Vec<SavedFile>,
@@ -466,6 +470,7 @@ pub mod mock {
         save_bytes_accept: None,
         file_reads: BTreeMap::new(),
         http: Vec::new(),
+        http_allowed: None,
         audio_devices: None,
         video_decode_none: false,
         saved_files: Vec::new(),
@@ -833,6 +838,24 @@ pub mod mock {
             let mut s = store(false);
             assert_eq!(take_http_in(&mut s, "http://127.0.0.1:8787/rooms"), Answer::NotArmed);
             assert!(s.unmocked.is_empty(), "nothing to report: the request went out");
+        }
+
+        /// A scripted run against a local stack (the meeting server, S3, the
+        /// token server on 127.0.0.1): `AZ_E2E_ALLOW_HTTP` names what goes
+        /// out for real; every other unmocked request is still refused.
+        #[test]
+        fn a_scripted_run_sends_the_http_requests_its_allow_list_names() {
+            let mut s = store(true);
+            s.http_allowed = Some(vec!["http://127.0.0.1:*".into()]);
+            assert_eq!(
+                take_http_in(&mut s, "http://127.0.0.1:8790/rooms"),
+                Answer::NotArmed
+            );
+            assert_eq!(
+                take_http_in(&mut s, "https://example.org/feed.xml"),
+                Answer::Unmocked
+            );
+            assert_eq!(s.unmocked, ["http https://example.org/feed.xml"]);
         }
 
         /// A scripted run keeps its determinism: an unmocked request is
