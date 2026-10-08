@@ -178,14 +178,19 @@ class Drive(e2e.App):
 
     def ribbon_node(self, label, prefix=False):
         """The node of the ribbon's control or tab labelled `label` (`prefix`: a label starting
-        with it, as the Undo button names what it undoes), or None."""
+        with it, as the Undo button names what it undoes), or None. Only a node with a box: the
+        closed File menu's DOM is in the ribbon too (its Frequent places hold a "Home"), without
+        one - a click there climbed to the File button and opened the menu."""
         nodes, inside = self._within("#" + I("ribbon"))
         for n in nodes:
             text = norm(n.get("text"))
             if not text or not inside(n):
                 continue
             if text == label or (prefix and text.startswith(label)):
-                return n.get("parent", n["index"])
+                node = n.get("parent", n["index"])
+                rect = (self.value("get_node_layout", node_id=node) or {}).get("rect") or {}
+                if rect.get("width"):
+                    return node
         return None
 
     def ribbon(self, label, prefix=False):
