@@ -1,0 +1,57 @@
+# The answer to "ci run" (ci-command.yml): when a dispatched build or supply-chain run
+# finishes, its result - green, or red with the jobs that failed - goes into the open pull
+# request of its branch. Like every workflow_run workflow, it runs from the default branch.
+
+name: ci report
+
+on:
+  workflow_run:
+    workflows: [build, Supply chain]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Report the run in its pull request
+    if: github.event.workflow_run.event == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment the result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          NAME: ${{ github.event.workflow_run.name }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number -q '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "no open pull request for $BRANCH"
+            exit 0
+          fi
+          case "$CONCLUSION" in
+            success) verdict="green" ;;
+            cancelled) verdict="cancelled (a newer run of the branch, or by hand)" ;;
+            *) verdict="**red** ($CONCLUSION)" ;;
+          esac
+          failed=$(gh run view "$RUN_ID" -R "$REPO" --json jobs \
+            -q '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "- " + .name' | head -40)
+          body="$NAME on \`${SHA:0:9}\`: $verdict - $URL"
+          if [ -n "$failed" ]; then
+            body="$body
+
+          Failed jobs:
+          $failed"
+          fi
+          gh pr comment "$pr" -R "$REPO" --body "$body"

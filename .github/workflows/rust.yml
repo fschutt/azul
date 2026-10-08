@@ -1,18 +1,18 @@
 # .github/workflows/rust.yml
 #
 # Two modes:
-# - ci: Runs on push/PR, builds everything, runs tests, creates artifacts
+# - ci: builds everything, runs tests, creates artifacts. Runs ON DEMAND, not on every push:
+#   a collaborator's "ci run" comment on a pull request dispatches it on the PR's branch
+#   (ci-command.yml), or `gh workflow run rust.yml --ref <branch> -f run_mode=ci`; and on a
+#   release tag.
 # - deploy: Manual trigger, downloads CI artifacts, deploys to GitHub Pages
 
 name: build
 
 on:
   push:
-    branches:
-      - '**'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
-  pull_request:
 
   workflow_dispatch:
     inputs:
