@@ -25,7 +25,7 @@ use azul_layout::{
 
 fn haiku(name: &str) -> Vec<u8> {
     let path = format!(
-        "{}/../examples/azul-mail/icons/haiku/{name}.hvif",
+        "{}/../examples/azul-icons-haiku/icons/{name}.hvif",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
@@ -35,14 +35,14 @@ fn haiku(name: &str) -> Vec<u8> {
 fn bytes_that_are_no_hvif_register_nothing() {
     let mut provider = create_default_icon_provider();
     assert!(!register_hvif_icon(&mut provider, "app", "x", b"not an icon", IconMeta::for_image()));
-    assert!(register_hvif_icon(&mut provider, "app", "x", &haiku("reply"), IconMeta::for_image()));
+    assert!(register_hvif_icon(&mut provider, "app", "x", &haiku("Mail_Reply"), IconMeta::for_image()));
 }
 
 #[test]
 fn an_hvif_icon_draws_its_colours_at_its_font_size() {
     let mut provider = create_default_icon_provider();
     // "Reply": Haiku's green arrow.
-    assert!(register_hvif_icon(&mut provider, "app", "reply-arrow", &haiku("reply"), IconMeta::for_image()));
+    assert!(register_hvif_icon(&mut provider, "app", "reply-arrow", &haiku("Mail_Reply"), IconMeta::for_image()));
     let shared = SharedIconProvider::from_handle(provider);
     let icon = Dom::create_icon("reply-arrow").with_css_props(
         vec![
