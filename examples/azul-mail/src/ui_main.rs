@@ -411,7 +411,14 @@ pub(crate) enum Action {
     Reply,
     ReplyAll,
     Forward,
+    /// Into Deleted Items; there, for good (an Azlin account's: an IMAP account keeps the
+    /// server's folders as they are).
     Delete,
+    /// Into the Archive folder (Azlin accounts).
+    Archive,
+    /// Into Junk E-mail, the spam folder (Azlin accounts).
+    Junk,
+    /// The menu of the folders to move into (Azlin accounts).
     Move,
     /// Quick Steps > Done: mark the selection read.
     Done,
@@ -527,6 +534,188 @@ fn selected_uids(s: &MailApp) -> Vec<u32> {
         .collect()
 }
 
+// ==== An Azlin account's folders: moving, deleting (`azlin_sync`, on a Thread) ====
+
+/// The account shown keeps its mailbox in an Azlin drive: its folders can be changed (an IMAP
+/// account's stay as the server has them).
+fn shows_azlin(s: &MailApp) -> bool {
+    s.current_account().is_some_and(crate::account::Account::is_azlin)
+}
+
+/// The messages an action is for: the selected ones, else the one open in the reading pane.
+fn action_uids(s: &MailApp) -> Vec<u32> {
+    let mut uids = selected_uids(s);
+    if uids.is_empty() {
+        if let Some(open) = s
+            .open
+            .as_ref()
+            .filter(|open| s.folder.as_deref() == Some(open.folder.as_str()))
+        {
+            uids.push(open.entry.uid);
+        }
+    }
+    uids
+}
+
+/// Moves the selected (or the open) messages into the local folder `to` of the Azlin account
+/// shown: in its drive first, then here (`crate::AzlinAction::Move`).
+fn move_to(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, to: String) {
+    let Some(from) = s.folder.clone() else {
+        return;
+    };
+    if from == listing::OUTBOX_KEY {
+        s.notice = String::from("The Outbox's mail is not in the drive yet: it is sent first.");
+        return;
+    }
+    if from == to {
+        s.notice = String::from("The messages are in that folder already.");
+        return;
+    }
+    let uids = action_uids(s);
+    if uids.is_empty() {
+        s.notice = String::from("Select a message first.");
+        return;
+    }
+    crate::spawn_azlin(s, info, app, crate::AzlinAction::Move { from, uids, to });
+}
+
+/// Archive, Junk: into the account's folder of `role` (Archive, Junk E-mail).
+fn move_to_role(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, role: Role) {
+    if !shows_azlin(s) {
+        s.notice = String::from(READ_ONLY);
+        return;
+    }
+    if let Some(to) = role.key() {
+        move_to(s, info, app, to.to_string());
+    }
+}
+
+/// Delete: into Deleted Items; in Deleted Items, out of the drive for good.
+fn delete_messages(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
+    if !shows_azlin(s) {
+        s.notice = String::from(READ_ONLY);
+        return;
+    }
+    if s.folder.as_deref() != Role::Trash.key() {
+        move_to_role(s, info, app, Role::Trash);
+        return;
+    }
+    let (Some(folder), uids) = (s.folder.clone(), action_uids(s)) else {
+        return;
+    };
+    if uids.is_empty() {
+        s.notice = String::from("Select a message first.");
+        return;
+    }
+    crate::spawn_azlin(s, info, app, crate::AzlinAction::Delete { folder, uids });
+}
+
+/// A Move menu entry's data: the app and the local folder it moves into.
+struct MoveRef {
+    app: RefAny,
+    to: String,
+}
+
+/// Home > Move: the account's folders (all but the shown one and the Outbox), each moving the
+/// selected messages there.
+fn move_menu(s: &MailApp, app: &RefAny) -> Vec<MenuItem> {
+    let folders = s.current.and_then(|i| s.folders.get(i)).cloned().unwrap_or_default();
+    folders
+        .iter()
+        .filter(|f| f.key != listing::OUTBOX_KEY && s.folder.as_deref() != Some(f.key.as_str()))
+        .map(|f| {
+            let data = RefAny::new(MoveRef {
+                app: app.clone(),
+                to: f.key.clone(),
+            });
+            let label = listing::folder_label(f.role, &f.display);
+            MenuItem::String(StringMenuItem::create(label.as_str()).with_callback(data, on_move_to))
+        })
+        .collect()
+}
+
+/// A folder picked in Home > Move.
+extern "C" fn on_move_to(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, to)) = data
+        .downcast_ref::<MoveRef>()
+        .map(|r| (r.app.clone(), r.to.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, |s, app| {
+        move_to(s, &mut info, app, to);
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// An Azlin account's action is done (`crate::run_azlin_action`): the folders and the list as
+/// the files are now, a downloaded message shown, and a line in the status bar.
+pub(crate) fn azlin_action_done(
+    s: &mut MailApp,
+    info: &mut CallbackInfo,
+    app: RefAny,
+    action: crate::AzlinAction,
+    result: Result<u64, String>,
+) -> Update {
+    match (action, result) {
+        (crate::AzlinAction::Fetch { folder, uid }, result) => {
+            let here = s.folder.as_deref() == Some(folder.as_str())
+                && s.open.as_ref().is_some_and(|open| open.entry.uid == uid);
+            if !here {
+                return Update::DoNothing;
+            }
+            match result {
+                Ok(_) => {
+                    stop_pictures(s, info);
+                    let _ = s.open_message(uid);
+                    show_own_pictures(s, info, &app);
+                }
+                Err(e) => {
+                    if let Some(open) = s.open.as_mut() {
+                        open.fetching = false;
+                        open.error = format!("Could not download this message: {e}");
+                    }
+                }
+            }
+        }
+        (crate::AzlinAction::PushMarks { .. }, Ok(_)) => {
+            // The marks are the drive's now: the index says so, flags.json keeps none.
+            s.reload_folders();
+            s.reload_messages();
+        }
+        (crate::AzlinAction::PushMarks { .. }, Err(e)) => {
+            s.notice = format!("The read and flag marks wait for the next Send/Receive: {e}");
+        }
+        (crate::AzlinAction::Move { to, .. }, result) => {
+            let label = s
+                .current
+                .and_then(|i| s.folders.get(i))
+                .and_then(|list| list.iter().find(|f| f.key == to))
+                .map_or(to.clone(), |f| listing::folder_label(f.role, &f.display));
+            s.notice = match result {
+                Ok(1) => format!("Moved 1 message to {label}."),
+                Ok(n) => format!("Moved {n} messages to {label}."),
+                Err(e) => format!("Could not move to {label}: {e}"),
+            };
+            s.selection = azul::widgets::ListSelection::create();
+            s.reload_folders();
+            s.reload_messages();
+        }
+        (crate::AzlinAction::Delete { .. }, result) => {
+            s.notice = match result {
+                Ok(1) => String::from("Deleted 1 message for good."),
+                Ok(n) => format!("Deleted {n} messages for good."),
+                Err(e) => format!("Could not delete: {e}"),
+            };
+            s.selection = azul::widgets::ListSelection::create();
+            s.reload_folders();
+            s.reload_messages();
+        }
+    }
+    Update::RefreshDom
+}
+
 /// Sets AzMail's read mark of `uids` (all read, or all unread) and saves the folder's marks.
 fn mark_read(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, uids: &[u32], read: bool) {
     if uids.is_empty() {
@@ -562,12 +751,14 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                     s.notice = String::from("Select a message first.");
                 }
             }
-            Action::Delete | Action::Move => {
-                s.notice = String::from(
-                    "AzMail keeps the server's folders as they are (it receives read-only); \
-                     deleting and moving come with two-way sync.",
-                );
+            Action::Delete => delete_messages(s, info, app),
+            Action::Archive => move_to_role(s, info, app, Role::Archive),
+            Action::Junk => move_to_role(s, info, app, Role::Spam),
+            Action::Move if shows_azlin(s) => {
+                open_menu_below(info, move_menu(s, &app));
+                return Update::DoNothing;
             }
+            Action::Move => s.notice = String::from(READ_ONLY),
             Action::Done => {
                 let uids = selected_uids(s);
                 mark_read(s, info, app, &uids, true);
@@ -862,11 +1053,14 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
                 .with_item(big_menu("description", "New Items", Action::NewItemsMenu)),
         )
         .with_group(
+            // An Azlin account's Junk, Delete and Archive change its drive's folders; an IMAP
+            // account's say why they cannot (it receives read-only).
             RibbonGroup::create("Delete")
                 .with_item(small("visibility_off", "Ignore", Action::Notice(READ_ONLY)))
                 .with_item(small_menu("cleaning_services", "Clean Up", Action::Notice(READ_ONLY)))
-                .with_item(small_menu("report", "Junk", Action::Notice(READ_ONLY)))
-                .with_item(big("delete", "Delete", Action::Delete)),
+                .with_item(small_menu("report", "Junk", Action::Junk))
+                .with_item(big("delete", "Delete", Action::Delete))
+                .with_item(big("archive", "Archive", Action::Archive)),
         )
         .with_group(
             RibbonGroup::create("Respond")
@@ -1128,10 +1322,16 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
 /// and the server the shown account is connected to.
 fn up_to_date(s: &MailApp) -> String {
     match s.current_account() {
-        Some(account) => format!(
-            "All folders are up to date.   Connected to {}",
-            account.imap.host
-        ),
+        Some(account) => match &account.azlin {
+            Some(link) => format!(
+                "All folders are up to date.   Connected to the Azlin drive {}",
+                link.drive_id
+            ),
+            None => format!(
+                "All folders are up to date.   Connected to {}",
+                account.imap.host
+            ),
+        },
         None => String::from("All folders are up to date."),
     }
 }
@@ -1536,6 +1736,8 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                     stop_pictures(s, &mut info);
                     let flags = s.open_message(uid);
                     show_own_pictures(s, &mut info, &app);
+                    // An Azlin account's big message is downloaded now.
+                    crate::fetch_if_needed(s, &mut info, app.clone());
                     if let Some(flags) = flags {
                         crate::save_flags(s, &mut info, app.clone(), flags);
                     }
@@ -1556,12 +1758,7 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                 let flags = s.flags.clone();
                 crate::save_flags(s, &mut info, app, flags);
             }
-            SummaryListEventKind::Delete => {
-                s.notice = String::from(
-                    "AzMail keeps the server's folders as they are (it receives read-only); \
-                     deleting comes with two-way sync.",
-                );
-            }
+            SummaryListEventKind::Delete => delete_messages(s, &mut info, app),
             SummaryListEventKind::Sort => {
                 s.notice = String::from("Messages are arranged by date.");
             }
@@ -1679,7 +1876,10 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
             );
         }
     }
-    let body = if !open.error.is_empty() {
+    let body = if open.fetching {
+        // An Azlin account's big message on its way from the drive: no error.
+        Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px;")
+    } else if !open.error.is_empty() {
         Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px; color: #b3261e;")
     } else {
         match html {

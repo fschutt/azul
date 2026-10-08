@@ -200,10 +200,21 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
             .folders
             .get(i)
             .map_or(0, |list| list.iter().filter(synced).map(|f| f.unread).sum());
-        let server = format!(
-            "IMAP {}:{} - {folders} folders, {unread} unread",
-            account.imap.host, account.imap.port
-        );
+        let server = match &account.azlin {
+            Some(link) => format!(
+                "Azlin drive {} ({}) - {folders} folders, {unread} unread",
+                link.drive_id,
+                if link.token_url.is_empty() {
+                    "the token server of this run"
+                } else {
+                    link.token_url.as_str()
+                }
+            ),
+            None => format!(
+                "IMAP {}:{} - {folders} folders, {unread} unread",
+                account.imap.host, account.imap.port
+            ),
+        };
         let settings = crate::send::SendSettings::load(&s.root, &account.id);
         let sending = crate::sending::describe(&settings);
         let shown = Some(i) == s.current;

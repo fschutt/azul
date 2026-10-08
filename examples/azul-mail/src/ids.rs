@@ -73,6 +73,16 @@ pub const ACCT_IMAP_PORT: AzString = AzString::from_const_str("__azmail_acct_ima
 pub const ACCT_USERNAME: AzString = AzString::from_const_str("__azmail_acct_username");
 /// The local mail folder.
 pub const ACCT_FOLDER: AzString = AzString::from_const_str("__azmail_acct_folder");
+/// The account kind: an IMAP server or an Azlin drive (the wizard's first page).
+pub const ACCT_KIND: AzString = AzString::from_const_str("__azmail_acct_kind");
+/// An Azlin account's token server.
+pub const ACCT_TOKEN_URL: AzString = AzString::from_const_str("__azmail_acct_token_url");
+/// An Azlin account's drive id.
+pub const ACCT_DRIVE_ID: AzString = AzString::from_const_str("__azmail_acct_drive_id");
+/// An Azlin account's drive token (it goes to the keyring).
+pub const ACCT_DRIVE_TOKEN: AzString = AzString::from_const_str("__azmail_acct_drive_token");
+/// The "Create a new drive" button.
+pub const AZLIN_CREATE_DRIVE: AzString = AzString::from_const_str("__azmail_azlin_create_drive");
 /// The SMTP server (sending through one).
 pub const SEND_HOST: AzString = AzString::from_const_str("__azmail_send_host");
 /// The SMTP port.
