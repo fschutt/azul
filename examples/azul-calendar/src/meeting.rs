@@ -37,7 +37,14 @@ pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
 /// else `env` (`AZMEET_WORKER`), else `built_in`, else AzMeet's local development server - the
 /// order AzMeet itself uses (`meet_rooms::server_prefill`). There always is one: links are made
 /// here and registered with it once it answers.
-pub fn server_setting(saved: Option<&str>, env: Option<&str>, built_in: &str) -> String {
+pub fn server_setting(
+    flag: Option<&str>,
+    saved: Option<&str>,
+    env: Option<&str>,
+    shared: Option<&str>,
+    built_in: &str,
+) -> String {
+    let _ = (flag, shared);
     let saved = saved.and_then(settings::meeting_server);
     meet_rooms::server_prefill(saved.as_deref(), env, built_in).0
 }
@@ -269,21 +276,75 @@ mod tests {
         let saved = settings::meeting_server_line("https://saved.example.com");
         assert_eq!(
             server_setting(
+                None,
                 Some(&saved),
                 Some("http://127.0.0.1:9000"),
+                None,
                 "https://built.in"
             ),
             "https://saved.example.com"
         );
         assert_eq!(
-            server_setting(None, Some("http://127.0.0.1:9000/"), "https://built.in"),
+            server_setting(
+                None,
+                None,
+                Some("http://127.0.0.1:9000/"),
+                None,
+                "https://built.in"
+            ),
             "http://127.0.0.1:9000"
         );
         assert_eq!(
-            server_setting(Some("garbage"), Some("  "), "https://built.in/"),
+            server_setting(None, Some("garbage"), Some("  "), None, "https://built.in/"),
             "https://built.in"
         );
-        assert_eq!(server_setting(None, None, ""), meet_rooms::LOCAL_WORKER);
+        assert_eq!(
+            server_setting(None, None, None, None, ""),
+            meet_rooms::LOCAL_WORKER
+        );
+    }
+
+    /// `--worker` names the meeting server for this run, over everything (as AzMeet's own
+    /// switch); the shared Azlin config's `endpoints.meet` - the local stack's profile, through
+    /// `AZLIN_CONFIG` - comes after the saved one and `AZMEET_WORKER`, before the built-in one.
+    #[test]
+    fn the_switch_wins_and_the_shared_configs_meeting_server_comes_before_the_built_in_one() {
+        let saved = settings::meeting_server_line("https://saved.example.com");
+        let local = Some("http://127.0.0.1:8790/");
+        assert_eq!(
+            server_setting(None, None, None, local, "https://built.in"),
+            "http://127.0.0.1:8790"
+        );
+        assert_eq!(
+            server_setting(
+                None,
+                None,
+                Some("http://127.0.0.1:9000"),
+                local,
+                "https://built.in"
+            ),
+            "http://127.0.0.1:9000",
+            "AZMEET_WORKER outranks the shared config"
+        );
+        assert_eq!(
+            server_setting(None, Some(&saved), None, local, ""),
+            "https://saved.example.com"
+        );
+        assert_eq!(
+            server_setting(
+                Some("http://127.0.0.1:8790"),
+                Some(&saved),
+                Some("http://127.0.0.1:9000"),
+                None,
+                ""
+            ),
+            "http://127.0.0.1:8790",
+            "--worker outranks everything"
+        );
+        assert_eq!(
+            server_setting(None, None, None, Some("not a server"), "https://built.in"),
+            "https://built.in"
+        );
     }
 
     /// The link of a meeting made here: 26 characters of the room-id alphabet from 130 of the

@@ -101,6 +101,8 @@ pub struct Args {
     pub sample: bool,
     pub date: Option<NaiveDate>,
     pub data: Option<PathBuf>,
+    /// `--worker <url>`: the meeting server for this run (AzMeet's switch).
+    pub worker: Option<String>,
 }
 
 pub const HELP: &str = "\
@@ -274,5 +276,24 @@ mod tests {
             );
             assert_eq!(BackstagePage::at(page.index()), Some(page));
         }
+    }
+
+    #[test]
+    fn the_worker_switch_names_the_meeting_server_for_this_run() {
+        assert_eq!(
+            parse(&["--worker", "http://127.0.0.1:8790"])
+                .unwrap()
+                .worker
+                .as_deref(),
+            Some("http://127.0.0.1:8790")
+        );
+        assert_eq!(
+            parse(&["--worker=https://meet.example.com"])
+                .unwrap()
+                .worker
+                .as_deref(),
+            Some("https://meet.example.com")
+        );
+        assert!(parse(&["--worker"]).is_err());
     }
 }

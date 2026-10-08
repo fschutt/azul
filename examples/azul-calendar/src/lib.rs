@@ -1192,6 +1192,21 @@ fn user_data_dir() -> Option<PathBuf> {
         .map(|dir| PathBuf::from(dir.inner.as_str()))
 }
 
+/// The meeting server the shared Azlin config names (`endpoints.meet` of `~/.azlin/config.json`,
+/// or of the file `AZLIN_CONFIG` names).
+fn shared_meeting_server() -> Option<String> {
+    let home = FilePath::get_home_dir()
+        .into_option()
+        .map(|dir| PathBuf::from(dir.inner.as_str()));
+    azul_appkit::shared_endpoint::read(
+        std::env::var(azul_appkit::azlin_config::CONFIG_VAR)
+            .ok()
+            .as_deref(),
+        home.as_deref(),
+        "meet",
+    )
+}
+
 pub fn start() {
     let args = match Args::parse(std::env::args().skip(1)) {
         Ok(args) => args,
@@ -1251,8 +1266,10 @@ pub fn start() {
     let saved = settings::read(&drive);
     let text = saved.as_deref().unwrap_or_default();
     let server = meeting::server_setting(
+        args.worker.as_deref(),
         saved.as_deref(),
         std::env::var(meeting::WORKER_VAR).ok().as_deref(),
+        shared_meeting_server().as_deref(),
         meeting::BUILT_IN_WORKER,
     );
     let hour_px = settings::hour_px(text).unwrap_or(week::DEFAULT_HOUR_PX);
