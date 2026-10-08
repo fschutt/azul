@@ -107,8 +107,6 @@ pub(crate) enum Action {
     Options,
     /// The backstage's About page.
     About,
-    /// The command bar's "See more" (...): every command the bar has no room for.
-    MoreMenu,
     // Drives
     AddDrive,
     AddLocalDrive,
@@ -122,6 +120,30 @@ pub(crate) enum Action {
     CloseBackstage,
     CloseWindow,
     ShowTransfers,
+    // File (Windows 8's File menu)
+    /// Another AzDrive window - a process of its own - at the open place.
+    NewWindow,
+    /// A terminal in the open folder: the system's, or Azlin's AzTerm.
+    OpenTerminal { azterm: bool },
+    /// Forget the places visited (Recent locations, Frequent places) and / or where Back and
+    /// Forward go.
+    ClearHistory { recent: bool, back_forward: bool },
+    /// The Options at the keyboard shortcuts (File > Help).
+    Shortcuts,
+    /// Pin a folder to Quick access, or unpin it (File > Frequent places' pins).
+    TogglePin(Place),
+    // Home
+    /// New > Easy access: pin the folder, add a folder as a drive.
+    EasyAccessMenu,
+    /// Open > Properties' arrow: the item's or the drive's properties.
+    PropertiesMenu,
+    // Share
+    /// The selected files to this computer's printer.
+    Print,
+    // View
+    /// Hide the selected items (a name with a leading dot is hidden), or show them again when
+    /// they all are hidden.
+    HideSelected,
 }
 
 /// A button's / menu item's click data.
@@ -173,11 +195,6 @@ pub(crate) fn check_item(app: &RefAny, label: &str, action: Action, checked: boo
 fn able_item(app: &RefAny, s: &DriveState, label: &str, action: Action) -> MenuItem {
     let disabled = why_not(s, &action).is_some();
     menu_item(app, label, action, disabled)
-}
-
-/// A submenu.
-fn submenu(label: &str, children: Vec<MenuItem>) -> MenuItem {
-    MenuItem::String(StringMenuItem::create(AzString::from(label)).with_children(children))
 }
 
 /// Opens `items` as a drop-down under the button that asked for it (a command bar tool, the
@@ -261,6 +278,26 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
         Action::SortMenu | Action::GroupMenu | Action::ColumnsMenu | Action::FitColumns => {
             need_folder()
         }
+        Action::OpenTerminal { azterm } => match s.current_drive() {
+            Some(i) if s.slots[i].is_local() => (*azterm && sibling_app("AzTerm").is_none())
+                .then(|| String::from("AzTerm is not installed next to AzDrive.")),
+            Some(_) => Some(String::from(
+                "A terminal opens in a folder of this computer; this folder is in an S3 bucket.",
+            )),
+            None => Some(String::from("Open a folder of a drive on this computer first.")),
+        },
+        Action::Print => need_selection().or_else(|| {
+            if !s.current_drive().is_some_and(|i| s.slots[i].is_local()) {
+                Some(String::from(
+                    "Printing goes through this computer: download the file first.",
+                ))
+            } else if s.selected_entries().iter().any(|e| e.is_folder) {
+                Some(String::from("Select files to print; a folder does not print."))
+            } else {
+                None
+            }
+        }),
+        Action::HideSelected => need_selection(),
         _ => None,
     }
 }
@@ -282,12 +319,26 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::MoveTo(place) => transfer_selection_to(info, app, s, TransferKind::Move, place),
         Action::CopyTo(place) => transfer_selection_to(info, app, s, TransferKind::Copy, place),
         Action::ChooseLocation(kind) => {
-            s.popups_opened += 1;
-            s.popup = Some(Popup::ChooseLocation {
-                kind,
-                text: browse::path_text(&s.place, Some(&s.drive_name(&s.place))),
-                error: String::new(),
-            });
+            // The system's folder dialog, at the open folder when it is on this computer.
+            let start = s
+                .current_drive()
+                .and_then(|i| s.local_dir(i, &s.prefix().to_string()))
+                .map(|dir| AzString::from(dir.to_string_lossy().into_owned()));
+            let _request = FileDialog::open_directory(
+                AzString::from(match kind {
+                    TransferKind::Move => "Move the items to",
+                    _ => "Copy the items to",
+                }),
+                match start {
+                    Some(dir) => OptionString::Some(dir),
+                    None => OptionString::None,
+                },
+                RefAny::new(TransferPick {
+                    app: app.clone(),
+                    kind,
+                }),
+                on_destination_picked,
+            );
         }
         Action::DeleteMenu => open_menu_below(info, delete_items(app, s)),
         Action::Delete => delete_selected(info, app, s, false),
@@ -362,7 +413,6 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             crate::options_opened(s, was_open);
         }
         Action::About => s.backstage = Some(1),
-        Action::MoreMenu => open_menu_below(info, more_items(app, s)),
         Action::AddDrive => {
             if s.popup.is_none() {
                 open_drive_form(s, None);
@@ -412,7 +462,261 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             s.popups_opened += 1;
             s.popup = Some(Popup::Transfers { auto: false });
         }
+        Action::NewWindow => open_new_window(s),
+        Action::OpenTerminal { azterm } => open_terminal(s, azterm),
+        Action::ClearHistory {
+            recent,
+            back_forward,
+        } => {
+            if recent {
+                // The open place stays the one place visited.
+                let here = s.place.clone();
+                s.recent.clear();
+                s.recent.push(here);
+            }
+            if back_forward {
+                s.history.clear();
+            }
+            println!("AZDRIVE_DONE history {recent} {back_forward}");
+            s.info(match (recent, back_forward) {
+                (true, true) => "The places visited and the Back and Forward history are gone.",
+                (true, false) => "The places visited are gone (the pins stay).",
+                _ => "Back and Forward start from here.",
+            });
+        }
+        Action::Shortcuts => {
+            let was_open = azul_appkit::ui::settings_open(&s.kit);
+            s.backstage = Some(0);
+            azul_appkit::ui::open_settings(&s.kit, Some("Shortcuts"));
+            crate::options_opened(s, was_open);
+        }
+        Action::TogglePin(place) => toggle_pin_of(info, app, s, place),
+        Action::EasyAccessMenu => {
+            let items = vec![
+                able_item(app, s, "Pin to Quick access", Action::Pin),
+                menu_item(app, "Add a folder as a drive...", Action::AddLocalDrive, false),
+            ];
+            open_menu_below(info, items);
+        }
+        Action::PropertiesMenu => {
+            let items = vec![
+                able_item(app, s, "Properties", Action::Properties),
+                able_item(app, s, "Drive properties", Action::DriveProperties),
+            ];
+            open_menu_below(info, items);
+        }
+        Action::Print => print_selected(s),
+        Action::HideSelected => hide_selected(info, app, s),
     }
+}
+
+// ==== File menu, Print, Hide ====
+
+/// An app of the Azlin family next to AzDrive's own binary (`AzTerm`), if it is installed there.
+pub(crate) fn sibling_app(name: &str) -> Option<PathBuf> {
+    let me = std::env::current_exe().ok()?;
+    let dir = me.parent()?;
+    let file = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    };
+    let path = dir.join(file);
+    path.is_file().then_some(path)
+}
+
+/// File > Open new window: another AzDrive (a process of its own, as Explorer's "Open new
+/// process") at the open place, with this run's switches - the place in `--open`.
+fn open_new_window(s: &mut DriveState) {
+    let Ok(me) = std::env::current_exe() else {
+        s.error("AzDrive cannot find its own program to open another window.");
+        return;
+    };
+    let path = crate::window_title(s)
+        .trim_end_matches(" - AzDrive")
+        .to_string();
+    let args = crate::args::new_window_args(std::env::args().skip(1), &path);
+    match std::process::Command::new(me).args(&args).spawn() {
+        Ok(_) => {
+            println!("AZDRIVE_NEW_WINDOW {path}");
+            s.info(format!("Another window opens at \"{path}\"."));
+        }
+        Err(e) => s.error(format!("The new window could not be opened: {e}")),
+    }
+}
+
+/// File > Open terminal here: the system's terminal (or AzTerm) in the open folder.
+fn open_terminal(s: &mut DriveState, azterm: bool) {
+    let Some(dir) = s
+        .current_drive()
+        .and_then(|i| s.local_dir(i, &s.prefix().to_string()))
+    else {
+        return;
+    };
+    let spawned = if azterm {
+        match sibling_app("AzTerm") {
+            Some(program) => std::process::Command::new(program)
+                .current_dir(&dir)
+                .spawn()
+                .map(|_| ()),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "AzTerm is not installed next to AzDrive",
+            )),
+        }
+    } else {
+        system_terminal(&dir)
+    };
+    match spawned {
+        Ok(()) => {
+            println!("AZDRIVE_DONE terminal {}", dir.display());
+            s.info(format!("A terminal opens in {}.", dir.display()));
+        }
+        Err(e) => s.error(format!("The terminal could not be opened: {e}")),
+    }
+}
+
+/// The system's terminal in `dir`: Terminal on macOS, a new console on Windows, the desktop's
+/// terminal emulator elsewhere (the Debian alternative first, then the common ones).
+fn system_terminal(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Command;
+    if cfg!(target_os = "macos") {
+        return Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(dir)
+            .spawn()
+            .map(|_| ());
+    }
+    if cfg!(windows) {
+        return Command::new("cmd")
+            .args(["/C", "start", "cmd"])
+            .current_dir(dir)
+            .spawn()
+            .map(|_| ());
+    }
+    let mut last = std::io::Error::new(std::io::ErrorKind::NotFound, "no terminal emulator");
+    for program in ["x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"]
+    {
+        match Command::new(program).current_dir(dir).spawn() {
+            Ok(_) => return Ok(()),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
+/// Share > Print: the selected files to this computer's default printer (`lp`, the printing
+/// system's own command on macOS and Linux; the file's app's print verb on Windows).
+fn print_selected(s: &mut DriveState) {
+    let Some(index) = s.current_drive() else {
+        return;
+    };
+    let Some(root) = s.local_root(index) else {
+        return;
+    };
+    let paths: Vec<PathBuf> = s
+        .selected_entries()
+        .iter()
+        .filter(|e| !e.is_folder)
+        .map(|e| crate::jobs::path_in(&root, &e.key))
+        .collect();
+    if paths.is_empty() {
+        return;
+    }
+    let result = if cfg!(windows) {
+        paths.iter().try_for_each(|path| {
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", "Start-Process", "-Verb", "Print", "-FilePath"])
+                .arg(path)
+                .spawn()
+                .map(|_| ())
+        })
+    } else {
+        std::process::Command::new("lp").args(&paths).spawn().map(|_| ())
+    };
+    match result {
+        Ok(()) => {
+            println!("AZDRIVE_DONE printed {}", paths.len());
+            s.success(format!(
+                "Sent {} to the printer.",
+                browse::counted(paths.len(), "file", "files")
+            ));
+        }
+        Err(e) => s.error(format!("Nothing could be printed: {e}")),
+    }
+}
+
+/// View > Hide selected items: an item whose name starts with a dot is hidden (the trash, the
+/// dotfiles), so hiding renames the selected items with a leading dot - and when they all are
+/// hidden already, without it. Each is a rename Ctrl+Z takes back.
+fn hide_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let entries: Vec<browse::Entry> = s.selected_entries().into_iter().cloned().collect();
+    let unhide = entries.iter().all(browse::Entry::is_hidden);
+    let Some(drive_id) = s.current_drive_id() else {
+        return;
+    };
+    let Some(drive) = open_current(s) else {
+        return;
+    };
+    let mut renamed = 0;
+    for entry in entries {
+        let name = if unhide {
+            entry.name.trim_start_matches('.').to_string()
+        } else if entry.is_hidden() {
+            continue;
+        } else {
+            format!(".{}", entry.name)
+        };
+        if name.is_empty() || s.entries.iter().any(|e| e.name == name) {
+            continue; // nothing left of the name, or the name is taken
+        }
+        let parent = fileops::parent_of(&entry.key);
+        let to = if entry.is_folder {
+            format!("{parent}{name}/")
+        } else {
+            format!("{parent}{name}")
+        };
+        spawn(
+            info,
+            app,
+            s,
+            Job::Rename {
+                drive: drive.clone(),
+                drive_id: drive_id.clone(),
+                from: entry.key,
+                to,
+            },
+        );
+        renamed += 1;
+    }
+    if renamed > 0 && !unhide && !s.settings.show_hidden {
+        s.info(format!(
+            "Hid {} (View > Hidden items shows them).",
+            browse::counted(renamed, "item", "items")
+        ));
+    }
+}
+
+/// Pins the folder `place` to Quick access, or unpins it (File > Frequent places' pins).
+fn toggle_pin_of(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, place: Place) {
+    let Place::Folder { drive, prefix } = place.clone() else {
+        return;
+    };
+    if s.settings.is_pinned(&drive, &prefix) {
+        s.settings
+            .pinned
+            .retain(|p| !(p.drive == drive && p.prefix == prefix));
+    } else {
+        let name = s.place_title(&place);
+        s.settings.pinned.push(model::Pinned {
+            drive,
+            prefix,
+            name,
+        });
+    }
+    println!("AZDRIVE_DONE pinned {}", s.settings.pinned.len());
+    save_settings(info, app, s);
 }
 
 // ==== Keyboard ====
@@ -1382,24 +1686,43 @@ fn destination_menu(
     open_menu_below(info, items);
 }
 
-/// The entries of Move to / Copy to.
+/// The folders Move to / Copy to offer first: the ones visited last (Explorer's list), then the
+/// pinned ones not among them - never the open folder (an item moved to where it is stays).
+pub(crate) fn destination_places(s: &DriveState) -> Vec<(Place, String)> {
+    /// Folders the list offers before the drives.
+    const MAX: usize = 10;
+    let mut places: Vec<(Place, String)> = Vec::new();
+    let recent = s.recent.iter().map(|p| (p.clone(), s.place_title(p)));
+    let pinned = s
+        .settings
+        .pinned
+        .iter()
+        .map(|pin| (Place::folder(&pin.drive, &pin.prefix), pin.name.clone()));
+    for (place, name) in recent.chain(pinned) {
+        if !matches!(place, Place::Folder { .. })
+            || place == s.place
+            || places.iter().any(|(p, _)| *p == place)
+        {
+            continue;
+        }
+        places.push((place, name));
+        if places.len() == MAX {
+            break;
+        }
+    }
+    places
+}
+
+/// The entries of Move to / Copy to: the recent and pinned folders, the drives, and "Choose
+/// location..." (the system's folder dialog).
 fn destination_items(app: &RefAny, s: &DriveState, kind: TransferKind) -> Vec<MenuItem> {
     let wrap = |place: Place| match kind {
         TransferKind::Move => Action::MoveTo(place),
         _ => Action::CopyTo(place),
     };
-    let mut items: Vec<MenuItem> = s
-        .settings
-        .pinned
-        .iter()
-        .map(|pin| {
-            menu_item(
-                app,
-                &pin.name,
-                wrap(Place::folder(&pin.drive, &pin.prefix)),
-                false,
-            )
-        })
+    let mut items: Vec<MenuItem> = destination_places(s)
+        .into_iter()
+        .map(|(place, name)| menu_item(app, &name, wrap(place), false))
         .collect();
     if !items.is_empty() {
         items.push(MenuItem::Separator);
@@ -2415,136 +2738,6 @@ fn column_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
         .collect()
 }
 
-/// Explorer's eight layouts, the current one checked.
-fn layout_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
-    ViewLayout::ALL
-        .iter()
-        .map(|l| check_item(app, l.label(), Action::SetLayout(*l), s.settings.layout == *l))
-        .collect()
-}
-
-/// View > Show: the panes and what the items show.
-fn show_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
-    let settings = &s.settings;
-    vec![
-        check_item(
-            app,
-            "Navigation pane",
-            Action::Toggle(Toggle::NavigationPane),
-            settings.navigation_pane,
-        ),
-        check_item(
-            app,
-            "Preview pane",
-            Action::Toggle(Toggle::PreviewPane),
-            settings.preview_pane,
-        ),
-        check_item(
-            app,
-            "Details pane",
-            Action::Toggle(Toggle::DetailsPane),
-            settings.details_pane,
-        ),
-        MenuItem::Separator,
-        check_item(
-            app,
-            "Item check boxes",
-            Action::Toggle(Toggle::ItemCheckboxes),
-            settings.item_checkboxes,
-        ),
-        check_item(
-            app,
-            "File name extensions",
-            Action::Toggle(Toggle::Extensions),
-            settings.show_extensions,
-        ),
-        check_item(
-            app,
-            "Hidden items",
-            Action::Toggle(Toggle::HiddenItems),
-            settings.show_hidden,
-        ),
-    ]
-}
-
-/// The command bar's "See more" (...): every command of the window the bar
-/// has no tool for - Windows 11's "..." menu, Windows 7's Organize.
-fn more_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
-    let undo_label = s
-        .undo
-        .last()
-        .map_or_else(|| String::from("Undo"), UndoOp::label);
-    let pinned = match &s.place {
-        Place::Folder { drive, prefix } => s.settings.is_pinned(drive, prefix),
-        _ => false,
-    };
-    let in_folder = s.current_drive().is_some();
-    let mut items = vec![
-        able_item(app, s, &undo_label, Action::Undo),
-        MenuItem::Separator,
-        able_item(app, s, "Select all", Action::SelectAll),
-        able_item(app, s, "Select none", Action::SelectNone),
-        able_item(app, s, "Invert selection", Action::InvertSelection),
-        MenuItem::Separator,
-        able_item(app, s, "Open", Action::Open),
-        able_item(app, s, "Edit", Action::Edit),
-        able_item(
-            app,
-            s,
-            if pinned {
-                "Unpin from Quick access"
-            } else {
-                "Pin to Quick access"
-            },
-            Action::Pin,
-        ),
-        able_item(app, s, "Copy path", Action::CopyPath),
-    ];
-    if in_folder && !s.selection.is_empty() {
-        items.push(submenu("Move to", destination_items(app, s, TransferKind::Move)));
-        items.push(submenu("Copy to", destination_items(app, s, TransferKind::Copy)));
-    } else {
-        items.push(menu_item(app, "Move to", Action::MoveToMenu, true));
-        items.push(menu_item(app, "Copy to", Action::CopyToMenu, true));
-    }
-    items.extend([
-        able_item(app, s, "Permanently delete", Action::DeletePermanently),
-        able_item(app, s, "Compress to ZIP file", Action::Zip),
-        MenuItem::Separator,
-        able_item(app, s, "Share (copy the addresses)", Action::Share),
-        able_item(app, s, "Email", Action::Email),
-        able_item(app, s, "Upload files...", Action::Upload),
-        able_item(app, s, "Download", Action::Download),
-        MenuItem::Separator,
-        submenu("Layout", layout_items(app, s)),
-        submenu("Show", show_items(app, s)),
-    ]);
-    if in_folder {
-        let mut columns = column_items(app, s);
-        columns.push(MenuItem::Separator);
-        columns.push(menu_item(app, "Size all columns to fit", Action::FitColumns, false));
-        items.push(submenu("Group by", group_items(app, s)));
-        items.push(submenu("Columns", columns));
-    } else {
-        items.push(menu_item(app, "Group by", Action::GroupMenu, true));
-        items.push(menu_item(app, "Columns", Action::ColumnsMenu, true));
-    }
-    items.extend([
-        MenuItem::Separator,
-        menu_item(app, "Add S3 drive (a network location)...", Action::AddDrive, false),
-        menu_item(app, "Add a folder as a drive...", Action::AddLocalDrive, false),
-        able_item(app, s, "Remove drive", Action::RemoveDrive),
-        able_item(app, s, "Drive properties", Action::DriveProperties),
-        able_item(app, s, "Refresh", Action::Refresh),
-        MenuItem::Separator,
-        menu_item(app, "Transfers...", Action::ShowTransfers, false),
-        menu_item(app, "Options", Action::Options, false),
-        menu_item(app, "About AzDrive", Action::About, false),
-        menu_item(app, "Close window", Action::CloseWindow, false),
-    ]);
-    items
-}
-
 /// The context menu of the selection (or of the folder itself when nothing
 /// is selected), as Explorer's right-click and the menu key show it.
 pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
@@ -2801,6 +2994,53 @@ extern "C" fn on_local_drive_picked(
         println!("AZDRIVE_ADDED {id}");
         s.success(format!("\"{name}\" is a drive now."));
         go(info, app, s, Place::folder(&id, ""), true);
+    })
+}
+
+/// What "Choose location..."'s folder dialog answers to: the app and whether it moves or copies.
+struct TransferPick {
+    app: RefAny,
+    kind: TransferKind,
+}
+
+/// The folder picked for Move to / Copy to: the selected items go there when it is a folder of
+/// one of the drives; otherwise AzDrive's own chooser opens with the path and why it is not.
+extern "C" fn on_destination_picked(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    let Some((mut app, kind)) = data
+        .downcast_ref::<TransferPick>()
+        .map(|p| (p.app.clone(), p.kind))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let path = PathBuf::from(path.inner.as_str());
+    with_state(&mut app, &mut info, |info, app, s| {
+        let roots: Vec<(String, PathBuf)> = (0..s.slots.len())
+            .filter_map(|i| Some((s.slots[i].entry.id.clone(), s.local_root(i)?)))
+            .collect();
+        match browse::place_of_path(&path, &roots) {
+            Some(place) => transfer_selection_to(info, app, s, kind, place),
+            None => {
+                s.popups_opened += 1;
+                s.popup = Some(Popup::ChooseLocation {
+                    kind,
+                    text: path.display().to_string(),
+                    error: String::from(
+                        "This folder is on none of AzDrive's drives: add it as a drive first \
+                         (This PC > Computer > Add folder as drive), or type a drive's folder.",
+                    ),
+                });
+            }
+        }
     })
 }
 

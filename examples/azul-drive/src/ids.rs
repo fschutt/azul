@@ -33,11 +33,11 @@ pub const FOLDER_VIEW: AzString = AzString::from_const_str("__azdrive_folder_vie
 /// The icon layouts' grid (azul's IconGrid); its items are `__azdrive_icon_grid-<index>`.
 pub const ICON_GRID: AzString = AzString::from_const_str("__azdrive_icon_grid");
 
-/// Explorer's chrome over the panes: the navigation row (Back, Forward, Up, the breadcrumb,
-/// the search box) over the command bar.
+/// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
+/// Refresh, the search box).
 pub const CHROME: AzString = AzString::from_const_str("__azdrive_chrome");
-/// The command bar under the navigation row (the commands left, the panes right).
-pub const COMMAND_BAR: AzString = AzString::from_const_str("__azdrive_command_bar");
+/// Windows 8's ribbon (its tab strip is the window's title bar; File drops the File menu).
+pub const RIBBON: AzString = AzString::from_const_str("__azdrive_ribbon");
 /// The navigation pane: Finder's source list (its rows' box: Favorites, Locations, Cloud).
 pub const NAV_PANE: AzString = AzString::from_const_str("__azdrive_nav_pane");
 
@@ -104,36 +104,6 @@ pub const LEAF: AzString = AzString::from_const_str("__azdrive_leaf");
 /// Finder's path bar at the foot of the leaf, and the status line under it.
 pub const PATH_BAR: AzString = AzString::from_const_str("__azdrive_path_bar");
 pub const STATUS_LINE: AzString = AzString::from_const_str("__azdrive_status_line");
-
-// ==== The command bar's tools (the ToolbarItem ids, so the DOM ids of the tools) ====
-
-pub const CMD_NEW_FOLDER: AzString = AzString::from_const_str("__azdrive_cmd_new_folder");
-pub const CMD_NEW_ITEM: AzString = AzString::from_const_str("__azdrive_cmd_new_item");
-pub const CMD_CUT: AzString = AzString::from_const_str("__azdrive_cmd_cut");
-pub const CMD_COPY: AzString = AzString::from_const_str("__azdrive_cmd_copy");
-pub const CMD_PASTE: AzString = AzString::from_const_str("__azdrive_cmd_paste");
-pub const CMD_RENAME: AzString = AzString::from_const_str("__azdrive_cmd_rename");
-pub const CMD_DELETE: AzString = AzString::from_const_str("__azdrive_cmd_delete");
-pub const CMD_UNDO: AzString = AzString::from_const_str("__azdrive_cmd_undo");
-pub const CMD_PROPERTIES: AzString = AzString::from_const_str("__azdrive_cmd_properties");
-pub const CMD_OPEN: AzString = AzString::from_const_str("__azdrive_cmd_open");
-pub const CMD_UPLOAD: AzString = AzString::from_const_str("__azdrive_cmd_upload");
-pub const CMD_DOWNLOAD: AzString = AzString::from_const_str("__azdrive_cmd_download");
-pub const CMD_SORT: AzString = AzString::from_const_str("__azdrive_cmd_sort");
-pub const CMD_LAYOUT_ICONS: AzString = AzString::from_const_str("__azdrive_cmd_layout_icons");
-pub const CMD_LAYOUT_LIST: AzString = AzString::from_const_str("__azdrive_cmd_layout_list");
-pub const CMD_LAYOUT_DETAILS: AzString = AzString::from_const_str("__azdrive_cmd_layout_details");
-pub const CMD_SELECT_ALL: AzString = AzString::from_const_str("__azdrive_cmd_select_all");
-pub const CMD_MORE: AzString = AzString::from_const_str("__azdrive_cmd_more");
-pub const CMD_ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_cmd_add_drive");
-pub const CMD_ADD_FOLDER: AzString = AzString::from_const_str("__azdrive_cmd_add_folder");
-pub const CMD_REMOVE_DRIVE: AzString = AzString::from_const_str("__azdrive_cmd_remove_drive");
-pub const CMD_REFRESH: AzString = AzString::from_const_str("__azdrive_cmd_refresh");
-pub const CMD_NAVIGATION_PANE: AzString =
-    AzString::from_const_str("__azdrive_cmd_navigation_pane");
-pub const CMD_PREVIEW_PANE: AzString = AzString::from_const_str("__azdrive_cmd_preview_pane");
-pub const CMD_DETAILS_PANE: AzString = AzString::from_const_str("__azdrive_cmd_details_pane");
-pub const CMD_OPTIONS: AzString = AzString::from_const_str("__azdrive_cmd_options");
 
 /// The "Add drive" form and its fields.
 pub const ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_add_drive");

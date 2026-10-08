@@ -473,6 +473,26 @@ pub fn parse_path(text: &str, drives: &[(String, String)]) -> Option<Place> {
     Some(Place::folder(id, &prefix))
 }
 
+/// The folder a path on this computer is on one of the drives (`(id, root)` of the drives on
+/// this computer): the drive whose root holds it most closely (a drive inside another's folder
+/// wins), and the folders below the root as the folder's prefix. `None` for a path on no drive.
+#[must_use]
+pub fn place_of_path(path: &Path, drives: &[(String, std::path::PathBuf)]) -> Option<Place> {
+    let (id, rest) = drives
+        .iter()
+        .filter_map(|(id, root)| Some((id, path.strip_prefix(root).ok()?)))
+        .min_by_key(|(_, rest)| rest.components().count())?;
+    let mut prefix = String::new();
+    for part in rest.components() {
+        let std::path::Component::Normal(name) = part else {
+            return None;
+        };
+        prefix.push_str(name.to_str()?);
+        prefix.push('/');
+    }
+    Some(Place::folder(id, &prefix))
+}
+
 /// The address bar's trail for `place`, each crumb with the place it goes
 /// to: `This PC`; then the drive (its root) and every folder down to the
 /// open one.
@@ -705,6 +725,31 @@ mod tests {
         );
         assert_eq!(compare_without_case("ÄPFEL", "äpfel"), Ordering::Equal);
         assert_eq!(compare_without_case("Report", "readme"), Ordering::Greater);
+    }
+
+    /// A folder picked in the system's dialog is a folder of the drive whose root holds it most
+    /// closely; a path on no drive is none.
+    #[test]
+    fn a_picked_folder_is_the_folder_of_the_drive_that_holds_it() {
+        use std::path::PathBuf;
+        let drives = vec![
+            (String::from("home"), PathBuf::from("/Users/me")),
+            (String::from("work"), PathBuf::from("/Users/me/Work")),
+        ];
+        assert_eq!(
+            place_of_path(Path::new("/Users/me/Documents/Taxes"), &drives),
+            Some(Place::folder("home", "Documents/Taxes/"))
+        );
+        assert_eq!(
+            place_of_path(Path::new("/Users/me/Work/Q3"), &drives),
+            Some(Place::folder("work", "Q3/")),
+            "the drive inside the other's folder wins"
+        );
+        assert_eq!(
+            place_of_path(Path::new("/Users/me"), &drives),
+            Some(Place::folder("home", ""))
+        );
+        assert_eq!(place_of_path(Path::new("/tmp/x"), &drives), None);
     }
 
     /// The Type column's label for the kinds Explorer names is borrowed, an unknown extension's

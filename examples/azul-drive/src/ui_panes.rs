@@ -25,7 +25,12 @@ use crate::{
 
 // ==== The address bar ====
 
-pub(crate) fn address_bar(s: &DriveState, app: &RefAny) -> Dom {
+/// Explorer's address row (azul's AddressBar): round Back and Forward, Recent locations, Up, the
+/// breadcrumb box - the place's icon, a crumb per step with a chevron that drops its folders,
+/// the first steps folded into « when the path is long, a click on the empty part for the typed
+/// path, Refresh at its end - and "Search <folder>". `width` is the window's (the bar folds its
+/// crumbs to it).
+pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
     let drive_name = s.drive_name(&s.place);
     let labels: Vec<AzString> = browse::crumbs_of(&s.place, &drive_name)
         .into_iter()
@@ -36,6 +41,8 @@ pub(crate) fn address_bar(s: &DriveState, app: &RefAny) -> Dom {
         _ => None,
     };
     AddressBar::create(StringVec::from(labels))
+        .with_icon(AzString::from(crumb_icon(s, &s.place)))
+        .with_available_width(width)
         .with_path(AzString::from(browse::path_text(&s.place, path_drive)))
         .with_search(AzString::from(s.search.as_str()))
         .with_search_placeholder(AzString::from(format!("Search {}", s.place_name())))

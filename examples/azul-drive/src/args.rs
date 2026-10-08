@@ -89,16 +89,19 @@ const AZDRIVE_HELP: &str = concat!(
     "                             else <config dir>/azul-storage/drives.json)\n",
     "    --dialogs <HOW>          window | inline: the dialogs as windows, or as sheets inside\n",
     "                             the window (default: $AZDRIVE_DIALOGS, else window)\n",
+    "    --open <PATH>            Open at a place as the address bar names it: This PC,\n",
+    "                             Home/Documents (File > Open new window passes it)\n",
 );
 
 /// AzDrive's own switches that take a value (after a space or an equals sign), and what the
 /// value is called in an error.
-const OWN: [(&str, &str); 5] = [
+const OWN: [(&str, &str); 6] = [
     ("--layout", "name"),
     ("--home", "folder"),
     ("--downloads", "folder"),
     ("--drives", "file"),
     ("--dialogs", "window or inline"),
+    ("--open", "place such as Home/Documents"),
 ];
 
 /// The parsed command line.
@@ -115,6 +118,9 @@ pub struct Args {
     pub drives: Option<PathBuf>,
     /// `--dialogs`: dialog windows or inline sheets (windows when absent).
     pub dialogs: Option<Dialogs>,
+    /// `--open`: the place to open at, as the address bar names it (`Home/Documents`); it wins
+    /// over `--screen`.
+    pub open: Option<String>,
     /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
     /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
     pub kit: AppArgs,
@@ -185,6 +191,13 @@ impl Args {
                 "--home" => args.home = Some(path_value(name, what, &value)?),
                 "--downloads" => args.downloads = Some(path_value(name, what, &value)?),
                 "--drives" => args.drives = Some(path_value(name, what, &value)?),
+                "--open" => {
+                    let place = value.trim();
+                    if place.is_empty() {
+                        return Err(format!("{name} needs a {what}"));
+                    }
+                    args.open = Some(place.to_string());
+                }
                 _ => {
                     args.dialogs = Some(Dialogs::from_name(&value).ok_or_else(|| {
                         format!("--dialogs: expected window or inline, got {value:?}")
@@ -229,6 +242,40 @@ impl Args {
         }
         self
     }
+}
+
+/// The switches of another window of this run (File > Open new window): this run's, without
+/// the ones that only made sense once (`--screen`, `--shot`, `--sample`, an earlier `--open`),
+/// then `--open <path>`. `argv` is this run's, without the program name.
+#[must_use]
+pub fn new_window_args<I, S>(argv: I, path: &str) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    /// Switches with a value that the new window does not take over.
+    const ONCE: [&str; 3] = ["--screen", "--shot", "--open"];
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    let mut out = Vec::with_capacity(argv.len() + 2);
+    let mut i = 0;
+    while i < argv.len() {
+        let arg = argv[i].as_str();
+        let name = arg.split_once('=').map_or(arg, |(n, _)| n);
+        if arg == "--sample" {
+            i += 1;
+            continue;
+        }
+        if ONCE.contains(&name) {
+            // `--name value` drops its value too; `--name=value` is one argument.
+            i += if arg.contains('=') { 1 } else { 2 };
+            continue;
+        }
+        out.push(argv[i].clone());
+        i += 1;
+    }
+    out.push(String::from("--open"));
+    out.push(path.to_string());
+    out
 }
 
 /// A 16x16 gradient, the sample picture.
@@ -350,6 +397,39 @@ mod tests {
 
     fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse(args.iter().map(|s| s.to_string()))
+    }
+
+    /// `--open` names the place as the address bar does; an empty one is an error.
+    #[test]
+    fn open_names_the_place_to_start_at() {
+        let args = parse(&["--open", "Home/Documents"]).unwrap();
+        assert_eq!(args.open.as_deref(), Some("Home/Documents"));
+        assert_eq!(parse(&["--open=This PC"]).unwrap().open.as_deref(), Some("This PC"));
+        assert!(parse(&["--open", " "]).is_err());
+        assert_eq!(parse(&[]).unwrap().open, None);
+    }
+
+    /// A new window takes this run's switches, not the ones that were for this start only, and
+    /// opens where the window it came from is.
+    #[test]
+    fn a_new_window_takes_the_runs_switches_and_opens_at_the_place() {
+        let argv = [
+            "--home",
+            "/h",
+            "--screen",
+            "this-pc",
+            "--shot=/tmp/a.png",
+            "--sample",
+            "--open",
+            "Home",
+            "--theme",
+            "flora",
+        ];
+        assert_eq!(
+            new_window_args(argv, "Home/Documents"),
+            vec!["--home", "/h", "--theme", "flora", "--open", "Home/Documents"]
+        );
+        assert_eq!(new_window_args(Vec::<String>::new(), "This PC"), vec!["--open", "This PC"]);
     }
 
     #[test]

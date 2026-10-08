@@ -74,9 +74,10 @@ pub mod listing;
 mod look;
 pub mod model;
 pub mod preview;
-mod ui_commands;
 mod ui_dialogs;
 mod ui_panes;
+/// Windows 8's ribbon and its File menu.
+mod ui_ribbon;
 /// The navigation pane: Finder's source list.
 mod ui_sidebar;
 mod ui_view;
@@ -99,7 +100,7 @@ use azul::{
     shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
     str::String as AzString,
     url::Url,
-    widgets::{AlertKind, Dialog, IconGridView, Titlebar},
+    widgets::{AlertKind, Dialog, IconGridView},
 };
 use azul_storage::{
     azul_transport::AzulTransport,
@@ -445,6 +446,8 @@ pub(crate) struct DriveState {
     pub pane_ratios: (f32, f32),
     /// The backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
+    /// The ribbon's tab chosen last (the place shows it where it has it).
+    pub ribbon_tab: ui_ribbon::RibbonTabKind,
     /// AzDrive's own settings as the Options found them when they opened: what their Cancel
     /// puts back (`reload_settings`).
     pub settings_found: Option<Settings>,
@@ -1636,24 +1639,13 @@ pub(crate) fn with_state(
     Update::RefreshDom
 }
 
-/// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
-/// draws only the traffic lights).
-fn title_row(s: &DriveState) -> Dom {
-    let title = format!("{} - AzDrive", s.place_name());
-    Titlebar::create(AzString::from(title))
-        .without_border_bottom()
-        .dom()
-}
-
-/// Explorer's chrome over the panes: the navigation row (Back, Forward, Up, the breadcrumb,
-/// "Search <folder>") over the command bar. It stands in the shell's address bar slot (the
-/// `shell-address-bar` host), with no ribbon over it.
+/// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
+/// Refresh, "Search <folder>"): the shell's address bar slot (the `shell-address-bar` host).
 fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
     Dom::create_div()
         .with_id(ids::CHROME)
         .with_css("display: flex; flex-direction: column;")
-        .with_child(ui_panes::address_bar(s, app))
-        .with_child(ui_commands::command_bar(s, app, width))
+        .with_child(ui_panes::address_bar(s, app, width))
 }
 
 /// The DOM id of the details pane, which shares the right side with the preview pane.
@@ -1707,6 +1699,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     // Finder's body under Explorer's command bar: the source list, the content as a leaf on the
     // page (its path bar and status line at its foot), the right pane a leaf too.
+    let backstage = s.backstage_shown();
     let mut browser = BrowserShell::create(
         chrome(s, &app, width),
         ui_sidebar::sidebar(s, &app),
@@ -1718,6 +1711,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if s.settings.preview_pane {
         browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
     }
+    // Windows 8's ribbon over the address row; its tab strip is the window's title bar.
+    if backstage.is_none() {
+        browser = browser.with_ribbon(ui_ribbon::ribbon(s, &app));
+    }
     let mut shell = browser.office_shell();
     // Explorer 10's right side: the preview pane OR the details pane.
     if s.settings.details_pane && !s.settings.preview_pane {
@@ -1727,12 +1724,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_label("Details"),
         );
     }
-    // The title row is the OfficeShell's; the counts are the leaf's status line (no status bar).
-    let mut shell = shell
-        .with_title_row(title_row(s))
-        .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
-    if let Some(page) = s.backstage_shown() {
-        shell = shell.with_backstage(ui_dialogs::backstage(s, &app, page));
+    // No title row while the ribbon shows - its tabs are the title bar; the backstage (the
+    // Options, About), which has no ribbon, keeps azul's title row to move the window by. The
+    // counts are the leaf's status line (no status bar).
+    let mut shell =
+        shell.with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
+    if let Some(page) = backstage {
+        shell = shell
+            .with_title_row(azul_appkit::ui::title_row(&window_title(s)))
+            .with_backstage(ui_dialogs::backstage(s, &app, page));
     }
     let mut body = Dom::create_body()
         .with_css(
@@ -1942,6 +1942,16 @@ pub fn start() {
             model::StartPlace::ThisPc => Place::ThisPc,
         },
     };
+    // `--open` (File > Open new window): the place as the address bar names it.
+    let drive_names: Vec<(String, String)> = slots
+        .iter()
+        .map(|slot| (slot.entry.id.clone(), slot.entry.name.clone()))
+        .collect();
+    let place = args
+        .open
+        .as_deref()
+        .and_then(|text| browse::parse_path(text, &drive_names))
+        .unwrap_or(place);
     let mut state = DriveState {
         slots,
         place,
@@ -1979,6 +1989,7 @@ pub fn start() {
         grid_view: IconGridView::create(),
         pane_ratios: (0.22, 0.7),
         backstage: (args.screen == args::Screen::Settings).then_some(0),
+        ribbon_tab: ui_ribbon::RibbonTabKind::default(),
         settings_found: None,
         clipboard: None,
         queue: TransferQueue::default(),
@@ -2013,13 +2024,16 @@ pub fn start() {
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
     let config = azul_appkit::ui::app_config(&state.kit);
-    let window = azul_appkit::ui::window_options(
+    let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,
         (1200.0, 760.0),
         (640.0, 420.0),
         startup,
     );
+    // The title bar shows the ribbon's tabs: the title is what the system's window list names
+    // the window by - the open place's path.
+    window.window_state.title = AzString::from(window_title(&state));
     let app = App::create(RefAny::new(state), config);
     app.run(window);
 }
