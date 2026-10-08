@@ -4614,7 +4614,9 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme
 }
 
 /// Whether Office stacks `item` with its neighbours: a small button, a check
-/// box, a combo or a drop-down box.
+/// box, a combo or a drop-down box - or a row of them, which is one control
+/// tall (RibbonX's `box`): Explorer's Show/hide is three check boxes, each
+/// with its label, over each other.
 const fn is_small_item(item: &RibbonItem) -> bool {
     matches!(
         item,
@@ -4622,6 +4624,7 @@ const fn is_small_item(item: &RibbonItem) -> bool {
             | RibbonItem::Check(_)
             | RibbonItem::Combo(_)
             | RibbonItem::Drop(_)
+            | RibbonItem::Row(_)
     )
 }
 
@@ -4629,8 +4632,8 @@ const fn is_small_item(item: &RibbonItem) -> bool {
 /// ([`is_small_item`]) packed into [`RibbonColumn`]s of three, top first -
 /// Office's Delete group (Ignore / Clean Up / Junk over each other), its
 /// Find group (the contact box, Address Book, Filter E-mail). A small item
-/// alone stays as it is (it sits at the top either way); the rows and
-/// columns a caller built are its own.
+/// alone stays as it is (it sits at the top either way); a row keeps its
+/// items side by side and the columns a caller built are its own.
 fn stack_small_items(items: Vec<RibbonItem>) -> Vec<RibbonItem> {
     fn flush(run: &mut Vec<RibbonItem>, out: &mut Vec<RibbonItem>) {
         if run.len() < 2 {
