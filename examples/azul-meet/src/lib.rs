@@ -16,15 +16,16 @@
 //! first (`ui.rs`): the camera preview, the switches, the devices, the name, the meeting's code,
 //! link and times, who is in the call already, and "Start meeting" / "Join now" / "Ask to join".
 //! Only then does the app announce its signed iroh ticket to the room every sixth of the
-//! server's peer TTL (20 seconds), read everyone else's every 2 seconds, keep the tickets a member signed, and
-//! dial the peers whose endpoint id is higher than its own. `--screen waiting` opens a new
-//! meeting's waiting room (a preview of one when no meeting server answers); with `--shot <png>`
-//! that is a screenshot. Every HTTP request runs on an azul `Thread` and resumes on the UI thread,
-//! so no callback waits on the network. The start screen's "Meeting server" field holds the
-//! Worker's address: `--worker`, else the one saved last time, else `AZMEET_WORKER`, else one
-//! built in at build time - and nothing else: with none, the start screen asks for one, and an
-//! unreachable one is an error with a Retry button. A new address is used for every request from
-//! Enter or leaving the field on, checked with `GET /health`, and saved once it answers.
+//! server's peer TTL (20 seconds), read everyone else's every 2 seconds, keep the tickets a
+//! member signed, and dial the peers whose endpoint id is higher than its own. `--screen waiting`
+//! opens a new meeting's waiting room (a preview of one when no meeting server answers); with
+//! `--shot <png>` that is a screenshot. Every HTTP request runs on an azul `Thread` and resumes on
+//! the UI thread, so no callback waits on the network. The start screen's "Meeting server" field
+//! holds the Worker's address: `--worker`, else the one saved last time, else `AZMEET_WORKER`,
+//! else one built in at build time - and nothing else: with none, the start screen asks for one,
+//! and an unreachable one is an error with a Retry button. A new address is used for every
+//! request from Enter or leaving the field on, checked with `GET /health`, and saved once it
+//! answers.
 //!
 //! Settings: the gear at the top right of every screen (or Mod+,) opens azul-appkit's settings
 //! page, the one every Azlin app shares (AzMail's File > Options): AzMeet's Audio & Video (the
@@ -1036,6 +1037,7 @@ fn member_rows(s: &MeetState, chat: &chatroom::ChatRoom) -> Vec<ui::MemberRow> {
     let mut rows: Vec<ui::MemberRow> = chat
         .members()
         .map(|m| ui::MemberRow {
+            room: chat.room.clone(),
             device: m.device.clone(),
             name: if m.device == me { s.name.clone() } else { member_name(&m.name) },
             code: m.safety_code.clone(),
@@ -1053,6 +1055,7 @@ fn knock_rows(s: &MeetState, chat: &chatroom::ChatRoom) -> Vec<ui::MemberRow> {
     chat.knocks()
         .filter(|k| k.device != me)
         .map(|k| ui::MemberRow {
+            room: chat.room.clone(),
             device: k.device.clone(),
             name: member_name(&k.name),
             code: k.safety_code.clone(),
@@ -1277,10 +1280,12 @@ fn room_page(s: &MeetState) -> Option<ui::RoomPage> {
         chatroom::RoomKind::Meeting => "Meeting",
     };
     let status = match chat.state {
-        chatroom::Membership::Member => String::from("End-to-end encrypted: only the members read it."),
-        chatroom::Membership::Knocking => {
-            String::from("Waiting for a member to let you in. Compare your safety code with theirs.")
+        chatroom::Membership::Member => {
+            String::from("End-to-end encrypted: only the members read it.")
         }
+        chatroom::Membership::Knocking => String::from(
+            "Waiting for a member to let you in. Compare your safety code with theirs.",
+        ),
         chatroom::Membership::Joining => String::from("Joining..."),
         chatroom::Membership::Leaving => String::from("Leaving..."),
         chatroom::Membership::Left => String::from("You left this room."),
@@ -1400,7 +1405,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         }
         note
     });
-    let identity_line = match (&s.identity, &s.identity_source) {
+    let identity = match (&s.identity, &s.identity_source) {
         (Some(me), Some(source)) => format!("{} ({})", me.safety_code(), source.describe()),
         _ => String::from("loading..."),
     };
@@ -1408,7 +1413,6 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         room_page: room_page(s),
         knocks,
         chat_note,
-        identity_line,
         screen: ui_screen(s),
         title,
         notice: s.notice.clone(),
@@ -1477,6 +1481,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                     )
                 },
             ),
+            identity,
         },
     }
 }
@@ -4453,9 +4458,15 @@ impl HttpJob {
     }
 
     /// A room's chat request (`chatroom::Call`), signed when it changes something.
-    fn chat(chat: &chatroom::ChatRoom, me: &crypto::Identity, call: chatroom::Call, now_ms: u64) -> Self {
+    fn chat(
+        chat: &chatroom::ChatRoom,
+        me: &crypto::Identity,
+        call: chatroom::Call,
+        now_ms: u64,
+    ) -> Self {
         let headers = if call.signed {
-            Vec::from(me.request_headers(call.method, &call.path, chat.server_now(now_ms), &call.body))
+            let ts = chat.server_now(now_ms);
+            Vec::from(me.request_headers(call.method, &call.path, ts, &call.body))
         } else {
             Vec::new()
         };
@@ -4666,14 +4677,19 @@ fn peers_from(json: &Json) -> Vec<PeerRecord> {
 
 /// The peers of `listed` whose announcement a member of `chat` signed, each with that member's
 /// name (CRYPTO.md section 10); every other is left out, and logged once per read.
-fn verified_peers(chat: Option<&chatroom::ChatRoom>, listed: Vec<PeerRecord>, me: &str) -> Vec<PeerRecord> {
+fn verified_peers(
+    chat: Option<&chatroom::ChatRoom>,
+    listed: Vec<PeerRecord>,
+    me: &str,
+) -> Vec<PeerRecord> {
     let Some(chat) = chat else {
         return Vec::new();
     };
     listed
         .into_iter()
         .filter_map(|p| {
-            let member = chat.verify_peer(&p.node_id, &p.ticket, p.device.as_deref(), p.sig.as_deref());
+            let member =
+                chat.verify_peer(&p.node_id, &p.ticket, p.device.as_deref(), p.sig.as_deref());
             match member {
                 Some(m) => Some(PeerRecord {
                     name: member_name(&m.name),
@@ -4750,10 +4766,9 @@ fn check_room(
     };
     let invite = match (minting, secret) {
         (Some(minting), _) => Some(minting.invite),
-        (None, Some(secret)) => Some(
-            crypto::Invite::new(&found.room, &secret)
-                .ok_or_else(|| String::from("That link's secret is damaged: ask for the link again."))?,
-        ),
+        (None, Some(secret)) => Some(crypto::Invite::new(&found.room, &secret).ok_or_else(|| {
+            String::from("That link's secret is damaged: ask for the link again.")
+        })?),
         (None, None) => None,
     };
     if let Some(invite) = &invite {
@@ -4773,7 +4788,14 @@ fn ensure_chat(s: &mut MeetState, found: &RoomInfo) {
     let worker = s.room.as_ref().map(|r| r.worker.clone()).unwrap_or_default();
     let name = s.name.clone();
     let chat = s.chats.entry(found.room.clone()).or_insert_with(|| {
-        chatroom::ChatRoom::new(&worker, &found.room, &found.code, found.kind, found.invite.clone(), &name)
+        chatroom::ChatRoom::new(
+            &worker,
+            &found.room,
+            &found.code,
+            found.kind,
+            found.invite.clone(),
+            &name,
+        )
     });
     chat.kind = found.kind;
     chat.starts_at = found.starts_at;
@@ -4794,7 +4816,9 @@ fn remember_room(s: &mut MeetState, id: &str) {
     };
     if !matches!(
         chat.state,
-        chatroom::Membership::Member | chatroom::Membership::Knocking | chatroom::Membership::Joining
+        chatroom::Membership::Member
+            | chatroom::Membership::Knocking
+            | chatroom::Membership::Joining
     ) {
         return;
     }
@@ -5948,10 +5972,12 @@ extern "C" fn on_new_chat_room(mut data: RefAny, mut info: CallbackInfo) -> Upda
 /// The times the "Schedule" form asks for: the start in this computer's time zone, the length in
 /// minutes; RFC 3339 in UTC, as the Worker takes them.
 fn schedule_times(start: &str, minutes: &str) -> Result<(String, String), String> {
-    let first_guess = rooms::parse_local_start(start, local_offset_at(azul_storage::time::now_unix()))
+    let today = local_offset_at(azul_storage::time::now_unix());
+    let first_guess = rooms::parse_local_start(start, today)
         .ok_or_else(|| String::from("Type the start as 2026-10-09 14:00 (your time)."))?;
     // The offset of the day it starts on (summer time or not), not today's.
-    let starts = rooms::parse_local_start(start, local_offset_at(first_guess)).unwrap_or(first_guess);
+    let starts =
+        rooms::parse_local_start(start, local_offset_at(first_guess)).unwrap_or(first_guess);
     let minutes: u64 = minutes
         .trim()
         .parse()
@@ -6146,7 +6172,10 @@ extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let found = s
             .room
             .as_mut()
-            .filter(|room| room.stage == Stage::Waiting && room.waiting.as_ref().is_some_and(|f| f.invite.is_some()))
+            .filter(|room| {
+                room.stage == Stage::Waiting
+                    && room.waiting.as_ref().is_some_and(|f| f.invite.is_some())
+            })
             .and_then(|room| room.waiting.take());
         let Some(found) = found else {
             return Update::DoNothing;
@@ -6409,7 +6438,12 @@ fn session_identity(s: &mut MeetState, why: &str) {
 
 /// The identity is here: stdout says it (`AZMEET_IDENTITY <device> <keyring|file|session>`,
 /// `AZMEET_SAFETY <code>`), and the rooms of `meet/rooms.json` come back.
-fn identity_ready(s: &mut MeetState, me: crypto::Identity, source: identity::Source, created: bool) {
+fn identity_ready(
+    s: &mut MeetState,
+    me: crypto::Identity,
+    source: identity::Source,
+    created: bool,
+) {
     println!("AZMEET_IDENTITY {} {}", me.device(), source.word());
     println!("AZMEET_SAFETY {}", me.safety_code());
     eprintln!(
@@ -6509,7 +6543,8 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                         identity_ready(s, me, identity::Source::Keyring, true);
                     }
                     Err(e) => {
-                        s.notice = format!("No device key can be made ({e}): AzMeet cannot join a room.");
+                        s.notice =
+                            format!("No device key can be made ({e}): AzMeet cannot join a room.");
                     }
                 }
                 true
