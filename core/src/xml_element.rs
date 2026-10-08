@@ -102,7 +102,7 @@ impl FontScope<'_> {
 /// not apply; a `data:` URL's `;` and `,` stay inside it.
 #[must_use]
 pub fn font_face_rules(css: &str) -> Vec<(String, String)> {
-    let unquote = |v: &str| v.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+    let unquote = |v: &str| String::from(v.trim().trim_matches(|c| c == '"' || c == '\''));
     let mut faces = Vec::new();
     let mut rest = css;
     while let Some(at) = rest.find("@font-face") {
