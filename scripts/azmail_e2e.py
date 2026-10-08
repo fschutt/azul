@@ -408,6 +408,10 @@ class Run:
             'AZ_DEBUG': str(self.debug),
             'AZMAIL_DATA': self.data,
             'AZMAIL_TEST_PASSWORD': self.password,
+            # The kit's data root (settings.json, the To-Do bar's tasks) and the look every Azlin
+            # app shares (~/.azlin/config.json) stay out of the run: never the user's own.
+            'AZLIN_DATA': os.path.join(self.tmp, 'azlin-data'),
+            'AZLIN_CONFIG': 'off',
         }
         command = [binary, *app_args]
         if self.args.runner:
@@ -701,6 +705,8 @@ class SampleRun(Run):
             'AZ_DEBUG': str(self.debug),
             'AZMAIL_DATA': os.path.join(self.data, 'AzMail'),
             'AZLIN_DATA': self.data,
+            # The look every Azlin app shares (~/.azlin/config.json) stays out of the run.
+            'AZLIN_CONFIG': 'off',
         }
         command = [binary, '--sample', '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}', '--mode',
                    'light']
@@ -1524,7 +1530,9 @@ class AzlinRun(Run):
             'AZ_BACKEND': 'headless',
             'AZ_DEBUG': str(self.debug),
             'AZMAIL_DATA': self.data,
-            # The user's shared Azlin config (its look, its endpoints) stays out of the run.
+            # The user's data root and shared Azlin config (its look, its endpoints) stay out of
+            # the run.
+            'AZLIN_DATA': os.path.join(self.tmp, 'azlin-data'),
             'AZLIN_CONFIG': 'off',
         }
         app_args = ['--size', f'{AZLIN_SIZE[0]}x{AZLIN_SIZE[1]}',
