@@ -231,7 +231,10 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                     ],
                 )
             }
-            Err(why) => block("font-size: 12px; color: #d13438;", text(why)),
+            Err(why) => block(
+                &format!("font-size: 12px; {}", crate::ui::PROBLEM_INK),
+                text(why),
+            ),
         };
         rows.push(field_row(
             "one-time",

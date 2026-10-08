@@ -400,7 +400,13 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
     flex_row(
         &format!(
             "padding: 4px 8px; cursor: pointer; {}",
-            if selected { "background-color: rgba(64, 128, 255, 0.18);" } else { "" }
+            // Under flora a selected row lies on the theme's selection (every widget's list).
+            if selected {
+                "background-color: rgba(64, 128, 255, 0.18); @theme(flora) { background-color: \
+                 system:selection-background; }"
+            } else {
+                ""
+            }
         ),
         children,
     )
@@ -824,7 +830,13 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
     }
     if !form.problems.is_empty() {
         children.push(
-            column("padding: 6px 8px; border-left: 3px solid #c0392b;", form.problems.iter().map(|p| Dom::create_div().with_child(text(p.as_str()))).collect())
+            // Under flora a problem is marked in its clay stone.
+            column(
+                "padding: 6px 8px; border-left: 3px solid #c0392b; @theme(flora) { border-left: \
+                 3px solid #7E4A42; @media (prefers-color-scheme: dark) { border-left: 3px solid \
+                 #B3837A; } }",
+                form.problems.iter().map(|p| Dom::create_div().with_child(text(p.as_str()))).collect(),
+            )
                 .with_id(ids::EDIT_PROBLEMS),
         );
     }

@@ -265,9 +265,12 @@ extern "C" fn on_day_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 const BOARD: &str = "display: flex; flex-direction: row; align-items: stretch; flex-grow: 1; \
                      min-height: 0px; gap: 10px; padding: 4px 16px 12px 16px; overflow-x: auto;";
+// Under flora (`@theme(flora)` after the flat values): a column is a leaf at flora's 5px, a
+// selected card lies on the theme's selection at 3px, a priority is the clay stone.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; flex-basis: 0px; \
                       min-width: 160px; min-height: 0px; gap: 6px; padding: 8px; border-radius: \
-                      8px; background: system:control-background; overflow-y: auto;";
+                      8px; background: system:control-background; overflow-y: auto; \
+                      @theme(flora) { border-radius: 5px; }";
 const COLUMN_HEAD: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px; \
                            flex-shrink: 0; padding: 0px 2px 4px 2px;";
 const COLUMN_TITLE: &str = "font-size: 12px; font-weight: bold; letter-spacing: 0.5px;";
@@ -278,14 +281,17 @@ const CARD_BODY_SELECTED: &str = "display: flex; flex-direction: column; gap: 4p
                                   0px; margin: -4px; padding: 4px; border-radius: 4px; \
                                   background: var(--az-accent-soft, #e1e6e1); @media \
                                   (prefers-color-scheme: dark) { background: \
-                                  var(--az-accent-soft, #2f4c39); }";
+                                  var(--az-accent-soft, #2f4c39); } @theme(flora) { \
+                                  border-radius: 3px; background: \
+                                  system:selection-background; }";
 const CARD_TITLE: &str = "font-size: 13px;";
 const CARD_TITLE_DONE: &str = "font-size: 13px; color: system:secondary-text; text-decoration: \
                                line-through;";
 const CARD_META: &str = "display: flex; flex-direction: row; flex-wrap: wrap; align-items: \
                          center; gap: 6px; font-size: 11px; color: system:secondary-text;";
 const CARD_PRIORITY: &str = "font-weight: bold; color: #c25e00; @media (prefers-color-scheme: \
-                             dark) { color: #ffb366; }";
+                             dark) { color: #ffb366; } @theme(flora) { color: #7E4A42; @media \
+                             (prefers-color-scheme: dark) { color: #B3837A; } }";
 
 /// What a column's callbacks carry.
 struct ColumnRef {

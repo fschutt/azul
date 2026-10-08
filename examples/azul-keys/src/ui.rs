@@ -60,10 +60,14 @@ pub(crate) fn note(content: &str) -> Dom {
     )
 }
 
-/// A line that reports a problem (red in both modes).
+/// A problem's ink: red in both modes; under flora its clay stone, by day and by night.
+pub(crate) const PROBLEM_INK: &str = "color: #d13438; @theme(flora) { color: #7E4A42; @media \
+                                      (prefers-color-scheme: dark) { color: #B3837A; } }";
+
+/// A line that reports a problem.
 pub(crate) fn problem(content: &str, id: AzString) -> Dom {
     block(
-        "font-size: 12px; color: #d13438; padding: 4px 0px;",
+        &format!("font-size: 12px; padding: 4px 0px; {PROBLEM_INK}"),
         text(content),
     )
     .with_id(id)
@@ -784,8 +788,10 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     flex_row(
         &format!(
             "padding: 4px 8px; cursor: pointer; {}",
+            // Under flora a selected row lies on the theme's selection (every widget's list).
             if selected {
-                "background-color: rgba(64, 128, 255, 0.18);"
+                "background-color: rgba(64, 128, 255, 0.18); @theme(flora) { background-color: \
+                 system:selection-background; }"
             } else {
                 ""
             }
