@@ -5,16 +5,18 @@ fast-forwarded to fix/input-bugs-2026-09-19 @ 5d78255a4); azul-apps `../azul-app
 (branch local/meet15 @ b9d4c72). No cargo / npm test / wrangler (the lead builds and runs).
 
 ## DONE
-- (none yet)
+- azul 5203010be progress file; c01509edf CRYPTO.md (the design, before any code).
+- azul-apps 3fc8002 Worker RED tests (test/chatrooms.test.mjs, support.mjs, store + entry tests);
+  6aff9cc Worker: encrypted rooms (src/auth.js, members / keys / messages / sync routes, signed
+  peers in encrypted rooms, schema + ADDED_COLUMNS, README "Encrypted rooms", wrangler vars).
+- Test vectors (node:crypto, /tmp/azmeet15/vectors.mjs): seeds 00..1f / 20..3f -> devices
+  400061d5.. / 964b7270.., safety "59174 51299 37993 31242"; pinned in chatrooms.test.mjs and
+  (next) crypto.rs.
 
 ## IN PROGRESS
-- CRYPTO.md (design before code)
+- crypto.rs
 
 ## NEXT
-1. examples/azul-meet/CRYPTO.md: threat model, identity, invite secret, sealing, messages, rotation,
-   safety codes, multi-device, what the database shows.
-2. Worker (azul-apps cf-workers/meet): RED tests for members / keys / messages / sync / signed
-   requests, then the routes, schema migration, README.
 3. AzMeet crypto.rs (pure, test vectors shared with the Worker tests), chatroom.rs (room state
    machine + an in-memory fake Worker test), roomlist.rs (the local room index).
 4. Remove the in-process demo; unreachable server = error state with Retry.
