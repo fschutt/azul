@@ -673,12 +673,17 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
         on_appointment,
         calendar,
     });
+    // An appointment and a task's title are data a user opens: a link, in
+    // flora flora's text link rather than its quiet command.
     let link = |label: AzString, data: RefAny, cb: ButtonOnClickCallbackType| {
-        let mut b = Button::with_type(label, ButtonType::Link).with_on_click(data, cb);
-        if let Some(theme) = theme {
-            b = b.with_theme(theme);
-        }
-        b.dom()
+        crate::widgets::button::data_link(
+            crate::widgets::button::DataLink {
+                label,
+                data,
+                on_click: cb,
+            },
+            theme,
+        )
     };
 
     // The calendar: the date picker, inline, today ringed.

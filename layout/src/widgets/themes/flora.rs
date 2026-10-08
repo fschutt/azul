@@ -1651,6 +1651,58 @@ pub fn button(btn: Button) -> Dom {
         .with_accessibility_info(a11y)
 }
 
+/// `b` as flora.css's text link (`a`): no box and no capitals - the brass
+/// ink (`--fl-qt`, darkening to `--fl-qt2` under the pointer), underlined,
+/// in the hand and size of the line it sits in, ringed on focus in the
+/// accent (the glow at night). For DATA a user opens - a task, an
+/// appointment, a sender ([`crate::widgets::button::data_link`]); a COMMAND
+/// that is merely quiet stays [`FloraButtonKind::Quiet`] (`.btn-quiet`). The
+/// styles become the caller's, which flora's [`button`] takes as they are.
+#[must_use]
+pub(crate) fn as_text_link(mut b: Button) -> Button {
+    use super::decl;
+    let mut container: Vec<CssPropertyWithConditions> = b
+        .resolved_container_style()
+        .as_slice()
+        .iter()
+        .filter(|p| {
+            !matches!(
+                p.property.get_type(),
+                CssPropertyType::PaddingTop
+                    | CssPropertyType::PaddingRight
+                    | CssPropertyType::PaddingBottom
+                    | CssPropertyType::PaddingLeft
+            )
+        })
+        .cloned()
+        .collect();
+    container.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    let mut label: Vec<CssPropertyWithConditions> = b
+        .resolved_label_style()
+        .as_slice()
+        .iter()
+        .filter(|p| {
+            !matches!(
+                p.property.get_type(),
+                CssPropertyType::FontFamily | CssPropertyType::FontSize
+            )
+        })
+        .cloned()
+        .collect();
+    label.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    label.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+    label.push(CssPropertyWithConditions::simple(CssProperty::TextDecoration(
+        StyleTextDecoration::Underline.into(),
+    )));
+    b.container_style = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+        CssPropertyWithConditionsVec::from_vec(container),
+    );
+    b.label_style = azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+        CssPropertyWithConditionsVec::from_vec(label),
+    );
+    b
+}
+
 // ==== fields and marks (FLORA11) ====
 //
 // The design system's INPUT: field paper (`--fl-fld`) in a `--fl-bd2`
@@ -2524,16 +2576,23 @@ fn slider_fill() -> Dom {
     v.push(decl::px_top(6.0));
     v.push(decl::px_width(400.0));
     v.push(decl::px_height(4.0));
-    v.push(CssPropertyWithConditions::simple(layers(alloc::vec![
-        StyleBackgroundContent::LinearGradient(LinearGradient {
+    // By day the stone sunk in the trough; at night the stone lifted to its
+    // glow (flora.css lifts the accent INK to `--fl-glow` on a dark ground),
+    // which the night trough carries at 5:1 where the day stone read 2:1.
+    let fill = |from: ColorU, to: ColorU| {
+        layers(alloc::vec![StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: deg(175),
             extend_mode: ExtendMode::Clamp,
             stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
-                stop(0, LIGHT_DEEP),
-                stop(92, LIGHT_ACC),
+                stop(0, from),
+                stop(92, to),
             ]),
-        })
-    ])));
+        })])
+    };
+    v.extend(CssPropertyWithConditions::themed(
+        fill(LIGHT_DEEP, LIGHT_ACC),
+        fill(LIGHT_ACC, LIGHT_GLOW),
+    ));
     v.push(leading_edge());
     Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(v))
 }
@@ -4177,10 +4236,9 @@ fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssProper
     type P = CssPropertyWithConditions;
 
     let mut v = crate::widgets::segmented::SEGMENT_BASE.to_vec();
-    v.extend([
-        decl::font_size(13),
-        P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    ]);
+    // A segment is a command: flora's capitals, as every button and tab.
+    v.extend(caps(CAPS_COMMAND));
+    v.push(P::simple(CssProperty::const_text_align(StyleTextAlign::Center)));
     v.extend(decl::padding(6, 12, 6, 12));
     // Joined: only the first segment draws a left edge.
     let edges = decl::Edges {
@@ -5835,6 +5893,10 @@ pub(crate) fn date_picker_look() -> crate::widgets::date_picker::DatePickerLook 
         decl::shadow(0, 0, 1, DARK_GLOW, true),
     )
     .to_vec();
+    // A lit range (the week a navigator shows): flora's selection wash, the
+    // stone's soft tint by day and its deep tone at night - the cell ink
+    // reads on both.
+    look.day_in_range = decl::themed_fill(LIGHT_SOFT, DARK_DEEP).to_vec();
     look.marker = Some("__azul-theme-flora");
     look
 }
@@ -7611,15 +7673,12 @@ pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
     ));
     header.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
 
-    // `.fl-label`: bold, tracked out, --fl-soft1; it hugs its text so the
-    // rule takes the rest of the row.
-    let mut title = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
-        decl::bold(),
-        decl::letter_spacing_em(0.06),
-    ];
+    // `.fl-label`: Garamond capitals, bold, tracked out, --fl-soft1; it hugs
+    // its text so the rule takes the rest of the row.
+    let mut title = vec![CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+        LayoutFlexGrow::const_new(0),
+    ))];
+    title.extend(caps(CAPS_TITLE));
     title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     let mut rule = decl::margin(0, 0, 0, 10).to_vec();
@@ -8366,13 +8425,10 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     settings_categories.extend(strip());
     settings_categories.extend(hairline_right());
 
-    let mut settings_section_title = vec![px(CssProperty::const_font_size(
-        StyleFontSize::const_px(12),
-    ))];
-    settings_section_title.push(decl::semibold());
-    settings_section_title.push(decl::letter_spacing_em(0.06));
+    // `.fl-label`: Garamond capitals in the label ink.
+    let mut settings_section_title = caps(CAPS_TITLE);
     settings_section_title.extend(decl::margin(0, 0, 8, 0));
-    settings_section_title.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    settings_section_title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     // ---- ShellEmptyState ----
     let mut empty_root = decl::padding(32, 32, 32, 32).to_vec();
@@ -8585,14 +8641,11 @@ fn flora_leaf() -> Vec<CssPropertyWithConditions> {
     v
 }
 
-/// Flora's small label: bold, tracked out, in --fl-soft1 (`.fl-label`).
+/// Flora's small label (`.fl-label`): Garamond capitals, bold, tracked
+/// out, in --fl-soft1 - a list's group header, a field's key.
 fn flora_label() -> Vec<CssPropertyWithConditions> {
     use super::decl;
-    let mut v = vec![
-        super::decl::font_size(11),
-        decl::bold(),
-        decl::letter_spacing_em(0.08),
-    ];
+    let mut v = caps(CAPS_TITLE);
     v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
     v
 }
@@ -8656,7 +8709,9 @@ pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLo
         rows: Vec::new(),
         row,
         row_unread: Vec::new(),
-        row_selected: decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec(),
+        // flora's selection: the stone's soft wash by day, its deep tone at
+        // night - a wash every ink of the row (ink, soft1, soft2) reads on.
+        row_selected: decl::themed_fill(LIGHT_SOFT, DARK_DEEP).to_vec(),
         group,
         icon,
         from: Vec::new(),
@@ -8705,9 +8760,16 @@ pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLo
     fields.extend(decl::border_bottom(1));
     fields.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
+    // The key in capitals takes the room it needs (at least the room
+    // "SENT:" / "TO:" line up in): a fixed 56px broke "READING TIME:" in two.
     let mut field_key = flora_label();
-    field_key.push(CssPropertyWithConditions::simple(CssProperty::const_width(
-        LayoutWidth::const_px(56),
+    field_key.push(CssPropertyWithConditions::simple(CssProperty::const_min_width(
+        LayoutMinWidth::const_px(56),
+    )));
+    field_key.push(CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
+        LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        },
     )));
     field_key.extend(decl::margin(0, 8, 0, 0));
 
@@ -10253,45 +10315,58 @@ const CODE_VIEW_FG: (ColorU, ColorU) =
     (ColorU::new(228, 225, 214, 255), ColorU::new(226, 226, 226, 255));
 /// `--fl-code-bd` by day / by night.
 const CODE_VIEW_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
-/// The panel's dim ink (line numbers, comments) by day / by night.
+/// The panel's dim ink (line numbers, comments) by day / by night:
+/// `--fl-code-dim`, #928D80 / #858585.
 const CODE_VIEW_DIM: (ColorU, ColorU) =
-    (ColorU::new(146, 139, 124, 255), ColorU::new(128, 128, 128, 255));
+    (ColorU::new(146, 141, 128, 255), ColorU::new(133, 133, 133, 255));
 
-/// The (day, night) ink of every `CodeTokenKind`, in declaration order.
+/// One flora.css Prism ink, the same by day and by night (the code panel is
+/// an ink panel in both modes).
+const fn prism(r: u8, g: u8, b: u8) -> (ColorU, ColorU) {
+    (ColorU::new(r, g, b, 255), ColorU::new(r, g, b, 255))
+}
+
+/// The (day, night) ink of every `CodeTokenKind`, in declaration order:
+/// flora.css's Prism tokens, "recut in the house palette" - keywords
+/// (selector, important, at-rule) #D2C79E, strings #A3C0AB, functions and
+/// class names #D3B79C, numbers and constants #A9B6D8, operators, variables
+/// and URLs #CBC7B4, punctuation #A9A597, tags, properties and attribute
+/// names #C9A49C, comments the panel's dim ink - each at 4.5:1 or better on
+/// the panel.
 const CODE_VIEW_INKS: [(ColorU, ColorU); crate::widgets::code_view::CODE_TOKEN_KINDS] = [
     // Plain
     CODE_VIEW_FG,
     // Keyword
-    (ColorU::new(224, 149, 106, 255), ColorU::new(230, 155, 112, 255)),
-    // Type
-    (ColorU::new(143, 193, 169, 255), ColorU::new(143, 193, 169, 255)),
+    prism(0xD2, 0xC7, 0x9E),
+    // Type (`.token.class-name`)
+    prism(0xD3, 0xB7, 0x9C),
     // Function
-    (ColorU::new(230, 200, 138, 255), ColorU::new(230, 200, 138, 255)),
+    prism(0xD3, 0xB7, 0x9C),
     // StringLiteral
-    (ColorU::new(185, 204, 122, 255), ColorU::new(185, 204, 122, 255)),
+    prism(0xA3, 0xC0, 0xAB),
     // Number
-    (ColorU::new(211, 155, 196, 255), ColorU::new(211, 155, 196, 255)),
+    prism(0xA9, 0xB6, 0xD8),
     // Comment
     CODE_VIEW_DIM,
     // Constant
-    (ColorU::new(143, 188, 212, 255), ColorU::new(143, 188, 212, 255)),
-    // Macro
-    (ColorU::new(211, 155, 196, 255), ColorU::new(211, 155, 196, 255)),
-    // Attribute
-    (ColorU::new(169, 184, 198, 255), ColorU::new(169, 184, 198, 255)),
+    prism(0xA9, 0xB6, 0xD8),
+    // Macro (`.token.builtin`)
+    prism(0xD3, 0xB7, 0x9C),
+    // Attribute (`.token.attr-name`)
+    prism(0xC9, 0xA4, 0x9C),
     // Operator
-    (ColorU::new(216, 212, 200, 255), ColorU::new(216, 216, 216, 255)),
+    prism(0xCB, 0xC7, 0xB4),
     // Punctuation
-    (ColorU::new(181, 175, 162, 255), ColorU::new(180, 180, 180, 255)),
+    prism(0xA9, 0xA5, 0x97),
     // Variable
-    (ColorU::new(226, 213, 190, 255), ColorU::new(226, 213, 190, 255)),
+    prism(0xCB, 0xC7, 0xB4),
     // Tag
-    (ColorU::new(224, 149, 106, 255), ColorU::new(230, 155, 112, 255)),
-    // Heading
-    (ColorU::new(224, 149, 106, 255), ColorU::new(230, 155, 112, 255)),
-    // Link
-    (ColorU::new(143, 188, 212, 255), ColorU::new(143, 188, 212, 255)),
-    // Invalid
+    prism(0xC9, 0xA4, 0x9C),
+    // Heading (`.token.important`)
+    prism(0xD2, 0xC7, 0x9E),
+    // Link (`.token.url`)
+    prism(0xCB, 0xC7, 0xB4),
+    // Invalid: the one ink that has to stand out of the panel.
     (ColorU::new(242, 139, 130, 255), ColorU::new(242, 139, 130, 255)),
 ];
 

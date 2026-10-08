@@ -624,12 +624,17 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
         sender: sender.clone(),
         people_line: people_line.clone(),
     });
+    // The sender and the people line are data a user opens: a link, in
+    // flora flora's text link rather than its quiet command.
     let link = |label: AzString, cb: ButtonOnClickCallbackType| {
-        let mut b = Button::with_type(label, ButtonType::Link).with_on_click(shared.clone(), cb);
-        if let Some(theme) = theme {
-            b = b.with_theme(theme);
-        }
-        b.dom()
+        crate::widgets::button::data_link(
+            crate::widgets::button::DataLink {
+                label,
+                data: shared.clone(),
+                on_click: cb,
+            },
+            theme,
+        )
     };
 
     // The header: the subject over the sender line.
