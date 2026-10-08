@@ -196,13 +196,13 @@ File name: [ beach.jpg                    ]  [ Pictures (*.png, *.jpg) v ]
   takes the selection; OpenDirectory answers the open folder ("Select folder");
 - Save: the file name field and the folder shown are the target; a name taken asks
   "Replace?" (the conflict question of the transfer queue);
-- the command bar shows New folder and the view switches only (no Cut / Paste / Delete);
+- the ribbon shows New folder and the view switches only (no Cut / Paste / Delete);
 - `accept: local-only` hides the cloud drives (Network and the cloud tiles of This PC);
   `cloud-only` hides the local drives;
 - Escape or the window's close button answers `cancelled`.
 
 In code: `DriveState` gets `picker: Option<PickerRequest>` (read from stdin at start, before
-the window opens - no callback waits); `ui_commands` and `ui_view` read it; the answer is one
+the window opens - no callback waits); `ui_ribbon` and `ui_view` read it; the answer is one
 `println!("AZPICK {}", serde_json::to_string(&answer))` and `info.close_window()`.
 
 ### 5.2 Cloud objects

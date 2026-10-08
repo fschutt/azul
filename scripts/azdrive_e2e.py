@@ -536,9 +536,11 @@ def run(args, logs):
         app.after("sort by name, ascending", "AZDRIVE_SORT", r"Name asc",
                   lambda: app.click_exact("Name"))
         app.after("sort by size", "AZDRIVE_SORT", r"Size asc", lambda: app.click_exact("Size"))
-        app.after("sort by name again", "AZDRIVE_SORT", r"Name (asc|desc)",
+        # The group is non-capturing: `printed` is re.findall, which answers tuples for a
+        # pattern with groups of its own, so "desc" could never have matched.
+        app.after("sort by name again", "AZDRIVE_SORT", r"Name (?:asc|desc)",
                   lambda: app.click_exact("Name"))
-        if app.printed("AZDRIVE_SORT", r"Name (asc|desc)")[-1] == "desc":
+        if app.printed("AZDRIVE_SORT", r"Name (?:asc|desc)")[-1] == "Name desc":
             app.after("sort by name, ascending", "AZDRIVE_SORT", r"Name asc",
                       lambda: app.click_exact("Name"))
         log("4. the Name and Size headers sort (a second click reverses)")

@@ -1713,7 +1713,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         s.window_width
     };
 
-    // Finder's body under Explorer's command bar: the source list, the content as a leaf on the
+    // Finder's body under Explorer's ribbon: the source list, the content as a leaf on the
     // page (its path bar and status line at its foot), the right pane a leaf too.
     let backstage = s.backstage_shown();
     let mut browser = BrowserShell::create(

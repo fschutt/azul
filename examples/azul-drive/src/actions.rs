@@ -1,5 +1,5 @@
-//! What AzDrive does: every command of the command bar, its menus, the
-//! context menus and the keyboard is an [`Action`], run by [`run_action`] on
+//! What AzDrive does: every command of the ribbon, its File menu and drop-downs,
+//! the context menus and the keyboard is an [`Action`], run by [`run_action`] on
 //! the state. The
 //! storage work goes to a `Thread` ([`crate::spawn`]); this module decides
 //! what to ask for, keeps the transfer queue moving, and answers the
@@ -42,7 +42,7 @@ use crate::{
 
 // ==== Actions ====
 
-/// A setting the command bar and its View menus turn on and off.
+/// A setting the ribbon's View tab turns on and off.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Toggle {
     NavigationPane,
@@ -54,7 +54,7 @@ pub(crate) enum Toggle {
     ConfirmDelete,
 }
 
-/// Every command of the command bar, the menus and the backstage.
+/// Every command of the ribbon, its File menu, the menus and the backstage.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum Action {
     // Clipboard
@@ -202,8 +202,8 @@ fn able_item(app: &RefAny, s: &DriveState, label: &str, action: Action) -> MenuI
     menu_item(app, label, action, disabled)
 }
 
-/// Opens `items` as a drop-down under the button that asked for it (a command bar tool, the
-/// address bar's chevron); where the pointer is when there is no button.
+/// Opens `items` as a drop-down under the button that asked for it (a ribbon button's arrow,
+/// the address bar's chevron); where the pointer is when there is no button.
 pub(crate) fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
     let menu = Menu::create(items).with_popup_position(MenuPopupPosition::BottomOfHitRect);
     if !info.open_menu_for_hit_node(menu.clone()) {
@@ -211,8 +211,8 @@ pub(crate) fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
     }
 }
 
-/// Why `action` cannot run now, or `None` when it can (the command bar greys
-/// the tool and says why).
+/// Why `action` cannot run now, or `None` when it can (the ribbon greys the
+/// control and says why).
 pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
     let in_folder = s.current_drive().is_some();
     let selected = !s.selection.is_empty() && in_folder;
@@ -905,8 +905,9 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
 }
 
 /// The window was resized: the grid's rows for the arrow keys; a new width rebuilds the
-/// window (the command bar moves what no longer fits into its "more" menu, the icon grid
-/// draws exactly its new viewport).
+/// window (the address bar folds the crumbs that no longer fit into its « menu, the
+/// folder view lays its lines out for the new width, the icon grid draws exactly its new
+/// viewport).
 pub(crate) extern "C" fn on_resized(mut data: RefAny, info: CallbackInfo) -> Update {
     let width = info.get_current_window_state().size.dimensions.width;
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
