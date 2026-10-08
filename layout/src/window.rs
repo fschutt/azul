@@ -25911,10 +25911,11 @@ impl LayoutWindow {
                 ))
             },
         );
-        let Some((old_node_data, old_hierarchy)) = old else {
-            // First materialization: nothing to map from.
-            return;
-        };
+        // First materialization: nothing to map from - diffed against an
+        // empty arena, every node of the view enters (its `AfterMount`), as
+        // the root's first frame is diffed against an empty DOM.
+        let rematerialized = old.is_some();
+        let (old_node_data, old_hierarchy) = old.unwrap_or_default();
 
         let new_node_data = new_styled_dom.node_data.as_ref().to_vec();
         let new_hierarchy = new_styled_dom.node_hierarchy.as_ref().to_vec();
@@ -25940,7 +25941,37 @@ impl LayoutWindow {
                 diff.node_moves.iter().take(6).collect::<Vec<_>>(),
             );
         }
-        self.remap_node_ids(child_dom_id, &map);
+        if rematerialized {
+            self.remap_node_ids(child_dom_id, &map);
+        }
+        // The view's lifecycle, as the root's reconciliation queues it (the
+        // shell's `regenerate_layout`): a node that entered hears its
+        // `AfterMount` - a field in a view takes the keyboard - and a node
+        // that left its `BeforeUnmount`, invoked against its OLD node data
+        // (it has none in the new arena). They were dropped here.
+        for event in diff.events {
+            use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
+            if event.event_type == EventType::Unmount {
+                let old = event
+                    .target
+                    .node
+                    .into_crate_internal()
+                    .and_then(|nid| old_node_data.get(nid.index()));
+                if let Some(nd) = old {
+                    for cb in nd.get_callbacks().as_ref().iter() {
+                        if matches!(
+                            cb.event,
+                            EventFilter::Component(ComponentEventFilter::BeforeUnmount)
+                        ) {
+                            self.pending_unmount_invocations
+                                .push((cb.clone(), event.clone()));
+                        }
+                    }
+                }
+            } else {
+                self.pending_lifecycle_events.push(event);
+            }
+        }
     }
 
     pub fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
