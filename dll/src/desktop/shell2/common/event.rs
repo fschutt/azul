@@ -6778,6 +6778,15 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::WebViewCommand { node, command } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    // Queued for the backend; the web view pump
+                    // (`common::webview`) applies it on its next turn.
+                    let _ = lw.webviews.queue_command(*node, command);
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::SettleScrollGesture => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.scroll_manager.settle_scroll_gesture();

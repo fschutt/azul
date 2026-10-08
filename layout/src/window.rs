@@ -1125,6 +1125,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // One small entry per media node the app has driven, plus a queue
         // cleared every event pass. Bounded by players, not by document size.
         media_player_manager: _,
+        // One entry per mounted web view (32 navigation records at most),
+        // plus an op queue the shell drains every frame.
+        webviews: _,
         device_event_manager: _,
         hid_manager: _,
         haptic_manager: _,
@@ -1808,6 +1811,11 @@ pub struct LayoutWindow {
     /// nothing on a schedule, so the app owns the media clock — and drained
     /// as an `EventProvider` into the six media events.
     pub media_player_manager: crate::managers::media_player::MediaPlayerManager,
+    /// The `<webview>`s of this window (`managers::webview`): which native
+    /// views exist, keyed by node; where they are this frame; the op queue
+    /// the shell's backend drains; the event each one last reported. The
+    /// shell says whether it has a backend (`WebViewPlatform`).
+    pub webviews: crate::managers::webview::WebViewManager,
     /// Application-level hotplug queue — devices and monitors arriving or
     /// leaving. Pushed by the platform shells, drained into the
     /// `ApplicationEventFilter` family.
@@ -2525,6 +2533,7 @@ impl LayoutWindow {
             sensor_manager: crate::managers::sensors::SensorManager::new(),
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
             media_player_manager: crate::managers::media_player::MediaPlayerManager::new(),
+            webviews: crate::managers::webview::WebViewManager::new(),
             device_event_manager: crate::managers::device_events::DeviceEventManager::new(),
             hid_manager: azul_core::hid::HidManager::new(),
             haptic_manager: azul_core::haptics::HapticManager::new(),
@@ -3101,6 +3110,10 @@ impl LayoutWindow {
             self.queue_resize_events_after_layout(system_callbacks, dpi);
             // Every DOM of the window has its display list of this pass.
             self.collect_embedded_fonts();
+            // The `<webview>`s these DOMs hold now: mounted, kept, navigated,
+            // destroyed - or, without a backend, told why not.
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            self.reconcile_webviews(&now);
         }
 
         // PATCH VERIFY (`AZ_PATCH_VERIFY=1`): a PATCHED display list (the
@@ -5940,6 +5953,55 @@ impl LayoutWindow {
     /// Hand the accumulated popup diff to the backend, leaving it empty.
     pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
         core::mem::take(&mut self.pending_transient_diff)
+    }
+
+    /// Bring the window's `<webview>`s in line with the DOMs laid out
+    /// (`managers::webview`): every web view node of every dom, with its
+    /// config and its `src`, handed to the manager. Runs at the tail of every
+    /// layout pass; a view that cannot exist (no backend) is told why with a
+    /// `WebViewLoadFailed`, queued with the other lifecycle events.
+    pub fn reconcile_webviews(&mut self, now: &Instant) {
+        use azul_core::dom::NodeType;
+
+        let mut found = Vec::new();
+        for (dom_id, lr) in &self.layout_results {
+            for (i, nd) in lr.styled_dom.node_data.as_ref().iter().enumerate() {
+                if let NodeType::WebView(config) = nd.get_node_type() {
+                    found.push(crate::managers::webview::FoundWebView {
+                        node: DomNodeId {
+                            dom: *dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+                        },
+                        config: *config,
+                        src: nd.get_attribute("src").unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        if found.is_empty() && self.webviews.views().is_empty() {
+            return;
+        }
+        let events = self.webviews.reconcile(&found, now);
+        self.pending_lifecycle_events.extend(events);
+    }
+
+    /// Tell the `<webview>`s where the display lists put them this frame
+    /// (`crate::headless::painted_webviews`: the live scroll offsets, every
+    /// enclosing clip, the window's edges); a changed placement is queued
+    /// for the shell's backend. Called by the shells before they drain the
+    /// web view ops - after every layout and every scroll.
+    pub fn sync_webview_placements(&mut self) {
+        if self.webviews.views().is_empty() || !self.webviews.has_backend() {
+            return;
+        }
+        let viewport = self.current_window_state.size.dimensions;
+        let painted = crate::headless::painted_webviews(
+            &self.layout_results,
+            viewport,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        );
+        self.webviews.sync_placements(&painted);
     }
 
     /// The user dismissed the popup hanging off `source_node` (outside click,
@@ -19280,6 +19342,16 @@ impl LayoutWindow {
         };
         #[cfg(not(feature = "widgets"))]
         let _ = form_scope;
+        // A `<webview>` this window cannot show (its shell has no web view
+        // backend) shows WHY in its box - a paragraph laid out as its content
+        // (`managers::webview::insert_unavailable_fallback`), from the very
+        // first frame. Asked only of a DOM that holds one: the reason may come
+        // from a probe that loads a system library.
+        if crate::managers::webview::dom_has_webview(&dom) {
+            if let Some(reason) = self.webviews.unavailable_reason() {
+                crate::managers::webview::insert_unavailable_fallback(&mut dom, reason.as_str());
+            }
+        }
         #[cfg(feature = "fluent")]
         if let Some(localizer) = self.fluent_localizer.as_ref() {
             // The app's `set_locale` choice, else the system language.
@@ -25997,6 +26069,9 @@ impl LayoutWindow {
             // without this the playback state would re-attach to a different
             // element and an unmounted player would leak forever.
             media_player_manager,
+            // Keyed by the `<webview>` node: a rebuild that shifts it keeps its
+            // native view (the page, its sign-in), an unmount destroys it.
+            webviews,
 
             // --- NODE-KEYED: plain caches owned directly by the window -------
             text_constraints_cache,
@@ -26280,6 +26355,7 @@ impl LayoutWindow {
         undo_redo_manager.remap_node_ids(dom, map);
         permission_manager.remap_node_ids(dom, map);
         media_player_manager.remap_node_ids(dom, map);
+        webviews.remap_node_ids(dom, map);
 
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);

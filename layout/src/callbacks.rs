@@ -495,6 +495,14 @@ pub enum CallbackChange {
         node: DomNodeId,
         op: crate::managers::media_player::MediaTransportOp,
     },
+    /// Drive the `<webview>` at `node` (`webview_navigate` / `webview_reload`
+    /// / `webview_go_back`). Routed as a change for the media transport's
+    /// reason; applying it queues the command for the window's web view
+    /// backend (`managers::webview::WebViewManager::queue_command`).
+    WebViewCommand {
+        node: DomNodeId,
+        command: azul_core::webview::WebViewCommand,
+    },
     /// Re-render EVERY `VirtualView` on the existing DOM (no node id needed).
     /// For shared-dataset changes that arrive out-of-band (e.g. a background
     /// tile-fetch writeback): the views re-read their cloned dataset in place.
@@ -2552,6 +2560,75 @@ impl CallbackInfo {
             node,
             op: crate::managers::media_player::MediaTransportOp::ReportError,
         });
+    }
+
+    // -- <webview> (`azul_core::webview`, `managers::webview`) --
+    //
+    // The commands are routed as a `CallbackChange` like the media verbs:
+    // the shell applies them, the engine queues them for the window's web
+    // view backend. A navigation an app asks for is still asked about: the
+    // view's `WebViewNavigationRequested` callbacks run for it first.
+
+    /// Load `url` in the `<webview>` at `node`.
+    pub fn webview_navigate(&mut self, node: DomNodeId, url: AzString) {
+        self.push_change(CallbackChange::WebViewCommand {
+            node,
+            command: azul_core::webview::WebViewCommand::Navigate(url),
+        });
+    }
+
+    /// Load the current page of the `<webview>` at `node` again.
+    pub fn webview_reload(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::WebViewCommand {
+            node,
+            command: azul_core::webview::WebViewCommand::Reload,
+        });
+    }
+
+    /// Go one entry back in the history of the `<webview>` at `node`
+    /// (nothing at its start).
+    pub fn webview_go_back(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::WebViewCommand {
+            node,
+            command: azul_core::webview::WebViewCommand::GoBack,
+        });
+    }
+
+    /// What the `<webview>` this callback runs at reported: the URL a
+    /// `WebViewNavigationRequested` asks about and whether it is a server
+    /// redirect (`prevent_default` cancels it - how a sign-in callback
+    /// catches the redirect that carries its code), the page a load
+    /// finished or failed on and why, the new title. The payload of the
+    /// view's last event; `None` at a node that is no web view.
+    #[must_use]
+    pub fn get_webview_event(&self) -> azul_core::webview::OptionWebViewEvent {
+        self.get_layout_window()
+            .webviews
+            .event_of(self.get_hit_node())
+            .cloned()
+            .into()
+    }
+
+    /// The page the `<webview>` at `node` is on (or going to); `None` for a
+    /// node that is no mounted web view.
+    #[must_use]
+    pub fn get_webview_url(&self, node: DomNodeId) -> OptionString {
+        self.get_layout_window()
+            .webviews
+            .view_at(node)
+            .map(|v| v.url.clone())
+            .into()
+    }
+
+    /// The title of the page the `<webview>` at `node` shows, as it last
+    /// reported it; `None` for a node that is no mounted web view.
+    #[must_use]
+    pub fn get_webview_title(&self, node: DomNodeId) -> OptionString {
+        self.get_layout_window()
+            .webviews
+            .view_at(node)
+            .map(|v| v.title.clone())
+            .into()
     }
 
     /// Everything about `node`'s playback in one call - the primary read

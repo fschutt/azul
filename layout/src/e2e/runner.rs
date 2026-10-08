@@ -2094,6 +2094,12 @@ impl Runner {
                 self.layout_window.media_player_manager.apply(*node, *op);
                 ProcessEventResult::DoNothing
             }
+            // Engine state too: the command is queued on the manager, where
+            // a scenario's `list_webviews` sees what the backend would do.
+            CallbackChange::WebViewCommand { node, command } => {
+                let _ = self.layout_window.webviews.queue_command(*node, command);
+                ProcessEventResult::DoNothing
+            }
 
             CallbackChange::SetAnimationMomentum {
                 node,
