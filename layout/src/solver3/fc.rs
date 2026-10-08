@@ -10982,6 +10982,24 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         &mut child_map,
     )?;
 
+    // CSS Text Decoration 3 §2.1: the decorations of the boxes around this
+    // context reach all of its text. A run is styled by its own node, and
+    // `text-decoration` is not inherited: `<p style="text-decoration:
+    // underline">text</p>` drew no line.
+    if let Some(root) = ifc_root_style_dom_id(tree, ifc_root_index) {
+        let around = crate::solver3::getters::propagated_text_decoration(ctx.styled_dom, root);
+        if around != crate::text3::cache::TextDecoration::default() {
+            for item in &mut content {
+                if let InlineContent::Text(run) = item {
+                    let with = run.style.text_decoration.with(around);
+                    if with != run.style.text_decoration {
+                        Arc::make_mut(&mut run.style).text_decoration = with;
+                    }
+                }
+            }
+        }
+    }
+
     // O3-render: a split-preview PART displays only its byte slice of the
     // node's content (both parts collect the same full content; the range
     // partitions it — part 1 `[0, at)`, part 2 `[at, ∞)`).
@@ -12069,6 +12087,10 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
                 // It aligns against THIS span, not the line (CSS 2.2 s10.8.1).
                 child_style.vertical_align = nested_align(child_style.vertical_align);
+                // And its text carries this span's lines (CSS Text Decoration
+                // 3 §2.1: an inline box decorates everything in it).
+                child_style.text_decoration =
+                    child_style.text_decoration.with(span_style.text_decoration);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -12141,6 +12163,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
                 child_style.vertical_align = nested_align(child_style.vertical_align);
+                child_style.text_decoration =
+                    child_style.text_decoration.with(span_style.text_decoration);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,

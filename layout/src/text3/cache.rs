@@ -4927,6 +4927,17 @@ pub struct TextDecoration {
 }
 
 impl TextDecoration {
+    /// Both sets of lines: a run's own and those it carries from the boxes
+    /// around it (`solver3::getters::propagated_text_decoration`).
+    #[must_use]
+    pub const fn with(self, other: Self) -> Self {
+        Self {
+            underline: self.underline || other.underline,
+            strikethrough: self.strikethrough || other.strikethrough,
+            overline: self.overline || other.overline,
+        }
+    }
+
     /// Convert from CSS `StyleTextDecoration` enum to our internal representation.
     ///
     /// Note: CSS text-decoration can have multiple values (underline line-through),

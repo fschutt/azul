@@ -3821,6 +3821,96 @@ pub fn get_style_properties(
     get_style_properties_for_state(styled_dom, dom_id, system_style, viewport_size, &node_state)
 }
 
+/// The text decorations `dom_id` declares itself (`text-decoration` is not
+/// inherited; what a run carries from the boxes around it is
+/// [`propagated_text_decoration`]). The compact cache keeps a
+/// `has_text_decoration` flag: for the overwhelmingly common undecorated
+/// node, no cascade walk.
+#[must_use]
+pub fn own_text_decoration(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> crate::text3::cache::TextDecoration {
+    let cache = &styled_dom.css_property_cache.ptr;
+    if node_state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_text_decoration(dom_id.index()) {
+                return crate::text3::cache::TextDecoration::default();
+            }
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    cache
+        .get_text_decoration(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .map(crate::text3::cache::TextDecoration::from_css)
+        .unwrap_or_default()
+}
+
+/// The decorations the text of the inline formatting context rooted at
+/// `ifc_root` carries from the boxes around it (CSS Text Decoration 3 §2.1):
+/// the root's own and every ancestor's that reaches it. A decoration is
+/// propagated to all in-flow children of the box it is set on - from a block
+/// to the blocks in it and down to their lines - but "not ... to any
+/// out-of-flow descendants, nor to the contents of atomic inline-level
+/// descendants such as inline blocks": the walk up stops at a float, an
+/// absolutely or fixed positioned box, and an inline-block, -flex, -grid or
+/// -table, each keeping its own.
+#[must_use]
+pub fn propagated_text_decoration(
+    styled_dom: &StyledDom,
+    ifc_root: NodeId,
+) -> crate::text3::cache::TextDecoration {
+    use azul_css::props::layout::{LayoutDisplay, LayoutFloat, LayoutPosition};
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let mut decoration = crate::text3::cache::TextDecoration::default();
+    // Nearly always nothing above is decorated: one flag a level says so,
+    // before any box is asked whether it lets a decoration through.
+    let mut any = false;
+    let mut node = Some(ifc_root);
+    while let Some(id) = node {
+        if own_text_decoration(styled_dom, id, &styled_nodes[id].styled_node_state)
+            != crate::text3::cache::TextDecoration::default()
+        {
+            any = true;
+            break;
+        }
+        node = hierarchy[id].parent_id();
+    }
+    if !any {
+        return decoration;
+    }
+    let mut node = Some(ifc_root);
+    while let Some(id) = node {
+        let state = &styled_nodes[id].styled_node_state;
+        decoration = decoration.with(own_text_decoration(styled_dom, id, state));
+        let out_of_flow = matches!(
+            crate::solver3::positioning::get_position_type(styled_dom, Some(id)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) || matches!(
+            get_float(styled_dom, id, state),
+            MultiValue::Exact(LayoutFloat::Left | LayoutFloat::Right)
+        );
+        let atomic_inline = matches!(
+            get_display_property(styled_dom, Some(id)),
+            MultiValue::Exact(
+                LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineFlex
+                    | LayoutDisplay::InlineGrid
+                    | LayoutDisplay::InlineTable
+            )
+        );
+        if out_of_flow || atomic_inline {
+            break;
+        }
+        node = hierarchy[id].parent_id();
+    }
+    decoration
+}
+
 /// [`get_style_properties`] resolved against an EXPLICIT pseudo-state rather
 /// than the node's own.
 ///
@@ -4085,25 +4175,7 @@ pub fn get_style_properties_for_state(
     // unset (the overwhelmingly common case — plain body text has no
     // decoration set), skip the 4-pseudo-state × 6-layer cascade walk
     // entirely. Only nodes that actually set text-decoration pay the walk.
-    let text_decoration = {
-        let mut skip_walk = false;
-        if node_state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_text_decoration(dom_id.index()) {
-                    skip_walk = true;
-                }
-            }
-        }
-        if skip_walk {
-            crate::text3::cache::TextDecoration::default()
-        } else {
-            cache
-                .get_text_decoration(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().copied())
-                .map(crate::text3::cache::TextDecoration::from_css)
-                .unwrap_or_default()
-        }
-    };
+    let text_decoration = own_text_decoration(styled_dom, dom_id, node_state);
 
     // Get tab-size (tab-size) from CSS.
     //

@@ -969,3 +969,5 @@ mod a_virtual_views_content_inherits_from_its_host;
 mod a_long_status_text_leaves_the_zoom_in_its_bar;
 #[path = "a_line_too_long_for_its_box_ends_in_an_ellipsis.rs"]
 mod a_line_too_long_for_its_box_ends_in_an_ellipsis;
+#[path = "a_blocks_text_decoration_decorates_the_text_in_it.rs"]
+mod a_blocks_text_decoration_decorates_the_text_in_it;
