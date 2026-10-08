@@ -71,11 +71,12 @@ pub fn page_map(
 }
 
 /// The reading column: the chapter's DOM in a box of the page's text width with the
-/// reader's type stated on the box itself (the same box in the pagination and on screen).
+/// reader's type stated on the box itself (the same box in the pagination and on screen);
+/// `flora` = the app theme is flora (its serif is flora's Garamond).
 #[must_use]
-pub fn column_dom(chapter: &Xml, settings: &ReadingSettings, text_width: f32) -> Dom {
+pub fn column_dom(chapter: &Xml, settings: &ReadingSettings, text_width: f32, flora: bool) -> Dom {
     Dom::create_div()
-        .with_css(settings.column_css(text_width))
+        .with_css(settings.column_css(text_width, flora))
         .with_child(Dom::create_from_parsed_xml(Xml::clone(chapter)))
 }
 
@@ -92,6 +93,8 @@ pub struct ChapterRequest {
     pub settings: ReadingSettings,
     pub text_width: f32,
     pub text_height: f32,
+    /// The app theme is flora (the column's serif is flora's Garamond).
+    pub flora: bool,
     /// The window's fonts (`FontCacheSnapshot::from_layout_info`).
     pub fonts: FontCacheSnapshot,
 }
@@ -148,7 +151,12 @@ pub fn load_chapter(request: &ChapterRequest) -> ChapterReady {
             &mut size_of,
         )
     };
-    let column = column_dom(&content.xml, &request.settings, request.text_width);
+    let column = column_dom(
+        &content.xml,
+        &request.settings,
+        request.text_width,
+        request.flora,
+    );
     let pages = page_map(
         StyledDom::create_from_dom(column),
         request.text_width,
@@ -169,7 +177,7 @@ pub fn load_chapter(request: &ChapterRequest) -> ChapterReady {
         generation: request.generation,
         layout_key: request
             .settings
-            .layout_key(request.text_width, request.text_height),
+            .layout_key(request.text_width, request.text_height, request.flora),
         content,
         pages,
         images,

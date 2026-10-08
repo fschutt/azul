@@ -175,11 +175,14 @@ fn about_modal(app: &RefAny, st: &AppState) -> Dom {
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode and the theme makes a switch of either rebuild the window.
     let mode = info.get_mode();
-    let _theme = info.get_theme();
+    let theme = info.get_theme();
     let size = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.dark = matches!(mode, DarkLightMode::Dark);
+        // flora and its spins ("flora:green") - a switch lays the open chapter out again
+        // (the theme is part of the layout key: flora's serif is another face).
+        st.flora = theme.as_str() == "flora" || theme.as_str().starts_with("flora:");
         if st.window != size {
             st.window = size;
             // Measured again after this frame.

@@ -333,6 +333,7 @@ fn request_chapter(
         settings: st.settings,
         text_width: geometry.text_width,
         text_height: geometry.text_height,
+        flora: st.flora,
         fonts,
     };
     st.pending = Some((chapter, st.generation, target));

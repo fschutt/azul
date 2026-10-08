@@ -109,6 +109,9 @@ pub struct AppState {
     pub registered_images: Vec<String>,
     /// The window is in the dark mode (from the last layout).
     pub dark: bool,
+    /// The app theme is flora or a spin of it (from the last layout): the Auto paper and the
+    /// serif are flora's.
+    pub flora: bool,
 
     // ---- the rest ----
     /// The last notice for the user ("" = none).
@@ -151,6 +154,7 @@ impl AppState {
             area_marker: azul::uuid::Uuid::short(),
             registered_images: Vec::new(),
             dark: false,
+            flora: false,
             notice: String::new(),
             about_open: false,
             sample,
@@ -185,7 +189,7 @@ impl AppState {
     #[must_use]
     pub fn layout_key(&self) -> String {
         let g = self.geometry();
-        self.settings.layout_key(g.text_width, g.text_height)
+        self.settings.layout_key(g.text_width, g.text_height, self.flora)
     }
 
     /// Where the reader is (the open chapter's view start; the saved position while the
