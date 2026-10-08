@@ -930,6 +930,8 @@ mod a_face_fade_frame_is_patched_in_place;
 mod a_gradient_face_fade_frame_is_patched_in_place;
 #[path = "a_rebuild_mid_glide_keeps_the_running_transition.rs"]
 mod a_rebuild_mid_glide_keeps_the_running_transition;
+#[path = "a_switchs_fade_leaves_the_switches_after_it_alone.rs"]
+mod a_switchs_fade_leaves_the_switches_after_it_alone;
 #[path = "a_layout_tween_frame_reuses_the_tree_and_patches_the_list.rs"]
 mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
 #[path = "a_relayout_keeps_the_virtual_views_of_an_unchanged_host.rs"]
