@@ -24,7 +24,7 @@ use azul::{
     menu::{Menu, MenuItem, StringMenuItem},
     option::OptionString,
     prelude::*,
-    shells::{MediaShell, ShellThemeAccent, ShellThemeScope},
+    shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     video::{VideoConfig, VideoPhase, VideoSource},
     widgets::{SeekBar, TextInput, VideoWidget},
@@ -40,7 +40,9 @@ use crate::{
     look::{self, Light},
     media::{self, Command, CommandRef, Music, VideoSession},
     nav::{self, Act, ActRef},
+    options::{self, Category, Row},
     pages::{self, Place, Screen, Section, Tile, Zone},
+    settings,
     strip::{Entry, CATEGORIES},
 };
 
@@ -90,16 +92,9 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let s = &*guard;
-    let column = if kit::settings_open(&s.kit) {
-        // The settings: the kit's page in the theme's own chrome.
-        let page = kit::settings_page(&s.kit, Vec::new());
-        let office = MediaShell::create_player(page, Dom::create_div()).office_shell();
-        Dom::create_div().with_css(COLUMN).with_child(office.dom())
-    } else {
-        // No title row: the Media Center runs edge to edge, its top band moves the window
-        // (`corner`).
-        Dom::create_div().with_css(COLUMN).with_child(root(s, &app))
-    };
+    // No title row: the Media Center runs edge to edge, its top band moves the window
+    // (`corner`). The settings are its own pages, never the desktop's Options dialog.
+    let column = Dom::create_div().with_css(COLUMN).with_child(root(s, &app));
     let mut body = ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Leaf)
         .body();
@@ -186,6 +181,8 @@ fn light_seed(s: &Player, place: &Place) -> usize {
         Screen::Search => 21,
         Screen::Address => 22,
         Screen::NowPlaying => 23,
+        Screen::Settings => 24,
+        Screen::SettingsPage(category) => 25 + category.index(),
         Screen::Picture | Screen::Video => 0,
     }
 }
@@ -244,6 +241,8 @@ fn page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         Screen::NowPlaying => now_playing_page(s, app, stage),
         Screen::Picture => picture_page(s, app),
         Screen::Video => Dom::create_div(),
+        Screen::Settings => settings_list_page(s, app, place, stage),
+        Screen::SettingsPage(category) => settings_page(s, app, place, *category, stage),
     };
     content
         .with_id(ids::id(&place.screen.key()))
@@ -360,28 +359,34 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
                 )),
         );
     }
-    let clock = live_text(
-        s.clock_text.clone(),
-        ids::CLOCK_TEXT,
-        &format!(
-            "position: absolute; right: {:.0}px; top: 13px; font-size: 24px; font-weight: 300; \
-             color: {}; {NO_DRAG} {}",
-            30.0 + controls,
-            look::INK,
-            look::text_fade(stage)
-        ),
-    )
-    .with_id(ids::CLOCK);
     // `cursor: default`: what gives the band its place in the hit test (a press on it must
     // land on it, not on the page under it).
-    Dom::create_div()
+    let mut band = Dom::create_div()
         .with_id(ids::BAND)
         .with_css(format!(
             "position: absolute; left: 0px; top: 0px; right: 0px; height: {BAND_H}px; cursor: \
              default; {DRAG}"
         ))
-        .with_child(left)
-        .with_child(clock)
+        .with_child(left);
+    // The clock, unless the settings took it away (it fades in and out).
+    if s.options.is_on(options::SHOW_CLOCK) {
+        band.add_child(
+            live_text(
+                s.clock_text.clone(),
+                ids::CLOCK_TEXT,
+                &format!(
+                    "position: absolute; right: {:.0}px; top: 13px; font-size: 24px; \
+                     font-weight: 300; color: {}; {NO_DRAG} {} -azul-animation-in: azp-fade-in \
+                     300ms ease-out; -azul-animation-out: azp-fade-out 300ms ease-in;",
+                    30.0 + controls,
+                    look::INK,
+                    look::text_fade(stage)
+                ),
+            )
+            .with_id(ids::CLOCK),
+        );
+    }
+    band
 }
 
 /// A round glass button doing `command`: an icon, named for assistive technology (`face`: the
@@ -911,14 +916,8 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
     Some(match shelved.status {
         Status::Scanning | Status::Unknown => format!("Looking for {kind} in {folder}\u{2026}"),
         Status::Missing => format!(
-            "AzPlayer reads {kind} from {folder}, which is not there. Choose another folder \
-             with --{}-dir.",
-            match shelf {
-                Shelf::Music => "music",
-                Shelf::Pictures => "pictures",
-                Shelf::Videos => "videos",
-                Shelf::Tv => "tv",
-            }
+            "AzPlayer reads {kind} from {folder}, which is not there. Add another folder in \
+             settings, library setup."
         ),
         Status::Ready => match shelf {
             Shelf::Music => format!(
@@ -1270,6 +1269,306 @@ fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         )
 }
 
+// ==== The settings ====
+
+/// The settings' list: a category's row; its width.
+const CATEGORY_H: f32 = 58.0;
+const SETTINGS_LIST_W: f32 = 470.0;
+
+/// The settings: their big title, the categories down the page in big type, the focused one on
+/// Media Center's bar of light - ONE bar, gliding from one category to the next (a move on a
+/// spring) - and what the focused one holds beside the list.
+#[allow(clippy::cast_precision_loss)]
+fn settings_list_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
+    let lit = s.zone() == Zone::Content;
+    let focused = place.focus.index.min(Category::ALL.len() - 1);
+    let top = UNDER_TITLE + 4.0;
+    let mut list = Dom::create_div()
+        .with_id(ids::id("settings-list"))
+        .with_css(format!(
+            "position: absolute; left: 44px; top: {top:.0}px; width: {SETTINGS_LIST_W}px; \
+             height: {:.0}px;",
+            CATEGORY_H * Category::ALL.len() as f32
+        ));
+    list.add_child(
+        Dom::create_div()
+            .with_id(ids::id("settings-bar"))
+            .with_css(format!(
+                "position: absolute; left: 0px; top: {:.0}px; width: {SETTINGS_LIST_W}px; \
+                 height: {CATEGORY_H}px; animation: move 260ms spring;",
+                focused as f32 * CATEGORY_H
+            ))
+            .with_child(Dom::create_div().with_css(look::bar(lit, 4.0))),
+    );
+    for (i, category) in Category::ALL.iter().enumerate() {
+        let ink = if i == focused && lit {
+            look::INK
+        } else {
+            look::INK_DIM
+        };
+        let row = Dom::create_div()
+            .with_id(ids::id(&format!("settings-{}", category.key())))
+            .with_css(format!(
+                "position: absolute; left: 0px; top: {:.0}px; width: {SETTINGS_LIST_W}px; \
+                 height: {CATEGORY_H}px; display: flex; flex-direction: row; align-items: \
+                 center; cursor: pointer;",
+                i as f32 * CATEGORY_H
+            ))
+            .with_child(icon(
+                category.icon(),
+                &format!("width: 34px; margin-left: 16px; font-size: 26px; color: {ink};"),
+                stage,
+            ))
+            .with_child(text(
+                category.title(),
+                &format!(
+                    "margin-left: 14px; font-size: 32px; font-weight: 300; white-space: nowrap; \
+                     color: {ink};"
+                ),
+                stage,
+            ));
+        list.add_child(act_part(row, app, Act::SettingsCategory(i), category.title()));
+    }
+    Dom::create_div()
+        .with_child(page_title("settings", stage))
+        .with_child(list)
+        .with_child(
+            text(
+                Category::ALL[focused].blurb(),
+                &format!(
+                    "position: absolute; left: {:.0}px; top: {:.0}px; right: 60px; font-size: \
+                     21px; font-weight: 300; color: {};",
+                    44.0 + SETTINGS_LIST_W + 50.0,
+                    top + 12.0,
+                    look::INK_DIM
+                ),
+                stage,
+            )
+            .with_id(ids::id("settings-blurb")),
+        )
+}
+
+/// A control's mark (its check box, its radio button, its icon), what it says and a hint at
+/// its end (a folder: Enter removes it), as the draft's `values` have it.
+fn control_face(row: &Row, values: &options::Options, focused: bool) -> (Dom, String, &'static str) {
+    let mark_css = "display: flex; align-items: center; justify-content: center; width: 28px; \
+                    height: 28px; margin-left: 16px; flex-shrink: 0; box-sizing: border-box;";
+    match row {
+        Row::Check { key, label } => {
+            let on = values.is_on(key);
+            let mark = Dom::create_div()
+                .with_css(format!(
+                    "{mark_css} border-radius: 4px; border: 2px solid rgba(255, 255, 255, 0.9); \
+                     background-color: {}; animation: background-color 160ms ease-out;",
+                    if on { look::ACCENT } else { "rgba(255, 255, 255, 0.06)" }
+                ))
+                .with_child(Dom::create_icon("check").with_css(format!(
+                    "font-size: 22px; color: #ffffff; opacity: {}; animation: opacity 140ms \
+                     ease-out;",
+                    if on { 1 } else { 0 }
+                )));
+            (mark, (*label).to_string(), "")
+        }
+        Row::Radio { key, value, label } => {
+            let chosen = values.get(key) == *value;
+            let mark = Dom::create_div()
+                .with_css(format!(
+                    "{mark_css} border-radius: 14px; border: 2px solid rgba(255, 255, 255, 0.9);"
+                ))
+                .with_child(Dom::create_div().with_css(format!(
+                    "width: 14px; height: 14px; border-radius: 7px; background: #ffffff; \
+                     opacity: {}; transform: scale({}); animation: opacity 140ms ease-out, \
+                     transform 200ms spring-snappy;",
+                    if chosen { 1 } else { 0 },
+                    if chosen { 1.0 } else { 0.4 }
+                )));
+            (mark, (*label).to_string(), "")
+        }
+        Row::Folder { path, .. } => (
+            Dom::create_icon("folder").with_css(format!(
+                "{mark_css} font-size: 26px; color: rgba(255, 255, 255, 0.85);"
+            )),
+            path.display().to_string(),
+            if focused { "Enter removes it" } else { "" },
+        ),
+        Row::Button { label, icon, .. } => (
+            Dom::create_icon(*icon).with_css(format!(
+                "{mark_css} font-size: 26px; color: {};",
+                look::ACCENT
+            )),
+            label.clone(),
+            "",
+        ),
+        Row::Heading(t) | Row::Note(t) => (Dom::create_div(), t.clone(), ""),
+    }
+}
+
+/// A category of the settings: its big title over "settings", its rows - check boxes, radio
+/// lists, folders, buttons, each a whole row of big type to land on - scrolled to keep the
+/// focused one in view (the rows glide), the bar of light gliding behind the focused one; save
+/// and cancel (about: ok) at the bottom right, each lit when the keys are on it.
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+fn settings_page(
+    s: &Player,
+    app: &RefAny,
+    place: &Place,
+    category: Category,
+    stage: Stage,
+) -> Dom {
+    let rows = settings::page_rows(s, category);
+    let at = options::focusable(&rows);
+    let n = at.len();
+    let buttons = category.buttons();
+    let focus = place.focus.index.min((n + buttons.len()).saturating_sub(1));
+    let lit = s.zone() == Zone::Content;
+    let values = s.draft.as_ref().map_or(&s.options, |d| &d.options);
+    let top = UNDER_TITLE + 40.0;
+    let bottom = 104.0;
+    let visible = (s.window.1 - top - bottom).max(120.0);
+    let focused_row = at.get(focus).copied();
+    let scroll = options::scroll_for(&rows, focused_row, visible);
+    // Where each row stands on the sheet, and the focused one's place for the bar.
+    let mut placed = Vec::with_capacity(rows.len());
+    let mut y = 0.0_f32;
+    let mut bar = (0.0_f32, 52.0_f32);
+    for (i, row) in rows.iter().enumerate() {
+        if Some(i) == focused_row {
+            bar = (y, row.height());
+        }
+        placed.push(y);
+        y += row.height();
+    }
+    let mut sheet = Dom::create_div()
+        .with_id(ids::id("settings-rows"))
+        .with_css(format!(
+            "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {y:.0}px; \
+             animation: move 300ms spring;",
+            -scroll
+        ));
+    // The bar of light: ONE, gliding to the focused row (it fades while a button has the keys).
+    sheet.add_child(
+        Dom::create_div()
+            .with_id(ids::id("settings-focus"))
+            .with_css(format!(
+                "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {:.0}px; \
+                 animation: move 260ms spring;",
+                bar.0, bar.1
+            ))
+            .with_child(Dom::create_div().with_css(look::bar(lit && focused_row.is_some(), 4.0))),
+    );
+    let mut k = 0;
+    for (i, row) in rows.iter().enumerate() {
+        let at_css = format!(
+            "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {:.0}px;",
+            placed[i],
+            row.height()
+        );
+        match row {
+            Row::Heading(t) => sheet.add_child(text(
+                t,
+                &format!(
+                    "{at_css} padding: 16px 0px 0px 16px; box-sizing: border-box; font-size: 20px; \
+                     color: {};",
+                    look::ACCENT
+                ),
+                stage,
+            )),
+            Row::Note(t) => sheet.add_child(text(
+                t,
+                &format!(
+                    "{at_css} padding: 4px 16px 0px 16px; box-sizing: border-box; overflow: \
+                     hidden; font-size: 17px; line-height: 24px; color: {};",
+                    look::INK_DIM
+                ),
+                stage,
+            )),
+            _ => {
+                let focused = Some(i) == focused_row && lit;
+                let ink = if focused {
+                    look::INK
+                } else {
+                    "rgba(255, 255, 255, 0.82)"
+                };
+                let (mark, label, hint) = control_face(row, values, focused);
+                let mut dom = Dom::create_div()
+                    .with_id(ids::id(&format!("setting-{k}")))
+                    .with_css(format!(
+                        "{at_css} display: flex; flex-direction: row; align-items: center; \
+                         cursor: pointer;"
+                    ))
+                    .with_child(mark)
+                    .with_child(text(
+                        &label,
+                        &format!(
+                            "margin-left: 16px; flex-grow: 1; min-width: 0px; font-size: 22px; \
+                             white-space: nowrap; overflow: hidden; color: {ink};"
+                        ),
+                        stage,
+                    ));
+                if !hint.is_empty() {
+                    dom.add_child(text(
+                        hint,
+                        &format!(
+                            "margin-right: 18px; font-size: 15px; white-space: nowrap; color: {};",
+                            look::INK_DIM
+                        ),
+                        stage,
+                    ));
+                }
+                sheet.add_child(act_part(dom, app, Act::Setting(k), &label));
+                k += 1;
+            }
+        }
+    }
+    let mut button_row = Dom::create_div()
+        .with_id(ids::id("settings-buttons"))
+        .with_css(
+            "position: absolute; right: 60px; bottom: 36px; display: flex; flex-direction: row;",
+        );
+    for (j, label) in buttons.iter().enumerate() {
+        let index = n + j;
+        let on = lit && focus == index;
+        let button = Dom::create_div()
+            .with_id(ids::id(&format!("settings-{label}")))
+            .with_css(
+                "position: relative; width: 150px; height: 50px; margin-left: 16px; display: \
+                 flex; align-items: center; justify-content: center; cursor: pointer; \
+                 border-radius: 4px; background: linear-gradient(to bottom, rgba(255, 255, 255, \
+                 0.16), rgba(255, 255, 255, 0.04)); border: 1px solid rgba(255, 255, 255, 0.3);",
+            )
+            .with_child(Dom::create_div().with_css(look::bar(on, 4.0)))
+            .with_child(text(
+                label,
+                &format!(
+                    "position: relative; font-size: 21px; color: {};",
+                    if on { look::INK } else { look::INK_DIM }
+                ),
+                stage,
+            ));
+        button_row.add_child(act_part(button, app, Act::Setting(index), label));
+    }
+    Dom::create_div()
+        .with_child(page_title(category.title(), stage))
+        .with_child(text(
+            "settings",
+            &format!(
+                "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 18px; color: \
+                 {};",
+                look::INK_DIM
+            ),
+            stage,
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_css(format!(
+                    "position: absolute; left: 44px; right: 60px; top: {top:.0}px; bottom: \
+                     {bottom:.0}px; overflow: hidden;"
+                ))
+                .with_child(sheet),
+        )
+        .with_child(button_row)
+}
+
 // ==== Now playing ====
 
 /// Now playing: the cover large, the song, the album, the seek bar between the times, what
@@ -1486,8 +1785,14 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
         .with_css(format!(
             "{} {}",
             look::FILL,
-            if viewer.playing {
-                look::slide_motion(viewer.shown, media::SLIDE_S)
+            if viewer.playing && s.options.is_on(options::KEN_BURNS) {
+                look::slide_motion(viewer.shown, media::slide_s(s))
+            } else if viewer.playing {
+                // The settings turned pan and zoom off: a plain cross-fade.
+                String::from(
+                    "-azul-animation-in: azp-fade-in 900ms ease-in-out; -azul-animation-out: \
+                     azp-fade-out 900ms ease-in-out no-clip;",
+                )
             } else {
                 String::from(
                     "-azul-animation-in: azp-fade-in 260ms ease-out; -azul-animation-out: \

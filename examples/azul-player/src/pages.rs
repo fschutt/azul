@@ -8,6 +8,7 @@ use crate::{
     gallery::TileKind,
     history::History,
     library::{self, Group, Library, Shelf},
+    options::Category,
 };
 
 /// A library's page.
@@ -311,6 +312,10 @@ pub enum Screen {
     Picture,
     /// A video (opening, or playing).
     Video,
+    /// The settings: their categories.
+    Settings,
+    /// A category of the settings: its controls, save and cancel.
+    SettingsPage(Category),
 }
 
 impl Screen {
@@ -329,6 +334,8 @@ impl Screen {
             Screen::NowPlaying => String::from("page-now-playing"),
             Screen::Picture => String::from("page-picture"),
             Screen::Video => String::from("page-video"),
+            Screen::Settings => String::from("page-settings"),
+            Screen::SettingsPage(c) => format!("page-settings-{}", c.key()),
         }
     }
 
@@ -519,6 +526,12 @@ mod tests {
         assert_eq!(group_tiles(Shelf::Music, group).len(), 2);
         assert!(Screen::Start.on_ground() && !Screen::Video.on_ground());
         assert_ne!(Screen::Section(Section::Music).key(), Screen::Section(Section::Tv).key());
+        assert_eq!(Screen::Settings.key(), "page-settings");
+        assert_eq!(
+            Screen::SettingsPage(Category::Library).key(),
+            "page-settings-library"
+        );
+        assert!(Screen::Settings.on_ground(), "the settings stand on the blue");
     }
 
     /// "pressing tab can also make the back button disappear" (2026-10-08): Tab walks the

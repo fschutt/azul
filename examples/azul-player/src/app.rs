@@ -42,6 +42,7 @@ use crate::{
     ids,
     library::{Item, Library, Shelf, Status, LIBRARY_FILE, RECORDED_TV},
     media::{self, Music, VideoSession, Viewer},
+    options::{self, Draft, Options},
     pages::{self, Place, Screen, Section, Tile, Zone},
     scan::{self, ArtDone, ArtJob, ArtSource, ScanBatch},
     strip::StripFocus,
@@ -94,15 +95,7 @@ const TAG_SAVE: u64 = 2;
 
 // ==== State ====
 
-/// The folders the libraries read: each library one or more (the settings' library setup adds
-/// and removes them).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Folders {
-    pub music: Vec<PathBuf>,
-    pub pictures: Vec<PathBuf>,
-    pub videos: Vec<PathBuf>,
-    pub tv: Vec<PathBuf>,
-}
+pub use crate::options::Folders;
 
 impl Folders {
     /// A library's folders: the one asked for on the command line (for this run), else the
@@ -145,42 +138,6 @@ impl Folders {
             pictures,
             videos,
             tv,
-        }
-    }
-
-    /// The folders of `shelf`.
-    #[must_use]
-    pub fn of(&self, shelf: Shelf) -> &[PathBuf] {
-        match shelf {
-            Shelf::Music => &self.music,
-            Shelf::Pictures => &self.pictures,
-            Shelf::Videos => &self.videos,
-            Shelf::Tv => &self.tv,
-        }
-    }
-
-    /// The folders of `shelf`, to change.
-    pub fn of_mut(&mut self, shelf: Shelf) -> &mut Vec<PathBuf> {
-        match shelf {
-            Shelf::Music => &mut self.music,
-            Shelf::Pictures => &mut self.pictures,
-            Shelf::Videos => &mut self.videos,
-            Shelf::Tv => &mut self.tv,
-        }
-    }
-
-    /// The folders of `shelf` for a sentence ("~/Music and /Volumes/Disk/Music").
-    #[must_use]
-    pub fn shown(&self, shelf: Shelf) -> String {
-        let names: Vec<String> = self
-            .of(shelf)
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect();
-        match names.len() {
-            0 => String::from("no folder"),
-            1 => names[0].clone(),
-            n => format!("{} and {}", names[..n - 1].join(", "), names[n - 1]),
         }
     }
 }
@@ -240,18 +197,41 @@ pub struct Player {
     pub wheel: f32,
     /// The clock's text as shown ("21:45").
     pub clock_text: String,
+    /// The settings (the kit's settings file, `player.*`).
+    pub options: Options,
+    /// What a settings page edits until save.
+    pub draft: Option<Draft>,
 }
 
 impl Player {
     fn new(kit: RefAny, args: Args) -> Self {
-        let folders = Folders::resolve(&args.folders, &Folders::default());
+        // The settings file was read before the window (`kit::create_kit`): AzPlayer's options
+        // and the libraries' folders in it.
+        let mut kit_ref = kit.clone();
+        let read = kit_ref.downcast_ref::<kit::Kit>().map(|k| {
+            (
+                Options::read(&k.settings.values),
+                options::saved_folders(&k.settings.values),
+            )
+        });
+        let (options, saved) = read.unwrap_or_default();
+        let folders = Folders::resolve(&args.folders, &saved);
         let window = args.kit.size.unwrap_or((1100.0, 700.0));
         let mut nav = vec![Place::new(Screen::Start)];
-        let screen = args.kit.screen.clone().unwrap_or_default();
+        // The page it opens on: a `--screen` switch for this run, else the settings' choice.
+        let screen = args
+            .kit
+            .screen
+            .clone()
+            .unwrap_or_else(|| options.get(options::START_SCREEN).to_string());
         if let Some(section) = Section::by_screen_name(&screen) {
-            nav.push(Place::new(Screen::Section(section)));
+            let mut place = Place::new(Screen::Section(section));
+            place.focus.view = options.view_of(section);
+            nav.push(place);
         } else if screen == "now-playing" {
             nav.push(Place::new(Screen::NowPlaying));
+        } else if screen == "settings" {
+            nav.push(Place::new(Screen::Settings));
         }
         Self {
             kit,
@@ -284,6 +264,8 @@ impl Player {
             window,
             wheel: 0.0,
             clock_text: wall_clock(),
+            options,
+            draft: None,
         }
     }
 
@@ -481,10 +463,9 @@ pub fn start() {
             std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
         }
     };
+    // The kit reads the settings file and the shared config; AzPlayer's settings are its own
+    // pages (`settings.rs`), `--screen settings` opens them.
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.kit.clone());
-    if args.kit.screen.as_deref() == Some("settings") {
-        kit::open_settings(&kit_ref, None);
-    }
     let app = Player::new(kit_ref.clone(), args);
     let mut config = kit::app_config(&kit_ref);
     config.expose_system_media_controls = true;
@@ -518,6 +499,13 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     kit::on_window_created(&kit_ref, &mut info);
+    // Media only from the start, when the settings say so (never for a `--shot`).
+    let media_only = data
+        .downcast_ref::<Player>()
+        .is_some_and(|s| s.options.is_on(options::START_FULLSCREEN) && s.args.kit.shot.is_none());
+    if media_only {
+        let _ = media::run(&app, &mut info, media::Command::Fullscreen);
+    }
     if let (Some((root, history)), Some((_, library))) = (history, library) {
         kit::spawn_file_jobs(
             &mut info,
@@ -569,8 +557,12 @@ extern "C" fn on_files(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo
             }
         }
         println!("AZPLAYER_HISTORY {}", s.history.entries.len());
-        // The page it opens on, announced like every page it goes to after.
+        // The page it opens on, announced like every page it goes to after; the settings it
+        // runs with.
         println!("AZPLAYER_PAGE {}", s.place().screen.key());
+        for spec in &options::SPECS {
+            println!("AZPLAYER_OPTION {} {}", spec.key, s.options.get(spec.key));
+        }
         println!(
             "AZPLAYER_LIBRARY cached {} {} {} {}",
             s.library.music.items.len(),
@@ -1012,7 +1004,10 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         // The pointer's chrome (the back button, the transport) hides itself while the pointer
         // rests - never while the keyboard is on it (Tab took it there: what has the focus
         // stays in sight).
-        let visible = s.controls.visible(now, media::chrome_hides(s)) || s.chrome_held();
+        // Over a playing video always; on the pages as the settings say.
+        let may_hide = media::chrome_hides(s)
+            && (s.video.is_some() || s.options.is_on(options::HIDE_CHROME));
+        let visible = s.controls.visible(now, may_hide) || s.chrome_held();
         set_chrome(s, cb, visible);
         if s.osd.as_ref().is_some_and(|(_, until)| now >= *until) {
             s.osd = None;

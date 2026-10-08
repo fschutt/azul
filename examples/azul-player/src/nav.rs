@@ -9,14 +9,15 @@ use azul::{
     prelude::*,
     widgets::{OnTextInputReturn, TextInputState, TextInputValid},
 };
-use azul_appkit::ui as kit;
 
 use crate::{
     app::{self, Player},
     gallery::{self, Step},
     library::Shelf,
     media::{self, Command},
+    options::{self, Category},
     pages::{self, Place, Screen, Section, Tile, View, Zone},
+    settings,
     strip::{Action, Needs, CATEGORIES},
 };
 
@@ -37,6 +38,10 @@ pub enum Act {
     OpenAddress,
     /// The address page's sample: it plays.
     Sample,
+    /// A category of the settings' list.
+    SettingsCategory(usize),
+    /// A part of a settings page: a row the keys land on, or a button after them.
+    Setting(usize),
 }
 
 /// A part's payload: the app and what it asks for.
@@ -50,24 +55,37 @@ const WHEEL_STEP: f32 = 60.0;
 
 // ==== Pages ====
 
-/// Goes to `screen` (the page before keeps its focus, for Back).
+/// Goes to `screen` (the page before keeps its focus, for Back). A library's page opens on the
+/// view the settings choose.
 pub fn go(s: &mut Player, screen: Screen) {
     println!("AZPLAYER_PAGE {}", screen.key());
-    s.nav.push(Place::new(screen));
+    let mut place = Place::new(screen);
+    if let Screen::Section(section) = place.screen {
+        place.focus.view = s.options.view_of(section);
+    }
+    s.nav.push(place);
 }
 
-/// Back a page: a slide show stops, the start strip stays. `false`: at the start already.
+/// Back a page: a slide show stops, a settings page's draft goes (cancel), the start strip
+/// stays. `false`: at the start already.
 pub fn back_in(s: &mut Player) -> bool {
     if s.nav.len() <= 1 {
         return false;
     }
-    let left = s.nav.pop();
-    if let Some(Place {
-        screen: Screen::Picture,
-        ..
-    }) = left
-    {
-        s.viewer.playing = false;
+    match s.nav.pop() {
+        Some(Place {
+            screen: Screen::Picture,
+            ..
+        }) => s.viewer.playing = false,
+        Some(Place {
+            screen: Screen::SettingsPage(category),
+            ..
+        }) => {
+            if s.draft.take().is_some() {
+                println!("AZPLAYER_SETTINGS cancel {}", category.key());
+            }
+        }
+        _ => {}
     }
     println!("AZPLAYER_PAGE {}", s.place().screen.key());
     true
@@ -113,6 +131,9 @@ pub fn home(app: &RefAny, info: &mut CallbackInfo) -> Update {
     if let Some(mut s) = app_ref.downcast_mut::<Player>() {
         s.nav.truncate(1);
         s.viewer.playing = false;
+        if s.draft.take().is_some() {
+            println!("AZPLAYER_SETTINGS cancel home");
+        }
         println!("AZPLAYER_PAGE {}", s.place().screen.key());
     }
     Update::RefreshDom
@@ -176,17 +197,23 @@ pub fn activate(app: &RefAny, info: &mut CallbackInfo, action: Action) -> Update
         Action::RecordedTv => page(Screen::Section(Section::Tv)),
         Action::Search => page(Screen::Search),
         Action::PlayAll => {
+            // Shuffled, or album by album: as the settings say.
             let paths = {
                 let mut app_ref = app.clone();
                 let Some(s) = app_ref.downcast_ref::<Player>() else {
                     return Update::DoNothing;
                 };
-                s.items(Shelf::Music)
-                    .iter()
-                    .map(|i| i.path.clone())
-                    .collect::<Vec<_>>()
+                let songs = s.items(Shelf::Music);
+                if s.options.is_on(options::SHUFFLE_ALL) {
+                    let all = songs.iter().map(|i| i.path.clone()).collect::<Vec<_>>();
+                    media::shuffled(all, None, now_seed())
+                } else {
+                    crate::library::songs_in_album_order(songs)
+                        .into_iter()
+                        .map(|i| songs[i].path.clone())
+                        .collect()
+                }
             };
-            let paths = media::shuffled(paths, None, now_seed());
             media::play_music(app, info, paths, 0, true);
             Update::RefreshDom
         }
@@ -426,6 +453,36 @@ pub fn move_focus(s: &mut Player, step: Step) -> bool {
                 None => false,
             }
         }
+        // The settings' categories, down the page.
+        Screen::Settings => {
+            let i = place.focus.index.min(Category::ALL.len() - 1);
+            let j = match step {
+                Step::Up => i.saturating_sub(1),
+                Step::Down => (i + 1).min(Category::ALL.len() - 1),
+                Step::Left | Step::Right => i,
+            };
+            if j == place.focus.index {
+                return false;
+            }
+            s.place_mut().focus.index = j;
+            println!("AZPLAYER_FOCUS category {}", Category::ALL[j].title());
+            true
+        }
+        // A category's page: its rows, then save and cancel.
+        Screen::SettingsPage(category) => {
+            let rows = settings::page_rows(s, category);
+            let n = options::focusable(&rows).len();
+            let j = options::step_page(place.focus.index, n, category.buttons().len(), step);
+            if j == place.focus.index {
+                return false;
+            }
+            s.place_mut().focus.index = j;
+            println!(
+                "AZPLAYER_FOCUS setting {}",
+                settings::focus_label(&rows, category, j)
+            );
+            true
+        }
         _ => false,
     }
 }
@@ -605,6 +662,16 @@ fn enter(app: &RefAny, info: &mut CallbackInfo) -> Update {
         Screen::NowPlaying | Screen::Picture | Screen::Video => {
             media::run(app, info, Command::PlayPause)
         }
+        Screen::Settings => {
+            let mut app_ref = app.clone();
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                if let Some(category) = Category::ALL.get(focus.index) {
+                    settings::open_category(&mut s, *category);
+                }
+            }
+            Update::RefreshDom
+        }
+        Screen::SettingsPage(_) => settings::press(app, info, focus.index),
     }
 }
 
@@ -691,6 +758,17 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Act::NowPlaying => open_now_playing(&app, &mut info),
         Act::OpenAddress => open_address(&app, &mut info, None),
         Act::Sample => open_address(&app, &mut info, Some(crate::ui::SAMPLE_ADDRESS)),
+        Act::SettingsCategory(i) => {
+            let mut app_ref = app.clone();
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                s.place_mut().focus.index = i;
+                if let Some(category) = Category::ALL.get(i) {
+                    settings::open_category(&mut s, *category);
+                }
+            }
+            Update::RefreshDom
+        }
+        Act::Setting(i) => settings::press(&app, &mut info, i),
     }
 }
 
@@ -722,6 +800,14 @@ pub extern "C" fn on_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 zoned || before != (s.strip.row, s.strip.col())
             }
             Act::Tile(index) => focus_tile(&mut s, index),
+            // The settings: the pointer over a category or a row brings the bar of light.
+            Act::SettingsCategory(i) | Act::Setting(i) => {
+                let f = &mut s.place_mut().focus;
+                let changed = f.index != i || f.zone != Zone::Content;
+                f.index = i;
+                f.zone = Zone::Content;
+                changed
+            }
             // The pointer over a view's word only lights it (`:hover`); a click shows it.
             _ => false,
         }
@@ -825,26 +911,31 @@ pub extern "C" fn on_search(
 
 // ==== The keys ====
 
-/// The window's keys: the kit's first (the settings page), then the media center's - the
-/// transport on any page, Back, Home, the arrows, Enter. While the settings show, their own.
+/// The settings' list (`None`) or the page of a category, from a key: a video closes first (its
+/// place is kept), the settings are a page of the media center.
+fn open_settings(app: &RefAny, info: &mut CallbackInfo, category: Option<Category>) -> Update {
+    media::close_video(app, info);
+    let mut app_ref = app.clone();
+    if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+        match category {
+            Some(c) => settings::open_category(&mut s, c),
+            None => settings::open(&mut s),
+        }
+    }
+    Update::RefreshDom
+}
+
+/// The window's keys: the media center's - the transport on any page, Back, Home, Tab between
+/// the page's zones, the arrows, Enter; the settings (Ctrl+, , F1 the keys).
 pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
-    let Some((kit_ref, fullscreen)) = data
-        .downcast_ref::<Player>()
-        .map(|s| (s.kit.clone(), s.fullscreen))
-    else {
+    let Some(fullscreen) = data.downcast_ref::<Player>().map(|s| s.fullscreen) else {
         return Update::DoNothing;
     };
     let key = info
         .get_current_keyboard_state()
         .current_virtual_keycode
         .into_option();
-    // Escape leaves fullscreen before the kit sees it.
-    if !(fullscreen && key == Some(VirtualKeyCode::Escape)) {
-        if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
-            return update;
-        }
-    }
     let Some(key) = key else {
         return Update::DoNothing;
     };
@@ -853,8 +944,14 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         return media::on_open(app, info);
     }
-    if kit::settings_open(&kit_ref) {
-        return Update::DoNothing;
+    // The settings are AzPlayer's own pages: Ctrl+, (Cmd+, on macOS) their list, F1 the keys.
+    if key == VirtualKeyCode::Comma && modifiers.primary_down() {
+        info.prevent_default();
+        return open_settings(&app, &mut info, None);
+    }
+    if key == VirtualKeyCode::F1 {
+        info.prevent_default();
+        return open_settings(&app, &mut info, Some(Category::About));
     }
     // Tab and Shift+Tab: the page's zones (the back button, the page, the transport, the
     // inset) - the app's own walk, never the engine's over every focusable box (which put the
@@ -868,6 +965,7 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return Update::DoNothing;
         };
         let screen = s.place().screen.clone();
+        // A page whose arrows move its focus (not the volume).
         let gallery = matches!(
             screen,
             Screen::Start
@@ -875,6 +973,8 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 | Screen::Group { .. }
                 | Screen::Search
                 | Screen::Address
+                | Screen::Settings
+                | Screen::SettingsPage(_)
         );
         let zone = s.zone();
         // A field with words in it (and the keys): Backspace edits it rather than going back.
@@ -949,13 +1049,18 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     {
         return Update::DoNothing;
     }
-    // Left / Right seek in what plays full-window (a minute with Shift); Up / Down were the
-    // volume (the transport above).
+    // Left / Right skip in what plays full-window as far as the settings say (a minute with
+    // Shift); Up / Down were the volume (the transport above).
     if matches!(screen, Screen::Video | Screen::NowPlaying) {
-        let by = if modifiers.shift { 60.0 } else { media::REWIND_S };
-        let seconds = match step {
-            Step::Left => -by,
-            Step::Right => by,
+        let mut skip = |forward: bool| -> f64 {
+            data.downcast_ref::<Player>()
+                .map_or(0.0, |s| media::skip_s(&s, forward))
+        };
+        let seconds = match (step, modifiers.shift) {
+            (Step::Left, true) => -60.0,
+            (Step::Right, true) => 60.0,
+            (Step::Left, false) => skip(false),
+            (Step::Right, false) => skip(true),
             _ => return Update::DoNothing,
         };
         info.prevent_default();

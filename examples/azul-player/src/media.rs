@@ -315,7 +315,12 @@ pub fn open_video(app: &RefAny, info: &mut CallbackInfo, path: &str) {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     s.history.touch(path, now_s);
-    let resume = s.history.resume_at(path);
+    // Where it was left - unless the settings say every video starts at its beginning.
+    let resume = if s.options.is_on(crate::options::RESUME) {
+        s.history.resume_at(path)
+    } else {
+        0.0
+    };
     #[allow(clippy::cast_possible_truncation)]
     let seek_s = resume as f32;
     let audio_id = match address {
@@ -688,13 +693,30 @@ pub fn step_picture(s: &mut Player, by: isize) {
     println!("AZPLAYER_PICTURE {} {}", s.viewer.index, if s.viewer.playing { "slideshow" } else { "still" });
 }
 
+/// How long a slide shows (the settings'), seconds.
+#[must_use]
+pub fn slide_s(s: &Player) -> u64 {
+    s.options.seconds(crate::options::SLIDE_SECONDS).max(1)
+}
+
+/// How far the skip buttons and Left / Right jump (the settings'), seconds: back is negative.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn skip_s(s: &Player, forward: bool) -> f64 {
+    if forward {
+        s.options.seconds(crate::options::SKIP_FORWARD) as f64
+    } else {
+        -(s.options.seconds(crate::options::SKIP_BACK) as f64)
+    }
+}
+
 /// The slide show's tick: the next picture once one has shown long enough AND the next is
 /// decoded (a slow picture never shows half made). `(rebuild, wants pictures)`.
 pub fn tick_viewer(s: &mut Player, now: u64) -> (bool, bool) {
     if s.place().screen != Screen::Picture || !s.viewer.playing || s.viewer.paths.is_empty() {
         return (false, false);
     }
-    if now.saturating_sub(s.viewer.since_ms) < SLIDE_S * 1000 {
+    if now.saturating_sub(s.viewer.since_ms) < slide_s(s) * 1000 {
         return (false, false);
     }
     let next = (s.viewer.index + 1) % s.viewer.paths.len();
@@ -831,20 +853,17 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
         Command::Open => return on_open(app.clone(), *info),
         Command::Back => return crate::nav::back(app, info),
         Command::Home => return crate::nav::home(app, info),
-        Command::Settings => {
+        // The settings are pages of the media center (`settings.rs`), never the desktop's
+        // Options dialog: a video closes first.
+        Command::Settings | Command::About => {
+            close_video(app, info);
             let mut app_ref = app.clone();
-            let kit_ref = app_ref.downcast_ref::<Player>().map(|s| s.kit.clone());
-            if let Some(kit_ref) = kit_ref {
-                azul_appkit::ui::open_settings(&kit_ref, None);
-            }
-            return Update::RefreshDom;
-        }
-        Command::About => {
-            let mut app_ref = app.clone();
-            let kit_ref = app_ref.downcast_ref::<Player>().map(|s| s.kit.clone());
-            if let Some(kit_ref) = kit_ref {
-                azul_appkit::ui::open_settings(&kit_ref, Some("About"));
-                azul_appkit::ui::set_about_open(&kit_ref, true);
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                if command == Command::About {
+                    crate::settings::open_category(&mut s, crate::options::Category::About);
+                } else {
+                    crate::settings::open(&mut s);
+                }
             }
             return Update::RefreshDom;
         }
@@ -947,20 +966,12 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
                 .video
                 .as_ref()
                 .map_or(0.0, |v| f64::from(v.status.position_s));
-            let by = if command == Command::Rewind {
-                -REWIND_S
-            } else {
-                FORWARD_S
-            };
+            let by = skip_s(s, command == Command::Forward);
             seek_video(s, position + by);
         }
         (Command::Rewind | Command::Forward, Playing::Music) => {
             let position = s.music.as_ref().map_or(0.0, |m| m.state.position_s);
-            let by = if command == Command::Rewind {
-                -REWIND_S
-            } else {
-                FORWARD_S
-            };
+            let by = skip_s(s, command == Command::Forward);
             let target = (position + by).max(0.0);
             if let Some(a) = s.audio.as_ref() {
                 a.seek(target);
