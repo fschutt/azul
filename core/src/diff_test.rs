@@ -3040,6 +3040,43 @@ mod dom_fingerprint_tests {
         let (_, transfers) = fingerprint_dom(&sample_dom());
         assert!(transfers.image_callbacks.is_empty());
         assert!(transfers.callbacks.is_empty());
+        assert!(transfers.virtual_views.is_empty());
+    }
+
+    extern "C" fn render_nothing(
+        _data: crate::refany::RefAny,
+        _info: crate::callbacks::VirtualViewCallbackInfo,
+    ) -> crate::callbacks::VirtualViewReturn {
+        crate::callbacks::VirtualViewReturn::default()
+    }
+
+    fn view_of(payload: &crate::refany::RefAny) -> Dom {
+        Dom::create_node(NodeType::Div).with_child(Dom::create_virtual_view(
+            payload.clone(),
+            crate::callbacks::VirtualViewCallback::create(render_nothing),
+        ))
+    }
+
+    #[test]
+    fn transfers_carry_a_virtual_views_fresh_payload_the_fingerprint_does_not_read() {
+        // The pre-cascade skip keeps the retained DOM when the prints are
+        // equal: the fresh payload has to travel with the transfers, or the
+        // retained view renders last build's refany.
+        let fresh = crate::refany::RefAny::new(7_u32);
+        let (print, transfers) = fingerprint_dom(&view_of(&fresh));
+        assert_eq!(transfers.virtual_views.len(), 1);
+        let (index, view) = &transfers.virtual_views[0];
+        assert_eq!(*index, 1, "the view's pre-order index");
+        assert_eq!(
+            view.refany.sharing_info.ptr, fresh.sharing_info.ptr,
+            "the fresh build's refany"
+        );
+        let (other, _) = fingerprint_dom(&view_of(&crate::refany::RefAny::new(8_u32)));
+        assert_eq!(
+            (print.structure_root, print.style_root),
+            (other.structure_root, other.style_root),
+            "another refany, the same print - which is why the skip must carry it"
+        );
     }
 }
 
