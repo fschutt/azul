@@ -82,7 +82,9 @@ sizing::calculate_intrinsic_sizes 832.
 - [x] Phase B (ec1a3d78f; tool fixes c7a6ab771): fc.rs -> fc/ (17 modules + 6 outlined test
       modules). verify OK (0 unclassified); lib 9518 pass, all 2289 pass + depth RED + 7 ignored,
       names identical, goldens match; clippy: no new warning (1569 -> 1564, see commit).
-- [ ] Phase C: layout_bfc extraction (spec: scripts/refactor/bfc_extract.json)
+- [x] Phase C: layout_bfc (ebeb82804, redone cba7c950a for clippy-clean signatures) 25,952 ->
+      2,144 B debug; reconcile_recursive (2ff6f3151, the next depth limit, found with lldb)
+      15,184 -> 6,416 B. Depth test green; deepest chain on 2 MiB: 120 -> 180.
 - [ ] Phase D: text3/cache.rs split by script (plan: scripts/refactor/text3_cache_plan.json)
 
 ## Blocker log
@@ -92,10 +94,11 @@ sizing::calculate_intrinsic_sizes 832.
 
 ## NEXT
 
-Phase C: `python3 scripts/refactor/extract.py scripts/refactor/bfc_extract.json --manifest
-scripts/refactor/bfc_extract.manifest.json`, then `verify_moved.py --old-rev HEAD --old
-layout/src/solver3/fc/bfc.rs --new layout/src/solver3/fc/bfc.rs --blocks
-scripts/refactor/bfc_extract.manifest.json`, build, measure frames, depth test.
+Phase D: `python3 scripts/refactor/split.py scripts/refactor/text3_cache_plan.json`, verify
+(`--old layout/src/text3/cache.rs --new layout/src/text3/cache --plan ...`), clippy (no new
+warnings), privacy errors -> `member_visibility` in the plan, re-run; then both suites, release
+frames, final report. (Uncommitted scratch: layout/tests/zz_scratch_depth_probe.rs + its all.rs
+line - never stage them.)
 
 ## Bugs noticed (not fixed - the refactor never changes behaviour)
 
