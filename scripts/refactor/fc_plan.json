@@ -269,5 +269,10 @@
       ]
     }
   ],
-  "member_visibility": {}
+  "member_visibility": {
+    "struct FloatBox": ["kind", "rect", "margin"],
+    "struct BlockColumns": ["geometry"],
+    "struct ColumnsExtent": ["height", "width"],
+    "impl TableLayoutContext": ["new"]
+  }
 }

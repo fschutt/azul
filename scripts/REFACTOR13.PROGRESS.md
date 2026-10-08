@@ -62,6 +62,19 @@ workspace dev default) the frames are those, so the depth test keeps headroom fo
 
 - 06:0x-06:20: free disk 4.9-5.8 GB (< 6 GB floor) with no build of mine running (the main
   checkout's target is 28 GB); locked_cargo.sh waits for 6 GB with the lock released.
+- 06:21: another session's `cargo test -j 4` took the lock; free disk fell to 2.3 GB. I deleted
+  my own debug artifacts (1 GB) to give the machine headroom - the next build of mine starts
+  cold (deps included). Baseline numbers above are recorded, so nothing is lost.
+- 06:33: no build running anywhere, lock free, free disk steady at 4.7 GB (< 6 GB). STOPPED per
+  the rule and reported. A cold debug build of the two test binaries needs ~1 GB (no
+  debuginfo, no incremental). Resume = NEXT below, from step 1.
+
+Frames of other functions on recursive paths at baseline (debug, debuginfo=0; outside the
+div-chain target, for the report): layout_document 24,176 (once per layout); fc::layout_ifc
+12,624; fc::layout_table_fc 9,664; fc::collect_and_measure_inline_content_impl 7,808;
+fc::collect_inline_span_recursive 5,744; fc::measure_atomic_inline 3,600;
+cache::prepare_layout_context 1,888; fc::layout_flex_grid 1,632; cache::process_inflow_child 1,392;
+cache::process_out_of_flow_children 976; sizing::calculate_intrinsic_sizes 832.
 
 ## NEXT
 
