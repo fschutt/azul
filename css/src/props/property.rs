@@ -10807,7 +10807,45 @@ mod shadow_tween_tests {
         ));
         let s = shown(&cast.interpolate(&bloom, 0.5, &linear())).expect("a shadow");
         assert!(lengths_are(&s, (0.5, 8.0, 0.0)), "{s:?}");
-        assert_eq!(s.color, ColorU::new(131, 121, 89, 59));
+        // The colours mix premultiplied, as CSS mixes them: each weighed by
+        // its alpha, so the stronger gold leads (a plain mix of the channels
+        // would be 131, 121, 89).
+        assert_eq!(s.color, ColorU::new(163, 151, 109, 59));
+    }
+
+    #[test]
+    fn a_colour_that_comes_from_transparent_keeps_its_hue() {
+        // A hover wash over a transparent rest (a toolbar key, a list row, a
+        // tab): half way it is the wash at half strength, not a darker grey
+        // dragged toward transparent's black.
+        let r = linear();
+        let clear = CssProperty::background_content(
+            vec![crate::props::style::background::StyleBackgroundContent::Color(
+                ColorU::TRANSPARENT,
+            )]
+            .into(),
+        );
+        let wash = ColorU::new(204, 232, 255, 255);
+        let lit = CssProperty::background_content(
+            vec![crate::props::style::background::StyleBackgroundContent::Color(wash)].into(),
+        );
+        assert_eq!(
+            clear.interpolate(&lit, 0.5, &r),
+            CssProperty::background_content(
+                vec![crate::props::style::background::StyleBackgroundContent::Color(
+                    ColorU::new(204, 232, 255, 128)
+                )]
+                .into()
+            )
+        );
+        let edge = |c: ColorU| {
+            CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor { inner: c }))
+        };
+        assert_eq!(
+            edge(ColorU::TRANSPARENT).interpolate(&edge(wash), 0.5, &r),
+            edge(ColorU::new(204, 232, 255, 128)),
+            "an edge that is there, transparent, at rest comes in in its own colour"
+        );
     }
 
     #[test]
