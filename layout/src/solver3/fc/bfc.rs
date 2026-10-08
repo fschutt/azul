@@ -219,6 +219,153 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
     // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
     let mut float_context = FloatingContext::default();
 
+    let (children_containing_block_size, scrollbar_reservation, multicol, flow_cross_size) =
+        bfc_prepare(ctx, tree, &node, node_index, constraints, writing_mode);
+
+    // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
+    //
+    // Inspired by Taffy's two-pass approach: first measure, then position.
+    //
+    // This was removed in commit 1a3e5850 and replaced with a single-pass approach
+    // that computed sizes just-in-time during positioning. The single-pass approach
+    // caused regression 8e092a2e because positioning decisions (margin collapsing,
+    // float clearance, available width after floats) depend on knowing ALL sibling
+    // sizes upfront, not just the ones visited so far.
+    //
+    // With the per-node cache (§9.1-§9.2), the re-added Pass 1 is efficient:
+    // - Each child subtree is computed once and stored in NodeCache
+    // - Pass 2 positioning reads sizes from tree nodes (used_size set by Pass 1)
+    // - When calculate_layout_for_subtree recurses into children after layout_bfc returns, it hits
+    //   the per-node cache (same available_size) — O(1) per child.
+    //
+    // Performance: O(n) for the tree. No double-computation thanks to caching.
+    // A child that turns out to need a space-reserving scrollbar was sized in
+    // this very pass against the UNreserved width (Pass 1 is the child's real
+    // layout). Only the document-level loop can lay it out again, so the need
+    // travels up in the result instead of dying in a local: before this, the
+    // flag was raised into a temporary here, and `overflow: auto` reserved its
+    // gutter only for a node that happened to BE a layout root.
+    let mut child_scrollbar_reflow = false;
+    {
+        let mut temp_positions: super::super::PositionVec = Vec::new();
+
+        // A `::marker` riding the first line is laid out with that line, not
+        // as a block of this flow (`is_marker_on_a_line`).
+        let bfc_children: Vec<usize> = {
+            let shared: &LayoutTree = tree;
+            shared
+                .children(node_index)
+                .iter()
+                .copied()
+                .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+                .collect()
+        };
+        // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per
+        // parent node (0x60A00+slot). If body shows len=2 but the divs never get the
+        // per-child "sized" marker (0x60A40+childslot) below → the loop skips them; if they
+        // DO get it but layout_formatting_context (0x609A0) stays unset →
+        // calculate(child,ComputeSize) cache-hit (vs 0x60A60 miss-flag in cache.rs).
+        #[cfg(feature = "web_lift")]
+        unsafe {
+            crate::az_mark(
+                (0x60A00 + (node_index & 7) * 4) as u32,
+                (bfc_children.len() as u32 | 0xC0DE0000) as u32,
+            );
+        }
+        for &child_index in &bfc_children {
+            let child_node = tree
+                .get(LayoutNodeId::new(child_index))
+                .ok_or(LayoutError::InvalidTree)?;
+            let child_dom_id = child_node.dom_node_id;
+
+            // +spec:positioning:447b06 - Absolute positioning pulls element out of flow, skip from
+            // normal layout +spec:positioning:77a2d2 - Absolutely positioned children
+            // are ignored for auto height +spec:positioning:b47ac2 - Only normal flow
+            // children taken into account for auto height Skip absolutely/fixed
+            // positioned children — they're laid out separately +spec:positioning:
+            // c7e5c5 - out-of-flow elements ignored for word boundary / hyphenation
+            // +spec:positioning:7dd6d1 - Absolutely positioned boxes are taken out of the normal
+            // flow (no impact on later siblings, no margin collapsing)
+            let position_type = get_position_type(ctx.styled_dom, child_dom_id);
+            if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
+                continue;
+            }
+
+            // Compute the child's full subtree layout with temporary positions.
+            // Position (0,0) is intentionally wrong — Pass 1 only cares about sizing.
+            // The correct positions are determined in Pass 2 below.
+            // [g147c] this child IS reached by Pass-1 sizing (per-child slot).
+            #[cfg(feature = "web_lift")]
+            unsafe {
+                crate::az_mark(
+                    (0x60A40 + (child_index & 7) * 4) as u32,
+                    (0xC0DE0000 | (child_index as u32 & 0xffff)) as u32,
+                );
+            }
+            crate::solver3::cache::calculate_layout_for_subtree(
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                LogicalPosition::zero(),
+                &CBTY::from_flattened_with_width_type(
+                    children_containing_block_size,
+                    constraints.available_width_type,
+                ),
+                &mut temp_positions,
+                &mut child_scrollbar_reflow,
+                float_cache,
+                crate::solver3::cache::ComputeMode::ComputeSize,
+            )?;
+        }
+    }
+
+    let (escaped_top_margin, escaped_bottom_margin, fragment_token_out, child_scrollbar_reflow) =
+        bfc_place_children(
+            ctx,
+            tree,
+            text_cache,
+            node_index,
+            constraints,
+            float_cache,
+            &node,
+            writing_mode,
+            &mut output,
+            legacy_center,
+            &mut float_context,
+            children_containing_block_size,
+            multicol.as_ref(),
+            flow_cross_size,
+            child_scrollbar_reflow,
+        )?;
+
+    Ok(BfcLayoutResult {
+        output,
+        escaped_top_margin,
+        escaped_bottom_margin,
+        outgoing_token: fragment_token_out,
+        scrollbar_reflow_needed: child_scrollbar_reflow,
+        reserved_scrollbar_width: scrollbar_reservation,
+    })
+}
+
+/// What [`layout_bfc`] decides before its first pass: the containing block its
+/// children are sized against (less the scrollbar gutter; one column of a
+/// multi-column container), the inline size they are placed across, and their
+/// box props re-resolved against that containing block.
+///
+/// Out of line, so that none of its locals is on the stack while the first pass
+/// recurses into the children: a debug build keeps every local of a function in
+/// its frame, and one frame of `layout_bfc` is on the stack per nesting level.
+#[inline(never)]
+fn bfc_prepare<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    node: &LayoutNodeHot,
+    node_index: usize,
+    constraints: &LayoutConstraints<'_>,
+    writing_mode: LayoutWritingMode,
+) -> (LogicalSize, f32, Option<BlockColumns>, f32) {
     // +spec:containing-block:42b75f - Block element establishes containing block for inline content
     // (IFC) Calculate this node's content-box size for use as containing block for children
     // CSS 2.2 § 10.1: The containing block for in-flow children is formed by the
@@ -385,104 +532,46 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
-    // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
-    //
-    // Inspired by Taffy's two-pass approach: first measure, then position.
-    //
-    // This was removed in commit 1a3e5850 and replaced with a single-pass approach
-    // that computed sizes just-in-time during positioning. The single-pass approach
-    // caused regression 8e092a2e because positioning decisions (margin collapsing,
-    // float clearance, available width after floats) depend on knowing ALL sibling
-    // sizes upfront, not just the ones visited so far.
-    //
-    // With the per-node cache (§9.1-§9.2), the re-added Pass 1 is efficient:
-    // - Each child subtree is computed once and stored in NodeCache
-    // - Pass 2 positioning reads sizes from tree nodes (used_size set by Pass 1)
-    // - When calculate_layout_for_subtree recurses into children after layout_bfc returns, it hits
-    //   the per-node cache (same available_size) — O(1) per child.
-    //
-    // Performance: O(n) for the tree. No double-computation thanks to caching.
-    // A child that turns out to need a space-reserving scrollbar was sized in
-    // this very pass against the UNreserved width (Pass 1 is the child's real
-    // layout). Only the document-level loop can lay it out again, so the need
-    // travels up in the result instead of dying in a local: before this, the
-    // flag was raised into a temporary here, and `overflow: auto` reserved its
-    // gutter only for a node that happened to BE a layout root.
-    let mut child_scrollbar_reflow = false;
-    {
-        let mut temp_positions: super::super::PositionVec = Vec::new();
+    (
+        children_containing_block_size,
+        scrollbar_reservation,
+        multicol,
+        flow_cross_size,
+    )
+}
 
-        // A `::marker` riding the first line is laid out with that line, not
-        // as a block of this flow (`is_marker_on_a_line`).
-        let bfc_children: Vec<usize> = {
-            let shared: &LayoutTree = tree;
-            shared
-                .children(node_index)
-                .iter()
-                .copied()
-                .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
-                .collect()
-        };
-        // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per
-        // parent node (0x60A00+slot). If body shows len=2 but the divs never get the
-        // per-child "sized" marker (0x60A40+childslot) below → the loop skips them; if they
-        // DO get it but layout_formatting_context (0x609A0) stays unset →
-        // calculate(child,ComputeSize) cache-hit (vs 0x60A60 miss-flag in cache.rs).
-        #[cfg(feature = "web_lift")]
-        unsafe {
-            crate::az_mark(
-                (0x60A00 + (node_index & 7) * 4) as u32,
-                (bfc_children.len() as u32 | 0xC0DE0000) as u32,
-            );
-        }
-        for &child_index in &bfc_children {
-            let child_node = tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-            let child_dom_id = child_node.dom_node_id;
-
-            // +spec:positioning:447b06 - Absolute positioning pulls element out of flow, skip from
-            // normal layout +spec:positioning:77a2d2 - Absolutely positioned children
-            // are ignored for auto height +spec:positioning:b47ac2 - Only normal flow
-            // children taken into account for auto height Skip absolutely/fixed
-            // positioned children — they're laid out separately +spec:positioning:
-            // c7e5c5 - out-of-flow elements ignored for word boundary / hyphenation
-            // +spec:positioning:7dd6d1 - Absolutely positioned boxes are taken out of the normal
-            // flow (no impact on later siblings, no margin collapsing)
-            let position_type = get_position_type(ctx.styled_dom, child_dom_id);
-            if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-                continue;
-            }
-
-            // Compute the child's full subtree layout with temporary positions.
-            // Position (0,0) is intentionally wrong — Pass 1 only cares about sizing.
-            // The correct positions are determined in Pass 2 below.
-            // [g147c] this child IS reached by Pass-1 sizing (per-child slot).
-            #[cfg(feature = "web_lift")]
-            unsafe {
-                crate::az_mark(
-                    (0x60A40 + (child_index & 7) * 4) as u32,
-                    (0xC0DE0000 | (child_index as u32 & 0xffff)) as u32,
-                );
-            }
-            crate::solver3::cache::calculate_layout_for_subtree(
-                ctx,
-                tree,
-                text_cache,
-                child_index,
-                LogicalPosition::zero(),
-                &CBTY::from_flattened_with_width_type(
-                    children_containing_block_size,
-                    constraints.available_width_type,
-                ),
-                &mut temp_positions,
-                &mut child_scrollbar_reflow,
-                float_cache,
-                crate::solver3::cache::ComputeMode::ComputeSize,
-            )?;
-        }
-    }
-
+/// [`layout_bfc`] after its first pass: places the children that pass sized
+/// (margin collapsing, floats and clearance, fragmentation), cuts them into the
+/// container's columns, and resolves the margins that escape the box, its
+/// content height and its baseline. Returns the escaped top and bottom margins,
+/// the outgoing break token and whether a descendant needs another layout pass
+/// for a scrollbar.
+///
+/// Out of line, so that none of its locals is on the stack while the first pass
+/// recurses into the children (see [`bfc_prepare`]).
+#[inline(never)]
+fn bfc_place_children<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    node_index: usize,
+    constraints: &LayoutConstraints<'_>,
+    float_cache: &mut HashMap<usize, FloatingContext>,
+    node: &LayoutNodeHot,
+    writing_mode: LayoutWritingMode,
+    output: &mut LayoutOutput,
+    legacy_center: bool,
+    float_context: &mut FloatingContext,
+    children_containing_block_size: LogicalSize,
+    multicol: Option<&BlockColumns>,
+    flow_cross_size: f32,
+    mut child_scrollbar_reflow: bool,
+) -> Result<(
+    Option<f32>,
+    Option<f32>,
+    Option<crate::solver3::break_token::BreakToken>,
+    bool,
+)> {
     // +spec:block-formatting-context:98b633 - CSS 2.2 § 9.4.1: boxes laid out vertically, margins
     // collapse === Pass 2: Position children using known sizes ===
     //
@@ -2560,12 +2649,10 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
         warm_mut.baseline = output.baseline;
     }
 
-    Ok(BfcLayoutResult {
-        output,
+    Ok((
         escaped_top_margin,
         escaped_bottom_margin,
-        outgoing_token: fragment_token_out,
-        scrollbar_reflow_needed: child_scrollbar_reflow,
-        reserved_scrollbar_width: scrollbar_reservation,
-    })
+        fragment_token_out,
+        child_scrollbar_reflow,
+    ))
 }
