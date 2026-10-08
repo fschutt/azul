@@ -5,7 +5,8 @@
 //! - [`num`]: exact decimals (bigdecimal), formatting;
 //! - [`expr`]: tokens, the precedence parser, the decimal and integer evaluators;
 //! - [`programmer`]: word sizes, bases, shifts, rotates, the bit field;
-//! - [`calc`]: the input model (what a key does), the keyboard map;
+//! - [`calc`]: the input model (what a key does, what a typed character does);
+//! - [`typing`]: the names a user types (`sqrt`, `sin`, `pi`, `x`, `xor`);
 //! - [`units`]: the converter's table;
 //! - [`datecalc`]: date differences and date arithmetic;
 //! - [`history`]: `calculator/history.jsonl` and the memory.
@@ -20,6 +21,7 @@ pub mod history;
 pub mod ids;
 pub mod num;
 pub mod programmer;
+pub mod typing;
 pub mod units;
 
 /// The window (azul's UtilityShell, the keypads, the panels, the settings page).
