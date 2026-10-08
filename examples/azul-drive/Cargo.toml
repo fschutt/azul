@@ -18,6 +18,9 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The Azlin cloud client: Add drive > Buy storage (tiers, test drives, checkouts) and the
+# Azlin drives that refresh their credentials by themselves.
+azcloud-kit = { path = "../azcloud-kit" }
 # The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
 # Data, Shortcuts, About), the --shot timer.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
@@ -30,6 +33,13 @@ serde_json = "1"
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[features]
+# Add drive > Connect data source offers OpenDAL's services and the databases (tables as
+# folders); `--no-default-features` builds AzDrive with S3 and local folders only.
+default = ["opendal", "sql"]
+opendal = ["azul-storage/opendal"]
+sql = ["azul-storage/sql"]
 
 [lib]
 name = "azdrive"

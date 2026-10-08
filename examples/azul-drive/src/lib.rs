@@ -72,6 +72,8 @@
 //! `AZDRIVE_NEW_WINDOW <path>`. Keys and secrets are never printed.
 
 mod actions;
+/// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
+mod add_drive;
 #[cfg(test)]
 mod add_drive_tests;
 pub mod args;
