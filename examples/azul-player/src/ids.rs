@@ -31,9 +31,9 @@ names! {
     FALLOFF = "falloff";
     RAYS_NEAR = "rays-near";
     RAYS_FAR = "rays-far";
-    /// The Media Center orb and name, top left; the back button beside it (shown when the pointer
-    /// moves: id and marker).
-    LOGO = "logo";
+    /// The window's top band (no title row is drawn: the band moves the window), the back
+    /// button on it (its box shown when the pointer moves: id and marker).
+    BAND = "band";
     BACK = "back";
     CORNER = "corner";
     /// The clock, top right (its text node is a marker, rewritten in place).
@@ -59,10 +59,10 @@ names! {
     /// The search page and its field.
     SEARCH = "search";
     SEARCH_FIELD = "search-field";
-    /// The address page: its field, its play button, the sample.
+    /// The address dialog's field.
     ADDRESS_FIELD = "address-field";
-    ADDRESS_PLAY = "address-play";
-    ADDRESS_SAMPLE = "address-sample";
+    /// The overlay over the page (more info, a dialog); its panel is `overlay-<name>`.
+    OVERLAY = "overlay";
     /// The picture viewer and slide show.
     PICTURE = "picture";
     PICTURE_CAPTION = "picture-caption";

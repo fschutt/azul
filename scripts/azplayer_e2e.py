@@ -11,9 +11,22 @@
        shows, the arrows move its focus (AZPLAYER_FOCUS);
     3. every section opens from the strip and Back (Backspace) comes back: music (its views move:
        AZPLAYER_VIEW), pictures (a folder, a picture, the next one, the slide show), videos,
-       movies, recorded tv, recently played, the settings (Escape); a disabled item (radio,
-       extras library) says why (AZPLAYER_NOTICE);
-    4. music: play all -> now playing; the transport buttons pause, play, skip, stop;
+       movies, recorded tv, recently played; a disabled item (radio, extras library) says why
+       (AZPLAYER_NOTICE);
+    3b. NO TITLE ROW: the top band is the window's drag region (-azul-app-region: drag), the back
+       button and the clock are no-drag, on macOS the back button clears the traffic lights;
+    3c. MORE INFO (Ctrl+D) on a tile opens Media Center's panel (AZPLAYER_OVERLAY more-info open,
+       #__azplayer_overlay-more-info), Back closes it and stays on the page;
+    3d. TAB walks the page's zones: the back button (AZPLAYER_ZONE corner) STAYS shown while it
+       has the keys - longer than the 2 s the pointer's chrome waits (AZPLAYER_CHROME, its
+       opacity) - Tab goes back to the page, Shift+Tab to the button, Enter presses it;
+    3e. THE SETTINGS are AzPlayer's own pages (page-settings, page-settings-general): "show the
+       clock" turned off (AZPLAYER_OPTION), save (AZPLAYER_SETTINGS saved, the file written),
+       the clock is gone; library setup lists the music folder; Escape leaves;
+    4. music: play all -> now playing; the transport buttons pause, play, skip; Space pauses,
+       Back asks (AZPLAYER_OVERLAY music-paused open) and Escape keeps it paused; on the start
+       strip the inset shows, Tab reaches it, its more info's "stop" ends the music and the
+       inset goes;
     5. THE VIDEO'S CURTAIN: a video opens behind the menus - the first picture and the first sound
        are ready (AZPLAYER_PREROLL picture / sound) BEFORE the menus fade (AZPLAYER_CURTAIN
        fade-out), picture and sound start together (AZPLAYER_CURTAIN play, AZPLAYER_AUDIO ready),
@@ -21,10 +34,13 @@
        checked; then Space pauses, the round play button plays, M mutes (the OSD), F / Escape
        fullscreen, Backspace closes it (AZPLAYER_CLOSE) and the page under it comes back;
     5b. NETWORK STREAMING: the test video is served by a local file server answering range
-       requests; "open an address" plays it behind the same curtain (the picture and the sound
-       read while they download: AZPLAYER_AUDIO ready, AZPLAYER_STATE playing);
+       requests; "open an address" (Media Center's dialog with the field: AZPLAYER_OVERLAY
+       address open) plays it behind the same curtain (the picture and the sound read while
+       they download: AZPLAYER_AUDIO ready, AZPLAYER_STATE playing);
     6. a second run on the same data folder, `--screen recent`: the test video is in recently
-       played (player/history.json);
+       played (player/history.json), the clock stays off (the saved setting), no now-playing
+       inset (the stopped music stays gone); the video's more info removes it from recently
+       played;
     7. screenshots of the start strip, a library, now playing, the picture viewer, the curtain
        mid-fade, the playing video, the recent page.
 
@@ -41,12 +57,16 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
+import time
 
 import azlin_e2e as e2e
 from azlin_e2e import Failure
 
 TAG = "azplayer"
+# The width macOS's traffic lights take at the window's top left (AzMusic's check).
+TRAFFIC_LIGHTS_W = 70.0
 
 
 def ffmpeg():
@@ -150,6 +170,62 @@ def phase(app):
     return last.split()[0] if last else None
 
 
+def overlay(app):
+    """The last `AZPLAYER_OVERLAY <name> <open|closed>`."""
+    return app.last("AZPLAYER_OVERLAY")
+
+
+def option(app, key):
+    """The last value AzPlayer printed for the option `key` (`AZPLAYER_OPTION <key> <value>`:
+    every option at the start, then a settings page's changes)."""
+    values = app.printed("AZPLAYER_OPTION", r"%s \S+" % re.escape(key))
+    return values[-1].split(" ", 1)[1] if values else None
+
+
+def css_of(app, selector):
+    """A node's computed CSS (`get_node_css_properties`) as {property: value}."""
+    value = app.value("get_node_css_properties", selector=selector)
+    props = value.get("properties") if isinstance(value, dict) else None
+    found = {}
+    for line in props or []:
+        if isinstance(line, str) and ":" in line:
+            key, val = line.split(":", 1)
+            found[key.strip()] = val.strip()
+    return found
+
+
+def opacity_of(app, selector):
+    """A node's computed opacity, 0..1 (1 when the server reports none)."""
+    raw = css_of(app, selector).get("opacity")
+    if not raw:
+        return 1.0
+    try:
+        number = float(raw.rstrip("%").strip())
+    except ValueError:
+        return 1.0
+    return number / 100.0 if raw.endswith("%") or number > 1.0 else number
+
+
+def check_band(app):
+    """No title row: the top band is the window's drag region, the back button and the clock
+    keep their presses (`no-drag`), and on macOS the back button clears the traffic lights."""
+    if app.has(".csd-title"):
+        raise Failure("a title row is back over the media center")
+    region = css_of(app, "#__azplayer_band").get("-azul-app-region")
+    if region != "drag":
+        raise Failure("the top band is not the window's drag region (-azul-app-region %r)"
+                      % region)
+    for control in ("back", "clock"):
+        got = css_of(app, "#__azplayer_%s" % control).get("-azul-app-region")
+        if got != "no-drag":
+            raise Failure("a press on #__azplayer_%s would move the window (%r)" % (control, got))
+    if sys.platform == "darwin":
+        back = app.rect("__azplayer_back")
+        if float(back.get("x", 0.0)) < TRAFFIC_LIGHTS_W:
+            raise Failure("the back button sits under the traffic lights: %r" % back)
+    app.log("the top band moves the window, its controls are their own")
+
+
 class RangeHandler(http.server.SimpleHTTPRequestHandler):
     """A file server that answers range requests (`206`, `Content-Range`), as a video host
     does: what AzPlayer's streaming reads a window ahead with."""
@@ -213,7 +289,7 @@ def serve_folder(folder):
     return server, "http://127.0.0.1:%d" % server.server_address[1]
 
 
-def check_strip_and_sections(app, out, have_media):
+def check_strip_and_sections(app, out, have_media, folders):
     wait_page(app, "page-start")
     if not app.has_id("__azplayer_strip"):
         raise Failure("the start strip has no strip")
@@ -239,7 +315,46 @@ def check_strip_and_sections(app, out, have_media):
     app.key("right")
     app.until("the artists view", lambda: app.last("AZPLAYER_VIEW") == "artists")
     app.screenshot(os.path.join(out, "2-music.png"))
-    key_to_page(app, "backspace", "page-start")
+
+    # NO TITLE ROW: the band moves the window, its controls are their own.
+    check_band(app)
+
+    # MORE INFO (Ctrl+D, Media Center's button) on a tile: its panel; Back closes it.
+    if have_media:
+        app.key("down")
+        app.until("a tile of the gallery focused", lambda: (focus(app) or "").startswith("tile "))
+        app.key("d", ctrl=True)
+        app.until("the more-info panel", lambda: overlay(app) == "more-info open")
+        app.until("#__azplayer_overlay-more-info in the window",
+                  lambda: app.has_id("__azplayer_overlay-more-info"))
+        if not app.shows("add to queue"):
+            raise Failure("an artist's more info offers no 'add to queue'")
+        app.screenshot(os.path.join(out, "2b-more-info.png"))
+        app.key("backspace")
+        app.until("Back closes more info", lambda: overlay(app) == "more-info closed")
+        if page(app) != "page-music":
+            raise Failure("Back on more info left the page: %r" % page(app))
+
+    # TAB walks the page's zones: the back button STAYS while it has the keys, however long the
+    # pointer rests ("pressing tab can also make the back button disappear").
+    app.key("tab")
+    app.until("Tab: the keys on the back button", lambda: app.last("AZPLAYER_ZONE") == "corner")
+    time.sleep(2.6)
+    app.frame(3)
+    if app.last("AZPLAYER_CHROME") == "hidden":
+        raise Failure("the back button hid while it had the keys")
+    seen = opacity_of(app, "#__azplayer_corner")
+    if seen < 0.5:
+        raise Failure("the back button is not shown while it has the keys (opacity %.2f)" % seen)
+    if not app.laid_out("#__azplayer_back"):
+        raise Failure("no back button to have the keys")
+    app.screenshot(os.path.join(out, "2c-tab-back.png"))
+    app.key("tab")
+    app.until("Tab: the keys back on the page", lambda: app.last("AZPLAYER_ZONE") == "content")
+    app.key("tab", shift=True)
+    app.until("Shift+Tab: the back button", lambda: app.last("AZPLAYER_ZONE") == "corner")
+    # Enter presses the button the keys are on.
+    key_to_page(app, "return", "page-start")
 
     # A disabled item says why: radio.
     move_strip(app, "right", "music / play all")
@@ -290,14 +405,8 @@ def check_strip_and_sections(app, out, have_media):
     app.until("recorded TV's empty state", lambda: app.shows("no recorded TV"))
     key_to_page(app, "backspace", "page-start")
 
-    # TASKS: the settings page, Escape closes it.
-    move_strip(app, "down", "tasks / settings")
-    app.key("return")
-    app.until("the settings page", lambda: app.last("AZPLAYER_ACTION") == "Settings")
-    app.frame(3)
-    app.key("escape")
-    app.frame(3)
-    wait_page(app, "page-start")
+    # TASKS: the settings, AzPlayer's own pages.
+    check_settings(app, out, folders)
 
     # EXTRAS: the extras library says why; recently played opens.
     for _ in range(5):
@@ -314,6 +423,46 @@ def check_strip_and_sections(app, out, have_media):
     # Back to music.
     move_strip(app, "down", "pictures + videos / video library")
     move_strip(app, "down", "music / music library")
+
+
+def check_settings(app, out, folders):
+    """THE SETTINGS, AzPlayer's own ten-foot pages: the categories; general's "show the clock"
+    turned off and saved (the settings file is written: a second run sees it) - the clock goes;
+    library setup lists the music folder; Escape cancels a page and leaves the settings."""
+    move_strip(app, "down", "tasks / settings")
+    key_to_page(app, "return", "page-settings")
+    for word in ("general", "library setup", "start-up & window", "about"):
+        if not app.shows(word):
+            raise Failure("the settings do not list %r" % word)
+    app.screenshot(os.path.join(out, "9-settings.png"))
+    key_to_page(app, "return", "page-settings-general")
+    app.key("down")
+    app.until("the clock's check box", lambda: focus(app) == "setting show the clock")
+    app.key("return")
+    app.until("the clock turned off in the draft",
+              lambda: option(app, "player.show_clock") == "false")
+    app.key("down")
+    app.until("save", lambda: focus(app) == "setting save")
+    app.screenshot(os.path.join(out, "9b-settings-general.png"))
+    written = app.count("AZPLAYER_SETTINGS_SAVED")
+    app.key("return")
+    app.until("saved", lambda: app.last("AZPLAYER_SETTINGS") == "saved general 1")
+    app.until("the settings file written",
+              lambda: app.count("AZPLAYER_SETTINGS_SAVED") > written)
+    wait_page(app, "page-settings")
+    app.until("the clock gone", lambda: not app.has_id("__azplayer_clock"))
+    # Library setup lists each library's folders.
+    for _ in range(5):
+        app.key("down")
+    app.until("library setup", lambda: focus(app) == "category library setup")
+    key_to_page(app, "return", "page-settings-library")
+    app.until("the music folder in library setup", lambda: app.shows(folders["music"]))
+    app.screenshot(os.path.join(out, "9c-library-setup.png"))
+    key_to_page(app, "escape", "page-settings")
+    if app.last("AZPLAYER_SETTINGS") != "cancel library":
+        raise Failure("Escape on a settings page is not cancel: %r"
+                      % app.last("AZPLAYER_SETTINGS"))
+    key_to_page(app, "escape", "page-start")
 
 
 def check_music(app, out, have_media):
@@ -334,8 +483,31 @@ def check_music(app, out, have_media):
     songs = app.count("AZPLAYER_MUSIC", r"play .*")
     app.click(selector="#__azplayer_next")
     app.until("the next song", lambda: app.count("AZPLAYER_MUSIC", r"play .*") > songs)
-    app.click(selector="#__azplayer_stop")
+
+    # PAUSED, then Back: Media Center asks - stop it, or keep it paused (Escape keeps it).
+    app.key("space")
+    app.until("paused by Space", lambda: app.last("AZPLAYER_MUSIC") == "paused")
+    app.key("backspace")
+    app.until("Back asks about the paused music", lambda: overlay(app) == "music-paused open")
+    app.screenshot(os.path.join(out, "4b-music-paused.png"))
+    app.key("escape")
+    app.until("kept paused", lambda: overlay(app) == "music-paused closed")
+    wait_page(app, "page-start")
+    app.until("the paused song's inset", lambda: app.has_id("__azplayer_inset"))
+
+    # The inset can be dismissed: Tab reaches it, its more info's stop ends the music.
+    app.key("tab")
+    app.until("Tab: the inset", lambda: app.last("AZPLAYER_ZONE") == "inset")
+    app.key("d", ctrl=True)
+    app.until("the inset's more info", lambda: overlay(app) == "more-info open")
+    for _ in range(4):
+        if focus(app) == "choice stop":
+            break
+        app.key("down")
+    app.until("stop focused", lambda: focus(app) == "choice stop")
+    app.key("return")
     app.until("stopped", lambda: app.last("AZPLAYER_MUSIC") == "stopped")
+    app.until("the inset gone", lambda: not app.has_id("__azplayer_inset"))
     back_to_start(app)
     move_strip(app, "left", "music / music library")
 
@@ -413,7 +585,11 @@ def check_address(app, out, base_url):
     move_strip(app, "down", "movies / movie library")
     move_strip(app, "right", "movies / open a file")
     move_strip(app, "right", "movies / open an address")
-    key_to_page(app, "return", "page-address")
+    # Media Center's dialog over the strip: the field (it has the keys), play, a sample.
+    app.key("return")
+    app.until("the address dialog", lambda: overlay(app) == "address open")
+    app.until("its field", lambda: app.has_id("__azplayer_address-field"))
+    app.screenshot(os.path.join(out, "6a-address-dialog.png"))
     url = base_url + "/test-video.mp4"
     app.text_input("#__azplayer_address-field", url)
     opens = app.count("AZPLAYER_CURTAIN", "open")
@@ -433,9 +609,10 @@ def check_address(app, out, base_url):
     closes = app.count("AZPLAYER_CLOSE")
     app.key("backspace")
     app.until("the address's video closed", lambda: app.count("AZPLAYER_CLOSE") > closes)
-    wait_page(app, "page-address")
-    # The address field has the focus again: Backspace edits it, Escape is Back.
-    key_to_page(app, "escape", "page-start")
+    # The dialog closed when the video opened: the strip under it comes back.
+    wait_page(app, "page-start")
+    if app.has_id("__azplayer_overlay-address"):
+        raise Failure("the address dialog is still there after its video")
     move_strip(app, "up", "music / music library")
 
 
@@ -459,7 +636,7 @@ def body(args, logs, out):
             app.until("the %s scan" % library,
                       lambda library=library: app.printed("AZPLAYER_SCAN", r"%s \d+ \w+" % library))
         app.frame(3)
-        check_strip_and_sections(app, out, have_media)
+        check_strip_and_sections(app, out, have_media, folders)
         check_music(app, out, have_media)
         if have_media:
             check_video(app, out)
@@ -486,11 +663,37 @@ def body(args, logs, out):
         wait_page(app, "page-recent")
         if not app.has_id("__azplayer_open"):
             raise Failure("recently played has no open tile")
+        # The saved setting holds: the clock stays off. The music stopped in the first run
+        # stays gone: no now-playing inset.
+        if option(app, "player.show_clock") != "false":
+            raise Failure("the clock setting was not kept: %r" % option(app, "player.show_clock"))
+        if app.has_id("__azplayer_clock"):
+            raise Failure("the clock shows though the settings turned it off")
+        if app.has_id("__azplayer_inset"):
+            raise Failure("the stopped music's inset is back after a restart")
         if have_media:
             if app.last("AZPLAYER_HISTORY") == "0":
                 raise Failure("the history is empty after a video played")
             app.until("the test video in recently played", lambda: app.shows("test-video"))
         app.screenshot(os.path.join(out, "8-recent.png"))
+        if have_media:
+            # The video's more info (below the open tile) removes it from recently played.
+            app.key("down")
+            app.until("the recent video focused", lambda: focus(app) == "tile 1 column 0")
+            app.key("d", ctrl=True)
+            app.until("the video's more info", lambda: overlay(app) == "more-info open")
+            for _ in range(4):
+                if focus(app) == "choice remove from recently played":
+                    break
+                app.key("down")
+            app.until("remove focused",
+                      lambda: focus(app) == "choice remove from recently played")
+            # (The file and the address of the same clip are both there: one goes.)
+            before = int(app.last("AZPLAYER_HISTORY") or "0")
+            app.key("return")
+            app.until("forgotten",
+                      lambda: app.last("AZPLAYER_HISTORY") == str(max(before - 1, 0)))
+            app.until("more info closed", lambda: overlay(app) == "more-info closed")
         app.key("backspace")
         wait_page(app, "page-start")
         app.log("PASS")

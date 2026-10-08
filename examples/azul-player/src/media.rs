@@ -142,6 +142,43 @@ pub fn play_music(app: &RefAny, info: &mut CallbackInfo, paths: Vec<String>, sta
     }
 }
 
+/// Adds `paths` to the end of the queue: they play after what is queued (more info's "add to
+/// queue"). When nothing plays they play now, and the page stays.
+pub fn queue_music(app: &RefAny, info: &mut CallbackInfo, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    {
+        let mut app_ref = app.clone();
+        let Some(mut guard) = app_ref.downcast_mut::<Player>() else {
+            return;
+        };
+        let s = &mut *guard;
+        if let Some(m) = s.music.as_mut() {
+            m.paths.extend(paths);
+            let n = m.paths.len();
+            // The song after the one heard, if the queue had ended with it.
+            queue_next(s);
+            println!("AZPLAYER_QUEUE {n}");
+            s.notice("Added to the queue.");
+            return;
+        }
+    }
+    play_music(app, info, paths, 0, false);
+}
+
+/// The music ended (stopped, finished, the slide show's turned off): it is gone - its inset with
+/// it, nothing brings it back at the next start - and a page whose keys were on the inset has
+/// them on the page again.
+fn music_ended(s: &mut Player) {
+    s.music = None;
+    for place in &mut s.nav {
+        if place.focus.zone == crate::pages::Zone::Inset {
+            place.focus.zone = crate::pages::Zone::Content;
+        }
+    }
+}
+
 /// Hands the player the song after the one heard (gapless), once.
 fn queue_next(s: &mut Player) {
     let Some((next, path)) = s.music.as_ref().and_then(|m| {
@@ -215,7 +252,7 @@ pub fn tick_music(s: &mut Player, info: &mut CallbackInfo) -> bool {
     }
     if known && state.finished {
         println!("AZPLAYER_MUSIC finished");
-        s.music = None;
+        music_ended(s);
         return true;
     }
     // In place: the seek bar and the time played (once a second).
@@ -305,7 +342,8 @@ pub fn open_video(app: &RefAny, info: &mut CallbackInfo, path: &str) {
     };
     let s = &mut *guard;
     // Music stops for a video (Media Center's way).
-    if s.music.take().is_some() {
+    if s.music.is_some() {
+        music_ended(s);
         if let Some(a) = s.audio.as_ref() {
             a.stop();
         }
@@ -315,7 +353,12 @@ pub fn open_video(app: &RefAny, info: &mut CallbackInfo, path: &str) {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     s.history.touch(path, now_s);
-    let resume = s.history.resume_at(path);
+    // Where it was left - unless the settings say every video starts at its beginning.
+    let resume = if s.options.is_on(crate::options::RESUME) {
+        s.history.resume_at(path)
+    } else {
+        0.0
+    };
     #[allow(clippy::cast_possible_truncation)]
     let seek_s = resume as f32;
     let audio_id = match address {
@@ -508,6 +551,14 @@ pub extern "C" fn on_video_status(
     if save {
         app::save_history(&app, s, &mut info);
     }
+    // A video that does not play here says so in Media Center's dialog (OK and Back close it).
+    if phase_changed && status.phase == VideoPhase::Failed {
+        let title = s.video.as_ref().map(VideoSession::title).unwrap_or_default();
+        crate::dialog::open(
+            s,
+            crate::overlay::video_failed(&title, status.message.as_str()),
+        );
+    }
     if rebuild {
         return Update::RefreshDom;
     }
@@ -688,13 +739,30 @@ pub fn step_picture(s: &mut Player, by: isize) {
     println!("AZPLAYER_PICTURE {} {}", s.viewer.index, if s.viewer.playing { "slideshow" } else { "still" });
 }
 
+/// How long a slide shows (the settings'), seconds.
+#[must_use]
+pub fn slide_s(s: &Player) -> u64 {
+    s.options.seconds(crate::options::SLIDE_SECONDS).max(1)
+}
+
+/// How far the skip buttons and Left / Right jump (the settings'), seconds: back is negative.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn skip_s(s: &Player, forward: bool) -> f64 {
+    if forward {
+        s.options.seconds(crate::options::SKIP_FORWARD) as f64
+    } else {
+        -(s.options.seconds(crate::options::SKIP_BACK) as f64)
+    }
+}
+
 /// The slide show's tick: the next picture once one has shown long enough AND the next is
 /// decoded (a slow picture never shows half made). `(rebuild, wants pictures)`.
 pub fn tick_viewer(s: &mut Player, now: u64) -> (bool, bool) {
     if s.place().screen != Screen::Picture || !s.viewer.playing || s.viewer.paths.is_empty() {
         return (false, false);
     }
-    if now.saturating_sub(s.viewer.since_ms) < SLIDE_S * 1000 {
+    if now.saturating_sub(s.viewer.since_ms) < slide_s(s) * 1000 {
         return (false, false);
     }
     let next = (s.viewer.index + 1) % s.viewer.paths.len();
@@ -831,20 +899,21 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
         Command::Open => return on_open(app.clone(), *info),
         Command::Back => return crate::nav::back(app, info),
         Command::Home => return crate::nav::home(app, info),
+        // The settings are pages of the media center (`settings.rs`), never the desktop's
+        // Options dialog: a video closes first.
         Command::Settings => {
+            close_video(app, info);
             let mut app_ref = app.clone();
-            let kit_ref = app_ref.downcast_ref::<Player>().map(|s| s.kit.clone());
-            if let Some(kit_ref) = kit_ref {
-                azul_appkit::ui::open_settings(&kit_ref, None);
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                crate::settings::open(&mut s);
             }
             return Update::RefreshDom;
         }
+        // About: Media Center's dialog over the page, not the desktop's About box.
         Command::About => {
             let mut app_ref = app.clone();
-            let kit_ref = app_ref.downcast_ref::<Player>().map(|s| s.kit.clone());
-            if let Some(kit_ref) = kit_ref {
-                azul_appkit::ui::open_settings(&kit_ref, Some("About"));
-                azul_appkit::ui::set_about_open(&kit_ref, true);
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                crate::dialog::open_about(&mut s);
             }
             return Update::RefreshDom;
         }
@@ -930,7 +999,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
             if let Some(a) = s.audio.as_ref() {
                 a.stop();
             }
-            s.music = None;
+            music_ended(s);
             println!("AZPLAYER_MUSIC stopped");
         }
         (Command::Stop, Playing::Pictures) => {
@@ -947,20 +1016,12 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
                 .video
                 .as_ref()
                 .map_or(0.0, |v| f64::from(v.status.position_s));
-            let by = if command == Command::Rewind {
-                -REWIND_S
-            } else {
-                FORWARD_S
-            };
+            let by = skip_s(s, command == Command::Forward);
             seek_video(s, position + by);
         }
         (Command::Rewind | Command::Forward, Playing::Music) => {
             let position = s.music.as_ref().map_or(0.0, |m| m.state.position_s);
-            let by = if command == Command::Rewind {
-                -REWIND_S
-            } else {
-                FORWARD_S
-            };
+            let by = skip_s(s, command == Command::Forward);
             let target = (position + by).max(0.0);
             if let Some(a) = s.audio.as_ref() {
                 a.seek(target);
@@ -1049,10 +1110,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
         }
     }
     // The chrome and the OSD as the state has them, in place - also what a rebuild then keeps.
-    if !s.controls_shown {
-        s.controls_shown = true;
-        app::show_chrome(info, true);
-    }
+    app::set_chrome(s, info, true);
     app::show_osd(s, info);
     drop(guard);
     if rebuild {
@@ -1075,7 +1133,7 @@ fn slide_music(app: &RefAny, info: &mut CallbackInfo) -> Update {
             if let Some(a) = s.audio.as_ref() {
                 a.stop();
             }
-            s.music = None;
+            music_ended(&mut s);
             return Update::RefreshDom;
         }
         let paths: Vec<String> = s
@@ -1120,6 +1178,141 @@ pub fn transport_key(s: &Player, key: VirtualKeyCode, gallery: bool) -> Option<C
 
 /// The seek bar's callback, typed.
 pub const ON_SEEK: SeekBarOnSeekCallbackType = on_seek;
+
+// ==== The round buttons: the transport, the top band ====
+
+/// One round button of the transport.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransportButton {
+    pub command: Command,
+    pub icon: &'static str,
+    /// Its name for assistive technology.
+    pub name: &'static str,
+    pub size: f32,
+    /// Its id's name (`ids::id`).
+    pub id: &'static str,
+    /// A gap before it (the volume after the transport, the music after the slide show's).
+    pub gap: bool,
+}
+
+/// The transport that shows for `screen`, if one does: the music's on now playing, the slide
+/// show's on the picture viewer, the video's over a video.
+#[must_use]
+pub fn transport_of(screen: &Screen) -> Option<Shelf> {
+    match screen {
+        Screen::NowPlaying => Some(Shelf::Music),
+        Screen::Picture => Some(Shelf::Pictures),
+        Screen::Video => Some(Shelf::Videos),
+        _ => None,
+    }
+}
+
+/// The transport's buttons, left to right: for music shuffle, previous, rewind, play / pause,
+/// forward, next, stop and the volume; for a video stop, from the start, rewind, play / pause,
+/// forward and the volume; for the slide show previous, play / pause, next and the music.
+#[must_use]
+pub fn transport_buttons(s: &Player, what: Shelf) -> Vec<TransportButton> {
+    let playing = match what {
+        Shelf::Music => s.music.as_ref().is_some_and(Music::playing),
+        Shelf::Pictures => s.viewer.playing,
+        _ => s
+            .video
+            .as_ref()
+            .is_some_and(|v| !v.paused && v.status.phase != VideoPhase::Ended),
+    };
+    let (play_icon, play_name) = if playing {
+        ("pause", "Pause")
+    } else {
+        ("play_arrow", "Play")
+    };
+    let (mute_icon, mute_name) = if s.muted {
+        ("volume_off", "Sound on")
+    } else {
+        ("volume_up", "Mute")
+    };
+    let b = |command: Command,
+             icon: &'static str,
+             name: &'static str,
+             size: f32,
+             id: &'static str| TransportButton {
+        command,
+        icon,
+        name,
+        size,
+        id,
+        gap: false,
+    };
+    let mut out = match what {
+        Shelf::Pictures => {
+            let music_name = if s.music.is_some() {
+                "Stop the music"
+            } else {
+                "Music under the slide show"
+            };
+            let show_name = if playing {
+                "Pause the slide show"
+            } else {
+                "Play the slide show"
+            };
+            vec![
+                b(Command::Previous, "skip_previous", "Previous picture", 40.0, "previous"),
+                b(Command::SlideShow, play_icon, show_name, 54.0, "play"),
+                b(Command::Next, "skip_next", "Next picture", 40.0, "next"),
+                TransportButton {
+                    gap: true,
+                    ..b(Command::SlideMusic, "library_music", music_name, 34.0, "music")
+                },
+            ]
+        }
+        Shelf::Music => vec![
+            b(Command::Shuffle, "shuffle", "Shuffle", 34.0, "shuffle"),
+            b(Command::Previous, "skip_previous", "Previous song", 40.0, "previous"),
+            b(Command::Rewind, "fast_rewind", "Skip back", 40.0, "rewind"),
+            b(Command::PlayPause, play_icon, play_name, 56.0, "play"),
+            b(Command::Forward, "fast_forward", "Skip forward", 40.0, "forward"),
+            b(Command::Next, "skip_next", "Next song", 40.0, "next"),
+            b(Command::Stop, "stop", "Stop", 40.0, "stop"),
+        ],
+        _ => vec![
+            b(Command::Stop, "stop", "Stop", 40.0, "stop"),
+            b(Command::Restart, "skip_previous", "From the start", 40.0, "restart"),
+            b(Command::Rewind, "fast_rewind", "Skip back", 40.0, "rewind"),
+            b(Command::PlayPause, play_icon, play_name, 56.0, "play"),
+            b(Command::Forward, "fast_forward", "Skip forward", 40.0, "forward"),
+        ],
+    };
+    if what != Shelf::Pictures {
+        out.push(TransportButton {
+            gap: true,
+            ..b(Command::Mute, mute_icon, mute_name, 34.0, "mute")
+        });
+        out.push(b(Command::VolumeDown, "remove", "Volume down", 34.0, "volume-down"));
+        out.push(b(Command::VolumeUp, "add", "Volume up", 34.0, "volume-up"));
+    }
+    out
+}
+
+/// The transport button the keys are on: the one Left / Right moved to, else play / pause.
+#[must_use]
+pub fn transport_focus(buttons: &[TransportButton], chosen: Option<usize>) -> usize {
+    match chosen {
+        Some(i) if i < buttons.len() => i,
+        _ => buttons
+            .iter()
+            .position(|b| matches!(b.command, Command::PlayPause | Command::SlideShow))
+            .unwrap_or(0),
+    }
+}
+
+/// The top band's buttons on `screen`: back, and over a video fullscreen.
+#[must_use]
+pub fn corner_buttons(screen: &Screen) -> Vec<Command> {
+    if *screen == Screen::Video {
+        vec![Command::Back, Command::Fullscreen]
+    } else {
+        vec![Command::Back]
+    }
+}
 
 #[cfg(test)]
 mod tests {

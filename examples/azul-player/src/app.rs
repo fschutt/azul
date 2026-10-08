@@ -42,7 +42,9 @@ use crate::{
     ids,
     library::{Item, Library, Shelf, Status, LIBRARY_FILE, RECORDED_TV},
     media::{self, Music, VideoSession, Viewer},
-    pages::{self, Place, Screen, Section, Tile},
+    options::{self, Draft, Options},
+    overlay::Overlay,
+    pages::{self, Place, Screen, Section, Tile, Zone},
     scan::{self, ArtDone, ArtJob, ArtSource, ScanBatch},
     strip::StripFocus,
     sync::ControlsVisibility,
@@ -69,7 +71,7 @@ pub const SHORTCUTS: [Shortcut; 14] = [
     Shortcut::new("Moving around", "Home", "The start screen"),
     Shortcut::new("Moving around", "Mouse wheel", "Scroll the strip or the gallery"),
     Shortcut::new("Playback", "Space", "Play / pause"),
-    Shortcut::new("Playback", "Left  Right", "Back / forward 10 seconds (videos, music)"),
+    Shortcut::new("Playback", "Left  Right", "Skip back / forward (how far: settings, videos)"),
     Shortcut::new("Playback", "Shift+Left  Shift+Right", "Back / forward a minute"),
     Shortcut::new("Playback", "Page Up  Page Down", "Previous / next song or picture"),
     Shortcut::new("Playback", "Up  Down", "Volume up / down (while something plays)"),
@@ -94,58 +96,49 @@ const TAG_SAVE: u64 = 2;
 
 // ==== State ====
 
-/// The folders the libraries read.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Folders {
-    pub music: PathBuf,
-    pub pictures: PathBuf,
-    pub videos: PathBuf,
-    pub tv: PathBuf,
-}
+pub use crate::options::Folders;
 
 impl Folders {
-    /// The folders asked for on the command line, else the user's own (`FilePath`'s, else the
-    /// home folder's `Music`, `Pictures`, `Videos`); recorded TV is in the videos folder.
+    /// A library's folders: the one asked for on the command line (for this run), else the
+    /// ones the settings keep (`saved`), else the user's own (`FilePath`'s, else the home
+    /// folder's `Music`, `Pictures`, `Videos`); recorded TV is in the (first) videos folder.
     #[must_use]
-    pub fn resolve(asked: &FolderArgs) -> Folders {
+    pub fn resolve(asked: &FolderArgs, saved: &Folders) -> Folders {
         let path = |p: OptionFilePath| -> Option<PathBuf> {
             p.into_option()
                 .map(|dir| PathBuf::from(dir.inner.as_str()))
                 .filter(|p| !p.as_os_str().is_empty())
         };
         let home = path(FilePath::get_home_dir()).unwrap_or_default();
-        let music = asked
-            .music
-            .clone()
-            .or_else(|| path(FilePath::get_audio_dir()))
-            .unwrap_or_else(|| home.join("Music"));
-        let pictures = asked
-            .pictures
-            .clone()
-            .or_else(|| path(FilePath::get_picture_dir()))
-            .unwrap_or_else(|| home.join("Pictures"));
-        let videos = asked
-            .videos
-            .clone()
-            .or_else(|| path(FilePath::get_video_dir()))
-            .unwrap_or_else(|| home.join("Videos"));
-        let tv = asked.tv.clone().unwrap_or_else(|| videos.join(RECORDED_TV));
+        let pick = |asked: &Option<PathBuf>, saved: &Vec<PathBuf>, own: PathBuf| -> Vec<PathBuf> {
+            match asked {
+                Some(dir) => vec![dir.clone()],
+                None if !saved.is_empty() => saved.clone(),
+                None => vec![own],
+            }
+        };
+        let music = pick(
+            &asked.music,
+            &saved.music,
+            path(FilePath::get_audio_dir()).unwrap_or_else(|| home.join("Music")),
+        );
+        let pictures = pick(
+            &asked.pictures,
+            &saved.pictures,
+            path(FilePath::get_picture_dir()).unwrap_or_else(|| home.join("Pictures")),
+        );
+        let videos = pick(
+            &asked.videos,
+            &saved.videos,
+            path(FilePath::get_video_dir()).unwrap_or_else(|| home.join("Videos")),
+        );
+        let first_videos = videos.first().cloned().unwrap_or_else(|| home.join("Videos"));
+        let tv = pick(&asked.tv, &saved.tv, first_videos.join(RECORDED_TV));
         Folders {
             music,
             pictures,
             videos,
             tv,
-        }
-    }
-
-    /// The folder of `shelf`.
-    #[must_use]
-    pub fn of(&self, shelf: Shelf) -> &PathBuf {
-        match shelf {
-            Shelf::Music => &self.music,
-            Shelf::Pictures => &self.pictures,
-            Shelf::Videos => &self.videos,
-            Shelf::Tv => &self.tv,
         }
     }
 }
@@ -205,18 +198,43 @@ pub struct Player {
     pub wheel: f32,
     /// The clock's text as shown ("21:45").
     pub clock_text: String,
+    /// The settings (the kit's settings file, `player.*`).
+    pub options: Options,
+    /// What a settings page edits until save.
+    pub draft: Option<Draft>,
+    /// The overlay over the page: an item's more info, a dialog (`overlay.rs`).
+    pub overlay: Option<Overlay>,
 }
 
 impl Player {
     fn new(kit: RefAny, args: Args) -> Self {
-        let folders = Folders::resolve(&args.folders);
+        // The settings file was read before the window (`kit::create_kit`): AzPlayer's options
+        // and the libraries' folders in it.
+        let mut kit_ref = kit.clone();
+        let read = kit_ref.downcast_ref::<kit::Kit>().map(|k| {
+            (
+                Options::read(&k.settings.values),
+                options::saved_folders(&k.settings.values),
+            )
+        });
+        let (options, saved) = read.unwrap_or_default();
+        let folders = Folders::resolve(&args.folders, &saved);
         let window = args.kit.size.unwrap_or((1100.0, 700.0));
         let mut nav = vec![Place::new(Screen::Start)];
-        let screen = args.kit.screen.clone().unwrap_or_default();
+        // The page it opens on: a `--screen` switch for this run, else the settings' choice.
+        let screen = args
+            .kit
+            .screen
+            .clone()
+            .unwrap_or_else(|| options.get(options::START_SCREEN).to_string());
         if let Some(section) = Section::by_screen_name(&screen) {
-            nav.push(Place::new(Screen::Section(section)));
+            let mut place = Place::new(Screen::Section(section));
+            place.focus.view = options.view_of(section);
+            nav.push(place);
         } else if screen == "now-playing" {
             nav.push(Place::new(Screen::NowPlaying));
+        } else if screen == "settings" {
+            nav.push(Place::new(Screen::Settings));
         }
         Self {
             kit,
@@ -249,6 +267,9 @@ impl Player {
             window,
             wheel: 0.0,
             clock_text: wall_clock(),
+            options,
+            draft: None,
+            overlay: None,
         }
     }
 
@@ -268,6 +289,36 @@ impl Player {
     pub fn place_mut(&mut self) -> &mut Place {
         let last = self.nav.len() - 1;
         &mut self.nav[last]
+    }
+
+    /// Whether the now-playing inset shows: music plays (or is paused) and the page is not now
+    /// playing, the picture viewer or a video.
+    #[must_use]
+    pub fn inset_shown(&self) -> bool {
+        self.music.is_some()
+            && !matches!(
+                self.place().screen,
+                Screen::NowPlaying | Screen::Picture | Screen::Video
+            )
+    }
+
+    /// The zones of the page that shows, in Tab order.
+    #[must_use]
+    pub fn zones(&self) -> Vec<Zone> {
+        pages::zones(&self.place().screen, self.inset_shown())
+    }
+
+    /// The zone the keys are in on the page that shows.
+    #[must_use]
+    pub fn zone(&self) -> Zone {
+        pages::zone_in(self.place().focus.zone, &self.zones())
+    }
+
+    /// The pointer's chrome (the back button, the transport) has the keyboard: it stays while
+    /// it has.
+    #[must_use]
+    pub fn chrome_held(&self) -> bool {
+        matches!(self.zone(), Zone::Corner | Zone::Transport)
     }
 
     /// The page the MENUS show: the page under a video while its curtain is down.
@@ -347,14 +398,13 @@ impl Player {
         Grid::new(pages::tile_kind(tiles), w, h)
     }
 
-    /// The gallery's area (logical px): under the title and the views, over the status line.
+    /// The gallery's area (logical px): under the title and the views, over the status line
+    /// (no title row: the window is the Media Center's, edge to edge).
     #[must_use]
     pub fn gallery_area(&self) -> (f32, f32) {
-        let title_row = if self.fullscreen { 0.0 } else { 32.0 };
         (
             (self.window.0 - crate::ui::GALLERY_LEFT).max(100.0),
-            (self.window.1 - title_row - crate::ui::GALLERY_TOP - crate::ui::GALLERY_BOTTOM)
-                .max(80.0),
+            (self.window.1 - crate::ui::GALLERY_TOP - crate::ui::GALLERY_BOTTOM).max(80.0),
         )
     }
 }
@@ -417,10 +467,9 @@ pub fn start() {
             std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
         }
     };
+    // The kit reads the settings file and the shared config; AzPlayer's settings are its own
+    // pages (`settings.rs`), `--screen settings` opens them.
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.kit.clone());
-    if args.kit.screen.as_deref() == Some("settings") {
-        kit::open_settings(&kit_ref, None);
-    }
     let app = Player::new(kit_ref.clone(), args);
     let mut config = kit::app_config(&kit_ref);
     config.expose_system_media_controls = true;
@@ -454,6 +503,13 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     kit::on_window_created(&kit_ref, &mut info);
+    // Media only from the start, when the settings say so (never for a `--shot`).
+    let media_only = data
+        .downcast_ref::<Player>()
+        .is_some_and(|s| s.options.is_on(options::START_FULLSCREEN) && s.args.kit.shot.is_none());
+    if media_only {
+        let _ = media::run(&app, &mut info, media::Command::Fullscreen);
+    }
     if let (Some((root, history)), Some((_, library))) = (history, library) {
         kit::spawn_file_jobs(
             &mut info,
@@ -505,8 +561,12 @@ extern "C" fn on_files(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo
             }
         }
         println!("AZPLAYER_HISTORY {}", s.history.entries.len());
-        // The page it opens on, announced like every page it goes to after.
+        // The page it opens on, announced like every page it goes to after; the settings it
+        // runs with.
         println!("AZPLAYER_PAGE {}", s.place().screen.key());
+        for spec in &options::SPECS {
+            println!("AZPLAYER_OPTION {} {}", spec.key, s.options.get(spec.key));
+        }
         println!(
             "AZPLAYER_LIBRARY cached {} {} {} {}",
             s.library.music.items.len(),
@@ -547,7 +607,7 @@ pub fn save_history(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
 }
 
 /// Writes the library file into the data tree, on a Thread.
-fn save_library(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
+pub fn save_library(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
     if let Some((root, key)) = s.root_and_key(LIBRARY_FILE) {
         kit::spawn_file_jobs(
             info,
@@ -575,13 +635,17 @@ pub fn scan_all(app: &RefAny, info: &mut CallbackInfo) {
         if s.scanning[i].is_some() {
             continue;
         }
-        let folder = s.folders.of(shelf).clone();
-        // Recorded TV is its own library: the video scan leaves its folder out.
-        let skip = (shelf == Shelf::Videos).then(|| s.folders.tv.clone());
+        let roots = s.folders.of(shelf).to_vec();
+        // Recorded TV is its own library: the video scan leaves its folders out.
+        let skip = if shelf == Shelf::Videos {
+            s.folders.tv.clone()
+        } else {
+            Vec::new()
+        };
         s.scanning[i] = Some(Vec::new());
         s.library.shelf_mut(shelf).status = Status::Scanning;
-        s.library.shelf_mut(shelf).folder = folder.to_string_lossy().into_owned();
-        scan::spawn_scan(info, app, shelf, folder, skip, on_scan as WriteBackCallbackType);
+        s.library.shelf_mut(shelf).folder = s.folders.shown(shelf);
+        scan::spawn_scan(info, app, shelf, roots, skip, on_scan as WriteBackCallbackType);
     }
 }
 
@@ -605,23 +669,15 @@ extern "C" fn on_scan(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo)
             .iter()
             .position(|x| *x == batch.shelf)
             .unwrap_or(0);
+        // What this scan found so far: its first batch starts over, a file is taken once.
         let found = s.scanning[i].get_or_insert_with(Vec::new);
-        if batch.first {
-            found.clear();
-        }
-        found.extend(batch.items);
+        crate::library::gather(found, batch.items, batch.first);
         let empty = s.library.shelf(batch.shelf).items.is_empty();
         if batch.done {
             let items = s.scanning[i].take().unwrap_or_default();
+            // The scan's items REPLACE what the last start remembered.
             let shelf = s.library.shelf_mut(batch.shelf);
-            let changed = shelf.items != items;
-            shelf.items = items;
-            shelf.cut = batch.cut;
-            shelf.status = if batch.missing {
-                Status::Missing
-            } else {
-                Status::Ready
-            };
+            let changed = shelf.take_scan(items, batch.cut, batch.missing);
             println!(
                 "AZPLAYER_SCAN {} {} {}",
                 batch.shelf.word().replace(' ', "-"),
@@ -653,13 +709,20 @@ extern "C" fn on_scan(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo)
     }
 }
 
-/// A library that changed under a page: its focus stays on a tile that exists.
-fn clamp_focus(app: &RefAny) {
+/// A library that changed under a page (a scan, a deleted file, a forgotten one): its focus
+/// stays on a tile that exists. Only a page of tiles: a settings page's focus is a row.
+pub fn clamp_focus(app: &RefAny) {
     let mut app_ref = app.clone();
     let Some(mut s) = app_ref.downcast_mut::<Player>() else {
         return;
     };
     let place = s.place().clone();
+    if !matches!(
+        place.screen,
+        Screen::Section(_) | Screen::Group { .. } | Screen::Search
+    ) {
+        return;
+    }
     let count = s.page_tiles(&place).len();
     let focus = &mut s.place_mut().focus;
     if count == 0 {
@@ -889,6 +952,17 @@ pub fn show_chrome(info: &mut CallbackInfo, shown: bool) {
     set_shown(info, ids::CORNER, shown);
 }
 
+/// The chrome shows (`true`) or hides when it does not already: the state, the window (in
+/// place), and `AZPLAYER_CHROME <shown|hidden>` for scripts.
+pub fn set_chrome(s: &mut Player, info: &mut CallbackInfo, shown: bool) {
+    if s.controls_shown == shown {
+        return;
+    }
+    s.controls_shown = shown;
+    show_chrome(info, shown);
+    println!("AZPLAYER_CHROME {}", if shown { "shown" } else { "hidden" });
+}
+
 /// The OSD as the state has it, in place: its text and whether it shows.
 pub fn show_osd(s: &Player, info: &mut CallbackInfo) {
     match &s.osd {
@@ -938,12 +1012,14 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         let (slide, art) = media::tick_viewer(s, now);
         refresh |= slide;
         wants_art |= art;
-        // The chrome over what plays hides itself while it plays, in place.
-        let visible = s.controls.visible(now, media::chrome_hides(s));
-        if visible != s.controls_shown {
-            s.controls_shown = visible;
-            show_chrome(cb, visible);
-        }
+        // The pointer's chrome (the back button, the transport) hides itself while the pointer
+        // rests - never while the keyboard is on it (Tab took it there: what has the focus
+        // stays in sight).
+        // Over a playing video always; on the pages as the settings say.
+        let may_hide = media::chrome_hides(s)
+            && (s.video.is_some() || s.options.is_on(options::HIDE_CHROME));
+        let visible = s.controls.visible(now, may_hide) || s.chrome_held();
+        set_chrome(s, cb, visible);
         if s.osd.as_ref().is_some_and(|(_, until)| now >= *until) {
             s.osd = None;
             set_shown(cb, ids::OSD, false);

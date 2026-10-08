@@ -18,22 +18,22 @@
 
 use azul::{
     callbacks::{SeekBarOnSeekCallbackType, TextInputOnTextInputCallbackType},
-    css::Css,
+    css::{Css, CssDeclaration, CssPropertyWithConditions},
     dom::{AttributeType, TabIndex},
     image::RawImageFormat,
     menu::{Menu, MenuItem, StringMenuItem},
-    option::{OptionColorU, OptionString},
+    option::OptionString,
     prelude::*,
-    shells::{MediaShell, ShellThemeAccent, ShellThemeScope},
+    shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    video::{VideoConfig, VideoPhase, VideoSource},
-    widgets::{SeekBar, TextInput, Titlebar, VideoWidget},
+    vec::CssPropertyWithConditionsVec,
+    video::{VideoConfig, VideoSource},
+    widgets::{SeekBar, TextInput, VideoWidget},
 };
 use azul_appkit::ui as kit;
 
 use crate::{
     app::{self, cover_key, full_key, thumb_key, Art, Player},
-    args::SPEC,
     curtain::{Curtain, Stage},
     gallery::{Grid, TileKind},
     ids,
@@ -41,15 +41,24 @@ use crate::{
     look::{self, Light},
     media::{self, Command, CommandRef, Music, VideoSession},
     nav::{self, Act, ActRef},
-    pages::{self, Place, Screen, Section, Tile},
+    options::{self, Category, Row},
+    overlay::{Kind, Overlay},
+    pages::{self, Place, Screen, Section, Tile, Zone},
+    settings,
     strip::{Entry, CATEGORIES},
 };
 
 // ==== Geometry ====
 
+/// The window's top band: no title row is drawn, the band moves the window (logical px).
+pub const BAND_H: f32 = 52.0;
+/// A page's big title, under the band.
+pub const TITLE_TOP: f32 = 56.0;
+/// A line under a page's title (a group's artist, the views row, the search field).
+const UNDER_TITLE: f32 = TITLE_TOP + 74.0;
 /// A library page's gallery: its distance from the page's left, top and bottom (logical px).
 pub const GALLERY_LEFT: f32 = 56.0;
-pub const GALLERY_TOP: f32 = 168.0;
+pub const GALLERY_TOP: f32 = 190.0;
 pub const GALLERY_BOTTOM: f32 = 56.0;
 
 /// The start strip: a category's row, the focused one's, its items.
@@ -62,6 +71,11 @@ const STRIP_GAP: f32 = 14.0;
 
 /// The column every screen fills.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
+
+/// What moves the window (the framework hands a press on it to the window manager, a double
+/// click zooms the window), and a control in it, which is its own.
+const DRAG: &str = "-azul-app-region: drag;";
+const NO_DRAG: &str = "-azul-app-region: no-drag;";
 
 // ==== The window ====
 
@@ -80,26 +94,15 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let s = &*guard;
-    let column = if kit::settings_open(&s.kit) {
-        // The settings: the kit's page in the theme's own chrome.
-        let page = kit::settings_page(&s.kit, Vec::new());
-        let mut office = MediaShell::create_player(page, Dom::create_div()).office_shell();
-        if !s.fullscreen {
-            office = office.with_title_row(kit::title_row(SPEC.name));
-        }
-        Dom::create_div().with_css(COLUMN).with_child(office.dom())
-    } else {
-        let mut column = Dom::create_div().with_css(COLUMN);
-        if !s.fullscreen {
-            column.add_child(title_row(s));
-        }
-        column.add_child(root(s, &app));
-        column
-    };
+    // No title row: the Media Center runs edge to edge, its top band moves the window
+    // (`corner`). The settings are its own pages, never the desktop's Options dialog.
+    let column = Dom::create_div().with_css(COLUMN).with_child(root(s, &app));
     let mut body = ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Leaf)
         .body();
-    if !s.fullscreen {
+    // The menu bar only where it is the system's (macOS's, above every window): in the window
+    // it would be a desktop strip over the ten-foot pages - their strip and keys do it all.
+    if !s.fullscreen && cfg!(target_os = "macos") {
         body = body.with_menu_bar(menu_bar(s, &app));
     }
     body.with_callback(
@@ -122,28 +125,6 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     )
 }
 
-/// The title row (the window is `NoTitle`): the ground's blue over the menus, black over a
-/// picture or a video, the title in light ink.
-fn title_row(s: &Player) -> Dom {
-    let playing = s.video.as_ref().map(VideoSession::title);
-    let title = match playing {
-        Some(t) if !t.is_empty() => format!("{t} - {}", SPEC.name),
-        _ => SPEC.name.to_string(),
-    };
-    let ground = if s.place().screen.on_ground() && s.video.is_none() {
-        ColorU::rgb(0x1b, 0x5a, 0xa6)
-    } else {
-        ColorU::rgb(0, 0, 0)
-    };
-    let mut bar = Titlebar::create(title.as_str())
-        .with_background(ground)
-        .with_background_inactive(ground)
-        .without_border_bottom();
-    bar.title_color = ColorU::rgb(0xe6, 0xf0, 0xff);
-    bar.title_color_inactive = OptionColorU::Some(ColorU::rgb(0x9a, 0xb4, 0xd6));
-    bar.dom()
-}
-
 /// The root: black; the stage (a video) under the menus while it opens, alone once it plays.
 fn root(s: &Player, app: &RefAny) -> Dom {
     let stage = s
@@ -162,6 +143,10 @@ fn root(s: &Player, app: &RefAny) -> Dom {
     }
     if stage.menus_mounted {
         root.add_child(menus(s, app, stage));
+    }
+    // An overlay over everything - the menus, a video (a video that does not play says so).
+    if let Some(o) = s.overlay.as_ref() {
+        root.add_child(overlay_layer(s, app, o));
     }
     root
 }
@@ -200,8 +185,9 @@ fn light_seed(s: &Player, place: &Place) -> usize {
         Screen::Section(section) => 7 + section.index(),
         Screen::Group { section, .. } => 13 + section.index(),
         Screen::Search => 21,
-        Screen::Address => 22,
         Screen::NowPlaying => 23,
+        Screen::Settings => 24,
+        Screen::SettingsPage(category) => 25 + category.index(),
         Screen::Picture | Screen::Video => 0,
     }
 }
@@ -256,10 +242,11 @@ fn page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
             gallery_page(s, app, place, &title, Some(&sub), stage)
         }
         Screen::Search => search_page(s, app, place, stage),
-        Screen::Address => address_page(s, app, stage),
         Screen::NowPlaying => now_playing_page(s, app, stage),
         Screen::Picture => picture_page(s, app),
         Screen::Video => Dom::create_div(),
+        Screen::Settings => settings_list_page(s, app, place, stage),
+        Screen::SettingsPage(category) => settings_page(s, app, place, *category, stage),
     };
     content
         .with_id(ids::id(&place.screen.key()))
@@ -280,6 +267,19 @@ fn text(content: &str, css: &str, stage: Stage) -> Dom {
         "margin: 0px; {css} {}",
         look::text_fade(stage)
     ))
+}
+
+/// A page's big lower-case title (Media Center's "music"), under the top band.
+fn page_title(title: &str, stage: Stage) -> Dom {
+    text(
+        title,
+        &format!(
+            "position: absolute; left: 56px; top: {TITLE_TOP:.0}px; {} color: {};",
+            look::PAGE_TITLE,
+            look::INK
+        ),
+        stage,
+    )
 }
 
 /// An icon in `css`, with the curtain's icon fade.
@@ -312,18 +312,43 @@ fn act_part(dom: Dom, app: &RefAny, act: Act, name: &str) -> Dom {
             payload(&act),
             nav::on_focus,
         )
+        // The right button: the part's more info (Media Center's), never a desktop menu.
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            payload(&act),
+            nav::on_more,
+        )
 }
 
-// ==== The corner pieces: the orb, back, the clock ====
+// ==== The top band: back, the clock; it moves the window ====
 
-/// The back button top left - it shows when the pointer moves and hides when it rests (in
-/// place) - and the clock top right.
+/// The room the window's own controls take in the top band (logical px, left and right):
+/// macOS's traffic lights before the back button (`TabsInTitlebar::platform()`, the room the
+/// ribbon apps' tabs leave them), the software controls' after the clock on Linux; none in
+/// fullscreen.
+fn window_controls(s: &Player) -> (f32, f32) {
+    if s.fullscreen {
+        return (0.0, 0.0);
+    }
+    let chrome = kit::tabs_in_titlebar();
+    (chrome.left.max(0.0), chrome.right.max(0.0))
+}
+
+/// The window's top band - no title row is drawn, the Media Center runs edge to edge: the band
+/// moves the window (`-azul-app-region: drag`; a double click on it zooms the window), with the
+/// back button on its left - right of the traffic lights on macOS; it shows when the pointer
+/// moves and hides when it rests (in place) - and the clock on its right, each its own
+/// (`no-drag`).
 fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
-    let mut left = Dom::create_div().with_css(
-        "position: absolute; left: 18px; top: 14px; display: flex; flex-direction: row; \
+    let (lights, controls) = window_controls(s);
+    let mut left = Dom::create_div().with_css(format!(
+        "position: absolute; left: {:.0}px; top: 9px; display: flex; flex-direction: row; \
          align-items: center;",
-    );
+        18.0 + lights
+    ));
     if place.screen != Screen::Start {
+        // Lit while Tab has the keyboard on it (and then it stays: `Player::chrome_held`).
+        let lit = s.zone() == Zone::Corner && s.place().focus.corner == 0;
         left.add_child(
             Dom::create_div()
                 .with_id(ids::CORNER)
@@ -336,52 +361,66 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
                 .with_child(round_button(
                     app,
                     Command::Back,
-                    "arrow_back",
-                    "Back",
+                    ("arrow_back", "Back"),
                     34.0,
                     ids::BACK,
                     stage,
+                    lit,
                 )),
         );
     }
-    let clock = live_text(
-        s.clock_text.clone(),
-        ids::CLOCK_TEXT,
-        &format!(
-            "position: absolute; right: 30px; top: 18px; font-size: 24px; font-weight: 300; \
-             color: {}; {}",
-            look::INK,
-            look::text_fade(stage)
-        ),
-    )
-    .with_id(ids::CLOCK);
-    Dom::create_div()
-        .with_id(ids::LOGO)
-        .with_css(look::FILL.replace("bottom: 0px;", "height: 0px;"))
-        .with_child(left)
-        .with_child(clock)
+    // `cursor: default`: what gives the band its place in the hit test (a press on it must
+    // land on it, not on the page under it).
+    let mut band = Dom::create_div()
+        .with_id(ids::BAND)
+        .with_css(format!(
+            "position: absolute; left: 0px; top: 0px; right: 0px; height: {BAND_H}px; cursor: \
+             default; {DRAG}"
+        ))
+        .with_child(left);
+    // The clock, unless the settings took it away (it fades in and out).
+    if s.options.is_on(options::SHOW_CLOCK) {
+        band.add_child(
+            live_text(
+                s.clock_text.clone(),
+                ids::CLOCK_TEXT,
+                &format!(
+                    "position: absolute; right: {:.0}px; top: 13px; font-size: 24px; \
+                     font-weight: 300; color: {}; {NO_DRAG} {} -azul-animation-in: azp-fade-in \
+                     300ms ease-out; -azul-animation-out: azp-fade-out 300ms ease-in;",
+                    30.0 + controls,
+                    look::INK,
+                    look::text_fade(stage)
+                ),
+            )
+            .with_id(ids::CLOCK),
+        );
+    }
+    band
 }
 
-/// A round glass button doing `command`: an icon, named `name` for assistive technology; the
-/// glow under the pointer and while it has the keyboard focus.
+/// A round glass button doing `command`: an icon, named for assistive technology (`face`: the
+/// icon and the name); the glow under the pointer, and the keyboard's ring while `lit` (Tab
+/// brought the keys to it: the app's own focus, which fades in and out - never the engine's
+/// ring).
 fn round_button(
     app: &RefAny,
     command: Command,
-    icon_name: &str,
-    name: &str,
+    face: (&str, &str),
     size: f32,
     id: AzString,
     stage: Stage,
+    lit: bool,
 ) -> Dom {
+    let (icon_name, name) = face;
     let icon_px = (size * 0.5).round();
     let radius = size / 2.0;
-    // The box takes the click, the focus and the name; its icon is the face.
+    // The box takes the click and the name; its icon is the face, the ring is over it.
     Dom::create_div()
         .with_id(id)
         .with_css(format!(
-            "display: flex; flex-shrink: 0; width: {size}px; height: {size}px; margin-left: \
-             8px; cursor: pointer; border-radius: {radius}px; :focus {{ box-shadow: 0px 0px \
-             14px 2px rgba(118, 196, 255, 0.95); }}"
+            "position: relative; display: flex; flex-shrink: 0; width: {size}px; height: \
+             {size}px; margin-left: 8px; cursor: pointer; border-radius: {radius}px; {NO_DRAG}"
         ))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(name)
@@ -399,6 +438,7 @@ fn round_button(
             look::ROUND,
             look::icon_fade(stage)
         )))
+        .with_child(Dom::create_div().with_css(look::ring(lit, size, stage)))
 }
 
 /// The music playing, small, bottom left (a click: now playing).
@@ -419,6 +459,8 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
         .filter(|i| i.has_cover)
         .and_then(|i| s.art.get(&cover_key(&i.path)).cloned().flatten());
     let face = art_face(art, &title, 56.0, 56.0, "music_note", stage);
+    // In on a spring, out with a fade (Stop dismisses it); lit while Tab has the keys on it.
+    let lit = s.zone() == Zone::Inset;
     let inset = Dom::create_div()
         .with_id(ids::INSET)
         .with_css(
@@ -426,9 +468,10 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
              flex; flex-direction: row; align-items: center; padding: 4px; box-sizing: \
              border-box; border-radius: 6px; background: rgba(4, 18, 43, 0.55); border: 1px \
              solid rgba(255, 255, 255, 0.18); cursor: pointer; -azul-animation-in: azp-rise-in \
-             360ms spring; :hover { border: 1px solid rgba(255, 255, 255, 0.7); } :focus { \
-             box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, 0.85); }",
+             360ms spring; -azul-animation-out: azp-fade-out 240ms ease-in; :hover { border: \
+             1px solid rgba(255, 255, 255, 0.7); }",
         )
+        .with_child(Dom::create_div().with_css(look::bar(lit, 6.0)))
         .with_child(
             Dom::create_div()
                 .with_css(
@@ -461,6 +504,30 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
                     ),
                     stage,
                 )),
+        )
+        // Stop: the music ends and the inset goes ("there needs to be a way to remove the
+        // currently paused item").
+        .with_child(
+            Dom::create_div()
+                .with_id(ids::id("inset-stop"))
+                .with_css(format!(
+                    "display: flex; flex-shrink: 0; width: 30px; height: 30px; margin: 0px 6px \
+                     0px 4px; cursor: pointer; border-radius: 15px; {NO_DRAG}"
+                ))
+                .with_accessibility_name("Stop the music")
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    RefAny::new(CommandRef {
+                        app: app.clone(),
+                        command: Command::Stop,
+                    }),
+                    nav::on_inset_stop,
+                )
+                .with_child(Dom::create_icon("stop").with_css(format!(
+                    "{} width: 30px; height: 30px; border-radius: 15px; font-size: 16px; {}",
+                    look::ROUND,
+                    look::icon_fade(stage)
+                ))),
         );
     Some(act_part(inset, app, Act::NowPlaying, "Now playing"))
 }
@@ -519,8 +586,7 @@ fn entry_reason(s: &Player, entry: &Entry) -> Option<String> {
 const STRIP_GLIDE_MS: u32 = 420;
 
 fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
-    let title_row = if s.fullscreen { 0.0 } else { 32.0 };
-    let height = (s.window.1 - title_row).max(200.0);
+    let height = s.window.1.max(200.0);
     let width = s.window.0.max(320.0);
     let focused = s.strip.row;
     // The focused category's middle at 52 % of the height.
@@ -603,7 +669,7 @@ fn strip_items(
             STRIP_TILE_H + 36.0
         ));
     for (i, entry) in category.entries.iter().enumerate() {
-        let focused = i == col;
+        let focused = i == col && s.zone() == Zone::Content;
         let reason = entry_reason(s, entry);
         let enabled = reason.is_none();
         let face_bg = if enabled {
@@ -699,28 +765,31 @@ fn section_page(s: &Player, app: &RefAny, place: &Place, section: Section, stage
     page
 }
 
-/// The views row: albums · artists · genres · songs (the view shown bright, the focus's glow
-/// when the row has the keyboard).
+/// The views row: albums · artists · genres · songs (the view shown bright, a lit plate under
+/// the word while the row has the keyboard). The ink and the plate fade from one word to the
+/// next - one `animation` list with the curtain's fade (a second list would replace it).
 fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: Stage) -> Dom {
-    let _ = s;
-    let mut row = Dom::create_div().with_id(ids::VIEWS).with_css(
-        "position: absolute; left: 60px; top: 106px; display: flex; flex-direction: row; \
+    let mut row = Dom::create_div().with_id(ids::VIEWS).with_css(format!(
+        "position: absolute; left: 60px; top: {:.0}px; display: flex; flex-direction: row; \
          align-items: center;",
-    );
+        UNDER_TITLE - 2.0
+    ));
     for (i, view) in section.views().iter().enumerate() {
         let shown = i == place.focus.view;
-        let focused = shown && place.focus.on_views;
+        let focused = shown && place.focus.on_views && s.zone() == Zone::Content;
         let word = Dom::create_p_with_text(view.label(section)).with_css(format!(
             "margin: 0px 26px 0px 0px; padding: 2px 8px; border-radius: 4px; font-size: 21px; \
-             cursor: pointer; color: {}; {} {} :hover {{ color: #ffffff; }}",
+             cursor: pointer; color: {}; background-color: {}; opacity: {}; animation: opacity \
+             {}ms ease-in, color 200ms ease-out, background-color 200ms ease-out; :hover {{ \
+             color: #ffffff; }}",
             if shown { look::INK } else { look::INK_FAINT },
             if focused {
-                "box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, 0.8); background: rgba(118, \
-                 196, 255, 0.18);"
+                "rgba(118, 196, 255, 0.3)"
             } else {
-                ""
+                "rgba(118, 196, 255, 0)"
             },
-            look::text_fade(stage)
+            if stage.menus { 1 } else { 0 },
+            crate::curtain::TEXT_FADE_MS
         ));
         row.add_child(act_part(
             word.with_id(ids::id(&format!("view-{i}"))),
@@ -745,15 +814,7 @@ fn gallery_page(
     let tiles = s.page_tiles(place);
     let grid = s.grid(&tiles);
     let mut page = Dom::create_div()
-        .with_child(text(
-            title,
-            &format!(
-                "position: absolute; left: 56px; top: 30px; {} color: {};",
-                look::PAGE_TITLE,
-                look::INK
-            ),
-            stage,
-        ))
+        .with_child(page_title(title, stage))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
             app.clone(),
@@ -763,27 +824,35 @@ fn gallery_page(
         page.add_child(text(
             sub,
             &format!(
-                "position: absolute; left: 62px; top: 110px; font-size: 18px; color: {};",
+                "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 18px; \
+                 color: {};",
                 look::INK_DIM
             ),
             stage,
         ));
     }
     let offset = grid.offset(place.focus.first_col);
+    // The sheet glides a column at a time as the focus nears the edge (declared: a move on
+    // the strip's spring), the tiles on it ride along.
     let mut sheet = Dom::create_div().with_id(ids::SHEET).with_css(format!(
-        "position: absolute; left: {:.1}px; top: 0px; right: 0px; bottom: 0px;",
+        "position: absolute; left: {:.1}px; top: 0px; right: 0px; bottom: 0px; animation: move \
+         {STRIP_GLIDE_MS}ms spring;",
         -offset
     ));
+    let content_lit = s.zone() == Zone::Content;
     for i in grid.built(place.focus.first_col, tiles.len()) {
-        let focused = !place.focus.on_views && i == place.focus.index;
+        let focused = !place.focus.on_views && i == place.focus.index && content_lit;
         sheet.add_child(gallery_tile(s, app, &tiles[i], i, focused, &grid, stage));
     }
+    // `clip`, not `hidden`: a hidden box is still a scroll container, which the engine scrolls
+    // to bring a focused tile into view - behind the sheet's own offset, shifting the gallery
+    // under it. The app places the sheet; nothing else may scroll it.
     page.add_child(
         Dom::create_div()
             .with_id(ids::GALLERY)
             .with_css(format!(
                 "position: absolute; left: {GALLERY_LEFT}px; right: 0px; top: {GALLERY_TOP}px; \
-                 bottom: {GALLERY_BOTTOM}px; overflow: hidden;"
+                 bottom: {GALLERY_BOTTOM}px; overflow: clip;"
             ))
             .with_child(sheet),
     );
@@ -875,7 +944,7 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
     }
     let shelf = page_shelf(place)?;
     let shelved = s.library.shelf(shelf);
-    let folder = s.folders.of(shelf).display().to_string();
+    let folder = s.folders.shown(shelf);
     let kind = match (&place.screen, shelf) {
         (Screen::Section(Section::Movies), _) => "movies (videos of 40 minutes or more)",
         (_, Shelf::Music) => "music",
@@ -886,14 +955,8 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
     Some(match shelved.status {
         Status::Scanning | Status::Unknown => format!("Looking for {kind} in {folder}\u{2026}"),
         Status::Missing => format!(
-            "AzPlayer reads {kind} from {folder}, which is not there. Choose another folder \
-             with --{}-dir.",
-            match shelf {
-                Shelf::Music => "music",
-                Shelf::Pictures => "pictures",
-                Shelf::Videos => "videos",
-                Shelf::Tv => "tv",
-            }
+            "AzPlayer reads {kind} from {folder}, which is not there. Add another folder in \
+             settings, library setup."
         ),
         Status::Ready => match shelf {
             Shelf::Music => format!(
@@ -917,7 +980,7 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
 
 /// What a tile shows: its title, the line under it, its picture (when one was made), the icon
 /// it has without one.
-fn describe(s: &Player, tile: &Tile) -> (String, String, Art, &'static str) {
+pub(crate) fn describe(s: &Player, tile: &Tile) -> (String, String, Art, &'static str) {
     match tile {
         Tile::Group { shelf, group } => {
             let art = app::tile_art(s, tile).and_then(|job| s.art.get(&job.key).cloned().flatten());
@@ -1165,87 +1228,531 @@ fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         .with_on_text_input(app.clone(), nav::on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::SEARCH_FIELD)
+        // Found again when Tab brings the keys back to the page (`nav::tab`).
+        .with_marker(OptionString::Some(ids::SEARCH_FIELD))
         .with_attribute(AttributeType::Autofocus)
-        .with_css("position: absolute; left: 60px; top: 104px; width: 460px;");
+        .with_css(format!(
+            "position: absolute; left: 60px; top: {:.0}px; width: 460px;",
+            UNDER_TITLE - 4.0
+        ));
     let mut page = gallery_page(s, app, place, "search", None, stage);
     page.add_child(field);
     page
 }
 
-/// The sample address the address page offers (the clip AzWidgets' Video card plays).
+/// The sample address the address dialog offers (the clip AzWidgets' Video card plays).
 pub const SAMPLE_ADDRESS: &str =
     "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
 
-/// Open an address: the field (Enter plays what it names), a play button, a sample; the video
-/// plays while it downloads.
-fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
-    let field = TextInput::create_url()
-        .with_text(s.address.as_str())
-        .with_placeholder("https://\u{2026}/video.mp4")
-        .with_accessibility_name("The video's address")
-        .with_on_text_input(app.clone(), nav::on_address as TextInputOnTextInputCallbackType)
-        .dom()
-        .with_id(ids::ADDRESS_FIELD)
-        .with_attribute(AttributeType::Autofocus)
-        .with_css("width: 560px;");
-    let play = Dom::create_div()
-        .with_id(ids::ADDRESS_PLAY)
+// ==== The overlays: more info, the dialogs ====
+
+/// A choice's row in the more-info panel; the panel's and a dialog's width.
+const CHOICE_H: f32 = 54.0;
+const MORE_W: f32 = 440.0;
+const DIALOG_W: f32 = 640.0;
+
+/// An overlay over the page (`overlay.rs`): the page darkens under it (a click there is the
+/// overlay's Back), the panel comes in on a spring and goes with a fade; its choices are big
+/// rows (more info) or buttons (a dialog), the focused one on the bar of light.
+fn overlay_layer(s: &Player, app: &RefAny, o: &Overlay) -> Dom {
+    let dim = Dom::create_div()
+        .with_id(ids::id("overlay-dim"))
         .with_css(format!(
-            "display: flex; width: 44px; height: 44px; margin-left: 14px; cursor: pointer; \
-             border-radius: 22px; :focus {{ box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, \
-             0.95); }}"
-        ))
-        .with_child(Dom::create_icon("play_arrow").with_css(format!(
-            "{} width: 44px; height: 44px; border-radius: 22px; font-size: 24px; {}",
-            look::ROUND,
-            look::icon_fade(stage)
-        )));
-    let sample = Dom::create_p_with_text("try: Big Buck Bunny (10 seconds, 360p)").with_css(format!(
-        "margin: 0px; padding: 4px 10px; border-radius: 4px; font-size: 16px; cursor: pointer; \
-         color: {}; {} :hover {{ color: #ffffff; }} :focus {{ box-shadow: 0px 0px 14px 2px \
-         rgba(118, 196, 255, 0.8); }}",
-        look::ACCENT,
-        look::text_fade(stage)
-    ));
+            "{} background: rgba(0, 6, 20, 0.62); cursor: default; -azul-animation-in: \
+             azp-fade-in 220ms ease-out;",
+            look::FILL
+        ));
+    let panel = match o.kind {
+        Kind::MoreInfo => more_info_panel(app, o),
+        Kind::Dialog | Kind::Address => dialog_panel(s, app, o),
+    };
     Dom::create_div()
-        .with_child(text(
-            "open an address",
-            &format!(
-                "position: absolute; left: 56px; top: 30px; {} color: {};",
-                look::PAGE_TITLE,
-                look::INK
-            ),
-            stage,
+        .with_id(ids::OVERLAY)
+        .with_css(format!(
+            "{} -azul-animation-out: azp-fade-out 200ms ease-in;",
+            look::FILL
         ))
-        .with_child(
+        .with_child(act_part(dim, app, Act::Dismiss, "Close"))
+        .with_child(panel)
+}
+
+/// More info: a panel along the right of the window - "more info", the item's title in big
+/// type, what it is, then its choices down the panel, the bar of light gliding to the focused
+/// one (a move on a spring).
+#[allow(clippy::cast_precision_loss)]
+fn more_info_panel(app: &RefAny, o: &Overlay) -> Dom {
+    let stage = Curtain::Closed.stage();
+    let mut panel = Dom::create_div()
+        .with_id(ids::id(&format!("overlay-{}", o.name)))
+        .with_css(format!(
+            "position: absolute; top: 0px; right: 0px; bottom: 0px; width: {MORE_W}px; padding: \
+             {:.0}px 30px 30px 34px; box-sizing: border-box; display: flex; flex-direction: \
+             column; background: linear-gradient(to right, rgba(6, 22, 52, 0.93), rgba(10, 36, \
+             80, 0.97)); border-left: 1px solid rgba(255, 255, 255, 0.28); box-shadow: -18px 0px \
+             40px rgba(0, 0, 0, 0.45); -azul-animation-in: azp-panel-in 340ms spring;",
+            BAND_H + 12.0
+        ));
+    panel.add_child(text(
+        "more info",
+        &format!("font-size: 16px; color: {};", look::ACCENT),
+        stage,
+    ));
+    panel.add_child(text(
+        &o.title,
+        "font-size: 34px; font-weight: 300; margin-top: 4px; white-space: nowrap; overflow: \
+         hidden;",
+        stage,
+    ));
+    for line in &o.lines {
+        panel.add_child(text(
+            line,
+            &format!("font-size: 17px; margin-top: 6px; color: {};", look::INK_DIM),
+            stage,
+        ));
+    }
+    let mut list = Dom::create_div().with_css(format!(
+        "position: relative; margin-top: 26px; flex-shrink: 0; height: {:.0}px;",
+        CHOICE_H * o.choices.len() as f32
+    ));
+    list.add_child(
+        Dom::create_div()
+            .with_id(ids::id("overlay-focus"))
+            .with_css(format!(
+                "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {CHOICE_H}px; \
+                 animation: move 240ms spring;",
+                o.focus as f32 * CHOICE_H
+            ))
+            .with_child(Dom::create_div().with_css(look::bar(true, 4.0))),
+    );
+    for (i, c) in o.choices.iter().enumerate() {
+        let ink = if i == o.focus { look::INK } else { look::INK_DIM };
+        let row = Dom::create_div()
+            .with_id(ids::id(&format!("choice-{i}")))
+            .with_css(format!(
+                "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {CHOICE_H}px; \
+                 display: flex; flex-direction: row; align-items: center; cursor: pointer;",
+                i as f32 * CHOICE_H
+            ))
+            .with_child(icon(
+                c.icon,
+                &format!("width: 30px; margin-left: 14px; font-size: 24px; color: {ink};"),
+                stage,
+            ))
+            .with_child(text(
+                &c.label,
+                &format!(
+                    "margin-left: 14px; font-size: 23px; white-space: nowrap; color: {ink};"
+                ),
+                stage,
+            ));
+        list.add_child(act_part(row, app, Act::Choice(i), &c.label));
+    }
+    panel.add_child(list);
+    panel
+}
+
+/// The address field's look in the dialog (the widget's container and its text replaced):
+/// dark glass, big white type.
+fn field_style(css: &str) -> CssPropertyWithConditionsVec {
+    let parsed = Css::parse_inline(css);
+    let mut out = Vec::new();
+    for rule in parsed.rules.as_ref() {
+        for declaration in rule.declarations.as_ref() {
+            if let CssDeclaration::Static(property) = declaration {
+                out.push(CssPropertyWithConditions::simple(property.clone()));
+                out.push(CssPropertyWithConditions::dark_mode(property.clone()));
+            }
+        }
+    }
+    out.into()
+}
+
+/// A dialog: a panel in the middle of the window - its title in big type, its sentences, the
+/// address field (the address dialog: Enter plays what it names), its buttons in a row at its
+/// bottom right, the focused one lit.
+fn dialog_panel(s: &Player, app: &RefAny, o: &Overlay) -> Dom {
+    let stage = Curtain::Closed.stage();
+    let w = DIALOG_W.min(s.window.0 - 40.0).max(280.0);
+    let left = ((s.window.0 - w) / 2.0).max(0.0).round();
+    let mut panel = Dom::create_div()
+        .with_id(ids::id(&format!("overlay-{}", o.name)))
+        .with_css(format!(
+            "position: absolute; left: {left:.0}px; top: 22%; width: {w:.0}px; padding: 30px 34px \
+             26px 34px; box-sizing: border-box; display: flex; flex-direction: column; \
+             border-radius: 8px; background: linear-gradient(to bottom, rgba(16, 52, 108, 0.97), \
+             rgba(6, 24, 58, 0.97)); border: 1px solid rgba(255, 255, 255, 0.32); box-shadow: \
+             0px 18px 50px rgba(0, 0, 0, 0.55); -azul-animation-in: azp-dialog-in 300ms spring;"
+        ));
+    panel.add_child(text(&o.title, "font-size: 32px; font-weight: 300;", stage));
+    for (i, line) in o.lines.iter().enumerate() {
+        let mut line_dom = text(
+            line,
+            &format!("font-size: 18px; margin-top: 10px; color: {};", look::INK_DIM),
+            stage,
+        );
+        if i == 1 && o.name == "video-failed" {
+            // Why the video does not play (what scripts look for).
+            line_dom = line_dom.with_id(ids::NOTE);
+        }
+        panel.add_child(line_dom);
+    }
+    if o.kind == Kind::Address {
+        let field = TextInput::create_url()
+            .with_text(s.address.as_str())
+            .with_placeholder("https://\u{2026}/video.mp4")
+            .with_accessibility_name("The video's address")
+            .with_container_style(field_style(
+                "position: relative; cursor: text; box-sizing: border-box; display: flex; \
+                 flex-direction: row; align-items: center; height: 50px; padding: 0px 14px; \
+                 border-radius: 4px; background: rgba(0, 10, 30, 0.65); border: 1px solid \
+                 rgba(255, 255, 255, 0.5); color: #ffffff; font-size: 20px;",
+            ))
+            .with_label_style(field_style(
+                "display: block; flex-grow: 1; position: relative; overflow-x: auto; overflow-y: \
+                 hidden; scrollbar-width: none; white-space: pre; color: #ffffff; font-size: \
+                 20px;",
+            ))
+            .with_on_text_input(app.clone(), nav::on_address as TextInputOnTextInputCallbackType)
+            .dom()
+            .with_id(ids::ADDRESS_FIELD)
+            .with_attribute(AttributeType::Autofocus);
+        panel.add_child(
             Dom::create_div()
-                .with_css(
-                    "position: absolute; left: 60px; top: 120px; display: flex; flex-direction: \
-                     row; align-items: center;",
-                )
-                .with_child(field)
-                .with_child(act_part(play, app, Act::OpenAddress, "Play the address")),
+                .with_css("margin-top: 18px;")
+                .with_child(field),
+        );
+    }
+    let mut buttons = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; \
+         margin-top: 22px;",
+    );
+    for (i, c) in o.choices.iter().enumerate() {
+        let lit = i == o.focus;
+        let button = Dom::create_div()
+            .with_id(ids::id(&format!("choice-{i}")))
+            .with_css(
+                "position: relative; min-width: 120px; height: 50px; padding: 0px 22px; \
+                 margin-left: 14px; margin-top: 8px; box-sizing: border-box; display: flex; \
+                 flex-direction: row; align-items: center; justify-content: center; cursor: \
+                 pointer; border-radius: 4px; background: linear-gradient(to bottom, rgba(255, \
+                 255, 255, 0.16), rgba(255, 255, 255, 0.04)); border: 1px solid rgba(255, 255, \
+                 255, 0.3);",
+            )
+            .with_child(Dom::create_div().with_css(look::bar(lit, 4.0)))
+            .with_child(text(
+                &c.label,
+                &format!(
+                    "position: relative; font-size: 21px; white-space: nowrap; color: {};",
+                    if lit { look::INK } else { look::INK_DIM }
+                ),
+                stage,
+            ));
+        buttons.add_child(act_part(button, app, Act::Choice(i), &c.label));
+    }
+    panel.add_child(buttons);
+    panel
+}
+
+// ==== The settings ====
+
+/// The settings' list: a category's row; its width.
+const CATEGORY_H: f32 = 58.0;
+const SETTINGS_LIST_W: f32 = 470.0;
+
+/// The settings: their big title, the categories down the page in big type, the focused one on
+/// Media Center's bar of light - ONE bar, gliding from one category to the next (a move on a
+/// spring) - and what the focused one holds beside the list.
+#[allow(clippy::cast_precision_loss)]
+fn settings_list_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
+    let lit = s.zone() == Zone::Content;
+    let focused = place.focus.index.min(Category::ALL.len() - 1);
+    let top = UNDER_TITLE + 4.0;
+    let mut list = Dom::create_div()
+        .with_id(ids::id("settings-list"))
+        .with_css(format!(
+            "position: absolute; left: 44px; top: {top:.0}px; width: {SETTINGS_LIST_W}px; \
+             height: {:.0}px;",
+            CATEGORY_H * Category::ALL.len() as f32
+        ));
+    list.add_child(
+        Dom::create_div()
+            .with_id(ids::id("settings-bar"))
+            .with_css(format!(
+                "position: absolute; left: 0px; top: {:.0}px; width: {SETTINGS_LIST_W}px; \
+                 height: {CATEGORY_H}px; animation: move 260ms spring;",
+                focused as f32 * CATEGORY_H
+            ))
+            .with_child(Dom::create_div().with_css(look::bar(lit, 4.0))),
+    );
+    for (i, category) in Category::ALL.iter().enumerate() {
+        let ink = if i == focused && lit {
+            look::INK
+        } else {
+            look::INK_DIM
+        };
+        let row = Dom::create_div()
+            .with_id(ids::id(&format!("settings-{}", category.key())))
+            .with_css(format!(
+                "position: absolute; left: 0px; top: {:.0}px; width: {SETTINGS_LIST_W}px; \
+                 height: {CATEGORY_H}px; display: flex; flex-direction: row; align-items: \
+                 center; cursor: pointer;",
+                i as f32 * CATEGORY_H
+            ))
+            .with_child(icon(
+                category.icon(),
+                &format!("width: 34px; margin-left: 16px; font-size: 26px; color: {ink};"),
+                stage,
+            ))
+            .with_child(text(
+                category.title(),
+                &format!(
+                    "margin-left: 14px; font-size: 32px; font-weight: 300; white-space: nowrap; \
+                     color: {ink};"
+                ),
+                stage,
+            ));
+        list.add_child(act_part(row, app, Act::SettingsCategory(i), category.title()));
+    }
+    Dom::create_div()
+        .with_child(page_title("settings", stage))
+        .with_child(list)
+        .with_child(
+            text(
+                Category::ALL[focused].blurb(),
+                &format!(
+                    "position: absolute; left: {:.0}px; top: {:.0}px; right: 60px; font-size: \
+                     21px; font-weight: 300; color: {};",
+                    44.0 + SETTINGS_LIST_W + 50.0,
+                    top + 12.0,
+                    look::INK_DIM
+                ),
+                stage,
+            )
+            .with_id(ids::id("settings-blurb")),
         )
+}
+
+/// A control's mark (its check box, its radio button, its icon), what it says and a hint at
+/// its end (a folder: Enter removes it), as the draft's `values` have it.
+fn control_face(row: &Row, values: &options::Options, focused: bool) -> (Dom, String, &'static str) {
+    let mark_css = "display: flex; align-items: center; justify-content: center; width: 28px; \
+                    height: 28px; margin-left: 16px; flex-shrink: 0; box-sizing: border-box;";
+    match row {
+        Row::Check { key, label } => {
+            let on = values.is_on(key);
+            let mark = Dom::create_div()
+                .with_css(format!(
+                    "{mark_css} border-radius: 4px; border: 2px solid rgba(255, 255, 255, 0.9); \
+                     background-color: {}; animation: background-color 160ms ease-out;",
+                    if on { look::ACCENT } else { "rgba(255, 255, 255, 0.06)" }
+                ))
+                .with_child(Dom::create_icon("check").with_css(format!(
+                    "font-size: 22px; color: #ffffff; opacity: {}; animation: opacity 140ms \
+                     ease-out;",
+                    if on { 1 } else { 0 }
+                )));
+            (mark, (*label).to_string(), "")
+        }
+        Row::Radio { key, value, label } => {
+            let chosen = values.get(key) == *value;
+            let mark = Dom::create_div()
+                .with_css(format!(
+                    "{mark_css} border-radius: 14px; border: 2px solid rgba(255, 255, 255, 0.9);"
+                ))
+                .with_child(Dom::create_div().with_css(format!(
+                    "width: 14px; height: 14px; border-radius: 7px; background: #ffffff; \
+                     opacity: {}; transform: scale({}); animation: opacity 140ms ease-out, \
+                     transform 200ms spring-snappy;",
+                    if chosen { 1 } else { 0 },
+                    if chosen { 1.0 } else { 0.4 }
+                )));
+            (mark, (*label).to_string(), "")
+        }
+        Row::Folder { path, .. } => (
+            Dom::create_icon("folder").with_css(format!(
+                "{mark_css} font-size: 26px; color: rgba(255, 255, 255, 0.85);"
+            )),
+            path.display().to_string(),
+            if focused { "Enter removes it" } else { "" },
+        ),
+        Row::Button { label, icon, .. } => (
+            Dom::create_icon(*icon).with_css(format!(
+                "{mark_css} font-size: 26px; color: {};",
+                look::ACCENT
+            )),
+            label.clone(),
+            "",
+        ),
+        Row::Heading(t) | Row::Note(t) => (Dom::create_div(), t.clone(), ""),
+    }
+}
+
+/// A category of the settings: its big title over "settings", its rows - check boxes, radio
+/// lists, folders, buttons, each a whole row of big type to land on - scrolled to keep the
+/// focused one in view (the rows glide), the bar of light gliding behind the focused one; save
+/// and cancel (about: ok) at the bottom right, each lit when the keys are on it.
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+fn settings_page(
+    s: &Player,
+    app: &RefAny,
+    place: &Place,
+    category: Category,
+    stage: Stage,
+) -> Dom {
+    let rows = settings::page_rows(s, category);
+    let at = options::focusable(&rows);
+    let n = at.len();
+    let buttons = category.buttons();
+    let focus = place.focus.index.min((n + buttons.len()).saturating_sub(1));
+    let lit = s.zone() == Zone::Content;
+    let values = s.draft.as_ref().map_or(&s.options, |d| &d.options);
+    let top = UNDER_TITLE + 40.0;
+    let bottom = 104.0;
+    let visible = (s.window.1 - top - bottom).max(120.0);
+    let focused_row = at.get(focus).copied();
+    let scroll = options::scroll_for(&rows, focused_row, visible);
+    // Where each row stands on the sheet, and the focused one's place for the bar.
+    let mut placed = Vec::with_capacity(rows.len());
+    let mut y = 0.0_f32;
+    let mut bar = (0.0_f32, 52.0_f32);
+    for (i, row) in rows.iter().enumerate() {
+        if Some(i) == focused_row {
+            bar = (y, row.height());
+        }
+        placed.push(y);
+        y += row.height();
+    }
+    let mut sheet = Dom::create_div()
+        .with_id(ids::id("settings-rows"))
+        .with_css(format!(
+            "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {y:.0}px; \
+             animation: move 300ms spring;",
+            -scroll
+        ));
+    // The bar of light: ONE, gliding to the focused row (it fades while a button has the keys).
+    sheet.add_child(
+        Dom::create_div()
+            .with_id(ids::id("settings-focus"))
+            .with_css(format!(
+                "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {:.0}px; \
+                 animation: move 260ms spring;",
+                bar.0, bar.1
+            ))
+            .with_child(Dom::create_div().with_css(look::bar(lit && focused_row.is_some(), 4.0))),
+    );
+    let mut k = 0;
+    for (i, row) in rows.iter().enumerate() {
+        let at_css = format!(
+            "position: absolute; left: 0px; right: 0px; top: {:.0}px; height: {:.0}px;",
+            placed[i],
+            row.height()
+        );
+        match row {
+            Row::Heading(t) => sheet.add_child(text(
+                t,
+                &format!(
+                    "{at_css} padding: 16px 0px 0px 16px; box-sizing: border-box; font-size: 20px; \
+                     color: {};",
+                    look::ACCENT
+                ),
+                stage,
+            )),
+            Row::Note(t) => sheet.add_child(text(
+                t,
+                &format!(
+                    "{at_css} padding: 4px 16px 0px 16px; box-sizing: border-box; overflow: \
+                     hidden; font-size: 17px; line-height: 24px; color: {};",
+                    look::INK_DIM
+                ),
+                stage,
+            )),
+            _ => {
+                let focused = Some(i) == focused_row && lit;
+                let ink = if focused {
+                    look::INK
+                } else {
+                    "rgba(255, 255, 255, 0.82)"
+                };
+                let (mark, label, hint) = control_face(row, values, focused);
+                let mut dom = Dom::create_div()
+                    .with_id(ids::id(&format!("setting-{k}")))
+                    .with_css(format!(
+                        "{at_css} display: flex; flex-direction: row; align-items: center; \
+                         cursor: pointer;"
+                    ))
+                    .with_child(mark)
+                    .with_child(text(
+                        &label,
+                        &format!(
+                            "margin-left: 16px; flex-grow: 1; min-width: 0px; font-size: 22px; \
+                             white-space: nowrap; overflow: hidden; color: {ink};"
+                        ),
+                        stage,
+                    ));
+                if !hint.is_empty() {
+                    dom.add_child(text(
+                        hint,
+                        &format!(
+                            "margin-right: 18px; font-size: 15px; white-space: nowrap; color: {};",
+                            look::INK_DIM
+                        ),
+                        stage,
+                    ));
+                }
+                sheet.add_child(act_part(dom, app, Act::Setting(k), &label));
+                k += 1;
+            }
+        }
+    }
+    let mut button_row = Dom::create_div()
+        .with_id(ids::id("settings-buttons"))
+        .with_css(
+            "position: absolute; right: 60px; bottom: 36px; display: flex; flex-direction: row;",
+        );
+    for (j, label) in buttons.iter().enumerate() {
+        let index = n + j;
+        let on = lit && focus == index;
+        let button = Dom::create_div()
+            .with_id(ids::id(&format!("settings-{label}")))
+            .with_css(
+                "position: relative; width: 150px; height: 50px; margin-left: 16px; display: \
+                 flex; align-items: center; justify-content: center; cursor: pointer; \
+                 border-radius: 4px; background: linear-gradient(to bottom, rgba(255, 255, 255, \
+                 0.16), rgba(255, 255, 255, 0.04)); border: 1px solid rgba(255, 255, 255, 0.3);",
+            )
+            .with_child(Dom::create_div().with_css(look::bar(on, 4.0)))
+            .with_child(text(
+                label,
+                &format!(
+                    "position: relative; font-size: 21px; color: {};",
+                    if on { look::INK } else { look::INK_DIM }
+                ),
+                stage,
+            ));
+        button_row.add_child(act_part(button, app, Act::Setting(index), label));
+    }
+    Dom::create_div()
+        .with_child(page_title(category.title(), stage))
         .with_child(text(
-            "An MP4 or MOV video (H.264) on a web server plays while it downloads; the sound \
-             starts with the picture.",
+            "settings",
             &format!(
-                "position: absolute; left: 62px; top: 186px; right: 60px; font-size: 18px; \
-                 font-weight: 300; color: {};",
+                "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 18px; color: \
+                 {};",
                 look::INK_DIM
             ),
             stage,
         ))
+        // `clip`: the rows are placed by the app (the focused one in view), never scrolled
+        // by the engine.
         .with_child(
             Dom::create_div()
-                .with_css("position: absolute; left: 54px; top: 236px;")
-                .with_child(act_part(
-                    sample.with_id(ids::ADDRESS_SAMPLE),
-                    app,
-                    Act::Sample,
-                    "Play the sample video, Big Buck Bunny",
-                )),
+                .with_css(format!(
+                    "position: absolute; left: 44px; right: 60px; top: {top:.0}px; bottom: \
+                     {bottom:.0}px; overflow: clip;"
+                ))
+                .with_child(sheet),
         )
+        .with_child(button_row)
 }
 
 // ==== Now playing ====
@@ -1256,16 +1763,12 @@ fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
 fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     let mut page = Dom::create_div();
     let Some(music) = s.music.as_ref() else {
-        page.add_child(text(
-            "now playing",
-            &format!("position: absolute; left: 56px; top: 30px; {}", look::PAGE_TITLE),
-            stage,
-        ));
+        page.add_child(page_title("now playing", stage));
         page.add_child(text(
             "Nothing is playing. Choose music library or play all on the start screen.",
             &format!(
-                "position: absolute; left: 62px; top: 130px; font-size: 22px; font-weight: 300; \
-                 color: {};",
+                "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 22px; \
+                 font-weight: 300; color: {};",
                 look::INK_DIM
             ),
             stage,
@@ -1293,12 +1796,32 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     page.add_child(
         Dom::create_div()
             .with_id(ids::id(&format!("np-art-{}", pages::short_hash(&title))))
+            // A song that follows cross-fades in over the last one's cover.
             .with_css(format!(
                 "position: absolute; left: {left}px; top: 96px; width: {art_size}px; height: \
                  {art_size}px; overflow: hidden; border-radius: 4px; box-shadow: 0px 10px 30px \
-                 rgba(0, 0, 0, 0.55); -azul-animation-in: azp-page-in 420ms spring;"
+                 rgba(0, 0, 0, 0.55); -azul-animation-in: azp-page-in 420ms spring; \
+                 -azul-animation-out: azp-fade-out 320ms ease-in;"
             ))
             .with_child(art_face(art, &album, art_size, art_size, "album", stage)),
+    );
+    // The page's own zone is the music itself (Enter plays and pauses, Left / Right skip):
+    // while the keys are there the cover wears the focus's glow - over it, not clipped by it.
+    page.add_child(
+        Dom::create_div()
+            .with_id(ids::id("np-glow"))
+            .with_css(format!(
+                "position: absolute; left: {left}px; top: 96px; width: {art_size}px; height: \
+                 {art_size}px;"
+            ))
+            .with_child(Dom::create_div().with_css(look::glow(
+                s.zone() == Zone::Content,
+                1.0,
+                art_size,
+                art_size,
+                4.0,
+                stage,
+            ))),
     );
     let position = music.state.position_s.max(0.0);
     let duration = music.state.duration_s.max(0.0);
@@ -1307,11 +1830,14 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         look::INK_DIM,
         look::text_fade(stage)
     );
+    // The song's words rise in when it begins (keyed by the song: a pause keeps them).
     page.add_child(
         Dom::create_div()
+            .with_id(ids::id(&format!("np-info-{}", pages::short_hash(&title))))
             .with_css(format!(
                 "position: absolute; left: {info_left}px; right: 40px; top: 104px; display: \
-                 flex; flex-direction: column;"
+                 flex; flex-direction: column; -azul-animation-in: azp-rise-in 360ms spring; \
+                 -azul-animation-out: azp-fade-out 220ms ease-in;"
             ))
             .with_child(text(
                 if music.playing() { "now playing" } else { "paused" },
@@ -1422,69 +1948,28 @@ fn transport_bar(s: &Player, app: &RefAny, what: Shelf, stage: Stage) -> Dom {
         .with_child(transport(s, app, what, stage))
 }
 
-/// The transport's buttons: for music, shuffle · previous · rewind · play / pause · forward ·
-/// next · stop and the volume; for a video stop · from the start · rewind · play / pause ·
-/// forward and the volume; for the slide show previous · play / pause · next and the music.
+/// The transport's buttons (`media::transport_buttons`): the one the keyboard is on has its
+/// ring while Tab has the keys in the transport (Left / Right walk it, Enter presses).
 fn transport(s: &Player, app: &RefAny, what: Shelf, stage: Stage) -> Dom {
-    let playing = match what {
-        Shelf::Music => s.music.as_ref().is_some_and(Music::playing),
-        Shelf::Pictures => s.viewer.playing,
-        _ => s
-            .video
-            .as_ref()
-            .is_some_and(|v| !v.paused && v.status.phase != VideoPhase::Ended),
-    };
-    let (play_icon, play_name) = if playing {
-        ("pause", "Pause")
-    } else {
-        ("play_arrow", "Play")
-    };
-    let (mute_icon, mute_name) = if s.muted {
-        ("volume_off", "Sound on")
-    } else {
-        ("volume_up", "Mute")
-    };
-    let b = |command: Command, icon_name: &str, name: &str, size: f32, id: AzString| {
-        round_button(app, command, icon_name, name, size, id, stage)
-    };
+    let buttons = media::transport_buttons(s, what);
+    let keys_here = s.zone() == Zone::Transport;
+    let focused = media::transport_focus(&buttons, s.place().focus.transport);
     let mut controls = Dom::create_div().with_id(ids::CONTROLS).with_css(
         "display: flex; flex-direction: row; align-items: center; flex-shrink: 0;",
     );
-    match what {
-        Shelf::Pictures => {
-            controls.add_child(b(Command::Previous, "skip_previous", "Previous picture", 40.0, ids::PREVIOUS));
-            controls.add_child(b(Command::SlideShow, play_icon, if playing { "Pause the slide show" } else { "Play the slide show" }, 54.0, ids::PLAY));
-            controls.add_child(b(Command::Next, "skip_next", "Next picture", 40.0, ids::NEXT));
+    for (i, b) in buttons.iter().enumerate() {
+        if b.gap {
             controls.add_child(Dom::create_div().with_css("width: 22px; flex-shrink: 0;"));
-            let music_name = if s.music.is_some() {
-                "Stop the music"
-            } else {
-                "Music under the slide show"
-            };
-            controls.add_child(b(Command::SlideMusic, "library_music", music_name, 34.0, ids::MUSIC));
         }
-        Shelf::Music => {
-            controls.add_child(b(Command::Shuffle, "shuffle", "Shuffle", 34.0, ids::SHUFFLE));
-            controls.add_child(b(Command::Previous, "skip_previous", "Previous song", 40.0, ids::PREVIOUS));
-            controls.add_child(b(Command::Rewind, "fast_rewind", "Back 10 seconds", 40.0, ids::REWIND));
-            controls.add_child(b(Command::PlayPause, play_icon, play_name, 56.0, ids::PLAY));
-            controls.add_child(b(Command::Forward, "fast_forward", "Forward 30 seconds", 40.0, ids::FORWARD));
-            controls.add_child(b(Command::Next, "skip_next", "Next song", 40.0, ids::NEXT));
-            controls.add_child(b(Command::Stop, "stop", "Stop", 40.0, ids::STOP));
-        }
-        _ => {
-            controls.add_child(b(Command::Stop, "stop", "Stop", 40.0, ids::STOP));
-            controls.add_child(b(Command::Restart, "skip_previous", "From the start", 40.0, ids::RESTART));
-            controls.add_child(b(Command::Rewind, "fast_rewind", "Back 10 seconds", 40.0, ids::REWIND));
-            controls.add_child(b(Command::PlayPause, play_icon, play_name, 56.0, ids::PLAY));
-            controls.add_child(b(Command::Forward, "fast_forward", "Forward 30 seconds", 40.0, ids::FORWARD));
-        }
-    }
-    if what != Shelf::Pictures {
-        controls.add_child(Dom::create_div().with_css("width: 22px; flex-shrink: 0;"));
-        controls.add_child(b(Command::Mute, mute_icon, mute_name, 34.0, ids::MUTE));
-        controls.add_child(b(Command::VolumeDown, "remove", "Volume down", 34.0, ids::VOLUME_DOWN));
-        controls.add_child(b(Command::VolumeUp, "add", "Volume up", 34.0, ids::VOLUME_UP));
+        controls.add_child(round_button(
+            app,
+            b.command,
+            (b.icon, b.name),
+            b.size,
+            ids::id(b.id),
+            stage,
+            keys_here && i == focused,
+        ));
     }
     controls
 }
@@ -1501,8 +1986,7 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
     let Some(path) = viewer.paths.get(viewer.index) else {
         return page;
     };
-    let title_row = if s.fullscreen { 0.0 } else { 32.0 };
-    let (w, h) = (s.window.0.max(100.0), (s.window.1 - title_row).max(100.0));
+    let (w, h) = (s.window.0.max(100.0), s.window.1.max(100.0));
     let full = s.art.get(&full_key(path)).cloned().flatten();
     let thumb = s.art.get(&thumb_key(path)).cloned().flatten();
     let mut slide = Dom::create_div()
@@ -1510,8 +1994,14 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
         .with_css(format!(
             "{} {}",
             look::FILL,
-            if viewer.playing {
-                look::slide_motion(viewer.shown, media::SLIDE_S)
+            if viewer.playing && s.options.is_on(options::KEN_BURNS) {
+                look::slide_motion(viewer.shown, media::slide_s(s))
+            } else if viewer.playing {
+                // The settings turned pan and zoom off: a plain cross-fade.
+                String::from(
+                    "-azul-animation-in: azp-fade-in 900ms ease-in-out; -azul-animation-out: \
+                     azp-fade-out 900ms ease-in-out no-clip;",
+                )
             } else {
                 String::from(
                     "-azul-animation-in: azp-fade-in 260ms ease-out; -azul-animation-out: \
@@ -1623,19 +2113,7 @@ fn video_stage(s: &Player, video: &VideoSession, app: &RefAny, stage: Stage) -> 
         ))
         .with_child(video_dom);
     if open {
-        if video.status.phase == VideoPhase::Failed {
-            dom.add_child(
-                Dom::create_p_with_text(
-                    format!(
-                        "This video does not play here: {}",
-                        video.status.message.as_str()
-                    )
-                    .as_str(),
-                )
-                .with_id(ids::NOTE)
-                .with_css(format!("{} left: 32px; top: 88px;", look::PANEL)),
-            );
-        }
+        // A video that does not play says why in Media Center's dialog (`dialog.rs`), over it.
         let osd_text = s
             .osd
             .as_ref()
@@ -1659,8 +2137,9 @@ fn video_stage(s: &Player, video: &VideoSession, app: &RefAny, stage: Stage) -> 
     dom
 }
 
-/// The top strip over the picture: back and the orb on the left, the title, fullscreen on the
-/// right.
+/// The top strip over the picture: back on the left (right of the traffic lights), the title,
+/// fullscreen on the right. It is the window's top band while a video plays: it moves the
+/// window, its buttons are their own.
 fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
     let stage = Curtain::Closed.stage();
     let (full_icon, full_name) = if s.fullscreen {
@@ -1668,17 +2147,28 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
     } else {
         ("fullscreen", "Fullscreen")
     };
+    let (lights, controls) = window_controls(s);
     Dom::create_div()
         .with_id(ids::TOP)
         .with_marker(OptionString::Some(ids::TOP))
         .with_css(format!(
             "position: absolute; left: 0px; top: 0px; right: 0px; height: 72px; display: flex; \
-             flex-direction: row; align-items: center; padding: 0px 24px 0px 16px; background: \
-             linear-gradient(to bottom, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); opacity: {}; \
-             animation: opacity 300ms ease-out;",
+             flex-direction: row; align-items: center; padding: 0px {:.0}px 0px {:.0}px; \
+             background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); \
+             opacity: {}; animation: opacity 300ms ease-out; cursor: default; {DRAG}",
+            24.0 + controls,
+            16.0 + lights,
             if s.controls_shown { 1 } else { 0 }
         ))
-        .with_child(round_button(app, Command::Back, "arrow_back", "Back", 40.0, ids::BACK, stage))
+        .with_child(round_button(
+            app,
+            Command::Back,
+            ("arrow_back", "Back"),
+            40.0,
+            ids::BACK,
+            stage,
+            corner_lit(s, 0),
+        ))
         .with_child(
             Dom::create_p_with_text(video.title().as_str())
                 .with_id(ids::TITLE)
@@ -1690,12 +2180,17 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
         .with_child(round_button(
             app,
             Command::Fullscreen,
-            full_icon,
-            full_name,
+            (full_icon, full_name),
             40.0,
             ids::FULLSCREEN,
             stage,
+            corner_lit(s, 1),
         ))
+}
+
+/// Whether the top band's button `index` (`media::corner_buttons`) has the keyboard's ring.
+fn corner_lit(s: &Player, index: usize) -> bool {
+    s.zone() == Zone::Corner && s.place().focus.corner == index
 }
 
 /// The bottom strip over the picture: the seek bar between the times, the transport bottom

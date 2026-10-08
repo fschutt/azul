@@ -5,18 +5,21 @@
 //! engine's spring, a tile that comes slides in, the focus glow and scale ease over.
 
 use azul::{
-    dom::{NodeId, VirtualKeyCode},
+    dom::{FocusTarget, NodeId, VirtualKeyCode},
     prelude::*,
     widgets::{OnTextInputReturn, TextInputState, TextInputValid},
 };
-use azul_appkit::ui as kit;
 
 use crate::{
     app::{self, Player},
+    dialog,
     gallery::{self, Step},
     library::Shelf,
-    media::{self, Command},
-    pages::{Place, Screen, Section, Tile, View},
+    media::{self, Command, CommandRef},
+    options::{self, Category},
+    overlay,
+    pages::{self, Place, Screen, Section, Tile, View, Zone},
+    settings,
     strip::{Action, Needs, CATEGORIES},
 };
 
@@ -33,10 +36,14 @@ pub enum Act {
     Tile(usize),
     /// The now-playing inset.
     NowPlaying,
-    /// The address page's play button: the address in the field plays.
-    OpenAddress,
-    /// The address page's sample: it plays.
-    Sample,
+    /// A choice of the overlay (more info's row, a dialog's button).
+    Choice(usize),
+    /// Beside the overlay's panel: its Back.
+    Dismiss,
+    /// A category of the settings' list.
+    SettingsCategory(usize),
+    /// A part of a settings page: a row the keys land on, or a button after them.
+    Setting(usize),
 }
 
 /// A part's payload: the app and what it asks for.
@@ -50,31 +57,72 @@ const WHEEL_STEP: f32 = 60.0;
 
 // ==== Pages ====
 
-/// Goes to `screen` (the page before keeps its focus, for Back).
+/// Goes to `screen` (the page before keeps its focus, for Back). A library's page opens on the
+/// view the settings choose.
 pub fn go(s: &mut Player, screen: Screen) {
     println!("AZPLAYER_PAGE {}", screen.key());
-    s.nav.push(Place::new(screen));
+    let mut place = Place::new(screen);
+    if let Screen::Section(section) = place.screen {
+        place.focus.view = s.options.view_of(section);
+    }
+    s.nav.push(place);
 }
 
-/// Back a page: a slide show stops, the start strip stays. `false`: at the start already.
+/// Back a page: a slide show stops, a settings page's draft goes (cancel), the start strip
+/// stays. `false`: at the start already.
 pub fn back_in(s: &mut Player) -> bool {
     if s.nav.len() <= 1 {
         return false;
     }
-    let left = s.nav.pop();
-    if let Some(Place {
-        screen: Screen::Picture,
-        ..
-    }) = left
-    {
-        s.viewer.playing = false;
+    match s.nav.pop() {
+        Some(Place {
+            screen: Screen::Picture,
+            ..
+        }) => s.viewer.playing = false,
+        Some(Place {
+            screen: Screen::SettingsPage(category),
+            ..
+        }) => {
+            if s.draft.take().is_some() {
+                println!("AZPLAYER_SETTINGS cancel {}", category.key());
+            }
+        }
+        _ => {}
     }
     println!("AZPLAYER_PAGE {}", s.place().screen.key());
     true
 }
 
-/// Back (a button, Backspace, Escape): a video closes, else the page before comes back.
+/// Back (the back button, Backspace, Escape): leaving now playing while the music is PAUSED
+/// asks first - stop it (its inset goes), or keep it paused for later - else `go_back`.
 pub fn back(app: &RefAny, info: &mut CallbackInfo) -> Update {
+    {
+        let mut app_ref = app.clone();
+        let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        let paused = s.place().screen == Screen::NowPlaying
+            && s.music.as_ref().is_some_and(|m| !m.playing());
+        if paused {
+            let song = s
+                .music
+                .as_ref()
+                .and_then(|m| {
+                    m.current_item(&s).map(|i| i.title.clone()).or_else(|| {
+                        m.current()
+                            .map(|p| crate::library::file_title(std::path::Path::new(p)))
+                    })
+                })
+                .unwrap_or_default();
+            dialog::open(&mut s, overlay::music_paused(&song));
+            return Update::RefreshDom;
+        }
+    }
+    go_back(app, info)
+}
+
+/// Back without a question: a video closes, else the page before comes back.
+pub fn go_back(app: &RefAny, info: &mut CallbackInfo) -> Update {
     let is_video = {
         let mut app_ref = app.clone();
         let Some(s) = app_ref.downcast_ref::<Player>() else {
@@ -113,6 +161,9 @@ pub fn home(app: &RefAny, info: &mut CallbackInfo) -> Update {
     if let Some(mut s) = app_ref.downcast_mut::<Player>() {
         s.nav.truncate(1);
         s.viewer.playing = false;
+        if s.draft.take().is_some() {
+            println!("AZPLAYER_SETTINGS cancel home");
+        }
         println!("AZPLAYER_PAGE {}", s.place().screen.key());
     }
     Update::RefreshDom
@@ -131,11 +182,11 @@ pub fn missing(s: &Player, action: Action) -> Option<String> {
     match action.needs() {
         Needs::Songs if s.items(Shelf::Music).is_empty() => Some(format!(
             "There is no music in {}.",
-            s.folders.music.display()
+            s.folders.shown(Shelf::Music)
         )),
         Needs::Pictures if s.items(Shelf::Pictures).is_empty() => Some(format!(
             "There are no pictures in {}.",
-            s.folders.pictures.display()
+            s.folders.shown(Shelf::Pictures)
         )),
         _ => None,
     }
@@ -176,17 +227,23 @@ pub fn activate(app: &RefAny, info: &mut CallbackInfo, action: Action) -> Update
         Action::RecordedTv => page(Screen::Section(Section::Tv)),
         Action::Search => page(Screen::Search),
         Action::PlayAll => {
+            // Shuffled, or album by album: as the settings say.
             let paths = {
                 let mut app_ref = app.clone();
                 let Some(s) = app_ref.downcast_ref::<Player>() else {
                     return Update::DoNothing;
                 };
-                s.items(Shelf::Music)
-                    .iter()
-                    .map(|i| i.path.clone())
-                    .collect::<Vec<_>>()
+                let songs = s.items(Shelf::Music);
+                if s.options.is_on(options::SHUFFLE_ALL) {
+                    let all = songs.iter().map(|i| i.path.clone()).collect::<Vec<_>>();
+                    media::shuffled(all, None, now_seed())
+                } else {
+                    crate::library::songs_in_album_order(songs)
+                        .into_iter()
+                        .map(|i| songs[i].path.clone())
+                        .collect()
+                }
             };
-            let paths = media::shuffled(paths, None, now_seed());
             media::play_music(app, info, paths, 0, true);
             Update::RefreshDom
         }
@@ -204,7 +261,14 @@ pub fn activate(app: &RefAny, info: &mut CallbackInfo, action: Action) -> Update
             Update::RefreshDom
         }
         Action::OpenFile => media::run(app, info, Command::Open),
-        Action::OpenAddress => page(Screen::Address),
+        // Open an address: Media Center's dialog over the strip (the field, play, a sample).
+        Action::OpenAddress => {
+            let mut app_ref = app.clone();
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                dialog::open(&mut s, overlay::address());
+            }
+            Update::RefreshDom
+        }
         Action::Settings => media::run(app, info, Command::Settings),
         Action::MediaOnly => media::run(app, info, Command::Fullscreen),
         Action::Refresh => media::run(app, info, Command::Refresh),
@@ -335,7 +399,7 @@ pub fn open_view(app: &RefAny, info: &mut CallbackInfo, view: usize) -> Update {
             .map(|i| i.path.clone())
             .collect();
         if paths.is_empty() {
-            let why = format!("There are no pictures in {}.", s.folders.pictures.display());
+            let why = format!("There are no pictures in {}.", s.folders.shown(Shelf::Pictures));
             s.notice(&why);
         } else {
             media::show_pictures(&mut s, paths, 0, true);
@@ -408,6 +472,9 @@ pub fn move_focus(s: &mut Player, step: Step) -> bool {
                     }
                 }
                 f.on_views = on_views;
+                if !on_views {
+                    println!("AZPLAYER_FOCUS tile {} column {}", f.index, f.first_col);
+                }
                 return true;
             }
             match gallery::step(&grid, focus.index, tiles.len(), step) {
@@ -426,6 +493,36 @@ pub fn move_focus(s: &mut Player, step: Step) -> bool {
                 None => false,
             }
         }
+        // The settings' categories, down the page.
+        Screen::Settings => {
+            let i = place.focus.index.min(Category::ALL.len() - 1);
+            let j = match step {
+                Step::Up => i.saturating_sub(1),
+                Step::Down => (i + 1).min(Category::ALL.len() - 1),
+                Step::Left | Step::Right => i,
+            };
+            if j == place.focus.index {
+                return false;
+            }
+            s.place_mut().focus.index = j;
+            println!("AZPLAYER_FOCUS category {}", Category::ALL[j].title());
+            true
+        }
+        // A category's page: its rows, then save and cancel.
+        Screen::SettingsPage(category) => {
+            let rows = settings::page_rows(s, category);
+            let n = options::focusable(&rows).len();
+            let j = options::step_page(place.focus.index, n, category.buttons().len(), step);
+            if j == place.focus.index {
+                return false;
+            }
+            s.place_mut().focus.index = j;
+            println!(
+                "AZPLAYER_FOCUS setting {}",
+                settings::focus_label(&rows, category, j)
+            );
+            true
+        }
         _ => false,
     }
 }
@@ -440,11 +537,143 @@ fn focus_tile(s: &mut Player, index: usize) -> bool {
     let grid = s.grid(&tiles);
     let first_col = grid.scrolled(place.focus.first_col, index, tiles.len());
     let f = &mut s.place_mut().focus;
-    let changed = f.index != index || f.on_views || f.first_col != first_col;
+    let changed =
+        f.index != index || f.on_views || f.first_col != first_col || f.zone != Zone::Content;
     f.index = index;
     f.on_views = false;
     f.first_col = first_col;
+    // The pointer and the keys move ONE focus: a tile under the pointer takes it from the
+    // back button or the inset.
+    f.zone = Zone::Content;
     changed
+}
+
+// ==== The zones: Tab, and the keys within a zone ====
+
+/// Tab (`forward`) or Shift+Tab: the keys go to the page's next zone, round - the back button,
+/// the page, the transport, the inset. The zone's part lights (the app's glow); the pointer's
+/// chrome shows, and stays while it has the keys (`Player::chrome_held`). A field keeps the
+/// keys only while its page has them (the search field).
+fn tab(app: &RefAny, info: &mut CallbackInfo, forward: bool) -> Update {
+    let mut app_ref = app.clone();
+    let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+        return Update::DoNothing;
+    };
+    let zones = s.zones();
+    let from = s.zone();
+    let to = pages::next_zone(from, &zones, forward);
+    s.place_mut().focus.zone = to;
+    println!("AZPLAYER_ZONE {}", to.word());
+    if s.chrome_held() {
+        app::set_chrome(&mut s, info, true);
+    }
+    if from == Zone::Content && to != Zone::Content {
+        info.clear_focus();
+    } else if to == Zone::Content && s.place().screen == Screen::Search {
+        if let Some(field) = info
+            .get_node_id_by_marker(crate::ids::SEARCH_FIELD)
+            .into_option()
+        {
+            info.set_focus(FocusTarget::Id(field));
+        }
+    }
+    Update::RefreshDom
+}
+
+/// An arrow in a zone that is not the page: Left / Right walk the top band's buttons or the
+/// transport's; Down from the top band and Up from the inset go to the page. `None`: the
+/// arrow is not the zone's (the transport's Up / Down are the volume).
+fn move_in_zone(app: &RefAny, zone: Zone, step: Step) -> Option<Update> {
+    let mut app_ref = app.clone();
+    let mut s = app_ref.downcast_mut::<Player>()?;
+    let screen = s.place().screen.clone();
+    let along = |i: usize, n: usize| -> usize {
+        match step {
+            Step::Right => (i + 1).min(n.saturating_sub(1)),
+            _ => i.saturating_sub(1),
+        }
+    };
+    match (zone, step) {
+        (Zone::Corner, Step::Left | Step::Right) => {
+            let n = media::corner_buttons(&screen).len();
+            let i = s.place().focus.corner.min(n.saturating_sub(1));
+            let j = along(i, n);
+            if j == i {
+                return Some(Update::DoNothing);
+            }
+            s.place_mut().focus.corner = j;
+            println!("AZPLAYER_FOCUS corner {j}");
+        }
+        (Zone::Transport, Step::Left | Step::Right) => {
+            let what = media::transport_of(&screen)?;
+            let buttons = media::transport_buttons(&s, what);
+            let i = media::transport_focus(&buttons, s.place().focus.transport);
+            let j = along(i, buttons.len());
+            if j == i {
+                return Some(Update::DoNothing);
+            }
+            s.place_mut().focus.transport = Some(j);
+            println!("AZPLAYER_FOCUS button {}", buttons[j].id);
+        }
+        (Zone::Corner, Step::Down) | (Zone::Inset, Step::Up) => {
+            s.place_mut().focus.zone = Zone::Content;
+            println!("AZPLAYER_ZONE content");
+        }
+        (Zone::Transport, _) => return None,
+        _ => return Some(Update::DoNothing),
+    }
+    Some(Update::RefreshDom)
+}
+
+/// Enter in a zone that is not the page: the top band's button, the transport's, the inset
+/// (now playing) does what a click does.
+fn press_zone(app: &RefAny, info: &mut CallbackInfo, zone: Zone) -> Update {
+    let command = {
+        let mut app_ref = app.clone();
+        let Some(s) = app_ref.downcast_ref::<Player>() else {
+            return Update::DoNothing;
+        };
+        let screen = s.place().screen.clone();
+        match zone {
+            Zone::Corner => {
+                let buttons = media::corner_buttons(&screen);
+                buttons.get(s.place().focus.corner).copied()
+            }
+            Zone::Transport => media::transport_of(&screen).map(|what| {
+                let buttons = media::transport_buttons(&s, what);
+                buttons[media::transport_focus(&buttons, s.place().focus.transport)].command
+            }),
+            Zone::Inset | Zone::Content => None,
+        }
+    };
+    match (zone, command) {
+        (Zone::Inset, _) => open_now_playing(app, info),
+        (_, Some(command)) => media::run(app, info, command),
+        _ => Update::DoNothing,
+    }
+}
+
+/// The step an arrow key is.
+fn arrow_step(key: VirtualKeyCode) -> Option<Step> {
+    match key {
+        VirtualKeyCode::Up => Some(Step::Up),
+        VirtualKeyCode::Down => Some(Step::Down),
+        VirtualKeyCode::Left => Some(Step::Left),
+        VirtualKeyCode::Right => Some(Step::Right),
+        _ => None,
+    }
+}
+
+/// Now playing (the inset, Enter on it).
+pub fn open_now_playing(app: &RefAny, info: &mut CallbackInfo) -> Update {
+    let mut app_ref = app.clone();
+    if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+        if s.place().screen != Screen::NowPlaying {
+            go(&mut s, Screen::NowPlaying);
+        }
+    }
+    app::request_art(app, info);
+    Update::RefreshDom
 }
 
 /// Enter on the page shown.
@@ -469,10 +698,19 @@ fn enter(app: &RefAny, info: &mut CallbackInfo) -> Update {
                 open_tile(app, info, focus.index)
             }
         }
-        Screen::Address => open_address(app, info, None),
         Screen::NowPlaying | Screen::Picture | Screen::Video => {
             media::run(app, info, Command::PlayPause)
         }
+        Screen::Settings => {
+            let mut app_ref = app.clone();
+            if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+                if let Some(category) = Category::ALL.get(focus.index) {
+                    settings::open_category(&mut s, *category);
+                }
+            }
+            Update::RefreshDom
+        }
+        Screen::SettingsPage(_) => settings::press(app, info, focus.index),
     }
 }
 
@@ -489,6 +727,8 @@ pub fn open_address(app: &RefAny, info: &mut CallbackInfo, sample: Option<&str>)
         }
         let text = s.address.trim().to_string();
         if media::web_address(&text).is_none() {
+            // The dialog stays (comes back) to have it corrected.
+            dialog::open(&mut s, overlay::address());
             s.notice("An address starts with http:// or https:// and names an MP4 or MOV video.");
             return Update::RefreshDom;
         }
@@ -556,18 +796,20 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
             open_tile(&app, &mut info, index)
         }
-        Act::NowPlaying => {
+        Act::NowPlaying => open_now_playing(&app, &mut info),
+        Act::Choice(i) => dialog::press(&app, &mut info, Some(i)),
+        Act::Dismiss => dialog::dismiss(&app, &mut info),
+        Act::SettingsCategory(i) => {
             let mut app_ref = app.clone();
             if let Some(mut s) = app_ref.downcast_mut::<Player>() {
-                if s.place().screen != Screen::NowPlaying {
-                    go(&mut s, Screen::NowPlaying);
+                s.place_mut().focus.index = i;
+                if let Some(category) = Category::ALL.get(i) {
+                    settings::open_category(&mut s, *category);
                 }
             }
-            app::request_art(&app, &mut info);
             Update::RefreshDom
         }
-        Act::OpenAddress => open_address(&app, &mut info, None),
-        Act::Sample => open_address(&app, &mut info, Some(crate::ui::SAMPLE_ADDRESS)),
+        Act::Setting(i) => settings::press(&app, &mut info, i),
     }
 }
 
@@ -593,9 +835,22 @@ pub extern "C" fn on_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 if row == s.strip.row {
                     s.strip.set(row, col);
                 }
-                before != (s.strip.row, s.strip.col())
+                // One focus: the strip takes it back from the inset.
+                let zoned = s.place().focus.zone != Zone::Content;
+                s.place_mut().focus.zone = Zone::Content;
+                zoned || before != (s.strip.row, s.strip.col())
             }
             Act::Tile(index) => focus_tile(&mut s, index),
+            // An overlay's choice under the pointer takes its focus.
+            Act::Choice(i) => dialog::point(&mut s, i),
+            // The settings: the pointer over a category or a row brings the bar of light.
+            Act::SettingsCategory(i) | Act::Setting(i) => {
+                let f = &mut s.place_mut().focus;
+                let changed = f.index != i || f.zone != Zone::Content;
+                f.index = i;
+                f.zone = Zone::Content;
+                changed
+            }
             // The pointer over a view's word only lights it (`:hover`); a click shows it.
             _ => false,
         }
@@ -611,6 +866,49 @@ pub extern "C" fn on_hover(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// A part took the keyboard focus (Tab): the app's focus follows it.
 pub extern "C" fn on_focus(data: RefAny, info: CallbackInfo) -> Update {
     on_hover(data, info)
+}
+
+/// The right button on a part (a strip item, a tile, the inset): the focus goes to it and its
+/// more info opens - Media Center's, never a desktop context menu.
+pub extern "C" fn on_more(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((app, act)) = data
+        .downcast_ref::<ActRef>()
+        .map(|a| (a.app.clone(), a.act.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    {
+        let mut app_ref = app.clone();
+        let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        if s.overlay.is_some() {
+            return Update::DoNothing;
+        }
+        match act {
+            Act::Strip(row, col) => {
+                s.strip.set(row, col);
+                s.place_mut().focus.zone = Zone::Content;
+            }
+            Act::Tile(index) => {
+                focus_tile(&mut s, index);
+            }
+            Act::NowPlaying => s.place_mut().focus.zone = Zone::Inset,
+            _ => return Update::DoNothing,
+        }
+    }
+    info.prevent_default();
+    dialog::open_more_info(&app)
+}
+
+/// The inset's stop button: the music ends and the inset goes - the click is the button's
+/// alone (it does not also open now playing).
+pub extern "C" fn on_inset_stop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let Some(app) = data.downcast_ref::<CommandRef>().map(|c| c.app.clone()) else {
+        return Update::DoNothing;
+    };
+    media::run(&app, &mut info, Command::Stop)
 }
 
 /// The wheel over the strip or a gallery: a category, or a column, per notch.
@@ -662,10 +960,7 @@ pub extern "C" fn on_pointer(mut data: RefAny, mut info: CallbackInfo) -> Update
         return Update::DoNothing;
     };
     s.activity();
-    if !s.controls_shown {
-        s.controls_shown = true;
-        app::show_chrome(&mut info, true);
-    }
+    app::set_chrome(&mut s, &mut info, true);
     Update::DoNothing
 }
 
@@ -702,60 +997,101 @@ pub extern "C" fn on_search(
 
 // ==== The keys ====
 
-/// The window's keys: the kit's first (the settings page), then the media center's - the
-/// transport on any page, Back, Home, the arrows, Enter. While the settings show, their own.
+/// The settings' list (`None`) or the page of a category, from a key: a video closes first (its
+/// place is kept), the settings are a page of the media center.
+fn open_settings(app: &RefAny, info: &mut CallbackInfo, category: Option<Category>) -> Update {
+    media::close_video(app, info);
+    let mut app_ref = app.clone();
+    if let Some(mut s) = app_ref.downcast_mut::<Player>() {
+        match category {
+            Some(c) => settings::open_category(&mut s, c),
+            None => settings::open(&mut s),
+        }
+    }
+    Update::RefreshDom
+}
+
+/// The window's keys: the media center's - the transport on any page, Back, Home, Tab between
+/// the page's zones, the arrows, Enter; the settings (Ctrl+, , F1 the keys).
 pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
-    let Some((kit_ref, fullscreen)) = data
-        .downcast_ref::<Player>()
-        .map(|s| (s.kit.clone(), s.fullscreen))
-    else {
+    let Some(fullscreen) = data.downcast_ref::<Player>().map(|s| s.fullscreen) else {
         return Update::DoNothing;
     };
     let key = info
         .get_current_keyboard_state()
         .current_virtual_keycode
         .into_option();
-    // Escape leaves fullscreen before the kit sees it.
-    if !(fullscreen && key == Some(VirtualKeyCode::Escape)) {
-        if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
-            return update;
-        }
-    }
     let Some(key) = key else {
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
+    // An overlay (more info, a dialog) takes the keys while it shows: it is modal.
+    if let Some(update) = dialog::key(&app, &mut info, key, modifiers) {
+        return update;
+    }
     if key == VirtualKeyCode::O && modifiers.primary_down() {
         info.prevent_default();
         return media::on_open(app, info);
     }
-    if kit::settings_open(&kit_ref) {
-        return Update::DoNothing;
+    // More info (Media Center's remote button): the menu key, Ctrl+D.
+    if key == VirtualKeyCode::Apps || (key == VirtualKeyCode::D && modifiers.ctrl) {
+        info.prevent_default();
+        return dialog::open_more_info(&app);
     }
-    let (screen, searching, transport) = {
+    // The settings are AzPlayer's own pages: Ctrl+, (Cmd+, on macOS) their list, F1 the keys.
+    if key == VirtualKeyCode::Comma && modifiers.primary_down() {
+        info.prevent_default();
+        return open_settings(&app, &mut info, None);
+    }
+    if key == VirtualKeyCode::F1 {
+        info.prevent_default();
+        return open_settings(&app, &mut info, Some(Category::About));
+    }
+    // Tab and Shift+Tab: the page's zones (the back button, the page, the transport, the
+    // inset) - the app's own walk, never the engine's over every focusable box (which put the
+    // keys on a hidden back button: "pressing tab can also make the back button disappear").
+    if key == VirtualKeyCode::Tab && !modifiers.ctrl && !modifiers.alt {
+        info.prevent_default();
+        return tab(&app, &mut info, !modifiers.shift);
+    }
+    let (screen, searching, transport, zone) = {
         let Some(s) = data.downcast_ref::<Player>() else {
             return Update::DoNothing;
         };
         let screen = s.place().screen.clone();
+        // A page whose arrows move its focus (not the volume).
         let gallery = matches!(
             screen,
             Screen::Start
                 | Screen::Section(_)
                 | Screen::Group { .. }
                 | Screen::Search
-                | Screen::Address
+                | Screen::Settings
+                | Screen::SettingsPage(_)
         );
-        // A field with words in it: Backspace edits it rather than going back.
-        let searching = match screen {
-            Screen::Search => !s.query.is_empty(),
-            Screen::Address => !s.address.is_empty(),
-            _ => false,
-        };
-        (screen, searching, media::transport_key(&s, key, gallery))
+        let zone = s.zone();
+        // The search field with words in it (and the keys): Backspace edits it rather than
+        // going back.
+        let searching = zone == Zone::Content && screen == Screen::Search && !s.query.is_empty();
+        (screen, searching, media::transport_key(&s, key, gallery), zone)
     };
-    // The search and the address fields keep their letters, Space and Backspace.
-    let typing = matches!(screen, Screen::Search | Screen::Address)
+    // A zone that is not the page: its Enter and its arrows.
+    if zone != Zone::Content {
+        if matches!(key, VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) {
+            info.prevent_default();
+            return press_zone(&app, &mut info, zone);
+        }
+        if let Some(step) = arrow_step(key) {
+            if let Some(update) = move_in_zone(&app, zone, step) {
+                info.prevent_default();
+                return update;
+            }
+        }
+    }
+    // The search field keeps its letters, Space and Backspace.
+    let typing = zone == Zone::Content
+        && screen == Screen::Search
         && !matches!(
             key,
             VirtualKeyCode::Up
@@ -769,6 +1105,11 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         );
     if typing {
         return Update::DoNothing;
+    }
+    // More info: I as well, where no field takes the letter.
+    if key == VirtualKeyCode::I && !modifiers.primary_down() && !modifiers.alt {
+        info.prevent_default();
+        return dialog::open_more_info(&app);
     }
     match key {
         VirtualKeyCode::Escape if fullscreen => {
@@ -794,26 +1135,25 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         return media::run(&app, &mut info, command);
     }
-    let step = match key {
-        VirtualKeyCode::Up => Step::Up,
-        VirtualKeyCode::Down => Step::Down,
-        VirtualKeyCode::Left => Step::Left,
-        VirtualKeyCode::Right => Step::Right,
-        _ => return Update::DoNothing,
+    let Some(step) = arrow_step(key) else {
+        return Update::DoNothing;
     };
-    // Left / Right move the caret of the search and address fields.
-    if matches!(screen, Screen::Search | Screen::Address)
-        && matches!(step, Step::Left | Step::Right)
-    {
+    // Left / Right move the caret of the search field.
+    if screen == Screen::Search && matches!(step, Step::Left | Step::Right) {
         return Update::DoNothing;
     }
-    // Left / Right seek in what plays full-window (a minute with Shift); Up / Down were the
-    // volume (the transport above).
+    // Left / Right skip in what plays full-window as far as the settings say (a minute with
+    // Shift); Up / Down were the volume (the transport above).
     if matches!(screen, Screen::Video | Screen::NowPlaying) {
-        let by = if modifiers.shift { 60.0 } else { media::REWIND_S };
-        let seconds = match step {
-            Step::Left => -by,
-            Step::Right => by,
+        let mut skip = |forward: bool| -> f64 {
+            data.downcast_ref::<Player>()
+                .map_or(0.0, |s| media::skip_s(&s, forward))
+        };
+        let seconds = match (step, modifiers.shift) {
+            (Step::Left, true) => -60.0,
+            (Step::Right, true) => 60.0,
+            (Step::Left, false) => skip(false),
+            (Step::Right, false) => skip(true),
             _ => return Update::DoNothing,
         };
         info.prevent_default();
