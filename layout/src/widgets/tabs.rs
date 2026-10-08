@@ -85,11 +85,14 @@ pub(crate) static PANEL_BASE: &[CssPropertyWithConditions] = &[
 // off the tab's box with [`australis_curves`]: each is a fixed
 // `CURVE_WIDTH` x `height` box with an SVG user space of one unit per px - so
 // the S keeps its shape on a tab of any width - holding the FILL (the face,
-// clipped to the inside of the S: the engine's own path clip) and the STROKE
-// (the S alone, the tab's edge: the engine's own path stroke, `stroke` /
-// `stroke-width` being the border's spellings). The middle is the tab's own
-// box. The curves are children of the tab, so a press on a foot presses the
-// tab and never the strip behind it.
+// clipped to the inside of the S: the engine's own path clip) and the METAL
+// (the S itself, the tab's edge: the band the S covers at its gauge, filled
+// through the same path clip with whatever the theme paints it - a gradient
+// rolls along it the way it rolls down the tab's head, which a flat stroke
+// could not). The middle is the tab's own box. Beside each foot a run-out can
+// ease the strip's rule into the S's foot. The curves and run-outs are
+// children of the tab, so a press on a foot presses the tab and never the
+// strip behind it.
 
 /// How far a selected tab's foot flares out past its box, each side.
 pub(crate) const CURVE_WIDTH: f32 = 18.0;
@@ -100,8 +103,12 @@ pub(crate) const CURVE_LEFT_CLASS: &str = "__azul-native-tab-curve-left";
 pub(crate) const CURVE_RIGHT_CLASS: &str = "__azul-native-tab-curve-right";
 /// The face inside a curve.
 pub(crate) const CURVE_FILL_CLASS: &str = "__azul-native-tab-curve-fill";
-/// The S itself, the tab's edge.
+/// The S itself, the tab's edge: a band of metal.
 pub(crate) const CURVE_STROKE_CLASS: &str = "__azul-native-tab-curve-stroke";
+/// The run-out beside the left foot.
+pub(crate) const RUNOUT_LEFT_CLASS: &str = "__azul-native-tab-runout-left";
+/// The run-out beside the right foot.
+pub(crate) const RUNOUT_RIGHT_CLASS: &str = "__azul-native-tab-runout-right";
 
 /// What a theme decides about the curves of its selected tab.
 #[derive(Debug, Clone)]
@@ -109,16 +116,24 @@ pub(crate) struct TabCurveLook {
     /// The selected tab's height in px (its border box): the S runs from its
     /// foot to its top.
     pub(crate) height: f32,
-    /// The edge's gauge in px: the stroke's width, and that of the tab's top
-    /// edge and the strip's rule, which the S joins - its centre line runs
-    /// half a gauge in from the foot and from the top.
+    /// The edge's gauge in px: the width of the band the S is, and that of
+    /// the tab's top edge and the strip's rule, which the S joins - its
+    /// centre line runs half a gauge in from the foot and from the top.
     pub(crate) gauge: f32,
     /// The face inside the left S.
     pub(crate) left_fill: CssPropertyWithConditionsVec,
     /// The face inside the right S.
     pub(crate) right_fill: CssPropertyWithConditionsVec,
-    /// The S: its `stroke` (a border width and colour).
-    pub(crate) stroke: CssPropertyWithConditionsVec,
+    /// The S's metal: the band's paint, a background laid over the curve's
+    /// whole box (the tab's own height) and seen through the band.
+    pub(crate) metal: CssPropertyWithConditionsVec,
+    /// How far along the strip's rule each run-out reaches from the foot, in
+    /// px; `0` hangs none.
+    pub(crate) runout: f32,
+    /// The left run-out's paint: a `runout` x `gauge` band lying on the rule.
+    pub(crate) runout_left: CssPropertyWithConditionsVec,
+    /// The right run-out's paint.
+    pub(crate) runout_right: CssPropertyWithConditionsVec,
 }
 
 /// `u` (0 at the foot's end, 1 at the tab's side) across a curve `w` wide,
@@ -171,12 +186,69 @@ fn curve_fill(s: SvgCubicCurve, w: f32, h: f32, left: bool) -> azul_core::svg::S
     ]))
 }
 
+/// The point of the cubic `s` at `t`, and the tangent there.
+fn cubic_at(s: &SvgCubicCurve, t: f32) -> (SvgPoint, (f32, f32)) {
+    let u = 1.0 - t;
+    let (p0, p1, p2, p3) = (s.start, s.ctrl_1, s.ctrl_2, s.end);
+    let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+    let point = SvgPoint {
+        x: a * p0.x + b * p1.x + c * p2.x + d * p3.x,
+        y: a * p0.y + b * p1.y + c * p2.y + d * p3.y,
+    };
+    let (e, f, g) = (3.0 * u * u, 6.0 * u * t, 3.0 * t * t);
+    let tangent = (
+        e * (p1.x - p0.x) + f * (p2.x - p1.x) + g * (p3.x - p2.x),
+        e * (p1.y - p0.y) + f * (p2.y - p1.y) + g * (p3.y - p2.y),
+    );
+    (point, tangent)
+}
+
+/// How many straight runs each edge of the band follows the S in: at a
+/// curve's size the chords stay a hundredth of a px off the arc.
+const BAND_STEPS: u16 = 24;
+
+/// The band the S covers at `gauge` - the S offset half a gauge to each side
+/// along its normal, one edge out and the other back, closed across both
+/// ends. The S leaves its foot and reaches its head level, so the ends are
+/// cut square: over the rule's gauge at the foot, over the head's at the top.
+fn curve_band(s: SvgCubicCurve, gauge: f32) -> azul_core::svg::SvgPath {
+    use azul_core::svg::{SvgLine, SvgPath, SvgPathElement, SvgPathElementVec};
+    let half = gauge / 2.0;
+    let steps = usize::from(BAND_STEPS);
+    let mut one_side = Vec::with_capacity(steps + 1);
+    let mut other_side = Vec::with_capacity(steps + 1);
+    for i in 0..=BAND_STEPS {
+        let (p, (dx, dy)) = cubic_at(&s, f32::from(i) / f32::from(BAND_STEPS));
+        let length = dx.hypot(dy);
+        let (nx, ny) = if length > 0.0 {
+            (-dy / length, dx / length)
+        } else {
+            (0.0, 1.0)
+        };
+        one_side.push(SvgPoint {
+            x: nx.mul_add(half, p.x),
+            y: ny.mul_add(half, p.y),
+        });
+        other_side.push(SvgPoint {
+            x: nx.mul_add(-half, p.x),
+            y: ny.mul_add(-half, p.y),
+        });
+    }
+    let outline: Vec<SvgPoint> = one_side.into_iter().chain(other_side.into_iter().rev()).collect();
+    let runs = (0..outline.len())
+        .map(|i| {
+            SvgPathElement::Line(SvgLine::new(outline[i], outline[(i + 1) % outline.len()]))
+        })
+        .collect();
+    SvgPath::create(SvgPathElementVec::from_vec(runs))
+}
+
 /// One curve: hung off the tab's `left` or right side, standing on its foot,
-/// the fill and the stroke over the whole of it.
+/// the fill and the metal over the whole of it.
 fn curve(look: &TabCurveLook, left: bool) -> Dom {
     use azul_core::{
         dom::SvgNodeData,
-        svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec},
+        svg::{SvgMultiPolygon, SvgPath, SvgPathVec},
     };
 
     use crate::widgets::themes::decl;
@@ -187,7 +259,7 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
         SvgNodeData::Path(SvgMultiPolygon::create(SvgPathVec::from_vec(vec![path])))
     };
     // Over the whole curve, as the chart places its shapes: the box IS the
-    // user space, whatever border (stroke) it carries.
+    // user space, whatever padding or border it carries.
     let over = |own: &CssPropertyWithConditionsVec| {
         let mut v = vec![
             decl::position(LayoutPosition::Absolute),
@@ -207,12 +279,10 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
             &look.right_fill
         }))
         .with_svg_data(shape(curve_fill(s, w, h, left)));
-    let stroke = Dom::create_div()
+    let metal = Dom::create_div()
         .with_ids_and_classes(decl::classes(&[CURVE_STROKE_CLASS]))
-        .with_css_props(over(&look.stroke))
-        .with_svg_data(shape(SvgPath::create(SvgPathElementVec::from_vec(vec![
-            SvgPathElement::CubicCurve(s),
-        ]))));
+        .with_css_props(over(&look.metal))
+        .with_svg_data(shape(curve_band(s, look.gauge)));
     let side = if left {
         decl::simple(CssProperty::const_left(LayoutLeft::px(-w)))
     } else {
@@ -237,14 +307,53 @@ fn curve(look: &TabCurveLook, left: bool) -> Dom {
             width: w,
             height: h,
         })
-        .with_children(DomVec::from_vec(vec![fill, stroke]))
+        .with_children(DomVec::from_vec(vec![fill, metal]))
 }
 
-/// The two curves of an Australis tab, the left one first: children of the
-/// selected tab, which is `position: relative` so they hang off its box.
+/// One run-out: a `runout` x `gauge` band hung off the tab's `left` or right
+/// side past its curve, lying on the strip's rule and ending at the foot.
+fn runout(look: &TabCurveLook, left: bool) -> Dom {
+    use crate::widgets::themes::decl;
+
+    let reach = -(CURVE_WIDTH + look.runout);
+    let side = if left {
+        decl::simple(CssProperty::const_left(LayoutLeft::px(reach)))
+    } else {
+        decl::simple(CssProperty::const_right(LayoutRight::px(reach)))
+    };
+    let mut style = vec![
+        decl::position(LayoutPosition::Absolute),
+        side,
+        decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+        decl::px_width(look.runout),
+        decl::px_height(look.gauge),
+    ];
+    let paint = if left {
+        &look.runout_left
+    } else {
+        &look.runout_right
+    };
+    style.extend(paint.as_ref().iter().cloned());
+    Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[if left {
+            RUNOUT_LEFT_CLASS
+        } else {
+            RUNOUT_RIGHT_CLASS
+        }]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+}
+
+/// The two curves of an Australis tab, the left one first, then - when the
+/// look has them - the left and the right run-out: children of the selected
+/// tab, which is `position: relative` so they hang off its box.
 #[must_use]
-pub(crate) fn australis_curves(look: &TabCurveLook) -> [Dom; 2] {
-    [curve(look, true), curve(look, false)]
+pub(crate) fn australis_curves(look: &TabCurveLook) -> Vec<Dom> {
+    let mut parts = vec![curve(look, true), curve(look, false)];
+    if look.runout > 0.0 {
+        parts.push(runout(look, true));
+        parts.push(runout(look, false));
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -259,8 +368,58 @@ mod australis_tests {
             gauge: 2.0,
             left_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
             right_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
-            stroke: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            metal: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            runout: 34.0,
+            runout_left: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            runout_right: CssPropertyWithConditionsVec::from_const_slice(&[]),
         }
+    }
+
+    /// Beside each foot the run-out lies on the rule: a `runout` x gauge band
+    /// past the curve, ending where the S leaves the rule; none when the
+    /// look asks for none.
+    #[test]
+    fn a_run_out_lies_on_the_rule_beside_each_foot() {
+        let parts = australis_curves(&look());
+        assert_eq!(parts.len(), 4, "two curves, two run-outs");
+        let runout_px = |node: &Dom, ty: CssPropertyType| {
+            node.root
+                .style
+                .iter_inline_properties()
+                .filter(|(p, _)| p.get_type() == ty)
+                .find_map(|(p, _)| match p {
+                    CssProperty::Left(v) => v.get_property().map(|l| l.inner.number.get()),
+                    CssProperty::Right(v) => v.get_property().map(|r| r.inner.number.get()),
+                    CssProperty::Width(v) => match v.get_property() {
+                        Some(LayoutWidth::Px(px)) => Some(px.number.get()),
+                        _ => None,
+                    },
+                    CssProperty::Height(v) => match v.get_property() {
+                        Some(LayoutHeight::Px(px)) => Some(px.number.get()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+        };
+        for (node, class, side) in [
+            (&parts[2], RUNOUT_LEFT_CLASS, CssPropertyType::Left),
+            (&parts[3], RUNOUT_RIGHT_CLASS, CssPropertyType::Right),
+        ] {
+            assert!(node
+                .root
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class)));
+            assert_eq!(runout_px(node, side), Some(-(CURVE_WIDTH + 34.0)), "{class}");
+            assert_eq!(runout_px(node, CssPropertyType::Width), Some(34.0));
+            assert_eq!(runout_px(node, CssPropertyType::Height), Some(2.0), "the rule's gauge");
+        }
+        let without = TabCurveLook {
+            runout: 0.0,
+            ..look()
+        };
+        assert_eq!(australis_curves(&without).len(), 2, "no run-outs");
     }
 
     /// The S leaves the strip's rule and reaches the tab's top edge LEVEL -
@@ -1604,7 +1763,8 @@ impl TabHeader {
                             tab_idx, tab_stop,
                         ));
                     }
-                    // The selected tab's curves, after its label text.
+                    // The selected tab's curves and run-outs, after its label
+                    // text.
                     if tab_is_active {
                         if let Some(curves) = curves.as_ref() {
                             for curve in australis_curves(curves) {

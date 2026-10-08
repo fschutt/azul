@@ -528,8 +528,8 @@ pub(crate) fn theme_colours(theme: UiTheme) -> Vec<ColorU> {
                 DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
                 DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
                 DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
-                // The metal rule.
-                TAB_METAL,
+                // The metal: the rule, the rolled bead, the turn colour.
+                TAB_METAL, METAL_LIT, METAL_ROLL, METAL_GLINT, METAL_DIM, METAL_SHADE,
             ]
         }
     }
