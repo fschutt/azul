@@ -14315,6 +14315,9 @@ impl LayoutWindow {
         // scope wins (the enum is ordered None < IfcOnly < SizingOnly < Full).
         let mut restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
         let mut captured_transitions: Vec<CssTransition> = Vec::new();
+        // (new node, property) of the tweens this rebuild leaves running.
+        let mut kept_transitions: Vec<(NodeId, azul_css::props::property::CssPropertyType)> =
+            Vec::new();
         let mut move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode> =
             BTreeMap::new();
         if let Some(old_result) = self.layout_results.get(&dom_id) {
@@ -14414,13 +14417,31 @@ impl LayoutWindow {
                                     Clone::clone,
                                 )
                             };
+                            let to = value(after)
+                                .resolve_system_colors(new_cache.dynamic_context.as_deref());
+                            // A tween already running toward this very value
+                            // is left alone (CSS Transitions 1, s3: its end
+                            // value is the after-change value). `before` reads
+                            // its override - where the node stands mid-way -
+                            // so it differs from `after` on every rebuild that
+                            // lands during the tween, and restarting it from
+                            // there at t = 0 slowed the node to rest and set
+                            // it off again: the Switch knob's 150 ms slide
+                            // began anew whenever the app rebuilt mid-glide.
+                            let running = dom_id == DomId::ROOT_ID
+                                && self.css_transitions.iter().any(|t| {
+                                    t.node == m.old_node_id && t.prop_type == *ty && t.to == to
+                                });
+                            if running {
+                                kept_transitions.push((m.new_node_id, *ty));
+                                continue;
+                            }
                             captured_transitions.push(CssTransition::declared(
                                 m.new_node_id,
                                 *ty,
                                 value(before)
                                     .resolve_system_colors(old_cache.dynamic_context.as_deref()),
-                                value(after)
-                                    .resolve_system_colors(new_cache.dynamic_context.as_deref()),
+                                to,
                                 anim,
                                 false,
                             ));
@@ -14455,6 +14476,18 @@ impl LayoutWindow {
         // at whatever element inherited its arena index.
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
         self.remap_node_ids(dom_id, &map);
+
+        // A tween the rebuild left running (remapped to its new node just
+        // now) finds its target in the new tree's cascade - that is what made
+        // it equal - so it ends by clearing its override like a tween the
+        // rebuild started, instead of keeping the target as an override an
+        // imperative write needs (a later theme or mode switch would never
+        // show through one).
+        for t in &mut self.css_transitions {
+            if kept_transitions.contains(&(t.node, t.prop_type)) {
+                t.keeps_target = false;
+            }
+        }
 
         // Frame-0 of every captured transition: override the NEW tree to the
         // `from` value BEFORE its first layout, so a transition never flashes
