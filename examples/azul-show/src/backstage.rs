@@ -141,8 +141,9 @@ fn theme_card(app: &RefAny, st: &AppState, index: usize, name: &str) -> Dom {
     for c in [colors.accent, colors.accent2, colors.accent3, colors.title] {
         accents.add_child(Dom::create_div().with_css(format!("flex-grow: 1; background: {};", render::css_color(c))));
     }
+    // The chosen theme's ring: PowerPoint's orange; under flora the stone (AzShow's red spin).
     let ring = if st.new_theme == index {
-        "border: 3px solid #d24726;"
+        "border: 3px solid #d24726; @theme(flora) { border: 3px solid system:accent; }"
     } else {
         "border: 3px solid transparent;"
     };
@@ -208,7 +209,8 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
             Dom::create_div()
                 .with_css(
                     "display: flex; flex-direction: row; align-items: center; padding: 6px 0px; \
-                     border-bottom: 1px solid #c8c8c8;",
+                     border-bottom: 1px solid #c8c8c8; @theme(flora) { border-bottom: 1px solid \
+                     system:separator; }",
                 )
                 .with_child(
                     Dom::create_div()
