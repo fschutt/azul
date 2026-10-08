@@ -35,15 +35,19 @@
 //!
 //! Durable data is files only: events, calendars (`calendars.rs`), tasks (`tasks.rs`); .ics
 //! files are imported and exported (`ics.rs`). The meeting server holds the rooms (registering
-//! and joining), nothing of the calendar. The meeting server is chosen in FILE > Options
-//! (`<data dir>/settings.txt`, AzMeet's settings format), else `AZMEET_WORKER`, else the built-in
-//! one, else AzMeet's local development server: there always is one. The same file keeps the
-//! zoom, the view, the hidden calendars and the panes shown (`settings.rs`).
+//! and joining), nothing of the calendar. The meeting server is `--worker` for one run, else the
+//! one chosen in FILE > Options (`<data dir>/settings.txt`, AzMeet's settings format), else
+//! `AZMEET_WORKER`, else `endpoints.meet` of the shared Azlin config (`~/.azlin/config.json`, or
+//! the file `AZLIN_CONFIG` names), else the built-in one, else AzMeet's local development server:
+//! there always is one. The same file keeps the zoom, the view, the hidden calendars and the
+//! panes shown (`settings.rs`).
 //!
 //! Environment:
 //! - `AZCAL_DATA`: the data folder (default: `AzCalendar` in the user's data folder).
-//! - `AZMEET_WORKER`: the meeting server when none is saved, as for AzMeet (default: AzMeet's
-//!   built-in one, set at build time with `AZMEET_DEFAULT_WORKER`).
+//! - `AZMEET_WORKER`: the meeting server when none is saved, as for AzMeet (default: the shared
+//!   config's `endpoints.meet`, else AzMeet's built-in one, set at build time with
+//!   `AZMEET_DEFAULT_WORKER`).
+//! - `AZLIN_CONFIG`: another shared Azlin config file (the local stack's profile).
 //! - `AZCAL_SYNC_SECONDS`: how often pending links are sent again (default 30).
 //! - `AZMEET_BIN`: the AzMeet program "Join meeting" starts (default: `AzMeet` next to AzCalendar).
 //! - `AZMAIL_BIN`: the AzMail program the module switcher's Mail starts (default: next to it).
@@ -195,8 +199,9 @@ pub(crate) const PAGE: &str = "display: flex; flex-direction: column; flex-grow:
 /// The app.
 pub(crate) struct CalState {
     pub(crate) data_dir: PathBuf,
-    /// The meeting server new links are registered with (Options, else `AZMEET_WORKER`, else
-    /// the built-in one, else AzMeet's local one).
+    /// The meeting server new links are registered with (`--worker`, else Options, else
+    /// `AZMEET_WORKER`, else the shared config's `endpoints.meet`, else the built-in one, else
+    /// AzMeet's local one).
     pub(crate) server: String,
     pub(crate) events: Vec<Event>,
     /// The default calendar first.

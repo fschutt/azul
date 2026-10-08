@@ -33,10 +33,12 @@ pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
     None => "",
 };
 
-/// The meeting server: the one in the settings file's text `saved` (AzMeet's settings format),
-/// else `env` (`AZMEET_WORKER`), else `built_in`, else AzMeet's local development server - the
-/// order AzMeet itself uses (`meet_rooms::server_prefill`). There always is one: links are made
-/// here and registered with it once it answers.
+/// The meeting server: `flag` (`--worker`, this run only), else the one in the settings file's
+/// text `saved` (AzMeet's settings format), else `env` (`AZMEET_WORKER`), else `shared` (the
+/// shared Azlin config's `endpoints.meet`), else `built_in`, else AzMeet's local development
+/// server - the order AzMeet itself uses (`meet_rooms::server_choice`), with the shared config
+/// in front of the built-in one. A candidate that is no meeting server address is passed over.
+/// There always is one: links are made here and registered with it once it answers.
 pub fn server_setting(
     flag: Option<&str>,
     saved: Option<&str>,
@@ -44,9 +46,10 @@ pub fn server_setting(
     shared: Option<&str>,
     built_in: &str,
 ) -> String {
-    let _ = (flag, shared);
     let saved = saved.and_then(settings::meeting_server);
-    meet_rooms::server_prefill(saved.as_deref(), env, built_in).0
+    let shared = shared.and_then(meet_rooms::normalize_server);
+    let fallback = shared.as_deref().unwrap_or(built_in);
+    meet_rooms::server_choice(flag, saved.as_deref(), env, fallback).0
 }
 
 /// The alphabet of room ids: lower-case Crockford base32, as the meeting server mints them and

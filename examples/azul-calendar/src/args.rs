@@ -2,7 +2,7 @@
 //! page or the event editor (for scripts and screenshots), `--theme flat|flora` and
 //! `--mode light|dark` pick the app theme and the mode, `--sample` puts sample events into an
 //! empty calendar, `--date YYYY-MM-DD` opens on that day, `--data <dir>` is the data folder
-//! (as `AZCAL_DATA`).
+//! (as `AZCAL_DATA`), `--worker <url>` the meeting server for this run (AzMeet's switch).
 
 use std::path::PathBuf;
 
@@ -120,6 +120,8 @@ OPTIONS:
     --sample            put sample events into an empty calendar
     --date <DATE>       open on this day (YYYY-MM-DD)
     --data <DIR>        the data folder (else AZCAL_DATA, else the user's data folder)
+    --worker <URL>      the meeting server for this run (else the saved one, AZMEET_WORKER,
+                        endpoints.meet of the shared Azlin config, the built-in one)
     -h, --help          print this help
 ";
 
@@ -198,6 +200,7 @@ impl Args {
                     );
                 }
                 "--data" => a.data = Some(PathBuf::from(value("folder")?)),
+                "--worker" => a.worker = Some(value("meeting server")?),
                 other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
             }
             i += 1;
