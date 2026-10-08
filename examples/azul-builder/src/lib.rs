@@ -22,12 +22,20 @@ fn scripted() -> bool {
     std::env::var_os("AZ_E2E").is_some() || std::env::var_os("AZ_E2E_TEST").is_some()
 }
 
-/// The debug server's port: the caller's `AZ_DEBUG`, else 8080.
+/// The debug server's port: the caller's `AZ_DEBUG`, else [`DEFAULT_PORT`].
 fn debug_port() -> String {
-    std::env::var("AZ_DEBUG")
-        .ok()
-        .filter(|p| !p.trim().is_empty())
-        .unwrap_or_else(|| "8080".to_string())
+    port_from(std::env::var("AZ_DEBUG").ok().as_deref())
+}
+
+/// The debug server's port without `AZ_DEBUG`: one the local stack leaves free (its sqld is on
+/// 8080, the token server on 8081, S3 on 9000, the meeting server on 8790).
+const DEFAULT_PORT: &str = "8765";
+
+/// [`debug_port`] from `AZ_DEBUG`'s value.
+fn port_from(var: Option<&str>) -> String {
+    var.filter(|p| !p.trim().is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| DEFAULT_PORT.to_string())
 }
 
 extern "C" fn on_start(_data: RefAny, _info: CallbackInfo) -> Update {
@@ -61,4 +69,20 @@ pub fn run_app() {
 pub extern "C" fn android_main(app: azul::dll::AndroidApp) {
     azul::dll::android_main_glue(app);
     run_app();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::port_from;
+
+    #[test]
+    fn the_debug_port_is_az_debug_else_one_the_local_stack_leaves_free() {
+        assert_eq!(port_from(Some("9123")), "9123");
+        assert_eq!(port_from(Some("  ")), port_from(None), "blank is unset");
+        assert_ne!(
+            port_from(None),
+            "8080",
+            "8080 is the local stack's sqld (iso/docs/GETTING-STARTED.md)"
+        );
+    }
 }

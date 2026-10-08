@@ -264,7 +264,10 @@ pub fn pending_count() -> usize {
 /// (`AZ_E2E` / `AZ_E2E_TEST` set, or `AZ_BACKEND=headless`; explicitly with
 /// [`arm`]) and disarmed in production, where it costs one relaxed load. A
 /// bare headless launch (no script) still sends unmocked HTTP requests: no
-/// modal can hang on one, and headless apps need the network.
+/// modal can hang on one, and headless apps need the network. A scripted run
+/// sends the unmocked ones `AZ_E2E_ALLOW_HTTP` names (comma-separated URL
+/// patterns, `http://127.0.0.1:*`: the local stack it drives the app against)
+/// and refuses the rest.
 ///
 /// * A **mocked** operation resumes immediately with the canned answer; the resume path is the
 ///   normal one, so a mocked test exercises the whole request / resume machinery except the OS call
@@ -444,6 +447,10 @@ pub mod mock {
         /// `(url pattern, answer)`: an exact URL, a prefix ending in `*`, or
         /// `*` for everything; first match wins.
         http: Vec<(String, MockHttp)>,
+        /// The URL patterns (as in `http`) a scripted run fetches for real,
+        /// unmocked: `AZ_E2E_ALLOW_HTTP`, the local stack a script drives the
+        /// app against; `None` = read the variable on first use.
+        http_allowed: Option<Vec<String>>,
         audio_devices: Option<(Vec<AzString>, Vec<AzString>)>,
         video_decode_none: bool,
         saved_files: Vec<SavedFile>,
@@ -466,6 +473,7 @@ pub mod mock {
         save_bytes_accept: None,
         file_reads: BTreeMap::new(),
         http: Vec::new(),
+        http_allowed: None,
         audio_devices: None,
         video_decode_none: false,
         saved_files: Vec::new(),
@@ -710,20 +718,48 @@ pub mod mock {
         if !armed_in(s) {
             return Answer::NotArmed;
         }
-        let found = s.http.iter().find(|(pattern, _)| {
-            pattern == "*"
-                || pattern == url
-                || pattern
-                    .strip_suffix('*')
-                    .is_some_and(|prefix| url.starts_with(prefix))
-        });
+        let found = s.http.iter().find(|(pattern, _)| url_matches(pattern, url));
         let taken = found.map(|(_, canned)| canned.clone());
         // No modal can hang on an HTTP request: without a script to keep
-        // deterministic, an unmocked request goes out (see the tests).
-        if taken.is_none() && !scripted_in(s) {
+        // deterministic, an unmocked request goes out (see the tests); a
+        // scripted run sends the ones `AZ_E2E_ALLOW_HTTP` names (a local
+        // stack).
+        if taken.is_none() && (!scripted_in(s) || http_allowed_in(s, url)) {
             return Answer::NotArmed;
         }
         answer(s, taken, &alloc::format!("http {url}"))
+    }
+
+    /// Whether `url` is what `pattern` names: an exact URL, a prefix ending
+    /// in `*`, or `*` for everything.
+    fn url_matches(pattern: &str, url: &str) -> bool {
+        pattern == "*"
+            || pattern == url
+            || pattern
+                .strip_suffix('*')
+                .is_some_and(|prefix| url.starts_with(prefix))
+    }
+
+    /// `AZ_E2E_ALLOW_HTTP`'s patterns: comma-separated, blanks dropped
+    /// (`http://127.0.0.1:*,http://localhost:*`).
+    fn parse_http_allowed(value: &str) -> Vec<String> {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(String::from)
+            .collect()
+    }
+
+    fn http_allowed_in(s: &mut MockState, url: &str) -> bool {
+        s.http_allowed
+            .get_or_insert_with(|| {
+                std::env::var("AZ_E2E_ALLOW_HTTP")
+                    .map(|v| parse_http_allowed(&v))
+                    .unwrap_or_default()
+            })
+            .iter()
+            .any(|pattern| url_matches(pattern, url))
     }
 
     #[must_use]
@@ -813,7 +849,7 @@ pub mod mock {
 
     #[cfg(test)]
     mod network_tests {
-        use super::{take_http_in, Answer, MockHttp, MockState};
+        use super::{parse_http_allowed, take_http_in, Answer, MockHttp, MockState};
 
         fn store(scripted: bool) -> MockState {
             MockState {
@@ -833,6 +869,28 @@ pub mod mock {
             let mut s = store(false);
             assert_eq!(take_http_in(&mut s, "http://127.0.0.1:8787/rooms"), Answer::NotArmed);
             assert!(s.unmocked.is_empty(), "nothing to report: the request went out");
+        }
+
+        /// A scripted run against a local stack (the meeting server, S3, the
+        /// token server on 127.0.0.1): `AZ_E2E_ALLOW_HTTP` names what goes
+        /// out for real; every other unmocked request is still refused.
+        #[test]
+        fn a_scripted_run_sends_the_http_requests_its_allow_list_names() {
+            let mut s = store(true);
+            s.http_allowed = Some(vec!["http://127.0.0.1:*".into()]);
+            assert_eq!(
+                take_http_in(&mut s, "http://127.0.0.1:8790/rooms"),
+                Answer::NotArmed
+            );
+            assert_eq!(
+                take_http_in(&mut s, "https://example.org/feed.xml"),
+                Answer::Unmocked
+            );
+            assert_eq!(s.unmocked, ["http https://example.org/feed.xml"]);
+            assert_eq!(
+                parse_http_allowed(" http://127.0.0.1:*, ,http://localhost:8790/*,"),
+                ["http://127.0.0.1:*", "http://localhost:8790/*"]
+            );
         }
 
         /// A scripted run keeps its determinism: an unmocked request is

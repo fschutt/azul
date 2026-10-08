@@ -1,9 +1,13 @@
 //! AzMail's command line and its facts for azul-appkit: the switches every Azlin app has
 //! (`--screen`, `--size`, `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`; parsed by
-//! `azul_appkit::AppArgs`), AzMail's screens, the About facts and the keyboard-shortcut table
-//! (the settings page lists it; the window key handlers act on it).
+//! `azul_appkit::AppArgs`), AzMail's own (`--azlin-token-url`, `--azlin-s3-url`: where the Azlin
+//! services are, over the shared Azlin config and the environment), AzMail's screens, the About
+//! facts and the keyboard-shortcut table (the settings page lists it; the window key handlers
+//! act on it).
 
 use azul_appkit::{AboutInfo, AppArgs, AppSpec, Shortcut};
+
+use crate::azlin::{self, Endpoints};
 
 /// The names `--screen` accepts; the first is the default.
 pub const SCREENS: [&str; 7] = [
@@ -24,6 +28,106 @@ pub const SPEC: AppSpec = AppSpec {
     screens: &SCREENS,
     files_help: "",
 };
+
+/// AzMail's own switches, after azul-appkit's in the usage text.
+const AZMAIL_HELP: &str = concat!(
+    "\nAZMAIL:\n",
+    "    --azlin-token-url <URL>  The Azlin token server new Azlin accounts sign in at (default:\n",
+    "                             the endpoints of the shared Azlin config, else $AZLIN_TOKEN_URL)\n",
+    "    --azlin-s3-url <URL>     The S3 endpoint of the Azlin drives instead of the one the token\n",
+    "                             server reports (default: the shared config, else $AZLIN_S3_URL)\n",
+    "    --dns-servers <IPS>      The resolvers the DKIM / DMARC / SPF check asks, e.g.\n",
+    "                             192.168.1.1,::1 (default: $AZMAIL_DNS_SERVERS, else public ones)\n",
+);
+
+/// The usage text: azul-appkit's, then AzMail's own switches.
+#[must_use]
+pub fn usage() -> String {
+    let mut text = azul_appkit::args::help(&SPEC);
+    text.push_str(AZMAIL_HELP);
+    text
+}
+
+/// The parsed command line: azul-appkit's switches and AzMail's own.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MailArgs {
+    pub kit: AppArgs,
+    /// `--azlin-token-url`, `--azlin-s3-url` as given (the start resolves them over the shared
+    /// config and the environment: `azlin::Endpoints::resolve`).
+    pub endpoints: Endpoints,
+    /// `--dns-servers` as given (over `dkim::DNS_SERVERS_VAR`).
+    pub dns_servers: Option<String>,
+}
+
+/// AzMail's own switches that take a value.
+const OWN: [&str; 3] = [azlin::TOKEN_URL_FLAG, azlin::S3_URL_FLAG, "--dns-servers"];
+
+impl MailArgs {
+    /// Parses `argv` without the program name: AzMail's own switches here, the rest by
+    /// azul-appkit. `Err` carries the usage (`-h`) or what was wrong.
+    pub fn parse<I, S>(argv: I) -> Result<MailArgs, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+        if argv.iter().any(|a| a == "-h" || a == "--help") {
+            return Err(usage());
+        }
+        let mut endpoints = Endpoints::default();
+        let mut dns_servers = None;
+        let mut rest = Vec::with_capacity(argv.len());
+        let mut i = 0;
+        while i < argv.len() {
+            let arg = argv[i].as_str();
+            let (name, inline) = match arg.split_once('=') {
+                Some((n, v)) if n.starts_with("--") => (n, Some(v.to_string())),
+                _ => (arg, None),
+            };
+            if !OWN.contains(&name) {
+                rest.push(argv[i].clone());
+                i += 1;
+                continue;
+            }
+            let what = if name == "--dns-servers" {
+                "list of IP addresses"
+            } else {
+                "URL"
+            };
+            let value = match inline {
+                Some(v) => v,
+                None => {
+                    i += 1;
+                    argv.get(i)
+                        .cloned()
+                        .ok_or_else(|| format!("{name} needs a {what}"))?
+                }
+            };
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                return Err(format!("{name} needs a {what}"));
+            }
+            if name == azlin::TOKEN_URL_FLAG {
+                endpoints.token_url = Some(value);
+            } else if name == azlin::S3_URL_FLAG {
+                endpoints.s3_url = Some(value);
+            } else {
+                dns_servers = Some(value);
+            }
+            i += 1;
+        }
+        Ok(MailArgs {
+            kit: AppArgs::parse(&SPEC, rest)?,
+            endpoints,
+            dns_servers,
+        })
+    }
+
+    /// The switches of this process (`std::env::args`, without the program name).
+    pub fn from_env() -> Result<MailArgs, String> {
+        MailArgs::parse(std::env::args().skip(1))
+    }
+}
 
 /// AzMail's folder in the data root is `mail/` (the user's bucket later).
 pub const APP_FOLDER: &str = "mail";
@@ -145,6 +249,29 @@ mod tests {
         assert!(parse(&["positional"]).is_err(), "AzMail opens no files");
         assert!(parse(&["--screen"]).is_err(), "a flag missing its value");
         assert!(parse(&["--help"]).unwrap_err().contains("USAGE"));
+    }
+
+    #[test]
+    fn the_azlin_switches_are_azmails_own_and_the_rest_goes_to_the_kit() {
+        let a = MailArgs::parse([
+            "--azlin-token-url",
+            " http://127.0.0.1:8081 ",
+            "--screen=add-account",
+            "--azlin-s3-url=http://127.0.0.1:9000",
+        ])
+        .unwrap();
+        assert_eq!(a.endpoints.token_url.as_deref(), Some("http://127.0.0.1:8081"));
+        assert_eq!(a.endpoints.s3_url.as_deref(), Some("http://127.0.0.1:9000"));
+        assert_eq!(Screen::of(&a.kit), Screen::AddAccount);
+        assert_eq!(MailArgs::parse(["--sample"]).unwrap().endpoints, Endpoints::default());
+        assert!(MailArgs::parse(["--azlin-token-url"]).is_err(), "a switch missing its URL");
+        assert!(MailArgs::parse(["--azlin-token-url="]).is_err(), "an empty URL");
+        assert!(MailArgs::parse(["--nonsense"]).is_err(), "the kit still refuses the rest");
+        let help = MailArgs::parse(["--help"]).unwrap_err();
+        assert!(help.contains("USAGE") && help.contains("--azlin-token-url"), "{help}");
+        let dns = MailArgs::parse(["--dns-servers=192.168.1.1,::1"]).unwrap();
+        assert_eq!(dns.dns_servers.as_deref(), Some("192.168.1.1,::1"));
+        assert!(MailArgs::parse(["--dns-servers"]).is_err());
     }
 
     #[test]

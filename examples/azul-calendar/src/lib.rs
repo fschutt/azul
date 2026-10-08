@@ -35,15 +35,19 @@
 //!
 //! Durable data is files only: events, calendars (`calendars.rs`), tasks (`tasks.rs`); .ics
 //! files are imported and exported (`ics.rs`). The meeting server holds the rooms (registering
-//! and joining), nothing of the calendar. The meeting server is chosen in FILE > Options
-//! (`<data dir>/settings.txt`, AzMeet's settings format), else `AZMEET_WORKER`, else the built-in
-//! one, else AzMeet's local development server: there always is one. The same file keeps the
-//! zoom, the view, the hidden calendars and the panes shown (`settings.rs`).
+//! and joining), nothing of the calendar. The meeting server is `--worker` for one run, else the
+//! one chosen in FILE > Options (`<data dir>/settings.txt`, AzMeet's settings format), else
+//! `AZMEET_WORKER`, else `endpoints.meet` of the shared Azlin config (`~/.azlin/config.json`, or
+//! the file `AZLIN_CONFIG` names), else the built-in one, else AzMeet's local development server:
+//! there always is one. The same file keeps the zoom, the view, the hidden calendars and the
+//! panes shown (`settings.rs`).
 //!
 //! Environment:
 //! - `AZCAL_DATA`: the data folder (default: `AzCalendar` in the user's data folder).
-//! - `AZMEET_WORKER`: the meeting server when none is saved, as for AzMeet (default: AzMeet's
-//!   built-in one, set at build time with `AZMEET_DEFAULT_WORKER`).
+//! - `AZMEET_WORKER`: the meeting server when none is saved, as for AzMeet (default: the shared
+//!   config's `endpoints.meet`, else AzMeet's built-in one, set at build time with
+//!   `AZMEET_DEFAULT_WORKER`).
+//! - `AZLIN_CONFIG`: another shared Azlin config file (the local stack's profile).
 //! - `AZCAL_SYNC_SECONDS`: how often pending links are sent again (default 30).
 //! - `AZMEET_BIN`: the AzMeet program "Join meeting" starts (default: `AzMeet` next to AzCalendar).
 //! - `AZMAIL_BIN`: the AzMail program the module switcher's Mail starts (default: next to it).
@@ -195,8 +199,9 @@ pub(crate) const PAGE: &str = "display: flex; flex-direction: column; flex-grow:
 /// The app.
 pub(crate) struct CalState {
     pub(crate) data_dir: PathBuf,
-    /// The meeting server new links are registered with (Options, else `AZMEET_WORKER`, else
-    /// the built-in one, else AzMeet's local one).
+    /// The meeting server new links are registered with (`--worker`, else Options, else
+    /// `AZMEET_WORKER`, else the shared config's `endpoints.meet`, else the built-in one, else
+    /// AzMeet's local one).
     pub(crate) server: String,
     pub(crate) events: Vec<Event>,
     /// The default calendar first.
@@ -1192,6 +1197,21 @@ fn user_data_dir() -> Option<PathBuf> {
         .map(|dir| PathBuf::from(dir.inner.as_str()))
 }
 
+/// The meeting server the shared Azlin config names (`endpoints.meet` of `~/.azlin/config.json`,
+/// or of the file `AZLIN_CONFIG` names).
+fn shared_meeting_server() -> Option<String> {
+    let home = FilePath::get_home_dir()
+        .into_option()
+        .map(|dir| PathBuf::from(dir.inner.as_str()));
+    azul_appkit::shared_endpoint::read(
+        std::env::var(azul_appkit::azlin_config::CONFIG_VAR)
+            .ok()
+            .as_deref(),
+        home.as_deref(),
+        "meet",
+    )
+}
+
 pub fn start() {
     let args = match Args::parse(std::env::args().skip(1)) {
         Ok(args) => args,
@@ -1219,6 +1239,7 @@ pub fn start() {
     let tasks_root = tasks::tasks_root(
         named_dir.as_deref(),
         std::env::var(tasks::TASKS_DATA_VAR).ok().as_deref(),
+        std::env::var(azul_appkit::data::DATA_VAR).ok().as_deref(),
         user_data_dir(),
     );
     let today = chrono::Local::now().date_naive();
@@ -1251,8 +1272,10 @@ pub fn start() {
     let saved = settings::read(&drive);
     let text = saved.as_deref().unwrap_or_default();
     let server = meeting::server_setting(
+        args.worker.as_deref(),
         saved.as_deref(),
         std::env::var(meeting::WORKER_VAR).ok().as_deref(),
+        shared_meeting_server().as_deref(),
         meeting::BUILT_IN_WORKER,
     );
     let hour_px = settings::hour_px(text).unwrap_or(week::DEFAULT_HOUR_PX);

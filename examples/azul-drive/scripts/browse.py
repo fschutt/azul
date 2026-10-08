@@ -372,8 +372,13 @@ def run(args, logs):
     env.update({
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.debug_port),
+        # Not the user's shared Azlin config (~/.azlin/config.json: the look, the endpoints),
+        # which a settings save would also write.
+        "AZLIN_CONFIG": "off",
     })
     switches = [
+        # The run's own data root (drive/view.json, the "Azlin" drive), not the user's.
+        "--data-dir", os.path.join(logs, "data"),
         "--home", home,
         "--downloads", downloads,
         "--drives", drives_file,

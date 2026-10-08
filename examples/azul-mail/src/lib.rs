@@ -30,15 +30,23 @@
 //!   / Bcc, Subject, a formatting ribbon, azul's shared rich-text editor, attachments; Save writes
 //!   a draft into the Drafts folder, Send hands the mail to `send::send_mail` on a `Thread` and
 //!   closes the window once it is sent (it is then in Sent Items).
+//! - **Azlin accounts** keep the mailbox as files in the user's Azlin drive (`AZLIN_MAIL.md`,
+//!   `azlin.rs`, `azlin_sync.rs`): Send / Receive signs in at the token server when the drive's
+//!   credentials run out (the rotated drive token goes to the keyring at once), sends the Outbox,
+//!   then syncs the drive's folders; Archive, Junk, Delete, Move and the read / flag marks are
+//!   written into the drive on a `Thread`, a saved draft too.
 //!
 //! Environment:
 //! - `AZMAIL_DATA`: the AzMail folder (default: `AzMail` in the user's data folder).
 //! - `AZMAIL_TEST_PASSWORD`, `AZMAIL_TEST_CA`: with `AZ_BACKEND=headless` only, the password to
 //!   sign in with and a PEM certificate to trust (a test server's). A headless run never
 //!   touches the real keyring either: azul serves it from memory.
+//! - `AZLIN_TOKEN_URL`, `AZLIN_S3_URL` (over the shared Azlin config's `endpoints`; the switches
+//!   `--azlin-token-url`, `--azlin-s3-url` win): where the Azlin services are.
 //!
 //! On stdout, for scripts: `AZMAIL_ACCOUNT_SAVED <file>`, `AZMAIL_SYNC_START <mail folder>`,
-//! `AZMAIL_SYNC_DONE fetched=<n> reused=<n> folders=<n>`, `AZMAIL_SYNC_FAILED <why>`,
+//! `AZMAIL_SYNC_DONE fetched=<n> reused=<n> folders=<n> pushed=<n> removed=<n>`,
+//! `AZMAIL_SYNC_FAILED <why>`,
 //! `AZMAIL_KEYRING <outcome>`, `AZMAIL_OPEN <folder> <uid>`, `AZMAIL_COMPOSE_OPEN <window id>
 //! <kind>`, `AZMAIL_DRAFT_SAVED <window id> <uid>`, `AZMAIL_SEND_START <window id>`,
 //! `AZMAIL_SEND_DONE <window id> sent|queued|failed <message id or reason>`,
@@ -47,11 +55,17 @@
 //! `AZMAIL_OUTBOX_START local`, `AZMAIL_OUTBOX_DONE sent=<n> queued=<n> failed=<n>` (Send /
 //! Receive of Local Folders' Outbox), `AZMAIL_SETTINGS_OPEN <window id>`,
 //! `AZMAIL_SETTINGS_WINDOW_CLOSED <window id>` (File > Options' window; the kit prints
-//! `AZMAIL_SETTINGS_CLOSED ok|cancel`). The secret is never printed.
+//! `AZMAIL_SETTINGS_CLOSED ok|cancel`); for Azlin accounts `AZMAIL_AZLIN_SIGNED_IN <drive id>`
+//! (the token server gave new credentials), `AZMAIL_AZLIN_DRIVE_CREATED <drive id>`,
+//! `AZMAIL_AZLIN_DONE <action> <n>` / `AZMAIL_AZLIN_FAILED <action> <why>` (move, delete, marks,
+//! fetch), `AZMAIL_DRAFT_UPLOADED <window id> <key>` / `AZMAIL_DRAFT_UPLOAD_FAILED <window id>
+//! <why>`. The secret is never printed.
 
 pub mod account;
 pub mod args;
 pub mod auth;
+pub mod azlin;
+pub mod azlin_sync;
 pub mod compose;
 pub mod dkim;
 pub mod folders;
@@ -91,7 +105,8 @@ use azul::{
     str::String as AzString,
     widgets::ListSelection,
 };
-use azul_appkit::{ui as kit, AppArgs};
+use azul_appkit::ui as kit;
+use azul_storage::{azul_transport::AzulTransport, S3Drive};
 use listing::{FolderInfo, ListRow, LocalFlags};
 use message::MessageView;
 use store::{DriveFolder, FolderState, IndexEntry, MailStore};
@@ -99,6 +114,9 @@ use sync::{Progress, SyncError, SyncOptions, SyncReport};
 
 /// The main window's id (the debug server addresses a window by it).
 pub(crate) const MAIN_WINDOW_ID: &str = "azmail-main";
+
+/// What AzMail's requests to the Azlin services say they are.
+pub(crate) const USER_AGENT: &str = "AzMail";
 
 /// Every window's body: a column as tall as the window (`height: 100%` of the viewport - a
 /// flex body without it is only as tall as its content, and the shell's status bar floated
@@ -136,6 +154,9 @@ pub(crate) struct MailApp {
     /// DKIM private keys in memory for this run, by account id: made under Account Settings,
     /// Sending, or read from the keyring at Send / Receive; `None`: the keyring has none.
     pub(crate) dkim_keys: HashMap<String, Option<Secret>>,
+    /// Where the Azlin services are for this run (the shared Azlin config, the environment,
+    /// the switches): the token server a new Azlin account signs in at, an S3 override.
+    pub(crate) endpoints: azlin::Endpoints,
 
     // -- the navigation pane --
     /// Every mailbox's folders with their unread counts, by mailbox index (the accounts, then
@@ -221,6 +242,9 @@ pub(crate) struct OpenMessage {
     pub(crate) pictures: bool,
     /// The pictures the mail carries itself (`cid:` parts): shown without asking.
     pub(crate) inline: Vec<message::InlinePicture>,
+    /// An Azlin account's message that is in the drive but not here yet (Send/Receive fetched
+    /// its header block only): it is being downloaded, and shown once it is.
+    pub(crate) fetching: bool,
     /// The Thread downloading this mail's web pictures ("Download pictures"), while it runs.
     pub(crate) pictures_thread: Option<ThreadId>,
     /// What this mail's web pictures have downloaded so far.
@@ -241,6 +265,8 @@ pub(crate) enum SyncState {
 
 pub(crate) enum KeyringOp {
     Store,
+    /// An Azlin account's session after a refresh (the new drive token): saved quietly.
+    StoreSession,
     /// A secret read to sync this account.
     Get { account: String },
     /// A DKIM private key stored.
@@ -257,7 +283,13 @@ pub(crate) struct KeyringCall {
 }
 
 impl MailApp {
-    fn create(root: DriveFolder, kit: RefAny, screen: Screen, accounts: Vec<Account>) -> MailApp {
+    fn create(
+        root: DriveFolder,
+        kit: RefAny,
+        screen: Screen,
+        accounts: Vec<Account>,
+        endpoints: azlin::Endpoints,
+    ) -> MailApp {
         let today = local_today();
         let n = accounts.len();
         let data_root = kit_data_root(&kit);
@@ -282,6 +314,7 @@ impl MailApp {
             keyring: None,
             keyring_queue: std::collections::VecDeque::new(),
             dkim_keys: HashMap::new(),
+            endpoints,
             // The accounts, then Local Folders.
             folders: vec![Vec::new(); n + 1],
             folder: None,
@@ -511,7 +544,14 @@ impl MailApp {
     pub(crate) fn open_message(&mut self, uid: u32) -> Option<LocalFlags> {
         let folder = self.folder.clone()?;
         let entry = self.entries.iter().find(|e| e.uid == uid).cloned()?;
-        let bytes = match self.message_store(&folder) {
+        let store = self.message_store(&folder);
+        // An Azlin account's big message Send/Receive left in the drive: downloaded first
+        // (`fetch_if_needed`), shown once it is here.
+        let fetching = store
+            .as_ref()
+            .is_some_and(|store| azlin_sync::needs_fetch(store, &entry));
+        let bytes = match &store {
+            _ if fetching => Err(String::new()),
             Some(store) => store.get(&entry.path).map_err(|e| e.to_string()),
             None => Err(String::from("no account")),
         };
@@ -524,6 +564,14 @@ impl MailApp {
                     Vec::new(),
                 ),
             },
+            Err(_) if fetching => (
+                None,
+                format!(
+                    "Downloading this message ({}) from the Azlin drive...",
+                    azul::file::DiskSpace::format_bytes(entry.size)
+                ),
+                Vec::new(),
+            ),
             Err(e) => (None, format!("Could not read {}: {e}", entry.path), Vec::new()),
         };
         println!("AZMAIL_OPEN {folder} {uid}");
@@ -546,6 +594,7 @@ impl MailApp {
             sanitized,
             pictures: false,
             inline,
+            fetching,
             pictures_thread: None,
             budget: pictures::Budget::default(),
         });
@@ -704,6 +753,14 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
                      keeps it only until it is closed."
                 );
             }
+            (Some(KeyringOp::StoreSession), KeyringResult::Stored) => {}
+            (Some(KeyringOp::StoreSession), _) => {
+                s.notice = format!(
+                    "The Azlin drive's new token could not be saved in the system keyring \
+                     ({outcome}): AzMail keeps it only until it is closed, then asks for a drive \
+                     token again."
+                );
+            }
             (Some(KeyringOp::Get { account }), KeyringResult::Retrieved(secret)) => {
                 s.secrets
                     .insert(account.clone(), Secret::new(secret.as_str().to_string()));
@@ -714,12 +771,17 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
             }
             (Some(KeyringOp::Get { account }), _) => {
                 s.sync = SyncState::Idle;
+                let what = if s.accounts.iter().any(|a| a.id == account && a.is_azlin()) {
+                    "the drive token"
+                } else {
+                    "the password"
+                };
                 ui_account::open_settings_with_error(
                     s,
                     &account,
                     format!(
-                        "Enter the password again: the system keyring has none for this \
-                         account ({outcome})."
+                        "Enter {what} again: the system keyring has none for this account \
+                         ({outcome})."
                     ),
                 );
             }
@@ -791,18 +853,19 @@ fn keyring_reading(s: &MailApp, account: &str, dkim: bool) -> bool {
     s.keyring.as_ref().is_some_and(|op| reads(op)) || s.keyring_queue.iter().any(|c| reads(&c.op))
 }
 
-/// Puts `secret` for `account_id` into the OS keyring and keeps it in memory for this run.
-pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account_id: &str, secret: Secret) {
+/// Puts `secret` for `account` into the OS keyring (an IMAP account's password or token, an
+/// Azlin account's session) and keeps it in memory for this run.
+pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account: &Account, secret: Secret) {
     keyring_call(
         s,
         info,
         KeyringCall {
             op: KeyringOp::Store,
-            key: account::keyring_key(account_id),
+            key: account::secret_keyring_key(account),
             secret: Some(secret.clone()),
         },
     );
-    s.secrets.insert(account_id.to_string(), secret);
+    s.secrets.insert(account.id.clone(), secret);
 }
 
 /// Puts a new DKIM private key for `account_id` into the OS keyring and keeps it in memory for
@@ -831,7 +894,13 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
     let Some(account) = s.current_account().cloned() else {
         return;
     };
-    let secret = s.secrets.get(&account.id).cloned().or_else(test_secret);
+    // The headless test password is an IMAP account's: an Azlin account's secret is its
+    // session (the rotating drive token), never a fixed one.
+    let secret = s
+        .secrets
+        .get(&account.id)
+        .cloned()
+        .or_else(|| (!account.is_azlin()).then(test_secret).flatten());
     let Some(secret) = secret else {
         if !keyring_reading(s, &account.id, false) {
             keyring_call(
@@ -841,14 +910,16 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
                     op: KeyringOp::Get {
                         account: account.id.clone(),
                     },
-                    key: account::keyring_key(&account.id),
+                    key: account::secret_keyring_key(&account),
                     secret: None,
                 },
             );
         }
-        s.sync = SyncState::Done(String::from(
-            "Reading the password from the system keyring...",
-        ));
+        s.sync = SyncState::Done(String::from(if account.is_azlin() {
+            "Reading the drive token from the system keyring..."
+        } else {
+            "Reading the password from the system keyring..."
+        }));
         return;
     };
     // An account that signs its mail (client-side DKIM) needs its key for the Outbox: read
@@ -882,7 +953,11 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
     s.sync = SyncState::Running {
         thread,
         account: account.id.clone(),
-        status: format!("Connecting to {}...", account.imap.host),
+        status: if account.is_azlin() {
+            String::from("Connecting to the Azlin drive...")
+        } else {
+            format!("Connecting to {}...", account.imap.host)
+        },
         percent: 0.0,
     };
     let init = SyncInit {
@@ -892,6 +967,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         azmail_root: s.root.clone(),
         extra_ca: test_ca(),
         dkim_key,
+        endpoints: s.endpoints.clone(),
     };
     info.add_thread(thread, Thread::create(RefAny::new(init), app, sync_thread));
 }
@@ -916,12 +992,17 @@ struct SyncInit {
     extra_ca: Option<PathBuf>,
     /// The DKIM private key the Outbox's mail is signed with, when the account signs.
     dkim_key: Option<Secret>,
+    /// Where the Azlin services are (an Azlin account's token server and S3 override).
+    endpoints: azlin::Endpoints,
 }
 
 /// What the thread reports.
 #[derive(Clone)]
 enum SyncEvent {
     Progress(Progress),
+    /// An Azlin account signed in at its token server: the new session (the rotated drive token
+    /// and the new credentials) for memory and the keyring, before anything else happens.
+    Session(Secret),
     /// The sync's result, and what the outbox retry did (sent, still queued, failed).
     Finished(Result<SyncReport, SyncError>, (usize, usize, usize)),
 }
@@ -931,8 +1012,9 @@ struct SyncMessage {
     event: SyncEvent,
 }
 
-/// Runs Send / Receive: the IMAP sync, then the outbox's queued mail. The connections block
-/// here, never in a callback.
+/// Runs Send / Receive: the IMAP sync, then the outbox's queued mail - or, for an Azlin
+/// account, the outbox first (the copies it files in Sent go into the drive with this
+/// Send/Receive), then the drive's folders. The connections block here, never in a callback.
 extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiver: ThreadReceiver) {
     let Some(job) = init
         .downcast_ref::<SyncInit>()
@@ -940,22 +1022,142 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
     else {
         return;
     };
-    let outcome = run_sync(&job, &mut sender, &mut receiver);
-    // "Send" of Send / Receive: whatever waits in the outbox gets another try.
-    let mut settings = send::SendSettings::load(&job.azmail_root, &job.account.id);
-    settings.dkim_key = job.dkim_key.clone();
-    // Submission signs in with the secret the sync signed in with.
-    settings.sign_in = Some(job.secret.clone());
-    let mut results = send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false);
-    // Mail written before there was an account waits in Local Folders' Outbox: it goes out with
-    // every Send / Receive too.
-    results.extend(retry_local_outbox(&job.azmail_root));
+    let (outcome, results) = if job.account.is_azlin() {
+        // The local copy is this Thread's until the folders are synced.
+        let _cache = azlin_sync::lock_cache();
+        let results = retry_outboxes(&job);
+        (run_azlin_sync(&job, &mut sender, &mut receiver), results)
+    } else {
+        let outcome = run_sync(&job, &mut sender, &mut receiver);
+        (outcome, retry_outboxes(&job))
+    };
     let outbox = outbox_counts(&results);
     post(
         &mut sender,
         &job.account.id,
         SyncEvent::Finished(outcome, outbox),
     );
+}
+
+/// "Send" of Send / Receive: whatever waits in the account's Outbox gets another try, and the
+/// mail written before there was an account (Local Folders' Outbox) goes out with every
+/// Send / Receive too.
+fn retry_outboxes(job: &SyncInit) -> Vec<(String, send::SendStatus)> {
+    let mut settings = send::SendSettings::load(&job.azmail_root, &job.account.id);
+    settings.dkim_key = job.dkim_key.clone();
+    // Submission signs in with the secret the sync signed in with - an IMAP account's: an
+    // Azlin account's secret opens its drive, it is no password of a mail server.
+    settings.sign_in = (!job.account.is_azlin()).then(|| job.secret.clone());
+    let mut results = send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false);
+    results.extend(retry_local_outbox(&job.azmail_root));
+    results
+}
+
+/// Tells the window how the sync goes; `false` when the window asked the Thread to stop.
+fn report_progress(
+    sender: &mut ThreadSender,
+    receiver: &mut ThreadReceiver,
+    account: &str,
+    progress: Progress,
+) -> bool {
+    let delivered = post(sender, account, SyncEvent::Progress(progress));
+    let mut stop = false;
+    while let OptionThreadSendMsg::Some(message) = receiver.recv() {
+        if matches!(message, ThreadSendMsg::TerminateThread) {
+            stop = true;
+        }
+    }
+    delivered && !stop
+}
+
+/// The token server's refusal as the sync's: a refused drive token (or a token server nobody
+/// named) opens Account Settings with why.
+fn azlin_error(e: azlin::AzlinError) -> SyncError {
+    match e {
+        azlin::AzlinError::Connect(why) => SyncError::Connect(why),
+        azlin::AzlinError::Protocol(why) => SyncError::Protocol(why),
+        e @ (azlin::AzlinError::SignIn(_) | azlin::AzlinError::Config(_)) => {
+            SyncError::Auth(e.to_string())
+        }
+    }
+}
+
+/// New credentials at the account's token server; the session they come in (with the next
+/// drive token: the one given is dead now) goes to the window at once, for the keyring.
+fn refresh_session(
+    job: &SyncInit,
+    link: &account::AzlinLink,
+    session: &azlin::AzlinSession,
+    transport: &AzulTransport,
+    sender: &mut ThreadSender,
+) -> Result<azlin::AzlinSession, SyncError> {
+    use azlin::CloudAccount;
+    let url = job.endpoints.token_url_for(&link.token_url).ok_or_else(|| {
+        SyncError::Auth(account::FormError::NoTokenServer.to_string())
+    })?;
+    let server = azlin::TokenServer::new(&url, transport).map_err(azlin_error)?;
+    let fresh = server
+        .refresh(&link.drive_id, &session.drive_token)
+        .map_err(azlin_error)?;
+    post(
+        sender,
+        &job.account.id,
+        SyncEvent::Session(Secret::new(fresh.to_secret())),
+    );
+    println!("AZMAIL_AZLIN_SIGNED_IN {}", fresh.drive_id);
+    Ok(fresh)
+}
+
+/// One sync of the drive with `session`'s credentials.
+fn sync_drive(
+    job: &SyncInit,
+    session: &azlin::AzlinSession,
+    transport: &AzulTransport,
+    options: &azlin_sync::AzlinOptions,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> Result<SyncReport, SyncError> {
+    let drive = session
+        .open_drive(job.endpoints.s3_url.as_deref(), Box::new(transport.clone()))
+        .map_err(azlin_sync::drive_error)?;
+    azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), options, progress)
+}
+
+/// An Azlin account's Receive: signs in at the token server when the drive's credentials run
+/// out, then syncs the drive's folders (`azlin_sync`); a drive that refuses credentials that
+/// looked good (a clock off, keys revoked) gets one fresh sign-in.
+fn run_azlin_sync(
+    job: &SyncInit,
+    sender: &mut ThreadSender,
+    receiver: &mut ThreadReceiver,
+) -> Result<SyncReport, SyncError> {
+    let Some(link) = job.account.azlin.as_ref() else {
+        return Err(SyncError::Protocol(String::from("not an Azlin account")));
+    };
+    let transport = AzulTransport::new(USER_AGENT);
+    let now = now_unix();
+    let mut session = azlin::AzlinSession::from_secret(job.secret.expose(), &link.drive_id);
+    let mut refreshed = false;
+    if session.needs_refresh(u64::try_from(now).unwrap_or(0)) {
+        session = refresh_session(job, link, &session, &transport, sender)?;
+        refreshed = true;
+    }
+    let options = azlin_sync::AzlinOptions {
+        now,
+        ..azlin_sync::AzlinOptions::default()
+    };
+    let account = job.account.id.clone();
+    let first = sync_drive(job, &session, &transport, &options, &mut |p| {
+        report_progress(sender, receiver, &account, p)
+    });
+    match first {
+        Err(SyncError::Auth(_)) if !refreshed => {
+            session = refresh_session(job, link, &session, &transport, sender)?;
+            sync_drive(job, &session, &transport, &options, &mut |p| {
+                report_progress(sender, receiver, &account, p)
+            })
+        }
+        other => other,
+    }
 }
 
 fn run_sync(
@@ -1000,7 +1202,7 @@ fn post(sender: &mut ThreadSender, account: &str, event: SyncEvent) -> bool {
 }
 
 /// A report from the sync thread, on the UI thread.
-extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, mut info: CallbackInfo) -> Update {
     let Some((account, event)) = payload
         .downcast_ref::<SyncMessage>()
         .map(|m| (m.account.clone(), m.event.clone()))
@@ -1013,6 +1215,21 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
     let s = &mut *guard;
     let running_this = matches!(&s.sync, SyncState::Running { account: a, .. } if *a == account);
     match event {
+        SyncEvent::Session(secret) => {
+            // The old drive token is dead: the new session replaces it in memory and in the
+            // keyring at once (a reused token makes the token server revoke this device).
+            s.secrets.insert(account.clone(), secret.clone());
+            keyring_call(
+                s,
+                &mut info,
+                KeyringCall {
+                    op: KeyringOp::StoreSession,
+                    key: account::azlin_keyring_key(&account),
+                    secret: Some(secret),
+                },
+            );
+            return Update::DoNothing;
+        }
         SyncEvent::Progress(progress) => {
             if !running_this {
                 return Update::DoNothing;
@@ -1047,10 +1264,12 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
         }
         SyncEvent::Finished(Ok(report), (sent, queued, failed)) => {
             println!(
-                "AZMAIL_SYNC_DONE fetched={} reused={} folders={}",
+                "AZMAIL_SYNC_DONE fetched={} reused={} folders={} pushed={} removed={}",
                 report.fetched(),
                 report.reused(),
-                report.folders.len()
+                report.folders.len(),
+                report.pushed(),
+                report.removed()
             );
             eprintln!(
                 "[azmail] synced {} folder(s): {} new message(s)",
@@ -1190,6 +1409,159 @@ extern "C" fn on_local_outbox_done(mut app: RefAny, mut payload: RefAny, _info: 
     .unwrap_or(Update::DoNothing)
 }
 
+// ==== An Azlin account's drive: actions on an azul Thread ====
+
+/// What a Thread needs to reach an Azlin account's drive: the account, its session (the
+/// keyring's secret: the drive token and the S3 credentials), this run's endpoints and the
+/// account's local copy.
+#[derive(Clone)]
+pub(crate) struct AzlinContext {
+    pub(crate) account: Account,
+    pub(crate) session: Secret,
+    pub(crate) endpoints: azlin::Endpoints,
+    pub(crate) store_root: DriveFolder,
+}
+
+impl AzlinContext {
+    /// The Azlin account `account_id`'s, once it has a session (the wizard's drive token, a
+    /// Send/Receive's sign-in); `None` for an IMAP account.
+    pub(crate) fn of(s: &MailApp, account_id: &str) -> Option<AzlinContext> {
+        let account = s
+            .accounts
+            .iter()
+            .find(|a| a.id == account_id && a.is_azlin())?
+            .clone();
+        let session = s.secrets.get(account_id)?.clone();
+        Some(AzlinContext {
+            store_root: account::mail_root(&s.root, &account),
+            account,
+            session,
+            endpoints: s.endpoints.clone(),
+        })
+    }
+
+    /// The drive with the session's credentials. Never signs in - two Threads refreshing one
+    /// drive token at once would make the token server revoke the device - so credentials that
+    /// are missing or out of date are an error saying that Send/Receive signs in again.
+    pub(crate) fn open_drive(&self) -> Result<S3Drive, String> {
+        let drive_id = self
+            .account
+            .azlin
+            .as_ref()
+            .map(|link| link.drive_id.as_str())
+            .unwrap_or_default();
+        let session = azlin::AzlinSession::from_secret(self.session.expose(), drive_id);
+        if !session.is_valid_at(azul_storage::time::now_unix()) {
+            return Err(String::from(
+                "the Azlin drive's sign-in is out of date: Send/Receive (F9) signs in again",
+            ));
+        }
+        session
+            .open_drive(
+                self.endpoints.s3_url.as_deref(),
+                Box::new(AzulTransport::new(USER_AGENT)),
+            )
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// What an Azlin account's action does in the drive and in the local copy (`azlin_sync`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AzlinAction {
+    /// The messages `uids` of the local folder `from` into the local folder `to`.
+    Move {
+        from: String,
+        uids: Vec<u32>,
+        to: String,
+    },
+    /// The messages `uids` of the local folder `folder`, for good (Delete in Deleted Items).
+    Delete { folder: String, uids: Vec<u32> },
+    /// The marks made here in the local folder `folder`, written into the drive.
+    PushMarks { folder: String },
+    /// The message `uid` of the local folder `folder`, downloaded whole (it is being opened).
+    Fetch { folder: String, uid: u32 },
+}
+
+impl AzlinAction {
+    /// The action as scripts read it: `move inbox archive`, `delete trash`, `marks inbox`,
+    /// `fetch inbox 3`.
+    pub(crate) fn describe(&self) -> String {
+        match self {
+            AzlinAction::Move { from, to, .. } => format!("move {from} {to}"),
+            AzlinAction::Delete { folder, .. } => format!("delete {folder}"),
+            AzlinAction::PushMarks { folder } => format!("marks {folder}"),
+            AzlinAction::Fetch { folder, uid } => format!("fetch {folder} {uid}"),
+        }
+    }
+}
+
+/// Runs `action` in the drive, then in the local copy. Blocking: on an azul Thread, with the
+/// local copy locked by the caller (`azlin_sync::lock_cache`). `Ok`: how many messages moved,
+/// went or were marked, the bytes of a download.
+fn run_azlin_action(context: &AzlinContext, action: &AzlinAction) -> Result<u64, String> {
+    let drive = context.open_drive()?;
+    let store = MailStore::new(context.store_root.clone());
+    let done = match action {
+        AzlinAction::Move { from, uids, to } => {
+            azlin_sync::move_messages(&drive, &store, from, uids, to).map(|n| n as u64)
+        }
+        AzlinAction::Delete { folder, uids } => {
+            azlin_sync::delete_messages(&drive, &store, folder, uids).map(|n| n as u64)
+        }
+        AzlinAction::PushMarks { folder } => {
+            azlin_sync::push_marks(&drive, &store, folder).map(|n| n as u64)
+        }
+        AzlinAction::Fetch { folder, uid } => azlin_sync::fetch_message(
+            &drive,
+            &store,
+            folder,
+            *uid,
+            azlin_sync::AzlinOptions::default().chunk,
+        ),
+    };
+    done.map_err(|e| e.to_string())
+}
+
+/// Runs `action` of the account shown on a Thread; `false` (and a line in the status bar) when
+/// it is no Azlin account, or one that has not signed in yet.
+pub(crate) fn spawn_azlin(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, action: AzlinAction) -> bool {
+    let Some(id) = s
+        .current_account()
+        .filter(|a| a.is_azlin())
+        .map(|a| a.id.clone())
+    else {
+        return false;
+    };
+    let Some(context) = AzlinContext::of(s, &id) else {
+        s.notice = String::from("Send/Receive (F9) first: AzMail signs in to the Azlin drive then.");
+        return false;
+    };
+    spawn_io(info, app, IoJob::Azlin { context, action });
+    true
+}
+
+/// The message just opened is an Azlin account's that is still in the drive only (bigger than
+/// what Send/Receive fetches): its download starts, the reading pane says so meanwhile.
+pub(crate) fn fetch_if_needed(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
+    let Some((folder, uid)) = s
+        .open
+        .as_ref()
+        .filter(|open| open.fetching)
+        .map(|open| (open.folder.clone(), open.entry.uid))
+    else {
+        return;
+    };
+    if !spawn_azlin(s, info, app, AzlinAction::Fetch { folder, uid }) {
+        if let Some(open) = s.open.as_mut() {
+            open.fetching = false;
+            open.error = String::from(
+                "This message is in the Azlin drive only: Send/Receive (F9) signs in, then it \
+                 opens.",
+            );
+        }
+    }
+}
+
 // ==== Writing files: on an azul Thread, never in a callback ====
 
 /// A write the UI asks for.
@@ -1202,12 +1574,20 @@ pub(crate) enum IoJob {
         settings: send::SendSettings,
         editing: bool,
     },
-    /// A folder's read / flag marks.
+    /// A folder's read / flag marks; an Azlin account's are written into its drive right after.
     SaveFlags {
         store_root: DriveFolder,
         folder: String,
         flags: LocalFlags,
+        azlin: Option<AzlinContext>,
     },
+    /// An Azlin account's action, in the drive and here.
+    Azlin {
+        context: AzlinContext,
+        action: AzlinAction,
+    },
+    /// The wizard's "Create a new drive": a drive at the token server `token_url`.
+    CreateDrive { token_url: String, name: String },
     /// A new DKIM key for the account editor (making an RSA key takes a moment).
     DkimKey,
     /// The DKIM / DMARC / SPF records in DNS, for the account editor.
@@ -1235,6 +1615,13 @@ pub(crate) enum IoDone {
     AccountFailed(String),
     FlagsSaved,
     Failed(String),
+    /// An Azlin account's action, and how it went.
+    Azlin {
+        action: AzlinAction,
+        result: Result<u64, String>,
+    },
+    /// The wizard's new drive (its session), or why there is none.
+    DriveCreated(Result<azlin::AzlinSession, String>),
     DkimKey(Result<dkim::KeyPair, String>),
     DkimChecked(dkim::DnsReport),
     /// The PDF of File > Print is written: its key and its file.
@@ -1274,13 +1661,37 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             store_root,
             folder,
             flags,
-        } => match MailStore::new(store_root).put(
-            &listing::flags_key(&folder),
-            flags.to_json().as_bytes(),
-        ) {
-            Ok(()) => IoDone::FlagsSaved,
-            Err(e) => IoDone::Failed(format!("Could not save the read marks: {e}")),
-        },
+            azlin,
+        } => {
+            // An Azlin account's local copy is one Thread's at a time.
+            let _cache = azlin.as_ref().map(|_| azlin_sync::lock_cache());
+            match MailStore::new(store_root).put(
+                &listing::flags_key(&folder),
+                flags.to_json().as_bytes(),
+            ) {
+                Err(e) => IoDone::Failed(format!("Could not save the read marks: {e}")),
+                Ok(()) => match azlin {
+                    None => IoDone::FlagsSaved,
+                    Some(context) => {
+                        let action = AzlinAction::PushMarks { folder };
+                        let result = run_azlin_action(&context, &action);
+                        IoDone::Azlin { action, result }
+                    }
+                },
+            }
+        }
+        IoJob::Azlin { context, action } => {
+            let _cache = azlin_sync::lock_cache();
+            let result = run_azlin_action(&context, &action);
+            IoDone::Azlin { action, result }
+        }
+        IoJob::CreateDrive { token_url, name } => {
+            use azlin::CloudAccount;
+            let transport = AzulTransport::new(USER_AGENT);
+            let created = azlin::TokenServer::new(&token_url, &transport)
+                .and_then(|server| server.create_drive(&name));
+            IoDone::DriveCreated(created.map_err(|e| e.to_string()))
+        }
         IoJob::DkimKey => IoDone::DkimKey(dkim::generate_key()),
         IoJob::DkimCheck {
             selector,
@@ -1315,6 +1726,12 @@ pub(crate) fn save_flags(s: &MailApp, info: &mut CallbackInfo, app: RefAny, flag
     if folder == listing::OUTBOX_KEY {
         return;
     }
+    // An Azlin account's marks go into its drive right after (they wait in flags.json until
+    // they are there: Send/Receive writes what is left).
+    let azlin = s
+        .current_account()
+        .filter(|a| a.is_azlin())
+        .and_then(|a| AzlinContext::of(s, &a.id));
     spawn_io(
         info,
         app,
@@ -1322,6 +1739,7 @@ pub(crate) fn save_flags(s: &MailApp, info: &mut CallbackInfo, app: RefAny, flag
             store_root: store.folder().clone(),
             folder,
             flags,
+            azlin,
         },
     );
 }
@@ -1352,6 +1770,17 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
         IoDone::FlagsSaved => Update::DoNothing,
         IoDone::Failed(error) => {
             s.notice = error;
+            Update::RefreshDom
+        }
+        IoDone::Azlin { action, result } => {
+            match &result {
+                Ok(n) => println!("AZMAIL_AZLIN_DONE {} {n}", action.describe()),
+                Err(e) => println!("AZMAIL_AZLIN_FAILED {} {e}", action.describe()),
+            }
+            ui_main::azlin_action_done(s, &mut info, app, action, result)
+        }
+        IoDone::DriveCreated(result) => {
+            ui_account::drive_created(s, result);
             Update::RefreshDom
         }
         IoDone::DkimKey(result) => {
@@ -1389,8 +1818,22 @@ pub(crate) fn kit_data_root(kit_ref: &RefAny) -> PathBuf {
     root.unwrap_or_default()
 }
 
+/// Where the Azlin services are for this run: the shared Azlin config's `endpoints` (the file
+/// the kit found: `$AZLIN_CONFIG`, else `~/.azlin/config.json`; none for a `--shot`), then
+/// `$AZLIN_TOKEN_URL` / `$AZLIN_S3_URL`, then the switches.
+fn resolve_endpoints(kit_ref: &RefAny, flags: &azlin::Endpoints) -> azlin::Endpoints {
+    let mut kit_ref = kit_ref.clone();
+    let config_path = kit_ref
+        .downcast_ref::<kit::Kit>()
+        .and_then(|k| k.config_path.clone());
+    // Read once at the start, before the window, as the kit reads the same file.
+    let config = config_path.and_then(|path| std::fs::read_to_string(path).ok());
+    let env = |name: &str| std::env::var(name).ok();
+    azlin::Endpoints::resolve(config.as_deref(), &env, flags)
+}
+
 pub fn start() {
-    let args = match AppArgs::from_env(&args::SPEC) {
+    let args = match args::MailArgs::from_env() {
         Ok(args) => args,
         Err(text) => {
             let help = text.contains("USAGE");
@@ -1407,8 +1850,25 @@ pub fn start() {
         args::ABOUT,
         &args::SHORTCUTS,
         &args::APP_CATEGORIES,
-        args.clone(),
+        args.kit.clone(),
     );
+    let endpoints = resolve_endpoints(&kit_ref, &args.endpoints);
+    if let Some(url) = &endpoints.token_url {
+        eprintln!("[azmail] the Azlin token server of this run: {url}");
+    }
+    // The resolvers of the DKIM / DMARC / SPF check: the switch, else the environment, else
+    // microdns' public ones.
+    let dns = args
+        .dns_servers
+        .clone()
+        .or_else(|| std::env::var(dkim::DNS_SERVERS_VAR).ok())
+        .filter(|v| !v.trim().is_empty());
+    if let Some(text) = dns {
+        match dkim::parse_dns_servers(&text) {
+            Some(servers) => dkim::use_dns_servers(servers),
+            None => eprintln!("[azmail] no IP address in the DNS servers {text:?}: left out"),
+        }
+    }
     let azmail_var = std::env::var(account::DATA_VAR).ok();
     let data_root = kit_data_root(&kit_ref);
     let root_path = account::data_root(azmail_var.as_deref(), &data_root);
@@ -1429,7 +1889,7 @@ pub fn start() {
     // Every file of AzMail goes through the data tree's one drive (the AzMail folder is a
     // folder of it); an AZMAIL_DATA outside the tree is a drive of its own.
     let root = DriveFolder::of(&root_path, &data_root);
-    if args.sample {
+    if args.kit.sample {
         match sample::install(&root) {
             Ok(path) => eprintln!("[azmail] sample account in {}", path.display()),
             Err(e) => eprintln!("[azmail] could not add the sample account: {e}"),
@@ -1444,11 +1904,11 @@ pub fn start() {
         accounts.len(),
         root_path.display()
     );
-    let screen = Screen::of(&args);
+    let screen = Screen::of(&args.kit);
     // The From line of mail written without an account records what was typed, not a choice
     // of File > Options: its Cancel leaves it.
     kit::keep_on_cancel(&kit_ref, ui_compose::SET_LOCAL_FROM);
-    let mut state = MailApp::create(root, kit_ref.clone(), screen, accounts);
+    let mut state = MailApp::create(root, kit_ref.clone(), screen, accounts, endpoints);
     if state.accounts.is_empty() {
         // Local Folders' tree (Drafts, Sent Items, Outbox), with nothing shown yet.
         state.reload_folders();

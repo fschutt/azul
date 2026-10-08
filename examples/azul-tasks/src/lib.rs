@@ -20,7 +20,8 @@
 //! repeating task leaves its next occurrence behind (`recur.rs`). Reminders (`reminders.rs`)
 //! show as a banner in the window and as an OS notification while the app runs.
 //!
-//! Environment: `AZTASKS_DATA` - the data folder (default `<user data dir>/Azlin`);
+//! Environment: `AZTASKS_DATA` - the data folder (default `AZLIN_DATA`, the Azlin apps' data
+//! root, else `<user data dir>/Azlin`);
 //! `AZTASKS_TICK_MS` - how often reminders are checked (default 5000).
 //! Command line: `args.rs` (`--sample`, `--data`, `--screen`, `--theme`, `--mode`, `--view`,
 //! `--size`). On stdout, for scripts: see `state.rs` and `jobs.rs`, plus `AZTASKS_REMINDER
@@ -416,17 +417,38 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// The data folder: `--data`, else `AZTASKS_DATA`, else `<user data dir>/Azlin`.
+/// The data folder: `--data`, else `AZTASKS_DATA`, else `AZLIN_DATA` (the root every Azlin app
+/// shares), else `<user data dir>/Azlin`.
 fn data_root(args: &Args) -> PathBuf {
-    if let Some(dir) = &args.data {
-        return dir.clone();
+    root_from(
+        args.data.as_deref(),
+        std::env::var(DATA_VAR).ok().as_deref(),
+        std::env::var(azul_appkit::data::DATA_VAR).ok().as_deref(),
+        FilePath::get_data_dir()
+            .into_option()
+            .map(|dir| PathBuf::from(dir.inner.as_str())),
+    )
+}
+
+/// [`data_root`] from its sources: the switch, `AZTASKS_DATA` (`tasks_var`), `AZLIN_DATA`
+/// (`azlin_var`) and the user's data folder.
+fn root_from(
+    flag: Option<&std::path::Path>,
+    tasks_var: Option<&str>,
+    azlin_var: Option<&str>,
+    user_data: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(dir) = flag {
+        return dir.to_path_buf();
     }
-    if let Some(dir) = std::env::var_os(DATA_VAR).filter(|v| !v.is_empty()) {
+    if let Some(dir) = tasks_var.filter(|v| !v.is_empty()) {
         return PathBuf::from(dir);
     }
-    FilePath::get_data_dir()
-        .into_option()
-        .map(|dir| PathBuf::from(dir.inner.as_str()).join(DATA_DIR))
+    if let Some(dir) = azlin_var.map(str::trim).filter(|v| !v.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    user_data
+        .map(|dir| dir.join(DATA_DIR))
         .unwrap_or_else(|| PathBuf::from("AzTasks-data"))
 }
 
@@ -499,6 +521,44 @@ pub fn start() {
     window.window_state.flags.decorations = WindowDecorations::NoTitle;
     window.create_callback = Some(Callback::create(startup)).into();
     app.run(window);
+}
+
+#[cfg(test)]
+mod data_tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn the_data_root_is_the_switch_else_aztasks_data_else_azlin_data_else_the_users_azlin_folder() {
+        let user = Some(PathBuf::from("/Users/a/Library/Application Support"));
+        assert_eq!(
+            root_from(
+                Some(Path::new("/tmp/x")),
+                Some("/srv/t"),
+                Some("/srv/a"),
+                user.clone()
+            ),
+            PathBuf::from("/tmp/x")
+        );
+        assert_eq!(
+            root_from(None, Some("/srv/t"), Some("/srv/a"), user.clone()),
+            PathBuf::from("/srv/t")
+        );
+        assert_eq!(
+            root_from(None, None, Some(" /srv/a "), user.clone()),
+            PathBuf::from("/srv/a"),
+            "AZLIN_DATA, the root every Azlin app shares"
+        );
+        assert_eq!(
+            root_from(None, Some(""), Some(" "), user),
+            PathBuf::from("/Users/a/Library/Application Support/Azlin")
+        );
+        assert_eq!(
+            root_from(None, None, None, None),
+            PathBuf::from("AzTasks-data")
+        );
+    }
 }
 
 #[cfg(test)]

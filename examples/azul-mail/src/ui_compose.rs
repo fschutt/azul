@@ -405,6 +405,12 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
     if c.is_local() {
         document.add_child(local_bar(c));
+    } else if s
+        .accounts
+        .iter()
+        .any(|a| a.id == c.account_id && a.is_azlin())
+    {
+        document.add_child(azlin_bar(c));
     }
     document.add_child(header_block(c, &app));
     if c.show_link {
@@ -619,6 +625,22 @@ fn local_bar(c: &Compose) -> Dom {
         .with_icon("info"),
     };
     bar.dom()
+}
+
+/// An Azlin account's message, under the ribbon: the drive keeps its draft and its copy, the
+/// mail itself leaves from this computer (Azlin never sends mail).
+fn azlin_bar(c: &Compose) -> Dom {
+    let text = match &c.status {
+        ComposeStatus::Queued(reason) => format!(
+            "In the Outbox. {reason} AzMail tries again at every Send/Receive (F9)."
+        ),
+        _ => String::from(
+            "Azlin account: the drive keeps this message's draft and, after the next \
+             Send/Receive, its copy in Sent Items. The mail itself leaves from this computer, as \
+             Account Settings, Sending says.",
+        ),
+    };
+    InfoBar::create(text).with_icon("info").dom()
 }
 
 /// Send beside the From / To / Cc / Bcc / Subject rows; without an account From is typed.
@@ -1100,6 +1122,9 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                     azul_appkit::ui::set_value(&s.kit, info, SET_LOCAL_FROM, fields.from.trim());
                 }
                 let account_id = s.composes[at].account_id.clone();
+                // An Azlin account's draft goes into its drive too (once it has signed in; a
+                // draft saved before stays here until Send/Receive puts it there).
+                let azlin = crate::AzlinContext::of(s, &account_id);
                 let c = &mut s.composes[at];
                 c.status = if send {
                     ComposeStatus::Sending
@@ -1121,6 +1146,7 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                     send,
                     dkim_key,
                     sign_in,
+                    azlin,
                 };
                 info.add_thread(
                     ThreadId::unique(),
@@ -1195,13 +1221,17 @@ struct OutgoingJob {
     dkim_key: Option<crate::account::Secret>,
     /// The sign-in secret for submission (from `MailApp::secrets`).
     sign_in: Option<crate::account::Secret>,
+    /// An Azlin account's drive: a saved draft goes there too, a sent one leaves it.
+    azlin: Option<crate::AzlinContext>,
 }
 
 /// What the thread did.
 #[derive(Clone)]
 enum OutgoingDone {
     Sent(send::SendStatus),
-    DraftSaved(u32),
+    /// The draft's local UID, and for an Azlin account its key in the drive (or why it is not
+    /// there yet).
+    DraftSaved(u32, Option<Result<String, String>>),
     Problem(String),
 }
 
@@ -1257,11 +1287,34 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
         }
     }
     let now = crate::now_unix();
+    let store = MailStore::new(job.store_root.clone());
+    // An Azlin account's local copy is one Thread's at a time (Send/Receive writes it too).
+    let _cache = job.azlin.as_ref().map(|_| crate::azlin_sync::lock_cache());
+    // The draft this one replaces, in the drive.
+    let replaced = job
+        .azlin
+        .as_ref()
+        .and(job.draft_uid)
+        .and_then(|uid| crate::azlin_sync::remote_of(&store, compose::DRAFTS_FOLDER, uid));
     if !job.send {
         let mail = compose::draft_mail(&job.fields, attachments);
         let bytes = compose::draft_bytes(&mail, now);
         return match compose::save_draft(&job.store_root, job.draft_uid, &bytes, now) {
-            Ok(entry) => OutgoingDone::DraftSaved(entry.uid),
+            Ok(entry) => {
+                let uploaded = job.azlin.as_ref().map(|context| {
+                    let drive = context.open_drive()?;
+                    crate::azlin_sync::upload_message(
+                        &drive,
+                        &store,
+                        compose::DRAFTS_FOLDER,
+                        entry.uid,
+                        replaced.as_deref(),
+                        now,
+                    )
+                    .map_err(|e| e.to_string())
+                });
+                OutgoingDone::DraftSaved(entry.uid, uploaded)
+            }
             Err(e) => OutgoingDone::Problem(format!("The draft could not be saved: {e}")),
         };
     }
@@ -1279,8 +1332,14 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
         (&status, job.draft_uid)
     {
         // Sent, or in the Outbox (Outlook moves it there): the draft it was is not a draft any
-        // more.
-        let _ = compose::delete_draft(&MailStore::new(job.store_root.clone()), uid);
+        // more - here, and in an Azlin account's drive.
+        let _ = compose::delete_draft(&store, uid);
+        if let (Some(context), Some(key)) = (job.azlin.as_ref(), replaced.as_deref()) {
+            if let Ok(drive) = context.open_drive() {
+                use azul_storage::Drive;
+                let _ = drive.delete(key);
+            }
+        }
     }
     OutgoingDone::Sent(status)
 }
@@ -1324,8 +1383,19 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                 }
                 Update::RefreshDomAllWindows
             }
-            OutgoingDone::DraftSaved(uid) => {
+            OutgoingDone::DraftSaved(uid, uploaded) => {
                 println!("AZMAIL_DRAFT_SAVED {window_id} {uid}");
+                match uploaded {
+                    Some(Ok(key)) => println!("AZMAIL_DRAFT_UPLOADED {window_id} {key}"),
+                    Some(Err(e)) => {
+                        println!("AZMAIL_DRAFT_UPLOAD_FAILED {window_id} {e}");
+                        s.notice = format!(
+                            "The draft is saved here; the next Send/Receive puts it into the \
+                             Azlin drive ({e})."
+                        );
+                    }
+                    None => {}
+                }
                 if let Some(at) = at {
                     let c = &mut s.composes[at];
                     c.draft_uid = Some(uid);

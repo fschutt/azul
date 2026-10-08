@@ -11,7 +11,13 @@
 //! - [`settings`]: `<app>/settings.json` (app theme, mode, the app's values).
 //! - [`azlin_config`]: `~/.azlin/config.json`, the one config every Azlin app
 //!   shares (`currentTheme`, `mode`): read at the start, written when the look
-//!   changes, so a theme chosen in one app is every app's.
+//!   changes, so a theme chosen in one app is every app's. Its `endpoints`
+//!   section says where the Azlin services are (a profile's built-in
+//!   addresses, overridden by the file, the environment, a flag; with where
+//!   each value came from).
+//! - [`shared_endpoint`]: a service's address from the shared config's
+//!   `endpoints` section (the meeting server, the tile server, S3), for an
+//!   app to weigh under its own switch and variable.
 //! - [`shortcuts`]: the keyboard-shortcut table, `Mod` = Cmd / Ctrl.
 //! - [`about`]: the About facts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
@@ -55,6 +61,7 @@ pub mod history;
 pub mod migrate;
 pub mod options;
 pub mod settings;
+pub mod shared_endpoint;
 pub mod shortcuts;
 
 #[cfg(feature = "azul")]

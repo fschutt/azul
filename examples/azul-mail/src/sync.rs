@@ -114,6 +114,10 @@ pub struct FolderReport {
     pub messages: u64,
     /// The old UIDVALIDITY when the server had renumbered the folder.
     pub renumbered: Option<u32>,
+    /// An Azlin account's: mail filed here first that this sync put into the drive.
+    pub pushed: u64,
+    /// An Azlin account's: messages gone from the drive, dropped from the local copy.
+    pub removed: u64,
 }
 
 /// The whole sync's outcome.
@@ -129,6 +133,14 @@ impl SyncReport {
 
     pub fn reused(&self) -> u64 {
         self.folders.iter().map(|f| f.reused).sum()
+    }
+
+    pub fn pushed(&self) -> u64 {
+        self.folders.iter().map(|f| f.pushed).sum()
+    }
+
+    pub fn removed(&self) -> u64 {
+        self.folders.iter().map(|f| f.removed).sum()
     }
 }
 

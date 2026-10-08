@@ -78,6 +78,7 @@ pub fn sample_account() -> Account {
         security: Security::Plain,
         auth: AuthKind::Password,
         folder: None,
+        azlin: None,
     }
 }
 

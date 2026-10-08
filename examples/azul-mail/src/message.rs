@@ -68,6 +68,7 @@ pub fn index_entry(
         flags: flags.to_vec(),
         size: bytes.len() as u64,
         path: path.to_string(),
+        remote: String::new(),
     }
 }
 
