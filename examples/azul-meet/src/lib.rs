@@ -161,6 +161,9 @@ mod chatroom;
 mod crypto;
 mod identity;
 mod ids;
+/// A room's invite key from the invite secret of its link (CRYPTO.md section 4); public, since
+/// AzCalendar's meeting links are made with it too (it includes the file).
+pub mod invite;
 mod keys;
 mod pace;
 mod rate;
@@ -354,7 +357,6 @@ enum Stage {
 /// A participant's side of a meeting-server room.
 struct RoomSession {
     worker: String,
-    name: String,
     stage: Stage,
     join_text: String,
     /// This endpoint's id and ticket (the ticket arrives with the `Ready` event).
@@ -433,7 +435,7 @@ struct Minting {
 }
 
 impl RoomSession {
-    fn new(worker: String, name: String, relay: Relay) -> Self {
+    fn new(worker: String, relay: Relay) -> Self {
         RoomSession {
             waiting: None,
             waiting_people: None,
@@ -456,7 +458,6 @@ impl RoomSession {
             checks: 0,
             relay,
             worker,
-            name,
             stage: Stage::Start,
             join_text: String::new(),
             node_id: String::new(),
@@ -5989,9 +5990,9 @@ fn schedule_times(start: &str, minutes: &str) -> Result<(String, String), String
     // The offset of the day it starts on (summer time or not), not today's.
     let starts =
         rooms::parse_local_start(start, local_offset_at(first_guess)).unwrap_or(first_guess);
-    let minutes: u64 = minutes
+    let minutes = minutes
         .trim()
-        .parse()
+        .parse::<u64>()
         .ok()
         .filter(|m| (1..=10_080).contains(m))
         .ok_or_else(|| String::from("Type how long the meeting lasts, in minutes (1 to 10080)."))?;
@@ -6971,9 +6972,8 @@ extern "C" fn on_panel(mut data: RefAny, _info: CallbackInfo, state: SegmentedSt
         _ => SidePanel::People,
     };
     if s.panel == SidePanel::Chat {
-        if let Some(chat) = call_room_id(s).and_then(|id| s.chats.get_mut(&id)) {
-            if chat.mark_read() {
-                let id = chat.room.clone();
+        if let Some(id) = call_room_id(s) {
+            if s.chats.get_mut(&id).is_some_and(chatroom::ChatRoom::mark_read) {
                 remember_room(s, &id);
             }
         }
@@ -7067,9 +7067,9 @@ fn send_draft(
     Update::RefreshDom
 }
 
-/// The name field (the waiting room, the settings' Meetings): the name others see (the next
-/// announcement carries it), remembered - and written when the field is left
-/// (`on_name_blur`) or the meeting is entered, not with every key.
+/// The name field (the waiting room, the settings' Meetings): the name others see (each room's
+/// member record carries it, sealed, once the field is left: `on_name_blur`), remembered - and
+/// written when the field is left or the meeting is entered, not with every key.
 extern "C" fn on_name_text(
     mut data: RefAny,
     _info: CallbackInfo,
@@ -7080,9 +7080,6 @@ extern "C" fn on_name_text(
         let s = &mut *guard;
         if !text.is_empty() {
             s.name = text.clone();
-            if let Some(room) = s.room.as_mut() {
-                room.name = text.clone();
-            }
             remember(s, |prefs| prefs.name = Some(text));
         }
     }
@@ -7558,7 +7555,7 @@ fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
         rooms::transport_label(&relay, relay_only())
     );
     let mut me = MeetState::new(&name, make_kit());
-    let mut room = RoomSession::new(worker.clone(), name.clone(), relay.clone());
+    let mut room = RoomSession::new(worker.clone(), relay.clone());
     room.server_ok = answer.is_ok();
     room.checked_at = wall_ms();
     room.server_status = match &answer {

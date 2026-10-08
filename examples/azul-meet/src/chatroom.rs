@@ -215,7 +215,8 @@ pub struct Changes {
 }
 
 impl Changes {
-    /// Adds `other` (a later answer's changes) to these.
+    /// Adds `other` (a later answer's changes) to these (the tests' driver sums a run's).
+    #[cfg(test)]
     pub fn absorb(&mut self, other: Changes) {
         self.shown |= other.shown;
         self.arrived.extend(other.arrived);
@@ -582,12 +583,6 @@ impl ChatRoom {
         }
     }
 
-    /// Whether the first read of the room is complete.
-    #[must_use]
-    pub fn synced(&self) -> bool {
-        self.synced_once
-    }
-
     /// A request is on its way.
     #[must_use]
     pub fn busy(&self) -> bool {
@@ -619,7 +614,9 @@ impl ChatRoom {
         .then_some(member)
     }
 
-    /// This device's signature of its iroh announcement.
+    /// This device's signature of its iroh announcement (`lib.rs` signs `crypto::peer_input`
+    /// itself when it announces; the tests sign with this).
+    #[cfg(test)]
     #[must_use]
     pub fn peer_sig(&self, me: &Identity, node_id: &str, ticket: &str) -> String {
         me.sign(&crypto::peer_input(&self.room, node_id, ticket))

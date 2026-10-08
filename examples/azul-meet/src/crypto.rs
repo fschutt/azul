@@ -511,13 +511,14 @@ impl Invite {
         if !is_id(secret) {
             return None;
         }
-        let salt = b"azmeet/v1/invite";
-        let sign = SigningKey::from_bytes(&hkdf(
+        // The signing key as `invite.rs` derives it (AzCalendar's links use that file).
+        let seed = Zeroizing::new(crate::invite::sign_seed(room, secret));
+        let sign = SigningKey::from_bytes(&seed);
+        let names = hkdf(
             secret.as_bytes(),
-            salt,
-            format!("sign\n{room}").as_bytes(),
-        ));
-        let names = hkdf(secret.as_bytes(), salt, format!("names\n{room}").as_bytes());
+            crate::invite::INVITE_SALT,
+            format!("names\n{room}").as_bytes(),
+        );
         Some(Invite {
             room: room.to_string(),
             secret: Zeroizing::new(secret.to_string()),
@@ -902,6 +903,11 @@ mod tests {
         );
         let other_room = Invite::new("0".repeat(26).as_str(), SECRET).unwrap();
         assert_ne!(other_room.invite_key(), INVITE_KEY, "bound to its room");
+        assert_eq!(
+            crate::invite::invite_key(ROOM, SECRET),
+            Some(invite.invite_key()),
+            "the key AzCalendar registers its links with"
+        );
     }
 
     #[test]

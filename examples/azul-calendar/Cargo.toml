@@ -28,6 +28,12 @@ azul-storage = { path = "../azul-storage" }
 # The Azlin data root (where the shared task store is), and the file jobs on an azul Thread every
 # durable write goes through (`ui::spawn_file_jobs`, feature `azul`).
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# A meeting link's invite key (AzMeet's src/invite.rs, included by path: the room is registered
+# with it, so the meeting is end-to-end encrypted). The same versions and features as AzMeet's;
+# every crate is in Cargo.lock already.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
+hkdf = "0.12"
+sha2 = "0.10"
 
 [dev-dependencies]
 # The shared temporary folder for tests (azul_pim::testing::TempDir).
