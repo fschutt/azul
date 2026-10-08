@@ -22,6 +22,7 @@
 //! Nothing here prints, logs or `Debug`s a secret (a drive token, a secret key, a session
 //! token). No azul types: tested without a window (`cargo test -p azcloud-kit`).
 
+pub mod account;
 pub mod bucket;
 pub mod bundle;
 pub mod drive;
