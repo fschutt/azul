@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use super::TempDir;
 use crate::{
     config::{
-        drives_file, keyring_key, new_drive_id, DriveAuth, DriveEntry, DriveLocation, DrivesFile,
+        drives_file, keyring_key, new_drive_id, DatabaseEngine, DriveAuth, DriveEntry,
+        DriveLocation, DrivesFile, SecretOptions,
     },
     Credentials, Drive, DriveError, HttpCall, HttpReply, ListRequest, Transport,
 };
@@ -191,4 +192,236 @@ fn an_access_link_drive_is_not_opened_yet() {
         entry.open(None, Box::new(NoNetwork)),
         Err(DriveError::Unsupported(_))
     ));
+}
+
+// ==== The data sources of the Add drive dialog: Azlin, OpenDAL, databases ====
+
+/// A drives file as a newer AzDrive writes it: an Azlin drive (the token server's bundle), a
+/// WebDAV source through OpenDAL and a PostgreSQL database.
+const NEWER_FILE: &str = r#"{
+  "format": "azul-storage.drives",
+  "version": 1,
+  "drives": [
+    { "id": "d_k3f9", "name": "Azlin Storage",
+      "location": { "kind": "s3", "endpoint": "http://127.0.0.1:9000", "region": "us-east-1",
+                    "bucket": "d-k3f9", "path_style": true,
+                    "auth": { "type": "azlin", "drive_id": "d_k3f9",
+                              "account_url": "http://127.0.0.1:8081" } } },
+    { "id": "nas-1", "name": "NAS",
+      "location": { "kind": "opendal", "scheme": "webdav",
+                    "options": { "endpoint": "https://nas.example/dav", "username": "ann" },
+                    "keyring": true } },
+    { "id": "shop-1", "name": "Shop",
+      "location": { "kind": "database", "engine": "postgres",
+                    "options": { "host": "db.example", "port": "5432", "database": "shop",
+                                 "user": "ann" },
+                    "keyring": true } }
+  ]
+}"#;
+
+fn options(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[test]
+fn an_azlin_drive_of_the_token_servers_bundle_reads_and_round_trips() {
+    let file = DrivesFile::parse(NEWER_FILE).unwrap();
+    let azlin = file.get("d_k3f9").unwrap();
+    match &azlin.location {
+        DriveLocation::S3 { auth, bucket, .. } => {
+            assert_eq!(bucket, "d-k3f9");
+            assert_eq!(
+                auth,
+                &DriveAuth::Azlin {
+                    drive_id: "d_k3f9".to_string(),
+                    account_url: "http://127.0.0.1:8081".to_string(),
+                }
+            );
+        }
+        other => panic!("not an S3 drive: {other:?}"),
+    }
+    assert!(azlin.needs_keyring(), "the session is in the keyring");
+    let back = DrivesFile::parse(&file.to_json()).unwrap();
+    assert_eq!(back, file);
+}
+
+#[test]
+fn an_azlin_drive_without_its_token_servers_address_still_reads() {
+    let text = r#"{ "format": "azul-storage.drives", "version": 1, "drives": [
+      { "id": "d_k3f9", "name": "Azlin Storage",
+        "location": { "kind": "s3", "endpoint": "http://127.0.0.1:9000", "region": "us-east-1",
+                      "bucket": "d-k3f9", "path_style": true,
+                      "auth": { "type": "azlin", "drive_id": "d_k3f9" } } } ] }"#;
+    let file = DrivesFile::parse(text).unwrap();
+    match &file.get("d_k3f9").unwrap().location {
+        DriveLocation::S3 {
+            auth: DriveAuth::Azlin { account_url, .. },
+            ..
+        } => assert_eq!(account_url, ""),
+        other => panic!("not an Azlin drive: {other:?}"),
+    }
+}
+
+#[test]
+fn an_opendal_source_keeps_only_its_plain_settings_in_the_drives_file() {
+    let file = DrivesFile::parse(NEWER_FILE).unwrap();
+    let nas = file.get("nas-1").unwrap();
+    assert_eq!(
+        nas.location,
+        DriveLocation::Opendal {
+            scheme: "webdav".to_string(),
+            options: options(&[("endpoint", "https://nas.example/dav"), ("username", "ann")]),
+            keyring: true,
+        }
+    );
+    assert!(nas.needs_keyring());
+    let text = file.to_json();
+    assert!(text.contains("\"kind\": \"opendal\""), "{text}");
+    assert!(text.contains("\"scheme\": \"webdav\""), "{text}");
+}
+
+#[test]
+fn a_database_source_names_its_engine() {
+    let file = DrivesFile::parse(NEWER_FILE).unwrap();
+    let shop = file.get("shop-1").unwrap();
+    assert_eq!(
+        shop.location,
+        DriveLocation::Database {
+            engine: DatabaseEngine::Postgres,
+            options: options(&[
+                ("database", "shop"),
+                ("host", "db.example"),
+                ("port", "5432"),
+                ("user", "ann"),
+            ]),
+            keyring: true,
+        }
+    );
+    let text = file.to_json();
+    assert!(text.contains("\"kind\": \"database\""), "{text}");
+    assert!(text.contains("\"engine\": \"postgres\""), "{text}");
+}
+
+#[test]
+fn a_source_without_secrets_needs_no_keyring_and_says_none_in_its_file() {
+    let entry = DriveEntry {
+        id: "db".to_string(),
+        name: "Local database".to_string(),
+        location: DriveLocation::Database {
+            engine: DatabaseEngine::Sqlite,
+            options: options(&[("path", "/tmp/shop.sqlite")]),
+            keyring: false,
+        },
+    };
+    assert!(!entry.needs_keyring());
+    let mut file = DrivesFile::empty();
+    file.add(entry.clone());
+    let text = file.to_json();
+    assert!(!text.contains("keyring"), "no keyring flag when there is none: {text}");
+    assert_eq!(DrivesFile::parse(&text).unwrap().drives, vec![entry]);
+}
+
+#[test]
+fn secret_options_round_trip_through_the_keyring_text_and_never_show_in_debug() {
+    let mut secrets = SecretOptions::new();
+    secrets.insert("password", "sesame-42");
+    secrets.insert("token", "tok-9");
+    assert_eq!(secrets.get("password"), Some("sesame-42"));
+    let text = secrets.to_keyring_secret();
+    let back = SecretOptions::from_keyring_secret(&text).unwrap();
+    assert_eq!(back, secrets);
+    let debug = format!("{secrets:?}");
+    assert!(!debug.contains("sesame-42") && !debug.contains("tok-9"), "{debug}");
+    assert!(debug.contains("password"), "the names show, not the values: {debug}");
+    assert!(SecretOptions::from_keyring_secret("not json").is_err());
+    assert!(SecretOptions::new().is_empty());
+}
+
+#[test]
+fn an_azlin_session_in_the_keyring_still_reads_as_plain_credentials() {
+    // What azcloud-kit stores for an Azlin drive: the credentials and more.
+    let session = r#"{"drive_id":"d_k3f9","drive_token":"dt_f.1.x","access_key_id":"AKID",
+        "secret_access_key":"secret","session_token":"st","expires_at":1791450900}"#;
+    let credentials = Credentials::from_keyring_secret(session).unwrap();
+    assert_eq!(
+        credentials,
+        Credentials::new("AKID", "secret").with_session_token("st")
+    );
+}
+
+#[test]
+fn open_with_secret_reads_an_s3_drives_credentials_from_the_keyring_text() {
+    let secret = Credentials::new("AKID", "secret").to_keyring_secret();
+    assert!(s3_entry("d1")
+        .open_with_secret(Some(&secret), Box::new(NoNetwork))
+        .is_ok());
+    assert!(matches!(
+        s3_entry("d1").open_with_secret(None, Box::new(NoNetwork)),
+        Err(DriveError::Denied { .. })
+    ));
+}
+
+#[test]
+fn open_with_secret_opens_a_local_drive_without_one() {
+    let tmp = TempDir::new("config-open-secret-local");
+    std::fs::write(tmp.path().join("b.txt"), b"y").unwrap();
+    let entry = DriveEntry {
+        id: "folder".to_string(),
+        name: "Folder".to_string(),
+        location: DriveLocation::Local {
+            root: tmp.path().to_string_lossy().into_owned(),
+        },
+    };
+    let drive = entry.open_with_secret(None, Box::new(NoNetwork)).unwrap();
+    assert_eq!(
+        drive.list(&ListRequest::folder("")).unwrap().objects[0].key,
+        "b.txt"
+    );
+}
+
+#[cfg(not(feature = "opendal"))]
+#[test]
+fn an_opendal_source_in_a_build_without_opendal_says_which_feature_it_needs() {
+    let file = DrivesFile::parse(NEWER_FILE).unwrap();
+    let secret = SecretOptions::new().to_keyring_secret();
+    match file
+        .get("nas-1")
+        .unwrap()
+        .open_with_secret(Some(&secret), Box::new(NoNetwork))
+    {
+        Err(DriveError::Unsupported(why)) => assert!(why.contains("opendal"), "{why}"),
+        Err(other) => panic!("another error: {other}"),
+        Ok(_) => panic!("opened without OpenDAL"),
+    }
+}
+
+#[cfg(not(feature = "sql"))]
+#[test]
+fn a_database_in_a_build_without_sql_says_which_feature_it_needs() {
+    let file = DrivesFile::parse(NEWER_FILE).unwrap();
+    let secret = SecretOptions::new().to_keyring_secret();
+    match file
+        .get("shop-1")
+        .unwrap()
+        .open_with_secret(Some(&secret), Box::new(NoNetwork))
+    {
+        Err(DriveError::Unsupported(why)) => assert!(why.contains("sql"), "{why}"),
+        Err(other) => panic!("another error: {other}"),
+        Ok(_) => panic!("opened without the database drivers"),
+    }
+}
+
+#[test]
+fn every_database_engine_has_a_name_and_a_key() {
+    for (engine, key, name) in [
+        (DatabaseEngine::Sqlite, "sqlite", "SQLite"),
+        (DatabaseEngine::Postgres, "postgres", "PostgreSQL"),
+        (DatabaseEngine::Mysql, "mysql", "MySQL"),
+    ] {
+        assert_eq!(engine.key(), key);
+        assert_eq!(engine.name(), name);
+    }
 }
