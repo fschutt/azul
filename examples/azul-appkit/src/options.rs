@@ -192,12 +192,19 @@ impl Snapshot {
 /// The page's notice once a save of the settings came back (`error`: why it failed, `None`:
 /// the file is written): a save that went through clears it - a problem reading or saving the
 /// file before is over - and one that failed says why. `true` when the page has to be drawn
-/// again for it.
+/// again for it, i.e. only when the notice changed: it is all a finished save changes on the
+/// page, and the answer arrives while the control that caused the save may still be animating
+/// (a Switch's knob glides for 150 ms) - a rebuild of the window then is a dropped frame for
+/// nothing.
 #[must_use]
 pub fn notice_after_save(notice: &mut String, error: Option<&str>) -> bool {
-    *notice = error.map_or_else(String::new, |e| {
+    let next = error.map_or_else(String::new, |e| {
         format!("The settings could not be saved: {e}")
     });
+    if *notice == next {
+        return false;
+    }
+    *notice = next;
     true
 }
 
