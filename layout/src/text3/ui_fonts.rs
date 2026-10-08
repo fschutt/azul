@@ -2,21 +2,27 @@
 //! so a theme draws the same on every machine whether or not the face is
 //! installed.
 //!
-//! | family        | faces                | for                                         |
-//! |---------------|----------------------|---------------------------------------------|
-//! | `EB Garamond` | 400 and 700, upright | flora: its capitals labels (buttons, group  |
-//! |               |                      | and section titles, dialog headers), and    |
-//! |               |                      | running text                                |
+//! | family        | faces                            | for                             |
+//! |---------------|----------------------------------|---------------------------------|
+//! | `EB Garamond` | 400 and 700, upright and italic  | flora: its capitals labels      |
+//! |               |                                  | (buttons, group and section     |
+//! |               |                                  | titles, dialog headers), its    |
+//! |               |                                  | chrome and its running text     |
+//! |               |                                  | (the `system:` text roles under |
+//! |               |                                  | flora, [`theme_font_families`]) |
 //!
-//! flora.css sets "every label in capitals" in Garamond (`--font-caps`), and
-//! the faces here are the website's own: static instances of its latin slice
-//! of the variable font (`doc/fonts/EBGaramond-Variable.woff2`, SIL OFL 1.1 -
-//! the licence sits next to the bundle), cut by
-//! `scripts/make_ebgaramond_ui_fonts.py`. Static, because azul measures a
-//! WOFF2's decompressed tables as zero-width and registering a variable font
-//! bakes one instance per weight bucket in every `FontManager`; brotli at
-//! quality 11 (about 54 KB for both faces, like the Material Icons bundle),
-//! decompressed once per process.
+//! flora.css sets running text and "every label in capitals" in Garamond
+//! (`--font-serif`, `--font-caps`), and the faces here are the website's own:
+//! static instances of its latin slices of the variable font
+//! (`doc/fonts/EBGaramond-Variable.woff2` and `-Italic.woff2`, byte-identical
+//! to Google Fonts' EB Garamond v33 latin slices, "Version 1.003"; SIL OFL
+//! 1.1 - the licence sits next to the bundle), cut by
+//! `scripts/make_ebgaramond_ui_fonts.py`, which checks the sources' SHA-256.
+//! Static, because azul measures a WOFF2's decompressed tables as zero-width
+//! and registering a variable font bakes one instance per weight bucket in
+//! every `FontManager`; brotli at quality 11 - about 112 KB for the four
+//! faces (the two variable fonts would be 96 KB, and a baked instance per
+//! weight in every window on top) - decompressed once per process.
 //!
 //! Registered in every `FontManager` (next to the mock fonts, the same four
 //! constructors) in the FALLBACK tier: an installed EB Garamond - a full one,
@@ -72,6 +78,10 @@ pub fn theme_font_families(
 const EB_GARAMOND_REGULAR_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-Regular.ttf.br");
 const EB_GARAMOND_BOLD_BR: &[u8] = include_bytes!("../../assets/fonts/ui/EBGaramond-Bold.ttf.br");
+const EB_GARAMOND_ITALIC_BR: &[u8] =
+    include_bytes!("../../assets/fonts/ui/EBGaramond-Italic.ttf.br");
+const EB_GARAMOND_BOLD_ITALIC_BR: &[u8] =
+    include_bytes!("../../assets/fonts/ui/EBGaramond-BoldItalic.ttf.br");
 
 /// `packed`, brotli-decompressed; empty if it does not decompress (the face
 /// is then skipped - a font path never panics over a bundled file).
@@ -83,17 +93,70 @@ fn decompress(packed: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Every bundled face as `(family, TrueType bytes)`, decompressed on first
-/// use and kept for the process.
+/// One bundled face: its family, its TrueType bytes, and whether it is the
+/// italic cut (whose cmap is a little smaller: [`eb_garamond_italic_ranges`]).
+#[derive(Debug)]
+pub struct BundledUiFace {
+    /// The family the face registers under ([`EB_GARAMOND`]).
+    pub family: &'static str,
+    /// The TrueType bytes, decompressed (empty if the bundle is damaged).
+    pub bytes: Vec<u8>,
+    /// The italic cut.
+    pub italic: bool,
+}
+
+impl BundledUiFace {
+    /// The codepoints the face covers: what it is registered with, so a
+    /// character it lacks falls back to the next family.
+    #[must_use]
+    pub fn ranges(&self) -> Vec<UnicodeRange> {
+        if self.italic {
+            eb_garamond_italic_ranges()
+        } else {
+            eb_garamond_ranges()
+        }
+    }
+}
+
+/// Every bundled face, decompressed on first use and kept for the process:
+/// EB Garamond 400 and 700, upright and italic.
 #[must_use]
-pub fn bundled_ui_fonts() -> &'static [(&'static str, Vec<u8>)] {
-    static FACES: OnceLock<Vec<(&'static str, Vec<u8>)>> = OnceLock::new();
+pub fn bundled_ui_fonts() -> &'static [BundledUiFace] {
+    static FACES: OnceLock<Vec<BundledUiFace>> = OnceLock::new();
     FACES.get_or_init(|| {
+        let face = |packed: &[u8], italic: bool| BundledUiFace {
+            family: EB_GARAMOND,
+            bytes: decompress(packed),
+            italic,
+        };
         alloc::vec![
-            (EB_GARAMOND, decompress(EB_GARAMOND_REGULAR_BR)),
-            (EB_GARAMOND, decompress(EB_GARAMOND_BOLD_BR)),
+            face(EB_GARAMOND_REGULAR_BR, false),
+            face(EB_GARAMOND_BOLD_BR, false),
+            face(EB_GARAMOND_ITALIC_BR, true),
+            face(EB_GARAMOND_BOLD_ITALIC_BR, true),
         ]
     })
+}
+
+/// The codepoints the bundled italic EB Garamond covers: the upright's
+/// ([`eb_garamond_ranges`]) but the superscript one, two and three (U+00B9,
+/// U+00B2, U+00B3), which the website's italic slice does not carry.
+#[must_use]
+pub fn eb_garamond_italic_ranges() -> Vec<UnicodeRange> {
+    eb_garamond_ranges()
+        .into_iter()
+        .flat_map(|r| {
+            if r.start == 0x00A0 && r.end == 0x00FF {
+                alloc::vec![
+                    UnicodeRange { start: 0x00A0, end: 0x00B1 },
+                    UnicodeRange { start: 0x00B4, end: 0x00B8 },
+                    UnicodeRange { start: 0x00BA, end: 0x00FF },
+                ]
+            } else {
+                alloc::vec![r]
+            }
+        })
+        .collect()
 }
 
 /// The codepoints the bundled EB Garamond covers (its cmap): printable
@@ -169,28 +232,38 @@ mod tests {
     }
 
     #[test]
-    fn both_garamond_faces_decompress_to_truetype() {
+    fn every_garamond_face_decompresses_to_truetype() {
         let faces = bundled_ui_fonts();
-        assert_eq!(faces.len(), 2);
-        for (family, bytes) in faces {
-            assert_eq!(*family, EB_GARAMOND);
-            assert_eq!(bytes.get(..4), Some(&[0, 1, 0, 0][..]), "a TrueType (glyf) face");
+        assert_eq!(faces.len(), 4);
+        for face in faces {
+            assert_eq!(face.family, EB_GARAMOND);
+            assert_eq!(face.bytes.get(..4), Some(&[0, 1, 0, 0][..]), "a TrueType (glyf) face");
         }
     }
 
+    /// Running text has emphasis: the bundle is the regular and the bold,
+    /// each upright and italic, so an italic run in flora's hand is a real
+    /// italic and not the upright face.
     #[test]
-    fn the_garamond_faces_are_the_regular_and_the_bold() {
-        let weights: Vec<_> = bundled_ui_fonts()
+    fn the_garamond_faces_are_the_regular_and_the_bold_upright_and_italic() {
+        use rust_fontconfig::{FcWeight, PatternMatch};
+        let styles: Vec<_> = bundled_ui_fonts()
             .iter()
-            .map(|(family, bytes)| {
-                let faces = rust_fontconfig::FcParseFontBytes(bytes, family).expect("parses");
+            .map(|face| {
+                let faces =
+                    rust_fontconfig::FcParseFontBytes(&face.bytes, face.family).expect("parses");
                 let (pattern, _) = faces.into_iter().next().expect("one face");
-                pattern.weight
+                (pattern.weight, pattern.italic == PatternMatch::True, face.italic)
             })
             .collect();
         assert_eq!(
-            weights,
-            [rust_fontconfig::FcWeight::Normal, rust_fontconfig::FcWeight::Bold]
+            styles,
+            [
+                (FcWeight::Normal, false, false),
+                (FcWeight::Bold, false, false),
+                (FcWeight::Normal, true, true),
+                (FcWeight::Bold, true, true),
+            ]
         );
     }
 
@@ -201,8 +274,9 @@ mod tests {
     fn the_garamond_bundle_has_an_italic_regular_and_bold() {
         let italic_weights: Vec<_> = bundled_ui_fonts()
             .iter()
-            .filter_map(|(family, bytes)| {
-                let faces = rust_fontconfig::FcParseFontBytes(bytes, family).expect("parses");
+            .filter_map(|face| {
+                let faces =
+                    rust_fontconfig::FcParseFontBytes(&face.bytes, face.family).expect("parses");
                 let (pattern, _) = faces.into_iter().next().expect("one face");
                 (pattern.italic == rust_fontconfig::PatternMatch::True).then_some(pattern.weight)
             })
@@ -211,5 +285,18 @@ mod tests {
             italic_weights,
             [rust_fontconfig::FcWeight::Normal, rust_fontconfig::FcWeight::Bold]
         );
+    }
+
+    #[test]
+    fn the_italic_ranges_leave_out_the_superscript_figures_the_italic_lacks() {
+        let covers = |ranges: &[UnicodeRange], c: u32| ranges.iter().any(|r| r.start <= c && c <= r.end);
+        let upright = eb_garamond_ranges();
+        let italic = eb_garamond_italic_ranges();
+        for c in [0x00B2_u32, 0x00B3, 0x00B9] {
+            assert!(covers(&upright, c) && !covers(&italic, c), "U+{c:04X}");
+        }
+        for c in (0x0020_u32..0x2216).filter(|c| ![0x00B2, 0x00B3, 0x00B9].contains(c)) {
+            assert_eq!(covers(&upright, c), covers(&italic, c), "U+{c:04X}");
+        }
     }
 }
