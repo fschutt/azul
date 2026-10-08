@@ -11,6 +11,8 @@
 //!   family for another device, the drive's info, the lockdown, a restore.
 //! - [`bundle`]: what the token server answers for a drive - its drives-file entry, its S3
 //!   credentials (temporary, 12 h, or long-lived), its drive token, its nodes.
+//! - [`claim`]: the claim of a paid drive - the X25519 key a checkout names, the sign-up the
+//!   token server seals to it and the app opens however late it asks.
 //! - [`session`]: what an app keeps in the OS keyring for an Azlin drive (the drive token and
 //!   the current credentials, one JSON text that azul-storage also reads as plain
 //!   credentials).
@@ -55,6 +57,7 @@
 pub mod account;
 pub mod bucket;
 pub mod bundle;
+pub mod claim;
 pub mod drive;
 pub mod endpoints;
 pub mod error;
@@ -74,6 +77,7 @@ mod tests;
 pub use account::{Account, JoinCode};
 pub use bucket::Bucket;
 pub use bundle::DriveBundle;
+pub use claim::{ClaimError, ClaimKey};
 pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
