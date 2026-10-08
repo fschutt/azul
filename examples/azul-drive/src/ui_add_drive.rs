@@ -305,7 +305,8 @@ fn buy(d: &AddDialog, s: &DriveState, app: &RefAny) -> Dom {
                         &price,
                         AddEvent::Tier(index),
                         index == d.tier,
-                        "width: 216px; margin: 0px 8px 8px 0px;",
+                        // two to a line: the width holds the tile's padding
+                        "width: 222px; box-sizing: border-box; margin: 0px 8px 8px 0px;",
                     )
                     .with_id(ids::add_tier(index))
                 })
@@ -423,14 +424,15 @@ fn sources(app: &RefAny) -> Dom {
                     spec.summary,
                     AddEvent::Service(spec.id),
                     false,
-                    "width: 216px; margin: 0px 8px 8px 0px;",
+                    // one to a line, so a source's summary is not cut off
+                    "width: 100%; box-sizing: border-box; margin-bottom: 4px;",
                 )
                 .with_id(ids::add_service(spec.id))
             })
             .collect();
         list.push(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; flex-wrap: wrap;")
+                .with_css("display: flex; flex-direction: column;")
                 .with_children(DomVec::from(cells)),
         );
     }
