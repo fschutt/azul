@@ -15,7 +15,7 @@
 //!
 //! The plaintext is the sign-up a token server without claims handed out as `signup`: a drive
 //! bundle ([`crate::bundle`]). A [`ClaimKey`] is kept, as its base64 text, in the keyring with
-//! its checkout until the drive is the app's; `Debug` never shows it.
+//! its checkout until the drive is the app's ([`crate::pending`]); `Debug` never shows it.
 
 use std::fmt;
 
