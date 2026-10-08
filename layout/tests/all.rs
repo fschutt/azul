@@ -983,3 +983,9 @@ mod a_blocks_text_decoration_decorates_the_text_in_it;
 mod an_inline_blocks_paint_belongs_to_its_own_node;
 #[path = "a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window.rs"]
 mod a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;
+#[path = "the_first_background_layer_is_painted_on_top.rs"]
+mod the_first_background_layer_is_painted_on_top;
+#[path = "each_background_layer_is_clipped_to_its_own_box.rs"]
+mod each_background_layer_is_clipped_to_its_own_box;
+#[path = "a_flora_tab_row_is_cut_from_the_websites_metal.rs"]
+mod a_flora_tab_row_is_cut_from_the_websites_metal;

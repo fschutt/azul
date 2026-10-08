@@ -172,11 +172,12 @@ fn a_grid_repeat_keeps_a_minmax_track_whole() {
 fn a_background_layer_list_splits_after_a_quoted_url_that_contains_a_parenthesis() {
     let layers = parse_style_background_content_multiple("url(\"a).png\"), red")
         .expect("an image layer and a colour layer");
+    // In paint order: the colour (the bottom layer) first.
     assert_eq!(
         layers.as_slice(),
         &[
-            StyleBackgroundContent::Image("a).png".into()),
             StyleBackgroundContent::Color(ColorU::RED),
+            StyleBackgroundContent::Image("a).png".into()),
         ],
         "the `)` inside the quotes does not close url(), so the comma after it \
          separates the layers"
@@ -189,13 +190,14 @@ fn background_layers_whose_gradient_stops_hold_rgba_colours_parse() {
         "linear-gradient(to bottom, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 100%), url(a.png)",
     )
     .expect("a gradient layer and an image layer");
+    // In paint order: the image (listed last, the bottom layer) first.
     let layers = layers.as_slice();
     assert_eq!(layers.len(), 2);
-    let StyleBackgroundContent::LinearGradient(gradient) = &layers[0] else {
-        panic!("the first layer is the gradient, got {:?}", layers[0]);
+    assert_eq!(layers[0], StyleBackgroundContent::Image("a.png".into()));
+    let StyleBackgroundContent::LinearGradient(gradient) = &layers[1] else {
+        panic!("the top layer is the gradient, got {:?}", layers[1]);
     };
     assert_eq!(gradient.stops.as_slice().len(), 2);
-    assert_eq!(layers[1], StyleBackgroundContent::Image("a.png".into()));
 }
 
 // ---------------------------------------------------------------------------
