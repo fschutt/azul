@@ -633,9 +633,23 @@ pub fn planned_month(tasks: &[Task], days: &[NaiveDate]) -> Vec<Vec<usize>> {
         }
     }
     for cell in &mut cells {
-        sort_day(cell, tasks);
+        sort_month_day(cell, tasks);
     }
     cells
+}
+
+/// Orders the tasks of one day of the planned month: the untimed first - a month cell shows
+/// its first tasks and "+N more", and an untimed task is the day's own, as an all-day event is
+/// in a calendar's month view - then by time, priority (high first) and the manual order.
+fn sort_month_day(idx: &mut [usize], tasks: &[Task]) {
+    idx.sort_by(|&a, &b| {
+        let (x, y) = (&tasks[a], &tasks[b]);
+        (x.due_time.is_some(), x.due_time)
+            .cmp(&(y.due_time.is_some(), y.due_time))
+            .then(y.priority.cmp(&x.priority))
+            .then(x.order.cmp(&y.order))
+            .then(x.created.cmp(&y.created))
+    });
 }
 
 /// A board's column: where a task of a list stands (the plan's To do / Doing / Done).
@@ -1021,6 +1035,20 @@ mod tests {
         assert!(on(day(2026, 9, 30)).is_empty(), "a completed task is not planned");
         let shown: usize = cells.iter().map(Vec::len).sum();
         assert_eq!(shown, 6, "November's 12th and next year are outside the grid");
+    }
+
+    #[test]
+    fn a_day_of_the_planned_month_lists_its_all_day_tasks_before_its_timed_ones() {
+        // A month cell shows its first tasks and "+N more": an untimed task is the day's own,
+        // as an all-day event is in Outlook's, Google's and Apple's month views - first, above
+        // the day's times, not cut off behind them.
+        let mut tasks = sample();
+        tasks.push(task("all-day", "home", tasks[1].due, 0));
+        let days = azul_pim::dates::month_grid(day(2026, 10, 1), chrono::Weekday::Mon);
+        let cells = planned_month(&tasks, &days);
+        let n = days.iter().position(|x| *x == day(2026, 10, 1)).unwrap();
+        let ids: Vec<&str> = cells[n].iter().map(|&i| tasks[i].id.as_str()).collect();
+        assert_eq!(ids, vec!["all-day", "nine", "noon"], "the all-day task, then by time");
     }
 
     #[test]
