@@ -58,7 +58,7 @@ import {
   findPaths,
   getJson,
   lineStarting,
-  listedNames,
+  signedPeers,
   meetingOf,
   personRow,
   sending,
@@ -148,11 +148,10 @@ try {
   const benClient = client(worker, 'Ben', debugB, ['--join', link]);
   const ben = run.start('ben', bin, benClient.args, benClient.env);
 
-  await until('the dev server to list Ada and Ben in the room', async () => {
-    const names = await listedNames(worker, room);
-    return names.includes('Ada') && names.includes('Ben');
-  });
-  log('the dev server lists Ada and Ben');
+  await until("the dev server to list Ada's and Ben's signed announcements", () =>
+    signedPeers(worker, room, 2, ['Ada', 'Ben']),
+  );
+  log('the dev server lists two signed announcements, neither with a name');
 
   await until("Ada's window to show Ben as connected", () => showsConnected(debugA, 'Ben'));
   log("Ada's window shows Ben as connected");

@@ -91,6 +91,11 @@ mod writes;
 #[path = "../../azul-meet/src/rooms.rs"]
 pub mod meet_rooms;
 
+/// AzMeet's invite secrets (`invite.rs`, CRYPTO.md section 4): a link made here carries one, and
+/// its room is registered with the invite key, so the meeting is end-to-end encrypted.
+#[path = "../../azul-meet/src/invite.rs"]
+pub mod meet_invite;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -573,9 +578,14 @@ pub(crate) fn room_entropy() -> [u64; 3] {
     [random_seed(), random_seed(), random_seed()]
 }
 
-/// A new meeting link for an event: made here, pending until the meeting server has its room.
+/// A new meeting link for an event: made here with an invite secret of its own (AzMeet's
+/// `invite.rs`), pending until the meeting server has its room.
 pub(crate) fn new_meeting(server: &str) -> Meeting {
-    meeting::pending_meeting(server, &meeting::new_room_id(room_entropy()))
+    meeting::pending_encrypted_meeting(
+        server,
+        &meeting::new_room_id(room_entropy()),
+        &meet_invite::secret_from(room_entropy()),
+    )
 }
 
 // ==== The window ====
@@ -870,7 +880,7 @@ pub(crate) fn sync_links(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny
             Some(SyncJob {
                 server: m.server.clone(),
                 event_id: e.id.clone(),
-                body: meeting::register_body(&room_id, starts, ends),
+                body: meeting::register_body_for(m, &room_id, starts, ends),
                 room_id,
             })
         })
@@ -993,19 +1003,25 @@ extern "C" fn on_registered(mut data: RefAny, _info: CallbackInfo, result: RefAn
     s.syncing.remove(&event_id);
     match outcome {
         Ok(registered) => {
-            let link = registered.link.clone();
             let Some(event) = s.events.iter_mut().find(|e| e.id == event_id) else {
                 return Update::DoNothing;
             };
             // Only the pending link this answer is for (a new meeting server may have taken it
-            // over meanwhile).
-            let ours = event
+            // over meanwhile); it keeps its invite secret, which the answer does not name.
+            let pending = event
                 .meeting
                 .as_ref()
-                .is_some_and(|m| m.pending && m.link == link && m.server == server);
-            if !ours {
+                .filter(|m| {
+                    m.pending
+                        && m.server == server
+                        && meeting::room_id_of(m).as_deref() == Some(room_id.as_str())
+                })
+                .map(|m| m.link.clone());
+            let Some(pending) = pending else {
                 return Update::DoNothing;
-            }
+            };
+            let registered = meeting::with_pending_link(registered, &pending);
+            let link = registered.link.clone();
             event.meeting = Some(registered);
             // The file says so once it is rewritten (`AZCAL_SYNCED` then). Should the write not
             // land, the file still says pending: the next start sends it again, and
@@ -1123,6 +1139,7 @@ fn launch_azmeet(program: &Path, meet: &Meeting) -> std::io::Result<Child> {
         ));
     }
     Command::new(program)
+        .args(meeting::join_args(meet))
         .envs(meeting::join_env(meet))
         .env_remove("AZ_DEBUG")
         .stdin(Stdio::null())
@@ -1197,19 +1214,44 @@ fn user_data_dir() -> Option<PathBuf> {
         .map(|dir| PathBuf::from(dir.inner.as_str()))
 }
 
-/// The meeting server the shared Azlin config names (`endpoints.meet` of `~/.azlin/config.json`,
-/// or of the file `AZLIN_CONFIG` names).
+/// The meeting server the shared Azlin config names, as AzMeet resolves it (azul-appkit's
+/// `azlin_config`): `endpoints.meet` of `~/.azlin/config.json` (or of the file `AZLIN_CONFIG`
+/// names), else - when none is built in (`meeting::BUILT_IN_WORKER`) - its profile's address
+/// (`local`, the default: the local stack's; `AZLIN_PROFILE` picks another). `AZMEET_WORKER` is
+/// AzCalendar's own layer above this one (`meeting::server_setting`).
 fn shared_meeting_server() -> Option<String> {
+    use azul_appkit::azlin_config::{self, AzlinConfig, Endpoint, EndpointFlags, Source};
     let home = FilePath::get_home_dir()
         .into_option()
         .map(|dir| PathBuf::from(dir.inner.as_str()));
-    azul_appkit::shared_endpoint::read(
-        std::env::var(azul_appkit::azlin_config::CONFIG_VAR)
-            .ok()
-            .as_deref(),
+    let path = azlin_config::config_path(
+        std::env::var(azlin_config::CONFIG_VAR).ok().as_deref(),
         home.as_deref(),
-        "meet",
-    )
+    );
+    let loaded = path.map(|path| {
+        let (config, _problem) = AzlinConfig::load(&path);
+        (path, config)
+    });
+    let file = loaded
+        .as_ref()
+        .map(|(path, config)| (path.as_path(), &config.endpoints));
+    // Of the environment only the profile: the meeting server's variable is weighed above.
+    let env = |var: &str| {
+        if var == azlin_config::PROFILE_VAR {
+            std::env::var(var).ok()
+        } else {
+            None
+        }
+    };
+    let resolved = azlin_config::resolve_endpoints(file, &env, &EndpointFlags::default());
+    let meet = resolved.get(Endpoint::Meet);
+    match meet.source {
+        Source::File(_) => meet.value.clone(),
+        Source::Profile(_) | Source::BuiltIn if meeting::BUILT_IN_WORKER.is_empty() => {
+            meet.value.clone()
+        }
+        _ => None,
+    }
 }
 
 pub fn start() {

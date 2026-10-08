@@ -6,12 +6,13 @@
      NOTHING listens yet (AZMEET_WORKER=http://127.0.0.1:<free port>);
   2. the window never says there is no meeting server;
   3. a click on Wednesday 10:00 in the week: the draft's popover, title "Offline sync",
-     "Add AzMeet link", Save: the event file is written AT ONCE, with an azlin://meet/<room id>
-     link marked `pending` (AZCAL_LINK on stdout);
+     "Add AzMeet link", Save: the event file is written AT ONCE, with an
+     azlin://meet/<room id>#<invite secret> link marked `pending` (AZCAL_LINK on stdout);
   4. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory) on that
      port: AzCalendar registers the room it made (AZCAL_SYNCED), the file loses `pending` and
-     gains the server's code and the meeting's times in UTC, and the dev server knows the room
-     under the id AzCalendar made.
+     gains the server's code and the meeting's times in UTC (and keeps its invite secret), and
+     the dev server knows the room under the id AzCalendar made, registered with the secret's
+     invite key (AzMeet's CRYPTO.md section 4), never the secret itself.
 
 The dev server has to take the app's own room id (`POST /rooms {"room": ...}`):
 scripts/cal2/meet-000*.patch in the azul repository, applied to azul-apps.
@@ -59,7 +60,8 @@ from week_interactions import (  # noqa: E402  (the same debug-server client, no
 )
 
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-ROOM_LINK = re.compile(r"^azlin://meet/([0-9a-z]{26})$")
+# A link AzCalendar makes: the room id, and the invite secret as its fragment.
+ROOM_LINK = re.compile(r"^azlin://meet/([0-9a-z]{26})#([0-9a-z]{26})$")
 TITLE = "Offline sync"
 
 
@@ -166,8 +168,8 @@ def run(opts, logs, children):
     link = meeting.get("link", "")
     m = ROOM_LINK.match(link)
     if not m:
-        raise Failure(f"{name} has no azlin://meet/<room id> link: {json.dumps(event)}")
-    room = m.group(1)
+        raise Failure(f"{name} has no azlin://meet/<room id>#<invite secret> link: {json.dumps(event)}")
+    room, secret = m.group(1), m.group(2)
     if meeting.get("pending") is not True:
         raise Failure(f"a link made with no server answering is not marked pending: {json.dumps(event)}")
     if meeting.get("server") != server:
@@ -205,6 +207,10 @@ def run(opts, logs, children):
     status, known = get_json(f"{server}/rooms/{room}?format=json")
     if status != 200 or known.get("room") != room:
         raise Failure(f"the dev server does not know room {room}: {status} {known}")
+    if not re.fullmatch(r"[0-9a-f]{64}", known.get("invite_key") or ""):
+        raise Failure(f"the dev server keeps room {room} without an invite key: {known}")
+    if secret in json.dumps(known):
+        raise Failure("the dev server knows the invite secret: it must stay in the link")
     log(f"registered: {name} holds {link} (code {meeting['code']}), the server knows the room")
     log("PASS: a meeting link made offline was registered with the meeting server once it answered")
     return True

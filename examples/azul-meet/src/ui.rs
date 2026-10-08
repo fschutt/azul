@@ -1,8 +1,12 @@
-//! What AzMeet's window shows: the start screen, the waiting room, the call (on the S10
-//! `CallShell` of azul's app shells) and the settings (azul-appkit's settings page).
+//! What AzMeet's window shows: the start screen, a room's view, the waiting room, the call (on
+//! the S10 `CallShell` of azul's app shells) and the settings (azul-appkit's settings page).
 //!
-//! - **Start screen** (`lobby`): "New meeting", joining with a link or a code, the meeting server
-//!   and whether it answers. Nothing is captured here: no camera, no microphone.
+//! - **Start screen** (`lobby`): "New meeting", "New chat room", "Schedule", joining with a link
+//!   or a code, the meeting server and whether it answers (Retry when it does not), and "Your
+//!   rooms" with their unread counts. Nothing is captured here: no camera, no microphone.
+//! - **Room view** (`room_view`), a room outside a call: its encrypted chat, its times and link,
+//!   this device's safety code, the members with theirs ("Mark verified"), the devices asking to
+//!   join ("Admit"), "Join call", "Leave room" and Back.
 //! - **Waiting room** (`waiting_room`), between the start screen and the call, for a meeting just
 //!   found or made: this side's camera large (mirrored, as a mirror shows it; the test pattern's
 //!   still in a headless run; the initials while the camera is off), the microphone and camera
@@ -58,8 +62,10 @@ use crate::{ids, tiles::TileKind};
 /// Which screen the window shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UiScreen {
-    /// The start screen: new meeting, join with a link, the meeting server.
+    /// The start screen: new meeting, join with a link, the meeting server, "Your rooms".
     Lobby,
+    /// A room outside a call: its chat, its members and their safety codes.
+    Room,
     /// A meeting found or made, not joined yet: the preview and "Join now".
     Waiting,
     Call,
@@ -91,6 +97,10 @@ pub(crate) struct PersonView {
     pub muted: bool,
     pub deafened: bool,
     pub speaking: bool,
+    /// The safety code of the person's device (CRYPTO.md section 3), when known.
+    pub code: Option<String>,
+    /// The user compared it and marked the device verified.
+    pub verified: bool,
 }
 
 /// One message of the chat panel.
@@ -99,6 +109,59 @@ pub(crate) struct ChatLine {
     pub name: String,
     pub text: String,
     pub mine: bool,
+    /// This side's own message on its way to the meeting server.
+    pub sending: bool,
+}
+
+/// A room of the start screen's "Your rooms".
+#[derive(Debug, Clone)]
+pub(crate) struct RoomRow {
+    /// The room id: the row's button opens its view.
+    pub room: String,
+    /// "Chat room xq4-8kd-2nm", "Meeting xq4-8kd-2nm".
+    pub title: String,
+    /// "3 members · Fri 9 Oct 2026, 16:00-17:00 · starts in 2 h".
+    pub detail: String,
+    pub unread: usize,
+}
+
+/// A member, or a device knocking, as a room's lists show it.
+#[derive(Debug, Clone)]
+pub(crate) struct MemberRow {
+    /// The room of the list (the row's buttons name it).
+    pub room: String,
+    pub device: String,
+    pub name: String,
+    /// Its safety code: what two people compare.
+    pub code: String,
+    pub verified: bool,
+    /// This device.
+    pub me: bool,
+}
+
+/// The room view: a room outside a call.
+#[derive(Debug, Clone)]
+pub(crate) struct RoomPage {
+    /// "Chat room xq4-8kd-2nm".
+    pub title: String,
+    /// When a meeting is: "Fri 9 Oct 2026, 16:00-17:00 · starts in 2 h".
+    pub times: Option<String>,
+    /// The link others join with (with its invite secret).
+    pub link: String,
+    pub copied: bool,
+    /// This device's safety code.
+    pub my_code: String,
+    /// Where this device stands: "End-to-end encrypted: ...", "Waiting for a member ...".
+    pub status: String,
+    pub members: Vec<MemberRow>,
+    pub knocks: Vec<MemberRow>,
+    /// This device is a member: "Join call" works.
+    pub can_call: bool,
+    /// Messages that failed a check, and messages sealed before this device joined.
+    pub unreadable: u32,
+    pub before_join: u32,
+    /// "Room key 3, held by the 2 members now."
+    pub key_line: String,
 }
 
 /// One section of the statistics panel: a title and its lines.
@@ -124,7 +187,16 @@ pub(crate) struct LobbyView {
     pub server_text: String,
     pub server_status: String,
     pub server_ok: bool,
+    /// No meeting server is set at all.
+    pub server_unset: bool,
     pub join_text: String,
+    /// The "Schedule" form: the start (local time) and the minutes.
+    pub schedule_start: String,
+    pub schedule_minutes: String,
+    /// The rooms this device is in, the newest first.
+    pub rooms: Vec<RoomRow>,
+    /// This device's identity is loaded: rooms can be made and joined.
+    pub identity_ready: bool,
 }
 
 /// The meeting the waiting room is about.
@@ -141,6 +213,11 @@ pub(crate) struct WaitingView {
     /// Who is in the meeting already (the meeting server's list, read every 2 seconds while
     /// waiting); `None` until the first answer.
     pub people: Option<Vec<String>>,
+    /// When the meeting is: "Fri 9 Oct 2026, 16:00-17:00 · starts in 25 min".
+    pub times: Option<String>,
+    /// Joined with only the code: `Some(false)` "Ask to join", `Some(true)` asked, waiting to be
+    /// let in; `None` with the link.
+    pub knock: Option<bool>,
 }
 
 /// What the settings sections and the device pickers show.
@@ -166,15 +243,23 @@ pub(crate) struct SettingsView {
     /// Where a meeting's files (its recording, later) go: `<data root>/meet/<meeting>/`, or why
     /// none are kept.
     pub recordings: String,
+    /// This device: its safety code and where its key lives.
+    pub identity: String,
 }
 
 /// Everything the window shows.
 #[derive(Debug, Clone)]
 pub(crate) struct CallView {
+    /// The room view of the open room.
+    pub room_page: Option<RoomPage>,
+    /// The devices knocking at the call's room (the people panel lets them in).
+    pub knocks: Vec<MemberRow>,
+    /// Under the chat: "End-to-end encrypted · 2 earlier messages sealed before you joined".
+    pub chat_note: String,
     pub screen: UiScreen,
     /// The window title row's text.
     pub title: String,
-    /// One line under the title: why the demo runs, what the meeting server said.
+    /// One line under the title: what the meeting server said, why nothing can be reached.
     pub notice: String,
     pub name: String,
     pub lobby: Option<LobbyView>,
@@ -256,6 +341,24 @@ pub(crate) struct Actions {
     pub join_camera_off: CheckBoxOnToggleCallbackType,
     /// A key pressed anywhere in the window (the kit's keys, then the call's shortcuts).
     pub key: CallbackType,
+    /// The keyring answered (a window event): this device's identity.
+    pub keyring: CallbackType,
+    /// The start screen: Retry (the meeting server), "New chat room", "Schedule" and its fields.
+    pub retry_server: ButtonOnClickCallbackType,
+    pub new_chat_room: ButtonOnClickCallbackType,
+    pub schedule: ButtonOnClickCallbackType,
+    pub schedule_start: TextInputOnTextInputCallbackType,
+    pub schedule_minutes: TextInputOnTextInputCallbackType,
+    /// A room of "Your rooms" (its data is a `RowClick` with the room id): its view.
+    pub open_room: ButtonOnClickCallbackType,
+    /// The room view: Back, "Leave room", "Join call", "Copy link".
+    pub room_back: ButtonOnClickCallbackType,
+    pub room_leave: ButtonOnClickCallbackType,
+    pub room_call: ButtonOnClickCallbackType,
+    pub room_copy: ButtonOnClickCallbackType,
+    /// "Admit" beside a knock, "Verified" beside a member (`RowClick`: `<room> <device>`).
+    pub admit: ButtonOnClickCallbackType,
+    pub verify: ButtonOnClickCallbackType,
 }
 
 // ==== Styles: structure and the few colours of their own (video tiles are dark in both modes) ====
@@ -338,6 +441,7 @@ pub(crate) fn meet_view(
 ) -> Dom {
     let content = match view.screen {
         UiScreen::Lobby => lobby(view, data, actions),
+        UiScreen::Room => room_view(view, data, actions),
         UiScreen::Waiting => waiting_room(view, data, actions),
         UiScreen::Call => call(view, data, actions),
         UiScreen::Settings => settings(view, data, kit_ref, actions),
@@ -345,12 +449,37 @@ pub(crate) fn meet_view(
     Dom::create_body()
         .with_css(BODY)
         .with_child(ShellThemeScope::create(content).with_accent(ShellThemeAccent::Blue).dom())
+        // This device's identity comes from the keyring: its answer is a window event.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::KeyringResult),
+            data.clone(),
+            actions.keyring,
+        )
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             data.clone(),
             actions.key,
         )
 }
+
+/// A button's data for a row (a room of the list, a member, a knock): the app and the row's key.
+fn row_data(data: &RefAny, key: String) -> RefAny {
+    RefAny::new(crate::RowClick {
+        app: data.clone(),
+        key,
+    })
+}
+
+/// A DOM id of `prefix` and the first `len` characters of `key` (a room id, a device id).
+fn keyed_id(prefix: &str, key: &str, len: usize) -> AzString {
+    let tail: String = key.chars().take(len).collect();
+    AzString::from(format!("{prefix}{tail}").as_str())
+}
+
+/// How many characters of a device id its buttons' ids carry.
+const DEVICE_ID_CHARS: usize = 16;
+/// A room id's characters (all of them: a room's button id is `__azmeet_room_<room id>`).
+const ROOM_ID_CHARS: usize = crate::crypto::ID_LEN;
 
 /// The title row (the window is `NoTitle`) over the top bar: the notice, and at the right the
 /// gear that opens the settings.
@@ -602,7 +731,7 @@ fn side_panel(view: &CallView, data: &RefAny, actions: &Actions) -> Option<Dom> 
     .with_on_change(data.clone(), actions.panel)
     .dom();
     let body = match view.panel {
-        PanelView::People => people(view),
+        PanelView::People => people(view, data, actions),
         PanelView::Chat => chat(view, data, actions),
         PanelView::Statistics | PanelView::Closed => statistics(view),
     };
@@ -618,28 +747,43 @@ fn side_panel(view: &CallView, data: &RefAny, actions: &Actions) -> Option<Dom> 
     )
 }
 
-/// Everyone in the call: initials, name, what they do.
-fn people(view: &CallView) -> Dom {
+/// A person's row: the initials, the name and what lies under it.
+const PERSON_ROW: &str =
+    "display: flex; flex-direction: row; align-items: center; padding: 4px 0px;";
+/// The name column of a person's row.
+const PERSON_TEXT: &str = "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
+                           margin-left: 8px;";
+
+/// "Safety code 05881 39114 50072 66310": what two people compare (CRYPTO.md section 3).
+pub(crate) fn safety_line(code: &str) -> String {
+    format!("Safety code {code}")
+}
+
+/// Everyone in the call (initials, name, what they do, their safety code), then the devices
+/// asking to join, each with "Admit".
+fn people(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut list = Dom::create_div()
         .with_css(PANEL_SCROLL)
         .with_id(ids::PEOPLE);
     for person in &view.people {
+        let mut column = Dom::create_div()
+            .with_css(PERSON_TEXT)
+            .with_child(text(&shown_name(&person.name, person.me), "font-size: 13px;"))
+            .with_child(text(&person.status, SECONDARY));
+        if let Some(code) = &person.code {
+            column = column.with_child(text(&safety_line(code), SECONDARY));
+        }
         let mut row = Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
+            .with_css(PERSON_ROW)
             .with_child(
                 Avatar::create(AzString::from(initials(&person.name).as_str()))
                     .with_size(AvatarSize::Small)
                     .dom(),
             )
-            .with_child(
-                Dom::create_div()
-                    .with_css(
-                        "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
-                         margin-left: 8px;",
-                    )
-                    .with_child(text(&shown_name(&person.name, person.me), "font-size: 13px;"))
-                    .with_child(text(&person.status, SECONDARY)),
-            );
+            .with_child(column);
+        if person.verified {
+            row = row.with_child(Badge::create(AzString::from("verified")).dom());
+        }
         if person.speaking {
             row = row.with_child(Badge::create(AzString::from("speaking")).dom());
         }
@@ -651,7 +795,71 @@ fn people(view: &CallView) -> Dom {
         }
         list = list.with_child(row);
     }
+    if !view.knocks.is_empty() {
+        list = list.with_child(text("Asking to join", SECTION_TITLE));
+        for knock in &view.knocks {
+            list = list.with_child(knock_row(knock, data, actions));
+        }
+    }
     list
+}
+
+/// A device asking to join: its name, its safety code (compare it before letting it in) and
+/// "Admit".
+fn knock_row(k: &MemberRow, data: &RefAny, actions: &Actions) -> Dom {
+    Dom::create_div()
+        .with_css(PERSON_ROW)
+        .with_child(
+            Avatar::create(AzString::from(initials(&k.name).as_str()))
+                .with_size(AvatarSize::Small)
+                .dom(),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(PERSON_TEXT)
+                .with_child(text(&k.name, "font-size: 13px;"))
+                .with_child(text(&safety_line(&k.code), SECONDARY)),
+        )
+        .with_child(
+            Button::with_type("Admit", ButtonType::Primary)
+                .with_on_click(row_data(data, format!("{} {}", k.room, k.device)), actions.admit)
+                .dom()
+                .with_id(keyed_id(ids::ADMIT_PREFIX, &k.device, DEVICE_ID_CHARS))
+                .with_css("flex-shrink: 0;"),
+        )
+}
+
+/// A member of the room view's list: its name, its safety code, and "verified" or the button
+/// that marks it so once the user compared the code.
+fn member_row(m: &MemberRow, data: &RefAny, actions: &Actions) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css(PERSON_ROW)
+        .with_child(
+            Avatar::create(AzString::from(initials(&m.name).as_str()))
+                .with_size(AvatarSize::Small)
+                .dom(),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(PERSON_TEXT)
+                .with_child(text(&shown_name(&m.name, m.me), "font-size: 13px;"))
+                .with_child(text(&safety_line(&m.code), SECONDARY)),
+        );
+    if m.me {
+        return row;
+    }
+    row = if m.verified {
+        row.with_child(Badge::create(AzString::from("verified")).dom())
+    } else {
+        row.with_child(
+            Button::create("Mark verified")
+                .with_on_click(row_data(data, format!("{} {}", m.room, m.device)), actions.verify)
+                .dom()
+                .with_id(keyed_id(ids::VERIFY_PREFIX, &m.device, DEVICE_ID_CHARS))
+                .with_css("flex-shrink: 0;"),
+        )
+    };
+    row
 }
 
 /// The chat: the messages, oldest first, over the field and its Send button.
@@ -659,11 +867,18 @@ fn chat(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut messages = Dom::create_div()
         .with_css(PANEL_SCROLL)
         .with_id(ids::CHAT_MESSAGES);
+    if !view.chat_note.is_empty() {
+        messages = messages.with_child(text(&view.chat_note, SECONDARY));
+    }
     if view.chat.is_empty() {
         messages = messages.with_child(text("No messages yet.", SECONDARY));
     }
     for line in &view.chat {
-        let who = if line.mine { "You" } else { line.name.as_str() };
+        let who = match (line.mine, line.sending) {
+            (true, true) => "You (sending...)",
+            (true, false) => "You",
+            (false, _) => line.name.as_str(),
+        };
         messages = messages.with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; padding: 3px 0px;")
@@ -732,6 +947,17 @@ fn devices(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 /// A meeting's link and "Copy link": the link gives way (an ellipsis), the button keeps its one
 /// line.
 fn link_row(link: &str, copied: bool, data: &RefAny, actions: &Actions) -> Dom {
+    link_row_with(link, copied, data, actions.copy_link, ids::COPY_LINK)
+}
+
+/// [`link_row`] with its button's callback and id (the room view copies its room's link).
+fn link_row_with(
+    link: &str,
+    copied: bool,
+    data: &RefAny,
+    action: ButtonOnClickCallbackType,
+    id: AzString,
+) -> Dom {
     Dom::create_div()
         .with_css(ROW)
         .with_child(text(
@@ -741,10 +967,124 @@ fn link_row(link: &str, copied: bool, data: &RefAny, actions: &Actions) -> Dom {
         ))
         .with_child(
             Button::create(if copied { "Copied" } else { "Copy link" })
-                .with_on_click(data.clone(), actions.copy_link)
+                .with_on_click(data.clone(), action)
                 .dom()
-                .with_id(ids::COPY_LINK)
+                .with_id(id)
                 .with_css("flex-shrink: 0;"),
+        )
+}
+
+/// The room view's body: the chat beside the room's column, one over the other in a narrow
+/// window.
+const ROOM_BODY: &str = "display: flex; flex-direction: row; flex-wrap: wrap; align-items: \
+                         flex-start; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: \
+                         16px;";
+/// The room view's chat column.
+const ROOM_CHAT: &str = "display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; \
+                         flex-basis: 420px; min-width: 280px; height: 480px; margin: 0px 12px \
+                         16px 0px; border-radius: 8px; background: system:control-background;";
+
+/// The room view: a room outside a call - its chat; beside it the room's title, times and link,
+/// this device's safety code, the members with theirs ("Mark verified"), the devices asking to
+/// join ("Admit"), and "Join call", "Leave room", Back.
+fn room_view(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let Some(page) = &view.room_page else {
+        return lobby(view, data, actions);
+    };
+    let mut facts = Dom::create_div()
+        .with_css(JOIN_COLUMN)
+        .with_child(text(&page.title, "font-size: 20px; margin-bottom: 6px;"))
+        .with_child(text(&page.status, SECONDARY));
+    if let Some(times) = &page.times {
+        facts = facts.with_child(
+            text(times, "font-size: 13px; margin: 6px 0px;").with_id(ids::MEETING_TIMES),
+        );
+    }
+    facts = facts
+        .with_child(link_row_with(
+            &page.link,
+            page.copied,
+            data,
+            actions.room_copy,
+            ids::ROOM_COPY,
+        ))
+        .with_child(text("Your safety code", SECTION_TITLE))
+        .with_child(
+            text(&page.my_code, "font-size: 15px; font-weight: bold;").with_id(ids::MY_CODE),
+        )
+        .with_child(text(
+            "Compare it with the code each member sees for you, and theirs with yours, then mark \
+             them verified.",
+            SECONDARY,
+        ))
+        .with_child(text(&page.key_line, SECONDARY));
+    if page.before_join > 0 || page.unreadable > 0 {
+        facts = facts.with_child(text(
+            &format!(
+                "{} sealed before you joined, {} that failed a check.",
+                page.before_join, page.unreadable
+            ),
+            SECONDARY,
+        ));
+    }
+    let mut members = Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_id(ids::MEMBERS)
+        .with_child(text(
+            &format!("Members ({})", page.members.len()),
+            SECTION_TITLE,
+        ));
+    for m in &page.members {
+        members = members.with_child(member_row(m, data, actions));
+    }
+    facts = facts.with_child(members);
+    if !page.knocks.is_empty() {
+        let mut knocks = Dom::create_div()
+            .with_css("display: flex; flex-direction: column;")
+            .with_id(ids::KNOCKS)
+            .with_child(text("Asking to join", SECTION_TITLE));
+        for k in &page.knocks {
+            knocks = knocks.with_child(knock_row(k, data, actions));
+        }
+        facts = facts.with_child(knocks);
+    }
+    if page.can_call {
+        facts = facts.with_child(
+            Button::with_type("Join call", ButtonType::Primary)
+                .with_on_click(data.clone(), actions.room_call)
+                .dom()
+                .with_id(ids::ROOM_CALL)
+                .with_css(WIDE),
+        );
+    }
+    facts = facts
+        .with_child(
+            Button::with_type("Leave room", ButtonType::Danger)
+                .with_on_click(data.clone(), actions.room_leave)
+                .dom()
+                .with_id(ids::ROOM_LEAVE)
+                .with_css(WIDE),
+        )
+        .with_child(
+            Button::create("Back")
+                .with_on_click(data.clone(), actions.room_back)
+                .dom()
+                .with_id(ids::ROOM_BACK)
+                .with_css(WIDE),
+        );
+    Dom::create_div()
+        .with_css(PAGE)
+        .with_id(ids::ROOM_VIEW)
+        .with_child(header(view, data, actions))
+        .with_child(
+            Dom::create_div()
+                .with_css(ROOM_BODY)
+                .with_child(
+                    Dom::create_div()
+                        .with_css(ROOM_CHAT)
+                        .with_child(chat(view, data, actions)),
+                )
+                .with_child(facts),
         )
 }
 
@@ -917,14 +1257,16 @@ fn controls(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
 
 // ==== The start screen ====
 
-/// The start screen: "New meeting", joining with a link or a code, and the meeting server (and
-/// whether it answers). Nothing is captured here: the devices open in the waiting room.
+/// The start screen: "New meeting", "New chat room", "Schedule", joining with a link or a code,
+/// the meeting server (and whether it answers, with Retry when it does not), and "Your rooms".
+/// Nothing is captured here: the devices open in the waiting room.
 fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let mut card = Dom::create_div()
         .with_css(CARD)
-        .with_child(text("Video meetings", "font-size: 24px; margin-bottom: 4px;"))
+        .with_child(text("Video meetings and chat rooms", "font-size: 24px; margin-bottom: 4px;"))
         .with_child(text(
-            "Start a meeting, or join one with its link or its code.",
+            "Start a meeting or a chat room, or join one with its link or its code. Everything \
+             is end-to-end encrypted.",
             "font-size: 13px; color: system:secondary-text; margin-bottom: 20px;",
         ));
     if let Some(lobby) = &view.lobby {
@@ -937,26 +1279,72 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
             .with_id(ids::JOIN_FIELD);
         let server = TextInput::create()
             .with_text(lobby.server_text.as_str())
-            .with_placeholder(crate::rooms::LOCAL_WORKER)
+            .with_placeholder(crate::rooms::SERVER_PLACEHOLDER)
             .with_on_text_input(data.clone(), actions.server_text)
             .with_on_virtual_key_down(data.clone(), actions.server_key)
             .with_on_focus_lost(data.clone(), actions.server_blur)
             .dom()
+            .with_css(ROW_FIELD)
             .with_id(ids::SERVER);
+        let mut server_row = Dom::create_div().with_css(ROW).with_child(server);
+        if !lobby.server_ok && !lobby.server_unset {
+            server_row = server_row.with_child(
+                Button::create("Retry")
+                    .with_on_click(data.clone(), actions.retry_server)
+                    .dom()
+                    .with_id(ids::RETRY)
+                    .with_css("flex-shrink: 0;"),
+            );
+        }
+        let new_meeting = Button::with_type(
+            if lobby.opening {
+                "Please wait..."
+            } else {
+                "New meeting"
+            },
+            ButtonType::Primary,
+        )
+        .with_on_click(data.clone(), actions.new_meeting)
+        .dom()
+        .with_id(ids::NEW_MEETING)
+        .with_css("margin-right: 8px;");
+        let new_chat_room = Button::create("New chat room")
+            .with_on_click(data.clone(), actions.new_chat_room)
+            .dom()
+            .with_id(ids::NEW_CHAT_ROOM);
+        let schedule = Dom::create_div()
+            .with_css(ROW)
+            .with_child(
+                TextInput::create()
+                    .with_text(lobby.schedule_start.as_str())
+                    .with_placeholder("2026-10-09 14:00")
+                    .with_on_text_input(data.clone(), actions.schedule_start)
+                    .dom()
+                    .with_css(ROW_FIELD)
+                    .with_id(ids::SCHEDULE_START),
+            )
+            .with_child(
+                TextInput::create()
+                    .with_text(lobby.schedule_minutes.as_str())
+                    .with_placeholder("minutes")
+                    .with_on_text_input(data.clone(), actions.schedule_minutes)
+                    .dom()
+                    .with_css("width: 80px; flex-shrink: 0; margin-right: 6px;")
+                    .with_id(ids::SCHEDULE_MINUTES),
+            )
+            .with_child(
+                Button::create("Schedule")
+                    .with_on_click(data.clone(), actions.schedule)
+                    .dom()
+                    .with_id(ids::SCHEDULE)
+                    .with_css("flex-shrink: 0;"),
+            );
         card = card
             .with_child(
-                Button::with_type(
-                    if lobby.opening {
-                        "Please wait..."
-                    } else {
-                        "New meeting"
-                    },
-                    ButtonType::Primary,
-                )
-                .with_on_click(data.clone(), actions.new_meeting)
-                .dom()
-                .with_id(ids::NEW_MEETING)
-                .with_css("margin-bottom: 20px;"),
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; margin-bottom: 20px;")
+                    .with_child(new_meeting)
+                    .with_child(new_chat_room),
             )
             .with_child(labelled(
                 "Join with a link or a code",
@@ -970,7 +1358,8 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                             .with_id(ids::JOIN),
                     ),
             ))
-            .with_child(labelled("Meeting server", server))
+            .with_child(labelled("Schedule a meeting (your time, minutes)", schedule))
+            .with_child(labelled("Meeting server", server_row))
             .with_child(text(
                 &lobby.server_status,
                 if lobby.server_ok {
@@ -979,11 +1368,45 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                     "font-size: 12px; color: system:accent; margin: -8px 0px 12px 0px;"
                 },
             ));
+        if !lobby.identity_ready {
+            card = card.with_child(text("Loading this device's key...", SECONDARY));
+        }
+        card = card.with_child(rooms_list(&lobby.rooms, data, actions));
     }
     Dom::create_div()
         .with_css(PAGE)
         .with_child(header(view, data, actions))
         .with_child(Dom::create_div().with_css(CENTERED).with_child(card))
+}
+
+/// "Your rooms": one button per room (its view), with what it is and its unread count.
+fn rooms_list(rooms: &[RoomRow], data: &RefAny, actions: &Actions) -> Dom {
+    let mut list = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; margin-top: 8px; min-width: 0px;")
+        .with_id(ids::ROOMS)
+        .with_child(text("Your rooms", SECTION_TITLE));
+    if rooms.is_empty() {
+        return list.with_child(text("None yet.", SECONDARY));
+    }
+    for room in rooms {
+        let mut row = Dom::create_div().with_css(PERSON_ROW).with_child(
+            Dom::create_div()
+                .with_css(PERSON_TEXT)
+                .with_child(
+                    Button::create(room.title.as_str())
+                        .with_on_click(row_data(data, room.room.clone()), actions.open_room)
+                        .dom()
+                        .with_id(keyed_id(ids::ROOM_PREFIX, &room.room, ROOM_ID_CHARS)),
+                )
+                .with_child(text(&room.detail, SECONDARY)),
+        );
+        if room.unread > 0 {
+            let unread = format!("{} unread", room.unread);
+            row = row.with_child(Badge::create(AzString::from(unread.as_str())).dom());
+        }
+        list = list.with_child(row);
+    }
+    list
 }
 
 /// A labelled field.
@@ -1002,6 +1425,16 @@ pub(crate) fn join_label(created: bool) -> &'static str {
         "Start meeting"
     } else {
         "Join now"
+    }
+}
+
+/// The waiting room's button: [`join_label`], or with only the meeting's code (`knock`) "Ask to
+/// join", and once asked "Waiting to be let in...".
+pub(crate) fn waiting_button_label(created: bool, knock: Option<bool>) -> &'static str {
+    match knock {
+        Some(false) => "Ask to join",
+        Some(true) => "Waiting to be let in...",
+        None => join_label(created),
     }
 }
 
@@ -1037,6 +1470,7 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         );
     }
     let created = view.waiting.as_ref().is_some_and(|w| w.created);
+    let knock = view.waiting.as_ref().and_then(|w| w.knock);
     let mut column = Dom::create_div().with_css(JOIN_COLUMN).with_child(text(
         if created {
             "Your meeting is ready"
@@ -1045,23 +1479,35 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         },
         "font-size: 22px; margin-bottom: 6px;",
     ));
+    if let Some(times) = view.waiting.as_ref().and_then(|w| w.times.as_ref()) {
+        column = column.with_child(
+            text(times, "font-size: 13px; margin-bottom: 10px;").with_id(ids::MEETING_TIMES),
+        );
+    }
     if let Some(people) = view.waiting.as_ref().and_then(|w| w.people.as_ref()) {
         column = column.with_child(who_is_here_row(people));
     }
     if let Some(w) = &view.waiting {
         column = column.with_child(meeting_facts(w, data, actions));
     }
+    if knock.is_some() {
+        column = column.with_child(text(
+            "You joined with the meeting's code: someone in the meeting lets you in. Compare your \
+             safety code with theirs.",
+            "font-size: 12px; color: system:secondary-text; margin-bottom: 10px;",
+        ));
+    }
+    let join = Button::with_type(waiting_button_label(created, knock), ButtonType::Primary);
+    let join = if knock == Some(true) {
+        join.dom()
+    } else {
+        join.with_on_click(data.clone(), actions.join_now).dom()
+    };
     column = column
         .with_child(labelled("Your name", name_field(&view.name, data, actions)))
         .with_child(text("Devices", SECTION_TITLE))
         .with_child(device_pickers(&view.settings, data, actions))
-        .with_child(
-            Button::with_type(join_label(created), ButtonType::Primary)
-                .with_on_click(data.clone(), actions.join_now)
-                .dom()
-                .with_id(ids::JOIN_NOW)
-                .with_css(WIDE),
-        )
+        .with_child(join.with_id(ids::JOIN_NOW).with_css(WIDE))
         .with_child(
             Button::create("Back")
                 .with_on_click(data.clone(), actions.waiting_back)
@@ -1256,9 +1702,18 @@ fn settings_sections(s: &SettingsView, data: &RefAny, actions: &Actions) -> Vec<
             check(s.join_camera_off, ids::JOIN_CAMERA_OFF, data, actions.join_camera_off),
         ))
         .with_child(kit::row("Meeting server", text(&s.server, "font-size: 13px;")))
+        .with_child(kit::row(
+            "This device's safety code",
+            text(&s.identity, "font-size: 13px;"),
+        ))
         .with_child(kit::note(
             "The waiting room starts with the microphone and the camera as set here; switch \
              them there before you join. The meeting server is changed on the start screen.",
+        ))
+        .with_child(kit::note(
+            "Rooms and their chats are end-to-end encrypted with this device's key: the meeting \
+             server keeps only what it cannot read. Compare safety codes with the others (a \
+             room's members list shows them) to be sure nobody stands in between.",
         ));
     let recording = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
@@ -1366,5 +1821,30 @@ mod tests {
         assert_eq!(cam_label(false, true), "Start video", "an off camera is culled by nobody");
         assert!(cam_label(true, true).starts_with("Stop video"));
         assert_eq!((join_label(true), join_label(false)), ("Start meeting", "Join now"));
+    }
+
+    /// With only a meeting's code a device knocks: the button says so, and once asked, that it
+    /// waits (azmeet_e2e.py's crypto phase clicks "Ask to join").
+    #[test]
+    fn the_waiting_rooms_button_asks_to_join_with_only_the_code() {
+        assert_eq!(waiting_button_label(false, None), "Join now");
+        assert_eq!(waiting_button_label(true, None), "Start meeting");
+        assert_eq!(waiting_button_label(false, Some(false)), "Ask to join");
+        assert_eq!(waiting_button_label(false, Some(true)), "Waiting to be let in...");
+    }
+
+    /// A row's buttons carry the start of its key: the scripts find "Admit" by the device id.
+    #[test]
+    fn a_rows_button_id_carries_the_start_of_its_key() {
+        let device = "0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            keyed_id(ids::ADMIT_PREFIX, device, DEVICE_ID_CHARS).as_str(),
+            "__azmeet_admit_0123456789abcdef"
+        );
+        assert_eq!(
+            keyed_id(ids::ROOM_PREFIX, "ab", ROOM_ID_CHARS).as_str(),
+            "__azmeet_room_ab"
+        );
+        assert_eq!(safety_line("05881 39114"), "Safety code 05881 39114");
     }
 }

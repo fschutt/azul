@@ -1,19 +1,35 @@
-//! AzMeet: video meetings over azul.iroh.
+//! AzMeet: video meetings and chat rooms over azul.iroh, end-to-end encrypted.
 //!
-//! With a meeting server (the `meet` Worker, azul-apps `cf-workers/meet`) AzMeet opens a start
-//! screen: "New meeting" asks the server for a room; "Join with a link" looks that link up.
-//! Either way the meeting opens in the waiting room first (`ui.rs`): the camera preview, the
-//! microphone and camera switches, the devices, the name, the meeting's code and link, who is in
-//! the meeting already (its peers list, read every 2 seconds while waiting; nothing is
-//! announced), and "Start meeting" / "Join now". Only then does the app announce its iroh ticket
-//! to the room every 20 seconds, read everyone else's every 2 seconds, and dial the peers whose
-//! endpoint id is higher than its own. `--screen waiting` opens a new meeting's waiting room (a
-//! preview of one when no meeting server answers); with `--shot <png>` that is a screenshot.
-//! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
-//! on the network. The start screen's "Meeting server" field holds the Worker's address: prefilled
-//! with the one saved last time, else `AZMEET_WORKER`, else the built-in default; a new address
-//! is used for every request from Enter or leaving the field on, checked with `GET /health`, and
-//! saved once it answers.
+//! AzMeet talks to a meeting server (the `meet` Worker, azul-apps `cf-workers/meet`) that it does
+//! not trust with anything readable (`CRYPTO.md`): every device has its own identity (an Ed25519
+//! and an X25519 key from one seed in the OS keyring, `identity.rs`), every room a link with an
+//! invite secret in its fragment that never reaches the server, every message is sealed with a
+//! room key sealed in turn to each member, and every iroh ticket is signed by its member's device.
+//! The rules are `chatroom.rs` (pure), the primitives `crypto.rs`.
+//!
+//! The start screen: "New meeting" mints a room (its id and invite secret made here, registered
+//! with the server), "Schedule" one with a start and an end, "New chat room" one that is kept
+//! between calls; "Join with a link or a code" looks one up - a link joins, a code knocks and
+//! waits for a member to let this device in. Under them "Your rooms": every room this device is
+//! in (`meet/rooms.json`, `roomlist.rs`) with its unread count; one opens in the room view, its
+//! chat, its members with their safety codes, and "Join call". A meeting opens in the waiting room
+//! first (`ui.rs`): the camera preview, the switches, the devices, the name, the meeting's code,
+//! link and times, who is in the call already, and "Start meeting" / "Join now" / "Ask to join".
+//! Only then does the app announce its signed iroh ticket to the room every sixth of the
+//! server's peer TTL (20 seconds), read everyone else's every 2 seconds, keep the tickets a
+//! member signed, and dial the peers whose endpoint id is higher than its own. `--screen waiting`
+//! opens a new meeting's waiting room (a preview of one when no meeting server answers); with
+//! `--shot <png>` that is a screenshot. Every HTTP request runs on an azul `Thread` and resumes on
+//! the UI thread, so no callback waits on the network. The start screen's "Meeting server" field
+//! holds the Worker's address: `--worker`, else the one saved last time, else the shared Azlin
+//! config's (azul-appkit `azlin_config`: `AZMEET_WORKER`, else `endpoints.meet` of the config
+//! file `AZLIN_CONFIG` names, else of `~/.azlin/config.json`), else one built in at build time,
+//! else the config profile's (`local`, the default: the local stack's `http://127.0.0.1:8790`;
+//! `production` names none yet) - and nothing else: with none, the start screen asks for one,
+//! and an unreachable one is an error with a Retry button. A new address is used for every
+//! request from Enter or leaving the field on, checked with `GET /health`, and saved once it
+//! answers. The relays come the same way (`--relay`, `AZMEET_RELAY`, `endpoints.relay`, the
+//! profile's).
 //!
 //! Settings: the gear at the top right of every screen (or Mod+,) opens azul-appkit's settings
 //! page, the one every Azlin app shares (AzMail's File > Options): AzMeet's Audio & Video (the
@@ -22,10 +38,12 @@
 //!
 //! Files (see `store.rs`): in the Azlin data tree (azul-appkit's data root: `--data-dir`,
 //! `AZLIN_DATA`, else `<data dir>/Azlin`), `meet/settings.json` keeps the app theme and mode and
-//! AzMeet's settings (the kit writes it: `AZMEET_SETTINGS_SAVED`); each meeting has a folder
-//! `meet/<meeting>/` with `meeting.json` (its link, server, when this side joined, who was there)
-//! and `chat.jsonl` (the chat, one message per line). Every write runs on an azul Thread through
-//! azul-storage's `LocalDrive`; stdout says `AZMEET_SAVED <key>` for each.
+//! AzMeet's settings (the kit writes it: `AZMEET_SETTINGS_SAVED`); `meet/rooms.json` the rooms
+//! this device is in (their invite secrets sealed with this device's key); each meeting has a
+//! folder `meet/<meeting>/` with `meeting.json` (its link, server, when this side joined, who was
+//! there) and `chat.jsonl` (the chat as read here, one message per line: the user's own record of
+//! it). Every write runs on an azul Thread through azul-storage's `LocalDrive`; stdout says
+//! `AZMEET_SAVED <key>` for each. The meeting server keeps the chat history only as ciphertext.
 //!
 //! Video (see `video_wire.rs`): each captured camera or screen frame, in every rendition someone
 //! shows, goes through an H.264 `VideoEncoder` where one works (VideoToolbox on Apple; found out at start by encoding a
@@ -58,22 +76,32 @@
 //! each, and nothing nobody shows. The network panel shows the plan, the routes, this side's report
 //! and one line per peer.
 //!
-//! Without a reachable meeting server it runs the in-process demo: two participants, Ada in a
-//! CPU-rendered window and Ben in a GPU-rendered one, linked by two iroh endpoints. Her camera
-//! and his screen share start off: a plain start of AzMeet opens no camera and captures no
-//! screen until asked to (both once started on, so the first second already ran a camera, a
-//! full-screen capture, two H.264 encoders, two decoders and a software-rendered window).
+//! Chat (`chatroom.rs`): a room's chat is kept by the meeting server as ciphertext, read every 2
+//! seconds while the room is open (in a call or the room view) and every 15 seconds otherwise
+//! (the unread counts of "Your rooms"). stdout, for scripts: `AZMEET_CHAT <name>: <text>` per
+//! message from someone else, `AZMEET_KEY <room> epoch=<n> key=<id> members=<n> by=<who>` for
+//! every room key made or taken, `AZMEET_MEMBER <room> <joined|left|knocking> <name> <safety
+//! code>`, `AZMEET_HISTORY <room> <n>` once a room's history is read, `AZMEET_IDENTITY <device>
+//! <keyring|file|session>` and `AZMEET_SAFETY <code>` once this device's identity is loaded.
 //!
 //! Switches (`args.rs`, `--help` lists them): each AzMeet switch also reads its `AZMEET_*`
 //! environment variable when it is not given (`1` for a switch without a value), so older scripts
 //! keep working; the switch wins.
-//! - `--worker <url>` (`AZMEET_WORKER`): the meeting server, e.g. `http://127.0.0.1:8787` (the
-//!   local mock). `--worker` wins over the one saved from the start screen; the variable only
-//!   counts when none was saved. Else the `PRODUCTION_WORKER` constant, set at build time with
-//!   `AZMEET_DEFAULT_WORKER=<url>`, else `http://127.0.0.1:8787`. A headless run
-//!   (`AZ_BACKEND=headless`) keeps no files unless it is given a data root (`--data-dir`,
-//!   `AZLIN_DATA`), so without one the variable always wins there. Only when nothing is saved or
-//!   set and the built-in default does not answer does the in-process demo open.
+//! - `--worker <url>` (`AZMEET_WORKER`): the meeting server, e.g. `http://127.0.0.1:8790` (the
+//!   local stack's `wrangler dev`). `--worker` wins over the one saved from the start screen; the
+//!   variable and the shared config only count when none was saved. Else the `PRODUCTION_WORKER`
+//!   constant, set at build time with `AZMEET_DEFAULT_WORKER=<url>`, else the config profile's
+//!   address, else none: the start screen asks for one. A headless run (`AZ_BACKEND=headless`)
+//!   keeps no files unless it is given a data root (`--data-dir`, `AZLIN_DATA`), so without one
+//!   nothing saved outranks the configuration there.
+//! - `--identity-file <path>` (`AZMEET_IDENTITY_FILE`): keep this device's seed in that file
+//!   (made with mode 0600) instead of the system keyring - for tests (a headless run's keyring
+//!   lives in memory) and unattended machines.
+//! - `--starts-at <time>` / `--ends-at <time>` (`AZMEET_STARTS_AT`, `AZMEET_ENDS_AT`, RFC 3339):
+//!   with `--autocreate`, the meeting's times.
+//! - `--chat-room` (`AZMEET_CHAT_ROOM=1`): with `--autocreate`, a chat room instead of a meeting,
+//!   opened in the room view; `--open <link>` (`AZMEET_OPEN`): open that room's view at start
+//!   (joining it when this device is not in it yet).
 //! - `--name <name>` (`AZMEET_NAME`, under the name typed last time): the name others see
 //!   (default: `$USER`).
 //! - `--autocreate` (`AZMEET_AUTOCREATE=1`): create a meeting at start, enter it without the
@@ -83,9 +111,10 @@
 //! - `--join <link>` (`AZMEET_JOIN`): join that meeting at start, without the waiting room.
 //! - `--waiting-room` (`AZMEET_WAITING_ROOM=1`): with `--join` / `--autocreate`, stop in the
 //!   waiting room (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
-//! - `--relay <off|default|url>` (`AZMEET_RELAY`): the iroh relays (default: off for a meeting
-//!   server on this machine, the public iroh relays otherwise); a local one is `iroh-relay --dev`
-//!   at `http://127.0.0.1:3340`.
+//! - `--relay <off|default|url>` (`AZMEET_RELAY`, then the shared config's `endpoints.relay` and
+//!   its profile's: `local` the local stack's `iroh-relay --dev` at `http://127.0.0.1:3340`,
+//!   `production` the public iroh relays); with none of them, off for a meeting server on this
+//!   machine and the public iroh relays otherwise.
 //! - `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path - no UDP socket, no hole
 //!   punching, every packet through the relay (`IrohConfig::with_relay_only`); stderr says
 //!   `relay only` with the endpoint, the statistics say `relayed` per peer.
@@ -118,8 +147,9 @@
 pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
     name: "AzMeet",
     version: env!("CARGO_PKG_VERSION"),
-    summary: "Video meetings over azul.iroh: camera, screen sharing, the people and a chat; each \
-              meeting's record and chat are files in the Azlin data tree.",
+    summary: "Video meetings and chat rooms over azul.iroh, end-to-end encrypted: camera, screen \
+              sharing, the people and a chat the meeting server cannot read; each meeting's \
+              record and chat are files in the Azlin data tree.",
     license: "MIT",
     app_folder: store::APP_FOLDER,
 };
@@ -127,10 +157,17 @@ pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
 mod args;
 mod audio;
 mod chat;
+mod chatroom;
+mod crypto;
+mod identity;
 mod ids;
+/// A room's invite key from the invite secret of its link (CRYPTO.md section 4); public, since
+/// AzCalendar's meeting links are made with it too (it includes the file).
+pub mod invite;
 mod keys;
 mod pace;
 mod rate;
+mod roomlist;
 mod rooms;
 mod routes;
 mod speaker;
@@ -145,23 +182,25 @@ use std::{
 };
 
 use azul::{
-    app::RendererOptions,
     audio::{
         AudioConfig, AudioDecoder, AudioDeviceList, AudioDeviceListResult, AudioEncoder,
         AudioFrame, AudioSink, EchoCanceller,
     },
     callbacks::{CallbackInfo, TimerCallbackInfo, TimerCallbackReturn, UpdateImageType},
-    css::{DarkLightMode, LogicalSize, PhysicalPositionI32, Srgb, WindowPosition},
+    css::{DarkLightMode, LogicalSize},
     dom::{Callback, ClipboardContent, DomNodeId, NodeId, VirtualKeyCode},
-    error::{HttpError, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError},
+    error::{
+        HttpError, KeyringResult, ResultRawImageDecodeImageError, ResultU8VecEncodeImageError,
+    },
+    file::FilePath,
     http::{HttpGetResult, HttpMethod, HttpRequestConfig},
     image::{ImageRef, RawImage, RawImageData, RawImageFormat},
     iroh::{
         IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohLoadBalancer, IrohPeerCapacity,
         IrohRelayMode, IrohTileRole,
     },
-    json::{Json, JsonKeyValue},
-    option::{OptionDarkLightMode, OptionRendererOptions, OptionString},
+    json::Json,
+    option::{OptionDarkLightMode, OptionKeyringResult, OptionString},
     prelude::*,
     str::String as AzString,
     task::{Thread, ThreadId, ThreadReceiver, ThreadSender, Timer, TimerId},
@@ -173,15 +212,15 @@ use azul::{
         CheckBoxState, ConsumerFrame, FrameConsumer, LevelMeter, LevelMeterThrottle,
         OnTextInputReturn, SegmentedState, TextInput, TextInputState, TextInputValid,
     },
-    window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
+    window::{PlatformCapability, WindowDecorations},
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{azlin_config, ui as kit};
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 use video_wire::{Codec, Control, Message};
 
-/// The protocol name: peers of an older wire format (M3's, without renditions and forwarding)
-/// cannot connect.
-const ALPN: &str = "azmeet/3";
+/// The protocol name: peers of an older wire format (`azmeet/3`, whose chat travelled over the
+/// iroh connections unsigned) cannot connect.
+const ALPN: &str = "azmeet/4";
 const CAMERA_TRACK: u32 = 1;
 const SCREEN_TRACK: u32 = 2;
 /// The audio track: 20 ms Opus or PCM packets, three to a frame (`audio.rs`).
@@ -214,20 +253,30 @@ const SOURCES: [&str; 2] = ["camera", "screen"];
 /// How often the statistics are gathered (and the report re-sent, and the plan re-made).
 const STATS_EVERY_MS: u64 = 2000;
 
-/// The meeting server when `AZMEET_WORKER` is not set: the deployed `meet` Worker (azul-apps
+/// The meeting server when nothing else names one: the deployed `meet` Worker (azul-apps
 /// `cf-workers/meet/README.md`, "Deploy"), baked in at build time with
-/// `AZMEET_DEFAULT_WORKER=https://...`. Empty means no meeting server, so the demo runs.
+/// `AZMEET_DEFAULT_WORKER=https://...`. Empty means none: the start screen asks for one.
 const PRODUCTION_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
     Some(url) => url,
     None => "",
 };
 /// How often a participant in a room reads the peers list.
 const ROOM_POLL_MS: u64 = 2000;
-/// Polls between two announcements (the Worker keeps a record for 120 seconds).
+/// Polls between two announcements until the Worker says its peer TTL (then a sixth of it).
 const REANNOUNCE_POLLS: u32 = 10;
 /// Polls after which a request that never answered is given up.
 const STUCK_REQUEST_POLLS: u32 = 8;
 const HTTP_TIMEOUT_SECS: u64 = 5;
+/// How often the chat rooms are looked at for a request to send (`chat_tick`).
+const CHAT_TICK_MS: u64 = 250;
+/// How often a room is read while it is open (a call, the room view), and otherwise (the unread
+/// counts of the start screen).
+const CHAT_OPEN_SYNC_MS: u64 = 2000;
+const CHAT_IDLE_SYNC_MS: u64 = 15_000;
+/// How often the start screen asks a meeting server that did not answer again by itself.
+const SERVER_RETRY_MS: u64 = 10_000;
+/// What a chat line says for a member whose name does not open.
+const UNKNOWN_NAME: &str = "Someone";
 
 /// One connected peer.
 struct Remote {
@@ -308,7 +357,6 @@ enum Stage {
 /// A participant's side of a meeting-server room.
 struct RoomSession {
     worker: String,
-    name: String,
     stage: Stage,
     join_text: String,
     /// This endpoint's id and ticket (the ticket arrives with the `Ready` event).
@@ -359,10 +407,35 @@ struct RoomSession {
     /// The meeting being opened is entered at once, without the waiting room (`AZMEET_JOIN`,
     /// `AZMEET_AUTOCREATE`, `--screen call`: scripts).
     straight_in: bool,
+    /// The invite secret of the link being looked up (its `#` fragment); `None` for a code, which
+    /// knocks.
+    join_secret: Option<String>,
+    /// The room being made ("New meeting", "Schedule", "New chat room"): what `POST /rooms`
+    /// registers.
+    minting: Option<Minting>,
+    /// The waiting room's knock went out ("Ask to join"): the meeting is entered once a member lets
+    /// this device in.
+    asked: bool,
+    /// Polls between two announcements: a sixth of the Worker's peer TTL once it said it.
+    reannounce_polls: u32,
+    /// When (`wall_ms`) the meeting server was checked last, for the start screen's own retries.
+    checked_at: u64,
+    /// The start screen's "Schedule" form: the start (local time, `YYYY-MM-DD HH:MM`) and the
+    /// minutes.
+    schedule_start: String,
+    schedule_minutes: String,
+}
+
+/// A room this side is making: its invite (the id and the secret made here, CRYPTO.md section 4),
+/// its kind and its times (RFC 3339, as sent).
+struct Minting {
+    invite: crypto::Invite,
+    kind: chatroom::RoomKind,
+    times: Option<(String, String)>,
 }
 
 impl RoomSession {
-    fn new(worker: String, name: String, relay: Relay) -> Self {
+    fn new(worker: String, relay: Relay) -> Self {
         RoomSession {
             waiting: None,
             waiting_people: None,
@@ -371,6 +444,13 @@ impl RoomSession {
             preview: false,
             created: false,
             straight_in: false,
+            join_secret: None,
+            minting: None,
+            asked: false,
+            reannounce_polls: REANNOUNCE_POLLS,
+            checked_at: 0,
+            schedule_start: String::new(),
+            schedule_minutes: String::from("60"),
             session: 0,
             server_text: worker.clone(),
             server_status: String::new(),
@@ -378,7 +458,6 @@ impl RoomSession {
             checks: 0,
             relay,
             worker,
-            name,
             stage: Stage::Start,
             join_text: String::new(),
             node_id: String::new(),
@@ -403,9 +482,9 @@ impl RoomSession {
         self.waiting = None;
         self.close_waiting();
         self.straight_in = false;
+        self.link = found.share_link();
         self.room_id = found.room;
         self.code = found.code;
-        self.link = found.link;
         self.copied = false;
         self.peers.clear();
         self.dialed.clear();
@@ -420,6 +499,8 @@ impl RoomSession {
         self.close_waiting();
         self.created = false;
         self.straight_in = false;
+        self.minting = None;
+        self.join_secret = None;
         self.room_id.clear();
         self.code.clear();
         self.link.clear();
@@ -436,6 +517,7 @@ impl RoomSession {
         self.waiting_busy = false;
         self.waiting_polls = 0;
         self.preview = false;
+        self.asked = false;
     }
 
     /// In the waiting room: a read of its meeting's peers list (who is in it already), nothing
@@ -456,20 +538,24 @@ impl RoomSession {
         Some(HttpJob::waiting_peers(self))
     }
 
-    /// The announcement to send right away, when the ticket is already known.
-    fn first_job(&mut self) -> Option<HttpJob> {
+    /// The announcement to send right away, when the ticket is already known and this device is a
+    /// member of the room (`signer`: its identity and the server's time; the Worker takes a signed
+    /// announcement from a member only).
+    fn first_job(&mut self, signer: Option<(&crypto::Identity, u64)>) -> Option<HttpJob> {
+        let (me, ts) = signer?;
         if self.stage != Stage::InRoom || self.busy || self.ticket.is_empty() {
             return None;
         }
         self.busy = true;
         self.busy_polls = 0;
         self.announced_at = Some(self.polls);
-        Some(HttpJob::announce(self))
+        Some(HttpJob::announce(self, me, ts))
     }
 
-    /// What this poll sends: an announcement when one is due, else a read of the peers list; in
-    /// the waiting room only that read (`waiting_job`).
-    fn next_job(&mut self) -> Option<HttpJob> {
+    /// What this poll sends: an announcement when one is due and this device can sign one (it is
+    /// a member), else a read of the peers list; in the waiting room only that read
+    /// (`waiting_job`).
+    fn next_job(&mut self, signer: Option<(&crypto::Identity, u64)>) -> Option<HttpJob> {
         if self.stage == Stage::Waiting {
             return self.waiting_job();
         }
@@ -488,33 +574,42 @@ impl RoomSession {
             return None;
         }
         let polls = self.polls;
+        let every = self.reannounce_polls.max(1);
         let due = self
             .announced_at
-            .map_or(true, |at| polls.wrapping_sub(at) >= REANNOUNCE_POLLS);
+            .map_or(true, |at| polls.wrapping_sub(at) >= every);
         self.busy = true;
         self.busy_polls = 0;
-        if due {
-            self.announced_at = Some(polls);
-            Some(HttpJob::announce(self))
-        } else {
-            Some(HttpJob::poll(self))
+        match signer {
+            Some((me, ts)) if due => {
+                self.announced_at = Some(polls);
+                Some(HttpJob::announce(self, me, ts))
+            }
+            _ => Some(HttpJob::poll(self)),
         }
     }
 }
 
+/// A pending connection: a peer dialed this side before its signed announcement was read here
+/// (CRYPTO.md section 10). Nothing is sent to it, nothing it sends is taken, until a read of the
+/// peers list confirms it; it is dropped after `PENDING_POLLS` reads that do not.
+struct Pending {
+    handle: u64,
+    node_id: String,
+    polls: u32,
+}
+
+/// Reads of the peers list a pending connection may wait for its announcement.
+const PENDING_POLLS: u32 = 3;
+
 struct MeetState {
     name: String,
-    /// The other participant of the in-process demo.
-    peer_name: String,
-    backend: &'static str,
-    /// The demo's meeting name, shown in its header.
-    meeting: String,
     endpoint: Option<IrohEndpoint>,
-    /// The demo's second endpoint, dialed once this one is ready.
-    guest: Option<IrohEndpoint>,
     remotes: Vec<Remote>,
+    /// Connections waiting for their signed announcement (`Pending`).
+    pending: Vec<Pending>,
     link_status: String,
-    /// One line under the header: why the demo runs, or what the meeting server said.
+    /// One line under the header: what the meeting server said, what a room needs.
     notice: String,
     /// When (`now_ms`) the statistics were gathered last.
     stats_at_ms: u64,
@@ -534,7 +629,8 @@ struct MeetState {
     mics: Vec<String>,
     speakers: Vec<String>,
     devices_requested: bool,
-    /// Some when a meeting server is in use.
+    /// The meeting server, the start screen's form, the waiting room and the call: there once the
+    /// window is up (`start`).
     room: Option<RoomSession>,
     /// This participant hears nobody: received audio is dropped.
     deafened: bool,
@@ -602,8 +698,24 @@ struct MeetState {
     scale: f32,
     /// What this side passes on for others.
     relay: Relaying,
-    /// The call's chat: every message written here or received (`chat.rs`).
-    chat: chat::ChatLog,
+    /// This device's identity (CRYPTO.md section 3): `None` until the keyring (or the identity
+    /// file) answered; nothing is signed, sealed or joined before.
+    identity: Option<crypto::Identity>,
+    /// Where the identity's seed lives.
+    identity_source: Option<identity::Source>,
+    /// What the keyring was asked last (its answer arrives as a window event).
+    keyring: Option<KeyringStep>,
+    /// The start's own steps (`--join`, `--autocreate`, `--open`) wait for the identity.
+    autostart_due: bool,
+    /// Every room this device is in, and the one being looked at, by room id (`chatroom.rs`):
+    /// its members, keys and the chat, ciphertext on the meeting server.
+    chats: BTreeMap<String, chatroom::ChatRoom>,
+    /// `meet/rooms.json` as this device knows it (`roomlist.rs`).
+    index: roomlist::RoomIndex,
+    /// The room the room view shows; `None` outside it.
+    open_room: Option<String>,
+    /// The room view's "Copy link" was clicked.
+    room_copied: bool,
     /// Who is on the stage of the speaker view, from the levels of the audio each peer sends.
     speaker: speaker::ActiveSpeaker,
     /// What the call's side panel shows.
@@ -631,38 +743,44 @@ struct MeetState {
     /// The waiting room starts with the microphone off, with the camera off.
     join_muted: bool,
     join_camera_off: bool,
-    /// This participant keeps the files of the data tree (`store`): the one window of a meeting
-    /// server run, Ada in the demo (both demo windows are one meeting on one machine).
-    keeps_files: bool,
     /// The meeting this side is in, as `meet/<meeting>/meeting.json` says; `None` outside one.
     record: Option<store::MeetingRecord>,
     /// The files that changed since they were written last (`flush_files`).
     unsaved: Unsaved,
-    /// The meeting's files of an earlier visit are being read back (`on_history_read`): its chat
-    /// and record are not written over meanwhile.
-    reading_history: bool,
+    /// The rooms whose files of an earlier visit are being read back (`on_history_read`): their
+    /// chat and record are not written over meanwhile.
+    reading_history: BTreeSet<String>,
+}
+
+/// What the keyring was asked (`identity.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum KeyringStep {
+    /// The seed, at start.
+    Get,
+    /// A new seed, kept.
+    Store,
 }
 
 /// The files of the data tree that changed since the last [`flush_files`] (the settings file is
 /// the kit's: [`remember`]).
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 struct Unsaved {
     record: bool,
-    chat: bool,
+    /// The rooms whose `chat.jsonl` changed.
+    chats: BTreeSet<String>,
+    /// `meet/rooms.json`.
+    index: bool,
 }
 
 impl MeetState {
-    fn new(name: &str, peer_name: &str, backend: &'static str, kit: RefAny) -> Self {
+    fn new(name: &str, kit: RefAny) -> Self {
         MeetState {
             kit,
             prefs_unsaved: false,
             name: name.to_string(),
-            peer_name: peer_name.to_string(),
-            backend,
-            meeting: String::new(),
             endpoint: None,
-            guest: None,
             remotes: Vec::new(),
+            pending: Vec::new(),
             link_status: String::from("binding"),
             notice: String::new(),
             stats_at_ms: 0,
@@ -719,7 +837,14 @@ impl MeetState {
             stage_name: String::new(),
             scale: 1.0,
             relay: Relaying::default(),
-            chat: chat::ChatLog::new(),
+            identity: None,
+            identity_source: None,
+            keyring: None,
+            autostart_due: true,
+            chats: BTreeMap::new(),
+            index: roomlist::RoomIndex::default(),
+            open_room: None,
+            room_copied: false,
             speaker: speaker::ActiveSpeaker::new(),
             panel: SidePanel::People,
             chat_draft: String::new(),
@@ -732,10 +857,9 @@ impl MeetState {
             mirror: true,
             join_muted: false,
             join_camera_off: false,
-            keeps_files: true,
             record: None,
             unsaved: Unsaved::default(),
-            reading_history: false,
+            reading_history: BTreeSet::new(),
         }
     }
 }
@@ -778,10 +902,6 @@ struct Relaying {
     packets: u64,
     frames: u64,
     requests: u64,
-}
-
-struct Room {
-    peers: Vec<RefAny>,
 }
 
 /// The height of a tile's box until it is laid out, by its role: a gallery tile, the stage, a
@@ -844,28 +964,10 @@ fn device_name(devices: &[String], index: usize) -> Option<String> {
     index.checked_sub(1).and_then(|i| devices.get(i)).cloned()
 }
 
-extern "C" fn layout_first(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
-    peer_layout(data, 0)
-}
-
-extern "C" fn layout_second(data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    let _mode = info.get_mode();
-    peer_layout(data, 1)
-}
-
-fn room_peer(data: &RefAny, index: usize) -> Option<RefAny> {
-    let mut data = data.clone();
-    let room = data.downcast_ref::<Room>()?;
-    room.peers.get(index).cloned()
-}
-
-fn peer_layout(data: RefAny, index: usize) -> Dom {
-    match room_peer(&data, index) {
-        Some(peer) => meet_layout(peer),
-        None => Dom::create_body(),
-    }
+    meet_layout(data)
 }
 
 /// The capture consumer cutting `track`'s frames at the `height` rendition (16:9).
@@ -891,41 +993,96 @@ fn short_id(id: &str) -> &str {
     id.get(..10).unwrap_or(id)
 }
 
-/// The name to show for the peer with endpoint id `node_id`.
+/// The name to show for the peer with endpoint id `node_id`: its member's, from the signed
+/// announcement read last.
 fn remote_name(s: &MeetState, node_id: &str) -> String {
-    if let Some(room) = &s.room {
-        return room
-            .peers
-            .iter()
-            .find(|p| p.node_id == node_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| short_id(node_id).to_string());
-    }
-    if s.peer_name.is_empty() {
-        short_id(node_id).to_string()
+    s.room
+        .as_ref()
+        .and_then(|room| room.peers.iter().find(|p| p.node_id == node_id))
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| short_id(node_id).to_string())
+}
+
+/// A member's name as the window shows it: the one its record carries, else [`UNKNOWN_NAME`].
+fn member_name(name: &str) -> String {
+    if name.trim().is_empty() {
+        String::from(UNKNOWN_NAME)
     } else {
-        s.peer_name.clone()
+        name.to_string()
     }
 }
 
-/// The window's screen: the settings while open, the start screen before a meeting, the waiting
-/// room for a meeting not joined yet, else the call.
+/// The window's screen: the settings while open, the room view of an open room, the start screen
+/// before a meeting, the waiting room for a meeting not joined yet, else the call.
 fn ui_screen(s: &MeetState) -> ui::UiScreen {
     if kit::settings_open(&s.kit) {
         return ui::UiScreen::Settings;
     }
     match s.room.as_ref().map(|room| room.stage) {
-        Some(Stage::Start | Stage::Opening) => ui::UiScreen::Lobby,
+        Some(Stage::Start | Stage::Opening) if s.open_room.is_some() => ui::UiScreen::Room,
+        Some(Stage::Start | Stage::Opening) | None => ui::UiScreen::Lobby,
         Some(Stage::Waiting) => ui::UiScreen::Waiting,
-        Some(Stage::InRoom | Stage::Ended) | None => ui::UiScreen::Call,
+        Some(Stage::InRoom | Stage::Ended) => ui::UiScreen::Call,
     }
 }
 
-/// The people panel: this side, then everyone the meeting server lists (and connected peers it
-/// no longer lists), or in the demo everyone connected.
+/// The room of the call (or the waiting room), when there is one.
+fn call_room_id(s: &MeetState) -> Option<String> {
+    let room = s.room.as_ref()?;
+    match room.stage {
+        Stage::InRoom | Stage::Ended if !room.room_id.is_empty() => Some(room.room_id.clone()),
+        Stage::Waiting => room.waiting.as_ref().map(|found| found.room.clone()),
+        _ => None,
+    }
+}
+
+/// The room whose chat is on the screen: the room view's, else the call's.
+fn active_room_id(s: &MeetState) -> Option<String> {
+    s.open_room.clone().or_else(|| call_room_id(s))
+}
+
+/// The members of a room as the window lists them: this device first, then by name; with their
+/// safety codes and whether the user verified them.
+fn member_rows(s: &MeetState, chat: &chatroom::ChatRoom) -> Vec<ui::MemberRow> {
+    let me = s.identity.as_ref().map(|i| i.device().to_string()).unwrap_or_default();
+    let mut rows: Vec<ui::MemberRow> = chat
+        .members()
+        .map(|m| ui::MemberRow {
+            room: chat.room.clone(),
+            device: m.device.clone(),
+            name: if m.device == me { s.name.clone() } else { member_name(&m.name) },
+            code: m.safety_code.clone(),
+            verified: s.index.is_verified(&m.device),
+            me: m.device == me,
+        })
+        .collect();
+    rows.sort_by(|a, b| b.me.cmp(&a.me).then_with(|| a.name.cmp(&b.name)));
+    rows
+}
+
+/// The devices knocking at a room, oldest first.
+fn knock_rows(s: &MeetState, chat: &chatroom::ChatRoom) -> Vec<ui::MemberRow> {
+    let me = s.identity.as_ref().map(|i| i.device().to_string()).unwrap_or_default();
+    chat.knocks()
+        .filter(|k| k.device != me)
+        .map(|k| ui::MemberRow {
+            room: chat.room.clone(),
+            device: k.device.clone(),
+            name: member_name(&k.name),
+            code: k.safety_code.clone(),
+            verified: s.index.is_verified(&k.device),
+            me: false,
+        })
+        .collect()
+}
+
+/// The people panel: this side, then everyone the meeting server lists with a member's signed
+/// announcement (and connected peers it no longer lists), each with its safety code.
 fn people(s: &MeetState) -> Vec<ui::PersonView> {
     let now = now_ms(s);
     let me = my_state(s);
+    let chat = call_room_id(s).and_then(|id| s.chats.get(&id));
+    let my_code = s.identity.as_ref().map(crypto::Identity::safety_code);
     let mut rows = vec![ui::PersonView {
         name: s.name.clone(),
         me: true,
@@ -933,38 +1090,38 @@ fn people(s: &MeetState) -> Vec<ui::PersonView> {
         muted: me.muted,
         deafened: me.deafened,
         speaking: false,
+        code: my_code,
+        verified: false,
     }];
-    let person = |name: String, status: &str, r: Option<&Remote>| ui::PersonView {
-        name,
-        me: false,
-        status: status.to_string(),
-        muted: r.and_then(|r| r.state).is_some_and(|state| state.muted),
-        deafened: r.and_then(|r| r.state).is_some_and(|state| state.deafened),
-        speaking: r.is_some_and(|r| s.speaker.is_speaking(r.key, now)),
-    };
-    match &s.room {
-        Some(room) => {
-            for p in &room.peers {
-                let remote = s.remotes.iter().find(|r| r.node_id == p.node_id);
-                let status = if remote.is_some() {
-                    "connected"
-                } else if rooms::dials(&room.node_id, &p.node_id) {
-                    "connecting"
-                } else {
-                    "waiting for them to connect"
-                };
-                rows.push(person(p.name.clone(), status, remote));
-            }
-            // Connected peers whose record expired from the server stay listed.
-            for r in &s.remotes {
-                if !room.peers.iter().any(|p| p.node_id == r.node_id) {
-                    rows.push(person(short_id(&r.node_id).to_string(), "connected", Some(r)));
-                }
-            }
+    let person = |name: String, status: &str, r: Option<&Remote>, device: Option<&str>| {
+        let member = device.and_then(|d| chat.and_then(|c| c.member(d)));
+        ui::PersonView {
+            name,
+            me: false,
+            status: status.to_string(),
+            muted: r.and_then(|r| r.state).is_some_and(|state| state.muted),
+            deafened: r.and_then(|r| r.state).is_some_and(|state| state.deafened),
+            speaking: r.is_some_and(|r| s.speaker.is_speaking(r.key, now)),
+            code: member.map(|m| m.safety_code.clone()),
+            verified: device.is_some_and(|d| s.index.is_verified(d)),
         }
-        None => {
-            for r in &s.remotes {
-                rows.push(person(remote_name(s, &r.node_id), "connected", Some(r)));
+    };
+    if let Some(room) = &s.room {
+        for p in &room.peers {
+            let remote = s.remotes.iter().find(|r| r.node_id == p.node_id);
+            let status = if remote.is_some() {
+                "connected"
+            } else if rooms::dials(&room.node_id, &p.node_id) {
+                "connecting"
+            } else {
+                "waiting for them to connect"
+            };
+            rows.push(person(p.name.clone(), status, remote, p.device.as_deref()));
+        }
+        // Connected peers whose record expired from the server stay listed.
+        for r in &s.remotes {
+            if !room.peers.iter().any(|p| p.node_id == r.node_id) {
+                rows.push(person(short_id(&r.node_id).to_string(), "connected", Some(r), None));
             }
         }
     }
@@ -1075,6 +1232,119 @@ fn device_choices(devices: &[String]) -> Vec<String> {
     choices
 }
 
+/// "Thu 9 Oct 2026, 14:00-15:00 · starts in 25 min": a meeting's times in this computer's time
+/// zone, and where it stands now.
+fn times_text(starts: u64, ends: u64) -> String {
+    let offset = chrono::Local::now().offset().local_minus_utc();
+    let now = azul_storage::time::now_unix();
+    format!(
+        "{} · {}",
+        rooms::when_text(starts, ends, offset),
+        rooms::meeting_status(starts, ends, now)
+    )
+}
+
+/// A room as the start screen lists it: its kind and code, its times, its unread count.
+fn room_row(s: &MeetState, entry: &roomlist::RoomEntry) -> ui::RoomRow {
+    let chat = s.chats.get(&entry.room);
+    let kind = chatroom::RoomKind::parse(Some(entry.kind.as_str()));
+    let code = chat
+        .map(|c| c.code.clone())
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| entry.code.clone());
+    let title = match kind {
+        chatroom::RoomKind::Chat => format!("Chat room {code}"),
+        chatroom::RoomKind::Meeting => format!("Meeting {code}"),
+    };
+    let times = match (entry.starts_at, entry.ends_at) {
+        (Some(a), Some(b)) => Some(times_text(a, b)),
+        _ => None,
+    };
+    let members = chat.map_or(0, |c| c.members().count());
+    let mut detail = match chat.map(|c| c.state) {
+        Some(chatroom::Membership::Knocking) => String::from("waiting to be let in"),
+        Some(chatroom::Membership::Closed) => String::from("ended"),
+        _ if members > 0 => format!("{members} member{}", if members == 1 { "" } else { "s" }),
+        _ => String::new(),
+    };
+    if let Some(times) = times {
+        if !detail.is_empty() {
+            detail.push_str(" · ");
+        }
+        detail.push_str(&times);
+    }
+    ui::RoomRow {
+        room: entry.room.clone(),
+        title,
+        detail,
+        unread: chat.map_or(0, chatroom::ChatRoom::unread),
+    }
+}
+
+/// The room view of the open room.
+fn room_page(s: &MeetState) -> Option<ui::RoomPage> {
+    let id = s.open_room.as_ref()?;
+    let chat = s.chats.get(id)?;
+    let me = s.identity.as_ref()?;
+    let kind = match chat.kind {
+        chatroom::RoomKind::Chat => "Chat room",
+        chatroom::RoomKind::Meeting => "Meeting",
+    };
+    let status = match chat.state {
+        chatroom::Membership::Member => {
+            String::from("End-to-end encrypted: only the members read it.")
+        }
+        chatroom::Membership::Knocking => String::from(
+            "Waiting for a member to let you in. Compare your safety code with theirs.",
+        ),
+        chatroom::Membership::Joining => String::from("Joining..."),
+        chatroom::Membership::Leaving => String::from("Leaving..."),
+        chatroom::Membership::Left => String::from("You left this room."),
+        chatroom::Membership::Closed => String::from("This room is closed."),
+        chatroom::Membership::Outside => String::from("You are not in this room."),
+    };
+    let key_line = match chat.current_key(me.device()) {
+        Some((epoch, _, holders)) => format!(
+            "Room key {epoch}, held by the {holders} member{} now.",
+            if holders == 1 { "" } else { "s" }
+        ),
+        None => String::from("A room key is made with the first message."),
+    };
+    Some(ui::RoomPage {
+        title: format!("{kind} {}", chat.code),
+        times: match (chat.starts_at, chat.ends_at) {
+            (Some(a), Some(b)) => Some(times_text(a, b)),
+            _ => None,
+        },
+        link: chat.link(rooms::APP_LINK_PREFIX),
+        copied: s.room_copied,
+        my_code: me.safety_code(),
+        status,
+        members: member_rows(s, chat),
+        knocks: knock_rows(s, chat),
+        can_call: chat.state == chatroom::Membership::Member,
+        unreadable: chat.unreadable(),
+        before_join: chat.before_join(),
+        key_line,
+    })
+}
+
+/// The chat lines of `chat`, oldest first.
+fn chat_lines(s: &MeetState, chat: Option<&chatroom::ChatRoom>) -> Vec<ui::ChatLine> {
+    chat.map(|c| {
+        c.messages()
+            .iter()
+            .map(|m| ui::ChatLine {
+                name: if m.mine { s.name.clone() } else { member_name(&m.name) },
+                text: m.text.clone(),
+                mine: m.mine,
+                sending: m.seq.is_none(),
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 /// Everything the window shows, from the state.
 fn snapshot(s: &MeetState) -> ui::CallView {
     let now = now_ms(s);
@@ -1086,30 +1356,73 @@ fn snapshot(s: &MeetState) -> ui::CallView {
     });
     let title = match code {
         Some(code) if !code.is_empty() => format!("AzMeet · meeting {code} · {}", s.name),
-        Some(_) => format!("AzMeet · {}", s.name),
-        None if s.endpoint.is_some() => {
-            format!("AzMeet · meeting {} · {} ({})", s.meeting, s.name, s.backend)
-        }
-        None => format!("AzMeet · meeting {}", s.meeting),
+        _ => format!("AzMeet · {}", s.name),
     };
     let camera_renditions = my_renditions(s, CAMERA_TRACK);
+    let rooms: Vec<ui::RoomRow> = match &s.identity {
+        Some(me) => s
+            .index
+            .rooms_of(me.device())
+            .into_iter()
+            .map(|entry| room_row(s, entry))
+            .collect(),
+        None => Vec::new(),
+    };
     let lobby = s.room.as_ref().map(|room| ui::LobbyView {
         opening: room.stage == Stage::Opening,
         server_text: room.server_text.clone(),
         server_status: room.server_status.clone(),
         server_ok: room.server_ok,
+        server_unset: room.worker.is_empty(),
         join_text: room.join_text.clone(),
+        schedule_start: room.schedule_start.clone(),
+        schedule_minutes: room.schedule_minutes.clone(),
+        rooms,
+        identity_ready: s.identity.is_some(),
     });
     let waiting = s.room.as_ref().and_then(|room| {
-        room.waiting.as_ref().map(|found| ui::WaitingView {
-            code: found.code.clone(),
-            link: found.link.clone(),
-            copied: room.copied,
-            created: room.created,
-            people: room.waiting_people.clone(),
+        room.waiting.as_ref().map(|found| {
+            // With only the code (not a meeting this side made, a preview's): "Ask to join".
+            let knock = (found.invite.is_none() && !room.created).then_some(room.asked);
+            ui::WaitingView {
+                code: found.code.clone(),
+                link: found.share_link(),
+                copied: room.copied,
+                created: room.created,
+                people: room.waiting_people.clone(),
+                times: match (found.starts_at, found.ends_at) {
+                    (Some(a), Some(b)) => Some(times_text(a, b)),
+                    _ => None,
+                },
+                knock,
+            }
         })
     });
+    let call_chat = call_room_id(s).and_then(|id| s.chats.get(&id));
+    let active_chat = active_room_id(s).and_then(|id| s.chats.get(&id));
+    let knocks = call_chat.map(|c| knock_rows(s, c)).unwrap_or_default();
+    let chat_note = active_chat.map_or_else(String::new, |c| {
+        let mut note = String::from("End-to-end encrypted");
+        if c.before_join() > 0 {
+            note.push_str(&format!(
+                " · {} earlier message{} sealed before you joined",
+                c.before_join(),
+                if c.before_join() == 1 { "" } else { "s" }
+            ));
+        }
+        if c.unreadable() > 0 {
+            note.push_str(&format!(" · {} could not be read", c.unreadable()));
+        }
+        note
+    });
+    let identity = match (&s.identity, &s.identity_source) {
+        (Some(me), Some(source)) => format!("{} ({})", me.safety_code(), source.describe()),
+        _ => String::from("loading..."),
+    };
     ui::CallView {
+        room_page: room_page(s),
+        knocks,
+        chat_note,
         screen: ui_screen(s),
         title,
         notice: s.notice.clone(),
@@ -1125,17 +1438,8 @@ fn snapshot(s: &MeetState) -> ui::CallView {
             SidePanel::Closed => ui::PanelView::Closed,
         },
         people: people(s),
-        chat: s
-            .chat
-            .messages()
-            .iter()
-            .map(|m| ui::ChatLine {
-                name: m.name.clone(),
-                text: m.text.clone(),
-                mine: m.mine,
-            })
-            .collect(),
-        chat_unread: s.chat.unread(),
+        chat: chat_lines(s, active_chat),
+        chat_unread: call_chat.map_or(0, chatroom::ChatRoom::unread) as u32,
         chat_draft: s.chat_draft.clone(),
         stats: if s.panel == SidePanel::Statistics {
             stats_sections(s)
@@ -1174,10 +1478,11 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                 .room
                 .as_ref()
                 .map(|room| room.worker.clone())
-                .unwrap_or_else(|| String::from("none (local demo)")),
+                .filter(|worker| !worker.is_empty())
+                .unwrap_or_else(|| String::from("none set")),
             name: s.name.clone(),
             codec: codec_status(s),
-            recordings: files_root().filter(|_| s.keeps_files).map_or_else(
+            recordings: files_root().map_or_else(
                 || String::from("nowhere: this run keeps no files"),
                 |root| {
                     format!(
@@ -1186,6 +1491,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                     )
                 },
             ),
+            identity,
         },
     }
 }
@@ -1224,6 +1530,19 @@ const ACTIONS: ui::Actions = ui::Actions {
     join_muted: on_join_muted,
     join_camera_off: on_join_camera_off,
     key: on_key,
+    keyring: on_keyring_result,
+    retry_server: on_retry_server,
+    new_chat_room: on_new_chat_room,
+    schedule: on_schedule,
+    schedule_start: on_schedule_start,
+    schedule_minutes: on_schedule_minutes,
+    open_room: on_open_room,
+    room_back: on_room_back,
+    room_leave: on_room_leave,
+    room_call: on_room_call,
+    room_copy: on_room_copy,
+    admit: on_admit,
+    verify: on_verify,
 };
 
 fn meet_layout(mut data: RefAny) -> Dom {
@@ -1284,9 +1603,6 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                 room.ticket = event.text.as_str().to_string();
             }
             s.link_status = String::from("waiting for a peer");
-            if let Some(guest) = s.guest.take() {
-                guest.connect(event.text.clone());
-            }
             true
         }
         IrohEventKind::PeerConnected => {
@@ -1303,19 +1619,27 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                 );
                 return false;
             }
-            eprintln!("[azmeet] {}: connected to {}", s.name, short_id(&node_id));
-            s.link_status = format!("connected to {}", short_id(&node_id));
-            if !s.remotes.iter().any(|r| r.handle == event.peer) {
-                s.remotes.push(Remote::new(event.peer, node_id));
+            if !peer_announced(s, &node_id) {
+                // Its signed announcement has not been read here yet: nothing goes to it, nothing
+                // it sends is taken, until a read of the peers list confirms it (CRYPTO.md 10).
+                eprintln!(
+                    "[azmeet] {}: {} connected; waiting for its signed announcement",
+                    s.name,
+                    short_id(&node_id)
+                );
+                if !s.pending.iter().any(|p| p.handle == event.peer) {
+                    s.pending.push(Pending {
+                        handle: event.peer,
+                        node_id,
+                        polls: 0,
+                    });
+                }
+                return false;
             }
-            send_state(s, &[event.peer]);
-            // What this side decodes and encodes; until the peer's answer arrives it gets JPEG.
-            send_caps(s, &[event.peer]);
-            // The new peer's tiles change what this side shows: everyone hears the new report.
-            network_changed(s, true);
-            true
+            accept_peer(s, event.peer, node_id)
         }
         IrohEventKind::PeerDisconnected => {
+            s.pending.retain(|p| p.handle != event.peer);
             let Some(pos) = s.remotes.iter().position(|r| r.handle == event.peer) else {
                 return false;
             };
@@ -1367,11 +1691,63 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
     }
 }
 
-/// Whether a peer may connect: always in the demo; with a meeting server only in a meeting.
+/// Whether a peer may connect: only in a meeting.
 fn accepts_peers(s: &MeetState) -> bool {
-    s.room.as_ref().map_or(true, |room| {
-        matches!(room.stage, Stage::InRoom | Stage::Ended)
-    })
+    s.room
+        .as_ref()
+        .is_some_and(|room| matches!(room.stage, Stage::InRoom | Stage::Ended))
+}
+
+/// Whether the endpoint `node_id` is in the peers list as read last: a member's device signed its
+/// announcement (`on_peers` keeps no other).
+fn peer_announced(s: &MeetState, node_id: &str) -> bool {
+    s.room
+        .as_ref()
+        .is_some_and(|room| room.peers.iter().any(|p| p.node_id == node_id))
+}
+
+/// The peer `node_id` behind connection `handle` is in the call: its state, what this side codes,
+/// and a new report for everyone.
+fn accept_peer(s: &mut MeetState, handle: u64, node_id: String) -> bool {
+    eprintln!("[azmeet] {}: connected to {}", s.name, short_id(&node_id));
+    s.link_status = format!("connected to {}", short_id(&node_id));
+    if !s.remotes.iter().any(|r| r.handle == handle) {
+        s.remotes.push(Remote::new(handle, node_id));
+    }
+    send_state(s, &[handle]);
+    // What this side decodes and encodes; until the peer's answer arrives it gets JPEG.
+    send_caps(s, &[handle]);
+    // The new peer's tiles change what this side shows: everyone hears the new report.
+    network_changed(s, true);
+    true
+}
+
+/// After a read of the peers list: a pending connection whose announcement is there now joins
+/// the call; one still unconfirmed after [`PENDING_POLLS`] reads is dropped. True when the window
+/// changes.
+fn settle_pending(s: &mut MeetState) -> bool {
+    let pending = std::mem::take(&mut s.pending);
+    let mut changed = false;
+    for mut p in pending {
+        if peer_announced(s, &p.node_id) {
+            changed |= accept_peer(s, p.handle, p.node_id);
+            continue;
+        }
+        p.polls += 1;
+        if p.polls >= PENDING_POLLS {
+            eprintln!(
+                "[azmeet] {}: dropped {}: no member signed its announcement",
+                s.name,
+                short_id(&p.node_id)
+            );
+            if let Some(endpoint) = s.endpoint.as_ref() {
+                endpoint.disconnect(p.handle);
+            }
+        } else {
+            s.pending.push(p);
+        }
+    }
+    changed
 }
 
 /// Shows `picture` in the tile of `track` of the peer behind connection `peer`, once that tile
@@ -1976,34 +2352,26 @@ fn send_state_to_all(s: &MeetState) {
     send_state(s, &all_peers(s));
 }
 
-// ==== Chat: one reliable message to every peer (the rules are in chat.rs) ====
+// ==== Chat: the room's end-to-end encrypted chat on the meeting server (`chatroom.rs`) ====
 
-/// This side writes `text` in the chat: listed, and sent to every connected peer. False for an
-/// empty message.
+/// This side writes `text` in the chat of the room on screen (the room view's, else the call's):
+/// listed at once, sealed and sent by the next `chat_tick`. False for an empty message, or no
+/// room to write in.
 fn send_chat(s: &mut MeetState, text: &str) -> bool {
-    let now = now_ms(s);
-    let Some(bytes) = s.chat.compose(s.me, &s.name, text, now) else {
+    let Some(id) = active_room_id(s) else {
         return false;
     };
-    send_message_to(s, &all_peers(s), &bytes);
-    s.unsaved.chat = true;
-    true
-}
-
-/// A chat message from the peer with key `from`: listed (and printed for scripts as
-/// `AZMEET_CHAT <name>: <text>`). True when the window changes.
-fn receive_chat(s: &mut MeetState, from: u64, bytes: &[u8]) -> bool {
-    let name = name_of(s, from);
-    let open = s.panel == SidePanel::Chat;
-    if !s.chat.receive(from, &name, bytes, open) {
+    let Some(me) = s.identity.as_ref() else {
         return false;
+    };
+    let Some(chat) = s.chats.get_mut(&id) else {
+        return false;
+    };
+    let sent = chat.send(me, text, wall_ms()).is_some();
+    if sent {
+        s.unsaved.chats.insert(id);
     }
-    s.unsaved.chat = true;
-    if let Some(message) = s.chat.messages().last() {
-        println!("AZMEET_CHAT {}: {}", message.name, message.text);
-        eprintln!("[azmeet] {}: chat from {}: {}", s.name, message.name, message.text);
-    }
-    true
+    sent
 }
 
 /// One line per connected peer whose audio arrived: what its jitter buffer took in and played,
@@ -3568,9 +3936,6 @@ fn receive_item(
     if let Some(sync) = routes::decode_sync(bytes) {
         return apply_sync(s, conn, sync);
     }
-    if bytes.first() == Some(&chat::KIND_CHAT) {
-        return receive_chat(s, sender, bytes);
-    }
     match video_wire::decode_message(bytes) {
         Some(Message::Packet(header, payload)) => {
             let new_tile = take_video(s, endpoint, sender, conn, &header, payload, pictures);
@@ -3948,70 +4313,122 @@ fn peer_row(s: &MeetState, r: &Remote) -> routes::PeerRow {
 /// The callback a finished request resumes into, on the UI thread.
 type ResumeFn = extern "C" fn(RefAny, CallbackInfo, RefAny) -> Update;
 
+/// What AzMeet calls itself on the meeting server.
+const USER_AGENT: &str = concat!("AzMeet/", env!("CARGO_PKG_VERSION"));
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Verb {
     Get,
     Post,
+    Put,
     Delete,
+}
+
+impl Verb {
+    /// The verb of a request's method name.
+    fn of(method: &str) -> Verb {
+        match method {
+            "POST" => Verb::Post,
+            "PUT" => Verb::Put,
+            "DELETE" => Verb::Delete,
+            _ => Verb::Get,
+        }
+    }
 }
 
 /// One request to the meeting server.
 struct HttpJob {
     verb: Verb,
     url: String,
-    body: String,
+    body: Vec<u8>,
+    /// More headers: a signed request's (CRYPTO.md section 11).
+    headers: Vec<(&'static str, String)>,
     on_result: ResumeFn,
     /// The room session the request was sent in (see `RoomSession::session`).
     session: u32,
+    /// A room's chat request: the room, and what the request is (`on_chat_answer`).
+    chat: Option<(String, chatroom::CallKind)>,
 }
 
 impl HttpJob {
-    fn create_room(room: &RoomSession) -> Self {
+    fn get(url: String, on_result: ResumeFn, session: u32) -> Self {
+        HttpJob {
+            verb: Verb::Get,
+            url,
+            body: Vec::new(),
+            headers: Vec::new(),
+            on_result,
+            session,
+            chat: None,
+        }
+    }
+
+    /// `POST /rooms` with the room this side minted: its id, its invite key, its kind and times
+    /// (the Worker's "links made offline" registration; CRYPTO.md section 4).
+    fn create_room(room: &RoomSession, minting: &Minting) -> Self {
+        let mut body = serde_json::json!({
+            "room": minting.invite.room(),
+            "invite_key": minting.invite.invite_key(),
+            "kind": minting.kind.as_str(),
+        });
+        if let Some((starts, ends)) = &minting.times {
+            body["starts_at"] = serde_json::json!(starts);
+            body["ends_at"] = serde_json::json!(ends);
+        }
         HttpJob {
             verb: Verb::Post,
             url: format!("{}/rooms", room.worker),
-            body: String::from("{}"),
+            body: body.to_string().into_bytes(),
+            headers: Vec::new(),
             on_result: on_room_opened,
             session: room.session,
+            chat: None,
         }
     }
 
     fn look_up(room: &RoomSession, key: &RoomKey) -> Self {
-        HttpJob {
-            verb: Verb::Get,
-            url: format!("{}/rooms/{}?format=json", room.worker, key.as_str()),
-            body: String::new(),
-            on_result: on_room_opened,
-            session: room.session,
-        }
+        HttpJob::get(
+            format!("{}/rooms/{}?format=json", room.worker, key.as_str()),
+            on_room_opened,
+            room.session,
+        )
     }
 
-    fn announce(room: &RoomSession) -> Self {
-        let body = Json::object(vec![
-            JsonKeyValue::create("node_id", Json::string(room.node_id.as_str())),
-            JsonKeyValue::create("ticket", Json::string(room.ticket.as_str())),
-            JsonKeyValue::create("name", Json::string(room.name.as_str())),
-        ]);
+    /// This endpoint's ticket in the room, signed by this device (CRYPTO.md section 10): its
+    /// name is the member record's, sealed, so none goes here.
+    fn announce(room: &RoomSession, me: &crypto::Identity, ts: u64) -> Self {
+        let sig = me.sign(&crypto::peer_input(&room.room_id, &room.node_id, &room.ticket));
+        let body = serde_json::json!({
+            "node_id": room.node_id,
+            "ticket": room.ticket,
+            "name": "",
+            "device": me.device(),
+            "sig": sig,
+        })
+        .to_string()
+        .into_bytes();
+        let path = format!("/rooms/{}/peers", room.room_id);
+        let headers = Vec::from(me.request_headers("POST", &path, ts, &body));
         HttpJob {
             verb: Verb::Post,
-            url: format!("{}/rooms/{}/peers", room.worker, room.room_id),
-            body: body.to_string().as_str().to_string(),
+            url: format!("{}{path}", room.worker),
+            body,
+            headers,
             on_result: on_announced,
             session: room.session,
+            chat: None,
         }
     }
 
     fn poll(room: &RoomSession) -> Self {
-        HttpJob {
-            verb: Verb::Get,
-            url: format!(
+        HttpJob::get(
+            format!(
                 "{}/rooms/{}/peers?except={}",
                 room.worker, room.room_id, room.node_id
             ),
-            body: String::new(),
-            on_result: on_peers,
-            session: room.session,
-        }
+            on_peers,
+            room.session,
+        )
     }
 
     /// The waiting room's read of its meeting's peers list (this side is not announced there).
@@ -4020,41 +4437,57 @@ impl HttpJob {
             .waiting
             .as_ref()
             .map_or("", |found| found.room.as_str());
-        HttpJob {
-            verb: Verb::Get,
-            url: format!(
+        HttpJob::get(
+            format!(
                 "{}/rooms/{}/peers?except={}",
                 room.worker, meeting, room.node_id
             ),
-            body: String::new(),
-            on_result: on_waiting_peers,
-            session: room.session,
-        }
+            on_waiting_peers,
+            room.session,
+        )
     }
 
     /// Whether the meeting server answers (`GET /health`); the answer is matched to the check by
     /// `session`, which holds the check's number here.
     fn health(room: &RoomSession) -> Self {
+        HttpJob::get(format!("{}/health", room.worker), on_health, room.checks)
+    }
+
+    /// Takes this endpoint off the room's list (Leave), signed by the device that announced it.
+    fn leave(room: &RoomSession, me: &crypto::Identity, ts: u64) -> Self {
+        let path = format!("/rooms/{}/peers/{}", room.room_id, room.node_id);
         HttpJob {
-            verb: Verb::Get,
-            url: format!("{}/health", room.worker),
-            body: String::new(),
-            on_result: on_health,
-            session: room.checks,
+            verb: Verb::Delete,
+            url: format!("{}{path}", room.worker),
+            body: Vec::new(),
+            headers: Vec::from(me.request_headers("DELETE", &path, ts, b"")),
+            on_result: on_left,
+            session: room.session,
+            chat: None,
         }
     }
 
-    /// Takes this participant off the room's list (Leave).
-    fn leave(room: &RoomSession) -> Self {
+    /// A room's chat request (`chatroom::Call`), signed when it changes something.
+    fn chat(
+        chat: &chatroom::ChatRoom,
+        me: &crypto::Identity,
+        call: chatroom::Call,
+        now_ms: u64,
+    ) -> Self {
+        let headers = if call.signed {
+            let ts = chat.server_now(now_ms);
+            Vec::from(me.request_headers(call.method, &call.path, ts, &call.body))
+        } else {
+            Vec::new()
+        };
         HttpJob {
-            verb: Verb::Delete,
-            url: format!(
-                "{}/rooms/{}/peers/{}",
-                room.worker, room.room_id, room.node_id
-            ),
-            body: String::new(),
-            on_result: on_left,
-            session: room.session,
+            verb: Verb::of(call.method),
+            url: call.url(&chat.server),
+            body: call.body,
+            headers,
+            on_result: on_chat_answer,
+            session: 0,
+            chat: Some((chat.room.clone(), call.what)),
         }
     }
 }
@@ -4065,11 +4498,12 @@ struct HttpThreadInit {
     app: RefAny,
 }
 
-/// What a finished request resumes with: the participant's `MeetState` and the room session the
-/// request was sent in.
+/// What a finished request resumes with: the participant's `MeetState`, the room session the
+/// request was sent in, and for a chat request its room and what it was.
 struct Reply {
     app: RefAny,
     session: u32,
+    chat: Option<(String, chatroom::CallKind)>,
 }
 
 /// The participant and the session of a resumed request.
@@ -4078,19 +4512,28 @@ fn reply_parts(mut data: RefAny) -> Option<(RefAny, u32)> {
     Some((reply.app.clone(), reply.session))
 }
 
+/// The participant, the room and what the request was, of a resumed chat request.
+fn reply_chat(mut data: RefAny) -> Option<(RefAny, String, chatroom::CallKind)> {
+    let reply = data.downcast_ref::<Reply>()?;
+    let (room, what) = reply.chat.clone()?;
+    Some((reply.app.clone(), room, what))
+}
+
 /// Runs one request on a worker thread. `http_request` blocks here, then queues its answer,
 /// which the UI thread delivers to `on_result` on its next pump (the 15 ms link timer).
 extern "C" fn http_thread(mut init: RefAny, _sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((verb, url, body, on_result, reply)) =
+    let Some((verb, url, body, headers, on_result, reply)) =
         init.downcast_ref::<HttpThreadInit>().map(|i| {
             (
                 i.job.verb,
                 i.job.url.clone(),
                 i.job.body.clone(),
+                i.job.headers.clone(),
                 i.job.on_result,
                 Reply {
                     app: i.app.clone(),
                     session: i.job.session,
+                    chat: i.job.chat.clone(),
                 },
             )
         })
@@ -4100,20 +4543,24 @@ extern "C" fn http_thread(mut init: RefAny, _sender: ThreadSender, _receiver: Th
     let method = match verb {
         Verb::Get => HttpMethod::Get,
         Verb::Post => HttpMethod::Post,
+        Verb::Put => HttpMethod::Put,
         Verb::Delete => HttpMethod::Delete,
     };
-    let _request = HttpRequestConfig::create()
+    let mut config = HttpRequestConfig::create()
         .with_timeout(HTTP_TIMEOUT_SECS)
-        .with_user_agent("AzMeet/0.1")
-        .with_header("accept", "application/json")
-        .http_request(
-            method,
-            url.as_str(),
-            U8Vec::from(body.into_bytes()),
-            "application/json",
-            RefAny::new(reply),
-            on_result,
-        );
+        .with_user_agent(USER_AGENT)
+        .with_header("accept", "application/json");
+    for (name, value) in headers {
+        config = config.with_header(name, value);
+    }
+    let _request = config.http_request(
+        method,
+        url.as_str(),
+        U8Vec::from(body),
+        "application/json",
+        RefAny::new(reply),
+        on_result,
+    );
 }
 
 fn spawn_http(info: &mut CallbackInfo, app: RefAny, job: HttpJob) {
@@ -4152,25 +4599,70 @@ fn http_answer(result: RefAny) -> Result<(u16, Option<Json>), String> {
     Ok((response.status_code, json))
 }
 
+/// The status and the body text of a finished request; no status when nothing answered.
+fn http_reply(result: RefAny) -> (Option<u16>, String) {
+    let Some(answer) = HttpGetResult::downcast(result).into_option() else {
+        return (None, String::new());
+    };
+    match answer.result.into_result() {
+        Ok(response) => (
+            Some(response.status_code),
+            response
+                .body_as_string()
+                .into_option()
+                .map(|body| body.as_str().to_string())
+                .unwrap_or_default(),
+        ),
+        Err(_) => (None, String::new()),
+    }
+}
+
 fn json_text(json: &Json, key: &str) -> Option<String> {
     let value = json.get_key(key).into_option()?;
     let text = value.as_string().into_option()?;
     Some(text.as_str().to_string())
 }
 
-/// What `POST /rooms` and `GET /rooms/<key>` answer.
+/// What `POST /rooms` and `GET /rooms/<key>` answer, and the invite this side holds for it.
+#[derive(Clone)]
 struct RoomInfo {
     room: String,
     code: String,
+    /// The Worker's app link (`azlin://meet/<room>`), without a fragment.
     link: String,
+    kind: chatroom::RoomKind,
+    /// The meeting's times, seconds since 1970.
+    starts_at: Option<u64>,
+    ends_at: Option<u64>,
+    /// The invite key the room was registered with; `None`: not an encrypted room.
+    invite_key: Option<String>,
+    /// The invite of the link this side holds; `None`: joined with the code (a knock).
+    invite: Option<crypto::Invite>,
+}
+
+impl RoomInfo {
+    /// The link others join with: with the invite secret when this side holds it.
+    fn share_link(&self) -> String {
+        rooms::link_with_secret(&self.link, self.invite.as_ref().map(crypto::Invite::secret))
+    }
 }
 
 fn room_info(json: &Json) -> Option<RoomInfo> {
     let room = json_text(json, "room")?;
+    let time = |key: &str| {
+        json_text(json, key)
+            .as_deref()
+            .and_then(azul_storage::time::parse_iso8601)
+    };
     Some(RoomInfo {
         code: json_text(json, "code").unwrap_or_default(),
         link: json_text(json, "link")
             .unwrap_or_else(|| format!("{}{room}", rooms::APP_LINK_PREFIX)),
+        kind: chatroom::RoomKind::parse(json_text(json, "kind").as_deref()),
+        starts_at: time("starts_at"),
+        ends_at: time("ends_at"),
+        invite_key: json_text(json, "invite_key").filter(|k| crypto::is_device(k)),
+        invite: None,
         room,
     })
 }
@@ -4186,7 +4678,43 @@ fn peers_from(json: &Json) -> Vec<PeerRecord> {
                 node_id: json_text(&p, "node_id")?,
                 ticket: json_text(&p, "ticket")?,
                 name: json_text(&p, "name").unwrap_or_default(),
+                device: json_text(&p, "device"),
+                sig: json_text(&p, "sig"),
             })
+        })
+        .collect()
+}
+
+/// The peers of `listed` whose announcement a member of `chat` signed, each with that member's
+/// name (CRYPTO.md section 10); every other is left out, and logged once per read.
+fn verified_peers(
+    chat: Option<&chatroom::ChatRoom>,
+    listed: Vec<PeerRecord>,
+    me: &str,
+) -> Vec<PeerRecord> {
+    let Some(chat) = chat else {
+        return Vec::new();
+    };
+    listed
+        .into_iter()
+        .filter_map(|p| {
+            let member =
+                chat.verify_peer(&p.node_id, &p.ticket, p.device.as_deref(), p.sig.as_deref());
+            match member {
+                Some(m) => Some(PeerRecord {
+                    name: member_name(&m.name),
+                    ..p
+                }),
+                None => {
+                    if p.node_id != me {
+                        eprintln!(
+                            "[azmeet] left out {}: no member signed its announcement",
+                            short_id(&p.node_id)
+                        );
+                    }
+                    None
+                }
+            }
         })
         .collect()
 }
@@ -4231,6 +4759,165 @@ fn meeting_gone(s: &mut MeetState) {
 /// The answer to `POST /rooms` (a new meeting) or `GET /rooms/<key>` (joining a link): the
 /// waiting room shows the meeting (a script's `AZMEET_JOIN` / `AZMEET_AUTOCREATE` enters it at
 /// once).
+/// `found` checked against what this side knows of it (CRYPTO.md section 4): a room this side
+/// minted must come back under the id it made, a link's secret must derive the key the room was
+/// registered with, and a room without an invite key (an older AzMeet's, not encrypted) is
+/// refused. The invite this side holds goes with it; a code holds none (a knock).
+fn check_room(
+    mut found: RoomInfo,
+    minting: Option<Minting>,
+    secret: Option<String>,
+) -> Result<RoomInfo, String> {
+    let Some(key) = found.invite_key.clone() else {
+        return Err(String::from(
+            "This meeting was made by an older AzMeet and is not end-to-end encrypted, so this \
+             AzMeet does not join it.",
+        ));
+    };
+    let invite = match (minting, secret) {
+        (Some(minting), _) => Some(minting.invite),
+        (None, Some(secret)) => Some(crypto::Invite::new(&found.room, &secret).ok_or_else(|| {
+            String::from("That link's secret is damaged: ask for the link again.")
+        })?),
+        (None, None) => None,
+    };
+    if let Some(invite) = &invite {
+        if invite.room() != found.room || invite.invite_key() != key {
+            return Err(String::from(
+                "The meeting server sent a room that does not match this link.",
+            ));
+        }
+    }
+    found.invite = invite;
+    Ok(found)
+}
+
+/// The chat room of `found` on this device: made when it is not here yet (with the invite of the
+/// link, this device's name), its code, kind and times as the meeting server said.
+fn ensure_chat(s: &mut MeetState, found: &RoomInfo) {
+    let worker = s.room.as_ref().map(|r| r.worker.clone()).unwrap_or_default();
+    let name = s.name.clone();
+    let chat = s.chats.entry(found.room.clone()).or_insert_with(|| {
+        chatroom::ChatRoom::new(
+            &worker,
+            &found.room,
+            &found.code,
+            found.kind,
+            found.invite.clone(),
+            &name,
+        )
+    });
+    chat.kind = found.kind;
+    chat.starts_at = found.starts_at;
+    chat.ends_at = found.ends_at;
+    if !found.code.is_empty() {
+        chat.code = found.code.clone();
+    }
+}
+
+/// `meet/rooms.json` learns what this device knows of room `id` now: kept on the next
+/// `flush_files` when it changed.
+fn remember_room(s: &mut MeetState, id: &str) {
+    let Some(me) = s.identity.as_ref() else {
+        return;
+    };
+    let Some(chat) = s.chats.get(id) else {
+        return;
+    };
+    if !matches!(
+        chat.state,
+        chatroom::Membership::Member
+            | chatroom::Membership::Knocking
+            | chatroom::Membership::Joining
+    ) {
+        return;
+    }
+    let existing = s.index.get(me.device(), id).cloned();
+    // The invite secret is sealed once: a new seal (a new nonce) would rewrite the file each time.
+    let invite = existing
+        .as_ref()
+        .and_then(|e| e.invite.clone())
+        .or_else(|| chat.invite().and_then(|i| me.seal_local(id, i.secret()).ok()));
+    let entry = roomlist::RoomEntry {
+        room: id.to_string(),
+        code: chat.code.clone(),
+        kind: chat.kind.as_str().to_string(),
+        server: chat.server.clone(),
+        starts_at: chat.starts_at,
+        ends_at: chat.ends_at,
+        device: me.device().to_string(),
+        invite,
+        member: chat.state != chatroom::Membership::Knocking,
+        read_seq: chat.read_seq,
+        departed: chat.departed().clone(),
+        joined: existing.map_or_else(azul_storage::time::now_unix, |e| e.joined),
+    };
+    if s.index.upsert(entry) {
+        s.unsaved.index = true;
+    }
+}
+
+/// The meeting `found` was opened: a chat room opens in the room view (joined), a meeting in its
+/// waiting room - or at once for a script (`AZMEET_JOIN`, `AZMEET_AUTOCREATE`). The request to
+/// send next, if any.
+fn open_found(
+    s: &mut MeetState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    found: RoomInfo,
+) -> Option<HttpJob> {
+    ensure_chat(s, &found);
+    if found.kind == chatroom::RoomKind::Chat {
+        if let Some(room) = s.room.as_mut() {
+            room.stage = Stage::Start;
+            room.created = false;
+        }
+        println!("AZMEET_LINK {}", found.share_link());
+        if !found.code.is_empty() {
+            println!("AZMEET_CODE {}", found.code);
+        }
+        open_room_view(s, &found.room, true);
+        return None;
+    }
+    let straight_in = s.room.as_ref().is_some_and(|room| room.straight_in);
+    if straight_in {
+        apply_join_defaults(s);
+        return enter_room(s, info, app, found);
+    }
+    // For scripts: the waiting room is up, for this link.
+    println!("AZMEET_WAITING {}", found.share_link());
+    if let (Some(a), Some(b)) = (found.starts_at, found.ends_at) {
+        println!(
+            "AZMEET_TIMES {} {}",
+            azul_storage::time::iso8601(a),
+            azul_storage::time::iso8601(b)
+        );
+    }
+    eprintln!(
+        "[azmeet] {}: in the waiting room of meeting {} ({}){}",
+        s.name,
+        found.code,
+        found.room,
+        if found.invite.is_none() {
+            ", with its code: a member lets this device in"
+        } else {
+            ""
+        }
+    );
+    let room = s.room.as_mut()?;
+    room.stage = Stage::Waiting;
+    room.copied = false;
+    room.waiting = Some(found);
+    room.close_waiting();
+    // Who is in the meeting already: asked now, then every poll while waiting.
+    let job = room.waiting_job();
+    s.notice.clear();
+    apply_join_defaults(s);
+    job
+}
+
+/// The answer to `POST /rooms` (a room this side minted) or `GET /rooms/<key>` (a link or a code
+/// looked up): checked against the link (`check_room`), then opened (`open_found`).
 extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut data, session)) = reply_parts(data) else {
         return Update::DoNothing;
@@ -4249,40 +4936,33 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
             return Update::DoNothing;
         }
         room.busy = false;
+        let minting = room.minting.take();
+        let secret = room.join_secret.take();
+        let worker = room.worker.clone();
         let found = match &answer {
             Ok((200 | 201, Some(json))) => room_info(json),
             _ => None,
         };
-        match found {
-            Some(found) if room.straight_in => {
-                apply_join_defaults(s);
-                enter_room(s, &mut info, &app, found)
-            }
-            Some(found) => {
-                // For scripts: the waiting room is up, for this link.
-                println!("AZMEET_WAITING {}", found.link);
-                eprintln!(
-                    "[azmeet] {}: in the waiting room of meeting {} ({})",
-                    s.name, found.code, found.room
-                );
-                room.stage = Stage::Waiting;
-                room.copied = false;
-                room.waiting = Some(found);
-                room.close_waiting();
-                // Who is in the meeting already: asked now, then every poll while waiting.
-                let job = room.waiting_job();
-                s.notice.clear();
-                apply_join_defaults(s);
-                job
+        match found.map(|found| check_room(found, minting, secret)) {
+            Some(Ok(found)) => open_found(s, &mut info, &app, found),
+            Some(Err(why)) => {
+                if let Some(room) = s.room.as_mut() {
+                    room.stage = Stage::Start;
+                }
+                eprintln!("[azmeet] {}: {why}", s.name);
+                s.notice = why;
+                None
             }
             None => {
-                room.stage = Stage::Start;
+                if let Some(room) = s.room.as_mut() {
+                    room.stage = Stage::Start;
+                }
                 s.notice = match &answer {
                     Ok((404, _)) => String::from("This meeting has ended, or the link is wrong."),
                     Ok((200 | 201, _)) => {
                         String::from("The meeting server sent an answer AzMeet cannot read.")
                     }
-                    other => server_trouble(&room.worker, other),
+                    other => server_trouble(&worker, other),
                 };
                 None
             }
@@ -4294,7 +4974,8 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
     Update::RefreshDom
 }
 
-/// The answer to an announcement; a successful one is followed by a read of the peers list.
+/// The answer to an announcement; a successful one is followed by a read of the peers list, and
+/// says how long the Worker keeps a ticket (the next announcement comes after a sixth of that).
 extern "C" fn on_announced(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut data, session)) = reply_parts(data) else {
         return Update::DoNothing;
@@ -4314,7 +4995,20 @@ extern "C" fn on_announced(data: RefAny, mut info: CallbackInfo, result: RefAny)
         }
         room.busy = false;
         match &answer {
-            Ok((200, _)) => {
+            Ok((200, json)) => {
+                let ttl = json
+                    .as_ref()
+                    .and_then(|j| j.get_key("peer_ttl_seconds").into_option())
+                    .and_then(|v| {
+                        v.as_int()
+                            .into_option()
+                            .map(|n| n as f64)
+                            .or_else(|| v.as_float().into_option())
+                    })
+                    .filter(|ttl| *ttl >= 1.0);
+                if let Some(ttl) = ttl {
+                    room.reannounce_polls = rooms::reannounce_polls(ttl, ROOM_POLL_MS);
+                }
                 let update = if room.trouble {
                     room.trouble = false;
                     s.notice.clear();
@@ -4344,7 +5038,8 @@ extern "C" fn on_announced(data: RefAny, mut info: CallbackInfo, result: RefAny)
     update
 }
 
-/// The peers list: dial who this side should dial.
+/// The peers list: only the announcements a member's device signed count (CRYPTO.md section 10);
+/// dial who this side should dial, and let in the connections that waited for theirs.
 extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut data, session)) = reply_parts(data) else {
         return Update::DoNothing;
@@ -4364,7 +5059,8 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
     room.busy = false;
     match answer {
         Ok((200, Some(json))) => {
-            let listed = peers_from(&json);
+            let me = room.node_id.clone();
+            let listed = verified_peers(s.chats.get(&room.room_id), peers_from(&json), &me);
             let diff = rooms::diff_peers(&room.peers, &listed, &room.node_id);
             for p in &diff.joined {
                 eprintln!(
@@ -4405,6 +5101,7 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
                 s.notice.clear();
                 changed = true;
             }
+            changed |= settle_pending(s);
             if changed {
                 Update::RefreshDom
             } else {
@@ -4423,9 +5120,10 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
     }
 }
 
-/// The waiting room's read of its meeting's peers list: who is in the meeting already ("Ada is in
-/// this meeting"). An answer for a waiting room since left is ignored; a meeting that ended says
-/// so.
+/// The waiting room's read of its meeting's peers list: who is in the call already ("Ada is in
+/// this meeting"), by the names of the members whose devices signed the announcements (a device
+/// with only the code reads no names: "Someone"). An answer for a waiting room since left is
+/// ignored; a meeting that ended says so.
 extern "C" fn on_waiting_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut data, session)) = reply_parts(data) else {
         return Update::DoNothing;
@@ -4444,16 +5142,12 @@ extern "C" fn on_waiting_peers(data: RefAny, _info: CallbackInfo, result: RefAny
     room.waiting_busy = false;
     match answer {
         Ok((200, Some(json))) => {
-            let names: Vec<String> = peers_from(&json)
+            let meeting = room.waiting.as_ref().map(|found| found.room.clone()).unwrap_or_default();
+            let me = room.node_id.clone();
+            let names: Vec<String> = verified_peers(s.chats.get(&meeting), peers_from(&json), &me)
                 .into_iter()
-                .filter(|p| p.node_id != room.node_id)
-                .map(|p| {
-                    if p.name.trim().is_empty() {
-                        short_id(&p.node_id).to_string()
-                    } else {
-                        p.name
-                    }
-                })
+                .filter(|p| p.node_id != me)
+                .map(|p| p.name)
                 .collect();
             if room.waiting_people.as_ref() == Some(&names) {
                 return Update::DoNothing;
@@ -4709,31 +5403,33 @@ fn remember(s: &mut MeetState, change: impl FnOnce(&mut store::Prefs)) {
 }
 
 /// Has the kit write `meet/settings.json` on its file thread (`AZMEET_SETTINGS_SAVED`) when
-/// [`remember`] changed something since the last time. Not for a participant that keeps no
-/// files (the demo's second window, a headless run without a data root): its kit only
-/// remembers.
+/// [`remember`] changed something since the last time. Not in a headless run without a data root
+/// of its own (`files_root` is `None`): its kit only remembers.
 fn save_prefs(s: &mut MeetState, info: &mut CallbackInfo) {
     if !std::mem::take(&mut s.prefs_unsaved) {
         return;
     }
-    if s.keeps_files && files_root().is_some() {
+    if files_root().is_some() {
         kit::save_settings(&s.kit, info);
     }
 }
 
-/// The folder name of the meeting this side is in: the meeting server's room id, or the demo's
-/// code.
+/// The folder name of the meeting this side is in: the meeting server's room id.
 fn meeting_name(s: &MeetState) -> String {
-    match &s.room {
-        Some(room) => room.room_id.clone(),
-        None => s.meeting.clone(),
-    }
+    s.room
+        .as_ref()
+        .map(|room| room.room_id.clone())
+        .unwrap_or_default()
 }
 
-/// The record of the meeting just entered (`meeting.json`): this side first.
+/// The record of the meeting just entered (`meeting.json`): this side first. Its link is the bare
+/// one: the invite secret stays out of the plain files (`meet/rooms.json` keeps it sealed).
 fn enter_record(s: &mut MeetState) {
     let (link, server) = match &s.room {
-        Some(room) => (room.link.clone(), room.worker.clone()),
+        Some(room) => (
+            rooms::link_with_secret(&room.link, None),
+            room.worker.clone(),
+        ),
         None => (String::new(), String::new()),
     };
     s.record = Some(store::MeetingRecord {
@@ -4746,21 +5442,22 @@ fn enter_record(s: &mut MeetState) {
     s.unsaved.record = true;
 }
 
-/// Everyone met in this meeting goes into its record, once, by the name they gave (a peer the
-/// meeting server has not named yet waits for the next round).
+/// Everyone met in this meeting goes into its record, once, by their member's name (a peer whose
+/// announcement no member signed is not in the call).
 fn note_people(s: &mut MeetState) {
-    let names: Vec<String> = s
-        .remotes
-        .iter()
-        .filter_map(|r| match &s.room {
-            Some(room) => room
-                .peers
-                .iter()
-                .find(|p| p.node_id == r.node_id)
-                .map(|p| p.name.clone()),
-            None => (!s.peer_name.is_empty()).then(|| s.peer_name.clone()),
-        })
-        .collect();
+    let names: Vec<String> = match &s.room {
+        Some(room) => s
+            .remotes
+            .iter()
+            .filter_map(|r| {
+                room.peers
+                    .iter()
+                    .find(|p| p.node_id == r.node_id)
+                    .map(|p| p.name.clone())
+            })
+            .collect(),
+        None => Vec::new(),
+    };
     let Some(record) = s.record.as_mut() else {
         return;
     };
@@ -4772,52 +5469,66 @@ fn note_people(s: &mut MeetState) {
 }
 
 /// Writes what changed since the last call into the data tree, on the save thread (never here):
-/// the meeting's record, its chat (the settings are the kit's: [`save_prefs`]). Nothing in a run
-/// without a data root, or for the demo's second window. Called on every pump: without a change
+/// the meeting's record, each changed room's chat, the room list (the settings are the kit's:
+/// [`save_prefs`]). Nothing in a run without a data root. Called on every pump: without a change
 /// it returns at once.
 fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
     let mut unsaved = std::mem::take(&mut s.unsaved);
-    if s.reading_history {
-        // The earlier visit's chat and record are on their way back: they are written once they
-        // are in (`on_history_read`), never the new ones over them.
-        s.unsaved.chat = unsaved.chat;
-        s.unsaved.record = unsaved.record;
-        unsaved.chat = false;
+    let meeting = meeting_name(s);
+    // The rooms whose earlier visit's files are on their way back: written once they are in
+    // (`on_history_read`), never the new ones over them.
+    if unsaved.record && s.reading_history.contains(&meeting) {
+        s.unsaved.record = true;
         unsaved.record = false;
     }
-    if !unsaved.record && !unsaved.chat {
+    let reading: Vec<String> = unsaved
+        .chats
+        .iter()
+        .filter(|id| s.reading_history.contains(*id))
+        .cloned()
+        .collect();
+    for id in reading {
+        unsaved.chats.remove(&id);
+        s.unsaved.chats.insert(id);
+    }
+    if !unsaved.record && unsaved.chats.is_empty() && !unsaved.index {
         return;
     }
-    let Some(root) = files_root().filter(|_| s.keeps_files) else {
+    let Some(root) = files_root() else {
         return;
     };
     let mut files = Vec::new();
-    let meeting = meeting_name(s);
     if unsaved.record {
         if let (Some(key), Some(record)) = (store::meeting_key(&meeting), s.record.as_ref()) {
             files.push((key, record.to_json().into_bytes()));
         }
     }
-    if unsaved.chat {
-        if let Some(key) = store::chat_key(&meeting) {
-            files.push((key, store::chat_lines(s.chat.messages()).into_bytes()));
+    for id in &unsaved.chats {
+        if let (Some(key), Some(chat)) = (store::chat_key(id), s.chats.get(id)) {
+            files.push((key, store::chat_lines(chat.messages()).into_bytes()));
         }
+    }
+    if unsaved.index {
+        files.push((store::index_key(), s.index.to_json().into_bytes()));
     }
     store::save(info, root, files);
 }
 
-/// Reads the files an earlier visit to the meeting just entered left (`meet/<meeting>/chat.jsonl`
-/// and `meeting.json`) on a Thread; `on_history_read` lists that chat before what is said now.
-fn read_history(s: &mut MeetState, info: &mut CallbackInfo, app: RefAny) {
-    let Some(root) = files_root().filter(|_| s.keeps_files) else {
+/// Reads the files an earlier visit to room `room` left (`meet/<room>/chat.jsonl` and
+/// `meeting.json`) on a Thread; `on_history_read` lists that chat in its places.
+fn read_history(s: &mut MeetState, info: &mut CallbackInfo, app: RefAny, room: &str) {
+    let Some(root) = files_root() else {
         return;
     };
-    s.reading_history = true;
-    store::read_meeting(info, root, &meeting_name(s), app, on_history_read);
+    if !s.reading_history.insert(room.to_string()) {
+        return;
+    }
+    store::read_meeting(info, root, room, app, on_history_read);
 }
 
-/// The earlier visit's files are in: its chat goes before what was said since (`AZMEET_CHAT_RESTORED
-/// <n>`), the people it met join the record; then both files are written whole.
+/// The earlier visit's files are in: its chat is listed in its places (`AZMEET_CHAT_RESTORED
+/// <n>`, the messages the file held; one the meeting server still has is listed once), the
+/// people it met join the record; then the files are written whole.
 extern "C" fn on_history_read(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some((meeting, chat, record)) = msg
         .downcast_ref::<store::Earlier>()
@@ -4829,15 +5540,26 @@ extern "C" fn on_history_read(mut data: RefAny, mut msg: RefAny, mut info: Callb
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    s.reading_history = false;
-    if meeting_name(s) == meeting {
-        let earlier = chat.map(|text| store::parse_chat(&text, s.me)).unwrap_or_default();
-        if !earlier.is_empty() {
-            println!("AZMEET_CHAT_RESTORED {}", earlier.len());
-            s.chat.restore(earlier);
-            s.unsaved.chat = true;
+    s.reading_history.remove(&meeting);
+    let me = s
+        .identity
+        .as_ref()
+        .map(|i| i.device().to_string())
+        .unwrap_or_default();
+    let earlier = chat
+        .map(|text| store::parse_chat(&text, &me))
+        .unwrap_or_default();
+    if !earlier.is_empty() {
+        println!("AZMEET_CHAT_RESTORED {}", earlier.len());
+        if let Some(room) = s.chats.get_mut(&meeting) {
+            room.restore(earlier);
         }
-        let people = record.map(|text| store::record_people(&text)).unwrap_or_default();
+        s.unsaved.chats.insert(meeting.clone());
+    }
+    if meeting_name(s) == meeting {
+        let people = record
+            .map(|text| store::record_people(&text))
+            .unwrap_or_default();
         if let Some(current) = s.record.as_mut() {
             for name in people {
                 if current.met(&name) {
@@ -4876,10 +5598,100 @@ extern "C" fn on_left(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upda
     Update::DoNothing
 }
 
-/// Every 2 seconds in a room: announce when due, else read the peers list.
+/// This computer's clock, milliseconds since 1970 (what the meeting server's times are in).
+fn wall_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// This computer's time zone (seconds east of UTC) at `unix` seconds: summer time where it is
+/// summer time then.
+fn local_offset_at(unix: u64) -> i32 {
+    use chrono::TimeZone;
+    i64::try_from(unix)
+        .ok()
+        .and_then(|t| chrono::Local.timestamp_opt(t, 0).single())
+        .map_or_else(
+            || chrono::Local::now().offset().local_minus_utc(),
+            |t| t.offset().local_minus_utc(),
+        )
+}
+
+/// What the start screen says while no meeting server is set.
+fn no_server_notice() -> String {
+    String::from(
+        "No meeting server is set: type its address under Meeting server and press Enter, or \
+         start AzMeet with --worker <url>.",
+    )
+}
+
+/// A check of the meeting server (`GET /health`), counted and timed.
+fn check_server(room: &mut RoomSession, now: u64) -> HttpJob {
+    room.checks = room.checks.wrapping_add(1);
+    room.checked_at = now;
+    room.server_status = format!("Asking {} ...", room.worker);
+    HttpJob::health(room)
+}
+
+/// On the start screen, a meeting server that did not answer is asked again every
+/// [`SERVER_RETRY_MS`]: an outage ends by itself, not with a restart.
+fn server_retry(s: &mut MeetState) -> Option<HttpJob> {
+    let room = s.room.as_mut()?;
+    if room.stage != Stage::Start || room.server_ok || room.worker.is_empty() {
+        return None;
+    }
+    let now = wall_ms();
+    if now.saturating_sub(room.checked_at) < SERVER_RETRY_MS {
+        return None;
+    }
+    Some(check_server(room, now))
+}
+
+/// The signer of this device's announcements in the call's room: its identity and the meeting
+/// server's time, once the room's chat says this device is a member (the Worker takes an
+/// announcement from a member only).
+fn call_signer_ts(s: &MeetState) -> Option<u64> {
+    let id = s.room.as_ref().map(|room| room.room_id.as_str())?;
+    s.chats
+        .get(id)
+        .filter(|c| c.state == chatroom::Membership::Member)
+        .map(|c| c.server_now(wall_ms()))
+}
+
+/// The ticket this endpoint announces names its addresses as they are now: the `Ready` event's
+/// may predate its home relay (or a new network), and without the relay in the ticket a peer
+/// behind NAT cannot be reached where no address lookup runs (azcloud's lesson, 10267afec). A
+/// changed ticket is announced at once; a peer not connected yet dials the new one.
+fn refresh_ticket(s: &mut MeetState) {
+    let (Some(endpoint), Some(room)) = (s.endpoint.as_ref(), s.room.as_mut()) else {
+        return;
+    };
+    if room.ticket.is_empty() {
+        // Not ready yet: the `Ready` event brings the first one.
+        return;
+    }
+    let now = endpoint.ticket().as_str().to_string();
+    if !now.is_empty() && now != room.ticket {
+        eprintln!("[azmeet] {}: this endpoint's addresses changed: announcing them", s.name);
+        room.ticket = now;
+        room.announced_at = None;
+    }
+}
+
+/// Every 2 seconds: in a room, announce when due (once this device is a member there), else read
+/// the peers list; on the start screen, ask a meeting server that did not answer again now and
+/// then.
 extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
     let job = match data.downcast_mut::<MeetState>() {
-        Some(mut s) => s.room.as_mut().and_then(|room| room.next_job()),
+        Some(mut guard) => {
+            let s = &mut *guard;
+            refresh_ticket(s);
+            let ts = call_signer_ts(s);
+            let signer = s.identity.as_ref().zip(ts);
+            let job = s.room.as_mut().and_then(|room| room.next_job(signer));
+            job.or_else(|| server_retry(s))
+        }
         None => None,
     };
     if let Some(job) = job {
@@ -4888,65 +5700,388 @@ extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     TimerCallbackReturn::continue_unchanged()
 }
 
-/// Asks the meeting server for a new meeting; its waiting room opens with the answer
-/// (`straight_in`: the meeting is entered at once - a script's).
-fn begin_new_meeting(data: &mut RefAny, info: &mut CallbackInfo, straight_in: bool) -> Update {
+/// Every [`CHAT_TICK_MS`]: each room's next request (`ChatRoom::next_call`), on its Thread.
+extern "C" fn chat_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let jobs = match data.downcast_mut::<MeetState>() {
+        Some(mut guard) => chat_jobs(&mut guard),
+        None => Vec::new(),
+    };
+    for job in jobs {
+        spawn_http(&mut info.callback_info, data.clone(), job);
+    }
+    TimerCallbackReturn::continue_unchanged()
+}
+
+/// The requests the rooms send now: the room on screen is read every [`CHAT_OPEN_SYNC_MS`], the
+/// others every [`CHAT_IDLE_SYNC_MS`] (their unread counts).
+fn chat_jobs(s: &mut MeetState) -> Vec<HttpJob> {
+    let open = active_room_id(s);
+    let now = wall_ms();
+    let Some(me) = s.identity.as_ref() else {
+        return Vec::new();
+    };
+    let mut jobs = Vec::new();
+    for (id, chat) in s.chats.iter_mut() {
+        let every = if open.as_deref() == Some(id.as_str()) {
+            CHAT_OPEN_SYNC_MS
+        } else {
+            CHAT_IDLE_SYNC_MS
+        };
+        if let Some(call) = chat.next_call(me, now, every) {
+            jobs.push(HttpJob::chat(chat, me, call, now));
+        }
+    }
+    jobs
+}
+
+/// A room's answer: into its `ChatRoom`, and what that changed out to stdout, the files and the
+/// window (`apply_chat_changes`).
+extern "C" fn on_chat_answer(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut app, room, what)) = reply_chat(data) else {
+        return Update::DoNothing;
+    };
+    let (status, body) = http_reply(result);
+    let handle = app.clone();
+    let (update, follow_up) = {
+        let Some(mut guard) = app.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let changes = {
+            let (Some(me), Some(chat)) = (s.identity.as_ref(), s.chats.get_mut(&room)) else {
+                return Update::DoNothing;
+            };
+            chat.on_answer(me, &what, status, &body, wall_ms())
+        };
+        apply_chat_changes(s, &mut info, &handle, &room, changes)
+    };
+    if let Some(job) = follow_up {
+        spawn_http(&mut info, handle, job);
+    }
+    update
+}
+
+/// The name of the member `device` of room `room`, as the window shows it.
+fn chat_member_name(s: &MeetState, room: &str, device: &str) -> String {
+    s.chats
+        .get(room)
+        .and_then(|c| c.member(device))
+        .map(|m| member_name(&m.name))
+        .unwrap_or_else(|| short_id(device).to_string())
+}
+
+/// What a room's answer changed: the lines for scripts (`AZMEET_CHAT`, `AZMEET_KEY`,
+/// `AZMEET_MEMBER`, `AZMEET_HISTORY`, `AZMEET_ADMITTED`), what is on screen marked read, the files,
+/// the room list, a knock let in entering its meeting, a room left forgotten. The window's
+/// update, and a request to send.
+fn apply_chat_changes(
+    s: &mut MeetState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    id: &str,
+    changes: chatroom::Changes,
+) -> (Update, Option<HttpJob>) {
+    for m in &changes.arrived {
+        let name = member_name(&m.name);
+        println!("AZMEET_CHAT {name}: {}", m.text);
+        eprintln!("[azmeet] {}: chat from {name}: {}", s.name, m.text);
+    }
+    for k in &changes.keys {
+        let by = if k.made_here {
+            String::from("me")
+        } else {
+            chat_member_name(s, id, &k.sender)
+        };
+        println!(
+            "AZMEET_KEY {id} epoch={} key={} members={} by={by}",
+            k.epoch, k.key_id, k.members
+        );
+    }
+    for (what, list) in [
+        ("joined", &changes.joined),
+        ("left", &changes.left),
+        ("knocking", &changes.knocking),
+    ] {
+        for m in list.iter() {
+            println!(
+                "AZMEET_MEMBER {id} {what} {} {}",
+                member_name(&m.name),
+                m.safety_code
+            );
+        }
+    }
+    if let Some(n) = changes.history {
+        println!("AZMEET_HISTORY {id} {n}");
+    }
+    if changes.admitted {
+        println!("AZMEET_ADMITTED {id}");
+    }
+    if let Some(problem) = &changes.problem {
+        eprintln!("[azmeet] {}: room {}: {problem}", s.name, short_id(id));
+        if active_room_id(s).as_deref() == Some(id) {
+            s.notice = problem.clone();
+        }
+    }
+    // What is on screen is read.
+    let on_screen = s.open_room.as_deref() == Some(id)
+        || (call_room_id(s).as_deref() == Some(id) && s.panel == SidePanel::Chat);
+    if on_screen {
+        if let Some(chat) = s.chats.get_mut(id) {
+            chat.mark_read();
+        }
+    }
+    if !changes.arrived.is_empty() || changes.history.is_some() || changes.shown {
+        s.unsaved.chats.insert(id.to_string());
+    }
+    let mut follow_up = None;
+    match s.chats.get(id).map(|c| c.state) {
+        Some(chatroom::Membership::Left) => forget_room(s, id),
+        Some(chatroom::Membership::Member) => {
+            remember_room(s, id);
+            follow_up = enter_admitted(s, info, app, id);
+        }
+        Some(_) => remember_room(s, id),
+        None => {}
+    }
+    flush_files(s, info);
+    let update = if changes.shown || follow_up.is_some() {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    };
+    (update, follow_up)
+}
+
+/// A knock was let in: the waiting room that asked enters its meeting now, with the link the
+/// room's first key brought.
+fn enter_admitted(
+    s: &mut MeetState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    id: &str,
+) -> Option<HttpJob> {
+    let invite = s.chats.get(id).and_then(|c| c.invite().cloned())?;
+    let room = s.room.as_mut()?;
+    let waiting_here = room.waiting.as_ref().map(|found| found.room.as_str()) == Some(id);
+    if room.stage != Stage::Waiting || !room.asked || !waiting_here {
+        return None;
+    }
+    let mut found = room.waiting.take()?;
+    found.invite = Some(invite);
+    eprintln!("[azmeet] {}: let in: into the meeting", s.name);
+    enter_room(s, info, app, found)
+}
+
+/// Room `id` was left: off the room list, out of memory, its view closed.
+fn forget_room(s: &mut MeetState, id: &str) {
+    if let Some(me) = s.identity.as_ref() {
+        if s.index.remove(me.device(), id) {
+            s.unsaved.index = true;
+        }
+    }
+    s.chats.remove(id);
+    if s.open_room.as_deref() == Some(id) {
+        s.open_room = None;
+        s.room_copied = false;
+    }
+    s.notice = String::from("You left the room.");
+    println!("AZMEET_LEFT_ROOM {id}");
+}
+
+/// Makes a new room here - its id and its invite secret (CRYPTO.md section 4) - and registers it
+/// with the meeting server; its waiting room (a chat room's view) opens with the answer
+/// (`straight_in`: a meeting is entered at once - a script's). `times`: RFC 3339 start and end.
+fn begin_new_room(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    straight_in: bool,
+    kind: chatroom::RoomKind,
+    times: Option<(String, String)>,
+) -> Update {
     let job = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
             return Update::DoNothing;
         };
         let s = &mut *guard;
+        if s.identity.is_none() {
+            s.notice = String::from("This device's key is not loaded yet: a moment, please.");
+            return Update::RefreshDom;
+        }
         let Some(room) = s.room.as_mut() else {
             return Update::DoNothing;
         };
         if room.stage != Stage::Start || room.busy {
             return Update::DoNothing;
         }
+        if room.worker.is_empty() {
+            s.notice = no_server_notice();
+            return Update::RefreshDom;
+        }
+        let invite = crypto::random_id()
+            .ok()
+            .and_then(|id| crypto::Invite::generate(&id).ok());
+        let Some(invite) = invite else {
+            s.notice = String::from("The system's random source failed: no room can be made.");
+            return Update::RefreshDom;
+        };
         room.stage = Stage::Opening;
         room.busy = true;
         room.created = true;
         room.straight_in = straight_in;
-        s.notice = String::from("Asking the meeting server for a new meeting...");
-        HttpJob::create_room(room)
+        room.join_secret = None;
+        let minting = Minting { invite, kind, times };
+        let job = HttpJob::create_room(room, &minting);
+        room.minting = Some(minting);
+        s.open_room = None;
+        s.notice = String::from(match kind {
+            chatroom::RoomKind::Chat => "Making a new chat room...",
+            chatroom::RoomKind::Meeting => "Asking the meeting server for a new meeting...",
+        });
+        job
     };
     spawn_http(info, data.clone(), job);
     Update::RefreshDom
 }
 
-/// Looks the meeting of `text` (a link or a code) up; its waiting room opens with the answer
-/// (`straight_in`: the meeting is entered at once - a script's).
+/// Looks the meeting of `text` (a link or a code) up; its waiting room (a chat room's view) opens
+/// with the answer (`straight_in`: a meeting is entered at once - a script's). A bare link of a
+/// room this device is in uses the link it keeps.
 fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str, straight_in: bool) -> Update {
     let job = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
             return Update::DoNothing;
         };
         let s = &mut *guard;
+        if s.identity.is_none() {
+            s.notice = String::from("This device's key is not loaded yet: a moment, please.");
+            return Update::RefreshDom;
+        }
         let Some(room) = s.room.as_mut() else {
             return Update::DoNothing;
         };
         if room.stage != Stage::Start || room.busy {
             return Update::DoNothing;
         }
-        let Some(key) = rooms::parse_room_link(text) else {
+        if room.worker.is_empty() {
+            s.notice = no_server_notice();
+            return Update::RefreshDom;
+        }
+        let Some(link) = rooms::read_room_link(text) else {
             s.notice = String::from(
                 "That is not a meeting link. Paste an azlin://meet/... link, the meeting's web \
                  address, or its code.",
             );
             return Update::RefreshDom;
         };
+        let kept = match &link.key {
+            RoomKey::Id(id) => s
+                .chats
+                .get(id)
+                .and_then(|c| c.invite().map(|i| i.secret().to_string())),
+            RoomKey::Code(_) => None,
+        };
         room.stage = Stage::Opening;
         room.busy = true;
         room.created = false;
         room.straight_in = straight_in;
+        room.minting = None;
+        room.join_secret = link.secret.clone().or(kept);
+        s.open_room = None;
         s.notice = String::from("Looking up the meeting...");
-        HttpJob::look_up(room, &key)
+        HttpJob::look_up(room, &link.key)
     };
     spawn_http(info, data.clone(), job);
     Update::RefreshDom
 }
 
 extern "C" fn on_new_meeting(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    begin_new_meeting(&mut data, &mut info, false)
+    begin_new_room(&mut data, &mut info, false, chatroom::RoomKind::Meeting, None)
+}
+
+extern "C" fn on_new_chat_room(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    begin_new_room(&mut data, &mut info, false, chatroom::RoomKind::Chat, None)
+}
+
+/// The times the "Schedule" form asks for: the start in this computer's time zone, the length in
+/// minutes; RFC 3339 in UTC, as the Worker takes them.
+fn schedule_times(start: &str, minutes: &str) -> Result<(String, String), String> {
+    let today = local_offset_at(azul_storage::time::now_unix());
+    let first_guess = rooms::parse_local_start(start, today)
+        .ok_or_else(|| String::from("Type the start as 2026-10-09 14:00 (your time)."))?;
+    // The offset of the day it starts on (summer time or not), not today's.
+    let starts =
+        rooms::parse_local_start(start, local_offset_at(first_guess)).unwrap_or(first_guess);
+    let minutes = minutes
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|m| (1..=10_080).contains(m))
+        .ok_or_else(|| String::from("Type how long the meeting lasts, in minutes (1 to 10080)."))?;
+    Ok((
+        azul_storage::time::iso8601(starts),
+        azul_storage::time::iso8601(starts + minutes * 60),
+    ))
+}
+
+/// "Schedule": a meeting with the form's start and length.
+extern "C" fn on_schedule(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let times = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let (start, minutes) = s
+            .room
+            .as_ref()
+            .map(|room| (room.schedule_start.clone(), room.schedule_minutes.clone()))
+            .unwrap_or_default();
+        match schedule_times(&start, &minutes) {
+            Ok(times) => times,
+            Err(why) => {
+                s.notice = why;
+                return Update::RefreshDom;
+            }
+        }
+    };
+    begin_new_room(
+        &mut data,
+        &mut info,
+        false,
+        chatroom::RoomKind::Meeting,
+        Some(times),
+    )
+}
+
+extern "C" fn on_schedule_start(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        if let Some(room) = s.room.as_mut() {
+            room.schedule_start = state.get_text().as_str().to_string();
+        }
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_schedule_minutes(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        if let Some(room) = s.room.as_mut() {
+            room.schedule_minutes = state.get_text().as_str().to_string();
+        }
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
 }
 
 extern "C" fn on_join(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -4958,14 +6093,21 @@ extern "C" fn on_join(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 /// Enters the meeting `found`: from the waiting room's "Join now" / "Start meeting", or at once
-/// for a script. Announcing starts (the announcement to send right away, when the ticket is
-/// known, is returned), and the meeting's record and the chat of an earlier visit come in.
+/// for a script. This device joins the room's chat (its member record goes out); announcing
+/// starts once it is a member (the announcement to send right away, when it can, is returned),
+/// and the meeting's record and the chat of an earlier visit come in.
 fn enter_room(
     s: &mut MeetState,
     info: &mut CallbackInfo,
     app: &RefAny,
     found: RoomInfo,
 ) -> Option<HttpJob> {
+    ensure_chat(s, &found);
+    let id = found.room.clone();
+    if let Some(chat) = s.chats.get_mut(&id) {
+        chat.join();
+    }
+    let times = found.starts_at.zip(found.ends_at);
     let room = s.room.as_mut()?;
     room.enter(found);
     println!("AZMEET_ROOM {}", room.room_id);
@@ -4973,22 +6115,33 @@ fn enter_room(
     if !room.code.is_empty() {
         println!("AZMEET_CODE {}", room.code);
     }
+    if let Some((a, b)) = times {
+        println!(
+            "AZMEET_TIMES {} {}",
+            azul_storage::time::iso8601(a),
+            azul_storage::time::iso8601(b)
+        );
+    }
     eprintln!(
         "[azmeet] {}: in meeting {} ({})",
         s.name, room.code, room.room_id
     );
     s.notice.clear();
     s.link_status = String::from("waiting for others to join");
-    let job = room.first_job();
+    s.open_room = None;
+    s.room_copied = false;
+    remember_room(s, &id);
     enter_record(s);
     // Back in a meeting this side was in before: its chat and people come back.
-    read_history(s, info, app.clone());
+    read_history(s, info, app.clone(), &id);
     flush_files(s, info);
     // The name typed in the waiting room, should its field still have the focus.
     save_prefs(s, info);
     // The others hear this side's microphone and camera as the waiting room left them.
     network_changed(s, false);
-    job
+    let ts = call_signer_ts(s);
+    let signer = s.identity.as_ref().zip(ts);
+    s.room.as_mut()?.first_job(signer)
 }
 
 /// A meeting was found: the microphone and the camera start as the settings' Meetings say (on,
@@ -5008,7 +6161,9 @@ fn apply_join_defaults(s: &mut MeetState) {
     }
 }
 
-/// The waiting room's "Join now" / "Start meeting": into the meeting it shows.
+/// The waiting room's "Join now" / "Start meeting": into the meeting it shows; with only the
+/// meeting's code, "Ask to join": a knock, and the meeting is entered once a member lets this
+/// device in (`enter_admitted`).
 extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
     let job = {
@@ -5025,10 +6180,35 @@ extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
             );
             return Update::RefreshDom;
         }
+        let knock = s
+            .room
+            .as_ref()
+            .filter(|room| room.stage == Stage::Waiting && !room.asked)
+            .and_then(|room| room.waiting.as_ref())
+            .filter(|found| found.invite.is_none())
+            .map(|found| found.room.clone());
+        if let Some(id) = knock {
+            if let Some(chat) = s.chats.get_mut(&id) {
+                chat.join();
+            }
+            if let Some(room) = s.room.as_mut() {
+                room.asked = true;
+            }
+            remember_room(s, &id);
+            println!("AZMEET_KNOCK {id}");
+            s.notice = String::from(
+                "Asked to join: someone in the meeting lets you in. Compare your safety code with \
+                 theirs.",
+            );
+            return Update::RefreshDom;
+        }
         let found = s
             .room
             .as_mut()
-            .filter(|room| room.stage == Stage::Waiting)
+            .filter(|room| {
+                room.stage == Stage::Waiting
+                    && room.waiting.as_ref().is_some_and(|f| f.invite.is_some())
+            })
             .and_then(|room| room.waiting.take());
         let Some(found) = found else {
             return Update::DoNothing;
@@ -5079,7 +6259,17 @@ extern "C" fn on_join_text(
     }
 }
 
-/// "Copy link": the meeting's link (the waiting room's before it is entered) to the clipboard.
+/// `text` to the clipboard.
+fn copy_text(info: &mut CallbackInfo, text: &str) {
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(text),
+        styled_runs: StyledTextRunVec::create(),
+        html: OptionString::None,
+    });
+}
+
+/// "Copy link": the meeting's link with its invite secret (the waiting room's before it is
+/// entered) to the clipboard.
 extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let link = {
         let Some(mut s) = data.downcast_mut::<MeetState>() else {
@@ -5089,7 +6279,7 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return Update::DoNothing;
         };
         let link = match &room.waiting {
-            Some(found) if room.link.is_empty() => found.link.clone(),
+            Some(found) if room.link.is_empty() => found.share_link(),
             _ => room.link.clone(),
         };
         if link.is_empty() {
@@ -5098,19 +6288,53 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
         room.copied = true;
         link
     };
-    info.set_clipboard_content(ClipboardContent {
-        plain_text: AzString::from(link.as_str()),
-        styled_runs: StyledTextRunVec::create(),
-        html: OptionString::None,
-    });
+    copy_text(&mut info, &link);
     Update::RefreshDom
 }
 
-/// `--join <link>` / `--autocreate` / `--screen call`: start in a meeting without a click, past
-/// the waiting room unless `--waiting-room`; `--screen waiting`: a new meeting's waiting room, or
-/// a preview of one when no meeting server answers.
+/// The times `--starts-at` / `--ends-at` ask for (both or neither).
+fn launch_times() -> Option<(String, String)> {
+    setting("AZMEET_STARTS_AT").zip(setting("AZMEET_ENDS_AT"))
+}
+
+/// `--open <link>`: the room view of that room - one this device is in at once, another looked
+/// up and joined.
+fn open_link(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update {
+    let known = match rooms::parse_room_link(text) {
+        Some(RoomKey::Id(id)) => data
+            .downcast_mut::<MeetState>()
+            .map(|mut s| {
+                let here = s.chats.contains_key(&id);
+                if here {
+                    open_room_view(&mut s, &id, true);
+                }
+                here
+            })
+            .unwrap_or(false),
+        _ => false,
+    };
+    if known {
+        return Update::RefreshDom;
+    }
+    begin_join(data, info, text, false)
+}
+
+/// What the command line asked to start with, once this device's identity is loaded (nothing is
+/// joined or made before): `--open <link>`, `--join <link>` / `--autocreate` / `--screen call`
+/// (a meeting without a click, past the waiting room unless `--waiting-room`; a chat room with
+/// `--chat-room`), `--screen waiting` (a new meeting's waiting room, or a preview of one when no
+/// meeting server answers). Once.
 fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let due = data
+        .downcast_mut::<MeetState>()
+        .is_some_and(|mut s| s.identity.is_some() && std::mem::take(&mut s.autostart_due));
+    if !due {
+        return Update::DoNothing;
+    }
     let straight_in = !setting_on("AZMEET_WAITING_ROOM");
+    if let Some(link) = setting("AZMEET_OPEN") {
+        return open_link(data, info, &link);
+    }
     if let Some(link) = setting("AZMEET_JOIN") {
         if let Some(mut s) = data.downcast_mut::<MeetState>() {
             if let Some(room) = s.room.as_mut() {
@@ -5122,11 +6346,20 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let server_ok = data
         .downcast_ref::<MeetState>()
         .is_some_and(|s| s.room.as_ref().is_some_and(|room| room.server_ok));
+    let kind = if setting_on("AZMEET_CHAT_ROOM") {
+        chatroom::RoomKind::Chat
+    } else {
+        chatroom::RoomKind::Meeting
+    };
     match launch_args().screen {
-        args::Screen::Call => begin_new_meeting(data, info, straight_in),
-        args::Screen::Waiting if server_ok => begin_new_meeting(data, info, false),
+        args::Screen::Call => begin_new_room(data, info, straight_in, kind, launch_times()),
+        args::Screen::Waiting if server_ok => {
+            begin_new_room(data, info, false, kind, launch_times())
+        }
         args::Screen::Waiting => preview_waiting_room(data),
-        _ if setting_on("AZMEET_AUTOCREATE") => begin_new_meeting(data, info, straight_in),
+        _ if setting_on("AZMEET_AUTOCREATE") => {
+            begin_new_room(data, info, straight_in, kind, launch_times())
+        }
         _ => Update::DoNothing,
     }
 }
@@ -5151,6 +6384,11 @@ fn preview_waiting_room(data: &mut RefAny) -> Update {
         room: code.clone(),
         link: format!("{}{code}", rooms::APP_LINK_PREFIX),
         code,
+        kind: chatroom::RoomKind::Meeting,
+        starts_at: None,
+        ends_at: None,
+        invite_key: None,
+        invite: None,
     };
     println!("AZMEET_WAITING {}", found.link);
     eprintln!(
@@ -5163,61 +6401,442 @@ fn preview_waiting_room(data: &mut RefAny) -> Update {
     room.waiting = Some(found);
     room.close_waiting();
     room.preview = true;
-    s.notice = format!(
-        "A preview of the waiting room: no meeting server answers at {}.",
-        room.worker
-    );
+    s.notice = if room.worker.is_empty() {
+        String::from("A preview of the waiting room: no meeting server is set.")
+    } else {
+        format!(
+            "A preview of the waiting room: no meeting server answers at {}.",
+            room.worker
+        )
+    };
     apply_join_defaults(s);
     Update::RefreshDom
 }
 
-extern "C" fn startup_first(data: RefAny, info: CallbackInfo) -> Update {
-    start_pumping(data, info, 0)
+// ==== This device's identity (`identity.rs`, CRYPTO.md section 3) ====
+
+/// A keyring answer, by name (never with the secret).
+fn keyring_outcome(result: &KeyringResult) -> &'static str {
+    match result {
+        KeyringResult::Stored => "stored",
+        KeyringResult::Retrieved(_) => "retrieved",
+        KeyringResult::Deleted => "deleted",
+        KeyringResult::NotFound => "not found",
+        KeyringResult::Denied => "denied",
+        KeyringResult::Unavailable => "unavailable",
+        KeyringResult::Error => "error",
+    }
 }
 
-extern "C" fn startup_second(data: RefAny, info: CallbackInfo) -> Update {
-    start_pumping(data, info, 1)
-}
-
-fn start_pumping(data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    let Some(mut peer) = room_peer(&data, index) else {
-        return Update::DoNothing;
+/// This device's identity: from the identity file (`--identity-file`) at once, else the keyring
+/// is asked (its answer is the window's `KeyringResult` event: `on_keyring_result`).
+fn load_identity(data: &mut RefAny, info: &mut CallbackInfo) {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return;
     };
-    if index == 0 {
-        // azul-appkit's `--shot <png>`: the first window as a PNG after its settle time, then
-        // the process ends (`AzMeet --screen waiting --test-pattern --shot waiting.png`).
-        if let Some(kit_ref) = peer.downcast_ref::<MeetState>().map(|s| s.kit.clone()) {
-            kit::on_window_created(&kit_ref, &mut info);
+    let s = &mut *guard;
+    if s.identity.is_some() || s.keyring.is_some() {
+        return;
+    }
+    match setting("AZMEET_IDENTITY_FILE") {
+        Some(path) => match identity::load_or_create(std::path::Path::new(&path)) {
+            Ok((me, created)) => identity_ready(s, me, identity::Source::File(path), created),
+            Err(why) => {
+                eprintln!("[azmeet] {}: {why}", s.name);
+                session_identity(s, &format!("was not used: the identity file {why}"));
+            }
+        },
+        None => {
+            info.keyring_get(identity::KEYRING_KEY);
+            s.keyring = Some(KeyringStep::Get);
         }
     }
-    let get_time = info.get_system_time_fn();
-    info.add_timer(
-        TimerId::unique(),
-        Timer::create(peer.clone(), pump_link, get_time)
-            .with_interval(Duration::System(SystemTimeDiff::from_millis(pace::BUSY_MS))),
+}
+
+/// An identity for this run only (`why`: what the keyring said).
+fn session_identity(s: &mut MeetState, why: &str) {
+    match crypto::Identity::generate() {
+        Ok(me) => {
+            s.notice = format!(
+                "The system keyring {why}: this device's key lives only until AzMeet quits, and \
+                 its rooms do not come back after."
+            );
+            identity_ready(s, me, identity::Source::Session(why.to_string()), true);
+        }
+        Err(e) => {
+            s.notice = format!("No device key can be made ({e}): AzMeet cannot join a room.");
+        }
+    }
+}
+
+/// The identity is here: stdout says it (`AZMEET_IDENTITY <device> <keyring|file|session>`,
+/// `AZMEET_SAFETY <code>`), and the rooms of `meet/rooms.json` come back.
+fn identity_ready(
+    s: &mut MeetState,
+    me: crypto::Identity,
+    source: identity::Source,
+    created: bool,
+) {
+    println!("AZMEET_IDENTITY {} {}", me.device(), source.word());
+    println!("AZMEET_SAFETY {}", me.safety_code());
+    eprintln!(
+        "[azmeet] {}: this device {} ({}){}",
+        s.name,
+        short_id(me.device()),
+        source.describe(),
+        if created { ", made now" } else { "" }
     );
-    let in_rooms = peer
-        .downcast_ref::<MeetState>()
-        .is_some_and(|s| s.room.is_some());
-    if !in_rooms {
+    s.identity = Some(me);
+    s.identity_source = Some(source);
+    restore_rooms(s);
+}
+
+/// The rooms `meet/rooms.json` lists for this device: back in memory, read on the next ticks. A
+/// room whose invite secret does not open here (another device's seal) is left out.
+fn restore_rooms(s: &mut MeetState) {
+    let Some(me) = s.identity.as_ref() else {
+        return;
+    };
+    let worker = s.room.as_ref().map(|r| r.worker.clone()).unwrap_or_default();
+    let entries: Vec<roomlist::RoomEntry> = s
+        .index
+        .rooms_of(me.device())
+        .into_iter()
+        .cloned()
+        .collect();
+    for entry in entries {
+        if s.chats.contains_key(&entry.room) {
+            continue;
+        }
+        let invite = entry
+            .invite
+            .as_deref()
+            .and_then(|sealed| me.open_local(&entry.room, sealed))
+            .and_then(|secret| crypto::Invite::new(&entry.room, &secret));
+        if entry.member && invite.is_none() {
+            eprintln!(
+                "[azmeet] {}: room {}: its link does not open on this device; left out",
+                s.name,
+                short_id(&entry.room)
+            );
+            continue;
+        }
+        let server = if entry.server.is_empty() {
+            worker.clone()
+        } else {
+            entry.server.clone()
+        };
+        let mut chat = chatroom::ChatRoom::new(
+            &server,
+            &entry.room,
+            &entry.code,
+            chatroom::RoomKind::parse(Some(entry.kind.as_str())),
+            invite,
+            &s.name,
+        );
+        chat.state = if entry.member {
+            chatroom::Membership::Member
+        } else {
+            chatroom::Membership::Knocking
+        };
+        chat.read_seq = entry.read_seq;
+        chat.starts_at = entry.starts_at;
+        chat.ends_at = entry.ends_at;
+        chat.restore_departed(entry.departed.clone());
+        s.chats.insert(entry.room.clone(), chat);
+    }
+}
+
+/// The keyring answered (a window event): the seed read, or a new one made and stored, or - when
+/// the keyring cannot keep one - a seed for this run only. Then what the command line asked for
+/// starts (`autostart`).
+extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let OptionKeyringResult::Some(result) = info.get_keyring_result() else {
         return Update::DoNothing;
+    };
+    let ready = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        match (s.keyring.take(), result) {
+            (Some(KeyringStep::Get), KeyringResult::Retrieved(secret)) => {
+                match crypto::Identity::from_secret_json(secret.as_str()) {
+                    Ok(me) => identity_ready(s, me, identity::Source::Keyring, false),
+                    Err(e) => session_identity(s, &format!("holds a key AzMeet cannot read ({e})")),
+                }
+                true
+            }
+            (Some(KeyringStep::Get), KeyringResult::NotFound) => {
+                match crypto::Identity::generate() {
+                    Ok(me) => {
+                        let json = me.to_secret_json();
+                        info.keyring_store(identity::KEYRING_KEY, json.as_str(), false);
+                        s.keyring = Some(KeyringStep::Store);
+                        identity_ready(s, me, identity::Source::Keyring, true);
+                    }
+                    Err(e) => {
+                        s.notice =
+                            format!("No device key can be made ({e}): AzMeet cannot join a room.");
+                    }
+                }
+                true
+            }
+            (Some(KeyringStep::Get), other) => {
+                session_identity(s, &format!("is {}", keyring_outcome(&other)));
+                true
+            }
+            (Some(KeyringStep::Store), KeyringResult::Stored) => {
+                eprintln!("[azmeet] {}: this device's key is in the system keyring", s.name);
+                false
+            }
+            (Some(KeyringStep::Store), other) => {
+                let why = format!("did not keep it ({})", keyring_outcome(&other));
+                s.notice = format!(
+                    "The system keyring {why}: this device's key lives only until AzMeet quits."
+                );
+                s.identity_source = Some(identity::Source::Session(why));
+                false
+            }
+            (None, _) => false,
+        }
+    };
+    if ready {
+        let _ = autostart(&mut data, &mut info);
+    }
+    Update::RefreshDom
+}
+
+// ==== The room view: a room's chat, members, safety codes, outside a call ====
+
+/// A row's button (a room of the list, a member, a knock): the app and the row's key.
+struct RowClick {
+    app: RefAny,
+    key: String,
+}
+
+/// The app and the key of a row's click.
+fn row_click(mut data: RefAny) -> Option<(RefAny, String)> {
+    let click = data.downcast_ref::<RowClick>()?;
+    Some((click.app.clone(), click.key.clone()))
+}
+
+/// The room view of room `id`: its chat read now (and every 2 seconds while it is open), and with
+/// `join` this device joins it when it is not in it.
+fn open_room_view(s: &mut MeetState, id: &str, join: bool) {
+    let Some(chat) = s.chats.get_mut(id) else {
+        return;
+    };
+    if join {
+        chat.join();
+    }
+    chat.mark_read();
+    s.open_room = Some(id.to_string());
+    s.room_copied = false;
+    s.notice.clear();
+    println!("AZMEET_OPEN {id}");
+    remember_room(s, id);
+}
+
+/// A room of the start screen's list: its view.
+extern "C" fn on_open_room(data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, room)) = row_click(data) else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    open_room_view(&mut guard, &room, false);
+    Update::RefreshDom
+}
+
+/// The room view's Back: to the start screen.
+extern "C" fn on_room_back(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.open_room = None;
+        s.room_copied = false;
+    }
+    Update::RefreshDom
+}
+
+/// "Leave room": this device leaves the room (its signed leave goes out next); the others' next
+/// message is under a key it has no copy of (CRYPTO.md section 7).
+extern "C" fn on_room_leave(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(id) = s.open_room.clone() else {
+        return Update::DoNothing;
+    };
+    if let Some(chat) = s.chats.get_mut(&id) {
+        chat.leave();
+        println!("AZMEET_LEAVING_ROOM {id}");
+        s.notice = String::from("Leaving the room...");
+    }
+    Update::RefreshDom
+}
+
+/// The room view's "Join call": the room's waiting room, then its call.
+extern "C" fn on_room_call(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let job = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let Some(id) = s.open_room.clone() else {
+            return Update::DoNothing;
+        };
+        let Some(chat) = s.chats.get(&id) else {
+            return Update::DoNothing;
+        };
+        if chat.state != chatroom::Membership::Member {
+            s.notice = String::from("Only a member of the room joins its call.");
+            return Update::RefreshDom;
+        }
+        let found = RoomInfo {
+            room: id.clone(),
+            code: chat.code.clone(),
+            link: format!("{}{id}", rooms::APP_LINK_PREFIX),
+            kind: chat.kind,
+            starts_at: chat.starts_at,
+            ends_at: chat.ends_at,
+            invite_key: chat.invite().map(crypto::Invite::invite_key),
+            invite: chat.invite().cloned(),
+        };
+        let Some(room) = s.room.as_mut().filter(|room| room.stage == Stage::Start) else {
+            return Update::DoNothing;
+        };
+        room.session = room.session.wrapping_add(1);
+        room.created = false;
+        room.straight_in = false;
+        room.stage = Stage::Waiting;
+        room.copied = false;
+        room.waiting = Some(found);
+        room.close_waiting();
+        let job = room.waiting_job();
+        s.open_room = None;
+        s.notice.clear();
+        apply_join_defaults(s);
+        job
+    };
+    if let Some(job) = job {
+        spawn_http(&mut info, data.clone(), job);
+    }
+    Update::RefreshDom
+}
+
+/// The room view's "Copy link": the room's link with its invite secret.
+extern "C" fn on_room_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let link = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let Some(link) = s
+            .open_room
+            .as_ref()
+            .and_then(|id| s.chats.get(id))
+            .map(|chat| chat.link(rooms::APP_LINK_PREFIX))
+        else {
+            return Update::DoNothing;
+        };
+        s.room_copied = true;
+        link
+    };
+    copy_text(&mut info, &link);
+    Update::RefreshDom
+}
+
+/// "Admit" beside a knock (`<room> <device>`): the device is let in, and gets a key at once.
+extern "C" fn on_admit(data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, key)) = row_click(data) else {
+        return Update::DoNothing;
+    };
+    let Some((room, device)) = key.split_once(' ') else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    if let Some(chat) = s.chats.get_mut(room) {
+        chat.admit(device);
+        println!("AZMEET_ADMITTING {room} {device}");
+    }
+    Update::RefreshDom
+}
+
+/// "Verified" beside a member (`<room> <device>`): the user compared its safety code; kept by
+/// device in `meet/rooms.json`, so it holds in every room.
+extern "C" fn on_verify(data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, key)) = row_click(data) else {
+        return Update::DoNothing;
+    };
+    let Some((room, device)) = key.split_once(' ') else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let name = chat_member_name(s, room, device);
+    if s.index.verify(device, &name) {
+        s.unsaved.index = true;
+        println!("AZMEET_VERIFIED {device}");
+    }
+    flush_files(s, &mut info);
+    Update::RefreshDom
+}
+
+/// The start screen's Retry: the meeting server is asked again now.
+extern "C" fn on_retry_server(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let job = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let Some(room) = s.room.as_mut().filter(|room| room.stage == Stage::Start) else {
+            return Update::DoNothing;
+        };
+        if room.worker.is_empty() {
+            room.server_status = no_server_notice();
+            return Update::RefreshDom;
+        }
+        check_server(room, wall_ms())
+    };
+    spawn_http(&mut info, data.clone(), job);
+    Update::RefreshDom
+}
+
+/// The window is up: the pumps start (the iroh link, the room's polls, the chat rooms), this
+/// device's identity is loaded, and what the command line asked for starts once it is.
+extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // azul-appkit's `--shot <png>`: the window as a PNG after its settle time, then the process
+    // ends (`AzMeet --screen waiting --test-pattern --shot waiting.png`).
+    if let Some(kit_ref) = data.downcast_ref::<MeetState>().map(|s| s.kit.clone()) {
+        kit::on_window_created(&kit_ref, &mut info);
     }
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),
-        Timer::create(peer.clone(), room_tick, get_time)
+        Timer::create(data.clone(), pump_link, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(pace::BUSY_MS))),
+    );
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(data.clone(), room_tick, get_time)
             .with_interval(Duration::System(SystemTimeDiff::from_millis(ROOM_POLL_MS))),
     );
-    autostart(&mut peer, &mut info)
-}
-
-fn renderer(hw_accel: HwAcceleration) -> OptionRendererOptions {
-    OptionRendererOptions::Some(RendererOptions {
-        vsync: Vsync::Enabled,
-        srgb: Srgb::DontCare,
-        hw_accel,
-        ..RendererOptions::default()
-    })
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(data.clone(), chat_tick, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(CHAT_TICK_MS))),
+    );
+    load_identity(&mut data, &mut info);
+    autostart(&mut data, &mut info)
 }
 
 /// A chunk from the microphone: sent to the peers, and shown on the level meter.
@@ -5264,16 +6883,21 @@ extern "C" fn deafen_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Leaves the meeting: disconnects every peer, stops announcing and polling, and returns to the
-/// start screen. Returns the request that takes this participant off the room's list at once
-/// (without it the meeting server drops the record after its peer TTL).
+/// Leaves the call: disconnects every peer, stops announcing and polling, and returns to the
+/// start screen, where the room stays in "Your rooms" (its chat goes on; "Leave room" in its view
+/// leaves the room itself). Returns the signed request that takes this endpoint off the room's
+/// list at once (without it the meeting server drops the record after its peer TTL).
 fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     if let Some(endpoint) = s.endpoint.as_ref() {
         for r in &s.remotes {
             endpoint.disconnect(r.handle);
         }
+        for p in &s.pending {
+            endpoint.disconnect(p.handle);
+        }
     }
     s.remotes.clear();
+    s.pending.clear();
     drop_audio(s, None);
     s.packetizer.reset();
     s.opus_framer.reset();
@@ -5283,19 +6907,19 @@ fn leave_meeting(s: &mut MeetState) -> Option<HttpJob> {
     s.drop_video.clear();
     s.plan = routes::Plan::default();
     s.relay = Relaying::default();
-    s.chat = chat::ChatLog::new();
     s.record = None;
-    s.unsaved.chat = false;
     s.unsaved.record = false;
     s.speaker = speaker::ActiveSpeaker::new();
     s.link_status = String::from("not in a meeting");
     s.notice = String::from("You left the meeting.");
+    let ts = call_signer_ts(s).unwrap_or_else(wall_ms);
     let room = s.room.as_mut()?;
     // An ended meeting is gone from the server already.
-    let job = if room.stage == Stage::InRoom && !room.node_id.is_empty() {
-        Some(HttpJob::leave(room))
-    } else {
-        None
+    let job = match s.identity.as_ref() {
+        Some(me) if room.stage == Stage::InRoom && !room.node_id.is_empty() => {
+            Some(HttpJob::leave(room, me, ts))
+        }
+        _ => None,
     };
     eprintln!("[azmeet] {}: left meeting {}", s.name, room.code);
     room.leave();
@@ -5369,7 +6993,11 @@ extern "C" fn on_panel(mut data: RefAny, _info: CallbackInfo, state: SegmentedSt
         _ => SidePanel::People,
     };
     if s.panel == SidePanel::Chat {
-        s.chat.mark_read();
+        if let Some(id) = call_room_id(s) {
+            if s.chats.get_mut(&id).is_some_and(chatroom::ChatRoom::mark_read) {
+                remember_room(s, &id);
+            }
+        }
     }
     if s.panel == SidePanel::Statistics {
         s.stats_shown = stats_lines(s);
@@ -5460,9 +7088,9 @@ fn send_draft(
     Update::RefreshDom
 }
 
-/// The name field (the waiting room, the settings' Meetings): the name others see (the next
-/// announcement carries it), remembered - and written when the field is left
-/// (`on_name_blur`) or the meeting is entered, not with every key.
+/// The name field (the waiting room, the settings' Meetings): the name others see (each room's
+/// member record carries it, sealed, once the field is left: `on_name_blur`), remembered - and
+/// written when the field is left or the meeting is entered, not with every key.
 extern "C" fn on_name_text(
     mut data: RefAny,
     _info: CallbackInfo,
@@ -5473,9 +7101,6 @@ extern "C" fn on_name_text(
         let s = &mut *guard;
         if !text.is_empty() {
             s.name = text.clone();
-            if let Some(room) = s.room.as_mut() {
-                room.name = text.clone();
-            }
             remember(s, |prefs| prefs.name = Some(text));
         }
     }
@@ -5485,14 +7110,19 @@ extern "C" fn on_name_text(
     }
 }
 
-/// The name field was left: the name typed is written into `meet/settings.json`.
+/// The name field was left: the name typed is written into `meet/settings.json`, and every room
+/// gets this device's record again with it (sealed with each room's link).
 extern "C" fn on_name_blur(
     mut data: RefAny,
     mut info: CallbackInfo,
     _state: TextInputState,
 ) -> Update {
     if let Some(mut guard) = data.downcast_mut::<MeetState>() {
-        save_prefs(&mut guard, &mut info);
+        let s = &mut *guard;
+        for chat in s.chats.values_mut() {
+            chat.set_name(&s.name);
+        }
+        save_prefs(s, &mut info);
     }
     Update::DoNothing
 }
@@ -5637,8 +7267,8 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
 }
 
-/// The demo meeting's code (`abc-defg-hij`): it names the meeting's folder in the data tree, so
-/// it comes from the seed for ids that leave the process, not from the clock.
+/// The code of a waiting room's preview (`abc-defg-hij`, `--screen waiting` with no meeting
+/// server): a made-up meeting no server knows, so no key and no secret go with it.
 fn gen_link() -> String {
     let n = azul_storage::ids::random_seed();
     format!(
@@ -5745,22 +7375,109 @@ fn probe(url: &str) -> Result<(), String> {
         .unwrap_or_else(|_| Err(String::from("no answer")))
 }
 
-/// The meeting server at start (`rooms::server_choice`: `--worker`, else the one saved last time,
-/// else `AZMEET_WORKER`, else the built-in default), where it came from, and whether it accepts
-/// a connection. A headless run without a data root of its own reads no settings, so
-/// `AZMEET_WORKER` wins there.
-fn meeting_server() -> (String, rooms::ServerSource, Result<(), String>) {
+/// Where the Azlin services are for this run, as azul-appkit's shared config resolves them
+/// (`azlin_config::resolve_endpoints`): the profile's addresses (`local`, the default: the local
+/// stack's; `production`: n0's relays, no meeting server yet), under the config file's
+/// `endpoints` (`AZLIN_CONFIG`, else `~/.azlin/config.json`), under the environment
+/// (`AZMEET_WORKER`, `AZMEET_RELAY`, `AZLIN_PROFILE`), under the switches (`--worker`,
+/// `--relay`). A `--shot` run (a screenshot fixture) reads no config file, as the kit does.
+fn azlin_endpoints() -> &'static azlin_config::EffectiveEndpoints {
+    static RESOLVED: std::sync::OnceLock<azlin_config::EffectiveEndpoints> =
+        std::sync::OnceLock::new();
+    RESOLVED.get_or_init(|| {
+        let args = launch_args();
+        let flags = azlin_config::EndpointFlags {
+            meet: args.switch("AZMEET_WORKER").map(String::from),
+            relay: args.switch("AZMEET_RELAY").map(String::from),
+            ..azlin_config::EndpointFlags::default()
+        };
+        let home = FilePath::get_home_dir()
+            .into_option()
+            .map(|dir| std::path::PathBuf::from(dir.inner.as_str()));
+        let path = if args.kit.shot.is_some() {
+            None
+        } else {
+            azlin_config::config_path(
+                std::env::var(azlin_config::CONFIG_VAR).ok().as_deref(),
+                home.as_deref(),
+            )
+        };
+        let loaded = path.map(|path| {
+            let (config, problem) = azlin_config::AzlinConfig::load(&path);
+            if let Some(problem) = problem {
+                eprintln!("[azmeet] {}: {problem}", path.display());
+            }
+            (path, config)
+        });
+        let file = loaded
+            .as_ref()
+            .map(|(path, config)| (path.as_path(), &config.endpoints));
+        let env = |var: &str| std::env::var(var).ok();
+        let resolved = azlin_config::resolve_endpoints(file, &env, &flags);
+        for endpoint in [azlin_config::Endpoint::Meet, azlin_config::Endpoint::Relay] {
+            for (source, raw, why) in &resolved.get(endpoint).rejected {
+                eprintln!(
+                    "[azmeet] {} from {} passed over: {raw:?} {why}",
+                    endpoint.key(),
+                    source.label()
+                );
+            }
+        }
+        resolved
+    })
+}
+
+/// The shared config's value of `endpoint` as AzMeet takes it: not a profile's built-in address
+/// in a screenshot run (`--shot` renders the same everywhere), and not the switch's (AzMeet weighs
+/// its switches itself). With where it came from.
+fn shared_endpoint(endpoint: azlin_config::Endpoint) -> Option<(&'static str, String)> {
+    let resolved = azlin_endpoints().get(endpoint);
+    let value = resolved.value.as_deref()?;
+    let shot = launch_args().kit.shot.is_some();
+    match resolved.source {
+        azlin_config::Source::Env(_) | azlin_config::Source::File(_) => {}
+        azlin_config::Source::Profile(_) | azlin_config::Source::BuiltIn if !shot => {}
+        _ => return None,
+    }
+    Some((value, resolved.source.label()))
+}
+
+/// The meeting server at start, where it came from (for the log and the start screen), and
+/// whether it accepts a connection: `--worker` (this run only), else the one saved last time
+/// (the start screen's field), else the shared Azlin config's (`AZMEET_WORKER`, else its file's
+/// `endpoints.meet`), else one built in at build time (`AZMEET_DEFAULT_WORKER`), else the config
+/// profile's (`local`: the local stack's `http://127.0.0.1:8790`), else none - the start screen
+/// asks for one. A headless run without a data root of its own reads no settings, so nothing
+/// saved outranks the configuration there.
+fn meeting_server() -> (String, String, Result<(), String>) {
     let saved = store::Prefs::read(saved_settings()).server;
     let flag = launch_args().switch("AZMEET_WORKER");
-    let env = std::env::var("AZMEET_WORKER").ok();
-    let built_in = if PRODUCTION_WORKER.is_empty() {
-        rooms::LOCAL_WORKER
-    } else {
-        PRODUCTION_WORKER
+    let shared = shared_endpoint(azlin_config::Endpoint::Meet).filter(|_| {
+        // A meeting server built in at build time outranks a profile's.
+        !matches!(
+            azlin_endpoints().get(azlin_config::Endpoint::Meet).source,
+            azlin_config::Source::Profile(_) | azlin_config::Source::BuiltIn
+        ) || PRODUCTION_WORKER.is_empty()
+    });
+    let (url, source) = rooms::server_choice(
+        flag,
+        saved.as_deref(),
+        shared.as_ref().map(|(value, _)| *value),
+        PRODUCTION_WORKER,
+    );
+    let from = match source {
+        rooms::ServerSource::CommandLine => String::from("--worker"),
+        rooms::ServerSource::Saved => String::from("saved on the start screen"),
+        rooms::ServerSource::Environment => shared.map(|(_, label)| label).unwrap_or_default(),
+        rooms::ServerSource::BuiltIn => String::from("built in (AZMEET_DEFAULT_WORKER)"),
+        rooms::ServerSource::Unset => String::from("none set"),
     };
-    let (url, source) = rooms::server_choice(flag, saved.as_deref(), env.as_deref(), built_in);
-    let answer = probe(&url);
-    (url, source, answer)
+    let answer = if url.is_empty() {
+        Err(String::from("none is set"))
+    } else {
+        probe(&url)
+    };
+    (url, from, answer)
 }
 
 /// The command line this run was started with (`args.rs`), read once by [`start`].
@@ -5818,32 +7535,32 @@ pub fn start() {
             std::process::exit(2);
         }
     }
-    let (worker, source, answer) = meeting_server();
-    // `--screen waiting` always shows the waiting room: a preview of one when nothing answers.
-    let waiting = launch_args().screen == args::Screen::Waiting;
-    if rooms::opens_demo(source, answer.is_ok()) && !waiting {
-        let why = answer.err().unwrap_or_default();
-        start_demo(&format!(
-            "Local demo: no meeting server is set, and none answers at {worker} ({why}). Start the \
-             meet Worker's dev server, or AzMeet with --worker <url>, to meet other people."
-        ));
-    } else {
-        start_rooms(worker, answer);
-    }
+    let (worker, from, answer) = meeting_server();
+    start_rooms(worker, &from, answer);
 }
 
-/// The relays for a meeting server at `worker`: `--relay` (`AZMEET_RELAY`), else none for one on
-/// this machine.
+/// The relays for a meeting server at `worker`: `--relay`, else the shared Azlin config's
+/// (`AZMEET_RELAY`, its file's `endpoints.relay`, its profile's: `local` the local stack's
+/// relay, `production` n0's), else none for a meeting server on this machine and n0's for any
+/// other.
 fn relay_for(worker: &str) -> Relay {
     let host = server_address(worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
-    rooms::relay_choice(setting("AZMEET_RELAY").as_deref(), &host)
+    let setting = launch_args()
+        .switch("AZMEET_RELAY")
+        .map(String::from)
+        .or_else(|| {
+            shared_endpoint(azlin_config::Endpoint::Relay).map(|(value, _)| value.to_string())
+        });
+    rooms::relay_choice(setting.as_deref(), &host)
 }
 
-/// One window with the start screen, talking to the meeting server at `worker`; `answer` says
-/// whether it accepted a connection at start.
-fn start_rooms(worker: String, answer: Result<(), String>) {
+/// The window with the start screen, talking to the meeting server at `worker` (none when
+/// empty; `from`: where its address came from); `answer` says whether it accepted a connection
+/// at start. An unreachable or missing server is said under the field, with a Retry button:
+/// nothing else opens instead.
+fn start_rooms(worker: String, from: &str, answer: Result<(), String>) {
     let relay = relay_for(&worker);
     let name = display_name();
     if relay_only() && relay == Relay::Off {
@@ -5858,22 +7575,29 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
         "AZMEET_TRANSPORT {}",
         rooms::transport_label(&relay, relay_only())
     );
-    let mut me = MeetState::new(&name, "", "", make_kit());
-    let mut room = RoomSession::new(worker.clone(), name.clone(), relay.clone());
+    let mut me = MeetState::new(&name, make_kit());
+    let mut room = RoomSession::new(worker.clone(), relay.clone());
     room.server_ok = answer.is_ok();
+    room.checked_at = wall_ms();
     room.server_status = match &answer {
         Ok(()) => String::from("The meeting server answers."),
+        Err(_) if worker.is_empty() => no_server_notice(),
         Err(e) => format!(
-            "The meeting server at {worker} does not answer ({e}). Type another one and press \
-             Enter."
+            "The meeting server at {worker} ({from}) does not answer ({e}). AzMeet asks again \
+             every {} seconds; Retry asks now, or type another one and press Enter.",
+            SERVER_RETRY_MS / 1000
         ),
     };
+    if worker.is_empty() {
+        me.notice = no_server_notice();
+    }
     if endpoint.is_bound() {
         room.node_id = endpoint.endpoint_id().as_str().to_string();
         eprintln!(
-            "[azmeet] {name}: endpoint {} (relays {relay:?}{}), meeting server {worker}",
+            "[azmeet] {name}: endpoint {} (relays {relay:?}{}), meeting server {} ({from})",
             short_id(&room.node_id),
-            if relay_only() { ", relay only" } else { "" }
+            if relay_only() { ", relay only" } else { "" },
+            if worker.is_empty() { "none" } else { worker.as_str() }
         );
         me.endpoint = Some(endpoint);
         me.link_status = String::from("not in a meeting");
@@ -5884,103 +7608,30 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
         me.link_status = reason;
     }
     me.room = Some(room);
+    // The rooms this device is in (their chats come back once its identity is loaded).
+    me.index = files_root().map(store::load_index).unwrap_or_default();
     configure_audio(&mut me);
     configure_video(&mut me, &probe_video());
     configure_network(&mut me);
     apply_launch_args(&mut me);
-    run(vec![RefAny::new(me)], false);
+    run(me);
 }
 
-/// The in-process demo: two participants linked by two iroh endpoints, or one without a link.
-/// `notice` says why there is no meeting server; both windows show it.
-fn start_demo(notice: &str) {
-    let meeting = gen_link();
-    let notice = notice.to_string();
-    eprintln!("[azmeet] {notice}");
-    let video = probe_video();
-    let ada_link = bind_endpoint(&Relay::Off, false);
-    let ben_link = bind_endpoint(&Relay::Off, false);
-    let peers = if ada_link.is_bound() && ben_link.is_bound() {
-        eprintln!(
-            "[azmeet] meeting {meeting}: Ada (CPU window, camera) and Ben (GPU window, screen share) over iroh"
-        );
-        // A real camera and a real screen capture start only when asked for: a plain start of
-        // AzMeet must not film the user, capture the screen, and run two encoders, two decoders
-        // and a software-rendered window before anyone clicked (`AZMEET_TEST_PATTERN=1` and a
-        // headless run, whose camera and screen are test patterns, keep both on, for scripts).
-        let live_devices = devices_allowed() && !setting_on("AZMEET_TEST_PATTERN");
-        let mut ada = MeetState::new("Ada", "Ben", "CPU", make_kit());
-        ada.meeting = meeting.clone();
-        ada.notice = notice.clone();
-        ada.guest = Some(ben_link.clone());
-        ada.endpoint = Some(ada_link);
-        ada.cam_on = !live_devices;
-        let mut ben = MeetState::new("Ben", "Ada", "GPU", make_kit());
-        ben.meeting = meeting.clone();
-        ben.notice = notice;
-        ben.endpoint = Some(ben_link);
-        ben.screen_on = !live_devices;
-        configure_audio(&mut ada);
-        configure_audio(&mut ben);
-        configure_video(&mut ada, &video);
-        configure_video(&mut ben, &video);
-        configure_network(&mut ada);
-        configure_network(&mut ben);
-        apply_launch_args(&mut ada);
-        apply_launch_args(&mut ben);
-        // One meeting on one machine: Ada keeps its folder.
-        ben.keeps_files = false;
-        enter_record(&mut ada);
-        vec![RefAny::new(ada), RefAny::new(ben)]
-    } else {
-        let failure = bind_failure(&ada_link);
-        eprintln!("[azmeet] joined meeting {meeting} without a peer link: {failure}");
-        let mut solo = MeetState::new("You", "", "", make_kit());
-        solo.meeting = meeting;
-        solo.notice = notice;
-        solo.link_status = failure;
-        configure_audio(&mut solo);
-        configure_video(&mut solo, &video);
-        configure_network(&mut solo);
-        apply_launch_args(&mut solo);
-        enter_record(&mut solo);
-        vec![RefAny::new(solo)]
-    };
-    let linked = peers.len() == 2;
-    run(peers, linked);
-}
-
-fn run(peers: Vec<RefAny>, linked: bool) {
+/// The app with its one window.
+fn run(me: MeetState) {
     let (theme, mode) = launch_look();
     let config = AppConfig::create()
         .with_theme(AzString::from(theme.name()))
         .with_mode(mode_option(mode.index()));
-    let mut app = App::create(RefAny::new(Room { peers }), config);
-    let mut first = WindowCreateOptions::create(layout_first);
-    first.window_state.flags.decorations = WindowDecorations::NoTitle;
-    first.create_callback = Some(Callback::create(startup_first)).into();
-    if linked {
-        first.window_state.size.dimensions = LogicalSize::create(740.0, 640.0);
-        first.window_state.title = AzString::from("AzMeet · Ada (CPU)");
-        first.window_state.position =
-            WindowPosition::Initialized(PhysicalPositionI32 { x: 20, y: 40 });
-        first.renderer = renderer(HwAcceleration::Disabled);
-        let mut second = WindowCreateOptions::create(layout_second);
-        second.window_state.flags.decorations = WindowDecorations::NoTitle;
-        second.create_callback = Some(Callback::create(startup_second)).into();
-        second.window_state.size.dimensions = LogicalSize::create(740.0, 640.0);
-        second.window_state.title = AzString::from("AzMeet · Ben (GPU)");
-        second.window_state.position =
-            WindowPosition::Initialized(PhysicalPositionI32 { x: 960, y: 40 });
-        second.renderer = renderer(HwAcceleration::Enabled);
-        app.add_window(second);
-    } else {
-        // azul-appkit's `--size WxH`, else 1100 x 720.
-        let (width, height) = launch_args().kit.size.unwrap_or((1100.0, 720.0));
-        first.window_state.size.dimensions = LogicalSize::create(width, height);
-        first.window_state.title = AzString::from("AzMeet");
-    }
-    app.run(first);
+    let app = App::create(RefAny::new(me), config);
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
+    window.create_callback = Some(Callback::create(startup)).into();
+    // azul-appkit's `--size WxH`, else 1100 x 720.
+    let (width, height) = launch_args().kit.size.unwrap_or((1100.0, 720.0));
+    window.window_state.size.dimensions = LogicalSize::create(width, height);
+    window.window_state.title = AzString::from("AzMeet");
+    app.run(window);
 }
 
 #[cfg(target_os = "android")]

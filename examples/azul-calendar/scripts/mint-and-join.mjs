@@ -13,16 +13,19 @@
 //      links are made in the app, so they work offline, and registered as soon as the server
 //      answers; the dev server needs scripts/cal2/meet-000*.patch), then asserts the event is
 //      ONE file, <data>/events/<uuid>.json, in format "azcalendar.event"
-//      version 2, with the title and an azlin://meet/<room id> link the dev server knows,
+//      version 2, with the title and an azlin://meet/<room id>#<invite secret> link the dev
+//      server knows - registered with the secret's invite key (AzMeet's CRYPTO.md section 4: the
+//      meeting is end-to-end encrypted, the secret never reaches the server),
 //      that the file carries the meeting's times (meeting.starts_at / ends_at: the event's day
 //      and times, read in this machine's time zone, in UTC), that the dev server knows that
 //      room and stored the same times (and keeps the room until two hours after the end), and
 //      that the week view shows the event with a "Join meeting" button;
-//   5. starts AzMeet "Ben" headless with AZMEET_JOIN=<that link> and waits until the dev server
-//      lists Ben in the room;
+//   5. starts AzMeet "Ben" headless with AZMEET_JOIN=<that link>: he enters the meeting
+//      (AZMEET_ROOM <room id> on his stdout) and the dev server lists one signed announcement
+//      in the room (named "Guest": a member's name lives sealed in its record);
 //   6. clicks "Join meeting" in AzCalendar: AzCalendar starts the AzMeet next to it (or
 //      AZMEET_BIN) with AZMEET_JOIN and AZMEET_WORKER, as "Cal" (AZMEET_NAME, inherited), and
-//      the dev server lists Cal in the room too.
+//      the dev server lists two announcements in the room.
 //
 // Usage (from the azul repository, after building AzCalendar, AzMeet and libazul with the debug
 // server, AZ_DEBUG / e2e-server):
@@ -118,7 +121,8 @@ const children = [];
 const launched = [];
 
 const TITLE = 'Team sync';
-const ROOM_LINK = /^azlin:\/\/meet\/([0-9a-z]{26})$/;
+/** A link AzCalendar makes: the room id, and the invite secret as its fragment. */
+const ROOM_LINK = /^azlin:\/\/meet\/([0-9a-z]{26})#([0-9a-z]{26})$/;
 const EVENT_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 /** The view's title on the Week view, "5 - 11 October 2026" / "28 September - 4 October 2026". */
 const WEEK_TITLE = /^\d{1,2}( [A-Z][a-z]+( \d{4})?)? - \d{1,2} [A-Z][a-z]+ \d{4}$/;
@@ -324,9 +328,10 @@ function printed(file, key) {
   return m?.[1];
 }
 
-async function peerNames(room) {
+/** The announcements the dev server lists in the room: each signed by its member's device. */
+async function peersOf(room) {
   const { status, json } = await getJson(`${worker}/rooms/${room}/peers`);
-  return status === 200 ? json.peers.map((p) => p.name) : [];
+  return status === 200 ? json.peers : [];
 }
 
 let passed = false;
@@ -408,8 +413,8 @@ try {
   expect(event.meeting?.link === link, 'the file does not hold the printed link');
   expect(event.meeting?.server === worker, 'the file does not name the meeting server');
   expect(event.meeting?.pending === undefined, 'the registered link is still marked pending');
-  const room = link.match(ROOM_LINK)?.[1];
-  expect(room, `the link ${link} is not azlin://meet/<room id>`);
+  const [, room, secret] = link.match(ROOM_LINK) ?? [];
+  expect(room && secret, `the link ${link} is not azlin://meet/<room id>#<invite secret>`);
   log(`${files[0]}: "${event.title}" on ${event.date} ${event.start} - ${event.end}, ${event.meeting.link}`);
 
   // The file carries the meeting's times: the event's day and times in this machine's zone (a
@@ -435,6 +440,13 @@ try {
     throw new Error(`the dev server keeps the room until ${known.json.expires}, not two hours after the meeting`);
   }
   log(`the dev server knows room ${room} (code ${known.json.code}) for ${stored}, until ${known.json.expires}`);
+  if (!/^[0-9a-f]{64}$/.test(known.json.invite_key ?? '')) {
+    throw new Error(`the dev server keeps room ${room} without an invite key: ${JSON.stringify(known.json)}`);
+  }
+  if (JSON.stringify(known.json).includes(secret)) {
+    throw new Error('the dev server knows the invite secret: it must stay in the link');
+  }
+  log(`room ${room} is encrypted: invite key ${known.json.invite_key.slice(0, 16)}..., the secret stays in the link`);
 
   // The week view shows the event with its Join button.
   await until('the week view to show the event', () => shows(debugCal, TITLE));
@@ -442,7 +454,7 @@ try {
   log('the week view shows the event with "Join meeting"');
 
   // A second AzMeet joins with the shared link.
-  start('ben', meetBin, [], {
+  const ben = start('ben', meetBin, [], {
     AZ_BACKEND: 'headless',
     AZ_DEBUG: String(debugMeet),
     AZMEET_WORKER: worker,
@@ -451,8 +463,9 @@ try {
     AZMEET_TEST_TONE: '1',
     AZMEET_JOIN: link,
   });
-  await until('the dev server to list Ben in the room', async () => (await peerNames(room)).includes('Ben'));
-  log('the dev server lists Ben in the room: AzMeet joined with the minted link');
+  await until('Ben in the meeting (AZMEET_ROOM)', async () => printed(ben.out, 'AZMEET_ROOM') === room);
+  await until('the dev server to list Ben\'s announcement in the room', async () => (await peersOf(room)).length >= 1);
+  log('Ben entered the meeting with the minted link; the dev server lists his signed announcement');
 
   // "Join meeting" in AzCalendar starts AzMeet with the link.
   await click(debugCal, 'Join meeting');
@@ -461,8 +474,12 @@ try {
   );
   launched.push(Number(pid));
   log(`AzCalendar started AzMeet (pid ${pid})`);
-  await until('the dev server to list Cal in the room', async () => (await peerNames(room)).includes('Cal'));
-  log(`the dev server lists ${JSON.stringify(await peerNames(room))} in the room`);
+  await until('the dev server to list Cal\'s announcement too', async () => (await peersOf(room)).length >= 2);
+  const peers = await peersOf(room);
+  if (peers.some((p) => p.name === 'Ben' || p.name === 'Cal' || !p.device || !p.sig)) {
+    throw new Error(`an announcement names its member or is unsigned: ${JSON.stringify(peers)}`);
+  }
+  log(`the dev server lists ${peers.length} signed announcements in the room, none with a name`);
 
   passed = true;
   log('PASS: AzCalendar minted an AzMeet link into its event file, and AzMeet joined the meeting with it');

@@ -6,9 +6,11 @@
 //!   reads at start and writes - the app theme and mode, and AzMeet's values ([`Prefs`]): the
 //!   meeting server (`server`), the name others see (`name`), the video quality (`quality`), the
 //!   devices (`microphone`, `speaker`, `camera`), `mirror`, `join_muted`, `join_camera_off`;
+//! - `meet/rooms.json`: the rooms this device is in (`roomlist.rs`);
 //! - `meet/<meeting>/meeting.json`: the meeting - its key, link, meeting server, when this side
 //!   joined, who was there;
-//! - `meet/<meeting>/chat.jsonl`: the call's chat, one JSON object per line.
+//! - `meet/<meeting>/chat.jsonl`: the room's chat as read here, one JSON object per line: the
+//!   user's own record of it (the meeting server keeps it only as ciphertext).
 //!
 //! The settings are read once at start (before the window exists) and written by the kit; every
 //! other write runs on an azul Thread through azul-storage's `LocalDrive` (an `S3Drive` later),
@@ -32,7 +34,7 @@ use azul_appkit::{
 use azul_storage::{Drive, LocalDrive};
 use serde::{Deserialize, Serialize};
 
-use crate::chat::ChatMessage;
+use crate::{chatroom::RoomMessage, roomlist::RoomIndex};
 
 /// AzMeet's folder in the data tree.
 pub const APP_FOLDER: &str = "meet";
@@ -158,7 +160,13 @@ pub fn settings_key() -> String {
     azul_appkit::data::app_key(APP_FOLDER, azul_appkit::settings::SETTINGS_FILE)
 }
 
-/// The folder of meeting `meeting` (its room key, or the demo's code): `meet/<meeting>/`, every
+/// `meet/rooms.json`.
+#[must_use]
+pub fn index_key() -> String {
+    azul_appkit::data::app_key(APP_FOLDER, crate::roomlist::INDEX_FILE)
+}
+
+/// The folder of meeting `meeting` (its room id): `meet/<meeting>/`, every
 /// character but a letter, a digit, `-` and `_` an underscore, at most 64 of them; `None` for a
 /// meeting without a name.
 #[must_use]
@@ -196,21 +204,29 @@ pub fn meeting_key(meeting: &str) -> Option<String> {
 /// One line of `chat.jsonl`.
 #[derive(Serialize)]
 struct ChatLine<'a> {
+    id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seq: Option<u64>,
     name: &'a str,
     text: &'a str,
     mine: bool,
+    ts: u64,
 }
 
-/// The chat as `chat.jsonl`: one `{"name", "text", "mine"}` object per message, oldest first,
-/// every line ending in a newline.
+/// The chat as `chat.jsonl`: one `{"id", "seq", "name", "text", "mine", "ts"}` object per message,
+/// oldest first, every line ending in a newline. The id lets a later visit list a message the
+/// meeting server still has once.
 #[must_use]
-pub fn chat_lines(messages: &[ChatMessage]) -> String {
+pub fn chat_lines(messages: &[RoomMessage]) -> String {
     let mut out = String::new();
     for m in messages {
         let line = ChatLine {
+            id: &m.id,
+            seq: m.seq,
             name: &m.name,
             text: &m.text,
             mine: m.mine,
+            ts: m.ts,
         };
         if let Ok(json) = serde_json::to_string(&line) {
             out.push_str(&json);
@@ -221,26 +237,57 @@ pub fn chat_lines(messages: &[ChatMessage]) -> String {
 }
 
 /// The messages of a `chat.jsonl` (see [`chat_lines`]), oldest first: this side's (`mine`) sent
-/// by `me`, the others' by nobody known now (`from` 0, they are only listed). A line that is no
-/// such object is skipped.
+/// by the device `me`, the others' by nobody known now (an empty sender, they are only listed).
+/// A line from before the ids gets one from its place; a line that is no such object is skipped.
 #[must_use]
-pub fn parse_chat(text: &str, me: u64) -> Vec<ChatMessage> {
+pub fn parse_chat(text: &str, me: &str) -> Vec<RoomMessage> {
     #[derive(Deserialize)]
     struct Line {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        seq: Option<u64>,
         name: String,
         text: String,
         #[serde(default)]
         mine: bool,
+        #[serde(default)]
+        ts: u64,
     }
     text.lines()
         .filter_map(|line| serde_json::from_str::<Line>(line.trim()).ok())
-        .map(|l| ChatMessage {
-            from: if l.mine { me } else { 0 },
-            mine: l.mine,
+        .enumerate()
+        .map(|(i, l)| RoomMessage {
+            id: if l.id.is_empty() {
+                format!("earlier-{i}")
+            } else {
+                l.id
+            },
+            seq: l.seq,
+            sender: if l.mine { me.to_string() } else { String::new() },
             name: l.name,
             text: l.text,
+            ts: l.ts,
+            mine: l.mine,
         })
         .collect()
+}
+
+/// `meet/rooms.json` as it was at start (an empty list without one), read once before the window
+/// opens.
+#[must_use]
+pub fn load_index(root: &Path) -> RoomIndex {
+    let key = index_key();
+    match LocalDrive::new(root.to_path_buf()).get(&key) {
+        Ok(bytes) => {
+            let (index, problem) = RoomIndex::parse(&String::from_utf8_lossy(&bytes));
+            if let Some(problem) = problem {
+                eprintln!("[azmeet] {key}: {problem}");
+            }
+            index
+        }
+        Err(_) => RoomIndex::default(),
+    }
 }
 
 /// The people an earlier `meeting.json` lists (none for a file that does not read).
@@ -259,11 +306,12 @@ pub fn record_people(text: &str) -> Vec<String> {
 /// What `meeting.json` says about a meeting.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct MeetingRecord {
-    /// The room key (or the demo's code).
+    /// The room id.
     pub meeting: String,
-    /// The link others join with ("" in the demo).
+    /// The link others join with, without its invite secret (the file is the user's, but a link
+    /// with the secret lets in whoever reads it).
     pub link: String,
-    /// The meeting server ("" in the demo).
+    /// The meeting server.
     pub server: String,
     /// When this side joined, seconds since 1970.
     pub joined: u64,
@@ -476,18 +524,22 @@ pub fn read_meeting(
 mod tests {
     use super::*;
 
-    fn message(name: &str, text: &str, mine: bool) -> ChatMessage {
-        ChatMessage {
-            from: 1,
-            mine,
+    fn message(name: &str, text: &str, mine: bool) -> RoomMessage {
+        RoomMessage {
+            id: format!("{:0>32}", name.len() + text.len()),
+            seq: Some(7),
+            sender: String::from(if mine { "me" } else { "them" }),
             name: name.to_string(),
             text: text.to_string(),
+            ts: 1_760_000_000_000,
+            mine,
         }
     }
 
     #[test]
     fn the_settings_and_a_meeting_live_in_the_meet_folder() {
         assert_eq!(settings_key(), "meet/settings.json");
+        assert_eq!(index_key(), "meet/rooms.json");
         assert_eq!(meeting_folder("abc-defg-hij").as_deref(), Some("meet/abc-defg-hij/"));
         assert_eq!(chat_key("abc-defg-hij").as_deref(), Some("meet/abc-defg-hij/chat.jsonl"));
         assert_eq!(
@@ -520,6 +572,8 @@ mod tests {
         assert_eq!(parsed[0]["name"], "Ada");
         assert_eq!(parsed[0]["text"], "Hello \"Ben\"");
         assert_eq!(parsed[0]["mine"], true);
+        assert_eq!(parsed[0]["seq"], 7);
+        assert_eq!(parsed[0]["id"].as_str().map(str::len), Some(32), "the message's id");
         assert_eq!(parsed[1]["text"], "line one\nline two", "a newline stays inside its line");
         assert!(lines.ends_with('\n'));
         assert_eq!(chat_lines(&[]), "");
@@ -532,11 +586,15 @@ mod tests {
             message("Ben", "line one\nline two", false),
         ];
         let text = format!("{}not json\n\n{{\"name\": 3}}\n", chat_lines(&messages));
-        let back = parse_chat(&text, 7);
+        let back = parse_chat(&text, "device-a");
         assert_eq!(back.len(), 2, "the broken lines are skipped: {back:?}");
-        assert_eq!((back[0].from, back[0].mine, back[0].name.as_str()), (7, true, "Ada"));
+        assert_eq!((back[0].sender.as_str(), back[0].mine, back[0].name.as_str()), ("device-a", true, "Ada"));
         assert_eq!(back[0].text, "Hello \"Ben\"");
-        assert_eq!((back[1].from, back[1].mine, back[1].text.as_str()), (0, false, "line one\nline two"));
+        assert_eq!((back[0].id.as_str(), back[0].seq), (messages[0].id.as_str(), Some(7)));
+        assert_eq!((back[1].sender.as_str(), back[1].mine, back[1].text.as_str()), ("", false, "line one\nline two"));
+        // A file from before the ids: each line gets one from its place.
+        let old = parse_chat("{\"name\":\"Ada\",\"text\":\"hi\",\"mine\":true}\n", "device-a");
+        assert_eq!((old[0].id.as_str(), old[0].seq), ("earlier-0", None));
     }
 
     #[test]

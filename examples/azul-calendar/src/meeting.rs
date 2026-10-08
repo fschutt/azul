@@ -1,10 +1,11 @@
 //! AzCalendar's side of AzMeet: which meeting server registers the links (the saved setting, else
-//! AzMeet's), the links AzCalendar makes itself (so making one works offline), what it sends to
-//! register a room (`POST /rooms {room, starts_at, ends_at}`, the event's times in UTC), what the
+//! AzMeet's), the links AzCalendar makes itself (so making one works offline; each carries an
+//! invite secret after `#`, CRYPTO.md section 4 of AzMeet), what it sends to register a room
+//! (`POST /rooms {room, invite_key, starts_at, ends_at}`, the event's times in UTC), what the
 //! server's answer means, what to tell the user when registering fails and whether to try again,
-//! and which AzMeet program "Join meeting" opens. Link formats are
-//! AzMeet's own (`meet_rooms`, AzMeet's `rooms.rs`), not repeated here; the saved server is
-//! a line of AzCalendar's settings file (`settings::meeting_server`).
+//! and which AzMeet program "Join meeting" opens. Link formats are AzMeet's own (`meet_rooms`,
+//! AzMeet's `rooms.rs`; the invite key `meet_invite`, its `invite.rs`), not repeated here; the
+//! saved server is a line of AzCalendar's settings file (`settings::meeting_server`).
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,7 @@ use serde::Deserialize;
 
 use crate::{
     event::Meeting,
+    meet_invite,
     meet_rooms::{self, RoomKey},
     settings,
 };
@@ -35,10 +37,11 @@ pub const BUILT_IN_WORKER: &str = match option_env!("AZMEET_DEFAULT_WORKER") {
 
 /// The meeting server: `flag` (`--worker`, this run only), else the one in the settings file's
 /// text `saved` (AzMeet's settings format), else `env` (`AZMEET_WORKER`), else `shared` (the
-/// shared Azlin config's `endpoints.meet`), else `built_in`, else AzMeet's local development
-/// server - the order AzMeet itself uses (`meet_rooms::server_choice`), with the shared config
-/// in front of the built-in one. A candidate that is no meeting server address is passed over.
-/// There always is one: links are made here and registered with it once it answers.
+/// shared Azlin config's `endpoints.meet`, or its profile's address), else `built_in` - the
+/// order AzMeet itself uses (`meet_rooms::server_choice`), with the shared config in front of the
+/// built-in one. A candidate that is no meeting server address is passed over. With nothing named
+/// anywhere there is none (AzMeet guesses no address either): links are still made here, and
+/// registered once a meeting server is set and answers.
 pub fn server_setting(
     flag: Option<&str>,
     saved: Option<&str>,
@@ -89,6 +92,41 @@ pub fn pending_meeting(server: &str, room_id: &str) -> Meeting {
     }
 }
 
+/// A meeting AzCalendar made for `room_id` with the invite secret `secret` (26 characters of the
+/// room-id alphabet, `meet_invite::secret_from`) as its link's fragment, to be registered with
+/// `server` under the secret's invite key: pending until it is. AzMeet joins it end-to-end
+/// encrypted; whoever has the link has the secret, a code alone knocks.
+pub fn pending_encrypted_meeting(server: &str, room_id: &str, secret: &str) -> Meeting {
+    let link = format!("{}{room_id}", meet_rooms::APP_LINK_PREFIX);
+    Meeting {
+        link: meet_rooms::link_with_secret(&link, Some(secret)),
+        ..pending_meeting(server, room_id)
+    }
+}
+
+/// The invite key of the secret `meeting`'s link carries, for the room it names; `None` for a
+/// link without one (made before links carried one).
+pub fn invite_key_of(meeting: &Meeting) -> Option<String> {
+    let link = meet_rooms::read_room_link(&meeting.link)?;
+    let RoomKey::Id(room) = link.key else {
+        return None;
+    };
+    meet_invite::invite_key(&room, link.secret.as_deref()?)
+}
+
+/// The registered meeting with the link the event had: the server's answer names the room only,
+/// and a link made here keeps its invite secret. `registered` is that room's.
+pub fn with_pending_link(registered: Meeting, pending_link: &str) -> Meeting {
+    if meet_rooms::parse_room_link(pending_link) == meet_rooms::parse_room_link(&registered.link) {
+        Meeting {
+            link: pending_link.to_string(),
+            ..registered
+        }
+    } else {
+        registered
+    }
+}
+
 /// The room id a meeting's link names, if it names one.
 pub fn room_id_of(meeting: &Meeting) -> Option<String> {
     match meet_rooms::parse_room_link(&meeting.link)? {
@@ -125,13 +163,32 @@ pub fn utc_window<Tz: TimeZone>(
 /// `ends`: `{"room": "<id>", "starts_at": "2026-10-06T07:00:00Z", "ends_at": "..."}` (RFC 3339,
 /// UTC). The server keeps the room until a while after `ends`, not only a day after it was made.
 pub fn register_body(room_id: &str, starts: DateTime<Utc>, ends: DateTime<Utc>) -> String {
+    register_json(room_id, starts, ends).to_string()
+}
+
+fn register_json(room_id: &str, starts: DateTime<Utc>, ends: DateTime<Utc>) -> serde_json::Value {
     let rfc3339 = |t: DateTime<Utc>| t.to_rfc3339_opts(SecondsFormat::Secs, true);
     serde_json::json!({
         "room": room_id,
         "starts_at": rfc3339(starts),
         "ends_at": rfc3339(ends),
     })
-    .to_string()
+}
+
+/// The `POST /rooms` body for `meeting`, whose room is `room_id`: [`register_body`] with the
+/// invite key of the secret its link carries (`invite_key`), so the meeting server keeps the
+/// room encrypted (AzMeet joins no other). A link without one registers as before.
+pub fn register_body_for(
+    meeting: &Meeting,
+    room_id: &str,
+    starts: DateTime<Utc>,
+    ends: DateTime<Utc>,
+) -> String {
+    let mut json = register_json(room_id, starts, ends);
+    if let Some(key) = invite_key_of(meeting) {
+        json["invite_key"] = serde_json::Value::from(key);
+    }
+    json.to_string()
 }
 
 /// What `POST /rooms` answers: `{room, code, link, url, expires, starts_at, ends_at}`
@@ -237,6 +294,21 @@ pub fn sibling_program(
     Some(dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
 }
 
+/// The switches AzMeet is started with to join `meeting`: `--worker <server>` - this run's
+/// meeting server, over the one AzMeet saved (a link is only known to its own server) - and
+/// `--join <link>` (with its invite secret). [`join_env`] says the same for an AzMeet from before
+/// its switches.
+pub fn join_args(meeting: &Meeting) -> Vec<String> {
+    let mut args = Vec::with_capacity(4);
+    if let Some(server) = meet_rooms::normalize_server(&meeting.server) {
+        args.push(String::from("--worker"));
+        args.push(server);
+    }
+    args.push(String::from("--join"));
+    args.push(meeting.link.clone());
+    args
+}
+
 /// The environment AzMeet is started with to join `meeting`: the link, and the server that
 /// minted it (a link is only known to its own server).
 pub fn join_env(meeting: &Meeting) -> Vec<(&'static str, String)> {
@@ -270,10 +342,11 @@ mod tests {
         json.to_string()
     }
 
-    /// There is always a meeting server: the one saved in the settings, else AzMeet's
-    /// `AZMEET_WORKER`, else the built-in one, else the local development server - the same
-    /// order as AzMeet's (`meet_rooms::server_prefill`). Links are made here and registered
-    /// with it once it answers, so no setting is needed to make one.
+    /// The meeting server: the one saved in the settings, else AzMeet's `AZMEET_WORKER`, else the
+    /// built-in one - the same order as AzMeet's (`meet_rooms::server_prefill`); with nothing
+    /// named anywhere, none (the shared config's profile names one in practice:
+    /// `shared_meeting_server`). Links are made here and registered with it once it answers, so
+    /// no setting is needed to make one.
     #[test]
     fn the_meeting_server_is_the_saved_one_else_azmeets_setting_else_a_default() {
         let saved = settings::meeting_server_line("https://saved.example.com");
@@ -303,7 +376,8 @@ mod tests {
         );
         assert_eq!(
             server_setting(None, None, None, None, ""),
-            meet_rooms::LOCAL_WORKER
+            "",
+            "nothing named anywhere: none is guessed"
         );
     }
 
@@ -391,6 +465,48 @@ mod tests {
                 ends_at: String::new(),
                 pending: true,
             }
+        );
+    }
+
+    /// A link made here carries an invite secret (AzMeet's `invite.rs`): its room is registered
+    /// with the secret's invite key, and the registered meeting keeps the link with the secret.
+    #[test]
+    fn a_link_made_here_carries_an_invite_secret_and_registers_its_key() {
+        // The vector AzMeet's crypto.rs and the meet Worker's suite pin.
+        const SECRET: &str = "k7qz2m9x4c8v1b6n3r5t0w2y8p";
+        const INVITE_KEY: &str =
+            "ccb342c6649ef79ce977c76bc83b944e778253cb1899167be279246c0f3774c1";
+        let pending = pending_encrypted_meeting(SERVER, ROOM, SECRET);
+        assert_eq!(pending.link, format!("azlin://meet/{ROOM}#{SECRET}"));
+        assert!(pending.pending);
+        assert_eq!(room_id_of(&pending).as_deref(), Some(ROOM));
+        assert_eq!(invite_key_of(&pending).as_deref(), Some(INVITE_KEY));
+        let (starts, ends) = (utc(2026, 10, 6, 7, 0), utc(2026, 10, 6, 8, 0));
+        let body = register_body_for(&pending, ROOM, starts, ends);
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json["invite_key"], INVITE_KEY);
+        assert_eq!(json["room"], ROOM);
+        assert_eq!(json["starts_at"], "2026-10-06T07:00:00Z");
+        // The server's answer names the room only: the event keeps the link with its secret.
+        let link = format!("azlin://meet/{ROOM}");
+        let registered = registered_meeting(SERVER, ROOM, &answer(ROOM, Some(&link))).unwrap();
+        let kept = with_pending_link(registered, &pending.link);
+        assert_eq!(kept.link, pending.link);
+        assert!(!kept.pending);
+        assert_eq!(kept.code, "xq4-8kd-2nm");
+        // A link from before secrets registers as it did.
+        let old = pending_meeting(SERVER, ROOM);
+        assert_eq!(invite_key_of(&old), None);
+        assert_eq!(
+            register_body_for(&old, ROOM, starts, ends),
+            register_body(ROOM, starts, ends)
+        );
+        let other = "b2h859hyqkfaa11nhzxfh3gd7f";
+        let theirs = minted_meeting(SERVER, &answer(other, None)).unwrap();
+        assert_eq!(
+            with_pending_link(theirs, &pending.link).link,
+            format!("azlin://meet/{other}"),
+            "another room keeps its own link"
         );
     }
 
@@ -584,6 +700,19 @@ mod tests {
                 ("AZMEET_JOIN", format!("azlin://meet/{ROOM}")),
                 ("AZMEET_WORKER", String::from(SERVER)),
             ]
+        );
+        // The switches outrank the meeting server AzMeet saved (its variable does not).
+        assert_eq!(
+            join_args(&meeting),
+            vec!["--worker", SERVER, "--join", &format!("azlin://meet/{ROOM}")]
+        );
+        let no_server = Meeting {
+            server: String::new(),
+            ..meeting
+        };
+        assert_eq!(
+            join_args(&no_server),
+            vec!["--join", &format!("azlin://meet/{ROOM}")]
         );
     }
 }

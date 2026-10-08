@@ -58,7 +58,7 @@ import {
   findPaths,
   forwarded,
   lineStarting,
-  listedNames,
+  signedPeers,
   meetingOf,
   peerLine,
   sending,
@@ -134,11 +134,10 @@ try {
   cleo.proc = run.start('cleo', bin, args(cleo, ['--join', link]), appEnv(cleo.port));
 
   // 1. Everyone meets everyone.
-  await until('the dev server to list Ada, Ben and Cleo in the room', async () => {
-    const names = await listedNames(worker, room);
-    return ['Ada', 'Ben', 'Cleo'].every((n) => names.includes(n));
-  });
-  log('the dev server lists Ada, Ben and Cleo');
+  await until("the dev server to list Ada's, Ben's and Cleo's signed announcements", () =>
+    signedPeers(worker, room, 3, ['Ada', 'Ben', 'Cleo']),
+  );
+  log('the dev server lists three signed announcements, none with a name');
   for (const p of people) {
     for (const other of people.filter((o) => o !== p)) {
       await until(`${p.name}'s window to show ${other.name} as connected`, () => showsConnected(p.port, other.name));

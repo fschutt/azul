@@ -5,16 +5,18 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    azul-meet - a Google-Meet-style app on the public azul API. With a meeting
-    server (the `meet` Worker, --worker) it starts a meeting or joins one
-    by its link through a waiting room (the camera preview, the microphone and
-    camera switches, the devices, the name), and connects to every participant
-    over azul.iroh: every captured frame is H.264-encoded where an encoder
-    works (VideoToolbox on macOS; keyframe requests on loss) and JPEG-encoded
-    otherwise, and decoded into that participant's tile. The gear opens the
-    settings page the Azlin apps share. Without a reachable meeting server it
-    opens the in-process demo: Ada in a CPU-rendered window and Ben in a
-    GPU-rendered one (her camera and his screen share off until switched on).
+    azul-meet - a Google-Meet-style app on the public azul API, end-to-end
+    encrypted. With a meeting server (the `meet` Worker, --worker) it starts a
+    meeting, a scheduled meeting or a chat room, or joins one by its link (or
+    knocks with its code) through a waiting room (the camera preview, the
+    microphone and camera switches, the devices, the name), and connects to
+    every participant over azul.iroh: every captured frame is H.264-encoded
+    where an encoder works (VideoToolbox on macOS; keyframe requests on loss)
+    and JPEG-encoded otherwise, and decoded into that participant's tile. A
+    room's chat is sealed with a room key sealed to each member's device key
+    (CRYPTO.md): the meeting server keeps only ciphertext. The gear opens the
+    settings page the Azlin apps share. Without a reachable meeting server the
+    start screen says so, with Retry.
 """
 publish = false
 
@@ -31,6 +33,23 @@ azul-storage = { path = "../azul-storage" }
 # chat.jsonl and meeting.json (already in the tree through azul-appkit).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A meeting's times in this computer's time zone (the features azul-pim and AzCalendar build it with).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# ---- end-to-end encryption (CRYPTO.md): every crate below is in Cargo.lock already ----
+# Ed25519: the device's signatures (iroh's endpoint keys are the same curve). No `rand_core`:
+# keys come from getrandom bytes.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
+# X25519: sealing a room key to a member (`static_secrets` for the device's long-term key).
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
+# XChaCha20-Poly1305 (AzKeys' vaults use it the same way): messages, sealed keys, sealed names.
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+# HKDF-SHA256: every key derived from a seed or a shared secret.
+hkdf = "0.12"
+sha2 = "0.10"
+# The OS random source: seeds, room keys, nonces, ids.
+getrandom = "0.2"
+# Wiping secrets from memory.
+zeroize = { version = "1.8", features = ["alloc"] }
 
 [lib]
 name = "azmeet"

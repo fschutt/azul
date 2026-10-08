@@ -33,9 +33,37 @@ pub const COPY_LINK: AzString = AzString::from_const_str("__azmeet_copy_link");
 // ==== The start screen ====
 
 pub const SERVER: AzString = AzString::from_const_str("__azmeet_server");
+/// "Retry" beside a meeting server that does not answer.
+pub const RETRY: AzString = AzString::from_const_str("__azmeet_retry");
 pub const JOIN_FIELD: AzString = AzString::from_const_str("__azmeet_join_field");
 pub const NEW_MEETING: AzString = AzString::from_const_str("__azmeet_new");
+pub const NEW_CHAT_ROOM: AzString = AzString::from_const_str("__azmeet_new_chat_room");
 pub const JOIN: AzString = AzString::from_const_str("__azmeet_join");
+/// The "Schedule" form: the start, the minutes, the button.
+pub const SCHEDULE_START: AzString = AzString::from_const_str("__azmeet_schedule_start");
+pub const SCHEDULE_MINUTES: AzString = AzString::from_const_str("__azmeet_schedule_minutes");
+pub const SCHEDULE: AzString = AzString::from_const_str("__azmeet_schedule");
+/// "Your rooms": the list.
+pub const ROOMS: AzString = AzString::from_const_str("__azmeet_rooms");
+/// A room of the list is this, then its room id: `__azmeet_room_<room id>`.
+pub const ROOM_PREFIX: &str = "__azmeet_room_";
+
+// ==== The room view ====
+
+/// The room view's root.
+pub const ROOM_VIEW: AzString = AzString::from_const_str("__azmeet_room_view");
+pub const ROOM_BACK: AzString = AzString::from_const_str("__azmeet_room_back");
+pub const ROOM_LEAVE: AzString = AzString::from_const_str("__azmeet_room_leave");
+pub const ROOM_CALL: AzString = AzString::from_const_str("__azmeet_room_call");
+pub const ROOM_COPY: AzString = AzString::from_const_str("__azmeet_room_copy");
+/// This device's safety code.
+pub const MY_CODE: AzString = AzString::from_const_str("__azmeet_my_code");
+/// The members, and the devices knocking.
+pub const MEMBERS: AzString = AzString::from_const_str("__azmeet_members");
+pub const KNOCKS: AzString = AzString::from_const_str("__azmeet_knocks");
+/// "Admit" / "Verified" beside a device are this, then the device id's first 16 characters.
+pub const ADMIT_PREFIX: &str = "__azmeet_admit_";
+pub const VERIFY_PREFIX: &str = "__azmeet_verify_";
 
 // ==== The waiting room ====
 
@@ -45,6 +73,8 @@ pub const WAITING: AzString = AzString::from_const_str("__azmeet_waiting");
 pub const PREVIEW: AzString = AzString::from_const_str("__azmeet_preview");
 /// The meeting's code (or its link when it has no code).
 pub const MEETING_CODE: AzString = AzString::from_const_str("__azmeet_meeting_code");
+/// When the meeting is (a meeting with times).
+pub const MEETING_TIMES: AzString = AzString::from_const_str("__azmeet_meeting_times");
 /// Who is in the meeting already: their faces and "Ada is in this meeting".
 pub const WHO_IS_HERE: AzString = AzString::from_const_str("__azmeet_who_is_here");
 /// The name others see (the waiting room and the settings' Meetings).
