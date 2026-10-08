@@ -270,8 +270,10 @@ def check_strip_and_sections(app, out, have_media):
         app.until("the empty pictures page", lambda: app.shows("no pictures"))
     back_to_start(app)
 
-    # VIDEOS, MOVIES, RECORDED TV.
-    move_strip(app, "up", "pictures + videos / picture library")
+    # VIDEOS, MOVIES, RECORDED TV. Back kept the strip's focus where it was left: on
+    # pictures + videos (Media Center's start strip remembers it).
+    app.until("the strip's focus back on pictures + videos",
+              lambda: focus(app) == "pictures + videos / picture library")
     move_strip(app, "right", "pictures + videos / play favorites")
     move_strip(app, "right", "pictures + videos / video library")
     key_to_page(app, "return", "page-videos")
@@ -432,7 +434,8 @@ def check_address(app, out, base_url):
     app.key("backspace")
     app.until("the address's video closed", lambda: app.count("AZPLAYER_CLOSE") > closes)
     wait_page(app, "page-address")
-    back_to_start(app)
+    # The address field has the focus again: Backspace edits it, Escape is Back.
+    key_to_page(app, "escape", "page-start")
     move_strip(app, "up", "music / music library")
 
 
