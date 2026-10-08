@@ -293,12 +293,16 @@ mod australis_tests {
     }
 
     /// Each curve is a box of its own user space hung off the tab's side,
-    /// holding the face (a CLOSED path, the inside of the S) and the edge
-    /// (the S alone, open: a stroke, never a fill).
+    /// holding the face (a CLOSED path, the inside of the S) and the metal:
+    /// the band the S covers at its gauge, closed too - it is FILLED, with
+    /// the rolled metal the tab's head is cut from (a flat stroke has one
+    /// colour). The band leaves the rule over the rule's 2px and arrives at
+    /// the head over the head's 2px, so rule, S and head are one piece.
     #[test]
-    fn a_curve_holds_the_face_inside_the_s_and_the_s_itself() {
-        let [left, right] = australis_curves(&look());
-        for (curve, class) in [(&left, CURVE_LEFT_CLASS), (&right, CURVE_RIGHT_CLASS)] {
+    fn a_curve_holds_the_face_inside_the_s_and_the_band_of_metal_the_s_is() {
+        let curves = australis_curves(&look());
+        let (left, right) = (&curves[0], &curves[1]);
+        for (curve, class) in [(left, CURVE_LEFT_CLASS), (right, CURVE_RIGHT_CLASS)] {
             assert!(curve
                 .root
                 .get_ids_and_classes()
@@ -310,7 +314,7 @@ mod australis_tests {
                 Some(SvgNodeData::ViewBox { width, height, .. }) if *width == CURVE_WIDTH && *height == 28.0
             ));
             let kids = curve.children.as_ref();
-            assert_eq!(kids.len(), 2, "the fill, then the stroke over it");
+            assert_eq!(kids.len(), 2, "the fill, then the metal over it");
             let Some(SvgNodeData::Path(fill)) = kids[0].root.get_svg_data() else {
                 panic!("the fill is a path");
             };
@@ -321,13 +325,38 @@ mod australis_tests {
                 panic!("the fill starts and ends on its straight edges");
             };
             assert_eq!(z.end, a.start, "the face is closed");
-            let Some(SvgNodeData::Path(stroke)) = kids[1].root.get_svg_data() else {
-                panic!("the stroke is a path");
+            let Some(SvgNodeData::Path(metal)) = kids[1].root.get_svg_data() else {
+                panic!("the metal is a path");
             };
-            assert!(matches!(
-                stroke.rings.as_ref()[0].items.as_ref(),
-                [SvgPathElement::CubicCurve(_)]
-            ));
+            let band = metal.rings.as_ref()[0].items.as_ref();
+            let ends: Vec<(SvgPoint, SvgPoint)> = band
+                .iter()
+                .map(|e| match e {
+                    SvgPathElement::Line(l) => (l.start, l.end),
+                    other => panic!("the band is cut in straight runs, got {other:?}"),
+                })
+                .collect();
+            assert!(ends.len() > 8, "the band follows the S closely");
+            assert!(
+                ends.windows(2).all(|w| w[0].1 == w[1].0),
+                "the band's outline is one run"
+            );
+            assert_eq!(ends[ends.len() - 1].1, ends[0].0, "the band is closed");
+            let near = |p: SvgPoint, x: f32, y: f32| (p.x - x).abs() < 1e-3 && (p.y - y).abs() < 1e-3;
+            let has = |x: f32, y: f32| ends.iter().any(|(p, _)| near(*p, x, y));
+            let (foot_x, head_x) = if class == CURVE_LEFT_CLASS {
+                (0.0, CURVE_WIDTH)
+            } else {
+                (CURVE_WIDTH, 0.0)
+            };
+            for (x, y, what) in [
+                (foot_x, 28.0, "the rule's foot"),
+                (foot_x, 26.0, "the rule's top"),
+                (head_x, 0.0, "the head's top"),
+                (head_x, 2.0, "the head's underside"),
+            ] {
+                assert!(has(x, y), "{class}: the band reaches {what} at ({x}, {y}): {ends:?}");
+            }
         }
     }
 }
@@ -3869,8 +3898,17 @@ mod theme_tests {
         assert_eq!(set.theme, content.with_theme(UiTheme::Flora).theme);
     }
 
+    /// `margin-bottom: <px>`, resolved.
+    fn margin_bottom(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Option<CssProperty> {
+        tc::resolve(node, CssPropertyType::MarginBottom, dark, state)
+    }
+
+    fn margin_px(px: isize) -> Option<CssProperty> {
+        Some(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(px)))
+    }
+
     #[test]
-    fn a_flora_tab_strip_is_raised_chrome_closed_by_the_metal_rule() {
+    fn a_flora_tab_strip_is_raised_chrome_closed_by_the_websites_metal_rule() {
         let dom = bar(UiTheme::Flora);
         assert!(tc::has_class(&dom, FLORA), "the header carries flora's marker");
         assert!(tc::has_class(&dom, "__azul-native-tabs-header"));
@@ -3881,20 +3919,36 @@ mod theme_tests {
             } else {
                 flora::RAISED_FACE_LIGHT
             };
-            assert_eq!(layers(&dom, dark, None), vec![chrome], "dark={dark}: the strip");
-            // The rule is the strip's own, an inset line along its foot: it
+            // `.navbar::after`: the rule is `--fl-rule-metal-bg` - brass at
+            // half alpha at both ends of the strip, its glint travelling
+            // along it - seen through the strip's transparent 2px foot under
+            // the chrome on the padding box. One rule from edge to edge: it
             // runs under both spacers and every unselected tab, and the
             // selected tab stands over it.
             assert_eq!(
+                layers(&dom, dark, None),
+                vec![tc::flora_css_rule_metal(), chrome],
+                "dark={dark}: the rule under the chrome"
+            );
+            assert_eq!(
+                tc::background_clips(&dom, dark, None),
+                vec![StyleBackgroundClip::BorderBox, StyleBackgroundClip::PaddingBox],
+                "dark={dark}: the rule on the border box, the chrome on the padding box"
+            );
+            assert_eq!(
+                width(&dom, CssPropertyType::BorderBottomWidth, dark),
+                Some(2.0),
+                "dark={dark}: the rule's gauge, `--fl-metal`"
+            );
+            assert_eq!(
+                colour(&dom, CssPropertyType::BorderBottomColor, dark, None),
+                Some(ColorU::TRANSPARENT),
+                "dark={dark}: the strip's foot is transparent, so the metal shows"
+            );
+            assert_eq!(
                 tc::resolve(&dom, CssPropertyType::BoxShadowBottom, dark, None),
-                Some(crate::widgets::themes::decl::shadow(
-                    -2,
-                    0,
-                    0,
-                    flora::TAB_METAL,
-                    true
-                )),
-                "dark={dark}: the strip's foot is the metal rule"
+                None,
+                "dark={dark}: no flat inset line over the metal"
             );
             for i in [1usize, 3, 4] {
                 let tab = child(&dom, i);
@@ -3904,10 +3958,8 @@ mod theme_tests {
                     "dark={dark}: unselected tab {i} is written in soft ink"
                 );
                 assert_eq!(
-                    tc::resolve(tab, CssPropertyType::MarginBottom, dark, None),
-                    Some(azul_css::props::property::CssProperty::const_margin_bottom(
-                        LayoutMarginBottom::const_px(2)
-                    )),
+                    margin_bottom(tab, dark, None),
+                    margin_px(0),
                     "dark={dark}: unselected tab {i} stands on the rule, which stays in sight"
                 );
             }
@@ -3915,21 +3967,35 @@ mod theme_tests {
     }
 
     #[test]
-    fn the_flora_selected_tab_is_the_stone_in_a_metal_surround_open_at_its_foot() {
+    fn the_flora_selected_tab_is_the_stone_cut_from_the_rolled_metal_and_open_at_its_foot() {
         let dom = bar(UiTheme::Flora);
         let active = child(&dom, 2);
+        let face = flora::australis_face(flora::STONE_STREAK);
+        let mut cut = vec![tc::flora_css_rolled_tab()];
+        cut.extend(face.iter().cloned());
+        let mut boxes = vec![StyleBackgroundClip::BorderBox];
+        boxes.extend(face.iter().map(|_| StyleBackgroundClip::PaddingBox));
         for dark in [false, true] {
+            // `.nav-links a.active { background: var(--fl-gem-sunken)
+            // padding-box, var(--fl-rolled-tab) border-box }` through a
+            // transparent head: the metal shows only where the border is.
             assert_eq!(
                 layers(active, dark, None),
-                flora::australis_face(flora::STONE_STREAK),
-                "dark={dark}: the sunken stone stood upright, its own colour in both modes"
+                cut,
+                "dark={dark}: the sunken stone over the rolled metal, its own colour in both modes"
+            );
+            assert_eq!(
+                tc::background_clips(active, dark, None),
+                boxes,
+                "dark={dark}: the metal on the border box, every layer of the stone on the \
+                 padding box"
             );
             assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
             assert_eq!(width(active, CssPropertyType::BorderTopWidth, dark), Some(2.0));
             assert_eq!(
                 colour(active, CssPropertyType::BorderTopColor, dark, None),
-                Some(flora::TAB_METAL),
-                "dark={dark}: the metal along its top"
+                Some(ColorU::TRANSPARENT),
+                "dark={dark}: a transparent head the metal shows through"
             );
             for w in [
                 CssPropertyType::BorderLeftWidth,
@@ -3939,21 +4005,53 @@ mod theme_tests {
                 assert_eq!(
                     width(active, w, dark).unwrap_or(0.0),
                     0.0,
-                    "dark={dark}: {w:?} - its sides are its curves, and it has no foot: it \
-                     breaks the rule"
+                    "dark={dark}: {w:?} - its sides are its curves, and it has no foot"
                 );
             }
+            // Open at its foot: it reaches down over the strip's rule and
+            // hides it - no line between the stone and what it opens onto.
+            assert_eq!(
+                margin_bottom(active, dark, None),
+                margin_px(-2),
+                "dark={dark}: the selected tab breaks the rule"
+            );
         }
-        // Its sides: the two curves, after its label, each the S in the metal.
+        // Its sides: the two curves, each the S cut from the same rolled
+        // metal, then the run-outs that ease the rule into the turn colour
+        // beside each foot (`.fl-tab-runout-l/-r`).
         let kids = active.children.as_ref();
-        assert_eq!(kids.len(), 3, "the label, then the two curves");
+        assert_eq!(kids.len(), 5, "the label, the two curves, the two run-outs");
         for (i, class) in [(1usize, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
             assert!(tc::has_class(&kids[i], class));
-            let stroke = tc::find(&kids[i], CURVE_STROKE_CLASS).expect("the S");
+            let metal = tc::find(&kids[i], CURVE_STROKE_CLASS).expect("the S");
             assert_eq!(
-                colour(stroke, CssPropertyType::BorderTopColor, false, None),
-                Some(flora::TAB_METAL)
+                layers(metal, false, None),
+                vec![tc::flora_css_rolled_tab()],
+                "the S is the rolled metal - the bead the head is cut from"
             );
+            assert_eq!(
+                width(metal, CssPropertyType::BorderTopWidth, false).unwrap_or(0.0),
+                0.0,
+                "the S is the band of metal itself, not a flat stroke"
+            );
+            // The stone inside the S stands where the middle's does: below
+            // the 2px head, so the three boxes meet without a seam.
+            let fill = tc::find(&kids[i], CURVE_FILL_CLASS).expect("the stone inside the S");
+            assert_eq!(
+                tc::background_clips(fill, false, None),
+                vec![StyleBackgroundClip::ContentBox]
+            );
+            assert_eq!(
+                tc::resolve(fill, CssPropertyType::PaddingTop, false, None),
+                Some(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2)))
+            );
+        }
+        for (i, class, left) in [
+            (3usize, "__azul-native-tab-runout-left", true),
+            (4, "__azul-native-tab-runout-right", false),
+        ] {
+            assert!(tc::has_class(&kids[i], class), "child {i} is the {class}");
+            assert_eq!(layers(&kids[i], false, None), vec![tc::flora_css_runout(left)]);
         }
         assert!(
             tc::find(&bar(UiTheme::Flat), CURVE_LEFT_CLASS).is_none(),
@@ -3983,11 +4081,37 @@ mod theme_tests {
                     "dark={dark}: tab {i}'s label darkens to the ink under the pointer"
                 );
                 assert_eq!(
-                    tc::resolve(tab, CssPropertyType::MarginBottom, dark, hover),
-                    Some(azul_css::props::property::CssProperty::const_margin_bottom(
-                        LayoutMarginBottom::const_px(2)
-                    )),
+                    margin_bottom(tab, dark, hover),
+                    margin_px(0),
                     "dark={dark}: a hovered tab still stands on the rule, which stays in sight"
+                );
+                // `.nav-links a { border: 1px solid transparent; border-bottom:
+                // none }`, `:hover { border-color: var(--fl-bd) }`, `:active {
+                // border-color: var(--fl-bd3) }`: a hairline comes up round
+                // the lifted face, open at its foot on the rule.
+                for (w, px) in [
+                    (CssPropertyType::BorderTopWidth, 1.0),
+                    (CssPropertyType::BorderLeftWidth, 1.0),
+                    (CssPropertyType::BorderRightWidth, 1.0),
+                    (CssPropertyType::BorderBottomWidth, 0.0),
+                ] {
+                    assert_eq!(
+                        width(tab, w, dark).unwrap_or(0.0),
+                        px,
+                        "dark={dark}: tab {i}'s {w:?}"
+                    );
+                }
+                let edge = CssPropertyType::BorderTopColor;
+                assert_eq!(colour(tab, edge, dark, None), Some(ColorU::TRANSPARENT));
+                assert_eq!(
+                    colour(tab, edge, dark, hover),
+                    Some(if dark { flora::DARK_BD } else { flora::LIGHT_BD }),
+                    "dark={dark}: tab {i}'s hairline under the pointer"
+                );
+                assert_eq!(
+                    colour(tab, edge, dark, Some(PseudoStateType::Active)),
+                    Some(if dark { flora::DARK_BD3 } else { flora::LIGHT_BD3 }),
+                    "dark={dark}: tab {i}'s hairline while pressed"
                 );
             }
             // The arrow keys move focus to ANY tab, so every tab rings.
@@ -3999,6 +4123,45 @@ mod theme_tests {
             }
         }
         tc::assert_theme_invariants("flora tab bar", &dom);
+    }
+
+    /// The tabs move as flora.css's nav links do - the declaration that
+    /// wins in the stylesheet, `.nav-links a { transition: background
+    /// var(--fl-dur) var(--fl-ease), border-color .., color .., box-shadow
+    /// .. }` with `:active { transition-duration: var(--fl-dur-fast) }`, not
+    /// the `0.2s ease` it overrides - and the light falls into the selected
+    /// stone at the shafts' pace (`--fl-dur-ray`, 1.8s ease-in-out).
+    #[test]
+    fn flora_tabs_fade_as_the_websites_nav_links_do() {
+        let dom = bar(UiTheme::Flora);
+        for i in [1usize, 3, 4] {
+            let tab = child(&dom, i);
+            let rest = tc::fades(tab, None);
+            for name in [
+                "background",
+                "border-top-color",
+                "border-left-color",
+                "border-right-color",
+                "color",
+                "-azul-box-shadow-top",
+            ] {
+                assert!(
+                    rest.contains(&(String::from(name), flora::FL_DUR_MS, flora::FL_EASE)),
+                    "tab {i} fades its {name} over --fl-dur on --fl-ease: {rest:?}"
+                );
+            }
+            let pressed = tc::fades(tab, Some(PseudoStateType::Active));
+            assert!(!pressed.is_empty(), "tab {i} declares its press");
+            assert!(
+                pressed.iter().all(|(_, ms, _)| *ms == flora::FL_DUR_FAST_MS),
+                "tab {i} takes a press in --fl-dur-fast: {pressed:?}"
+            );
+        }
+        assert_eq!(
+            tc::fades(child(&dom, 2), None),
+            vec![(String::from("background"), 1800, AnimationTiming::EaseInOut)],
+            "the selected stone's light"
+        );
     }
 
     #[test]
@@ -4041,7 +4204,7 @@ mod theme_tests {
         tc::assert_theme_invariants("flora tab panel", &padded);
     }
 
-    /// `dom` without the selected tab's curves, at any depth.
+    /// `dom` without the selected tab's curves and run-outs, at any depth.
     fn without_curves(dom: &Dom) -> Dom {
         let mut d = dom.clone();
         d.children = DomVec::from_vec(
@@ -4049,7 +4212,14 @@ mod theme_tests {
                 .as_ref()
                 .iter()
                 .filter(|c| {
-                    !tc::has_class(c, CURVE_LEFT_CLASS) && !tc::has_class(c, CURVE_RIGHT_CLASS)
+                    ![
+                        CURVE_LEFT_CLASS,
+                        CURVE_RIGHT_CLASS,
+                        "__azul-native-tab-runout-left",
+                        "__azul-native-tab-runout-right",
+                    ]
+                    .iter()
+                    .any(|class| tc::has_class(c, class))
                 })
                 .map(without_curves)
                 .collect(),
@@ -4058,7 +4228,7 @@ mod theme_tests {
     }
 
     /// The tabs are the widget's in both looks; flora's selected tab only
-    /// adds its two curves.
+    /// adds its two curves and their run-outs.
     #[test]
     fn both_looks_build_the_same_tabs_datasets_and_accessibility_tree() {
         let (flat, flora) = (bar(UiTheme::Flat), without_curves(&bar(UiTheme::Flora)));

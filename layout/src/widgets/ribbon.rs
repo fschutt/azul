@@ -7573,7 +7573,26 @@ mod flora_tests {
             (true, flora::DARK_STRIP, flora::DARK_SUR),
         ] {
             assert_eq!(face(&dom, dark, None), fill(strip), "the chrome (dark: {dark})");
-            assert_eq!(face(bar, dark, None), fill(strip), "the tab strip (dark: {dark})");
+            // The tab strip is closed by the website's rule (`.navbar::after`,
+            // `--fl-rule-metal-bg`), seen through its transparent 2px foot
+            // under the strip's paper on the padding box.
+            assert_eq!(
+                face(bar, dark, None),
+                vec![tc::flora_css_rule_metal(), StyleBackgroundContent::Color(strip)],
+                "the tab strip (dark: {dark})"
+            );
+            assert_eq!(
+                tc::background_clips(bar, dark, None),
+                vec![StyleBackgroundClip::BorderBox, StyleBackgroundClip::PaddingBox],
+                "the rule on the border box, the paper on the padding box (dark: {dark})"
+            );
+            assert_eq!(
+                tc::resolve(bar, CssPropertyType::BorderBottomColor, dark, None)
+                    .as_ref()
+                    .and_then(tc::border_color),
+                Some(ColorU::TRANSPARENT),
+                "the strip's foot is transparent, so the metal shows (dark: {dark})"
+            );
             assert_eq!(face(content, dark, None), fill(leaf), "the content leaf (dark: {dark})");
         }
     }
@@ -7592,10 +7611,13 @@ mod flora_tests {
             (false, flora::LIGHT_SOFT1, flora::HOVER_FACE_LIGHT),
             (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
         ] {
+            let mut cut = vec![tc::flora_css_rolled_tab()];
+            cut.extend(flora::australis_face(flora::STONE_STREAK));
             assert_eq!(
                 face(active, dark, None),
-                flora::australis_face(flora::STONE_STREAK),
-                "the selected tab is the sunken stone stood upright, its own colour (dark: {dark})"
+                cut,
+                "the selected tab is the sunken stone stood upright over the rolled metal, its \
+                 own colour (dark: {dark})"
             );
             assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
             assert_eq!(tc::text_color(other, dark), Some(soft), "an unselected tab (dark: {dark})");
@@ -7612,8 +7634,14 @@ mod flora_tests {
         let dom = ribbon(UiTheme::Flora);
         let app = node(&dom, "__azul-native-ribbon-appbutton");
         for dark in [false, true] {
+            let layers = face(app, dark, None);
             assert_eq!(
-                face(app, dark, None).first(),
+                layers.first(),
+                Some(&tc::flora_css_rolled_tab()),
+                "the stone is set in the rolled metal (dark: {dark})"
+            );
+            assert_eq!(
+                layers.get(1),
                 Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
                 "a stone is its own colour in both modes (dark: {dark})"
             );
@@ -7827,8 +7855,8 @@ mod flora_tests {
         for (what, stone) in [("the selected tab", active), ("the application button", app)] {
             assert_eq!(
                 stone.children.as_ref().len(),
-                3,
-                "{what}: its label, then its two curves"
+                5,
+                "{what}: its label, its two curves, the two run-outs beside its feet"
             );
             for (i, side) in [(1, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
                 let curve = &stone.children.as_ref()[i];
@@ -7838,19 +7866,32 @@ mod flora_tests {
                     "{what}: a curve is a user space of its own, one unit per px"
                 );
                 let fill = tc::find(curve, CURVE_FILL_CLASS).expect("the face inside the S");
-                let stroke = tc::find(curve, CURVE_STROKE_CLASS).expect("the S");
+                let metal = tc::find(curve, CURVE_STROKE_CLASS).expect("the S");
                 assert!(matches!(fill.root.get_svg_data(), Some(SvgNodeData::Path(_))));
-                assert!(matches!(stroke.root.get_svg_data(), Some(SvgNodeData::Path(_))));
+                assert!(matches!(metal.root.get_svg_data(), Some(SvgNodeData::Path(_))));
                 assert_eq!(
-                    top_edge(stroke),
-                    Some(flora::TAB_METAL),
-                    "{what}: the S is cut from the rule's metal"
+                    face(metal, false, None),
+                    vec![tc::flora_css_rolled_tab()],
+                    "{what}: the S is cut from the rolled metal its head is cut from"
                 );
+            }
+            for (i, side, left) in [
+                (3, "__azul-native-tab-runout-left", true),
+                (4, "__azul-native-tab-runout-right", false),
+            ] {
+                let runout = &stone.children.as_ref()[i];
+                assert!(tc::has_class(runout, side), "{what}: child {i} is its {side}");
+                assert_eq!(face(runout, false, None), vec![tc::flora_css_runout(left)]);
             }
             assert_eq!(
                 top_edge(stone),
-                Some(flora::TAB_METAL),
-                "{what}: its top edge is the same metal"
+                Some(ColorU::TRANSPARENT),
+                "{what}: its head is transparent, the rolled metal under the stone shows there"
+            );
+            assert_eq!(
+                face(stone, false, None).first(),
+                Some(&tc::flora_css_rolled_tab()),
+                "{what}: the metal on its border box"
             );
         }
         let unselected = tc::find_all(&dom, "__azul-native-ribbon-tab")
@@ -7878,7 +7919,11 @@ mod flora_tests {
         let active = node(&dom, "__azul-native-ribbon-tab-active");
         assert_eq!(active.children.as_ref().len(), 1, "no curves on the caller's tab");
         let app = node(&dom, "__azul-native-ribbon-appbutton");
-        assert_eq!(app.children.as_ref().len(), 3, "flora's own application button keeps them");
+        assert_eq!(
+            app.children.as_ref().len(),
+            5,
+            "flora's own application button keeps its curves and run-outs"
+        );
     }
 
     #[test]
