@@ -34,7 +34,7 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 # goes through azul-storage's `Transport` (azul's HTTP client in the apps), no
 # services registered before main. The services: the ones that build on macOS,
 # Windows and Linux from Rust alone (see src/catalog.rs for the ones left out).
-opendal = { version = "0.59.4", default-features = false, optional = true, features = [
+opendal = { version = "0.59.3", default-features = false, optional = true, features = [
     "executors-tokio",
     "services-webdav",
     "services-http",
