@@ -24,10 +24,14 @@ file was reviewed by reading (three read-only reviews: no compile error found, t
   invite_key; its scripts follow; review fixes. e65274ff6 "Join meeting" passes --worker/--join.
 - ab19b025e node scripts count signed announcements; azmeet_cpu.py's in-memory dev server.
 - 678d35e52 docs/HARDCODED.md AzMeet rows; d101d80a0 doc/guide realtime-media.md.
+- a262a51b3 a sync about another room closes it, review warnings, a flaky test; f0c5c5a11 e2e:
+  room_key.members is comma-separated, Schedule keeps its 60 minutes; ac9c26e33 the announced
+  ticket follows the endpoint's addresses (home relay); d2defc37e docs.
 
 ## DONE (azul-apps local/meet15)
 - 3fc8002 RED tests, 6aff9cc encrypted rooms (members, sealed keys, ciphertext history, signed
-  peers, schema + ADDED_COLUMNS), 005cc5d RED + be92b09 the departed list.
+  peers, schema + ADDED_COLUMNS), 005cc5d RED + be92b09 the departed list; 7216c24 test: a link
+  made offline registers its id, invite key and times, a squatter gets the room as it is.
 
 ## For the lead (build / run)
 - azul: `cargo test --release -p AzMeet`, `cargo test --release -p AzCalendar`,
