@@ -1881,6 +1881,33 @@ use crate::widgets::text_input::{
     TEXT_INPUT_LABEL_CLASS,
 };
 
+/// A field's PROMPT in flora's hint ink (`--fl-soft2`, its night twin the
+/// dark hint) - unless the caller's label style declares a prompt ink of its
+/// own (`owns_label` false). Flat's #9B9B9B, which the field's default label
+/// style carries, read at 1.93:1 on a flora strip.
+fn push_prompt_ink(label_style: &mut Vec<CssPropertyWithConditions>, owns_label: bool) {
+    use azul_css::dynamic_selector::{DynamicSelector, ModeCondition, PseudoStateType};
+    const PROMPT: [DynamicSelector; 1] = [DynamicSelector::PseudoState(PseudoStateType::Placeholder)];
+    let callers_own = !owns_label
+        && label_style.iter().any(|p| {
+            p.property.get_type() == CssPropertyType::TextColor
+                && p.apply_if.as_ref() == PROMPT.as_slice()
+        });
+    if callers_own {
+        return;
+    }
+    label_style.push(CssPropertyWithConditions::on_placeholder(CssProperty::TextColor(
+        StyleTextColor { inner: LIGHT_SOFT2 }.into(),
+    )));
+    label_style.push(CssPropertyWithConditions::with_single_condition(
+        CssProperty::const_text_color(StyleTextColor { inner: DARK_SOFT2 }),
+        &[
+            DynamicSelector::Mode(ModeCondition::Dark),
+            DynamicSelector::PseudoState(PseudoStateType::Placeholder),
+        ],
+    ));
+}
+
 #[must_use]
 pub fn text_input(mut ti: TextInput) -> Dom {
     let a11y_name: Option<AzString> = ti.text_input_state.inner.placeholder.as_ref().cloned();
@@ -1971,6 +1998,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
             )),
         );
     }
+    push_prompt_ink(&mut label_style, owns_label);
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(TEXT_INPUT_CONTAINER_CLASS.into())].into())

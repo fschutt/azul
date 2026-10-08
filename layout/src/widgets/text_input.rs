@@ -3699,6 +3699,38 @@ mod autotest_generated {
     }
 
     #[test]
+    fn flora_writes_a_fields_prompt_in_its_own_hint_ink() {
+        // The prompt kept flat's #9B9B9B under flora: on a flora strip
+        // (216,215,212) it read at 1.93:1 (AzCalendar's week view). Flora's
+        // field writes it in its hint tone (`--fl-soft2`).
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        let dom = TextInput::create()
+            .with_placeholder("Search".into())
+            .with_theme(crate::widgets::themes::UiTheme::Flora)
+            .dom();
+        let label = &dom.children.as_ref()[LABEL_CHILD];
+        let prompt_ink = crate::widgets::themes::theme_blocks::checks::live_inline(label)
+            .into_iter()
+            .filter(|(p, c)| {
+                matches!(p, CssProperty::TextColor(_))
+                    && c.as_ref()
+                        == [DynamicSelector::PseudoState(PseudoStateType::Placeholder)].as_slice()
+            })
+            .map(|(p, _)| p)
+            .last();
+        assert_eq!(
+            prompt_ink,
+            Some(CssProperty::TextColor(
+                azul_css::props::style::StyleTextColor {
+                    inner: crate::widgets::themes::flora::LIGHT_SOFT2
+                }
+                .into()
+            )),
+            "the prompt's ink under flora"
+        );
+    }
+
+    #[test]
     fn a_callers_own_dark_twin_is_not_overridden_by_the_themes() {
         // A field on paper (a PDF form's) keeps its look in the dark mode by
         // declaring its own dark values; the theme's twin, pushed after it,
