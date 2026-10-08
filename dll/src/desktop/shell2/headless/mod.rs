@@ -13003,6 +13003,12 @@ mod tests {
     // (`tests/shortcut_keys.rs`, EVENTS7).
     mod shortcut_keys;
 
+    // A request's resume rebuilds the windows that show its answer
+    // (`tests/request_resumes.rs`, HEADLESSRESUME15). Its presses are a
+    // screen reader's.
+    #[cfg(feature = "a11y")]
+    mod request_resumes;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
