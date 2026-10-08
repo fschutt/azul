@@ -61,7 +61,8 @@ USAGE:
 
 OPTIONS:
     --sample                 Fill an empty data folder with sample lists and tasks
-    --data <DIR>             The data folder (default: AZTASKS_DATA, else <data dir>/Azlin)
+    --data <DIR>             The data folder (default: AZTASKS_DATA, else AZLIN_DATA, else
+                             <data dir>/Azlin)
     --screen <NAME>          main | settings | shortcuts | about | palette
     --theme <NAME>           flat | flora
     --mode <NAME>            light | dark | system

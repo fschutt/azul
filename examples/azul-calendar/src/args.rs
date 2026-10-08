@@ -2,7 +2,7 @@
 //! page or the event editor (for scripts and screenshots), `--theme flat|flora` and
 //! `--mode light|dark` pick the app theme and the mode, `--sample` puts sample events into an
 //! empty calendar, `--date YYYY-MM-DD` opens on that day, `--data <dir>` is the data folder
-//! (as `AZCAL_DATA`).
+//! (as `AZCAL_DATA`), `--worker <url>` the meeting server for this run (AzMeet's switch).
 
 use std::path::PathBuf;
 
@@ -101,6 +101,8 @@ pub struct Args {
     pub sample: bool,
     pub date: Option<NaiveDate>,
     pub data: Option<PathBuf>,
+    /// `--worker <url>`: the meeting server for this run (AzMeet's switch).
+    pub worker: Option<String>,
 }
 
 pub const HELP: &str = "\
@@ -118,6 +120,8 @@ OPTIONS:
     --sample            put sample events into an empty calendar
     --date <DATE>       open on this day (YYYY-MM-DD)
     --data <DIR>        the data folder (else AZCAL_DATA, else the user's data folder)
+    --worker <URL>      the meeting server for this run (else the saved one, AZMEET_WORKER,
+                        endpoints.meet of the shared Azlin config, the built-in one)
     -h, --help          print this help
 ";
 
@@ -196,6 +200,7 @@ impl Args {
                     );
                 }
                 "--data" => a.data = Some(PathBuf::from(value("folder")?)),
+                "--worker" => a.worker = Some(value("meeting server")?),
                 other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
             }
             i += 1;
@@ -274,5 +279,24 @@ mod tests {
             );
             assert_eq!(BackstagePage::at(page.index()), Some(page));
         }
+    }
+
+    #[test]
+    fn the_worker_switch_names_the_meeting_server_for_this_run() {
+        assert_eq!(
+            parse(&["--worker", "http://127.0.0.1:8790"])
+                .unwrap()
+                .worker
+                .as_deref(),
+            Some("http://127.0.0.1:8790")
+        );
+        assert_eq!(
+            parse(&["--worker=https://meet.example.com"])
+                .unwrap()
+                .worker
+                .as_deref(),
+            Some("https://meet.example.com")
+        );
+        assert!(parse(&["--worker"]).is_err());
     }
 }

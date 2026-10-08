@@ -2,13 +2,13 @@
 //! task, `tasks/<list>/<task-uuid>.json` in AzTasks' format, so a task added here is a task in
 //! AzTasks and the other way round (scripts/DEDUP_EDITORS_2026_10_02.md, B12).
 //!
-//! The store is AzTasks' data root ([`tasks_root`]: `AZTASKS_DATA`, else `<user data>/Azlin`)
-//! unless the calendar was given a data folder (`--data`, `AZCAL_DATA`): then everything,
-//! the tasks too, is in that folder (name the same folder for AzTasks to share it). The files
-//! this To-Do bar wrote before (`azcalendar.task`, `<calendar data>/tasks/default/`) are moved
-//! into the store once ([`migrate_old_folder`]) or, in the same folder, rewritten where they
-//! are ([`load`]). New tasks go to the store's default list (AzTasks' setting, else its first
-//! list, else the list `default`).
+//! The store is AzTasks' data root ([`tasks_root`]: `AZTASKS_DATA`, else `AZLIN_DATA`, else
+//! `<user data>/Azlin`) unless the calendar was given a data folder (`--data`, `AZCAL_DATA`):
+//! then everything, the tasks too, is in that folder (name the same folder for AzTasks to share
+//! it). The files this To-Do bar wrote before (`azcalendar.task`, `<calendar
+//! data>/tasks/default/`) are moved into the store once ([`migrate_old_folder`]) or, in the same
+//! folder, rewritten where they are ([`load`]). New tasks go to the store's default list
+//! (AzTasks' setting, else its first list, else the list `default`).
 //!
 //! The files are written through azul-storage's `LocalDrive`, synchronously in the callback as
 //! the calendar's event files still are (DEDUP_EDITORS B2: the calendar moves onto a Thread
@@ -38,15 +38,17 @@ pub struct Loaded {
 }
 
 /// The folder the task store is in: the calendar's data folder when one was named
-/// (`named_data_dir`), else AzTasks' (`tasks_var`, blank counts as unset), else `Azlin` in the
-/// user's data folder - the Azlin apps' data root.
+/// (`named_data_dir`), else AzTasks' (`tasks_var`, blank counts as unset), else the Azlin apps'
+/// data root: `azlin_var` (`AZLIN_DATA`), else `Azlin` in the user's data folder.
 #[must_use]
 pub fn tasks_root(
     named_data_dir: Option<&Path>,
     tasks_var: Option<&str>,
+    azlin_var: Option<&str>,
     user_data: Option<PathBuf>,
 ) -> PathBuf {
-    azul_appkit::data::data_root(named_data_dir, tasks_var, user_data)
+    let var = tasks_var.filter(|v| !v.trim().is_empty()).or(azlin_var);
+    azul_appkit::data::data_root(named_data_dir, var, user_data)
 }
 
 /// Moves the files the old To-Do bar wrote into the calendar's own folder (`data_dir`) into the
@@ -287,23 +289,47 @@ mod tests {
     fn the_tasks_live_with_aztasks_unless_a_data_folder_is_named() {
         let user = Some(PathBuf::from("/home/ada/.local/share"));
         assert_eq!(
-            tasks_root(Some(Path::new("/tmp/cal")), Some("/srv/tasks"), user.clone()),
+            tasks_root(
+                Some(Path::new("/tmp/cal")),
+                Some("/srv/tasks"),
+                None,
+                user.clone()
+            ),
             PathBuf::from("/tmp/cal"),
             "a named folder holds everything (the tests, the E2E)"
         );
         assert_eq!(
-            tasks_root(None, Some(" /srv/tasks "), user.clone()),
+            tasks_root(None, Some(" /srv/tasks "), None, user.clone()),
             PathBuf::from("/srv/tasks"),
             "AzTasks' AZTASKS_DATA"
         );
         assert_eq!(
-            tasks_root(None, Some("  "), user.clone()),
+            tasks_root(None, Some("  "), None, user.clone()),
             PathBuf::from("/home/ada/.local/share/Azlin")
         );
         assert_eq!(
-            tasks_root(None, None, user),
+            tasks_root(None, None, None, user),
             PathBuf::from("/home/ada/.local/share/Azlin")
         );
-        assert_eq!(tasks_root(None, None, None), PathBuf::from("Azlin"));
+        assert_eq!(tasks_root(None, None, None, None), PathBuf::from("Azlin"));
+    }
+
+    #[test]
+    fn without_aztasks_data_the_tasks_live_in_the_azlin_data_root() {
+        let user = Some(PathBuf::from("/home/ada/.local/share"));
+        assert_eq!(
+            tasks_root(None, None, Some("/tmp/e2e"), user.clone()),
+            PathBuf::from("/tmp/e2e"),
+            "AZLIN_DATA, the root every Azlin app shares"
+        );
+        assert_eq!(
+            tasks_root(None, Some("/srv/tasks"), Some("/tmp/e2e"), user.clone()),
+            PathBuf::from("/srv/tasks"),
+            "AZTASKS_DATA first"
+        );
+        assert_eq!(
+            tasks_root(None, Some(" "), Some("/tmp/e2e"), user),
+            PathBuf::from("/tmp/e2e")
+        );
     }
 }
