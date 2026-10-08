@@ -30,6 +30,9 @@ pub mod linux;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+#[cfg(test)]
+mod tests;
+
 /// Dispatch one keyring op to the native keyring. Called from the
 /// capability pump for each request drained from the channel.
 ///
