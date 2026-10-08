@@ -208,7 +208,7 @@ impl GlobalHotkeyError {
     /// The message [`fmt::Display`] prints, as an `AzString` for the C API.
     #[must_use]
     pub fn to_display_string(&self) -> AzString {
-        AzString::from(alloc::format!("{}", self))
+        AzString::from(alloc::format!("{self}"))
     }
 }
 
@@ -412,7 +412,7 @@ pub const GLOBAL_HOTKEY_DECLARATION_CAP: usize = 256;
 #[derive(Debug, Clone, Default)]
 pub struct RecordedGlobalHotkeys {
     /// One entry per accelerator; a duplicate replaced the earlier one.
-    pub declared: alloc::vec::Vec<GlobalHotkeyCallbackData>,
+    pub declared: Vec<GlobalHotkeyCallbackData>,
     /// The call read a status: re-run it when a status changes.
     pub read_status: bool,
     /// More than [`GLOBAL_HOTKEY_DECLARATION_CAP`] declarations: the tail
@@ -435,7 +435,7 @@ mod recorder {
         static RECORDED: core::cell::RefCell<RecordedGlobalHotkeys> =
             const {
                 core::cell::RefCell::new(RecordedGlobalHotkeys {
-                    declared: alloc::vec::Vec::new(),
+                    declared: Vec::new(),
                     read_status: false,
                     overflowed: false,
                 })

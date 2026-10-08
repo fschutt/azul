@@ -357,17 +357,17 @@ pub struct Frame {
 /// `themes::flora::frame` supply them.
 pub(crate) struct FrameLook {
     /// The frame's outer box.
-    pub root: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub root: Vec<CssPropertyWithConditions>,
     /// The header row that holds the title between its two rules.
-    pub header: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub header: Vec<CssPropertyWithConditions>,
     /// The rule left of the title (its top and left edges).
-    pub before: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub before: Vec<CssPropertyWithConditions>,
     /// The title's `<p>`.
-    pub title: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub title: Vec<CssPropertyWithConditions>,
     /// The rule right of the title (its top and right edges).
-    pub after: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub after: Vec<CssPropertyWithConditions>,
     /// The bordered content area, after the frame's own `flex-grow`.
-    pub content: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub content: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the frame, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -481,12 +481,12 @@ fn follow_look(structure: crate::widgets::themes::UiTheme) -> FrameLook {
 /// The frame's DOM in `look`: the header (a rule, the title, a rule) above
 /// the bordered content area.
 pub(crate) fn build(frame: Frame, look: &FrameLook) -> Dom {
-    let mut classes: alloc::vec::Vec<IdOrClass> =
+    let mut classes: Vec<IdOrClass> =
         alloc::vec![Class(AzString::from_const_str("__azul-native-frame"))];
     if let Some(marker) = look.marker {
         classes.push(Class(AzString::from_const_str(marker)));
     }
-    let css = |v: &alloc::vec::Vec<CssPropertyWithConditions>| {
+    let css = |v: &Vec<CssPropertyWithConditions>| {
         CssPropertyWithConditionsVec::from_vec(v.clone())
     };
     {
@@ -687,7 +687,7 @@ mod autotest_generated {
     /// The `flex-grow` factor as it actually lands in a node's style — i.e. *after*
     /// the lossy `f32 -> isize` encoding inside `FloatValue::new`.
     fn flex_grow_of(dom: &Dom) -> Option<f32> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::FlexGrow(v) => v.get_property().map(|f| f.inner.get()),
                 _ => None,
@@ -1429,7 +1429,7 @@ mod autotest_generated {
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
             // The light face: a dark-theme twin re-declares its colour under a
             // theme condition, which is not a duplicate.
-            let props: Vec<CssProperty> = crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+            let props: Vec<CssProperty> = crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
                 .filter(|(_, conds)| conds.as_ref().is_empty())
                 .map(|(p, _)| p.clone())
                 .collect();
@@ -1451,7 +1451,7 @@ mod autotest_generated {
         // declarations are the border colours' dark-theme twins.
         let dom = frame("t", Dom::create_div()).dom();
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
-            for (p, conditions) in crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter() {
+            for (p, conditions) in crate::widgets::themes::theme_blocks::checks::live_inline(node).iter() {
                 if conditions.as_ref().is_empty() {
                     continue;
                 }
@@ -1490,7 +1490,7 @@ mod autotest_generated {
         let mut seen = 0_usize;
         let mut dark = 0_usize;
         for node in all_nodes(&dom) {
-            for (p, conds) in crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter() {
+            for (p, conds) in crate::widgets::themes::theme_blocks::checks::live_inline(node).iter() {
                 let Some(c) = border_color_of(p) else {
                     continue;
                 };

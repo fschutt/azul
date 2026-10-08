@@ -240,7 +240,7 @@ impl GpuValueCache {
     /// (scrollbar fades of `dom_id`, CSS `opacity`, the animation channel).
     ///
     /// THE one "current animated values by key" source. The CPU renderer
-    /// (`cpurender::extract_gpu_values`) and WebRender's dynamic properties
+    /// (`cpurender::extract_gpu_values`) and `WebRender`'s dynamic properties
     /// (`wr_translate2::synchronize_gpu_values`) both read it, so a value that
     /// changes without a display-list rebuild - an animation tick - reaches
     /// both backends the same way.

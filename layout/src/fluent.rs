@@ -131,7 +131,7 @@ pub enum FluentSyntaxCheckResult {
 
 impl FluentSyntaxCheckResult {
     /// Returns true if the result is Ok (no syntax errors).
-    #[must_use] 
+    #[must_use]
     pub const fn is_ok(&self) -> bool {
         match self {
             Self::Ok => true,
@@ -141,7 +141,7 @@ impl FluentSyntaxCheckResult {
 
     /// Get the error strings if this is an Errors result.
     /// Returns None if this is Ok.
-    #[must_use] 
+    #[must_use]
     pub fn get_errors(&self) -> OptionStringVec {
         match self {
             Self::Ok => OptionStringVec::None,
@@ -433,7 +433,7 @@ impl Default for FluentLocalizerHandle {
 
 impl FluentLocalizerHandle {
     /// Create a new Fluent localizer with the given default locale.
-    #[must_use] 
+    #[must_use]
     pub fn create(default_locale: &str, known_languages: &[azul_css::system::SystemLanguage]) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(FluentLocalizerInner {
@@ -480,7 +480,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Get the default locale string.
-    #[must_use] 
+    #[must_use]
     pub fn get_default_locale(&self) -> AzString {
         self.inner()
             .default_locale
@@ -521,7 +521,7 @@ impl FluentLocalizerHandle {
     ///
     /// # Returns
     /// `true` if the resource was successfully added, `false` if there were errors.
-    #[must_use] 
+    #[must_use]
     pub fn add_resource(&self, locale: &str, source: &str) -> bool {
         // Validate locale against the known languages list (if non-empty)
         let inner = self.inner();
@@ -543,7 +543,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Add a Fluent resource from a `U8Vec` (for C API compatibility).
-    #[must_use] 
+    #[must_use]
     pub fn add_resource_from_bytes(&self, locale: &str, data: &[u8]) -> bool {
         match std::str::from_utf8(data) {
             Ok(source) => self.add_resource(locale, source),
@@ -581,7 +581,7 @@ impl FluentLocalizerHandle {
     /// │   ├── main.fluent
     /// │   └── errors.fluent
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip_with_locale(
         &self,
         data: &[u8],
@@ -665,19 +665,19 @@ impl FluentLocalizerHandle {
     }
 
     /// Load translations from a ZIP archive (auto-detect locale from filename).
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip(&self, data: &[u8]) -> FluentZipLoadResult {
         self.load_from_zip_with_locale(data, None)
     }
 
     /// Load translations from a ZIP archive (`U8Vec` for FFI).
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip_bytes(&self, data: &U8Vec) -> FluentZipLoadResult {
         self.load_from_zip(data.as_slice())
     }
 
     /// Load translations from a ZIP archive with explicit locale (`U8Vec` for FFI).
-    #[must_use] 
+    #[must_use]
     pub fn load_from_zip_bytes_with_locale(
         &self,
         data: &U8Vec,
@@ -691,7 +691,7 @@ impl FluentLocalizerHandle {
     /// # Arguments
     /// * `path` - Path to a .fluent file or a .zip file
     /// * `locale_override` - If Some, use this locale. If None, detect from filename.
-    #[must_use] 
+    #[must_use]
     pub fn load_from_path(&self, path: &str, locale_override: Option<&str>) -> FluentZipLoadResult {
         let path_obj = std::path::Path::new(path);
 
@@ -787,7 +787,7 @@ impl FluentLocalizerHandle {
     ///
     /// # Returns
     /// The translated string, or the message ID if not found.
-    #[must_use] 
+    #[must_use]
     pub fn translate(&self, locale: AzString, message_id: AzString, args: FmtArgVec) -> AzString {
         let locale = locale.as_str();
         let message_id = message_id.as_str();
@@ -846,7 +846,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Check if a message ID exists in the given locale.
-    #[must_use] 
+    #[must_use]
     pub fn has_message(&self, locale: &str, message_id: &str) -> bool {
         self.inner()
             .bundles
@@ -926,7 +926,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Get the list of all loaded locales.
-    #[must_use] 
+    #[must_use]
     pub fn get_loaded_locales(&self) -> Vec<AzString> {
         self.inner()
             .bundles
@@ -937,7 +937,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Get information about all loaded languages.
-    #[must_use] 
+    #[must_use]
     pub fn get_language_info(&self) -> FluentLanguageInfoVec {
         self.inner()
             .bundles
@@ -986,7 +986,7 @@ impl FluentLocalizerHandle {
 ///
 /// Returns `Ok` if the syntax is valid, or a list of error strings.
 /// Each error string has the format "line:column: message".
-#[must_use] 
+#[must_use]
 pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
     match parser::parse(source) {
         Ok(_) => FluentSyntaxCheckResult::Ok,
@@ -1005,7 +1005,7 @@ pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
 }
 
 /// Check the syntax of a Fluent file from bytes.
-#[must_use] 
+#[must_use]
 pub fn check_fluent_syntax_bytes(data: &[u8]) -> FluentSyntaxCheckResult {
     match std::str::from_utf8(data) {
         Ok(source) => check_fluent_syntax(source),

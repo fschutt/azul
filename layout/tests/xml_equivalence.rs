@@ -1,7 +1,7 @@
 use azul_core::dom::{AttributeType, Dom, NodeData, NodeType, TabIndex};
 use azul_layout::xml::{dom_from_parsed_xml, parse_xml, parse_xml_to_fast_dom};
 
-fn find_div_in_dom<'a>(dom: &'a Dom) -> Option<&'a NodeData> {
+fn find_div_in_dom(dom: &Dom) -> Option<&NodeData> {
     if dom.root.node_type == NodeType::Div {
         return Some(&dom.root);
     }

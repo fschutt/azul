@@ -583,7 +583,7 @@ fn the_keys_walk_the_rows_in_the_order_they_show() {
     t.view = table_key(&t, &geo, K::Down, false, false).expect("down").view;
     assert_eq!(t.view.cursor_row().into_option(), Some(top), "Down starts at the first row SHOWN");
     t.view = table_key(&t, &geo, K::Down, true, false).expect("shift down").view;
-    let mut want = vec![u64::from(top), u64::from(second)];
+    let mut want = [u64::from(top), u64::from(second)];
     want.sort_unstable();
     assert_eq!(t.view.selection.keys.as_slice(), &want[..], "Shift takes the rows between, as shown");
 }

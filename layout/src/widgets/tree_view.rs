@@ -2353,7 +2353,7 @@ mod autotest_generated {
                 .callbacks
                 .as_ref()
                 .iter()
-                .map(|c| (c.event.clone(), c.callback.clone()))
+                .map(|c| (c.event, c.callback.clone()))
                 .collect();
             node.set_callbacks(Vec::new().into());
             out.push((node, d.children.as_ref().len(), d.css.clone(), callbacks));

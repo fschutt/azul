@@ -1099,15 +1099,12 @@ fn reset_values(
     let mut out: Vec<(DomNodeId, String)> = Vec::new();
     let mut seen: Vec<(AzString, usize)> = Vec::new();
     for (node, name) in named_controls(info, form) {
-        let nth = match seen.iter_mut().find(|(n, _)| *n == name) {
-            Some((_, count)) => {
-                *count += 1;
-                *count - 1
-            }
-            None => {
-                seen.push((name.clone(), 1));
-                0
-            }
+        let nth = if let Some((_, count)) = seen.iter_mut().find(|(n, _)| *n == name) {
+            *count += 1;
+            *count - 1
+        } else {
+            seen.push((name.clone(), 1));
+            0
         };
         let Some(value) = initial
             .entries
@@ -1874,7 +1871,7 @@ mod tests {
                     CssProperty::Display(v) => v.get_property().cloned(),
                     _ => None,
                 })
-                .last();
+                .next_back();
             assert_eq!(display, Some(LayoutDisplay::None), "it must take no space");
             let attrs = dom.root.attributes();
             assert!(attrs
@@ -1958,7 +1955,7 @@ mod tests {
             assert_eq!(
                 submitted(&log)
                     .first()
-                    .map(|d| pairs(d)),
+                    .map(pairs),
                 Some(vec![("q".to_string(), "rust".to_string())])
             );
         }

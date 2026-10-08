@@ -1313,7 +1313,7 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
         let month = inner.month.clamp(1, 12);
         let sel_day = inner.day;
         // A caller's `container_style` owns the panel; otherwise the theme's.
-        let container_style = match picker.container_style.clone().into_option() {
+        let container_style = match picker.container_style.into_option() {
             Some(own) => own,
             None => CssPropertyWithConditionsVec::from_vec(look.panel.clone()),
         };
@@ -1401,12 +1401,12 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
                 .with_dataset(Some(shared).into())
                 .with_children(sections.into());
             if mode != DatePickerMode::Date {
-                calendar = calendar.with_attribute(azul_core::dom::AttributeType::InputType(
+                calendar = calendar.with_attribute(AttributeType::InputType(
                     AzString::from_const_str(mode.html_type()),
                 ));
             }
             if let Some(name) = name.into_option() {
-                calendar = calendar.with_attribute(azul_core::dom::AttributeType::Name(name));
+                calendar = calendar.with_attribute(AttributeType::Name(name));
             }
             return calendar;
         }
@@ -1480,12 +1480,12 @@ pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
                 .into(),
             );
         if mode != DatePickerMode::Date {
-            field = field.with_attribute(azul_core::dom::AttributeType::InputType(
+            field = field.with_attribute(AttributeType::InputType(
                 AzString::from_const_str(mode.html_type()),
             ));
         }
         if let Some(name) = name.into_option() {
-            field = field.with_attribute(azul_core::dom::AttributeType::Name(name));
+            field = field.with_attribute(AttributeType::Name(name));
         }
         field
     }
@@ -2564,7 +2564,7 @@ fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
 /// Turns the calendar to `year`-`month`-`day` and tells the app
 /// (`on_change`), so the host rebuilds the grid on that month with that day
 /// as its one Tab stop (module TODO2: the grid cannot rebuild itself). What
-/// ‹ / ›, PageUp / PageDown and an arrow past the displayed month all come
+/// ‹ / ›, `PageUp` / `PageDown` and an arrow past the displayed month all come
 /// down to.
 fn move_to_date(mut data: RefAny, info: CallbackInfo, year: u32, month: u32, day: u32) -> Update {
     let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
@@ -3081,7 +3081,7 @@ mod autotest_generated {
 
     /// The declared background colour of a *rendered* node's inline style.
     fn rendered_background(dom: &Dom) -> Option<ColorU> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::BackgroundContent(b) => {
                     b.get_property().and_then(|v| match v.as_ref().first() {
@@ -5971,7 +5971,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),

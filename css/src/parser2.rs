@@ -2581,10 +2581,10 @@ fn check_if_value_is_css_env(
 /// BE the component - the cascade swaps its whole value for the live length
 /// - so an `env()` inside a compound value (a shadow's offset) refuses the
 /// declaration instead of half-applying it.
-fn expand_env_components<'a>(
+fn expand_env_components(
     key: CombinedCssPropertyType,
-    value: &'a str,
-) -> Option<Result<Vec<CssDeclaration>, CssParseErrorInner<'a>>> {
+    value: &str,
+) -> Option<Result<Vec<CssDeclaration>, CssParseErrorInner<'_>>> {
     const PROBES: [&str; 2] = ["1px", "2px"];
 
     if !value.contains("env(") {
@@ -2611,7 +2611,7 @@ fn expand_env_components<'a>(
 
     let refused = || {
         CssParseErrorInner::DynamicCssParseError(DynamicCssParseError::UnexpectedValue(
-            crate::props::property::CssParsingError::InvalidValue(
+            CssParsingError::InvalidValue(
                 crate::props::basic::error::InvalidValueErr(value),
             ),
         ))

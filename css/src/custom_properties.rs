@@ -74,13 +74,13 @@ impl CustomPropertyMap {
 
     /// Number of names defined.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Whether no name is defined.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
@@ -359,13 +359,10 @@ impl VarResolver {
                 continue;
             };
             let by_value = self.parsed.entry(ty).or_default();
-            let parsed = match by_value.get(raw) {
-                Some(p) => p.clone(),
-                None => {
-                    let p = parse_value(ty, raw);
-                    by_value.insert(raw.to_string(), p.clone());
-                    p
-                }
+            let parsed = if let Some(p) = by_value.get(raw) { p.clone() } else {
+                let p = parse_value(ty, raw);
+                by_value.insert(raw.to_string(), p.clone());
+                p
             };
             if let Some(p) = parsed {
                 return p;

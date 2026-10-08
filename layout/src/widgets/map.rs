@@ -144,7 +144,7 @@ impl MapColorScheme {
     /// (`css/src/dynamic_selector.rs`). Reading it here means the map and the
     /// stylesheet cannot disagree about what "dark" means.
     #[must_use]
-    pub const fn from_system_theme(theme: azul_css::system::DarkLightMode) -> Self {
+    pub const fn from_system_theme(theme: DarkLightMode) -> Self {
         match theme {
             DarkLightMode::Dark => Self::Dark,
             DarkLightMode::Light => Self::Light,
@@ -154,10 +154,10 @@ impl MapColorScheme {
     /// The scheme of a WINDOW theme — what a `MapTheme::System` layer
     /// follows at render time (`VirtualViewCallbackInfo::window_theme`).
     #[must_use]
-    pub const fn from_window_theme(theme: azul_core::window::DarkLightMode) -> Self {
+    pub const fn from_window_theme(theme: DarkLightMode) -> Self {
         match theme {
-            azul_core::window::DarkLightMode::Dark => Self::Dark,
-            azul_core::window::DarkLightMode::Light => Self::Light,
+            DarkLightMode::Dark => Self::Dark,
+            DarkLightMode::Light => Self::Light,
         }
     }
 }
@@ -238,7 +238,7 @@ impl MapTheme {
     /// The `MapCSS` sheet this theme renders with under `window_theme`; empty
     /// for `Custom` (the layer's `style_css` is the sheet then).
     #[must_use]
-    pub fn stylesheet(self, window_theme: azul_core::window::DarkLightMode) -> AzString {
+    pub fn stylesheet(self, window_theme: DarkLightMode) -> AzString {
         AzString::from(
             self.look(MapColorScheme::from_window_theme(window_theme))
                 .sheet(),
@@ -250,7 +250,7 @@ impl MapTheme {
     /// sample); empty for the authored looks and `Custom`. Both halves are
     /// appended to the layer's attribution by [`MapTileLayer::with_theme`].
     #[must_use]
-    pub fn credit(self, window_theme: azul_core::window::DarkLightMode) -> AzString {
+    pub fn credit(self, window_theme: DarkLightMode) -> AzString {
         AzString::from(
             self.look(MapColorScheme::from_window_theme(window_theme))
                 .credit_str(),
@@ -330,7 +330,7 @@ impl MapTileLayer {
     /// non-empty `style_css` always wins; else the theme's sheet for that
     /// half; else the built-in palette (empty).
     #[must_use]
-    pub fn effective_style_css(&self, window_theme: azul_core::window::DarkLightMode) -> AzString {
+    pub fn effective_style_css(&self, window_theme: DarkLightMode) -> AzString {
         self.effective_style_css_for(
             self.theme
                 .look(MapColorScheme::from_window_theme(window_theme)),
@@ -1257,10 +1257,10 @@ const _: () = assert!(
 /// Every entry of `map` for `tile`, at any look. A tile's keys are adjacent
 /// in a map ordered by [`TileStyleKey`] (tile first), so this is a range,
 /// not a scan of the whole cache.
-fn looks_of<'a, V>(
-    map: &'a BTreeMap<TileStyleKey, V>,
+fn looks_of<V>(
+    map: &BTreeMap<TileStyleKey, V>,
     tile: MapTileId,
-) -> impl Iterator<Item = (&'a TileStyleKey, &'a V)> + 'a {
+) -> impl Iterator<Item = (&TileStyleKey, &V)> + '_ {
     map.range(
         TileStyleKey {
             tile,
@@ -3007,7 +3007,7 @@ fn map_debug() -> bool {
     *ON.get_or_init(|| std::env::var_os("AZ_MAP_DEBUG").is_some())
 }
 
-/// Whether the map prints its counters on stdout - `AZ_MAP_STATS=1` (AzMaps
+/// Whether the map prints its counters on stdout - `AZ_MAP_STATS=1` (`AzMaps`
 /// sets it for its `--stats` switch). Read once.
 ///
 /// - `AZ_MAP_TILES <ready> <pending> <fetching> <failed> <drawn>` after every

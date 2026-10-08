@@ -922,7 +922,7 @@ impl GestureAndDragManager {
     /// macOS `magnifyWithEvent:` reports each event's OWN magnification (a
     /// delta), not the gesture's. Injected as is, two zoom-in steps of +2 %
     /// and +1 % read as scales 1.02 then 1.01 - a zoom OUT to every consumer
-    /// that compares successive updates (the AzMaps jitter). So: `Began`
+    /// that compares successive updates (the `AzMaps` jitter). So: `Began`
     /// starts a gesture at 1.0 (`began` set); `Changed` multiplies in
     /// `1 + magnification` (an update with no gesture open begins one; a
     /// delta that is not a finite growth factor changes nothing); `Ended`

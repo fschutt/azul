@@ -208,7 +208,7 @@ pub struct AddressBar {
     pub on_event: OptionAddressBarOnEvent,
     /// The widget theme this widget is PINNED to (`with_theme`), or `None`
     /// to follow the app theme.
-    pub theme: crate::widgets::themes::OptionUiTheme,
+    pub theme: OptionUiTheme,
     /// Whether Back does anything (a history behind); an arrow that cannot
     /// go reports nothing.
     pub can_go_back: bool,
@@ -444,7 +444,7 @@ impl AddressBar {
             search: AzString::from_const_str(""),
             search_placeholder: AzString::from_const_str("Search"),
             on_event: None.into(),
-            theme: crate::widgets::themes::OptionUiTheme::None,
+            theme: OptionUiTheme::None,
             can_go_back: false,
             can_go_forward: false,
             can_go_up: false,
@@ -557,13 +557,13 @@ impl AddressBar {
     }
 
     /// Pin the widget theme; unset, the bar follows the app theme.
-    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
-        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
     }
 
     /// [`Self::set_theme`] for the builder chain.
     #[must_use]
-    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
         self.set_theme(theme);
         self
     }
@@ -1548,7 +1548,7 @@ mod address_bar_tests {
                     .iter_inline_properties()
                     .any(|(p, _)| match p {
                         CssProperty::Opacity(o) => {
-                            o.get_property().map_or(false, |o| o.inner.normalized() < 0.75)
+                            o.get_property().is_some_and(|o| o.inner.normalized() < 0.75)
                         }
                         _ => false,
                     })
@@ -1557,7 +1557,7 @@ mod address_bar_tests {
                 node.children.as_ref()[0]
                     .root
                     .get_accessibility_info()
-                    .map_or(false, |a| {
+                    .is_some_and(|a| {
                         a.states
                             .as_ref()
                             .contains(&azul_core::a11y::AccessibilityState::Unavailable)

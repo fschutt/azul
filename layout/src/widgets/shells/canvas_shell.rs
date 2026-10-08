@@ -267,7 +267,7 @@ fn office_shell_in(shell: CanvasShell, look: &ShellLook) -> OfficeShell {
             .with_child(t)
     });
     // The main pane: the document tabs over the canvas.
-    let mut column: alloc::vec::Vec<Dom> = alloc::vec::Vec::with_capacity(2);
+    let mut column: Vec<Dom> = Vec::with_capacity(2);
     if let Some(tabs) = document_tabs.into_option() {
         column.push(
             Dom::create_div()

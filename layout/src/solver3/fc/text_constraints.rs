@@ -125,7 +125,7 @@ pub(super) fn content_language(styled_dom: &StyledDom, node: NodeId) -> Option<&
         if let Some(tag) = lang {
             return (!tag.is_empty()).then_some(tag);
         }
-        current = hierarchy.get(id).and_then(|h| h.parent_id());
+        current = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     None
 }

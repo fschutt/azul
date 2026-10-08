@@ -1554,7 +1554,7 @@ fn push_inline_fragment_entries(
 
 fn paint_ranks(
     display_list: &crate::solver3::display_list::DisplayList,
-    nodes: &[crate::solver3::layout_tree::LayoutNodeHot],
+    nodes: &[LayoutNodeHot],
 ) -> Vec<usize> {
     let mut own = vec![usize::MAX; nodes.len()];
     for (item, mapping) in display_list.layout_node_mapping.iter().enumerate() {

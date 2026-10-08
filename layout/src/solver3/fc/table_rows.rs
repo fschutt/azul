@@ -409,17 +409,17 @@ pub(super) fn first_line_baseline(index: usize, tree: &LayoutTree, depth: usize)
 ///   offset by where it sits; out-of-flow boxes (absolute, fixed, floats)
 ///   have no line box in the normal flow;
 /// - a TABLE answers nothing (Blink's `LayoutTable::InlineBlockBaseline` is
-///   -1; LayoutNG skips tables for the inline-block baseline): the search
+///   -1; `LayoutNG` skips tables for the inline-block baseline): the search
 ///   goes on above it;
 /// - a child whose `overflow` is not `visible` answers with its bottom margin
 ///   edge, not its own lines (10.8.1's overflow rule, applied by Blink to
 ///   every block on the way down);
-/// - a flex or grid child answers with its FIRST baseline (LayoutNG: "some
+/// - a flex or grid child answers with its FIRST baseline (`LayoutNG`: "some
 ///   fragments use their first baseline"), `first_line_baseline`.
 ///
 /// `None`: no line box at all - the caller's baseline is then the inline-
 /// block's bottom margin edge. Mail templates (Cerberus) open with a clipped
-/// preheader and go on in tables, so AzMail's inline-block paper sits on the
+/// preheader and go on in tables, so `AzMail`'s inline-block paper sits on the
 /// preheader's bottom edge, one strut ascent below the line's top.
 pub(super) fn inline_block_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
     const MAX_DEPTH: usize = 64;

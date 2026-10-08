@@ -131,7 +131,7 @@ const NUMBERED_PLACES: usize = 9;
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct RibbonFileMenuCommand {
-    /// A Material icon name ("open_in_new", "terminal", "help"); empty draws
+    /// A Material icon name ("`open_in_new`", "terminal", "help"); empty draws
     /// none.
     pub icon: AzString,
     /// What the command says ("Open new window").
@@ -329,13 +329,13 @@ impl RibbonFileMenuCommand {
     }
 
     /// Appends a sub-command (see [`Self::children`]).
-    pub fn add_child(&mut self, child: RibbonFileMenuCommand) {
+    pub fn add_child(&mut self, child: Self) {
         self.children.push(child);
     }
 
     /// [`Self::add_child`] for the builder chain.
     #[must_use]
-    pub fn with_child(mut self, child: RibbonFileMenuCommand) -> Self {
+    pub fn with_child(mut self, child: Self) -> Self {
         self.add_child(child);
         self
     }
@@ -1332,7 +1332,7 @@ extern "C" fn on_pick(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// pick and the dismissal. The popup closes itself from its own window, which
 /// wakes every window - the app's window rebuilds its DOM (a fresh menu, a
 /// fresh shared part) before it hears the `Dismissed`, and the pick was left
-/// in the old shared part: AzDrive's Delete history > Recent places ran
+/// in the old shared part: `AzDrive`'s Delete history > Recent places ran
 /// nothing. The new build's shared part (the one its `Dismissed` handler
 /// holds) takes the old one's pick over.
 extern "C" fn merge_shared(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {

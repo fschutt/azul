@@ -302,13 +302,13 @@ impl AzString {
     /// [`Self::set_localizable`])?
     #[inline]
     #[must_use]
-    pub fn is_localizable(&self) -> bool {
+    pub const fn is_localizable(&self) -> bool {
         (self.vec.flags & 1) != 0
     }
 
     /// Mark (or unmark) this string as a translation key.
     #[inline]
-    pub fn set_localizable(&mut self, localizable: bool) {
+    pub const fn set_localizable(&mut self, localizable: bool) {
         if localizable {
             self.vec.flags |= 1;
         } else {

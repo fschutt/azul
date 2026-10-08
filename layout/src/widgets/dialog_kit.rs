@@ -49,7 +49,7 @@ pub(crate) struct DialogKitLook {
     // ---- text ----
     /// A page: the column a wizard page or a dialog body is (its padding).
     pub page: Vec<CssPropertyWithConditions>,
-    /// A heading on a page ("Welcome to the AzOffice Setup Wizard").
+    /// A heading on a page ("Welcome to the `AzOffice` Setup Wizard").
     pub heading: Vec<CssPropertyWithConditions>,
     /// Body text.
     pub text: Vec<CssPropertyWithConditions>,
@@ -252,7 +252,7 @@ pub(crate) fn line(
 }
 
 /// The theme setter for the widgets a dialog widget builds for itself (its
-/// Buttons, CheckBoxes, TextInputs): `Some(theme)` when it is pinned;
+/// Buttons, `CheckBoxes`, TextInputs): `Some(theme)` when it is pinned;
 /// `None` follows.
 #[must_use]
 pub(crate) const fn inner_theme(theme: OptionUiTheme) -> Option<UiTheme> {

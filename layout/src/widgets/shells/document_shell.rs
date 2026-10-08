@@ -1,4 +1,4 @@
-//! S1 - Document + ribbon: Word, Excel, PowerPoint, the PDF editor
+//! S1 - Document + ribbon: Word, Excel, `PowerPoint`, the PDF editor
 //! (04-app-shells.md, S1).
 //!
 //! ```text

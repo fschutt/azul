@@ -131,7 +131,7 @@ impl IcuResult {
         Self::Err(IcuError::new(msg))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_option(self) -> Option<AzString> {
         match self {
             Self::Ok(s) => Some(s),
@@ -139,7 +139,7 @@ impl IcuResult {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn unwrap_or(self, default: AzString) -> AzString {
         match self {
             Self::Ok(s) => s,
@@ -505,7 +505,7 @@ pub struct IcuDateTime {
 
 impl IcuDate {
     /// Create a new `IcuDate` from year, month, day.
-    #[must_use] 
+    #[must_use]
     pub const fn new(year: i32, month: u8, day: u8) -> Self {
         Self { year, month, day }
     }
@@ -537,7 +537,7 @@ impl IcuDate {
 
 impl IcuTime {
     /// Create a new `IcuTime` from hour, minute, second.
-    #[must_use] 
+    #[must_use]
     pub const fn new(hour: u8, minute: u8, second: u8) -> Self {
         Self {
             hour,
@@ -573,7 +573,7 @@ impl IcuTime {
 
 impl IcuDateTime {
     /// Create a new `IcuDateTime` from date and time.
-    #[must_use] 
+    #[must_use]
     pub const fn new(date: IcuDate, time: IcuTime) -> Self {
         Self { date, time }
     }
@@ -1318,7 +1318,7 @@ impl Default for IcuLocalizerHandle {
 
 impl IcuLocalizerHandle {
     /// Create a new empty cache with a default locale.
-    #[must_use] 
+    #[must_use]
     pub fn new(default_locale: &str) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(IcuLocalizerInner {
@@ -1338,13 +1338,13 @@ impl IcuLocalizerHandle {
     }
 
     /// Create a cache initialized with the system language.
-    #[must_use] 
+    #[must_use]
     pub fn from_system_language(language: &AzString) -> Self {
         Self::new(language.as_str())
     }
 
     /// Get the default locale string.
-    #[must_use] 
+    #[must_use]
     pub fn get_default_locale(&self) -> AzString {
         self.inner()
             .default_locale
@@ -1369,7 +1369,7 @@ impl IcuLocalizerHandle {
     /// This allows supporting locales that aren't compiled into the binary.
     ///
     /// Returns `true` if the data was successfully loaded.
-    #[must_use] 
+    #[must_use]
     pub fn load_data_blob(&self, data: &[u8]) -> bool {
         let inner = self.inner();
         if let Ok(mut blob) = inner.data_blob.lock() {
@@ -1422,7 +1422,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Get the language part of a locale (e.g., "en" from "en-US").
-    #[must_use] 
+    #[must_use]
     pub fn get_language(&self, locale: &str) -> AzString {
         self.with_localizer(locale, |l| l.get_language())
     }
@@ -1434,7 +1434,7 @@ impl IcuLocalizerHandle {
     /// cache.format_integer("en-US", 1234567) // → "1,234,567"
     /// cache.format_integer("de-DE", 1234567) // → "1.234.567"
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn format_integer(&self, locale: &str, value: i64) -> AzString {
         self.with_localizer(locale, |l| l.format_integer(value))
     }
@@ -1445,7 +1445,7 @@ impl IcuLocalizerHandle {
     /// * `locale` - BCP 47 locale string (e.g., "en-US", "de-DE")
     /// * `integer_part` - The full integer value (e.g., 123456 for 1234.56)
     /// * `decimal_places` - Number of decimal places (e.g., 2 for 1234.56)
-    #[must_use] 
+    #[must_use]
     pub fn format_decimal(&self, locale: &str, integer_part: i64, decimal_places: i16) -> AzString {
         self.with_localizer(locale, |l| l.format_decimal(integer_part, decimal_places))
     }
@@ -1457,7 +1457,7 @@ impl IcuLocalizerHandle {
     /// cache.get_plural_category("en", 1)  // → PluralCategory::One
     /// cache.get_plural_category("pl", 5)  // → PluralCategory::Many
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn get_plural_category(&self, locale: &str, value: i64) -> PluralCategory {
         self.with_localizer(locale, |l| l.get_plural_category(value))
     }
@@ -1468,7 +1468,7 @@ impl IcuLocalizerHandle {
     /// * `locale` - BCP 47 locale string
     /// * `value` - The number to pluralize
     /// * `zero`, `one`, `two`, `few`, `many`, `other` - Strings for each category
-    #[must_use] 
+    #[must_use]
     pub fn pluralize(
         &self,
         locale: &str,
@@ -1494,7 +1494,7 @@ impl IcuLocalizerHandle {
     /// cache.format_list("en-US", &items, ListType::And) // → "A, B, and C"
     /// cache.format_list("de-DE", &items, ListType::And) // → "A, B und C"
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn format_list(&self, locale: &str, items: &[AzString], list_type: ListType) -> AzString {
         self.with_localizer_or(
             locale,
@@ -1514,7 +1514,7 @@ impl IcuLocalizerHandle {
     /// cache.format_date("en-US", today, FormatLength::Medium) // → "Jan 15, 2025"
     /// cache.format_date("de-DE", today, FormatLength::Medium) // → "15.01.2025"
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn format_date(&self, locale: &str, date: IcuDate, length: FormatLength) -> IcuResult {
         self.with_localizer_or(
             locale,
@@ -1531,7 +1531,7 @@ impl IcuLocalizerHandle {
     /// cache.format_time("en-US", now, false) // → "4:30 PM"
     /// cache.format_time("de-DE", now, false) // → "16:30"
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
         self.with_localizer_or(
             locale,
@@ -1541,7 +1541,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Format a date and time according to the specified locale.
-    #[must_use] 
+    #[must_use]
     pub fn format_datetime(
         &self,
         locale: &str,
@@ -1568,7 +1568,7 @@ impl IcuLocalizerHandle {
     /// cache.compare_strings("de-DE", "Äpfel", "Banane") // → -1 (Ä sorts with A)
     /// cache.compare_strings("sv-SE", "Äpple", "Öl")     // → -1 (Swedish: Ä before Ö)
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
         self.with_localizer(locale, |l| match l.compare(a, b) {
             core::cmp::Ordering::Less => -1,
@@ -1586,7 +1586,7 @@ impl IcuLocalizerHandle {
     /// let sorted = cache.sort_strings("de-DE", &["Österreich", "Andorra", "Ägypten"]);
     /// // Result: ["Ägypten", "Andorra", "Österreich"] (Ä sorts with A, Ö with O)
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn sort_strings(&self, locale: &str, strings: &[AzString]) -> IcuStringVec {
         self.with_localizer_or(
             locale,
@@ -1596,13 +1596,13 @@ impl IcuLocalizerHandle {
     }
 
     /// Check if two strings are equal according to locale collation rules.
-    #[must_use] 
+    #[must_use]
     pub fn strings_equal(&self, locale: &str, a: &str, b: &str) -> bool {
         self.with_localizer_or(locale, |l| l.strings_equal(a, b), || a == b)
     }
 
     /// Get the sort key for a string (for efficient bulk sorting).
-    #[must_use] 
+    #[must_use]
     pub fn get_sort_key(&self, locale: &str, s: &str) -> Vec<u8> {
         self.with_localizer(locale, |l| l.get_sort_key(s))
     }
@@ -1611,7 +1611,7 @@ impl IcuLocalizerHandle {
     ///
     /// This handles the common case of "{count} {item/items}" patterns.
     /// The `{}` placeholder in the template will be replaced with the formatted number.
-    #[must_use] 
+    #[must_use]
     pub fn format_plural(
         &self,
         locale: &str,
@@ -1626,7 +1626,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Format a list of strings conveniently.
-    #[must_use] 
+    #[must_use]
     pub fn format_list_strings(
         &self,
         locale: &str,
@@ -1645,7 +1645,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Get the number of cached locales.
-    #[must_use] 
+    #[must_use]
     pub fn cached_locale_count(&self) -> usize {
         self.inner()
             .cache
@@ -1655,7 +1655,7 @@ impl IcuLocalizerHandle {
     }
 
     /// Get a list of all cached locale strings.
-    #[must_use] 
+    #[must_use]
     pub fn cached_locales(&self) -> Vec<AzString> {
         self.inner()
             .cache

@@ -17,7 +17,7 @@ use azul_css::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
     props::{
-        basic::{color::ColorU, *},
+        basic::{color::ColorU, PixelValue},
         layout::{
             LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
             LayoutHeight, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
@@ -198,11 +198,11 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
 /// trough (`themes::flora::switch_track_face`, in the theme's accent), else
 /// the widget's own colours.
 pub(crate) fn track_face(checked: bool, dark: bool) -> StyleBackgroundContentVec {
-    match crate::widgets::themes::UiTheme::current() {
-        crate::widgets::themes::UiTheme::Flora => {
+    match UiTheme::current() {
+        UiTheme::Flora => {
             crate::widgets::themes::flora::switch_track_face(checked, dark)
         }
-        crate::widgets::themes::UiTheme::Flat => {
+        UiTheme::Flat => {
             if checked {
                 TRACK_ON_BG
             } else {

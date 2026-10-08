@@ -1174,7 +1174,7 @@ pub fn interpolate_transform_lists(
 
 /// The function that leaves a box where it is, of `f`'s kind: no turn, no
 /// shift, no skew, a scale of 1. `None` for the kinds without a simple one.
-fn transform_identity(f: &StyleTransform) -> Option<StyleTransform> {
+const fn transform_identity(f: &StyleTransform) -> Option<StyleTransform> {
     use StyleTransform as T;
     let no_turn = AngleValue::const_deg(0);
     let no_shift = PixelValue::const_px(0);
@@ -1222,7 +1222,7 @@ fn interpolate_transform(a: &StyleTransform, b: &StyleTransform, t: f32) -> Opti
     // Degrees, UNFOLDED: `rotate(720deg)` is two turns, not none.
     let angle = |x: &AngleValue, y: &AngleValue| {
         let (x, y) = (x.to_degrees_raw(), y.to_degrees_raw());
-        AngleValue::deg(x + (y - x) * t)
+        AngleValue::deg((y - x).mul_add(t, x))
     };
     Some(match (a, b) {
         (T::Rotate(x), T::Rotate(y)) => T::Rotate(angle(x, y)),

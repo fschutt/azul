@@ -262,7 +262,7 @@ impl GpuStateManager {
         &self,
         dom_id: DomId,
         node: NodeId,
-    ) -> Option<azul_core::transform::ComputedTransform3D> {
+    ) -> Option<ComputedTransform3D> {
         self.caches
             .get(&dom_id)
             .and_then(|cache| cache.painted_transform_of(node))
@@ -350,7 +350,7 @@ impl GpuStateManager {
                 })
                 .map_or_else(
                     || layout_tree.scroll_extent(LayoutNodeId::new(node_idx), is_viewport),
-                    |s| s.effective_content_size(),
+                    super::scroll_state::AnimatedScrollState::effective_content_size,
                 );
 
             // The bars `paint_scrollbars` drew, and only those: the one

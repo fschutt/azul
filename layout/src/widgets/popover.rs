@@ -440,7 +440,7 @@ impl Popover {
         let wrapper_style = self.resolved_wrapper_style();
         let content_style = self
             .content_style
-            .clone()
+
             .into_option()
             .unwrap_or_else(|| skin.panel.clone());
         build_dialog(DialogParts {

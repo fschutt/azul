@@ -781,7 +781,7 @@ impl ResolvedContent<'_> {
         // one a `data:` URI embeds.
         let cached = image.source_tag().and_then(|src| {
             self.image_cache
-                .and_then(|cache| cache.get_css_image_id(&azul_css::AzString::from(src)).cloned())
+                .and_then(|cache| cache.get_css_image_id(&AzString::from(src)).cloned())
                 .or_else(|| embedded_image(src))
         });
         Some(cached.unwrap_or_else(|| image.clone()))
@@ -930,7 +930,7 @@ impl ResolvedContent<'_> {
     #[must_use]
     pub fn displayed_texts(&self) -> Vec<Option<String>> {
         let node_data = self.styled_dom.node_data.as_container();
-        let is_text = |n: NodeId| matches!(node_data.get(n).map(|d| d.get_node_type()), Some(NodeType::Text(_)));
+        let is_text = |n: NodeId| matches!(node_data.get(n).map(azul_core::dom::NodeData::get_node_type), Some(NodeType::Text(_)));
         let mut texts: Vec<Option<String>> = node_data
             .iter()
             .map(|n| match n.get_node_type() {

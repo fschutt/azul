@@ -2171,7 +2171,7 @@ pub struct StructuralBreak {
     /// at/after `y`) never names: for a break inside the LAST block `path`
     /// is `None`. `Some` exactly when `line_start` is (LAYOUT7: a block
     /// taller than a page had no page of its own after the first in
-    /// AzWriter, which could only start pages at `path`).
+    /// `AzWriter`, which could only start pages at `path`).
     pub line_path: Option<Vec<u32>>,
 }
 

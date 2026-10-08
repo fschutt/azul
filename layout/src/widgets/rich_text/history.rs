@@ -1,8 +1,8 @@
 //! The rich-text editor's ONE undo / redo history.
 //!
-//! AzWriter kept two (its own stack of inverse edits AND the engine's,
+//! `AzWriter` kept two (its own stack of inverse edits AND the engine's,
 //! handed the same inverse; Ctrl+Z and the Undo button undid different
-//! histories - scripts/DEDUP_EDITORS A3.6). The shared editor keeps one:
+//! histories - `scripts/DEDUP_EDITORS` A3.6). The shared editor keeps one:
 //! a snapshot of the document before every step - typing (consecutive
 //! typing in one block is one step), Enter, Backspace across blocks, a
 //! paste, a format, a block kind, an indent, a link, a tick. Undo puts the
@@ -49,8 +49,8 @@ impl RichTextHistory {
     #[must_use]
     pub fn create() -> Self {
         Self {
-            undo_stack: RichTextDocVec::from_vec(alloc::vec::Vec::new()),
-            redo_stack: RichTextDocVec::from_vec(alloc::vec::Vec::new()),
+            undo_stack: RichTextDocVec::from_vec(Vec::new()),
+            redo_stack: RichTextDocVec::from_vec(Vec::new()),
             limit: 200,
             group: RichEditGroup::None,
         }
@@ -74,7 +74,7 @@ impl RichTextHistory {
             undo = undo.split_off(excess);
         }
         self.undo_stack = RichTextDocVec::from_vec(undo);
-        self.redo_stack = RichTextDocVec::from_vec(alloc::vec::Vec::new());
+        self.redo_stack = RichTextDocVec::from_vec(Vec::new());
     }
 
     /// Ends the current group: the next step is a step of its own (the
@@ -125,8 +125,8 @@ impl RichTextHistory {
 
     /// Forgets every step (a new document was loaded).
     pub fn clear(&mut self) {
-        self.undo_stack = RichTextDocVec::from_vec(alloc::vec::Vec::new());
-        self.redo_stack = RichTextDocVec::from_vec(alloc::vec::Vec::new());
+        self.undo_stack = RichTextDocVec::from_vec(Vec::new());
+        self.redo_stack = RichTextDocVec::from_vec(Vec::new());
         self.group = RichEditGroup::None;
     }
 }

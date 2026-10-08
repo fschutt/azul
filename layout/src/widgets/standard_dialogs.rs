@@ -321,11 +321,11 @@ fn report(
     })
 }
 
-/// Why a ProgressDialog's Cancel waits (`can_cancel` unset).
+/// Why a `ProgressDialog`'s Cancel waits (`can_cancel` unset).
 const CANCEL_HELD_REASON: &str = "This task cannot be cancelled now.";
-/// Why a LoginDialog's Sign in waits (a field is empty).
+/// Why a `LoginDialog`'s Sign in waits (a field is empty).
 const SIGN_IN_HELD_REASON: &str = "Enter your user name and password.";
-/// Why a FindReplaceDialog's find and replace buttons wait (no text).
+/// Why a `FindReplaceDialog`'s find and replace buttons wait (no text).
 const FIND_HELD_REASON: &str = "Type the text to find.";
 
 /// A button of the row: `primary` or not, reporting `kind` at `index`, or -
@@ -746,7 +746,7 @@ fn alert_description(text: &AzString, steps: &StringVec) -> AzString {
     if steps.as_ref().is_empty() {
         return text.clone();
     }
-    let mut said = alloc::string::String::from(text.as_str().trim_end());
+    let mut said = String::from(text.as_str().trim_end());
     for (i, step) in steps.as_ref().iter().enumerate() {
         if !said.is_empty() {
             said.push('\n');
@@ -1234,7 +1234,7 @@ fn build_progress_dialog(p: ProgressDialog, look: &DialogKitLook) -> Dom {
         states: azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![
             azul_core::a11y::AccessibilityState::Busy
         ]),
-        ..AccessibilityInfo::named(p.title.clone(), AccessibilityRole::Grouping)
+        ..AccessibilityInfo::named(p.title, AccessibilityRole::Grouping)
     };
     body(PROGRESS_DIALOG_CLASS, a11y, content, buttons, look)
 }
@@ -1251,7 +1251,7 @@ fn build_progress_dialog(p: ProgressDialog, look: &DialogKitLook) -> Dom {
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct LoginDialog {
-    /// The title ("Sign in to AzOffice").
+    /// The title ("Sign in to `AzOffice`").
     pub title: AzString,
     /// A line under the title, or empty.
     pub message: AzString,
@@ -1466,7 +1466,7 @@ fn build_login(l: LoginDialog, look: &DialogKitLook) -> Dom {
             look,
         ),
     ];
-    let a11y = AccessibilityInfo::named(l.title.clone(), AccessibilityRole::Grouping);
+    let a11y = AccessibilityInfo::named(l.title, AccessibilityRole::Grouping);
     body(LOGIN_CLASS, a11y, content, buttons, look)
 }
 

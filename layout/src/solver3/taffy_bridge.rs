@@ -688,7 +688,7 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// layout pass; each build is ~13 `cache.get_property` cascade walks.
     /// Built once per node and LENT, never cloned: a hashed memo that handed
     /// out clones (a `Style` holds Vecs) was 8% of a 300-contact list's layout
-    /// (AzContacts, 2026-10-06).
+    /// (`AzContacts`, 2026-10-06).
     dom_styles: Vec<std::cell::OnceCell<Style>>,
     /// The style each LAYOUT node hands taffy ([`Self::get_taffy_style`]: its
     /// DOM node's, with the root's margin and a stretched item's cross size
@@ -945,7 +945,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     used_border
                         .widths
                         .left
-                        .and_then(|v| v.get_property_owned())
+                        .and_then(CssPropertyValue::get_property_owned)
                         .map(|w| w.inner),
                 ),
                 em_size,
@@ -956,7 +956,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     used_border
                         .widths
                         .right
-                        .and_then(|v| v.get_property_owned())
+                        .and_then(CssPropertyValue::get_property_owned)
                         .map(|w| w.inner),
                 ),
                 em_size,
@@ -967,7 +967,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     used_border
                         .widths
                         .top
-                        .and_then(|v| v.get_property_owned())
+                        .and_then(CssPropertyValue::get_property_owned)
                         .map(|w| w.inner),
                 ),
                 em_size,
@@ -978,7 +978,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     used_border
                         .widths
                         .bottom
-                        .and_then(|v| v.get_property_owned())
+                        .and_then(CssPropertyValue::get_property_owned)
                         .map(|w| w.inner),
                 ),
                 em_size,
@@ -1599,7 +1599,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// min-content query lays a `width: 140px` box's text out at its longest
     /// word while answering "140 wide" - and taffy serves that entry for the
     /// box's real 140 px query
-    /// (tests/flex_items_keep_the_size_their_container_gave_them.rs, B).
+    /// (`tests/flex_items_keep_the_size_their_container_gave_them.rs`, B).
     fn own_definite_width(
         &self,
         node_idx: usize,
@@ -2823,7 +2823,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
 /// run. An item whose size depends on that (anything holding wrapping lines)
 /// is asked several keys of one class: each run evicts the other's entry,
 /// and every pass misses them all, the item's whole subtree with it - and
-/// the levels below repeat it with keys of their own. AzWidgets' page column
+/// the levels below repeat it with keys of their own. `AzWidgets`' page column
 /// asked its form section `(None, 938)` and `(None, 906)`, the section's
 /// descendants up to four keys of one class and up to seven in all per pass:
 /// 173 of a switch-knob frame's 184 taffy misses and its 76 text re-flows.
@@ -2844,7 +2844,7 @@ pub struct TaffyMeasureSpill {
 }
 
 /// How many measurements a [`TaffyMeasureSpill`] keeps: above the seven
-/// distinct keys per pass the busiest AzWidgets node is asked.
+/// distinct keys per pass the busiest `AzWidgets` node is asked.
 const SPILL_ENTRIES: usize = 12;
 
 /// One measurement in a [`TaffyMeasureSpill`]: the key taffy keys it by and

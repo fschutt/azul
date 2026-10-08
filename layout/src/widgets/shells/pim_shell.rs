@@ -1,4 +1,4 @@
-//! S4 - Three-pane PIM: Mail, Notes, News, ToDo, Chat, Passwords,
+//! S4 - Three-pane PIM: Mail, Notes, News, `ToDo`, Chat, Passwords,
 //! Contacts, the clipboard history (04-app-shells.md, S4) - Outlook 2010.
 //!
 //! ```text
@@ -16,7 +16,7 @@
 //! `<nav>`), the list (`shell-list`, a `<section>`) and the reading pane
 //! (`shell-reading`, the `<main>`) - and Outlook's To-Do bar as the right
 //! bar. The navigation slot is where a [`super::ShellNavigationPane`] goes; the
-//! list and the reading pane are AzMail's own widgets (MAILWIDGETS).
+//! list and the reading pane are `AzMail`'s own widgets (MAILWIDGETS).
 //!
 //! Key types: [`PimShell`].
 

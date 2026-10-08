@@ -40,7 +40,7 @@ pub const DATETIME_LOCAL_CLASS: &str = "__azul-native-datetime-local";
 /// theme's skin (gap, padding, outline) comes after it, so the merge
 /// (`themes::theme_blocks`) declares it once, outside every `@theme` block.
 #[must_use]
-pub(crate) fn base_row() -> alloc::vec::Vec<azul_css::dynamic_selector::CssPropertyWithConditions>
+pub(crate) fn base_row() -> Vec<azul_css::dynamic_selector::CssPropertyWithConditions>
 {
     use azul_css::{
         dynamic_selector::CssPropertyWithConditions,

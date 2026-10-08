@@ -523,7 +523,7 @@ impl RichTextEditor {
         self
     }
 
-    /// A line's height as a factor of the font size (PowerPoint's single
+    /// A line's height as a factor of the font size (`PowerPoint`'s single
     /// spacing is 1.15); 0 (the default) is the editor's own 1.5.
     pub fn set_line_height(&mut self, factor: f32) {
         self.line_height = factor;
@@ -740,7 +740,7 @@ impl RichTextEditor {
         };
         {
             let slots = frame.children.as_mut();
-            let page = if chrome.toolbar { 1 } else { 0 };
+            let page = usize::from(chrome.toolbar);
             if chrome.toolbar {
                 if let Some(strip) = slots.get_mut(0) {
                     for button in toolbar {
@@ -767,7 +767,7 @@ impl RichTextEditor {
     }
 
     /// The editing hosts of pages `first_page..first_page + page_count` of
-    /// a paginated document (AzWriter's A4 sheets). `page_starts` holds the
+    /// a paginated document (`AzWriter`'s A4 sheets). `page_starts` holds the
     /// first block of every page, in order (page `k` is the blocks from
     /// `page_starts[k]` to the next page's first). A page's blocks are named
     /// by their index in the whole document (`<host id>-<index>`), its host
@@ -989,7 +989,7 @@ fn with_runs(node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock) -> Dom {
 /// [`with_runs`]; with `wrap_plain`, a plain run is a `span` around its text
 /// instead of the bare text node - for a block whose runs have a block box
 /// beside them (a check item's box): a bare text node next to a block-level
-/// sibling has no line box of its own (dom_lint). The span keeps the run's
+/// sibling has no line box of its own (`dom_lint`). The span keeps the run's
 /// child index, and a span without run classes reads back as a plain run.
 fn with_runs_in(mut node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock, wrap_plain: bool) -> Dom {
     let mut any = false;
@@ -2096,7 +2096,7 @@ impl RichTextEditorState {
                     .is_some_and(|b| b.quote_depth > 0);
                 let mut changed = false;
                 for b in blocks {
-                    changed |= self.doc.set_quote_depth(b, if quoted { 0 } else { 1 });
+                    changed |= self.doc.set_quote_depth(b, u8::from(!quoted));
                 }
                 changed
             }
@@ -2260,18 +2260,15 @@ extern "C" fn on_link_click(mut data: RefAny, info: CallbackInfo) -> Update {
     let on_link = editor_data
         .downcast_ref::<EditorData>()
         .and_then(|e| e.on_link.as_ref().cloned());
-    match on_link {
-        Some(on_link) => {
-            on_link
-                .callback
-                .invoke(on_link.refany.clone(), info, AzString::from(url))
+    if let Some(on_link) = on_link {
+        on_link
+            .callback
+            .invoke(on_link.refany.clone(), info, AzString::from(url))
+    } else {
+        if let Ok(parsed) = azul_core::url::Url::parse(&url) {
+            let _ = parsed.open();
         }
-        None => {
-            if let Ok(parsed) = azul_core::url::Url::parse(&url) {
-                let _ = parsed.open();
-            }
-            Update::DoNothing
-        }
+        Update::DoNothing
     }
 }
 

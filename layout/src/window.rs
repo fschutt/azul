@@ -431,8 +431,8 @@ pub fn app_mode() -> azul_core::window::OptionDarkLightMode {
 #[must_use]
 pub fn resolve_window_mode(
     app: azul_core::window::OptionDarkLightMode,
-    window: azul_core::window::DarkLightMode,
-) -> azul_core::window::DarkLightMode {
+    window: DarkLightMode,
+) -> DarkLightMode {
     resolve_window_mode_with(
         azul_css::dynamic_selector::mode_pinned_by_env(),
         app,
@@ -444,10 +444,10 @@ pub fn resolve_window_mode(
 /// read from the environment - the testable core of the decision.
 #[must_use]
 pub fn resolve_window_mode_with(
-    env: Option<azul_core::window::DarkLightMode>,
+    env: Option<DarkLightMode>,
     app: azul_core::window::OptionDarkLightMode,
-    window: azul_core::window::DarkLightMode,
-) -> azul_core::window::DarkLightMode {
+    window: DarkLightMode,
+) -> DarkLightMode {
     use azul_core::window::OptionDarkLightMode;
     if let Some(pinned) = env {
         return pinned;
@@ -1627,7 +1627,7 @@ pub struct LayoutWindow {
     /// build.
     pub root_display_list_gpu_fingerprint: Option<u64>,
     /// Frames handed to a renderer on the paths that do not
-    /// [`Self::record_frame`] (the CPU backend of every shell, WebRender
+    /// [`Self::record_frame`] (the CPU backend of every shell, `WebRender`
     /// transactions that request a frame). An atomic, because the CPU
     /// renderer only borrows the window. See
     /// [`Self::presented_frame_generation`].
@@ -1667,7 +1667,7 @@ pub struct LayoutWindow {
     /// declared image and its box). A frame invokes a callback only when these
     /// changed, or when the app asked (`update_image_callback`,
     /// `update_all_image_callbacks`) - a canvas at rest mints no new
-    /// `ImageRef` and repaints nothing (AzReview never idled, FB3).
+    /// `ImageRef` and repaints nothing (`AzReview` never idled, FB3).
     pub image_callback_inputs: BTreeMap<(DomId, NodeId), ImageCallbackInputs>,
     /// Frame-scoped journal of applied content changes (what the RENDERER may
     /// still need: old images for backends compositing a not-fully-redrawn
@@ -2370,7 +2370,7 @@ impl LayoutWindow {
     /// [`Self::presented_frames`]).
     pub fn note_frame_presented(&self) {
         self.presented_frames
-            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Moves whenever this window presents a frame, on every backend: the
@@ -2382,7 +2382,7 @@ impl LayoutWindow {
     pub fn presented_frame_generation(&self) -> u64 {
         self.frame_report.frame_index.wrapping_add(
             self.presented_frames
-                .load(core::sync::atomic::Ordering::Relaxed),
+                .load(Ordering::Relaxed),
         )
     }
 
@@ -3245,7 +3245,7 @@ impl LayoutWindow {
     /// text pipeline formats without the app - typing after a format toggle
     /// at the caret, an inline formatted paste, typing into formatted text -
     /// which the report flattened away: the apps lost that bold on their
-    /// next rebuild (DEDUP_EDITORS D1).
+    /// next rebuild (`DEDUP_EDITORS` D1).
     #[must_use]
     pub fn unsynced_text_edits(&self) -> Vec<azul_core::selection::DocumentTextEdit> {
         self.content_overlay
@@ -4830,30 +4830,27 @@ impl LayoutWindow {
         tail: &[InlineContent],
     ) -> Option<(Dom, Option<crate::rich_blocks::InlinePosition>)> {
         if !insert.is_empty() {
-            match head.last_mut() {
-                Some(InlineContent::Text(run)) => {
-                    let mut text = String::from(&*run.text);
-                    text.push_str(insert);
-                    run.text = Arc::from(text.as_str());
-                }
-                _ => {
-                    let (style, source_node_id) = head
-                        .iter()
-                        .rev()
-                        .find_map(|item| match item {
-                            InlineContent::Text(run) => {
-                                Some((run.style.clone(), run.source_node_id))
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or_else(|| (self.get_text_style_for_node(dom_id, first), None));
-                    head.push(InlineContent::Text(StyledRun {
-                        text: Arc::from(insert),
-                        style,
-                        logical_start_byte: 0,
-                        source_node_id,
-                    }));
-                }
+            if let Some(InlineContent::Text(run)) = head.last_mut() {
+                let mut text = String::from(&*run.text);
+                text.push_str(insert);
+                run.text = Arc::from(text.as_str());
+            } else {
+                let (style, source_node_id) = head
+                    .iter()
+                    .rev()
+                    .find_map(|item| match item {
+                        InlineContent::Text(run) => {
+                            Some((run.style.clone(), run.source_node_id))
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| (self.get_text_style_for_node(dom_id, first), None));
+                head.push(InlineContent::Text(StyledRun {
+                    text: Arc::from(insert),
+                    style,
+                    logical_start_byte: 0,
+                    source_node_id,
+                }));
             }
         }
         let mut tree = crate::rich_blocks::InlineTree::default();
@@ -5406,7 +5403,7 @@ impl LayoutWindow {
     /// DOM) never reaches the tail of a full layout that places it, so a reset
     /// editor's caret ([`Self::reset_editor_content`]) waited for some later
     /// full layout - while the focus the app gave the editor in the same
-    /// callback seeded the caret at the END of its text (AzMail's reply: the
+    /// callback seeded the caret at the END of its text (`AzMail`'s reply: the
     /// answer went under the quote). Rebuilds the display list of the DOM the
     /// caret landed in and asks for the caret to be shown. Returns whether a
     /// caret was placed.
@@ -5916,7 +5913,7 @@ impl LayoutWindow {
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return true;
         };
-        let Some(chain) = crate::solver3::scroll_chain::ScrollChain::of_node(
+        let Some(chain) = solver3::scroll_chain::ScrollChain::of_node(
             &lr.layout_tree,
             &lr.styled_dom,
             &lr.scroll_ids,
@@ -6366,8 +6363,8 @@ impl LayoutWindow {
         // writes `window_focused`, only Win32 `flags.has_focus`.
         ctx.window_focused = window_state.is_window_active();
         ctx.mode = match self.window_mode_for(window_state.mode) {
-            azul_core::window::DarkLightMode::Dark => azul_css::system::DarkLightMode::Dark,
-            azul_core::window::DarkLightMode::Light => azul_css::system::DarkLightMode::Light,
+            DarkLightMode::Dark => DarkLightMode::Dark,
+            DarkLightMode::Light => DarkLightMode::Light,
         };
         // The APP theme beside the mode: `@theme(<name>)` blocks match this
         // window's theme chain, `@theme(dark)` the mode above.
@@ -6376,7 +6373,7 @@ impl LayoutWindow {
         // desktop's: a window the app pins light on a dark desktop must not
         // resolve `system:window-background` to the dark desktop's colour.
         if let Some(style) = self.system_style.as_deref() {
-            ctx.system_colors = style.colors_for_theme(if ctx.mode == azul_css::system::DarkLightMode::Dark {
+            ctx.system_colors = style.colors_for_theme(if ctx.mode == DarkLightMode::Dark {
                 DarkLightMode::Dark
             } else {
                 DarkLightMode::Light
@@ -6390,7 +6387,7 @@ impl LayoutWindow {
         #[cfg(feature = "widgets")]
         if let Some(palette) = crate::widgets::themes::flora_palette::for_chain(
             ctx.theme_chain.as_slice(),
-            ctx.mode == azul_css::system::DarkLightMode::Dark,
+            ctx.mode == DarkLightMode::Dark,
         ) {
             ctx.system_colors = palette;
         }
@@ -6404,8 +6401,8 @@ impl LayoutWindow {
     #[must_use]
     pub fn window_mode_for(
         &self,
-        window: azul_core::window::DarkLightMode,
-    ) -> azul_core::window::DarkLightMode {
+        window: DarkLightMode,
+    ) -> DarkLightMode {
         resolve_window_mode(self.mode, window)
     }
 
@@ -6624,6 +6621,7 @@ impl LayoutWindow {
         }
     }
 
+    #[must_use]
     pub fn inset_by_safe_area(
         full: &LogicalRect,
         insets: &azul_css::system::SafeAreaInsets,
@@ -8819,7 +8817,7 @@ impl LayoutWindow {
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
-        new_style: azul_css::css::Css,
+        new_style: Css,
     ) -> crate::overlay::ContentChangeResult {
         use azul_css::{
             css::CssDeclaration,
@@ -8851,7 +8849,7 @@ impl LayoutWindow {
                 return unchanged;
             }
             let changed = Self::changed_declaration_keys(old, &new_style);
-            let reads_variables = |css: &azul_css::css::Css, key: Option<CssPropertyType>| {
+            let reads_variables = |css: &Css, key: Option<CssPropertyType>| {
                 css.rules
                     .as_ref()
                     .iter()
@@ -8945,11 +8943,11 @@ impl LayoutWindow {
     /// whose own declarations are equal resolves the same under every
     /// context.
     fn changed_declaration_keys(
-        old: &azul_css::css::Css,
-        new: &azul_css::css::Css,
+        old: &Css,
+        new: &Css,
     ) -> Vec<Option<azul_css::props::property::CssPropertyType>> {
         use azul_css::{css::CssDeclaration, props::property::CssPropertyType};
-        let declarations = |css: &azul_css::css::Css, key: Option<CssPropertyType>| {
+        let declarations = |css: &Css, key: Option<CssPropertyType>| {
             css.rules
                 .as_ref()
                 .iter()
@@ -9035,12 +9033,12 @@ impl LayoutWindow {
                     .and_then(|hot| {
                         let size = hot.used_size?;
                         let border_box = matches!(
-                            crate::solver3::getters::get_css_box_sizing(
+                            solver3::getters::get_css_box_sizing(
                                 &layout_result.styled_dom,
                                 node_id,
                                 &state.styled_node_state,
                             ),
-                            crate::solver3::getters::MultiValue::Exact(
+                            solver3::getters::MultiValue::Exact(
                                 azul_css::props::layout::LayoutBoxSizing::BorderBox
                             )
                         );
@@ -9591,7 +9589,7 @@ impl LayoutWindow {
                     // Rendered from these already, and nobody asked for a
                     // new frame: the overlay still holds it. Invoking would
                     // only mint a new ImageRef and repaint the rect.
-                    let inputs = ImageCallbackInputs::of(&**image_ref, &bounds);
+                    let inputs = ImageCallbackInputs::of(image_ref, &bounds);
                     if self.image_callback_inputs.get(&(*dom_id, node_dom_id)) == Some(&inputs) {
                         continue;
                     }
@@ -9772,7 +9770,7 @@ impl LayoutWindow {
         None
     }
 
-    /// The VirtualViews a relayout of `root_dom` may keep as they are: every
+    /// The `VirtualViews` a relayout of `root_dom` may keep as they are: every
     /// view whose host node still carries exactly the `VirtualViewNode` - the
     /// callback and its dataset instance - it was last invoked for, in a host
     /// DOM that is itself kept (the root, or the child of a kept view), and
@@ -10038,39 +10036,36 @@ impl LayoutWindow {
         let carried = self
             .virtual_view_manager
             .take_carried(parent_dom_id, node_id);
-        let reason = match self.virtual_view_manager.check_reinvoke(
+        let reason = if let Some(reason) = self.virtual_view_manager.check_reinvoke(
             parent_dom_id,
             node_id,
             &self.scroll_manager,
             bounds,
-        ) {
-            Some(reason) => reason,
-            None => {
-                // No re-invocation needed, but we still need the child_dom_id
-                // for the display list.
-                let nested = self
-                    .virtual_view_manager
-                    .get_nested_dom_id(parent_dom_id, node_id);
-                let fits = nested
-                    .and_then(|child| self.layout_results.get(&child))
-                    .is_some_and(|child| size_eq(child.viewport.size, bounds.size));
-                if !carried || fits {
-                    // The DOM stays - but what it inherits from the host
-                    // may have moved since it was styled.
-                    if let Some(child) = nested {
-                        self.follow_host_in_kept_view(
-                            child,
-                            inherited_from_host,
-                            window_state,
-                            renderer_resources,
-                            system_callbacks,
-                            debug_messages,
-                        );
-                    }
-                    return nested;
+        ) { reason } else {
+            // No re-invocation needed, but we still need the child_dom_id
+            // for the display list.
+            let nested = self
+                .virtual_view_manager
+                .get_nested_dom_id(parent_dom_id, node_id);
+            let fits = nested
+                .and_then(|child| self.layout_results.get(&child))
+                .is_some_and(|child| size_eq(child.viewport.size, bounds.size));
+            if !carried || fits {
+                // The DOM stays - but what it inherits from the host
+                // may have moved since it was styled.
+                if let Some(child) = nested {
+                    self.follow_host_in_kept_view(
+                        child,
+                        inherited_from_host,
+                        window_state,
+                        renderer_resources,
+                        system_callbacks,
+                        debug_messages,
+                    );
                 }
-                VirtualViewCallbackReason::InitialRender
+                return nested;
             }
+            VirtualViewCallbackReason::InitialRender
         };
 
         if let Some(msgs) = debug_messages {
@@ -10372,10 +10367,7 @@ impl LayoutWindow {
     ) {
         // The mode the window's context will carry (`dynamic_selector_context`
         // builds the whole context; only a view that moved needs it).
-        let mode = match self.window_mode_for(window_state.mode) {
-            azul_core::window::DarkLightMode::Dark => azul_css::system::DarkLightMode::Dark,
-            azul_core::window::DarkLightMode::Light => azul_css::system::DarkLightMode::Light,
-        };
+        let mode = self.window_mode_for(window_state.mode);
         let Some(kept) = self.layout_results.get(&child) else {
             return;
         };
@@ -10898,7 +10890,7 @@ impl LayoutWindow {
         &mut self,
         thread_id: ThreadId,
         thread: Thread,
-        owner: Option<azul_core::dom::DomNodeId>,
+        owner: Option<DomNodeId>,
     ) {
         self.threads.insert(thread_id, thread);
         if let Some(owner) = owner {
@@ -11008,8 +11000,8 @@ impl LayoutWindow {
             })
             .or_else(|| monitors.iter().find(|m| m.is_primary_monitor))
             .or_else(|| monitors.first());
-        let hz = monitor.and_then(azul_core::window::Monitor::refresh_rate_hz);
-        hz
+
+        monitor.and_then(azul_core::window::Monitor::refresh_rate_hz)
     }
 
     /// THIS WINDOW'S frame interval, in ns - the one source of truth every
@@ -11055,7 +11047,7 @@ impl LayoutWindow {
     /// [`Self::frame_interval_nanos`] as an engine [`Duration`].
     #[must_use]
     pub fn frame_interval(&self) -> Duration {
-        Duration::System(azul_core::task::SystemTimeDiff::from_nanos(
+        Duration::System(SystemTimeDiff::from_nanos(
             self.frame_interval_nanos(),
         ))
     }
@@ -11130,7 +11122,7 @@ impl LayoutWindow {
     /// holding scroll STATE: the page's frame for a fixed box the page does
     /// not move, and any stray offset on a box that opens no frame.
     fn enclosing_scroll_id(layout_result: &DomLayoutResult, node: NodeId) -> Option<u64> {
-        let chain = crate::solver3::scroll_chain::ScrollChain::of_node(
+        let chain = solver3::scroll_chain::ScrollChain::of_node(
             &layout_result.layout_tree,
             &layout_result.styled_dom,
             &layout_result.scroll_ids,
@@ -12242,7 +12234,7 @@ impl LayoutWindow {
         };
         let seed_target = self.text_target_at_node(seed_node);
         // The caret goes to the end of the text: Trailing on the last cluster.
-        let last_cluster = seed_target.as_ref().and_then(|t| t.last_cluster_caret());
+        let last_cluster = seed_target.as_ref().and_then(super::text_block::TextTarget::last_cluster_caret);
         // No layout for this node YET (the node is not in the layout tree at
         // all) is not the same as "the node has no clusters": seeding cluster
         // (0,0) there produces a caret at the start of a text nobody has
@@ -12566,7 +12558,7 @@ impl LayoutWindow {
         true
     }
 
-    /// `DefaultAction::ScrollFocusedContainer` (PgUp / PgDn / Space / Home /
+    /// `DefaultAction::ScrollFocusedContainer` (`PgUp` / `PgDn` / Space / Home /
     /// End, and an arrow with nowhere to go): scroll the nearest overflowing
     /// box around `focused` - or, with nothing focused, around the node under
     /// the mouse pointer (`HoverManager::current_hover_node_full`: the
@@ -13213,7 +13205,7 @@ impl LayoutWindow {
             return false;
         };
         if host_node.index() >= lr.styled_dom.node_data.as_container().len()
-            || !crate::solver3::getters::is_node_contenteditable_inherited(&lr.styled_dom, host_node)
+            || !solver3::getters::is_node_contenteditable_inherited(&lr.styled_dom, host_node)
         {
             return false;
         }
@@ -13235,7 +13227,7 @@ impl LayoutWindow {
             return false;
         };
         if host_node.index() >= lr.styled_dom.node_data.as_container().len()
-            || !crate::solver3::getters::is_node_contenteditable_inherited(
+            || !solver3::getters::is_node_contenteditable_inherited(
                 &lr.styled_dom,
                 host_node,
             )
@@ -13409,12 +13401,9 @@ impl LayoutWindow {
             Selection::Range(r) => crate::text3::edit::collapsed_range_caret(&items, &r)?,
         };
         let at = crate::block_content::BlockContent::past_generated(caret, generated);
-        let style = match items.get(at.cluster_id.source_run as usize) {
-            Some(InlineContent::Text(run)) => run.style.clone(),
-            _ => {
-                let style_node = self.seed_style_node(block.dom(), element).unwrap_or(element);
-                self.get_text_style_for_node(block.dom(), style_node)
-            }
+        let style = if let Some(InlineContent::Text(run)) = items.get(at.cluster_id.source_run as usize) { run.style.clone() } else {
+            let style_node = self.seed_style_node(block.dom(), element).unwrap_or(element);
+            self.get_text_style_for_node(block.dom(), style_node)
         };
         Some((block, caret, style, element))
     }
@@ -14733,10 +14722,10 @@ impl LayoutWindow {
                 .node_moves
                 .iter()
                 .filter(|m| pending.move_modes.contains_key(&m.new_node_id))
-                .cloned()
+                .copied()
                 .collect();
             for m in declared {
-                let Some(mode) = pending.move_modes.get(&m.new_node_id).cloned() else {
+                let Some(mode) = pending.move_modes.get(&m.new_node_id).copied() else {
                     continue;
                 };
                 let correspondences = azul_core::animation::correspondences_from_moves(
@@ -15304,7 +15293,7 @@ impl LayoutWindow {
     /// by the same absolute offset. The display list nests their reference
     /// frames and every renderer composes nested frames: published as they
     /// are, a child moved by its own offset and its parent's, a grandchild
-    /// three times (AzTasks mid-slide: rows over rows). Published relative to
+    /// three times (`AzTasks` mid-slide: rows over rows). Published relative to
     /// the enclosing slide, a child that moves with its parent is still.
     ///
     /// Which frame encloses a node's is the display list's paint structure:
@@ -15540,7 +15529,7 @@ impl LayoutWindow {
                 NodeId,
                 azul_css::props::basic::color::ColorU,
                 azul_css::props::basic::color::ColorU,
-                crate::solver3::display_list::PaintColorSlot,
+                solver3::display_list::PaintColorSlot,
             )> = Vec::new();
             // (node, the layers the list shows, the frame's layers): the
             // background fades patched layer by layer, after the loop like
@@ -15656,7 +15645,7 @@ impl LayoutWindow {
                             result.display_list.items.iter().any(|item| {
                                 matches!(
                                     item,
-                                    crate::solver3::display_list::DisplayListItem::PushOpacity {
+                                    solver3::display_list::DisplayListItem::PushOpacity {
                                         opacity_key: Some(k),
                                         ..
                                     } if k == key
@@ -15738,7 +15727,7 @@ impl LayoutWindow {
                         // frame by frame). The LAST frame refreshes them, so a
                         // list built after the fade paints the settled colour.
                         if tr.t >= 1.0
-                            && slot == crate::solver3::display_list::PaintColorSlot::Text
+                            && slot == solver3::display_list::PaintColorSlot::Text
                         {
                             needs_restyle = true;
                             restyle_fonts = true;
@@ -15808,7 +15797,7 @@ impl LayoutWindow {
                             needs_restyle = true;
                             paint_restyled = true;
                             restyle_fonts |=
-                                *slot == crate::solver3::display_list::PaintColorSlot::Text;
+                                *slot == solver3::display_list::PaintColorSlot::Text;
                         }
                     }
                 }
@@ -15941,7 +15930,7 @@ impl LayoutWindow {
     /// wholesale and drops the slides whose node it cannot place
     /// (`finish_reconciliation`), and those values stayed in the cache for
     /// good: a reference frame with a stranger's offset on every later frame
-    /// (AzDrive after a theme switch during the backstage's exit: its back
+    /// (`AzDrive` after a theme switch during the backstage's exit: its back
     /// button in the window corner, the search box gone).
     fn release_undriven_animation_values(&mut self) {
         let Some(cache) = self.gpu_state_manager.caches.get(&DomId::ROOT_ID) else {
@@ -16245,12 +16234,12 @@ impl LayoutWindow {
                     .as_container()
                     .get(dom_node_id)
                     .is_some_and(|nd| {
-                        matches!(nd.get_node_type(), azul_core::dom::NodeType::VirtualView)
+                        matches!(nd.get_node_type(), NodeType::VirtualView)
                     });
             let is_scrollable = (overflow_x.is_scroll_container()
                 || overflow_y.is_scroll_container())
                 && (!programmatic_only
-                    || crate::solver3::scroll_chain::content_overflows_scrollport(
+                    || solver3::scroll_chain::content_overflows_scrollport(
                         layout_tree,
                         LayoutNodeId::new(layout_idx),
                     ));
@@ -16261,7 +16250,7 @@ impl LayoutWindow {
             // scrolls. Without an id the page had no frame to move in - the
             // wheel and the thumb moved the offset and the bar, and nothing
             // else.
-            let is_viewport_frame = crate::solver3::scrollbar::is_viewport_scroll_frame(
+            let is_viewport_frame = solver3::scrollbar::is_viewport_scroll_frame(
                 styled_dom.dom_id,
                 dom_node_id,
                 is_scrollable,
@@ -16824,7 +16813,7 @@ impl LayoutWindow {
         // the content inset, + the box's OWN scroll). Subtracting only the
         // static content origin, as this did, resolved a point in a field
         // scrolled by S to the character S px to its left.
-        let local = target.point_from_window(self, azul_core::spaces::WindowPoint::new(point))?;
+        let local = target.point_from_window(self, WindowPoint::new(point))?;
         target.hittest(local)
     }
 
@@ -16899,12 +16888,9 @@ impl LayoutWindow {
         let Some(node_id) = focused.node.into_crate_internal() else {
             return (String::new(), None);
         };
-        let committed = match self.ime_text_block(focused) {
-            Some(block) => self.block_content(block).flat_text(),
-            None => {
-                let content = self.get_text_before_textinput(focused.dom, node_id);
-                self.extract_text_from_inline_content(&content)
-            }
+        let committed = if let Some(block) = self.ime_text_block(focused) { self.block_content(block).flat_text() } else {
+            let content = self.get_text_before_textinput(focused.dom, node_id);
+            self.extract_text_from_inline_content(&content)
         };
 
         let Some(preedit) = self.text_edit_manager.preedit_text.as_ref() else {
@@ -17631,7 +17617,7 @@ impl LayoutWindow {
         inclusivity: Inclusivity,
     ) -> Option<NodeId> {
         let layout_result = self.layout_results.get(&dom)?;
-        crate::solver3::scroll_chain::ScrollChain::of(
+        solver3::scroll_chain::ScrollChain::of(
             &layout_result.layout_tree,
             &layout_result.styled_dom,
             &layout_result.scroll_ids,
@@ -17652,7 +17638,7 @@ impl LayoutWindow {
     /// A TEXT-SELECTION drag (`text_selection_drag_anchor` latched) scrolls
     /// the box its text scrolls in - the editing session's
     /// [`TextTarget::scroll_box`], the same box the caret reveal moves. The
-    /// anchor is the focused HOST there, and in a TextInput the box that
+    /// anchor is the focused HOST there, and in a `TextInput` the box that
     /// scrolls is the value `<p>`, the host's CHILD: the host-and-its-DOM-
     /// ancestors walk below never found it, and the drag scrolled the page
     /// (or nothing) instead of the field.
@@ -17788,24 +17774,21 @@ impl LayoutWindow {
             .as_ref()
             .and_then(|_| self.session_text_target())
             .and_then(|target| target.scroll_box(self));
-        let scroll_container = match session_box {
-            Some(found) => found,
-            None => {
-                let anchor_node = self
-                    .text_edit_manager
-                    .multi_cursor
-                    .as_ref()
-                    .map(|mc| mc.block.container_dom_node())
-                    .or(self.focus_manager.focused_node);
-                let Some(anchor_node) = anchor_node else {
-                    return false;
-                };
-                // Find scrollable ancestor
-                let Some(found) = self.find_scrollable_ancestor(anchor_node) else {
-                    return false; // No scrollable ancestor
-                };
-                found
-            }
+        let scroll_container = if let Some(found) = session_box { found } else {
+            let anchor_node = self
+                .text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .map(|mc| mc.block.container_dom_node())
+                .or(self.focus_manager.focused_node);
+            let Some(anchor_node) = anchor_node else {
+                return false;
+            };
+            // Find scrollable ancestor
+            let Some(found) = self.find_scrollable_ancestor(anchor_node) else {
+                return false; // No scrollable ancestor
+            };
+            found
         };
 
         // Container bounds and scroll state, measured in the CONTAINER'S OWN
@@ -17874,7 +17857,7 @@ impl LayoutWindow {
         // box, which is as tall as the page: measured against that, a caret
         // anywhere on the page was already "visible", and typing past the
         // bottom of the window never scrolled it into view.
-        let container_rect = if crate::solver3::scrollbar::is_viewport_scroller(
+        let container_rect = if solver3::scrollbar::is_viewport_scroller(
             scroll_container.dom,
             scrollable_node_internal,
         ) {
@@ -17996,7 +17979,7 @@ impl LayoutWindow {
     /// request an input issued ([`crate::managers::scroll_state::RevealRequest`]):
     /// a layout with nothing requested - a hover restyle, an animation tick,
     /// a layout a wheel step caused - reveals nothing, so the user can scroll
-    /// away from their own caret, and a VirtualView re-materializing under
+    /// away from their own caret, and a `VirtualView` re-materializing under
     /// the wheel (which moves the caret's rect without anyone moving the
     /// caret) is no reason to reveal either. That used to be decided by a
     /// latch on the caret's rect and content revision, which a peer's edit
@@ -19244,7 +19227,7 @@ impl LayoutWindow {
     }
 
     /// [`Self::style_user_dom_for`] for a DOM whose form controls live in
-    /// their own `form_scope` - a VirtualView's DOM, whose control at tree
+    /// their own `form_scope` - a `VirtualView`'s DOM, whose control at tree
     /// path `[0, 1]` is not the layout callback's control at `[0, 1]`
     /// ([`form_scope_of_virtual_view`]).
     ///
@@ -19392,7 +19375,7 @@ pub const FORM_SCOPE_ROOT: u64 = 0;
 /// "the app changed the default" rule, evicting - a real control's value.
 pub const FORM_SCOPE_MEASURE: u64 = u64::MAX;
 
-/// The form-control scope of the DOM the VirtualView at `(dom, node)`
+/// The form-control scope of the DOM the `VirtualView` at `(dom, node)`
 /// renders - distinct from [`FORM_SCOPE_ROOT`] and from every other view's.
 #[must_use]
 pub const fn form_scope_of_virtual_view(dom: DomId, node: NodeId) -> u64 {
@@ -21075,7 +21058,7 @@ impl LayoutWindow {
     /// The shells' tail used to reveal on EVERY pass that was not
     /// `prevent_default`ed, whether or not anything was typed:
     /// `ApplyPendingTextInput` is pushed unconditionally, so every wheel
-    /// event, every momentum event and every mouse move scrolled a TextArea
+    /// event, every momentum event and every mouse move scrolled a `TextArea`
     /// the user had just scrolled away from back to its caret - the "wheel
     /// fights the caret" jitter. The runner gated on a landed edit, which is
     /// why no headless test ever saw it.
@@ -22089,7 +22072,7 @@ impl LayoutWindow {
             if self.content_overlay.text_for_node(dom_id, node).is_some() {
                 return Some(node);
             }
-            current = hierarchy.get(node).and_then(|h| h.parent_id());
+            current = hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -23577,7 +23560,7 @@ impl LayoutWindow {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return ScrollOffset::zero();
         };
-        let chain = crate::solver3::scroll_chain::ScrollChain::of(
+        let chain = solver3::scroll_chain::ScrollChain::of(
             &layout_result.layout_tree,
             &layout_result.styled_dom,
             &layout_result.scroll_ids,
@@ -25970,7 +25953,7 @@ impl LayoutWindow {
                     .into_crate_internal()
                     .and_then(|nid| old_node_data.get(nid.index()));
                 if let Some(nd) = old {
-                    for cb in nd.get_callbacks().as_ref().iter() {
+                    for cb in nd.get_callbacks().as_ref() {
                         if matches!(
                             cb.event,
                             EventFilter::Component(ComponentEventFilter::BeforeUnmount)
@@ -26266,7 +26249,7 @@ impl LayoutWindow {
         let dropped_child_doms = virtual_view_manager.nested_doms_dropped_by(dom, map);
         for thread_id in thread_owners.remap_node_ids(dom, map, &dropped_child_doms) {
             if let Some(thread) = threads.get(&thread_id) {
-                let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
+                let _ = thread.send_message(ThreadSendMsg::TerminateThread);
             }
         }
         // Their timers never fire again: out of the window's timer map now;
@@ -26402,7 +26385,7 @@ impl LayoutWindow {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageCallbackInputs {
     /// Identity of the DOM's callback `ImageRef`.
-    pub declared: azul_core::resources::ImageRefHash,
+    pub declared: ImageRefHash,
     /// The laid-out box, logical px (bit patterns: exact equality).
     pub width_bits: u32,
     pub height_bits: u32,
@@ -30415,7 +30398,7 @@ fn with_interaction_of(
 ///
 /// The restyle diff in `begin_reconciliation` compares every property type
 /// (~200) of every matched pair through the full cascade lookup: for a page
-/// of a few thousand words (AzPdf, AzMaps' label tiles) that was most of
+/// of a few thousand words (`AzPdf`, `AzMaps`' label tiles) that was most of
 /// every rebuild, on pages where nothing had changed. A node's answers are a
 /// function of the window's context, the shared global rules, its own node
 /// type, inline style, matched rules, cascaded properties, overrides and
@@ -30579,7 +30562,7 @@ fn transition_patch_color(
     prop: &azul_css::props::property::CssProperty,
 ) -> Option<(
     azul_css::props::basic::color::ColorU,
-    crate::solver3::display_list::PaintColorSlot,
+    solver3::display_list::PaintColorSlot,
 )> {
     use azul_css::props::property::CssProperty;
 
@@ -30723,7 +30706,7 @@ fn patch_compact_opacity(styled_dom: &mut StyledDom, node: NodeId, opacity: f32)
 fn patch_compact_border_color(
     styled_dom: &mut StyledDom,
     node: NodeId,
-    slot: crate::solver3::display_list::PaintColorSlot,
+    slot: solver3::display_list::PaintColorSlot,
     color: azul_css::props::basic::color::ColorU,
 ) {
     use crate::solver3::display_list::PaintColorSlot;

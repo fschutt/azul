@@ -307,6 +307,7 @@ pub(super) const fn is_css_document_whitespace(c: char) -> bool {
 /// Returns a Vec of `InlineContent` items that correctly represent line breaks.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
+#[must_use]
 pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,

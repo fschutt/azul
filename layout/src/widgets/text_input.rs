@@ -1258,12 +1258,12 @@ const TEXT_INPUT_FONT_SIZE_PX_FLORA: isize = 14;
 ///
 /// It cannot be an inline declaration of the container: a node's inline
 /// style beats every selector-matched rule, `Dom::with_css`'s (the app's
-/// `.dom().with_css("font-size: 22px")`, AzNotes' title) included, so the
+/// `.dom().with_css("font-size: 22px")`, `AzNotes`' title) included, so the
 /// field kept 11 px whatever its app said. The value `<p>` declares no size
 /// and inherits the field's, as `<input style="font-size: 24px">` sizes its
 /// value in a browser. The class selector keeps the rule on the container
 /// (a component sheet's selector matches in the owner's whole subtree).
-fn field_font_default(theme: crate::widgets::themes::UiTheme) -> azul_css::css::Css {
+fn field_font_default(theme: crate::widgets::themes::UiTheme) -> css::Css {
     use azul_css::css::{
         rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock,
     };
@@ -1733,7 +1733,7 @@ fn sync_live_looks(
 /// taken back at run time. The price: it outranks the hover/focus ring while
 /// it stands (an invalid field is red in every state, which is the intent),
 /// and its colour is the light or dark one current when it was written.
-/// A value the APP hands in invalid is reported in the state (and FormData)
+/// A value the APP hands in invalid is reported in the state (and `FormData`)
 /// at once but not painted until the user edits it or a form submit asks
 /// ([`mark_user_invalid`]) - the reason browsers added `:user-invalid`.
 pub(crate) fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {

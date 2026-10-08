@@ -205,8 +205,8 @@ impl LevelMeter {
             let Some(d) = data.downcast_ref::<LevelMeterData>() else {
                 return false;
             };
-            let vertical = d.vertical;
-            vertical
+
+            d.vertical
         };
         let Some(track) = info.get_first_child(node) else {
             return false;
@@ -419,7 +419,7 @@ fn segment_size(vertical: bool, percent: f32) -> CssProperty {
 }
 
 /// The level as a screen reader says it ("42%"; an unknown level reads 0).
-fn value_text(level: f32) -> alloc::string::String {
+fn value_text(level: f32) -> String {
     let l = if level.is_finite() {
         level.clamp(0.0, 100.0)
     } else {

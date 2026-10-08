@@ -252,7 +252,7 @@ impl HoverManager {
     /// a release off every node is targeted there). The content can move
     /// under a still pointer between the two: a press that focuses a button
     /// half under the fold scrolls it into view, and the release lands on its
-    /// label instead of its padding (AzCalendar's "Save & Close", E2E-A).
+    /// label instead of its padding (`AzCalendar`'s "Save & Close", E2E-A).
     ///
     /// Call once per pass, after `determine_all_events`, before dispatch. A
     /// release derived from a blur (the OS handlers clear the buttons) goes

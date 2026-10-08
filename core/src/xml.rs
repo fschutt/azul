@@ -2387,7 +2387,7 @@ impl ComponentSource {
 pub enum ComponentCodegen {
     /// A call of the component's own render function,
     /// `render_<name>(<value fields>)`: the code export defines it once,
-    /// from the component's template (a component made in AzBuilder) or
+    /// from the component's template (a component made in `AzBuilder`) or
     /// else from what it renders. User-defined and registered components.
     RenderFunction,
     /// An HTML element of the builtin library: the most specific
@@ -6360,6 +6360,7 @@ pub(crate) fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: u
 /// `<svg>`. In an HTML document a foreign element (Word's `<o:p>`, Outlook's
 /// `<st1:place>`) is an unknown element, which HTML renders inline with its
 /// content ([`tag_to_node_type`] makes it a `<span>`).
+#[must_use]
 pub fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
     normalized_tag == "metadata" || is_foreign_element(raw_tag)
 }
@@ -6587,7 +6588,7 @@ fn walk_element(
 #[derive(Debug)]
 pub struct CompactDomBuilder {
     hierarchy: Vec<crate::styled_dom::NodeHierarchyItem>,
-    node_data: Vec<crate::dom::NodeData>,
+    node_data: Vec<NodeData>,
     css: Vec<crate::dom::CssWithNodeId>,
     /// Stack of (`node_index`, `previous_child_index`) for open elements
     stack: Vec<(usize, Option<usize>)>,
@@ -6621,7 +6622,7 @@ impl CompactDomBuilder {
     }
 
     /// Open a new element node. Must be paired with `close_node()`.
-    pub fn open_node(&mut self, node_data: crate::dom::NodeData) {
+    pub fn open_node(&mut self, node_data: NodeData) {
         use crate::{id::NodeId, styled_dom::NodeHierarchyItem};
 
         let idx = self.hierarchy.len();
@@ -6675,7 +6676,7 @@ impl CompactDomBuilder {
     }
 
     /// Add a leaf node (text, br, hr, etc.) that has no children.
-    pub fn add_leaf(&mut self, node_data: crate::dom::NodeData) {
+    pub fn add_leaf(&mut self, node_data: NodeData) {
         self.open_node(node_data);
         self.close_node();
     }

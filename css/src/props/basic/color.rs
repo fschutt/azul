@@ -1618,10 +1618,10 @@ pub enum SystemColorRef {
 ///
 /// The accent is the USER's free choice (any hue, any lightness: macOS
 /// Graphite is a neutral grey, yellow and green are light), while the ink a
-/// platform reports for it is fixed - AppKit's
+/// platform reports for it is fixed - `AppKit`'s
 /// `alternateSelectedControlTextColor` is white whatever the accent. So the
 /// pair could fail: white on Graphite read 3.4:1, on yellow 1.4:1 (the
-/// AzWidgets mode bar's selected "Dark" segment, white text on a light-grey
+/// `AzWidgets` mode bar's selected "Dark" segment, white text on a light-grey
 /// face). "Reads" is WCAG 2.1 AA: 4.5:1 on a NEUTRAL accent (chroma under
 /// 0.25: no hue to carry the text), 3:1 - the large-text / UI-component bar -
 /// on a coloured one, where white stays on the blues, reds and purples it

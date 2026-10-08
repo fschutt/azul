@@ -88,6 +88,7 @@ static PENDING_REQUESTS: std::sync::Mutex<Vec<NotificationRequest>> =
 
 /// Queue a request from a callback. Returns `false` when the queue is full
 /// and the request was dropped. Poison-recovering.
+#[must_use]
 pub fn push_notification_request(request: NotificationRequest) -> bool {
     try_push_notification_request(request).is_ok()
 }
@@ -254,6 +255,7 @@ pub fn has_queued_deliveries() -> bool {
 /// swallow it as the trailing close of one that ended. A callback-less post
 /// in an app without a handler ends silently, as routing ends its events.
 /// Returns `false` if the queue of waiting deliveries was full too.
+#[must_use]
 pub fn reject_notification(notification: Notification, reason: AzString) -> bool {
     let mut event = NotificationEvent::failed(notification.id.clone(), reason);
     event.payload = notification.payload.clone();
@@ -321,7 +323,7 @@ impl NotificationRegistry {
     }
 
     fn remember_ended(&mut self, id: String) {
-        if self.ended.iter().any(|e| *e == id) {
+        if self.ended.contains(&id) {
             return;
         }
         if self.ended.len() >= MAX_ENDED {
@@ -400,7 +402,7 @@ impl NotificationRegistry {
                         OptionNotificationCallback::None => self.app_handler.as_ref().cloned(),
                     }
                 }
-                None if self.ended.iter().any(|e| *e == id) => None,
+                None if self.ended.contains(&id) => None,
                 None => self.app_handler.as_ref().cloned(),
             };
             self.remember_ended(id);
@@ -564,7 +566,7 @@ pub fn clear_recorded_notifications() {
 /// its alarm receiver exists) and the Windows balloon. The dll's service
 /// holds them here, wakes the run loop at the earliest due time and posts
 /// them through the backend then - so they show only while the app runs
-/// (AzClock stays resident on Linux for that). macOS / iOS and Windows toasts
+/// (`AzClock` stays resident on Linux for that). macOS / iOS and Windows toasts
 /// hand the time to the OS instead.
 ///
 /// One entry per id (scheduling an id again replaces it, as a post does),
@@ -672,7 +674,7 @@ pub mod wire {
         delivery_delay_ms(deliver_at, now_ms).map(|ms| ms as f64 / 1000.0)
     }
 
-    /// A WinRT `DateTime` (`UniversalTime`: 100 ns intervals since
+    /// A `WinRT` `DateTime` (`UniversalTime`: 100 ns intervals since
     /// 1601-01-01 UTC) for `unix_ms` - a scheduled toast's delivery time.
     #[must_use]
     pub fn windows_datetime(unix_ms: u64) -> i64 {
@@ -1439,7 +1441,7 @@ pub mod wire {
         xml
     }
 
-    /// An AppUserModelID the registry and the shell accept: letters, digits,
+    /// An `AppUserModelID` the registry and the shell accept: letters, digits,
     /// `.`, `-` and `_` only (a backslash breaks Windows 10 up to build
     /// 19042), never empty, and at most 129 characters - a longer one is cut
     /// and suffixed with a hash of the whole, so two long ids stay distinct.
@@ -1594,7 +1596,7 @@ pub mod wire {
     /// matches the other.
     #[must_use]
     pub fn desktop_entry(exe_path: &str) -> String {
-        let name = exe_path.rsplit(|c: char| c == '/' || c == '\\').next().unwrap_or("");
+        let name = exe_path.rsplit(['/', '\\']).next().unwrap_or("");
         let name = name.strip_suffix(".desktop").unwrap_or(name);
         if name.is_empty() {
             String::from("azul")
@@ -1636,7 +1638,7 @@ pub mod wire {
     /// The executable's file name: no directory (`/` or `\`), no `.exe`.
     fn exe_file_name(exe_path: &str) -> String {
         let name = exe_path
-            .rsplit(|c: char| c == '/' || c == '\\')
+            .rsplit(['/', '\\'])
             .next()
             .unwrap_or("");
         let cut = name.len().saturating_sub(4);
@@ -1706,7 +1708,7 @@ pub mod wire {
                 .collect()
         }
 
-        /// The Windows AppUserModelID ([`windows_aumid`]'s rules).
+        /// The Windows `AppUserModelID` ([`windows_aumid`]'s rules).
         #[must_use]
         pub fn windows_aumid(&self) -> String {
             windows_aumid(&self.id)
@@ -1740,7 +1742,7 @@ pub mod wire {
 
     /// What the PLATFORM declares the app to be. It outranks the app's own
     /// `AppConfig::app_id`: the OS keys its services on it (the notification
-    /// permission, TCC and LaunchServices on a bundle id; everything on the
+    /// permission, TCC and `LaunchServices` on a bundle id; everything on the
     /// Android package; the portal and the sandbox's `.desktop` file on the
     /// Flatpak id), and an app cannot change it at run time.
     #[derive(Debug, Clone, PartialEq, Eq)]

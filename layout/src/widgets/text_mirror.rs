@@ -74,16 +74,13 @@ pub(crate) fn insertion(
     caret: Option<usize>,
     selected: Option<(usize, usize)>,
 ) -> (String, usize) {
-    let (from, to) = match selected.filter(|&(a, b)| {
+    let (from, to) = if let Some(range) = selected.filter(|&(a, b)| {
         a < b && b <= text.len() && text.is_char_boundary(a) && text.is_char_boundary(b)
-    }) {
-        Some(range) => range,
-        None => {
-            let at = caret
-                .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
-                .unwrap_or(text.len());
-            (at, at)
-        }
+    }) { range } else {
+        let at = caret
+            .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
+            .unwrap_or(text.len());
+        (at, at)
     };
     let mut next = String::with_capacity(text.len() + inserted.len());
     next.push_str(&text[..from]);

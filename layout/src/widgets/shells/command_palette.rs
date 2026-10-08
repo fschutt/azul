@@ -1,4 +1,4 @@
-//! ShellCommandPalette - Ctrl/Cmd+K (or Cmd+Shift+P) over the app's command
+//! `ShellCommandPalette` - Ctrl/Cmd+K (or Cmd+Shift+P) over the app's command
 //! table, keyboard-first (04-app-shells.md, "Commands"): the menu, the
 //! ribbon, a toolbar and the palette are all views of ONE list of commands.
 //!

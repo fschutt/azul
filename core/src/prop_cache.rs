@@ -1563,7 +1563,7 @@ fn inherits_its_computed_length(p: &CssProperty) -> bool {
     match p {
         CssProperty::LineHeight(v) => v
             .get_property()
-            .is_some_and(|lh| lh.is_font_relative_length()),
+            .is_some_and(azul_css::props::style::StyleLineHeight::is_font_relative_length),
         // `bolder` / `lighter` compute against the declaring element's
         // PARENT (CSS Fonts 4 s2.2): the raw keyword re-applied at every
         // descendant made the text inside a `<b>` bolder than the `<b>`.
@@ -2095,7 +2095,7 @@ impl CssPropertyCache {
                     let mut parent_inline = Vec::new();
                     azul_css::css::inline_in_cascade_order(
                         self.inline_properties(&node_data[parent_id], parent_id.index()),
-                        &rank,
+                        rank,
                         &mut parent_inline,
                     );
                     for &(prop, conds) in &parent_inline {
@@ -2943,7 +2943,7 @@ impl CssPropertyCache {
                 }
                 CssDeclaration::CustomProperty(_) => None,
             })
-            .chain(resolved.into_iter().flat_map(|r| r.variants()))
+            .chain(resolved.into_iter().flat_map(ResolvedInline::variants))
     }
 
     /// The value of the custom property `--name` (pass it without `--`) that
@@ -3280,7 +3280,7 @@ impl CssPropertyCache {
                     self.inline_properties(node_data, index),
                     *css_property_type,
                     |conds| matches_pseudo_state(conds, state),
-                    &rank,
+                    rank,
                 )
             };
             if inline.is_some() {
@@ -5280,12 +5280,12 @@ impl CssPropertyCache {
                             let copy = v
                                 .iter()
                                 .rev()
-                                .find(|e| is_normal_of(*e) && !e.ua_origin)
+                                .find(|e| is_normal_of(e) && !e.ua_origin)
                                 .map(|e| clone_inheritable_property(&e.property));
                             let ua = v
                                 .iter()
                                 .rev()
-                                .find(|e| is_normal_of(*e) && e.ua_origin)
+                                .find(|e| is_normal_of(e) && e.ua_origin)
                                 .map(|e| clone_inheritable_property(&e.property));
                             (copy, ua)
                         });
@@ -5832,8 +5832,8 @@ mod prop_cache_test;
 /// [`condition_holds`] follows.
 #[inline]
 pub(crate) fn rank_of(
-    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
-    no_context_theme: Option<&azul_css::AzString>,
+    ctx: Option<&DynamicSelectorContext>,
+    no_context_theme: Option<&AzString>,
     conditions: &[azul_css::dynamic_selector::DynamicSelector],
 ) -> usize {
     match ctx {
@@ -5851,8 +5851,8 @@ pub(crate) fn rank_of(
 /// cache and the compact cache share, so the two paths cannot disagree.
 #[inline]
 pub(crate) fn condition_holds(
-    ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
-    no_context_theme: Option<&azul_css::AzString>,
+    ctx: Option<&DynamicSelectorContext>,
+    no_context_theme: Option<&AzString>,
     condition: &azul_css::dynamic_selector::DynamicSelector,
 ) -> bool {
     match ctx {

@@ -128,7 +128,7 @@ impl RecordsShell {
             form,
             table_ratio,
         } = self;
-        let mut column: alloc::vec::Vec<Dom> = alloc::vec::Vec::with_capacity(2);
+        let mut column: Vec<Dom> = Vec::with_capacity(2);
         if let Some(c) = cards.into_option() {
             column.push(
                 Dom::create_div()

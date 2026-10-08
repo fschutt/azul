@@ -261,7 +261,7 @@ extern "C" fn on_typed(
 }
 
 /// Browse: the click only ISSUES the picker request; the answer arrives in
-/// [`on_picked`] as a fresh activation (FileInput's shape). Without the
+/// [`on_picked`] as a fresh activation (`FileInput`'s shape). Without the
 /// `extra` feature there is no picker, and the click does nothing.
 extern "C" fn on_browse(mut data: RefAny, info: CallbackInfo) -> Update {
     #[cfg(feature = "extra")]
@@ -313,7 +313,7 @@ extern "C" fn on_picked(mut data: RefAny, info: CallbackInfo, result: RefAny) ->
 // The build
 // ---------------------------------------------------------------------------
 
-/// The widget's DOM in `look`: row [field box [TextInput], browse box
+/// The widget's DOM in `look`: row [field box [`TextInput`], browse box
 /// [Button]].
 pub(crate) fn build(input: PathInput, look: &DialogKitLook) -> Dom {
     let PathInput {

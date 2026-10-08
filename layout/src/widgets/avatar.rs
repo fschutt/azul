@@ -441,7 +441,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }

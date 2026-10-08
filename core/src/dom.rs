@@ -3675,7 +3675,7 @@ impl NodeData {
     /// `Dom::create_icon("play").with_id(..).with_callback(Click, ..)` - an
     /// icon button - lost its click, the id the E2E finds it by, the class
     /// its CSS selects and its tab stop.
-    pub(crate) fn carry_identity_from(&mut self, original: &NodeData) {
+    pub(crate) fn carry_identity_from(&mut self, original: &Self) {
         let mut ids_and_classes = original.get_ids_and_classes().into_library_owned_vec();
         for own in self.get_ids_and_classes().as_ref() {
             if !ids_and_classes.contains(own) {

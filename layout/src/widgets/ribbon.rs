@@ -2950,7 +2950,7 @@ pub struct RibbonGallery {
     /// How many cells the in-ribbon strip shows (0: every cell). Office's
     /// galleries show one row of a few cells - the row holding the selected
     /// one - and "More" opens all of them; a gallery of every cell inline
-    /// pushed the groups after it off a 1280 px window (AzShow's Layout).
+    /// pushed the groups after it off a 1280 px window (`AzShow`'s Layout).
     pub visible: usize,
     /// 0: the classic strip - preview cells over their names, one row (Word's
     /// Styles). N: a LIST gallery of commands in N columns three rows high,
@@ -3685,13 +3685,10 @@ impl Ribbon {
     /// same structure - and the window is asked about each width once.
     fn themed(self, mode: RibbonChromeMode) -> Dom {
         let scales = self.scales_for(mode);
-        match self.theme.into_option() {
-            Some(theme) => self.build_in(theme, mode, &scales),
-            None => {
-                let flat = self.clone().build_in(UiTheme::Flat, mode, &scales);
-                let flora = self.build_in(UiTheme::Flora, mode, &scales);
-                crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
-            }
+        if let Some(theme) = self.theme.into_option() { self.build_in(theme, mode, &scales) } else {
+            let flat = self.clone().build_in(UiTheme::Flat, mode, &scales);
+            let flora = self.build_in(UiTheme::Flora, mode, &scales);
+            crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
         }
     }
 
@@ -4457,7 +4454,7 @@ fn balanced_break(words: &[&str]) -> Option<usize> {
     for k in 1..words.len() {
         first += widths[k - 1] + usize::from(k > 1);
         let longer = first.max(total - first - 1);
-        if best.map_or(true, |(b, _)| longer <= b) {
+        if best.is_none_or(|(b, _)| longer <= b) {
             best = Some((longer, k));
         }
     }
@@ -4473,20 +4470,17 @@ fn large_label_text(label: &str, arrow: bool) -> String {
     let words: Vec<&str> = label.split_whitespace().collect();
     let nbsp = NO_BREAK_SPACE.to_string();
     let mut out = String::with_capacity(label.len() + 2);
-    match balanced_break(&words) {
-        Some(k) => {
-            out.push_str(&words[..k].join(&nbsp));
-            out.push(' ');
-            out.push_str(&words[k..].join(&nbsp));
-            if arrow {
-                out.push(NO_BREAK_SPACE);
-            }
+    if let Some(k) = balanced_break(&words) {
+        out.push_str(&words[..k].join(&nbsp));
+        out.push(' ');
+        out.push_str(&words[k..].join(&nbsp));
+        if arrow {
+            out.push(NO_BREAK_SPACE);
         }
-        None => {
-            out.push_str(label.trim());
-            if arrow {
-                out.push(' ');
-            }
+    } else {
+        out.push_str(label.trim());
+        if arrow {
+            out.push(' ');
         }
     }
     out
@@ -4785,7 +4779,7 @@ fn item_dom(
 
 /// Whether Office stacks `item` with its neighbours: a small button, a check
 /// box, a combo or a drop-down box - or a row of them, which is one control
-/// tall (RibbonX's `box`): Explorer's Show/hide is three check boxes, each
+/// tall (`RibbonX`'s `box`): Explorer's Show/hide is three check boxes, each
 /// with its label, over each other.
 const fn is_small_item(item: &RibbonItem) -> bool {
     matches!(
@@ -5357,22 +5351,19 @@ fn label_px(text: &str) -> f32 {
 /// word over the ▾.
 fn large_label_px(label: &str, arrow: bool) -> f32 {
     let words: Vec<&str> = label.split_whitespace().collect();
-    match balanced_break(&words) {
-        Some(k) => {
-            let glued = if arrow {
-                label_px("\u{a0}") + ARROW_PX
-            } else {
-                0.0
-            };
-            label_px(&words[..k].join(" ")).max(label_px(&words[k..].join(" ")) + glued)
-        }
-        None => {
-            let word = label_px(label.trim());
-            if arrow {
-                word.max(ARROW_PX)
-            } else {
-                word
-            }
+    if let Some(k) = balanced_break(&words) {
+        let glued = if arrow {
+            label_px("\u{a0}") + ARROW_PX
+        } else {
+            0.0
+        };
+        label_px(&words[..k].join(" ")).max(label_px(&words[k..].join(" ")) + glued)
+    } else {
+        let word = label_px(label.trim());
+        if arrow {
+            word.max(ARROW_PX)
+        } else {
+            word
         }
     }
 }
@@ -5425,7 +5416,7 @@ fn combo_px(combo: &ComboBox) -> f32 {
                 return None;
             }
             match &declaration.property {
-                P::Width(azul_css::css::CssPropertyValue::Exact(LayoutWidth::Px(px))) => {
+                P::Width(css::CssPropertyValue::Exact(LayoutWidth::Px(px))) => {
                     px.to_pixels_absolute().into_option()
                 }
                 _ => None,
@@ -7416,7 +7407,7 @@ mod tests {
                 .collect();
             assert!(states.is_empty(), "a disabled button has no {states:?} paint: {prop:?}");
             if let CssProperty::Opacity(o) = prop {
-                if o.get_property().map_or(false, |o| o.inner.normalized() < 0.75) {
+                if o.get_property().is_some_and(|o| o.inner.normalized() < 0.75) {
                     dimmed = true;
                 }
             }

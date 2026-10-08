@@ -760,7 +760,7 @@ impl NiceTicks {
     /// The tick values, `min` to `max`, each snapped to the step's grid (so
     /// three steps of 0.1 read 0.3, not 0.30000000000000004 when written).
     #[must_use]
-    pub fn values(&self) -> Vec<f64> {
+    pub(crate) fn values(&self) -> Vec<f64> {
         if !(self.step.is_finite() && self.step > 0.0) || self.max < self.min {
             return alloc::vec![self.min];
         }
@@ -849,7 +849,7 @@ pub(crate) struct PlotFrame {
 impl PlotFrame {
     /// A band's width in px (a category axis), or the whole width.
     #[must_use]
-    pub fn band(&self) -> f32 {
+    pub(crate) fn band(&self) -> f32 {
         if self.bands > 0 {
             self.width / self.bands as f32
         } else {
@@ -859,7 +859,7 @@ impl PlotFrame {
 
     /// `x` in px from the plot's left edge.
     #[must_use]
-    pub fn px_x(&self, x: f64) -> f32 {
+    pub(crate) fn px_x(&self, x: f64) -> f32 {
         if self.bands > 0 {
             return ((x + 0.5) * f64::from(self.band())) as f32;
         }
@@ -872,7 +872,7 @@ impl PlotFrame {
 
     /// `y` in px from the plot's top edge.
     #[must_use]
-    pub fn px_y(&self, y: f64) -> f32 {
+    pub(crate) fn px_y(&self, y: f64) -> f32 {
         let span = self.y_max - self.y_min;
         if !(span.abs() > 0.0) {
             return self.height / 2.0;
@@ -883,7 +883,7 @@ impl PlotFrame {
     /// The x value at `px` from the plot's left edge (on a category axis,
     /// the fractional index whose band centre is there).
     #[must_use]
-    pub fn x_at(&self, px: f32) -> f64 {
+    pub(crate) fn x_at(&self, px: f32) -> f64 {
         if self.bands > 0 {
             let band = f64::from(self.band());
             return if band > 0.0 {
@@ -902,7 +902,7 @@ impl PlotFrame {
 
     /// The y value at `px` from the plot's top edge.
     #[must_use]
-    pub fn y_at(&self, px: f32) -> f64 {
+    pub(crate) fn y_at(&self, px: f32) -> f64 {
         let h = f64::from(self.height);
         if h > 0.0 {
             (1.0 - f64::from(px) / h).mul_add(self.y_max - self.y_min, self.y_min)
@@ -1063,7 +1063,7 @@ impl TickFormat {
     /// The format of an axis with these ticks: the unit from its largest
     /// magnitude (thousands from 10,000 on), the places from its step.
     #[must_use]
-    pub fn of(ticks: &NiceTicks) -> Self {
+    pub(crate) fn of(ticks: &NiceTicks) -> Self {
         let big = ticks.min.abs().max(ticks.max.abs());
         let (unit, suffix) = if big >= 1e9 {
             (1e9, "B")
@@ -1090,7 +1090,7 @@ impl TickFormat {
     /// `v` written in this format ("12.5K", "1,500", "0.25"); zero is
     /// written bare ("0", "0.0"), without a sign or a suffix.
     #[must_use]
-    pub fn format(&self, v: f64) -> String {
+    pub(crate) fn format(&self, v: f64) -> String {
         if !v.is_finite() {
             return String::from("-");
         }
@@ -3186,7 +3186,7 @@ fn nearest_in_px(points: &[ChartPoint], frame: &PlotFrame, x: f32, y: f32) -> Op
             continue;
         }
         let d = (frame.px_x(p.x) - x).hypot(frame.px_y(p.y) - y);
-        if best.map_or(true, |b| d < b.1) {
+        if best.is_none_or(|b| d < b.1) {
             best = Some((i, d));
         }
     }
@@ -3219,7 +3219,7 @@ impl ChartState {
                         continue;
                     }
                     let d = (self.frame.px_x(p.x) - x).hypot(self.frame.px_y(p.y) - y);
-                    if best.map_or(true, |b| d < b.0) {
+                    if best.is_none_or(|b| d < b.0) {
                         best = Some((d, s, i));
                     }
                 }
@@ -3229,7 +3229,7 @@ impl ChartState {
                 let mut best: Option<(f32, usize, usize)> = None;
                 for (s, ser) in self.series.iter().enumerate() {
                     if let Some((i, d)) = nearest_in_px(ser.points.as_slice(), &self.frame, x, y) {
-                        if d <= HOVER_REACH_PX && best.map_or(true, |b| d < b.0) {
+                        if d <= HOVER_REACH_PX && best.is_none_or(|b| d < b.0) {
                             best = Some((d, s, i));
                         }
                     }
@@ -3249,7 +3249,7 @@ impl ChartState {
                     } else {
                         0.0
                     };
-                    if best.map_or(true, |b| d < b.0) {
+                    if best.is_none_or(|b| d < b.0) {
                         best = Some((d, r.series, r.index));
                     }
                 }
@@ -3287,9 +3287,9 @@ impl ChartState {
         match self.kind {
             ChartKind::Pie | ChartKind::Donut => {
                 let sl = self.slice_of(index)?;
-                let a = (sl.start + sl.end) / 2.0;
+                let a = f32::midpoint(sl.start, sl.end);
                 let r = if self.pie.r_in > 0.0 {
-                    (self.pie.r_in + self.pie.r_out) / 2.0
+                    f32::midpoint(self.pie.r_in, self.pie.r_out)
                 } else {
                     self.pie.r_out * 0.62
                 };
@@ -3305,7 +3305,7 @@ impl ChartState {
                     .get(series)
                     .and_then(|s| s.points.as_slice().get(index))
                     .is_some_and(|p| p.y < 0.0);
-                Some(((r.x0 + r.x1) / 2.0, if negative { r.bottom } else { r.top }))
+                Some((f32::midpoint(r.x0, r.x1), if negative { r.bottom } else { r.top }))
             }
             _ => {
                 let p = self.series.get(series)?.points.as_slice().get(index)?;
@@ -3872,7 +3872,7 @@ mod geometry_tests {
             if let SvgPathElement::Line(l) = e {
                 for p in [l.start, l.end] {
                     let d = ((p.x - 100.0).powi(2) + (p.y - 100.0).powi(2)).sqrt();
-                    assert!(d <= 80.0 + 1e-3 && d >= 48.0 - 1e-3, "{d}");
+                    assert!((48.0 - 1e-3..=80.0 + 1e-3).contains(&d), "{d}");
                 }
             }
         }
@@ -4523,7 +4523,7 @@ mod pointer_tests {
         assert!(left >= 10.0 && top < 100.0, "right of and above the point");
         let (left, _) = tooltip_place(290.0, 100.0, "North, Mar: 1,234", 300.0);
         assert!(
-            left < 290.0 && left >= 0.0,
+            (0.0..290.0).contains(&left),
             "left of a point near the right edge"
         );
         let (_, top) = tooltip_place(100.0, 5.0, "x", 300.0);

@@ -685,7 +685,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 let layout_image = self.ctx.resolved_content().image_for_layout(dom_id);
                 let size = layout_image
                     .as_ref()
-                    .map_or_else(|| image_ref.get_size(), |img| img.get_size());
+                    .map_or_else(|| image_ref.get_size(), azul_core::resources::ImageRef::get_size);
                 // An `<img src>` from markup whose picture nobody supplied
                 // (yet): the loaders' placeholder carrying its src, which
                 // `image_for_layout` hands back when the image cache has no
@@ -1973,7 +1973,7 @@ fn process_layout_children<T: ParsedFontTrait>(
                     let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
                     let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
                     super::calc::resolve_pixel_value_no_percent(&px, em, rem)
-                        .map(|v| {
+                        .map_or(intrinsic_sizes.max_content_height, |v| {
                             super::getters::zoomed_length(
                                 ctx.styled_dom,
                                 child_dom_id,
@@ -1981,7 +1981,6 @@ fn process_layout_children<T: ParsedFontTrait>(
                                 v,
                             )
                         })
-                        .unwrap_or(intrinsic_sizes.max_content_height)
                 }
                 // is equivalent to automatic size
                 MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.max_content_height,
@@ -3190,8 +3189,7 @@ fn apply_constraint_violation_table(
     let min_w = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
-                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
-                .unwrap_or(0.0)
+                .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
         }
         _ => 0.0,
     };
@@ -3210,8 +3208,7 @@ fn apply_constraint_violation_table(
                     em,
                     rem,
                 )
-                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
-                .unwrap_or(f32::MAX)
+                .map_or(f32::MAX, |v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
             }
         }
         _ => f32::MAX,
@@ -3227,8 +3224,7 @@ fn apply_constraint_violation_table(
             em,
             rem,
         )
-        .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
-        .unwrap_or(0.0),
+        .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v)),
         _ => 0.0,
     };
 
@@ -3246,8 +3242,7 @@ fn apply_constraint_violation_table(
                     em,
                     rem,
                 )
-                .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
-                .unwrap_or(f32::MAX)
+                .map_or(f32::MAX, |v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
             }
         }
         _ => f32::MAX,
@@ -3344,8 +3339,7 @@ fn apply_width_constraints(
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
-                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
-                .unwrap_or(0.0)
+                .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
         }
         _ => 0.0,
     };
@@ -3411,8 +3405,7 @@ fn apply_height_constraints(
             em,
             rem,
         )
-        .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
-        .unwrap_or(0.0),
+        .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v)),
         _ => 0.0,
     };
 

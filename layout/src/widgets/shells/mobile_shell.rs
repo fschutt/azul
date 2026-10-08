@@ -641,7 +641,7 @@ pub(crate) fn build(shell: MobileShell, look: &ShellLook) -> Dom {
     // The safe-area inset goes AFTER the look: a look that pads the bar
     // (`padding: 0 8px`) would otherwise override it and the bar would sit
     // under the status bar.
-    let mut bar_skin: Vec<CssPropertyWithConditions> = look.app_bar.to_vec();
+    let mut bar_skin: Vec<CssPropertyWithConditions> = look.app_bar.clone();
     #[allow(clippy::cast_possible_truncation)]
     if top_inset > 0.0 {
         bar_skin.push(CssPropertyWithConditions::simple(CssProperty::const_padding_top(

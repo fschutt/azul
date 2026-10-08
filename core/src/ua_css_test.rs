@@ -1385,7 +1385,7 @@ mod autotest_generated {
         ];
 
         for (os, theme, width, visibility, delay, duration, color) in cases {
-            let r = evaluate_ua_scrollbar_css(&ctx(os, theme.clone()));
+            let r = evaluate_ua_scrollbar_css(&ctx(os, theme));
             assert_eq!(r.width, width, "{os:?}/{theme:?}: width");
             assert_eq!(r.visibility, visibility, "{os:?}/{theme:?}: visibility");
             assert_eq!(r.fade_delay.ms, delay, "{os:?}/{theme:?}: fade-delay");
@@ -1414,7 +1414,7 @@ mod autotest_generated {
     fn overlay_scrollbar_fields_stay_consistent_across_every_os_and_theme() {
         for os in all_os() {
             for theme in all_themes() {
-                let r = evaluate_ua_scrollbar_css(&ctx(os, theme.clone()));
+                let r = evaluate_ua_scrollbar_css(&ctx(os, theme));
                 let thin = r.width == LayoutScrollbarWidth::Thin;
                 let overlay = r.visibility == ScrollbarVisibilityMode::WhenScrolling;
 
@@ -1448,7 +1448,7 @@ mod autotest_generated {
     fn early_break_does_not_change_the_first_match_result() {
         for os in all_os() {
             for theme in all_themes() {
-                let c = ctx(os, theme.clone());
+                let c = ctx(os, theme);
                 let got = evaluate_ua_scrollbar_css(&c);
 
                 let mut want_color = None;
@@ -1538,7 +1538,7 @@ mod autotest_generated {
     fn evaluate_is_deterministic() {
         for os in all_os() {
             for theme in all_themes() {
-                let c = ctx(os, theme.clone());
+                let c = ctx(os, theme);
                 let a = evaluate_ua_scrollbar_css(&c);
                 let b = evaluate_ua_scrollbar_css(&c);
                 assert_eq!(a.color, b.color, "{os:?}/{theme:?}");

@@ -857,7 +857,7 @@ impl ModeCondition {
 /// look every widget had before themes were selectable.
 ///
 /// THE one spelling of the default. When the `native` theme exists it becomes
-/// the default here (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md
+/// the default here (`scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md`
 /// §4.5), and nothing else has to change.
 pub const DEFAULT_APP_THEME: &str = "flat";
 
@@ -1062,7 +1062,7 @@ impl_option!(
 /// of that context must check it too.
 #[must_use]
 pub fn mode_pinned_by_env() -> Option<DarkLightMode> {
-    crate::theme_chain::theme_env().mode.clone()
+    crate::theme_chain::theme_env().mode
 }
 
 /// `color` with a `system:` keyword token
@@ -1334,7 +1334,7 @@ impl<T: ResolveSystemColors + Clone> ResolveSystemColors for crate::css::BoxOrSt
 /// For the readers that walk declarations rather than asking a typed
 /// getter (the HTML export writes each declaration back out as CSS, where a
 /// token would be a transparent colour and `system:` no colour at all).
-impl ResolveSystemColors for crate::props::property::CssProperty {
+impl ResolveSystemColors for CssProperty {
     fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
         let r = ctx;
         match self {

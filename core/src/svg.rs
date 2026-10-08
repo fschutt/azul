@@ -517,12 +517,12 @@ impl SvgAffine {
     #[must_use]
     pub fn then(&self, outer: &Self) -> Self {
         Self {
-            a: outer.a * self.a + outer.c * self.b,
-            b: outer.b * self.a + outer.d * self.b,
-            c: outer.a * self.c + outer.c * self.d,
-            d: outer.b * self.c + outer.d * self.d,
-            e: outer.a * self.e + outer.c * self.f + outer.e,
-            f: outer.b * self.e + outer.d * self.f + outer.f,
+            a: outer.a.mul_add(self.a, outer.c * self.b),
+            b: outer.b.mul_add(self.a, outer.d * self.b),
+            c: outer.a.mul_add(self.c, outer.c * self.d),
+            d: outer.b.mul_add(self.c, outer.d * self.d),
+            e: outer.a.mul_add(self.e, outer.c * self.f) + outer.e,
+            f: outer.b.mul_add(self.e, outer.d * self.f) + outer.f,
         }
     }
 
@@ -530,8 +530,8 @@ impl SvgAffine {
     #[must_use]
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
         (
-            self.a * x + self.c * y + self.e,
-            self.b * x + self.d * y + self.f,
+            self.a.mul_add(x, self.c * y) + self.e,
+            self.b.mul_add(x, self.d * y) + self.f,
         )
     }
 
@@ -570,7 +570,7 @@ impl SvgAffine {
     /// root of its area scale (a stroke's width under it).
     #[must_use]
     pub fn length_scale(&self) -> f64 {
-        (self.a * self.d - self.b * self.c).abs().sqrt()
+        self.a.mul_add(self.d, -(self.b * self.c)).abs().sqrt()
     }
 }
 

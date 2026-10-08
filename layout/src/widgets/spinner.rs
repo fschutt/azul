@@ -1348,7 +1348,7 @@ mod makeover_tests {
         RingPose {
             window: (shape(window), spin + turn(window)),
             body: (shape(body), spin + turn(window) + turn(body)),
-            caps: caps.iter().map(|c| (shape(*c), spin + turn(*c))).collect(),
+            caps: caps.iter().map(|c| (shape(c), spin + turn(c))).collect(),
         }
     }
 
@@ -1359,7 +1359,7 @@ mod makeover_tests {
         let at = |(shape, turned): &(SvgMultiPolygon, f32)| {
             inside(shape, polar(32.0, deg - turned, r))
         };
-        (at(&pose.window) && at(&pose.body)) || pose.caps.iter().any(|c| at(c))
+        (at(&pose.window) && at(&pose.body)) || pose.caps.iter().any(at)
     }
 
     /// At rest - reduced motion, or before the first frame - the ring is the

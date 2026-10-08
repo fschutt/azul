@@ -2509,22 +2509,22 @@ pub const LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
 // fading into `LIGHT_LIST_HEADER_HOVER_BOTTOM`.
 const LIST_HEADER_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_TOP),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(50),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_TOP),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(51),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_MID),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_BOTTOM),
     },
@@ -2730,12 +2730,12 @@ pub const LIGHT_TAB_HOVER_BOTTOM: ColorU = ColorU {
 // and `HT` -> `HB` is what the plan names for a hovered control face.
 const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(LIGHT_TAB_HOVER_TOP),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(LIGHT_TAB_HOVER_BOTTOM),
     },
@@ -2743,12 +2743,12 @@ const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
 
 const TAB_HOVER_STOPS_DARK: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(DARK_HT),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(DARK_HB),
     },
@@ -5562,7 +5562,7 @@ fn flat_strip_above() -> Vec<CssPropertyWithConditions> {
 fn flat_sheet() -> Vec<CssPropertyWithConditions> {
     use super::decl;
     let mut v = vec![
-        super::decl::font_size(13),
+        decl::font_size(13),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
@@ -6292,7 +6292,7 @@ pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::Thumbna
         thumb,
         thumb_selected: decl::themed_border_color(THUMB_SELECTED_LIGHT, THUMB_SELECTED_DARK),
         thumb_hidden: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
-            azul_css::props::style::StyleOpacity::const_new(50),
+            StyleOpacity::const_new(50),
         ))],
         marker: None,
     }

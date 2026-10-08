@@ -1034,7 +1034,7 @@ impl DateRangePicker {
         if let Some(marker) = look.marker {
             classes.push(IdOrClass::Class(AzString::from_const_str(marker)));
         }
-        let name = self.accessibility_name.clone();
+        let name = self.accessibility_name;
         crate::widgets::warn_widget_needs_a_name("DateRangePicker", name.is_some());
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
@@ -1141,7 +1141,7 @@ fn report(
         Some(DateRangePickerOnEvent { callback, refany }) => callback.invoke(
             refany.clone(),
             info,
-            DateRangePickerEvent { view, kind, preset },
+            DateRangePickerEvent { kind, view, preset },
         ),
         None => Update::DoNothing,
     }

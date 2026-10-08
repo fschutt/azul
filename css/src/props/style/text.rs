@@ -1036,7 +1036,7 @@ impl StyleTextIndent {
     #[inline]
     #[must_use]
     pub const fn const_from_metric(
-        metric: crate::props::basic::length::SizeMetric,
+        metric: SizeMetric,
         value: isize,
     ) -> Self {
         Self {
@@ -1083,7 +1083,7 @@ impl StyleTextIndent {
     }
     #[inline]
     #[must_use]
-    pub fn from_metric(metric: crate::props::basic::length::SizeMetric, value: f32) -> Self {
+    pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
             inner: PixelValue::from_metric(metric, value),
             each_line: false,

@@ -180,7 +180,7 @@ pub(crate) fn build(shell: UtilityShell, look: &ShellLook) -> Dom {
         min_height,
         theme: _,
     } = shell;
-    let mut children: alloc::vec::Vec<Dom> = alloc::vec::Vec::with_capacity(3);
+    let mut children: Vec<Dom> = Vec::with_capacity(3);
     if let Some(t) = title_row.into_option() {
         children.push(
             Dom::create_node(NodeType::Header)
@@ -216,7 +216,7 @@ pub(crate) fn build(shell: UtilityShell, look: &ShellLook) -> Dom {
     // The root's structure, then the compact minimum size the app asked
     // for (the base declares no minimum of its own, so neither is written
     // twice), then the theme's skin.
-    let mut base: alloc::vec::Vec<CssPropertyWithConditions> = UTILITY_BASE.to_vec();
+    let mut base: Vec<CssPropertyWithConditions> = UTILITY_BASE.to_vec();
     #[allow(clippy::cast_possible_truncation)]
     if min_width > 0.0 {
         base.push(CssPropertyWithConditions::simple(CssProperty::const_min_width(

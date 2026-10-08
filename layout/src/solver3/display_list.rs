@@ -2193,7 +2193,7 @@ fn intersect_rects(a: LogicalRect, b: LogicalRect) -> Option<LogicalRect> {
     let y0 = a.origin.y.max(b.origin.y);
     let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
     let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
-    (x1 > x0 && y1 > y0).then(|| LogicalRect {
+    (x1 > x0 && y1 > y0).then_some(LogicalRect {
         origin: LogicalPosition { x: x0, y: y0 },
         size: LogicalSize {
             width: x1 - x0,
@@ -3503,7 +3503,7 @@ impl DisplayListBuilder {
     /// layout node `layout_index`): it is the host's content. Pushed after the
     /// host's descendants, it took whatever node painted last - so a host
     /// whose own first item came after it (a scroll box's bar) ranked over its
-    /// own page in hit testing, and took the page's clicks (AzMonitor's
+    /// own page in hit testing, and took the page's clicks (`AzMonitor`'s
     /// process table).
     pub(crate) fn push_virtual_view_placeholder(
         &mut self,
@@ -3630,7 +3630,7 @@ impl DisplayListBuilder {
     /// A reference frame for the transform of `owner` - the node whose
     /// transform it applies. Structural items get no node attribution from
     /// the leaked `current_node` (see `push_item`), but a reference frame's
-    /// OWNER is part of what it is: the VirtualView placement walk
+    /// OWNER is part of what it is: the `VirtualView` placement walk
     /// (`headless::resolve_virtual_view_placements`) resolves the frame's
     /// live matrix by it, and without it a transformed host's child dom was
     /// placed (and hit-tested) untransformed.
@@ -6097,11 +6097,8 @@ where
                 // in one rect - so the tiling is resolved HERE, into a single
                 // non-repeating mask that covers the paint rect. Every backend
                 // then needs no notion of repeat at all.
-                let (image, mask_rect) = match clip_mask.repeat {
-                    true => tile_mask(&clip_mask.image, mask_rect, paint_rect)
-                        .unwrap_or_else(|| (clip_mask.image.clone(), mask_rect)),
-                    false => (clip_mask.image.clone(), mask_rect),
-                };
+                let (image, mask_rect) = if clip_mask.repeat { tile_mask(&clip_mask.image, mask_rect, paint_rect)
+                .unwrap_or_else(|| (clip_mask.image.clone(), mask_rect)) } else { (clip_mask.image.clone(), mask_rect) };
                 builder.push_image_mask_clip(paint_rect, image, mask_rect);
                 true
             }
@@ -6373,7 +6370,7 @@ where
     /// It wraps the root's content like any scroll container's frame - after
     /// the root's own background and border, which stay put the way every
     /// scroll container's do - so both renderers move the page by the offset
-    /// they move every frame by: the CPU raster subtracts it, WebRender
+    /// they move every frame by: the CPU raster subtracts it, `WebRender`
     /// scrolls the frame's spatial node (`wr_translate2::scroll_all_nodes`),
     /// and the hit tester adds it back along the same chain. The viewport's
     /// bar is painted after the frame closes, so it stays where it is.
@@ -6643,7 +6640,7 @@ where
         // border box, not affecting layout.
         let shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
         let is_inset = |s: &StyleBoxShadow| matches!(s.clip_mode, BoxShadowClipMode::Inset);
-        for shadow in shadows.iter().filter(|s| !is_inset(*s)) {
+        for shadow in shadows.iter().filter(|s| !is_inset(s)) {
             builder.push_item(DisplayListItem::BoxShadow {
                 bounds: border_box.into(),
                 shadow: *shadow,
@@ -6671,7 +6668,7 @@ where
         }
         // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the padding
         // edge, above the background.
-        for shadow in shadows.iter().filter(|s| is_inset(*s)) {
+        for shadow in shadows.iter().filter(|s| is_inset(s)) {
             builder.push_item(DisplayListItem::BoxShadow {
                 bounds: padding_box.into(),
                 shadow: *shadow,
@@ -6731,7 +6728,7 @@ where
         // framed the marker's own line a second time (WPT
         // list-style-position-023: an inside marker on a line of its own in
         // the item's silver border).
-        if super::fc::is_marker_box(&self.positioned_tree.tree, node_index) {
+        if super::fc::is_marker_box(self.positioned_tree.tree, node_index) {
             return Ok(());
         }
 
@@ -8806,7 +8803,7 @@ where
             .ptr
             .compact_cache
             .as_ref()
-            .map_or(true, |cc| {
+            .is_none_or(|cc| {
                 cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_OVERFLOW != 0
             });
         if !declared {
@@ -8841,7 +8838,7 @@ where
         }
         // Under dense-text retention the stored items are the empty sentinel.
         let expanded;
-        let items: &[crate::text3::cache::PositionedItem] = if layout.items.is_empty() {
+        let items: &[PositionedItem] = if layout.items.is_empty() {
             expanded = dense?.to_unified_items();
             &expanded
         } else {
@@ -12215,11 +12212,11 @@ impl EllipsisCut {
 /// line that fits keeps everything. Left-to-right lines: the end edge is the
 /// right one.
 pub(crate) fn ellipsis_cuts(
-    items: &[crate::text3::cache::PositionedItem],
+    items: &[PositionedItem],
     end_x: f32,
     advance: f32,
 ) -> Vec<EllipsisCut> {
-    let right = |item: &crate::text3::cache::PositionedItem| item.position.x + item.item.bounds().width;
+    let right = |item: &PositionedItem| item.position.x + item.item.bounds().width;
     let mut cuts = Vec::new();
     let mut start = 0;
     while start < items.len() {
@@ -12233,7 +12230,7 @@ pub(crate) fn ellipsis_cuts(
         if !line.iter().any(|item| right(item) > end_x + 0.5) {
             continue;
         }
-        let mut order: Vec<&crate::text3::cache::PositionedItem> = line.iter().collect();
+        let mut order: Vec<&PositionedItem> = line.iter().collect();
         order.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
         let fits = end_x - advance + 0.01;
         let kept = 1 + order[1..].iter().take_while(|item| right(item) <= fits).count();
@@ -12727,7 +12724,7 @@ fn rasterize_svg_stroke_to_r8(
 /// holds it.
 ///
 /// `ImageMask::repeat` asks for a tiled mask, and nothing downstream can tile:
-/// the display-list item carries one image and one rect, and WebRender's
+/// the display-list item carries one image and one rect, and `WebRender`'s
 /// `ImageMask` is the same shape. So the tiles are laid out here, at the
 /// SOURCE mask's own resolution (`src_w` px per tile, not one screen pixel per
 /// tile) - the mask is authored in logical px and applied in device px, so a
@@ -16675,7 +16672,7 @@ mod tiled_mask_tests {
     /// nothing to tile and the caller falls back to drawing it once.
     #[test]
     fn a_mask_without_cpu_pixels_is_left_alone() {
-        let null = ImageRef::null_image(4, 4, RawImageFormat::R8, Vec::new().into());
+        let null = ImageRef::null_image(4, 4, RawImageFormat::R8, Vec::new());
         assert!(tile_mask(&null, rect(0.0, 0.0, 2.0, 2.0), rect(0.0, 0.0, 20.0, 20.0)).is_none());
     }
 }

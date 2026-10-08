@@ -1865,7 +1865,7 @@ mod autotest_generated {
                 .callbacks
                 .as_ref()
                 .iter()
-                .any(|cb| is_click(cb)),
+                .any(is_click),
             "a column hook must not attach a row click"
         );
     }

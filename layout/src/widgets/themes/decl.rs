@@ -1002,7 +1002,7 @@ pub(crate) fn state_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
             props
                 .iter()
                 .map(|name| StyleAnimation {
-                    name: AzString::from_const_str(*name),
+                    name: AzString::from_const_str(name),
                     duration: CssDuration::from_millis(duration),
                     delay: CssDuration::from_millis(0),
                     iterations: AnimationIterationCount::Count(1),
@@ -1095,7 +1095,7 @@ pub(crate) fn classes(names: &[&'static str]) -> azul_core::dom::IdOrClassVec {
     azul_core::dom::IdOrClassVec::from_vec(
         names
             .iter()
-            .map(|n| azul_core::dom::IdOrClass::Class(azul_css::AzString::from_const_str(*n)))
+            .map(|n| azul_core::dom::IdOrClass::Class(azul_css::AzString::from_const_str(n)))
             .collect(),
     )
 }

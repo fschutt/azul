@@ -192,7 +192,7 @@ pub struct Titlebar {
     /// The line's colour while the window is unfocused (`:backdrop`).
     pub separator_color_inactive: OptionColorU,
     /// The line's thickness in CSS pixels. The bar's `height` INCLUDES it
-    /// (`box-sizing: border-box`), as AppKit's 28pt band includes its
+    /// (`box-sizing: border-box`), as `AppKit`'s 28pt band includes its
     /// separator, so a line never makes the bar taller.
     pub separator_width: f32,
     /// The widget theme this bar is PINNED to (`with_theme`), or `None` to
@@ -1061,10 +1061,10 @@ impl TabsInTitlebar {
     /// button's top-left, from the window's top-left): centred on the row
     /// vertically - the row is `row_height` tall, [`Self::top`] below the
     /// window's top - and in the [`Self::left`] space before the first tab
-    /// horizontally. AppKit leaves them at its own y (the middle of a 28pt
+    /// horizontally. `AppKit` leaves them at its own y (the middle of a 28pt
     /// bar), above the middle of any taller tab row.
     ///
-    /// The geometry is AppKit's (macOS 11 - 15): 14 x 16pt button frames,
+    /// The geometry is `AppKit`'s (macOS 11 - 15): 14 x 16pt button frames,
     /// 20pt apart. Only macOS draws traffic lights; elsewhere the position
     /// is unused.
     #[must_use]
@@ -1162,7 +1162,7 @@ impl TabsInTitlebar {
 /// `px` grown by `by`, if it is in px; `false` (and `px` as it was) for any
 /// other unit.
 fn grow_px(px: &mut PixelValue, by: f32) -> bool {
-    if px.metric != azul_css::props::basic::length::SizeMetric::Px {
+    if px.metric != SizeMetric::Px {
         return false;
     }
     *px = PixelValue::px(px.number.get() + by);
@@ -2845,7 +2845,7 @@ mod autotest_generated {
         mode: azul_css::system::DarkLightMode,
     ) -> Option<ColorU> {
         let ctx = azul_css::dynamic_selector::DynamicSelectorContext {
-            mode: mode,
+            mode,
             ..azul_css::dynamic_selector::DynamicSelectorContext::default()
         };
         t.build_title_style(true)
@@ -2856,7 +2856,7 @@ mod autotest_generated {
                 CssProperty::TextColor(c) => c.get_property().map(|c| c.inner),
                 _ => None,
             })
-            .last()
+            .next_back()
     }
 
     /// With no text colour detected, the title falls back to the default of

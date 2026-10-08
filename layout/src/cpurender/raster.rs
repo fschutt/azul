@@ -1105,10 +1105,10 @@ impl ReferenceFrameGroup {
     ) -> Self {
         // The layer builder's tests: a frame it would not promote is painted
         // where it is laid out, one it would is moved.
-        if super::compositor::is_identity_2d(m) {
+        if is_identity_2d(m) {
             return Self::Identity;
         }
-        if let Some((tx, ty)) = super::compositor::translation_2d(m) {
+        if let Some((tx, ty)) = translation_2d(m) {
             let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
             scroll_offset_stack.push((sx - tx, sy - ty));
             return Self::Translated;
@@ -1318,7 +1318,7 @@ impl FilterGroup {
             width: self.width,
             height: self.height,
         };
-        super::compositor::apply_layer_filters(&mut group, &self.filters, dpi_factor);
+        apply_layer_filters(&mut group, &self.filters, dpi_factor);
 
         // straight-alpha source-over: the filtered group over the backdrop
         let mut out = self.backdrop.clone();
@@ -3718,7 +3718,7 @@ const MAX_RASTER_EM_PX: f32 = 65_536.0;
 /// rasterizer can take (non-finite, not positive, or past
 /// [`MAX_RASTER_EM_PX`]): the whole run is skipped.
 fn glyph_ink_reach(em_px: f32) -> Option<f32> {
-    (em_px.is_finite() && em_px > 0.0 && em_px <= MAX_RASTER_EM_PX).then(|| em_px * 4.0)
+    (em_px.is_finite() && em_px > 0.0 && em_px <= MAX_RASTER_EM_PX).then_some(em_px * 4.0)
 }
 
 /// Whether a glyph whose pen sits at device `(x, y)` can put ink on a
@@ -3788,10 +3788,10 @@ fn text_clip_pixel_box(clip: AzRect, width: u32, height: u32) -> Option<(i32, i3
 /// `None` = nothing of the run can show.
 ///
 /// ONE rule for every paint path. The pre-tiled LCD path always clipped
-/// to this intersection, as WebRender clips a text item; the batch sweep
+/// to this intersection, as `WebRender` clips a text item; the batch sweep
 /// and the grayscale path clipped to the stack clip alone and only skipped
-/// a run whose clip_rect lay wholly outside it, so ink past a run's
-/// clip_rect painted on two paths and not on the third (a list marker cut
+/// a run whose `clip_rect` lay wholly outside it, so ink past a run's
+/// `clip_rect` painted on two paths and not on the third (a list marker cut
 /// by one path and painted by the other).
 fn text_run_clip(clip_rect: &LogicalRect, clip: Option<AzRect>, dpi_factor: f32) -> Option<AzRect> {
     let own = logical_rect_to_az_rect(clip_rect, dpi_factor)?;

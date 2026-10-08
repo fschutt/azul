@@ -460,7 +460,7 @@ mod autotest_generated {
 
     /// The declared properties of a rendered node's inline style, in declaration order.
     fn inline_props(dom: &Dom) -> Vec<CssProperty> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -468,7 +468,7 @@ mod autotest_generated {
     /// The node's LIGHT face: its declarations that apply in every theme and
     /// state (the dark-theme twins are left out).
     fn unconditional_props(dom: &Dom) -> Vec<CssProperty> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
@@ -490,7 +490,7 @@ mod autotest_generated {
     /// The `flex-grow` factor as it actually lands in the style tree — i.e. *after* the
     /// lossy `f32 -> isize` encoding inside `FloatValue::new`.
     fn dom_flex_grow(dom: &Dom) -> Option<f32> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::FlexGrow(v) => v.get_property().map(|f| f.inner.get()),
                 _ => None,

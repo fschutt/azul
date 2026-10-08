@@ -692,7 +692,7 @@ pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
         .collect();
     let group_of = |r: usize| grid.row_groups.get(r).copied().flatten();
     let group_sides: BTreeMap<usize, [BorderInfo; 4]> = (0..rows)
-        .filter_map(|r| group_of(r))
+        .filter_map(&group_of)
         .map(|g| (g, sides(g, BorderSource::RowGroup)))
         .collect();
     let first_in_group = |r: usize| r == 0 || group_of(r - 1) != group_of(r);

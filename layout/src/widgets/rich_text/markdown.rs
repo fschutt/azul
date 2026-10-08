@@ -1,16 +1,16 @@
 //! A [`RichTextDoc`] as Markdown, both ways.
 //!
-//! The writer emits ONE canonical form (AzNotes' writer, promoted): a body
+//! The writer emits ONE canonical form (`AzNotes`' writer, promoted): a body
 //! written here reads back to the same document, and text that merely looks
 //! like Markdown (`*x*`, `# not a heading`) is escaped so it stays text -
-//! AzWriter's naive writer turned `*x*` into italics on the next load
-//! (scripts/DEDUP_EDITORS A1). Underline is `<u>..</u>`, a check item
+//! `AzWriter`'s naive writer turned `*x*` into italics on the next load
+//! (`scripts/DEDUP_EDITORS` A1). Underline is `<u>..</u>`, a check item
 //! `- [ ]` / `- [x]`, a quoted block `> ` per quote level, a table a GFM
 //! pipe table, a page break the comment `<!-- pagebreak -->`. Alignment has
 //! no Markdown form and is not written.
 //!
 //! The reader (feature `rich_text_markdown`, pulldown-cmark with
-//! strikethrough, task lists and tables) reads CommonMark from any editor
+//! strikethrough, task lists and tables) reads `CommonMark` from any editor
 //! into the flat blocks: nested lists become indent levels, a loose list's
 //! paragraphs land in their items, a soft break is a line break.
 
@@ -36,7 +36,7 @@ impl RichTextDoc {
         AzString::from(doc_to_markdown(self))
     }
 
-    /// A Markdown text read into a document (any CommonMark editor's
+    /// A Markdown text read into a document (any `CommonMark` editor's
     /// output; see the module docs).
     #[cfg(feature = "rich_text_markdown")]
     #[must_use]
@@ -316,12 +316,12 @@ pub fn markdown_to_doc(markdown: &str) -> RichTextDoc {
                 }
                 b.sink = None;
             }
-            Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
+            Event::Start(Tag::TableHead | Tag::TableRow) => {
                 if let Some(rows) = b.table.as_mut() {
                     rows.push(Vec::new());
                 }
             }
-            Event::End(Tag::TableHead) | Event::End(Tag::TableRow) => {}
+            Event::End(Tag::TableHead | Tag::TableRow) => {}
             Event::Start(Tag::TableCell) => b.cell = Some(String::new()),
             Event::End(Tag::TableCell) => {
                 if let (Some(cell), Some(rows)) = (b.cell.take(), b.table.as_mut()) {
@@ -472,37 +472,37 @@ enum Marker {
 }
 
 impl Marker {
-    const ORDER: [Marker; 4] = [
-        Marker::Bold,
-        Marker::Italic,
-        Marker::Strike,
-        Marker::Underline,
+    const ORDER: [Self; 4] = [
+        Self::Bold,
+        Self::Italic,
+        Self::Strike,
+        Self::Underline,
     ];
 
     const fn open(self) -> &'static str {
         match self {
-            Marker::Bold => "**",
-            Marker::Italic => "*",
-            Marker::Strike => "~~",
-            Marker::Underline => "<u>",
+            Self::Bold => "**",
+            Self::Italic => "*",
+            Self::Strike => "~~",
+            Self::Underline => "<u>",
         }
     }
 
     const fn close(self) -> &'static str {
         match self {
-            Marker::Bold => "**",
-            Marker::Italic => "*",
-            Marker::Strike => "~~",
-            Marker::Underline => "</u>",
+            Self::Bold => "**",
+            Self::Italic => "*",
+            Self::Strike => "~~",
+            Self::Underline => "</u>",
         }
     }
 
     const fn on(self, run: &RichRun) -> bool {
         match self {
-            Marker::Bold => run.formats.bold,
-            Marker::Italic => run.formats.italic,
-            Marker::Strike => run.formats.strike,
-            Marker::Underline => run.formats.underline,
+            Self::Bold => run.formats.bold,
+            Self::Italic => run.formats.italic,
+            Self::Strike => run.formats.strike,
+            Self::Underline => run.formats.underline,
         }
     }
 }

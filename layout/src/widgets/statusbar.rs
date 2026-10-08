@@ -283,12 +283,12 @@ impl StatusBarSync {
     }
 
     /// The click that opens the details.
-    pub fn set_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+    pub fn set_on_click<C: Into<ButtonOnClickCallback>>(
         &mut self,
         data: RefAny,
         on_click: C,
     ) {
-        self.on_click = Some(super::button::ButtonOnClick {
+        self.on_click = Some(ButtonOnClick {
             refany: data,
             callback: on_click.into(),
         })
@@ -297,7 +297,7 @@ impl StatusBarSync {
 
     /// [`Self::set_on_click`] for the builder chain.
     #[must_use]
-    pub fn with_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(
         mut self,
         data: RefAny,
         on_click: C,
@@ -1377,12 +1377,12 @@ impl StatusBarSegment {
     }
 
     /// Sets the click callback.
-    pub fn set_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+    pub fn set_on_click<C: Into<ButtonOnClickCallback>>(
         &mut self,
         data: RefAny,
         on_click: C,
     ) {
-        self.on_click = Some(super::button::ButtonOnClick {
+        self.on_click = Some(ButtonOnClick {
             refany: data,
             callback: on_click.into(),
         })
@@ -1391,7 +1391,7 @@ impl StatusBarSegment {
 
     /// Builder method: sets the click callback and returns `self`.
     #[must_use]
-    pub fn with_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(
         mut self,
         data: RefAny,
         on_click: C,
@@ -2156,12 +2156,12 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle, theme: UiT
             style.resolved_view_button_style()
         };
         let on_click: OptionButtonOnClick = match on_select.as_ref() {
-            Some(cb) => Some(super::button::ButtonOnClick {
+            Some(cb) => Some(ButtonOnClick {
                 refany: RefAny::new(ViewClickData {
                     view_idx: idx,
                     on_select: cb.clone(),
                 }),
-                callback: super::button::ButtonOnClickCallback {
+                callback: ButtonOnClickCallback {
                     cb: on_status_bar_view_click,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },

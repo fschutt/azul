@@ -33,7 +33,7 @@ fn effective_padding_top(css: &str) -> Option<String> {
         .into_iter()
         .filter(|(ty, _)| *ty == CssPropertyType::PaddingTop)
         .map(|(_, value)| value)
-        .last()
+        .next_back()
 }
 
 #[test]

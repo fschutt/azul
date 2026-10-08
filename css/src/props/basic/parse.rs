@@ -82,7 +82,7 @@ impl<'a, F: Fn(u8) -> bool> Iterator for TopLevelPieces<'a, F> {
     }
 }
 
-fn top_level_pieces<F: Fn(u8) -> bool>(input: &str, is_separator: F) -> TopLevelPieces<'_, F> {
+const fn top_level_pieces<F: Fn(u8) -> bool>(input: &str, is_separator: F) -> TopLevelPieces<'_, F> {
     TopLevelPieces {
         rest: Some(input),
         is_separator,

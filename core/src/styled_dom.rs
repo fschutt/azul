@@ -1578,7 +1578,7 @@ impl StyledDom {
     pub fn create_from_dom_with_user_sheets(
         dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
-        user_sheets: &[azul_css::css::Css],
+        user_sheets: &[Css],
     ) -> Self {
         Self::create_from_dom_inheriting(dom, context, user_sheets, Vec::new())
     }
@@ -1594,7 +1594,7 @@ impl StyledDom {
     pub fn create_from_dom_inheriting(
         mut dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
-        user_sheets: &[azul_css::css::Css],
+        user_sheets: &[Css],
         inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use azul_css::css::Css;

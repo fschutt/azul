@@ -337,7 +337,7 @@ fn positive(text: &str) -> Option<u32> {
 
 /// `value` (a `BYMONTH` / `BYMONTHDAY` list) is absent or exactly `want`.
 fn absent_or(value: Option<&str>, want: u32) -> bool {
-    value.map_or(true, |v| v.trim().parse::<u32>().ok() == Some(want))
+    value.is_none_or(|v| v.trim().parse::<u32>().ok() == Some(want))
 }
 
 /// What [`DateRepeatRule::from_rrule`] reads: the rule, when the form can

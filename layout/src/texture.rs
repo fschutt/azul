@@ -65,7 +65,7 @@ impl BuiltinTexture {
     /// The image id every window has the texture under: what `builtin(<name>)`
     /// parses to (`azul-builtin:<name>`).
     #[must_use]
-    pub fn css_name(self) -> alloc::string::String {
+    pub fn css_name(self) -> String {
         alloc::format!(
             "{}{}",
             azul_css::props::style::background::BUILTIN_IMAGE_PREFIX,
@@ -77,7 +77,7 @@ impl BuiltinTexture {
 /// The ink of pixel `i` of the vellum, 0 (paper) to 255 (the deepest crease).
 fn vellum_ink(i: usize) -> u8 {
     let byte = VELLUM_INK[i / 2];
-    let level = if i % 2 == 0 { byte >> 4 } else { byte & 0x0f };
+    let level = if i.is_multiple_of(2) { byte >> 4 } else { byte & 0x0f };
     level * 17
 }
 

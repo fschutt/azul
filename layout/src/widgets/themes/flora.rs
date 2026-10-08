@@ -834,9 +834,9 @@ pub const FL_DUR_MS: u32 = 420;
 pub const FL_DUR_FAST_MS: u32 = 140;
 
 /// `--fl-ease`: `cubic-bezier(0.25, 0.46, 0.45, 0.94)`, in permille.
-pub const FL_EASE: azul_css::props::basic::animation::AnimationTiming =
-    azul_css::props::basic::animation::AnimationTiming::CubicBezier(
-        azul_css::props::basic::animation::AnimationTimingBezier {
+pub const FL_EASE: AnimationTiming =
+    AnimationTiming::CubicBezier(
+        AnimationTimingBezier {
             x1: 250,
             y1: 460,
             x2: 450,
@@ -863,7 +863,7 @@ pub(crate) const FLORA_FACE: &[&str] = &[
 ];
 
 /// The curve one property of a flora fade moves on.
-type FadeCurve = azul_css::props::basic::animation::AnimationTiming;
+type FadeCurve = AnimationTiming;
 
 /// What changes as light moves across a stone - or across the field of a
 /// metal-edged command - and on which curve: flora.css's `.btn-primary` /
@@ -1792,7 +1792,7 @@ fn check_mark_skin() -> Vec<CssPropertyWithConditions> {
     v.extend(decl::border(1));
     v.extend(decl::radius(3));
     v.extend(decl::border_colors(LIGHT_DEEP).map(CssPropertyWithConditions::simple));
-    v.push(CssPropertyWithConditions::simple(layers(alloc::vec![super::decl::face(
+    v.push(CssPropertyWithConditions::simple(layers(alloc::vec![decl::face(
         LIGHT_ACC, LIGHT_DEEP
     )])));
     v
@@ -2450,7 +2450,7 @@ pub fn progressbar_render_bar_impl(
             role: AccessibilityRole::ProgressBar,
             // What the bar measures - only the caller knows; see
             // `ProgressBar::with_accessibility_name`.
-            accessibility_name: this.accessibility_name.clone(),
+            accessibility_name: this.accessibility_name,
             accessibility_value: Some(AzString::from(alloc::format!(
                 "{:.0}%",
                 // NaN clamps to NaN and would read "NaN%"; an unknown
@@ -6149,7 +6149,7 @@ fn chrome_key(v: &mut Vec<CssPropertyWithConditions>) {
     v.extend(decl::radius(3));
     v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
     v.extend(
-        super::decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple),
+        decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple),
     );
     chrome_key_states(v);
 }
@@ -7082,7 +7082,7 @@ pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
 /// the Australis metrics and paint laid on it. Shared by the ribbon's tab row
 /// and the tab bar.
 pub(crate) mod australis {
-    use super::*;
+    use super::{CssPropertyWithConditions, TAB_AIR, TAB_SIDE, CssProperty, LayoutHeight, TAB_HEIGHT, tab_rule_foot, over_metal, RULE_METAL, StyleBackgroundContent, LIGHT_STRIP, DARK_STRIP, over_metal_clips, australis_tab_box, tab_caps, LIGHT_SOFT1, DARK_SOFT1, ColorU, HOVER_FACE_LIGHT, HOVER_FACE_DARK, LIGHT_INK, DARK_INK, LIGHT_BD, DARK_BD, PRESSED_FACE_LIGHT, PRESSED_FACE_DARK, LIGHT_BD3, DARK_BD3, shadow_in, ShadowSlot, TAB_PRESS_SHADOW, flora_fade, FLORA_FACE, FL_DUR_MS, australis_face, STONE_STREAK, ROLLED_TAB, LIGHT_ON_ACC, StyleBorderTopColor, STONE_STREAK_HOVER, stone_light_fade, stone_face, LIGHT_ACC, sunken_stone_face, LIGHT_DEEP, FL_DUR_SLOW_MS};
 
     /// The strip: air above the tabs and room before the first one for its
     /// curve, the strip's paper on its padding box, and the rule - the
@@ -8633,7 +8633,7 @@ fn flora_strip_above() -> Vec<CssPropertyWithConditions> {
 fn flora_leaf() -> Vec<CssPropertyWithConditions> {
     use super::decl;
     let mut v = vec![
-        super::decl::font_size(13),
+        decl::font_size(13),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
@@ -9351,7 +9351,7 @@ pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::Thumbna
         thumb,
         thumb_selected: decl::themed_border_color(LIGHT_ACC, DARK_GLOW),
         thumb_hidden: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
-            azul_css::props::style::StyleOpacity::const_new(50),
+            StyleOpacity::const_new(50),
         ))],
         marker: Some(super::style_kit::FLORA_CLASS),
     }

@@ -1,4 +1,4 @@
-//! ShellSettingsDialog - a whole settings window from a table of settings,
+//! `ShellSettingsDialog` - a whole settings window from a table of settings,
 //! on [`ShellSettingsLayout`]: the categories (with icons) on the left, the
 //! active category's settings grouped in sections on the right, the search
 //! on top, the button row under it.
@@ -276,7 +276,7 @@ impl ShellSettingValue {
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShellSetting {
-    /// The app's key for it ("editor.font_size").
+    /// The app's key for it ("`editor.font_size`").
     pub id: AzString,
     /// The row's label ("Font size").
     pub label: AzString,
@@ -1335,7 +1335,7 @@ fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKi
     });
     let button =
         |label: &AzString,
-         kind: crate::widgets::button::ButtonType,
+         kind: ButtonType,
          click: Option<crate::widgets::button::ButtonOnClickCallbackType>| {
             dialog_kit::row_button(
                 label.clone(),
@@ -1460,7 +1460,7 @@ pub(crate) fn build(dialog: ShellSettingsDialog) -> Dom {
     if searching && sections.is_empty() {
         sections.push(
             ShellSettingsSection::create(dialog.empty_label.clone(), Dom::create_div())
-                .with_keywords(AzString::from(query.clone())),
+                .with_keywords(AzString::from(query)),
         );
     }
     let badges: Vec<AzString> = (0..dialog.categories.as_ref().len())

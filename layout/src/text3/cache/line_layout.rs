@@ -796,19 +796,16 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             (Some(items), Some(lines)) => Some(items.min(lines)),
             (items, lines) => items.or(lines),
         };
-        match top {
-            Some(top) => {
-                // A first line box above its (smaller) glyphs starts the IFC.
-                if top < calculated_bounds.y {
-                    calculated_bounds.height += calculated_bounds.y - top;
-                    calculated_bounds.y = top;
-                }
-                calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+        if let Some(top) = top {
+            // A first line box above its (smaller) glyphs starts the IFC.
+            if top < calculated_bounds.y {
+                calculated_bounds.height += calculated_bounds.y - top;
+                calculated_bounds.y = top;
             }
-            None => {
-                calculated_bounds.y = 0.0;
-                calculated_bounds.height = calculated_bounds.height.max(line_box_extent);
-            }
+            calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+        } else {
+            calculated_bounds.y = 0.0;
+            calculated_bounds.height = calculated_bounds.height.max(line_box_extent);
         }
     }
 
@@ -1935,7 +1932,7 @@ pub(crate) const fn physical_text_align(
 /// right); in a right-to-left one the content's right edge stays on the box's
 /// (offset = the negative `remaining_space`, overflow on the left). Applying a
 /// right / center alignment to the negative space cut off the line's START
-/// (AzCalculator's long results).
+/// (`AzCalculator`'s long results).
 ///
 /// The ONE alignment rule of both line positioners: `position_one_line` and
 /// the Knuth-Plass path (`knuth_plass::position_lines_from_breaks`).

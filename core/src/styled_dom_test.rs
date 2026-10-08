@@ -2278,7 +2278,7 @@ mod theme_flip_is_a_restyle {
             sd.get_css_property_cache()
                 .dynamic_context
                 .as_deref()
-                .map(|c| c.mode.clone()),
+                .map(|c| c.mode),
             Some(azul_css::system::DarkLightMode::Dark)
         );
         assert_eq!(

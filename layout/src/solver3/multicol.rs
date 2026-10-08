@@ -487,32 +487,29 @@ pub fn plan_columns(
     let cap = height.filter(|h| h.is_finite() && *h > 0.0);
     let total = atoms.iter().map(|a| a.bottom).fold(0.0_f32, f32::max);
 
-    let column_height = match (fill, cap) {
-        (ColumnFill::Auto, Some(cap)) => cap,
-        _ => {
-            // The smallest height that needs at most `count` columns: a
-            // greedy fill never needs MORE columns for a taller height, so
-            // bisect between the even share and the whole flow.
-            let needs = |h: f32| fill_columns(&atoms, h).len();
-            let mut lo = total / count as f32;
-            let mut hi = total;
-            if needs(lo) <= count {
-                hi = lo;
-            } else {
-                for _ in 0..48 {
-                    if hi - lo <= FIT_EPS {
-                        break;
-                    }
-                    let mid = f32::midpoint(lo, hi);
-                    if needs(mid) <= count {
-                        hi = mid;
-                    } else {
-                        lo = mid;
-                    }
+    let column_height = if let (ColumnFill::Auto, Some(cap)) = (fill, cap) { cap } else {
+        // The smallest height that needs at most `count` columns: a
+        // greedy fill never needs MORE columns for a taller height, so
+        // bisect between the even share and the whole flow.
+        let needs = |h: f32| fill_columns(&atoms, h).len();
+        let mut lo = total / count as f32;
+        let mut hi = total;
+        if needs(lo) <= count {
+            hi = lo;
+        } else {
+            for _ in 0..48 {
+                if hi - lo <= FIT_EPS {
+                    break;
+                }
+                let mid = f32::midpoint(lo, hi);
+                if needs(mid) <= count {
+                    hi = mid;
+                } else {
+                    lo = mid;
                 }
             }
-            cap.map_or(hi, |cap| hi.min(cap))
         }
+        cap.map_or(hi, |cap| hi.min(cap))
     };
 
     let firsts = fill_columns(&atoms, column_height);

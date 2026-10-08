@@ -62,6 +62,7 @@ pub struct SrcImage<'a> {
 }
 
 /// Bytes per pixel for the PACKED formats [`SrcImage::pixel`] can read.
+///
 /// `None` for a format this scaler does not sample (16-bit / float /
 /// two-channel) and for the planar NV12 formats, which are sampled plane by
 /// plane (see [`SrcImage::is_sampleable`]).
@@ -284,9 +285,9 @@ fn sample_with<const C: usize, F: Fn(i32, i32) -> [u8; C]>(
     let mut acc = [0u32; C];
     for ty in 0..ny {
         // Tap centres at the (k + 0.5)/n fractions of the footprint.
-        let fy = cy + ((ty as f32 + 0.5) / ny as f32 - 0.5) * scale_y;
+        let fy = ((ty as f32 + 0.5) / ny as f32 - 0.5).mul_add(scale_y, cy);
         for tx in 0..nx {
-            let fx = cx + ((tx as f32 + 0.5) / nx as f32 - 0.5) * scale_x;
+            let fx = ((tx as f32 + 0.5) / nx as f32 - 0.5).mul_add(scale_x, cx);
             let p = read(fx.floor() as i32, fy.floor() as i32);
             for (a, v) in acc.iter_mut().zip(p.iter()) {
                 *a += u32::from(*v);
@@ -345,7 +346,7 @@ fn bilinear_with<const C: usize, F: Fn(i32, i32) -> [u8; C]>(
     let p11 = read(x0 + 1, y0 + 1);
     let mut out = [0u8; C];
     for c in 0..C {
-        let top = f32::from(p00[c]) * (1.0 - tx) + f32::from(p10[c]) * tx;
+        let top = f32::from(p00[c]).mul_add(1.0 - tx, f32::from(p10[c]) * tx);
         let bot = f32::from(p01[c]) * (1.0 - tx) + f32::from(p11[c]) * tx;
         out[c] = (top * (1.0 - ty) + bot * ty).round().clamp(0.0, 255.0) as u8;
     }

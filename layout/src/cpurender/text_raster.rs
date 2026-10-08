@@ -185,6 +185,7 @@ mod set {
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
+    #[must_use]
     pub fn rasterize_text_at(
         fc: &FcFontCache,
         text: &str,
@@ -304,7 +305,7 @@ mod set {
 
     thread_local! {
         /// The system fonts, scanned once per thread on first use.
-        static SYSTEM_FONTS: core::cell::OnceCell<FcFontCache> = core::cell::OnceCell::new();
+        static SYSTEM_FONTS: core::cell::OnceCell<FcFontCache> = const { core::cell::OnceCell::new() };
     }
 
     /// `f` with this thread's cache of the system fonts.

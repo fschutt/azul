@@ -315,8 +315,8 @@ pub(crate) fn move_surface(info: &mut CallbackInfo, node: DomNodeId, position_s:
             return true;
         }
         w.inner.position_s = position_s;
-        let now = (w.inner, w.surface);
-        now
+
+        (w.inner, w.surface)
     };
     show_position(info, node, state, surface);
     true
@@ -448,6 +448,7 @@ fn seek_to_pointer(w: &mut SeekBarWrapper, info: &mut CallbackInfo) -> Update {
 }
 
 /// Pointer down on the trough: a scrub starts there.
+#[must_use]
 pub extern "C" fn on_seek_bar_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
         return Update::DoNothing;
@@ -457,6 +458,7 @@ pub extern "C" fn on_seek_bar_pointer_down(mut data: RefAny, mut info: CallbackI
 }
 
 /// Pointer move: the scrub follows the pointer.
+#[must_use]
 pub extern "C" fn on_seek_bar_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
         return Update::DoNothing;
@@ -468,6 +470,7 @@ pub extern "C" fn on_seek_bar_pointer_move(mut data: RefAny, mut info: CallbackI
 }
 
 /// Pointer up: the scrub ends where it is (reported with `dragging` false: seek now).
+#[must_use]
 pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
         return Update::DoNothing;
@@ -481,6 +484,7 @@ pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, mut info: CallbackInf
 
 /// Pointer leave: a scrub ends when the pointer left the TROUGH (not just its thumb - the
 /// slider's rule: every event bubbles here, the cursor decides).
+#[must_use]
 pub extern "C" fn on_seek_bar_pointer_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let still_inside = match (
         info.get_cursor_relative_to_node().into_option(),
@@ -498,6 +502,7 @@ pub extern "C" fn on_seek_bar_pointer_leave(mut data: RefAny, mut info: Callback
 }
 
 /// The keys: 5 s steps, 30 s with Ctrl / Cmd, Home / End.
+#[must_use]
 pub extern "C" fn on_seek_bar_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
         return Update::DoNothing;
@@ -526,6 +531,7 @@ pub extern "C" fn on_seek_bar_key(mut data: RefAny, mut info: CallbackInfo) -> U
 /// Carries a scrub across a parent rebuild (the slider's rule: while the pointer is down the
 /// pointer wins - `dragging` and the scrubbed position carry over; once it is up, the app's
 /// position is the truth). The hook is the fresh build's.
+#[must_use]
 pub extern "C" fn merge_seek_bar_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<SeekBarWrapper>();
@@ -741,7 +747,7 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
         .with_css_props(props(part(SEEK_TRACK_BASE, &look.track)))
         .with_callbacks(callbacks.into())
-        .with_dataset(OptionRefAny::Some(data.clone()))
+        .with_dataset(OptionRefAny::Some(data))
         .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
             merge_seek_bar_state,
         ))

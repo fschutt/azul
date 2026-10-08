@@ -1214,7 +1214,7 @@ pub(crate) struct Geometry {
     pub header_width: f32,
     /// The header row's height (0 without headers), zoom applied.
     pub header_height: f32,
-    /// The scrolled rows that fit WHOLLY (a PageDown moves by that many).
+    /// The scrolled rows that fit WHOLLY (a `PageDown` moves by that many).
     pub page_rows: u32,
     /// The scrolled columns that fit wholly.
     pub page_columns: u32,
@@ -2387,19 +2387,16 @@ fn cell_style_props(
     if style.italic {
         v.push(simple(CssProperty::font_style(StyleFontStyle::Italic)));
     }
-    match style.fill.into_option() {
-        Some(fill) => {
-            v.push(simple(super::themes::decl::fill(fill)));
-            let ink = style.ink.into_option().unwrap_or_else(|| auto_ink(fill));
-            v.push(simple(CssProperty::const_text_color(StyleTextColor { inner: ink })));
+    if let Some(fill) = style.fill.into_option() {
+        v.push(simple(super::themes::decl::fill(fill)));
+        let ink = style.ink.into_option().unwrap_or_else(|| auto_ink(fill));
+        v.push(simple(CssProperty::const_text_color(StyleTextColor { inner: ink })));
+    } else {
+        if selected {
+            v.extend(look.selected.iter().cloned());
         }
-        None => {
-            if selected {
-                v.extend(look.selected.iter().cloned());
-            }
-            if let Some(ink) = style.ink.into_option() {
-                v.push(simple(CssProperty::const_text_color(StyleTextColor { inner: ink })));
-            }
+        if let Some(ink) = style.ink.into_option() {
+            v.push(simple(CssProperty::const_text_color(StyleTextColor { inner: ink })));
         }
     }
     v
@@ -2773,10 +2770,7 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
     grid_props.push(simple(CssProperty::const_font_size(StyleFontSize::px(
         grid.font_size * zoom,
     ))));
-    let active_value = AzString::from(alloc::format!(
-        "{}",
-        CellGrid::cell_label(view.active).as_str()
-    ));
+    let active_value = AzString::from(CellGrid::cell_label(view.active).as_str().to_string());
     let a11y = AccessibilityInfo {
         accessibility_value: Some(active_value).into(),
         ..AccessibilityInfo::named(grid.accessibility_name.clone(), AccessibilityRole::Grid)
@@ -4002,9 +3996,9 @@ mod cell_grid_tests {
         assert_eq!(del.kind, CellGridEventKind::Delete);
         let ro = small().with_read_only(true);
         assert!(grid_key(&ro, &b, VirtualKeyCode::F2, false, false)
-            .map_or(true, |e| e.kind != CellGridEventKind::EditStart));
+            .is_none_or(|e| e.kind != CellGridEventKind::EditStart));
         assert!(grid_key(&ro, &b, VirtualKeyCode::Delete, false, false)
-            .map_or(true, |e| e.kind != CellGridEventKind::Delete));
+            .is_none_or(|e| e.kind != CellGridEventKind::Delete));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! ShellNavigationPane - Outlook 2010's navigation pane: collapsible GROUPS,
+//! `ShellNavigationPane` - Outlook 2010's navigation pane: collapsible GROUPS,
 //! each a tree (the accounts and their folders, Favorites), a MODULE
 //! SWITCHER of big buttons at the bottom (Mail, Calendar, Contacts, Tasks)
 //! and a "collapse to strip" state that leaves a narrow bar of the module
@@ -29,7 +29,7 @@
 //! `with_selected`), which module is active, whether the pane is collapsed.
 //!
 //! The pane is a `<nav>` landmark named by its label. Its API is general -
-//! groups + tree + module switcher - so AzMail (MAILWIDGETS) and AzDrive
+//! groups + tree + module switcher - so `AzMail` (MAILWIDGETS) and `AzDrive`
 //! build on it alike.
 //!
 //! Key types: [`ShellNavigationPane`], [`ShellNavigationGroup`], [`ShellNavigationModule`],
@@ -640,7 +640,7 @@ extern "C" fn on_module_click(mut data: RefAny, info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_collapse_click(mut data: RefAny, info: CallbackInfo) -> Update {
-    let expand = data.downcast_ref::<PartRef>().map_or(false, |p| p.expand);
+    let expand = data.downcast_ref::<PartRef>().is_some_and(|p| p.expand);
     emit(
         &mut data,
         info,

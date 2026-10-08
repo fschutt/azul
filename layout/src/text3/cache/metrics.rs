@@ -171,7 +171,7 @@ impl Hash for LineHeight {
 /// `(above, below)` the baseline of a box of `ascent` and `descent` (px) in a
 /// line `line_height` px tall: CSS 2.2 §10.8.1's leading `L = line-height -
 /// (A + D)` shared between the two sides, the share ABOVE floored to a whole
-/// pixel and the rest below, as LayoutNG does (`InlineBoxState::
+/// pixel and the rest below, as `LayoutNG` does (`InlineBoxState::
 /// CalculateLeadingSpace`). The two always add up to `line_height`; with
 /// whole-pixel metrics a glyph's box and the strut of the same face split
 /// alike, so one line's boxes coincide.
@@ -233,12 +233,12 @@ impl LayoutFontMetrics {
     /// 16px Arial line is 14 + 3 + 1 = 18px, as in Chrome (the unrounded sum
     /// is 18.4px, and every line of a mail drifted 0.4px against Chrome).
     /// Then, for [`Self::browser_ascent_boost`] faces only, the rounded
-    /// ascent grows by `floor((A + D) * 0.15 + 0.5)` (Blink, macOS; WebKit
+    /// ascent grows by `floor((A + D) * 0.15 + 0.5)` (Blink, macOS; `WebKit`
     /// `SimpleFontData::platformInit`): 16px Helvetica is 14 + 4 + 0 = 18px.
     /// The descent is the hhea descender's distance below the baseline
     /// (stored negative), the line gap is floored at zero (CSS Inline 3
     /// §3.2.2). Measured against Chrome 154 for 11 faces x 13 sizes
-    /// (layout/tests/a_normal_line_is_as_tall_as_chromes.rs).
+    /// (`layout/tests/a_normal_line_is_as_tall_as_chromes.rs`).
     #[must_use]
     pub fn line_metrics_px(&self, font_size_px: f32) -> Option<(f32, f32, f32)> {
         if self.units_per_em == 0 {

@@ -328,9 +328,9 @@ pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom 
         props.push(P::simple(CssProperty::const_height(LayoutHeight::Px(
             PixelValue::percent(height),
         ))));
-        let mut classes = alloc::vec![IdOrClass::Class(BAR)];
+        let mut classes = alloc::vec![Class(BAR)];
         if played {
-            classes.push(IdOrClass::Class(PLAYED));
+            classes.push(Class(PLAYED));
         }
         children.push(
             Dom::create_div()

@@ -16,7 +16,7 @@
 //!
 //! An [`OfficeShell`] whose main pane (`shell-tiles`) lays the tiles out
 //! as a wrapping grid - one column for one tile, two for up to four, three
-//! for up to nine, four beyond (VideoTileGrid's gallery layout; the tile's
+//! for up to nine, four beyond (`VideoTileGrid`'s gallery layout; the tile's
 //! width is what the app sizes its stream by) - beside an `<aside>` column
 //! of the side panel (participants or chat, `shell-side-panel`) over the
 //! devices panel (`shell-devices`), with the CONTROLS bar as the footer

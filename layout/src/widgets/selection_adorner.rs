@@ -160,21 +160,21 @@ impl AdornerFrame {
 
     /// The axis-aligned box around the rotated frame.
     #[must_use]
-    pub fn bounds(&self) -> AdornerFrame {
+    pub fn bounds(&self) -> Self {
         if self.rotation.abs() < f32::EPSILON {
-            return AdornerFrame::create(self.x, self.y, self.width, self.height);
+            return Self::create(self.x, self.y, self.width, self.height);
         }
         let (s, c) = self.rotation.to_radians().sin_cos();
         let (hw, hh) = (self.width / 2.0, self.height / 2.0);
         let ex = (hw * c).abs() + (hh * s).abs();
         let ey = (hw * s).abs() + (hh * c).abs();
-        AdornerFrame::create(self.center_x() - ex, self.center_y() - ey, ex * 2.0, ey * 2.0)
+        Self::create(self.center_x() - ex, self.center_y() - ey, ex * 2.0, ey * 2.0)
     }
 
     /// The frame moved by (`dx`, `dy`).
     #[must_use]
-    pub fn translated(&self, dx: f32, dy: f32) -> AdornerFrame {
-        AdornerFrame {
+    pub fn translated(&self, dx: f32, dy: f32) -> Self {
+        Self {
             x: self.x + dx,
             y: self.y + dy,
             ..*self
@@ -301,7 +301,7 @@ pub enum AdornerHandle {
 
 impl AdornerHandle {
     /// The eight resize handles, clockwise from the top left.
-    pub const RESIZE: [AdornerHandle; 8] = [
+    pub const RESIZE: [Self; 8] = [
         Self::TopLeft,
         Self::Top,
         Self::TopRight,
@@ -815,7 +815,7 @@ pub(crate) fn resized(
         }
     }
     let (w, h) = (right - left, bottom - top);
-    let (cx, cy) = from_local(start, (left + right) / 2.0, (top + bottom) / 2.0);
+    let (cx, cy) = from_local(start, f32::midpoint(left, right), f32::midpoint(top, bottom));
     AdornerFrame {
         x: cx - w / 2.0,
         y: cy - h / 2.0,
@@ -918,7 +918,7 @@ fn nearest_snap(edges: &[f32], lines: &[f32], tolerance: f32) -> Option<(f32, f3
     for &edge in edges {
         for &line in lines {
             let shift = line - edge;
-            if shift.abs() <= tolerance && best.map_or(true, |(b, _)| shift.abs() < b.abs()) {
+            if shift.abs() <= tolerance && best.is_none_or(|(b, _)| shift.abs() < b.abs()) {
                 best = Some((shift, line));
             }
         }
@@ -1170,47 +1170,44 @@ impl AdornerState {
             }
         }
 
-        match hit_item(&self.items, x, y) {
-            Some(hit) => {
-                let was_selected = self.items[hit].selected;
-                if was_selected && (shift || ctrl) {
-                    // Toggles it out of the selection; no drag.
-                    return (vec![event(SelectionAdornerEventKind::Select, vec![hit as u32])], false);
-                }
-                let mut events = Vec::new();
-                let mut moving = selected.clone();
-                if !was_selected {
-                    events.push(event(SelectionAdornerEventKind::Select, vec![hit as u32]));
-                    if shift || ctrl {
-                        moving.push(hit);
-                        moving.sort_unstable();
-                    } else {
-                        moving = vec![hit];
-                    }
-                }
-                let frames: Vec<AdornerFrame> = moving.iter().map(|&i| self.items[i].frame).collect();
-                let reference = union(&frames).unwrap_or_default();
-                self.begin(DragKind::Transform, AdornerHandle::Body, x, y, &moving, reference);
-                if was_selected && selected.len() > 1 {
-                    self.drag.click = Some(hit);
-                }
-                (events, true)
+        if let Some(hit) = hit_item(&self.items, x, y) {
+            let was_selected = self.items[hit].selected;
+            if was_selected && (shift || ctrl) {
+                // Toggles it out of the selection; no drag.
+                return (vec![event(SelectionAdornerEventKind::Select, vec![hit as u32])], false);
             }
-            None => {
-                let mut events = Vec::new();
-                if !shift && !ctrl && !selected.is_empty() {
-                    events.push(event(SelectionAdornerEventKind::Clear, Vec::new()));
+            let mut events = Vec::new();
+            let mut moving = selected.clone();
+            if !was_selected {
+                events.push(event(SelectionAdornerEventKind::Select, vec![hit as u32]));
+                if shift || ctrl {
+                    moving.push(hit);
+                    moving.sort_unstable();
+                } else {
+                    moving = vec![hit];
                 }
-                self.begin(
-                    DragKind::Marquee,
-                    AdornerHandle::Canvas,
-                    x,
-                    y,
-                    &[],
-                    AdornerFrame::create(x, y, 0.0, 0.0),
-                );
-                (events, true)
             }
+            let frames: Vec<AdornerFrame> = moving.iter().map(|&i| self.items[i].frame).collect();
+            let reference = union(&frames).unwrap_or_default();
+            self.begin(DragKind::Transform, AdornerHandle::Body, x, y, &moving, reference);
+            if was_selected && selected.len() > 1 {
+                self.drag.click = Some(hit);
+            }
+            (events, true)
+        } else {
+            let mut events = Vec::new();
+            if !shift && !ctrl && !selected.is_empty() {
+                events.push(event(SelectionAdornerEventKind::Clear, Vec::new()));
+            }
+            self.begin(
+                DragKind::Marquee,
+                AdornerHandle::Canvas,
+                x,
+                y,
+                &[],
+                AdornerFrame::create(x, y, 0.0, 0.0),
+            );
+            (events, true)
         }
     }
 

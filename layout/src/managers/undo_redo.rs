@@ -709,7 +709,7 @@ impl crate::window::LayoutWindow {
             .map(|snap| snap.post.clone())
             .or_else(|| {
                 if let TextOperation::InsertText(op) = &operation.changeset.operation {
-                    let mut text = alloc::string::String::from(
+                    let mut text = String::from(
                         operation.pre_state.text_content.as_str(),
                     );
                     text.push_str(op.text.as_str());

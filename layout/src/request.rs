@@ -353,11 +353,11 @@ pub mod mock {
 
     impl DeviceKind {
         /// Every kind, in index order.
-        pub const ALL: [DeviceKind; 4] = [
-            DeviceKind::Microphone,
-            DeviceKind::Camera,
-            DeviceKind::Screen,
-            DeviceKind::AudioSink,
+        pub const ALL: [Self; 4] = [
+            Self::Microphone,
+            Self::Camera,
+            Self::Screen,
+            Self::AudioSink,
         ];
 
         const fn index(self) -> usize {
@@ -368,26 +368,26 @@ pub mod mock {
         #[must_use]
         pub const fn name(self) -> &'static str {
             match self {
-                DeviceKind::Microphone => "microphone",
-                DeviceKind::Camera => "camera",
-                DeviceKind::Screen => "screen",
-                DeviceKind::AudioSink => "audio_sink",
+                Self::Microphone => "microphone",
+                Self::Camera => "camera",
+                Self::Screen => "screen",
+                Self::AudioSink => "audio_sink",
             }
         }
 
         /// The kind called `name` (see [`DeviceKind::name`]).
         #[must_use]
-        pub fn from_name(name: &str) -> Option<DeviceKind> {
-            DeviceKind::ALL.into_iter().find(|kind| kind.name() == name)
+        pub fn from_name(name: &str) -> Option<Self> {
+            Self::ALL.into_iter().find(|kind| kind.name() == name)
         }
 
         /// What the `mock` op calls the synthetic stand-in.
         #[must_use]
         pub const fn stand_in(self) -> &'static str {
             match self {
-                DeviceKind::Microphone => "tone",
-                DeviceKind::Camera | DeviceKind::Screen => "pattern",
-                DeviceKind::AudioSink => "count",
+                Self::Microphone => "tone",
+                Self::Camera | Self::Screen => "pattern",
+                Self::AudioSink => "count",
             }
         }
 
@@ -396,10 +396,10 @@ pub mod mock {
         #[must_use]
         pub const fn operation(self) -> &'static str {
             match self {
-                DeviceKind::Microphone => "MicrophoneWidget capture",
-                DeviceKind::Camera => "CameraWidget capture",
-                DeviceKind::Screen => "ScreenCaptureWidget capture",
-                DeviceKind::AudioSink => "AudioSink::open",
+                Self::Microphone => "MicrophoneWidget capture",
+                Self::Camera => "CameraWidget capture",
+                Self::Screen => "ScreenCaptureWidget capture",
+                Self::AudioSink => "AudioSink::open",
             }
         }
 

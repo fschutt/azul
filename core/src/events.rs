@@ -1144,7 +1144,7 @@ pub enum EventType {
     /// default action), so a toolbar shows the pressed B at once:
     /// `CallbackInfo::get_typing_formats(host)` answers the new formats.
     /// Before, Ctrl+B with no selection reached the app as nothing but its
-    /// KeyDown, which runs BEFORE the toggle (EVENTS7).
+    /// `KeyDown`, which runs BEFORE the toggle (EVENTS7).
     TypingStyleChanged,
 }
 

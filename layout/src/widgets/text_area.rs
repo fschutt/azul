@@ -607,7 +607,7 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 /// The engine owns the buffer, so its answer wins - an EMPTY answer too: it is
 /// the text the user just cleared. `get_node_text_content` answers `None` for a
 /// node it cannot read, and the read descends into the value `<p>`, so
-/// `Some("")` is an empty text area. (TextInput's `adopt_engine_text` is this
+/// `Some("")` is an empty text area. (`TextInput`'s `adopt_engine_text` is this
 /// function's twin; both ignored an empty read over a non-empty mirror, so a
 /// cleared field never reached the app's `on_text_input`.)
 fn adopt_engine_text(state: &mut TextAreaState, info: &CallbackInfo, node: DomNodeId) {

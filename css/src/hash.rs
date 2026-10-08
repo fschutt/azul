@@ -7,7 +7,7 @@
 
 /// Returns a deterministic 64-bit hash for content-based deduplication.
 pub trait GetHash {
-    /// Hashes `self` with the std `DefaultHasher` (SipHash, fixed keys).
+    /// Hashes `self` with the std `DefaultHasher` (`SipHash`, fixed keys).
     fn get_hash(&self) -> u64;
 }
 

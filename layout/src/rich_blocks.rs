@@ -122,15 +122,12 @@ impl InlineTree {
                 _ => return,
             };
         }
-        let byte = match level.last_mut() {
-            Some(InlineNode::Text(existing)) => {
-                existing.push_str(text);
-                existing.len()
-            }
-            _ => {
-                level.push(InlineNode::Text(String::from(text)));
-                text.len()
-            }
+        let byte = if let Some(InlineNode::Text(existing)) = level.last_mut() {
+            existing.push_str(text);
+            existing.len()
+        } else {
+            level.push(InlineNode::Text(String::from(text)));
+            text.len()
         };
         path.push(u32::try_from(level.len() - 1).unwrap_or(u32::MAX));
         self.end = Some(InlinePosition::InText {
@@ -306,7 +303,7 @@ impl LayoutWindow {
                 // The text node's ancestors below the block; none when it is
                 // not inside the block at all.
                 let mut up: Vec<NodeId> = Vec::new();
-                let mut current = hierarchy.get(text_node).and_then(|h| h.parent_id());
+                let mut current = hierarchy.get(text_node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
                 let mut inside = false;
                 while let Some(n) = current {
                     if n == block {
@@ -314,7 +311,7 @@ impl LayoutWindow {
                         break;
                     }
                     up.push(n);
-                    current = hierarchy.get(n).and_then(|h| h.parent_id());
+                    current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
                 }
                 if inside {
                     for n in up.into_iter().rev() {

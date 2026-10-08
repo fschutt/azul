@@ -1872,7 +1872,7 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
     // "label" colour rather than pure white, which glares.
     CssPropertyWithConditions::with_single_condition(
         CssProperty::TextColor(CssPropertyValue::Exact(
-            azul_css::props::style::text::StyleTextColor {
+            StyleTextColor {
                 inner: ColorU {
                     r: 0xe8,
                     g: 0xe8,
@@ -1900,7 +1900,7 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
 #[must_use]
 pub fn evaluate_ua_root_text_color(
     ctx: &DynamicSelectorContext,
-) -> azul_css::props::style::text::StyleTextColor {
+) -> StyleTextColor {
     match get_ua_root_property_themed(CssPropertyType::TextColor, Some(ctx)) {
         Some(CssProperty::TextColor(CssPropertyValue::Exact(c))) => *c,
         _ => azul_css::defaults::DEFAULT_TEXT_COLOR,

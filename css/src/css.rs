@@ -507,7 +507,7 @@ impl CssDeclaration {
     /// definition is not a property; the cascade reads it for the variable
     /// environment instead.
     #[must_use]
-    pub fn is_cascade_resolvable(&self) -> bool {
+    pub const fn is_cascade_resolvable(&self) -> bool {
         !matches!(self, Self::CustomProperty(_))
     }
 
@@ -1189,7 +1189,7 @@ impl CssRuleBlock {
     pub fn with_conditions(
         path: CssPath,
         declarations: Vec<CssDeclaration>,
-        conditions: Vec<crate::dynamic_selector::DynamicSelector>,
+        conditions: Vec<DynamicSelector>,
     ) -> Self {
         Self {
             path,
@@ -2478,12 +2478,12 @@ impl Css {
     /// among equals. Inline declarations share priority and specificity, so
     /// this is the rule order of [`CssRuleBlock::cascade_key`] reduced to
     /// `(rank, source order)`: with no theme block in play, the last match.
-    pub fn winning_inline_property<'a>(
-        &'a self,
+    pub fn winning_inline_property(
+        &self,
         property_type: CssPropertyType,
         applies: impl FnMut(&DynamicSelectorVec) -> bool,
         rank: impl Fn(&[DynamicSelector]) -> usize,
-    ) -> Option<&'a CssProperty> {
+    ) -> Option<&CssProperty> {
         winning_inline_in(self.iter_inline_properties(), property_type, applies, rank)
     }
 
@@ -4852,7 +4852,7 @@ pub fn winning_inline_in<'a>(
             continue;
         }
         let r = rank(conds.as_slice());
-        if best.map_or(true, |(b, _)| r <= b) {
+        if best.is_none_or(|(b, _)| r <= b) {
             best = Some((r, prop));
         }
     }

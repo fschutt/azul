@@ -4948,7 +4948,7 @@ fn tween_shadow_value(
     t: f32,
 ) -> StyleBoxShadowValue {
     let shadow = |v: &StyleBoxShadowValue| v.get_property().map(|s| **s);
-    match crate::props::style::box_shadow::interpolate_shadow(
+    match interpolate_shadow(
         shadow(from).as_ref(),
         shadow(to).as_ref(),
         t,
@@ -5452,7 +5452,7 @@ impl CssProperty {
                         None => &[],
                     }
                 }
-                match crate::props::style::background::interpolate_background_layers(
+                match interpolate_background_layers(
                     layers(start),
                     layers(end),
                     t,

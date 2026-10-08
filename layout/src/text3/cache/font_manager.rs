@@ -942,7 +942,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// Memoized: every inline formatting context of a layout asks, and the
     /// pool rarely changes between them. Building the two maps per call was a
     /// fifth of a 300-contact list's layout (1 500 IFCs x every loaded face,
-    /// AzContacts, 2026-10-06); checking the pool's fingerprint allocates
+    /// `AzContacts`, 2026-10-06); checking the pool's fingerprint allocates
     /// nothing.
     #[must_use]
     pub fn get_loaded_fonts(&self) -> Arc<LoadedFonts<T>> {

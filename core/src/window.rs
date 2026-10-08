@@ -2095,13 +2095,13 @@ impl_option!(
 pub struct MacWindowOptions {
     /// Where the window's close / minimize / zoom buttons (the "traffic
     /// lights") sit: the close button's top-left corner, in points from the
-    /// window's top-left corner, the other two following at AppKit's own
+    /// window's top-left corner, the other two following at `AppKit`'s own
     /// spacing (Electron's `trafficLightPosition`). `None` leaves them where
-    /// AppKit puts them.
+    /// `AppKit` puts them.
     ///
     /// For a window whose content runs under its titlebar
     /// (`WindowDecorations::NoTitle`) and whose own title row is taller than
-    /// AppKit's 28pt bar - a tab strip in the titlebar centres them on its
+    /// `AppKit`'s 28pt bar - a tab strip in the titlebar centres them on its
     /// tabs with `TabsInTitlebar::traffic_light_position`. Kept through
     /// resizes and full screen; ignored on every other platform.
     pub traffic_light_position: OptionLogicalPosition,

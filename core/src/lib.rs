@@ -226,7 +226,7 @@ pub mod hash {
         /// in-process change detection and cache keys over the app's own data
         /// - a layout fingerprints every inline formatting context it visits,
         /// and `SipHash` (`std`'s `DefaultHasher`) was a visible share of a
-        /// 300-contact list's layout (AzContacts, 2026-10-06).
+        /// 300-contact list's layout (`AzContacts`, 2026-10-06).
         #[derive(Default)]
         pub struct FastHasher {
             hash: u64,

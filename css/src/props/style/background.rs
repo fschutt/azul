@@ -500,7 +500,7 @@ fn interpolate_direction(from: Direction, to: Direction, t: f32) -> Option<Direc
         },
     };
     let (a, b) = (degrees(from)?, degrees(to)?);
-    Some(Direction::Angle(AngleValue::deg(a + (b - a) * t)))
+    Some(Direction::Angle(AngleValue::deg((b - a).mul_add(t, a))))
 }
 
 /// An angle at `t`: in the unit both ends share, else in degrees.
@@ -514,7 +514,7 @@ fn interpolate_angle(from: AngleValue, to: AngleValue, t: f32) -> AngleValue {
         }
     } else {
         let (a, b) = (from.to_degrees_raw(), to.to_degrees_raw());
-        AngleValue::deg(a + (b - a) * t)
+        AngleValue::deg((b - a).mul_add(t, a))
     }
 }
 

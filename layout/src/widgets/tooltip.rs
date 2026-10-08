@@ -333,10 +333,10 @@ impl Tooltip {
         let marker = RefAny::new(());
 
         // Resolved before `self.text` is moved out below.
-        let tip_css = self.tip_style.clone().into_option().unwrap_or(skin.tip);
+        let tip_css = self.tip_style.into_option().unwrap_or(skin.tip);
         let wrapper_css = self
             .wrapper_style
-            .clone()
+
             .into_option()
             .unwrap_or(skin.wrapper);
         let tip = crate::widgets::widget_p_with_text(self.text)

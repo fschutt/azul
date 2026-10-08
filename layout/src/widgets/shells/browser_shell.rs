@@ -215,7 +215,7 @@ impl BrowserShell {
             ))
             .with_css_props(part(CHROME_ROW_BASE, &[]))
             .with_child(address_bar);
-        let mut ribbon_row: alloc::vec::Vec<Dom> = alloc::vec::Vec::with_capacity(2);
+        let mut ribbon_row: Vec<Dom> = Vec::with_capacity(2);
         if let Some(r) = ribbon.into_option() {
             ribbon_row.push(r);
         }

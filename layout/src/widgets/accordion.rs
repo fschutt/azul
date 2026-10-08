@@ -545,7 +545,7 @@ fn tween(properties: &[&'static str]) -> CssPropertyWithConditions {
     CssPropertyWithConditions::with_condition(
         CssProperty::Animation(azul_css::props::property::StyleAnimationVecValue::Exact(
             StyleAnimationVec::from_vec(
-                properties.iter().map(|p| one(*p)).collect::<Vec<StyleAnimation>>(),
+                properties.iter().map(|p| one(p)).collect::<Vec<StyleAnimation>>(),
             ),
         )),
         DynamicSelector::PrefersReducedMotion(BoolCondition::False),
@@ -1117,7 +1117,7 @@ mod autotest_generated {
 
     /// The `display` value in a node's *inline* style, if it sets one.
     fn inline_display(node: &Dom) -> Option<LayoutDisplay> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::Display(v) => v.get_property().copied(),
                 _ => None,
@@ -1126,7 +1126,7 @@ mod autotest_generated {
 
     /// The `height` value in a node's *inline* style, if it sets one.
     fn inline_height(node: &Dom) -> Option<LayoutHeight> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::Height(v) => v.get_property().cloned(),
                 _ => None,
@@ -1988,7 +1988,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),

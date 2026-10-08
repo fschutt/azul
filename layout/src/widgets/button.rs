@@ -935,7 +935,7 @@ pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
     dom.root.add_class(AzString::from_const_str(BUTTON_DISABLED_CLASS));
     add_accessibility_state(dom, azul_core::a11y::AccessibilityState::Unavailable);
     if let Some(mut a11y) = dom.root.get_accessibility_info().cloned() {
-        a11y.description = azul_css::OptionString::Some(reason.clone());
+        a11y.description = OptionString::Some(reason.clone());
         dom.root.set_accessibility_info(a11y);
     }
     let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
@@ -1165,7 +1165,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -2601,14 +2601,14 @@ mod disabled_and_toggled_tests {
                 // specimen's DISABLED button (no opacity: the paper stays
                 // paper).
                 if let CssProperty::Opacity(o) = prop {
-                    if o.get_property().map_or(false, |o| o.inner.normalized() < 0.75) {
+                    if o.get_property().is_some_and(|o| o.inner.normalized() < 0.75) {
                         dimmed = true;
                     }
                 }
                 if let CssProperty::TextColor(c) = prop {
                     let paper_ink = crate::widgets::themes::flora::LIGHT_DISTX;
                     if conditions.as_ref().is_empty()
-                        && c.get_property().map_or(false, |c| c.inner == paper_ink)
+                        && c.get_property().is_some_and(|c| c.inner == paper_ink)
                     {
                         dimmed = true;
                     }

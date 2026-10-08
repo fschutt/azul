@@ -1326,33 +1326,30 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
 
         // The run ends after this cluster (`SimpleGlyphRun::end_x`): the pen
         // after its glyphs, as the reference walker advances it.
-        match detail {
-            Some(d) => {
-                let mut pen_x = c.x;
-                for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
-                    open.glyphs.push(GlyphInstance {
-                        index: u32::from(dg.glyph_id),
-                        point: LogicalPosition {
-                            x: pen_x + dg.offset_x,
-                            y: baseline_y - dg.offset_y,
-                        },
-                        size: LogicalSize::default(),
-                    });
-                    pen_x += dg.advance;
-                }
-                open.end_x = pen_x;
-            }
-            None => {
+        if let Some(d) = detail {
+            let mut pen_x = c.x;
+            for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
                 open.glyphs.push(GlyphInstance {
-                    index: u32::from(c.glyph_id),
+                    index: u32::from(dg.glyph_id),
                     point: LogicalPosition {
-                        x: c.x,
-                        y: baseline_y,
+                        x: pen_x + dg.offset_x,
+                        y: baseline_y - dg.offset_y,
                     },
                     size: LogicalSize::default(),
                 });
-                open.end_x = c.x + c.advance;
+                pen_x += dg.advance;
             }
+            open.end_x = pen_x;
+        } else {
+            open.glyphs.push(GlyphInstance {
+                index: u32::from(c.glyph_id),
+                point: LogicalPosition {
+                    x: c.x,
+                    y: baseline_y,
+                },
+                size: LogicalSize::default(),
+            });
+            open.end_x = c.x + c.advance;
         }
     }
     if let Some(r) = current_run {

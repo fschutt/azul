@@ -425,20 +425,17 @@ impl ScopeText {
                     && entry.start.0 < at.0
                     && at.0 < entry.start.0 + entry.hi.saturating_sub(entry.lo)
             })
-            .last();
-        let entry = match nested {
-            Some(entry) => entry,
-            None => {
-                let mut read = self.blocks.iter().filter(|entry| !entry.nested);
-                let mut chosen = read.next()?;
-                for entry in read {
-                    if entry.start.0 > at.0 {
-                        break;
-                    }
-                    chosen = entry;
+            .next_back();
+        let entry = if let Some(entry) = nested { entry } else {
+            let mut read = self.blocks.iter().filter(|entry| !entry.nested);
+            let mut chosen = read.next()?;
+            for entry in read {
+                if entry.start.0 > at.0 {
+                    break;
                 }
-                chosen
+                chosen = entry;
             }
+            chosen
         };
         let local = (at.0.saturating_sub(entry.start.0) + entry.lo).min(entry.hi.max(entry.lo));
         let caret = entry.content.caret_at(FlatByte(local))?;
@@ -529,21 +526,18 @@ impl LayoutWindow {
         );
         let own = self.text_block_of(node);
         // The blocks read one after the other, with their layout nodes.
-        let read: Vec<(TextBlock, Option<usize>)> = match own {
-            Some(block) => vec![(
-                block,
-                self.text_block_layout_index(block).map(LayoutNodeId::index),
-            )],
-            None => {
-                let roots: BTreeSet<usize> = within.iter().map(|(_, idx)| idx.index()).collect();
-                within
-                    .iter()
-                    .filter(|(_, idx)| {
-                        enclosing_block(tree, idx.index(), |p| roots.contains(&p)).is_none()
-                    })
-                    .map(|(block, idx)| (*block, Some(idx.index())))
-                    .collect()
-            }
+        let read: Vec<(TextBlock, Option<usize>)> = if let Some(block) = own { vec![(
+            block,
+            self.text_block_layout_index(block).map(LayoutNodeId::index),
+        )] } else {
+            let roots: BTreeSet<usize> = within.iter().map(|(_, idx)| idx.index()).collect();
+            within
+                .iter()
+                .filter(|(_, idx)| {
+                    enclosing_block(tree, idx.index(), |p| roots.contains(&p)).is_none()
+                })
+                .map(|(block, idx)| (*block, Some(idx.index())))
+                .collect()
         };
         // (layout node, entry) of every block placed so far.
         let mut placed: Vec<(usize, usize)> = Vec::new();
@@ -637,15 +631,12 @@ impl LayoutWindow {
                     text.flat_byte_of(cb.focus.block, &cb.focus.cursor)?,
                 ))
             });
-        let (anchor, focus) = match document {
-            Some(ends) => ends,
-            None => {
-                let (a, f) = match mc.get_primary()?.selection {
-                    Selection::Cursor(c) => (c, c),
-                    Selection::Range(r) => (r.start, r.end),
-                };
-                (text.flat_byte_of(block, &a)?, text.flat_byte_of(block, &f)?)
-            }
+        let (anchor, focus) = if let Some(ends) = document { ends } else {
+            let (a, f) = match mc.get_primary()?.selection {
+                Selection::Cursor(c) => (c, c),
+                Selection::Range(r) => (r.start, r.end),
+            };
+            (text.flat_byte_of(block, &a)?, text.flat_byte_of(block, &f)?)
         };
         Some(AccessibleSelection {
             node,

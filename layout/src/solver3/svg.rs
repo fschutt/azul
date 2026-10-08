@@ -232,7 +232,7 @@ fn scaled_item(item: &InlineContent, s: f32) -> InlineContent {
             InlineContent::Text(run)
         }
         InlineContent::Space(space) => {
-            let mut space = space.clone();
+            let mut space = *space;
             space.width *= s;
             InlineContent::Space(space)
         }

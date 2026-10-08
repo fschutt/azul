@@ -1269,7 +1269,7 @@ impl SharedGlobalHotkeys {
     /// backend: every declaration reads `Failed(Unsupported)`).
     #[must_use]
     pub fn current_or_detached() -> Self {
-        Self::current().unwrap_or_else(Self::new)
+        Self::current().unwrap_or_default()
     }
 
     /// See [`GlobalHotkeyManager::install_backend`].
@@ -1319,6 +1319,7 @@ impl SharedGlobalHotkeys {
     }
 
     /// See [`GlobalHotkeyManager::sync`].
+    #[must_use]
     pub fn sync(&self) -> SyncOutcome {
         self.lock().sync()
     }
@@ -1342,11 +1343,13 @@ impl SharedGlobalHotkeys {
     }
 
     /// See [`GlobalHotkeyManager::simulate`].
+    #[must_use]
     pub fn simulate(&self, hotkey: &GlobalHotkey) -> bool {
         self.lock().simulate(hotkey)
     }
 
     /// See [`GlobalHotkeyManager::settle`].
+    #[must_use]
     pub fn settle(
         &self,
         hotkey: &GlobalHotkey,
@@ -1356,6 +1359,7 @@ impl SharedGlobalHotkeys {
     }
 
     /// See [`GlobalHotkeyManager::program_answer`].
+    #[must_use]
     pub fn program_answer(&self, hotkey: GlobalHotkey, answer: SimulatedAnswer) -> bool {
         self.lock().program_answer(hotkey, answer)
     }
@@ -1437,6 +1441,7 @@ impl SharedGlobalHotkeys {
     /// (address order on macOS, `HWND` order on Windows, hash order on
     /// Linux). Run the deliveries WITHOUT the manager's lock (this returns
     /// with it released).
+    #[must_use]
     pub fn begin_turn(&self, live: &[WindowSeq]) -> HotkeyTurn {
         let _ = self.refresh_app_declarations();
         let mut manager = self.lock();
@@ -1466,6 +1471,7 @@ impl SharedGlobalHotkeys {
     }
 
     /// See [`GlobalHotkeyManager::take_relayout`].
+    #[must_use]
     pub fn take_relayout(&self, source: HotkeySource) -> bool {
         self.lock().take_relayout(source)
     }
@@ -1494,6 +1500,7 @@ impl SharedGlobalHotkeys {
     /// Event-loop thread only, and never from inside a `layout()` call: the
     /// callback is app code and runs WITHOUT the manager's lock, recording
     /// into the same thread-local recorder `layout()` uses.
+    #[must_use]
     pub fn refresh_app_declarations(&self) -> bool {
         let Some(job) = self.lock().take_app_job() else {
             return false;
@@ -1586,6 +1593,7 @@ impl WindowHotkeys {
     /// Hand what one `layout()` pass declared to the manager and bring the
     /// OS in line before returning. A status change asks the sources that
     /// read one to run again ([`SharedGlobalHotkeys::take_relayout`]).
+    #[must_use]
     pub fn declare_recorded(
         &self,
         recorded: azul_core::global_hotkey::RecordedGlobalHotkeys,

@@ -35,7 +35,7 @@ pub const CARET_SCROLL_GUTTER_PX: f32 = 6.0;
 
 /// The extent a scroll box publishes to the `ScrollManager`: its `content`,
 /// plus [`CARET_SCROLL_GUTTER_PX`] when it is the box the active caret sits
-/// on (`caret_node`, the session block's container - which in a TextInput is
+/// on (`caret_node`, the session block's container - which in a `TextInput` is
 /// the value `<p>`, both the IFC root and the horizontal scroll box).
 ///
 /// ONE rule for [`register_scroll_nodes`] and for the text-edit fast path

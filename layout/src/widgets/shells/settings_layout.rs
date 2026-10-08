@@ -1,4 +1,4 @@
-//! ShellSettingsLayout - the settings window of every app, the same in every
+//! `ShellSettingsLayout` - the settings window of every app, the same in every
 //! app (04-app-shells.md, "Settings"): a category list on the left, form
 //! sections on the right, a search field on top.
 //!

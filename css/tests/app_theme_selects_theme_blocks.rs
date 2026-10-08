@@ -83,7 +83,7 @@ fn resolved_ink(props: &[CssPropertyWithConditions], ctx: &DynamicSelectorContex
             CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
             _ => None,
         })
-        .last()
+        .next_back()
 }
 
 #[test]
@@ -140,8 +140,8 @@ fn a_flora_block_applies_only_under_flora_and_a_flat_block_only_under_flat() {
     assert_eq!(blocks.len(), 2, "two rule blocks");
     let (flat, flora) = (&blocks[0], &blocks[1]);
     for scheme in [azul_css::system::DarkLightMode::Light, azul_css::system::DarkLightMode::Dark] {
-        let under_flat = ctx("flat", scheme.clone());
-        let under_flora = ctx("flora", scheme.clone());
+        let under_flat = ctx("flat", scheme);
+        let under_flora = ctx("flora", scheme);
         assert!(live(flat, &under_flat), "flat block, flat app, {scheme:?}");
         assert!(!live(flora, &under_flat), "flora block, flat app, {scheme:?}");
         assert!(live(flora, &under_flora), "flora block, flora app, {scheme:?}");

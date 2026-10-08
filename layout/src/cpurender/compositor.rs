@@ -71,7 +71,8 @@ const IDENTITY_EPSILON: f32 = 0.0001;
 /// part the compositor applies is the identity)? The one test the layer
 /// builder promotes by, the animation culler maps by and the flat raster
 /// paints a reference frame in place by.
-pub(crate) fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
+#[must_use]
+pub fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
     (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
         && m[0][1].abs() < IDENTITY_EPSILON
         && m[1][0].abs() < IDENTITY_EPSILON
@@ -82,7 +83,8 @@ pub(crate) fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
 
 /// The `(x, y)` offset of a matrix that only MOVES its content - a 2-D
 /// translation, no scale, rotation, skew or perspective - else `None`.
-pub(crate) fn translation_2d(m: &[[f32; 4]; 4]) -> Option<(f32, f32)> {
+#[must_use]
+pub fn translation_2d(m: &[[f32; 4]; 4]) -> Option<(f32, f32)> {
     let moves_only = (m[0][0] - 1.0).abs() < IDENTITY_EPSILON
         && m[0][1].abs() < IDENTITY_EPSILON
         && m[1][0].abs() < IDENTITY_EPSILON
@@ -2903,7 +2905,7 @@ pub struct ScrollShiftOutcome {
 /// In-place R<->B swap over `rects` (x, y, w, h in BUFFER pixels) of a
 /// tightly packed 4-bytes-per-pixel buffer: the conversion between the CPU
 /// renderer's R,G,B,A byte order and an ARGB8888 surface's B,G,R,A, used
-/// where a compositor never advertises ABGR8888 (KWin at 8-bit).
+/// where a compositor never advertises ABGR8888 (`KWin` at 8-bit).
 ///
 /// The rects MAY OVERLAP (a scroll clip and the strip inside it; two moves
 /// that cross). The swap is its own inverse, so swapping an overlap once per
@@ -3188,7 +3190,7 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 )] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
-pub(crate) fn apply_layer_filters(
+pub fn apply_layer_filters(
     pixmap: &mut AzulPixmap,
     filters: &[StyleFilter],
     dpi_factor: f32,
@@ -3818,7 +3820,7 @@ fn painted_over_mover(
             if let Some(bar) = scrollbar_bounds(it) {
                 return Some(bar);
             }
-            if !first.is_some_and(|f| i > f) || !paints(it) {
+            if first.is_none_or(|f| i <= f) || !paints(it) {
                 return None;
             }
             let b = it.visual_bounds()?;

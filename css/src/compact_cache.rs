@@ -1323,7 +1323,7 @@ pub fn encode_line_height_factor(factor: f32) -> i16 {
 #[must_use]
 pub fn encode_line_height_px(px: f32) -> i16 {
     let scaled = crate::cast::f32_to_i32((-px * 100.0).round());
-    if scaled > 0 || scaled < -32768 {
+    if !(-32768..=0).contains(&scaled) {
         return I16_AUTO;
     }
     i16::try_from(scaled).unwrap_or(I16_AUTO)

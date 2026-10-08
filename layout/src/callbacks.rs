@@ -5739,7 +5739,8 @@ impl CallbackInfo {
     /// withdraw still fits when posts filled the request queue (it has room
     /// they cannot take).
     pub fn withdraw_notification(&mut self, id: AzString) {
-        crate::managers::notification::push_notification_request(
+        // a withdraw always fits: the queue keeps room the posts cannot take
+        let _ = crate::managers::notification::push_notification_request(
             crate::managers::notification::NotificationRequest::Withdraw(id),
         );
     }

@@ -304,8 +304,8 @@ impl TextTarget {
     }
 
     /// The scroll box this block's text scrolls in: its IFC root itself when
-    /// that scrolls (a TextInput's value `<p>`), else the nearest scrolling
-    /// box above it (a TextArea's container, a page) - along the block box's
+    /// that scrolls (a `TextInput`'s value `<p>`), else the nearest scrolling
+    /// box above it (a `TextArea`'s container, a page) - along the block box's
     /// `ScrollChain`, by containing block
     /// ([`LayoutWindow::scroll_box_of_layout_node`]).
     ///

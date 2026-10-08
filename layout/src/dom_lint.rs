@@ -1472,8 +1472,8 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 }) {
                     reported += 1;
                 }
-            } else if focusable {
-                if report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
+            } else if focusable
+                && report_once(styled_dom, node_id, A11Y_SHAPE_SUPPRESS_TAG, || {
                     format!(
                         "[azul][a11y-shape] node {idx} is KEYBOARD-FOCUSABLE (it has a tab_index) but \
                          declares no accessibility info, so tabbing lands on something the screen \
@@ -1483,7 +1483,6 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
                 }) {
                     reported += 1;
                 }
-            }
             continue;
         };
 

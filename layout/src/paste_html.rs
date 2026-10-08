@@ -218,7 +218,7 @@ impl PastedNode {
         matches!(
             self,
             Self::Block(PastedBlockKind::Paragraph | PastedBlockKind::Division, children)
-                if !children.iter().any(PastedNode::is_block)
+                if !children.iter().any(Self::is_block)
         )
     }
 

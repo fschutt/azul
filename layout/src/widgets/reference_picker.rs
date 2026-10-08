@@ -88,7 +88,7 @@ pub const DEFAULT_DEBOUNCE_MS: u32 = 150;
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ReferencePickerItem {
-    /// What the record is called ("ACME GmbH") - the field shows it once
+    /// What the record is called ("ACME `GmbH`") - the field shows it once
     /// picked.
     pub label: AzString,
     /// A quieter second line ("Customer 1042, Berlin"); empty for none.

@@ -178,7 +178,7 @@ pub(super) fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: Node
         {
             return true;
         }
-        current = hierarchy.get(id).and_then(|h| h.parent_id());
+        current = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     false
 }

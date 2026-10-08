@@ -777,7 +777,7 @@ pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
 /// `<p>`'s subtree — the `<p>` and the text node under it — which is what the
 /// pointer path asks about: it tests the HIT node, deepest first.
 ///
-/// NOT on [`widget_p`] itself: that is what TextInput and TextArea build their
+/// NOT on [`widget_p`] itself: that is what `TextInput` and `TextArea` build their
 /// editable text on, and the user's own content is selectable by definition.
 pub(crate) fn widget_p_chrome_sheet() -> azul_css::css::Css {
     use azul_css::{
@@ -802,8 +802,8 @@ pub(crate) fn widget_p() -> azul_core::dom::Dom {
 /// same margin reset plus `user-select: none` (see [`widget_p_chrome_sheet`]).
 ///
 /// Every widget label goes through this or through [`widget_p_with_text`]; the
-/// only carriers that deliberately keep plain [`widget_p`] are TextInput's and
-/// TextArea's, whose text is the user's content.
+/// only carriers that deliberately keep plain [`widget_p`] are `TextInput`'s and
+/// `TextArea`'s, whose text is the user's content.
 #[must_use]
 pub(crate) fn widget_p_chrome() -> azul_core::dom::Dom {
     azul_core::dom::Dom::create_p().with_component_css(widget_p_chrome_sheet())

@@ -148,7 +148,7 @@ pub(crate) fn interpolate_shadow(
         (Some(a), Some(b)) => Some(if t < 0.5 {
             a.interpolate(&a.faded_out(), t * 2.0)
         } else {
-            b.faded_out().interpolate(b, t * 2.0 - 1.0)
+            b.faded_out().interpolate(b, t.mul_add(2.0, -1.0))
         }),
     }
 }

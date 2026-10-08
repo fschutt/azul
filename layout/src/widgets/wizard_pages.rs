@@ -663,7 +663,7 @@ macro_rules! page_theme_and_dom {
 pub struct WizardWelcomePage {
     /// The logo glyph (a `Dom::create_icon` name), or empty for none.
     pub logo: AzString,
-    /// The title ("Welcome to the AzOffice Setup Wizard").
+    /// The title ("Welcome to the `AzOffice` Setup Wizard").
     pub title: AzString,
     /// The text; paragraphs are `\n\n` apart.
     pub text: AzString,
@@ -873,7 +873,7 @@ fn build_license(page: WizardLicensePage, look: &DialogKitLook) -> Dom {
 pub struct WizardDestinationPage {
     /// The folder.
     pub path: AzString,
-    /// The line over the field ("Setup will install AzOffice into the
+    /// The line over the field ("Setup will install `AzOffice` into the
     /// following folder.").
     pub intro: AzString,
     /// The field's label ("Destination folder").
@@ -1426,7 +1426,7 @@ fn build_options(page: WizardOptionsPage, look: &DialogKitLook) -> Dom {
 pub struct WizardSummaryPage {
     /// The entries: "Destination folder" -> "C:\Program Files\AzOffice".
     pub rows: StringPairVec,
-    /// The line over the entries ("Setup is ready to install AzOffice.").
+    /// The line over the entries ("Setup is ready to install `AzOffice`.").
     pub intro: AzString,
     /// The widget theme this page is PINNED to, or `None` to follow.
     pub theme: OptionUiTheme,
@@ -1494,7 +1494,7 @@ fn build_summary(page: WizardSummaryPage, look: &DialogKitLook) -> Dom {
         })
         .collect();
     let children = alloc::vec![
-        dialog_kit::line(page.intro.clone(), &[], &with_block(&look.text, look)),
+        dialog_kit::line(page.intro, &[], &with_block(&look.text, look)),
         Dom::create_div()
             .with_css_props(dialog_kit::part(SCROLL_BOX_BASE, &look.scroll_box))
             .with_tab_index(TabIndex::Auto)
@@ -1514,7 +1514,7 @@ fn build_summary(page: WizardSummaryPage, look: &DialogKitLook) -> Dom {
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct WizardProgressPage {
-    /// The line over the bar ("Installing AzOffice...").
+    /// The line over the bar ("Installing `AzOffice`...").
     pub status: AzString,
     /// The current item ("Copying azword.dll").
     pub current_item: AzString,
@@ -1727,13 +1727,13 @@ fn build_progress(page: WizardProgressPage, look: &DialogKitLook) -> Dom {
 // ---- Finish ----
 
 /// The last page: a title, the text and the actions to run on Finish
-/// ("Launch AzOffice now", "Open the readme").
+/// ("Launch `AzOffice` now", "Open the readme").
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct WizardFinishPage {
     /// The logo glyph, or empty for none.
     pub logo: AzString,
-    /// The title ("Completing the AzOffice Setup Wizard").
+    /// The title ("Completing the `AzOffice` Setup Wizard").
     pub title: AzString,
     /// The text; paragraphs are `\n\n` apart.
     pub text: AzString,

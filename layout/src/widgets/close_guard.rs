@@ -186,7 +186,7 @@ azul_core::impl_managed_callback! {
 pub struct CloseGuard {
     /// The window's content.
     pub content: Dom,
-    /// The question's window title: the app's name ("AzShow").
+    /// The question's window title: the app's name ("`AzShow`").
     pub title: AzString,
     /// The question ("Save changes to \"Report\"?").
     pub question: AzString,

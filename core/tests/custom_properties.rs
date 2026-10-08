@@ -22,7 +22,7 @@ use azul_core::{
 };
 use azul_css::{
     css::Css,
-    dynamic_selector::{DynamicSelectorContext, ThemeCondition},
+    dynamic_selector::DynamicSelectorContext,
     props::property::{parse_css_property, CssProperty, CssPropertyType},
 };
 

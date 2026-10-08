@@ -211,8 +211,8 @@ impl VirtualViewManager {
         &self,
         dom: DomId,
         map: &crate::managers::NodeIdMap,
-    ) -> alloc::vec::Vec<DomId> {
-        let mut dropped: alloc::vec::Vec<DomId> = self
+    ) -> Vec<DomId> {
+        let mut dropped: Vec<DomId> = self
             .states
             .iter()
             .filter(|((d, n), _)| *d == dom && map.is_unmounted(*n))
@@ -421,7 +421,7 @@ impl VirtualViewManager {
 
     /// Every view still CARRIED at the end of a pass - kept over the
     /// relayout, but never reached by it (its host laid out no box for it).
-    pub fn take_all_carried(&mut self) -> alloc::vec::Vec<(DomId, NodeId)> {
+    pub fn take_all_carried(&mut self) -> Vec<(DomId, NodeId)> {
         core::mem::take(&mut self.carried).into_iter().collect()
     }
 

@@ -1386,7 +1386,7 @@ fn disk_space_of(path: &str) -> Option<DiskSpace> {
         // SAFETY: `stats` is zero-initialised plain data and only read after
         // the call reported success; `c_path` is a valid NUL-terminated path.
         let mut stats: libc::statfs = unsafe { core::mem::zeroed() };
-        if unsafe { libc::statfs(c_path.as_ptr(), &mut stats) } != 0 {
+        if unsafe { libc::statfs(c_path.as_ptr(), &raw mut stats) } != 0 {
             return None;
         }
         let block = u64::from(stats.f_bsize);

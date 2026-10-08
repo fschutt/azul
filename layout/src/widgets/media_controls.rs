@@ -74,9 +74,9 @@ impl MediaRepeat {
     #[must_use]
     pub const fn next(self) -> Self {
         match self {
-            MediaRepeat::Off => MediaRepeat::All,
-            MediaRepeat::All => MediaRepeat::One,
-            MediaRepeat::One => MediaRepeat::Off,
+            Self::Off => Self::All,
+            Self::All => Self::One,
+            Self::One => Self::Off,
         }
     }
 }
@@ -308,6 +308,7 @@ fn fire(mut shared: RefAny, info: &mut CallbackInfo, event: MediaControlsEvent) 
 }
 
 /// A control button was clicked.
+#[must_use]
 pub extern "C" fn on_media_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((shared, action)) = data
         .downcast_ref::<ActionData>()
@@ -319,6 +320,7 @@ pub extern "C" fn on_media_button(mut data: RefAny, mut info: CallbackInfo) -> U
 }
 
 /// The volume slider moved.
+#[must_use]
 pub extern "C" fn on_media_volume(
     data: RefAny,
     mut info: CallbackInfo,

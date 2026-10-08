@@ -523,7 +523,7 @@ pub struct LayoutCache {
     /// arms it) - so the next `layout_document` may take the retained tree
     /// as it is: the reconcile reads node data and interaction states, and an
     /// override is neither, so it would rebuild exactly the retained tree
-    /// (4.4 ms of every AzWidgets knob frame, for nothing). Taken at the next
+    /// (4.4 ms of every `AzWidgets` knob frame, for nothing). Taken at the next
     /// pass's entry and honoured only while the stamp still describes the
     /// DOM handed in (`OverridesOnlyStamp::of`); the css dirt of the pass
     /// names what to lay out again.
@@ -1698,7 +1698,7 @@ impl TableParent {
 /// used the direct-children map alone and never found its children (they
 /// are in the anonymous block, not under the parent): they were rebuilt
 /// fresh by every reconcile, and every relayout re-laid out their ancestors
-/// up to the root - AzWidgets' form column, which ends with its "Send the
+/// up to the root - `AzWidgets`' form column, which ends with its "Send the
 /// raw form" button, on every switch-knob frame.
 fn old_layout_index_of(
     old_children_by_dom: &BTreeMap<NodeId, usize>,
@@ -2949,7 +2949,7 @@ fn classify_reconciled_node(
 /// is decided by its content: an in-flow `display: block` (`list-item`,
 /// `flow-root`) box of a DOM node, in horizontal writing, that is not the
 /// root and sits in a block container. Mail templates' `body { height: 100% }`
-/// (AzMail maps it onto the paper `div`) then makes the paper as tall as the
+/// (`AzMail` maps it onto the paper `div`) then makes the paper as tall as the
 /// mail, not one window tall with the mail running on below its background
 /// (MAILENG6 item 2).
 ///

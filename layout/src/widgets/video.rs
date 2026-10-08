@@ -4174,7 +4174,7 @@ mod autotest_generated {
                     v.iter()
                         .filter(|p| p.matches(&ctx))
                         .filter(|p| matches!(p.property, CssProperty::BackgroundContent(_)))
-                        .last()
+                        .next_back()
                         .map(|p| p.property.clone())
                 };
                 assert_eq!(bg(&decls), bg(&own), "{theme:?} dark={dark}");

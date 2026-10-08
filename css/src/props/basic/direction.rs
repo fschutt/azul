@@ -215,7 +215,7 @@ impl Direction {
             libm::sinf(degrees.to_radians()),
             libm::cosf(degrees.to_radians()),
         );
-        let half = (libm::fabsf(width * sin) + libm::fabsf(height * cos)) / 2.0;
+        let half = f32::midpoint(libm::fabsf(width * sin), libm::fabsf(height * cos));
         let (cx, cy) = (width / 2.0, height / 2.0);
         // Screen y grows downwards, so "up" is -y.
         (

@@ -1011,11 +1011,11 @@ impl ComboBox {
         // below. A caller's style replaces the skin's part; the list's extras
         // are appended to the skin's panel.
         let theme = skin.theme;
-        let wrapper_style = self.wrapper_style.clone().into_option().unwrap_or(skin.wrapper);
-        let field_style = self.field_style.clone().into_option().unwrap_or(skin.field);
-        let text_style = self.text_style.clone().into_option().unwrap_or(skin.text);
-        let arrow_style = self.arrow_style.clone().into_option().unwrap_or(skin.arrow);
-        let option_style = self.option_style.clone().into_option().unwrap_or(skin.option);
+        let wrapper_style = self.wrapper_style.into_option().unwrap_or(skin.wrapper);
+        let field_style = self.field_style.into_option().unwrap_or(skin.field);
+        let text_style = self.text_style.into_option().unwrap_or(skin.text);
+        let arrow_style = self.arrow_style.into_option().unwrap_or(skin.arrow);
+        let option_style = self.option_style.into_option().unwrap_or(skin.option);
         let list_style = Self::list_style_on(skin.list, self.list_style.as_ref(), open);
 
         // ONE shared RefAny: the field handlers and every option handler all
@@ -1509,7 +1509,7 @@ fn open_list_from_the_keyboard(
 /// keys the field's window forwards to it: the field keeps focus (WAI-ARIA
 /// combobox, `aria-activedescendant`), the list only moves its ACTIVE
 /// option. Down / Up step to the next / previous option (the first / the
-/// last when none is active), Home / PageUp and End / PageDown jump to the
+/// last when none is active), Home / `PageUp` and End / `PageDown` jump to the
 /// ends, holding there. Enter picks the active option exactly as a click on
 /// it would; with none active it just closes the list. Every other key, and
 /// every key held with Alt, Ctrl, Cmd or Shift, is left alone.
@@ -1563,12 +1563,9 @@ extern "C" fn on_combobox_list_key(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some(step) = step else {
         // Enter: the active option is picked like a click on it; with none
         // active the list just closes (the field keeps what was typed).
-        return match active {
-            Some(a) => pick_option(data, info, options[a]),
-            None => {
-                info.set_transient_window_open(popup, false);
-                Update::DoNothing
-            }
+        return if let Some(a) = active { pick_option(data, info, options[a]) } else {
+            info.set_transient_window_open(popup, false);
+            Update::DoNothing
         };
     };
     let target = match (active, step) {

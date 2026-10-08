@@ -172,7 +172,7 @@ impl StyleColorMatrix {
         }
     }
 
-    /// This matrix in the layout WebRender's `ColorMatrix` takes: the
+    /// This matrix in the layout `WebRender`'s `ColorMatrix` takes: the
     /// weights of each INPUT channel as a column (R, G, B, A), then the
     /// offset vector - a GLSL `mat4` built from four column vectors plus an
     /// offset. The azul value is row-major (see [`Self::flood_in`]), so it
@@ -194,7 +194,7 @@ impl StyleColorMatrix {
 /// `filters` with every `flood(c) composite(in)` pair folded into the one
 /// colour matrix it is ([`StyleColorMatrix::flood_in`]).
 ///
-/// For renderers with a colour matrix but no composite step: WebRender's
+/// For renderers with a colour matrix but no composite step: `WebRender`'s
 /// `Flood` op REPLACES its input with the colour (so the pair's first half
 /// alone paints a filled box) and it has no `composite()` at all. Any other
 /// flood or composite is left as it is.

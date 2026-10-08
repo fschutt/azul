@@ -268,12 +268,12 @@ pub(crate) struct AlertLook {
     /// The banner's style for a kind (light face and dark twins), used when
     /// the alert has no `container_style` of its own: [`ALERT_CONTAINER_BASE`]
     /// first, then the theme's skin.
-    pub container: fn(AlertKind) -> alloc::vec::Vec<CssPropertyWithConditions>,
+    pub container: fn(AlertKind) -> Vec<CssPropertyWithConditions>,
     /// The message's skin ([`build`] lays it over [`ALERT_MESSAGE_BASE`]).
-    pub message: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub message: Vec<CssPropertyWithConditions>,
     /// The close button's skin, focus ring included ([`build`] lays it over
     /// [`ALERT_CLOSE_BASE`]).
-    pub close: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub close: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the banner, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -662,7 +662,7 @@ pub(crate) fn build(alert: Alert, look: &AlertLook) -> Dom {
             children.push(close);
         }
 
-        let mut classes: alloc::vec::Vec<IdOrClass> = ALERT_CONTAINER_CLASS.to_vec();
+        let mut classes: Vec<IdOrClass> = ALERT_CONTAINER_CLASS.to_vec();
         if let Some(marker) = look.marker {
             classes.push(Class(AzString::from_const_str(marker)));
         }
@@ -1597,7 +1597,7 @@ mod autotest_generated {
             "a non-dismissible alert must carry no live callback"
         );
         assert_eq!(
-            crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter().count(),
+            crate::widgets::themes::theme_blocks::checks::live_inline(&dom).len(),
             style.len() + build_alert_dark_twins(AlertKind::Info).len(),
             "every container property - and each colour's dark twin - must reach the node's \
              inline style"
@@ -1737,7 +1737,7 @@ mod autotest_generated {
         let own = Alert::create(AzString::from("m"))
             .with_container_style(CssPropertyWithConditionsVec::from_vec(alloc::vec![]))
             .dom();
-        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own).iter().count(), 0);
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own).len(), 0);
     }
 
     // ------------------------------------------------------------------
@@ -1935,7 +1935,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),
@@ -2160,7 +2160,7 @@ mod theme_tests {
             .with_container_style(CssPropertyWithConditionsVec::from_vec(alloc::vec![]))
             .with_theme(UiTheme::Flora)
             .dom();
-        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own).iter().count(), 0);
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own).len(), 0);
     }
 }
 

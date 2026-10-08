@@ -66,7 +66,7 @@ pub(crate) type StagedDefinition = (PseudoStateType, AzString, AzString);
 /// Maps are shared structurally: a node that defines nothing (or re-defines
 /// what it already inherits) points at its parent's map, so a DOM with a
 /// `:root` palette stores ONE map however many nodes it has.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CustomPropertyEnvs {
     /// Distinct maps; index 0 is the empty map once anything was built.
     maps: Vec<CustomPropertyMap>,
@@ -241,7 +241,7 @@ impl CustomPropertyEnvs {
         let other_maps = core::mem::take(&mut other.maps);
         self.maps.extend(other_maps.into_iter().skip(1));
         if other.normal.is_empty() {
-            self.normal.extend(core::iter::repeat(0).take(other_nodes));
+            self.normal.extend(std::iter::repeat_n(0, other_nodes));
         } else {
             self.normal.extend(other.normal.drain(..).map(remap));
         }

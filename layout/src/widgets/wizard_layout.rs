@@ -737,7 +737,7 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         WizardLayoutStyle::Banner => {
             let mut words: Vec<Dom> = alloc::vec![text(step_label.clone(), &[], &look.banner_title)];
             if !subtitle.as_str().is_empty() {
-                words.push(text(subtitle.clone(), &[], &look.subtitle));
+                words.push(text(subtitle, &[], &look.subtitle));
             }
             let mut band: Vec<Dom> = alloc::vec![Dom::create_div()
                 .with_css_props(part(WIZARD_LAYOUT_GROW_COLUMN_BASE, &[]))
@@ -828,64 +828,61 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         .with_css_props(part(WIZARD_LAYOUT_BAND_BASE, &look.buttons))
         .with_children(DomVec::from_vec(buttons));
 
-    let children: Vec<Dom> = match header {
-        Some(header) => alloc::vec![header, page_dom, buttons],
-        None => {
-            // The side panel: the glyph over the steps, done / current /
-            // to come; the current one selected.
-            let mut side: Vec<Dom> = Vec::with_capacity(count + 1);
-            side.extend(glyph(&look.side_icon));
-            for (i, label) in steps.as_ref().iter().enumerate() {
-                let mark = if i < current_step {
-                    "\u{2713}"
-                } else if i == current_step {
-                    "\u{25CF}"
-                } else {
-                    "\u{25CB}"
-                };
-                let base = part(WIZARD_LAYOUT_SIDE_STEP_BASE, &look.side_step);
-                let css = if i == current_step {
-                    stack_parts(
-                        &base,
-                        &CssPropertyWithConditionsVec::from_vec(look.side_step_current.clone()),
-                    )
-                } else {
-                    base
-                };
-                side.push(
-                    Dom::create_div()
-                        .with_ids_and_classes(classes_of(SIDE_STEP_CLASS))
-                        .with_css_props(css)
-                        .with_accessibility_info(AccessibilityInfo {
-                            states: if i == current_step {
-                                AccessibilityStateVec::from_vec(alloc::vec![
-                                    AccessibilityState::Selected
-                                ])
-                            } else {
-                                AccessibilityStateVec::from_const_slice(&[])
-                            },
-                            ..AccessibilityInfo::named(label.clone(), AccessibilityRole::ListItem)
-                        })
-                        .with_children(DomVec::from_vec(alloc::vec![
-                            text(AzString::from_const_str(mark), WIZARD_LAYOUT_FIXED_BASE, &[]),
-                            text(label.clone(), WIZARD_LAYOUT_GROW_LABEL_BASE, &[]),
-                        ])),
-                );
-            }
-            let side_panel = Dom::create_div()
-                .with_ids_and_classes(classes_of(SIDE_PANEL_CLASS))
-                .with_css_props(part(WIZARD_LAYOUT_SIDE_PANEL_BASE, &look.side_panel))
-                .with_accessibility_info(AccessibilityInfo::named(
-                    AzString::from_const_str("Steps"),
-                    AccessibilityRole::List,
-                ))
-                .with_children(DomVec::from_vec(side));
-            let body = Dom::create_div()
-                .with_ids_and_classes(classes_of(BODY_CLASS))
-                .with_css_props(part(WIZARD_LAYOUT_BODY_BASE, &[]))
-                .with_children(DomVec::from_vec(alloc::vec![side_panel, page_dom]));
-            alloc::vec![body, buttons]
+    let children: Vec<Dom> = if let Some(header) = header { alloc::vec![header, page_dom, buttons] } else {
+        // The side panel: the glyph over the steps, done / current /
+        // to come; the current one selected.
+        let mut side: Vec<Dom> = Vec::with_capacity(count + 1);
+        side.extend(glyph(&look.side_icon));
+        for (i, label) in steps.as_ref().iter().enumerate() {
+            let mark = if i < current_step {
+                "\u{2713}"
+            } else if i == current_step {
+                "\u{25CF}"
+            } else {
+                "\u{25CB}"
+            };
+            let base = part(WIZARD_LAYOUT_SIDE_STEP_BASE, &look.side_step);
+            let css = if i == current_step {
+                stack_parts(
+                    &base,
+                    &CssPropertyWithConditionsVec::from_vec(look.side_step_current.clone()),
+                )
+            } else {
+                base
+            };
+            side.push(
+                Dom::create_div()
+                    .with_ids_and_classes(classes_of(SIDE_STEP_CLASS))
+                    .with_css_props(css)
+                    .with_accessibility_info(AccessibilityInfo {
+                        states: if i == current_step {
+                            AccessibilityStateVec::from_vec(alloc::vec![
+                                AccessibilityState::Selected
+                            ])
+                        } else {
+                            AccessibilityStateVec::from_const_slice(&[])
+                        },
+                        ..AccessibilityInfo::named(label.clone(), AccessibilityRole::ListItem)
+                    })
+                    .with_children(DomVec::from_vec(alloc::vec![
+                        text(AzString::from_const_str(mark), WIZARD_LAYOUT_FIXED_BASE, &[]),
+                        text(label.clone(), WIZARD_LAYOUT_GROW_LABEL_BASE, &[]),
+                    ])),
+            );
         }
+        let side_panel = Dom::create_div()
+            .with_ids_and_classes(classes_of(SIDE_PANEL_CLASS))
+            .with_css_props(part(WIZARD_LAYOUT_SIDE_PANEL_BASE, &look.side_panel))
+            .with_accessibility_info(AccessibilityInfo::named(
+                AzString::from_const_str("Steps"),
+                AccessibilityRole::List,
+            ))
+            .with_children(DomVec::from_vec(side));
+        let body = Dom::create_div()
+            .with_ids_and_classes(classes_of(BODY_CLASS))
+            .with_css_props(part(WIZARD_LAYOUT_BODY_BASE, &[]))
+            .with_children(DomVec::from_vec(alloc::vec![side_panel, page_dom]));
+        alloc::vec![body, buttons]
     };
 
     let mut classes: Vec<IdOrClass> = LAYOUT_CLASS.to_vec();
@@ -906,8 +903,8 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
         .with_css_props(part(&base, &look.layout))
         // A GROUP named "<title>: step i of n, <step>".
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::Grouping,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Grouping,
             accessibility_name: Some(AzString::from(alloc::format!(
                 "{}: step {} of {}, {}",
                 title.as_str(),

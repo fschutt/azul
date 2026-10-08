@@ -1,15 +1,15 @@
 //! The rich-text document: a FLAT list of blocks, each a list of styled runs.
 //!
-//! Flat on purpose (AzNotes' model, promoted). A list item is a block with an
+//! Flat on purpose (`AzNotes`' model, promoted). A list item is a block with an
 //! indent level, a quoted paragraph is a block with a quote depth: the editor
 //! renders ONE child of the editing host per block, so a block index IS the
 //! host's child index - the vocabulary the engine's edit paths
 //! (`get_node_child_index_path`, a split's resume point) speak. A run renders
 //! as ONE child of its block, so a run index is a block's child index too.
 //!
-//! The union of the three editors this replaces (scripts/DEDUP_EDITORS A1/A2):
-//! AzNotes' five formats, nine block kinds, nested lists and check items;
-//! AzWriter's alignment, page breaks and tables; AzMail's quote depth.
+//! The union of the three editors this replaces (`scripts/DEDUP_EDITORS` A1/A2):
+//! `AzNotes`' five formats, nine block kinds, nested lists and check items;
+//! `AzWriter`'s alignment, page breaks and tables; `AzMail`'s quote depth.
 //!
 //! Every type here crosses the FFI (`repr(C)`, the vectors through
 //! `impl_vec!`). The edits work on a block's runs as a plain `Vec<RichRun>`
@@ -44,12 +44,12 @@ pub enum RichFormat {
 
 impl RichFormat {
     /// Every format, in the order a toolbar shows them.
-    pub const ALL: [RichFormat; 5] = [
-        RichFormat::Bold,
-        RichFormat::Italic,
-        RichFormat::Underline,
-        RichFormat::Strike,
-        RichFormat::Code,
+    pub const ALL: [Self; 5] = [
+        Self::Bold,
+        Self::Italic,
+        Self::Underline,
+        Self::Strike,
+        Self::Code,
     ];
 }
 
@@ -310,7 +310,7 @@ impl_vec_partialeq!(RichTableRow, RichTableRowVec);
 impl_vec_eq!(RichTableRow, RichTableRowVec);
 impl_vec_mut!(RichTableRow, RichTableRowVec);
 
-/// A table block: rows of plain-text cells (AzWriter's tables).
+/// A table block: rows of plain-text cells (`AzWriter`'s tables).
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RichTable {
@@ -352,7 +352,9 @@ impl RichTable {
 /// ([`RichBlock::quote_depth`]), not a kind of its own.
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum RichBlockKind {
+    #[default]
     Paragraph,
     /// `#` .. `######` (1..=6).
     Heading(u8),
@@ -376,11 +378,6 @@ pub enum RichBlockKind {
     Table(RichTable),
 }
 
-impl Default for RichBlockKind {
-    fn default() -> Self {
-        Self::Paragraph
-    }
-}
 
 impl RichBlockKind {
     /// A list item (bullet, numbered, check).
@@ -467,7 +464,7 @@ impl RichBlockKind {
     }
 }
 
-/// How a block's lines are aligned (AzWriter's paragraph alignment).
+/// How a block's lines are aligned (`AzWriter`'s paragraph alignment).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RichAlign {

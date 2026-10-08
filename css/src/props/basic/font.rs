@@ -546,6 +546,7 @@ impl_option!(
 );
 
 impl StyleFontFamily {
+    #[must_use]
     pub fn as_string(&self) -> String {
         match &self {
             Self::System(s) => {

@@ -423,13 +423,13 @@ pub(super) fn border_box_to_content<T: ParsedFontTrait>(
 }
 
 /// An explicit size that came out non-finite is `auto`: it resolved a
-/// percentage (or a calc() with percent terms) against the INDEFINITE basis a
+/// percentage (or a `calc()` with percent terms) against the INDEFINITE basis a
 /// measurement pass carries as `INFINITY` in `available_size` - a flex basis
 /// or a row's cross size measured on a block that holds a `height: 100%`
 /// flex container. CSS 2.2 10.5 / css-sizing-3 5.2.1: such a percentage
 /// behaves as `auto`, so the container is content-sized; handed to taffy as a
 /// known size, the infinity became the height of every box above it (the
-/// OfficeShell chain of AzNews / AzCode, blank screenshots). The same net
+/// `OfficeShell` chain of `AzNews` / `AzCode`, blank screenshots). The same net
 /// `calculate_used_size_for_node` keeps for a non-finite width.
 pub(super) fn definite_or_auto((size, explicit): (Option<f32>, bool)) -> (Option<f32>, bool) {
     match size {
@@ -561,7 +561,7 @@ pub(super) fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
 /// A containing-block size as taffy's `parent_size`. A non-finite side is the
 /// measurement passes' "indefinite" (`INFINITY` in `available_size`), not a
 /// size: handed to taffy as `Some(inf)`, a `height: 100%` resolved to an
-/// infinite height and spread up the OfficeShell chain (AzNews / AzCode
+/// infinite height and spread up the `OfficeShell` chain (`AzNews` / `AzCode`
 /// painted blank). CSS 2.2 10.5: a percentage of an indefinite height is
 /// `auto` - taffy's `None`.
 pub(super) const fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {

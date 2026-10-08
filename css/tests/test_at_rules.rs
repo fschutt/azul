@@ -1036,7 +1036,7 @@ fn test_os_condition_specific_matches() {
 
 #[test]
 fn test_combined_conditions_all_must_match() {
-    use azul_css::dynamic_selector::{DynamicSelectorContext, ThemeCondition};
+    use azul_css::dynamic_selector::DynamicSelectorContext;
 
     // Context: Linux + Dark theme + Screen media
     let ctx = DynamicSelectorContext {

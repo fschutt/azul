@@ -151,8 +151,8 @@ impl_vec_mut!(ToDoTask, ToDoTaskVec);
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ToDoBarEventKind {
-    /// A day was picked in the calendar (`date`); the arrows and PageUp /
-    /// PageDown turn the month the same way.
+    /// A day was picked in the calendar (`date`); the arrows and `PageUp` /
+    /// `PageDown` turn the month the same way.
     DatePicked,
     /// Enter in the task line: `text` is the new task.
     TaskAdded,

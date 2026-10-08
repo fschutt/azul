@@ -993,7 +993,7 @@ pub struct AppConfig {
     /// entry, e.g. `("de", <the text of the app's de.ftl>)`. Every window
     /// translates the `AzString::tr` keys of its DOM with them. Default: none
     /// (keys render as written).
-    pub fluent_locales: crate::window::StringPairVec,
+    pub fluent_locales: StringPairVec,
     /// The APP-LEVEL notification handler: receives every notification event
     /// that no notification callback owns - a tap on a notification posted by
     /// an earlier run of the app (the cold launch that is the normal case on
@@ -1254,7 +1254,7 @@ impl AppConfig {
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,
             localization: LocalizationConfig::default(),
-            fluent_locales: crate::window::StringPairVec::from_const_slice(&[]),
+            fluent_locales: StringPairVec::from_const_slice(&[]),
             notification_handler: crate::notification::OptionNotificationCallback::None,
             // None: an app declares its global hotkeys (here, or from state).
             global_hotkeys: crate::global_hotkey::GlobalHotkeyCallbackDataVec::from_const_slice(
@@ -2556,7 +2556,7 @@ pub struct RendererResources {
     /// the node shows frames, so a new frame is `update_image` (pixels only:
     /// no new key, no display-list or scene rebuild). Minted with
     /// [`ImageKey::unique_image_slot`], so no image ever derives the same key.
-    pub node_image_slots: OrderedMap<(crate::dom::DomId, crate::id::NodeId), ImageKey>,
+    pub node_image_slots: OrderedMap<(DomId, NodeId), ImageKey>,
     /// The Cb,Cr-plane key of every registered NV12 image, by its Y-plane
     /// key: an NV12 image is TWO renderer images (an R8 luma plane and an RG8
     /// chroma plane, views into one buffer).
@@ -2986,7 +2986,7 @@ impl RawImage {
     /// scaler cannot read (16-bit, float or two-channel pixels) and for an
     /// empty one.
     #[must_use]
-    pub fn thumbnail(&self, max_w: u32, max_h: u32) -> Option<RawImage> {
+    pub fn thumbnail(&self, max_w: u32, max_h: u32) -> Option<Self> {
         crate::image_scale::thumbnail(self, max_w, max_h)
     }
 
@@ -3006,7 +3006,7 @@ impl RawImage {
     /// cannot read (16-bit, float or two-channel pixels), for an empty one
     /// and for a zero size.
     #[must_use]
-    pub fn resized(&self, width: u32, height: u32) -> Option<RawImage> {
+    pub fn resized(&self, width: u32, height: u32) -> Option<Self> {
         crate::image_scale::resized(self, width, height)
     }
 
@@ -4787,13 +4787,13 @@ mod resources_test;
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct RemoteControlConfig {
-    /// Port for the debug server. If None, it will try to parse AZ_DEBUG.
+    /// Port for the debug server. If None, it will try to parse `AZ_DEBUG`.
     pub debug_port: azul_css::OptionU16,
     /// Whether the debug server is allowed to remotely control the application (default: true).
     pub allow_remote_control: bool,
-    /// Whether the debug server is allowed to run end-to-end tests via AZ_E2E (default: true).
+    /// Whether the debug server is allowed to run end-to-end tests via `AZ_E2E` (default: true).
     pub allow_e2e_tests: bool,
-    /// Whether the debug server is allowed to serialize/deserialize RefAny state (default: true).
+    /// Whether the debug server is allowed to serialize/deserialize `RefAny` state (default: true).
     pub allow_introspection: bool,
 }
 

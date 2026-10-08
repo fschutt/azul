@@ -501,13 +501,13 @@ fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileD
     dialog
 }
 
-/// The AppleScript of the macOS folder picker: `choose folder`, its answer
+/// The `AppleScript` of the macOS folder picker: `choose folder`, its answer
 /// turned into a POSIX path IN THE SAME SCRIPT (a folder's ends in `/`).
 ///
 /// tfd 0.1.2 runs `choose folder` alone and feeds its output to a second
 /// `osascript`: `POSIX path of alias Macintosh HD:Users:me:` - the alias
-/// unquoted, an AppleScript syntax error (-2740) - so every folder the user
-/// picked came back as "cancelled" (AzCode: "selecting a folder does
+/// unquoted, an `AppleScript` syntax error (-2740) - so every folder the user
+/// picked came back as "cancelled" (`AzCode`: "selecting a folder does
 /// nothing").
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn macos_folder_script(title: &str, default_path: Option<&str>) -> String {
@@ -525,7 +525,7 @@ pub(crate) fn macos_folder_script(title: &str, default_path: Option<&str>) -> St
     script
 }
 
-/// `text` as the inside of an AppleScript string literal: the backslashes
+/// `text` as the inside of an `AppleScript` string literal: the backslashes
 /// escaped first, then the quotes (tfd's order doubled the backslash of an
 /// escaped quote).
 #[cfg(any(target_os = "macos", test))]

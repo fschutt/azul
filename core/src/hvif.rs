@@ -73,8 +73,8 @@ impl HvifAffine {
     #[must_use]
     pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
         (
-            self.a * x + self.c * y + self.e,
-            self.b * x + self.d * y + self.f,
+            self.a.mul_add(x, self.c * y) + self.e,
+            self.b.mul_add(x, self.d * y) + self.f,
         )
     }
 }

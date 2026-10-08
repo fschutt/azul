@@ -1,4 +1,4 @@
-//! OfficeShell - the frame every desktop shell is: Outlook 2010's window.
+//! `OfficeShell` - the frame every desktop shell is: Outlook 2010's window.
 //!
 //! ```text
 //! ┌ title row (app-drawn Titlebar, or nothing under native decorations) ──┐
@@ -886,70 +886,67 @@ pub(crate) fn build(shell: OfficeShell, look: &ShellLook) -> Dom {
         children.push(chrome_row(NodeType::Header, TITLE_ID, TITLE_CLASS, &look.shell_title, t));
     }
 
-    match backstage.into_option() {
-        Some(bs) => {
-            children.push(
-                Dom::create_div()
+    if let Some(bs) = backstage.into_option() {
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(id_and_class(
+                    &AzString::from_const_str(BACKSTAGE_ID),
+                    BACKSTAGE_CLASS,
+                ))
+                .with_css_props(part(GROW_COLUMN_BASE, &look.shell_backstage))
+                .with_child(bs),
+        );
+    } else {
+        if let Some(r) = ribbon.into_option() {
+            children.push(chrome_row(NodeType::Div, RIBBON_ID, RIBBON_CLASS, &look.shell_ribbon, r));
+        }
+        let visible: Vec<ShellPane> = panes
+            .into_library_owned_vec()
+            .into_iter()
+            .filter(|p| p.visible)
+            .collect();
+        let mut body_children = row_children(visible, &on_pane_resize, inner, look);
+        if let Some(rb) = right_bar.into_option() {
+            body_children.push(
+                Dom::create_node(NodeType::Aside)
                     .with_ids_and_classes(id_and_class(
-                        &AzString::from_const_str(BACKSTAGE_ID),
-                        BACKSTAGE_CLASS,
+                        &AzString::from_const_str(RIGHT_BAR_ID),
+                        RIGHT_BAR_CLASS,
                     ))
-                    .with_css_props(part(GROW_COLUMN_BASE, &look.shell_backstage))
-                    .with_child(bs),
+                    .with_css_props(part(RAIL_BASE, &look.shell_right_bar))
+                    .with_tab_index(TabIndex::Auto)
+                    .with_accessibility_info(AccessibilityInfo::named(
+                        right_bar_label,
+                        azul_core::a11y::AccessibilityRole::Pane,
+                    ))
+                    .with_child(rb),
             );
         }
-        None => {
-            if let Some(r) = ribbon.into_option() {
-                children.push(chrome_row(NodeType::Div, RIBBON_ID, RIBBON_CLASS, &look.shell_ribbon, r));
-            }
-            let visible: Vec<ShellPane> = panes
-                .into_library_owned_vec()
-                .into_iter()
-                .filter(|p| p.visible)
-                .collect();
-            let mut body_children = row_children(visible, &on_pane_resize, inner, look);
-            if let Some(rb) = right_bar.into_option() {
-                body_children.push(
-                    Dom::create_node(NodeType::Aside)
-                        .with_ids_and_classes(id_and_class(
-                            &AzString::from_const_str(RIGHT_BAR_ID),
-                            RIGHT_BAR_CLASS,
-                        ))
-                        .with_css_props(part(RAIL_BASE, &look.shell_right_bar))
-                        .with_tab_index(TabIndex::Auto)
-                        .with_accessibility_info(AccessibilityInfo::named(
-                            right_bar_label,
-                            azul_core::a11y::AccessibilityRole::Pane,
-                        ))
-                        .with_child(rb),
+        let body = Dom::create_div()
+            .with_class(AzString::from_const_str(BODY_CLASS))
+            .with_css_props(part(GROW_ROW_BASE, &look.shell_body))
+            .with_children(DomVec::from_vec(body_children));
+        match bottom.into_option().filter(|b| b.visible) {
+            Some(b) => {
+                let share = if b.ratio > 0.0 { b.ratio } else { 0.3 };
+                let pane_index = ids.len().saturating_sub(1);
+                let stack = split(
+                    SplitDirection::Vertical,
+                    body,
+                    pane_node(b, look),
+                    1.0 - share,
+                    pane_index,
+                    &on_pane_resize,
+                    inner,
+                );
+                children.push(
+                    Dom::create_div()
+                        .with_class(AzString::from_const_str(STACK_CLASS))
+                        .with_css_props(part(GROW_COLUMN_BASE, &[]))
+                        .with_child(stack),
                 );
             }
-            let body = Dom::create_div()
-                .with_class(AzString::from_const_str(BODY_CLASS))
-                .with_css_props(part(GROW_ROW_BASE, &look.shell_body))
-                .with_children(DomVec::from_vec(body_children));
-            match bottom.into_option().filter(|b| b.visible) {
-                Some(b) => {
-                    let share = if b.ratio > 0.0 { b.ratio } else { 0.3 };
-                    let pane_index = ids.len().saturating_sub(1);
-                    let stack = split(
-                        SplitDirection::Vertical,
-                        body,
-                        pane_node(b, look),
-                        1.0 - share,
-                        pane_index,
-                        &on_pane_resize,
-                        inner,
-                    );
-                    children.push(
-                        Dom::create_div()
-                            .with_class(AzString::from_const_str(STACK_CLASS))
-                            .with_css_props(part(GROW_COLUMN_BASE, &[]))
-                            .with_child(stack),
-                    );
-                }
-                None => children.push(body),
-            }
+            None => children.push(body),
         }
     }
 

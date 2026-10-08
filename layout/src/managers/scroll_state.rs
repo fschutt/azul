@@ -248,6 +248,7 @@ impl ScrollInputQueue {
     /// that queued it. The physics timer drains the queue wholesale and never
     /// runs inside a dispatch, so "still pending" is the normal case; a
     /// `false` return means the timer already spent the delta.
+    #[must_use]
     pub fn cancel(&self, input: &ScrollInput) -> bool {
         let Ok(mut queue) = self.inner.lock() else {
             return false;

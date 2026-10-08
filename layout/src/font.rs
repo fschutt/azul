@@ -603,7 +603,7 @@ pub mod parsed {
     /// and Courier, "to closely match the vertical metrics of their Microsoft
     /// counterparts that are the de facto web standard" (Blink
     /// `FontMetrics::AscentDescentWithHacks` under `IS_APPLE`, comparing
-    /// `FontFamilyName()` with `kTimes` / `kHelvetica` / `kCourier`; WebKit
+    /// `FontFamilyName()` with `kTimes` / `kHelvetica` / `kCourier`; `WebKit`
     /// `SimpleFontData::platformInit`). It is a name list in both engines,
     /// not a metrics rule standing in for one: Apple's Helvetica (hhea 1577
     /// / -471 / 0, no `USE_TYPO_METRICS`) has a `normal` line of exactly 1em

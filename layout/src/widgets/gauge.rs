@@ -611,14 +611,14 @@ pub(crate) fn value_color(gauge: &Gauge, skin: &GaugeSkin) -> ChartColor {
 
 /// A solid fill in `color`, with its dark step.
 fn solid(color: ChartColor) -> Vec<CssPropertyWithConditions> {
-    crate::widgets::themes::decl::themed_fill(color.light, color.dark).to_vec()
+    decl::themed_fill(color.light, color.dark).to_vec()
 }
 
 /// A band's wash over the track: its colour at about a third (a little more
 /// at night, where a third sinks into the dark track).
 fn wash(color: ChartColor) -> Vec<CssPropertyWithConditions> {
     use azul_css::props::basic::color::ColorU;
-    crate::widgets::themes::decl::themed_fill(
+    decl::themed_fill(
         ColorU {
             a: 90,
             ..color.light

@@ -250,16 +250,16 @@ pub(crate) struct ChipLook {
     /// The pill's style for a kind, used when the chip has no
     /// `container_style` of its own: [`CHIP_CONTAINER_BASE`] first, then the
     /// theme's skin.
-    pub container: fn(ChipKind) -> alloc::vec::Vec<CssPropertyWithConditions>,
+    pub container: fn(ChipKind) -> Vec<CssPropertyWithConditions>,
     /// The label's skin ([`build`] lays it over [`CHIP_LABEL_STYLE`], the
     /// label's base).
-    pub label: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub label: Vec<CssPropertyWithConditions>,
     /// Appended to the label's style when the label is a button (the chip
     /// has an `on_click`): its focus ring.
-    pub label_focus: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub label_focus: Vec<CssPropertyWithConditions>,
     /// The remove button's skin ([`build`] lays it over
     /// [`CHIP_REMOVE_BASE`]).
-    pub remove: alloc::vec::Vec<CssPropertyWithConditions>,
+    pub remove: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the pill, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -644,7 +644,7 @@ pub(crate) fn build(chip: Chip, look: &ChipLook) -> Dom {
             children.push(remove);
         }
 
-        let mut classes: alloc::vec::Vec<IdOrClass> = CHIP_CONTAINER_CLASS.to_vec();
+        let mut classes: Vec<IdOrClass> = CHIP_CONTAINER_CLASS.to_vec();
         if let Some(marker) = look.marker {
             classes.push(Class(AzString::from_const_str(marker)));
         }
@@ -2667,7 +2667,7 @@ mod autotest_generated {
         own.container_style = OptionCssPropertyWithConditionsVec::Some(
             CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
         );
-        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own.dom()).iter().count(), 0);
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own.dom()).len(), 0);
     }
 
     #[test]
@@ -3148,7 +3148,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),
@@ -3372,7 +3372,7 @@ mod theme_tests {
         c.container_style = OptionCssPropertyWithConditionsVec::Some(
             CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
         );
-        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&c.dom()).iter().count(), 0);
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&c.dom()).len(), 0);
     }
 }
 

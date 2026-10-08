@@ -1,6 +1,6 @@
-//! ShellEmptyState - an icon, one line, one action: the "nothing here yet",
+//! `ShellEmptyState` - an icon, one line, one action: the "nothing here yet",
 //! "nothing selected" and error block every app shows in a pane that has
-//! no content (05-widget-backlog.md, ShellEmptyState).
+//! no content (05-widget-backlog.md, `ShellEmptyState`).
 //!
 //! ```text
 //!            ✉

@@ -535,7 +535,7 @@ impl Default for IconProviderInner {
 // scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md section 8.
 
 /// One term of a rule's `apply-if` (the comma is AND).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IconRuleCondition {
     /// A term in the dynamic-selector vocabulary CSS conditions use:
     /// `theme=<app theme>` (chain membership, like `@theme(name)`),
@@ -624,7 +624,7 @@ pub fn parse_icon_apply_if(apply_if: &str) -> Vec<IconRuleCondition> {
 
 /// One per-name remap rule: while every condition holds, the name is drawn
 /// as `target`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IconRemapRule {
     /// The theme whose directory the rule came from (`xyz:pink` for
     /// `icons/xyz/pink/`), `None` for the global table. A theme's rules apply
@@ -1530,7 +1530,7 @@ pub fn styled_dom_resolving_icons_with_user_sheets(
     mut dom: Dom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
-    context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    context: Option<DynamicSelectorContext>,
     user_sheets: &[azul_css::css::Css],
 ) -> StyledDom {
     resolve_icons_in_dom_with_context(&mut dom, provider, system_style, context.as_ref());

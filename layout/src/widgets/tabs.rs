@@ -579,7 +579,7 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
 const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 240,
@@ -589,7 +589,7 @@ const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] 
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 229,
@@ -1812,7 +1812,7 @@ impl TabHeader {
 
                 tab_items.push(
                     Dom::create_div()
-                        .with_css_props(look.after.clone())
+                        .with_css_props(look.after)
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[Class(
                                 AzString::from_const_str("__azul-native-tabs-after-tabs"),

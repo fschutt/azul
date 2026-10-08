@@ -98,7 +98,7 @@ pub struct AudioFileInfo {
     pub date: AzString,
     /// Unsynchronised lyrics, when the file carries them.
     pub lyrics: AzString,
-    /// The codec ("mp3", "aac", "flac", "vorbis", "opus", "pcm_s16le", ...).
+    /// The codec ("mp3", "aac", "flac", "vorbis", "opus", "`pcm_s16le`", ...).
     pub codec: AzString,
     /// The container ("wave", "flac", "isomp4", "ogg", "mkv", ...).
     pub container: AzString,

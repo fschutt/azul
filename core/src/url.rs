@@ -133,6 +133,7 @@ impl Url {
     /// Opens this URL in the system's default browser. `true` once the
     /// opener started (`false` where the platform has none).
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn open(&self) -> bool {
         spawn_opener(self.href.as_str(), false)
     }
@@ -228,7 +229,7 @@ fn opener_command<'a>(
     target: &'a str,
     is_path: bool,
     os: &str,
-) -> Option<(&'static str, alloc::vec::Vec<&'a str>)> {
+) -> Option<(&'static str, Vec<&'a str>)> {
     match os {
         "windows" if is_path => Some(("explorer", alloc::vec![target])),
         "windows" => Some((

@@ -228,10 +228,10 @@ pub struct CachedInlineContent {
     /// every visit of the IFC that reuses the collection takes it, and a
     /// deep clone per visit (flex probes visit each IFC several times) was
     /// a share of a 300-contact list's layout.
-    pub content: alloc::sync::Arc<Vec<crate::text3::cache::InlineContent>>,
+    pub content: Arc<Vec<crate::text3::cache::InlineContent>>,
     /// `ContentIndex` -> child layout-node index, as collection built it.
     pub child_map:
-        alloc::sync::Arc<std::collections::HashMap<crate::text3::cache::ContentIndex, usize>>,
+        Arc<std::collections::HashMap<crate::text3::cache::ContentIndex, usize>>,
     /// Validity key: the fingerprints of the IFC root and its descendants,
     /// folded in tree order. Anything that changes text, style or structure
     /// changes a fingerprint, so an equal key means an identical collection.
@@ -253,7 +253,7 @@ pub struct CachedInlineContent {
     /// tree, and with it a `width: 25%` image's measurement from the old
     /// width. A collection with atomics is reused only against the same box.
     pub atomics_measured_against:
-        Option<(LogicalSize, crate::text3::cache::AvailableSpace)>,
+        Option<(LogicalSize, AvailableSpace)>,
 }
 
 /// 3. **Final layout**: width = `Definite(actual_column_width)`
@@ -1887,6 +1887,7 @@ impl LayoutTree {
         ifc_root_warm.inline_layout_result.as_deref()
     }
 
+    #[must_use]
     pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
         let warm = self.warm.get(layout_index)?;
 
@@ -3135,7 +3136,7 @@ impl LayoutTreeBuilder {
     /// A marker with no content generates no box (CSS Lists 3 s3.1: its
     /// `content: normal` computes from `list-style-image`, which azul does
     /// not support, and `list-style-type`): `list-style-type: none` - the
-    /// RichTextEditor's check items - gets none, and `None` is returned.
+    /// `RichTextEditor`'s check items - gets none, and `None` is returned.
     /// The type is the item's own computed (inherited) value.
     pub fn create_marker_pseudo_element(
         &mut self,
@@ -3985,7 +3986,7 @@ pub(crate) fn is_out_of_flow_positioned(styled_dom: &StyledDom, node_id: NodeId)
 /// CSS 2.2 s9.2.1.1: only IN-FLOW block-level boxes make a block container
 /// wrap its inline content in anonymous block boxes. An absolutely
 /// positioned box is out of flow: `<li>text<div style="position: absolute">`
-/// stays ONE line (the RichTextEditor's check item was two - WRITER6 N1).
+/// stays ONE line (the `RichTextEditor`'s check item was two - WRITER6 N1).
 /// Such a box goes with the inline content around it (as in Blink, where an
 /// out-of-flow child joins its parent's current inline run); only where
 /// there is none - between two blocks, or beside nothing but collapsible
@@ -4156,7 +4157,7 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
         children.push(child_id);
         current_child = hierarchy
             .get(child_id)
-            .and_then(|child_hier| child_hier.next_sibling_id());
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
     }
 
     // If there are no children, it's not an IFC (it's empty)
@@ -4593,7 +4594,7 @@ fn collect_box_props(
     // Build unresolved border: zero when the style is none or hidden, the
     // declared width, else `medium` (a style alone has a 3px border) - the one
     // rule the painter's `get_border_info` uses too.
-    let used_border_width = crate::solver3::getters::used_border_width;
+    let used_border_width = used_border_width;
     let unresolved_border = UnresolvedEdge {
         top: used_border_width(border_top_mv, bs_top),
         right: used_border_width(border_right_mv, bs_right),
@@ -4659,8 +4660,8 @@ fn collect_box_props(
             )
         ),
         // CSS `zoom` scales the absolute box lengths (LAYOUT7).
-        zoom: crate::solver3::getters::get_effective_zoom(styled_dom, dom_id),
-        root_zoom: crate::solver3::getters::get_effective_zoom(styled_dom, NodeId::new(0)),
+        zoom: get_effective_zoom(styled_dom, dom_id),
+        root_zoom: get_effective_zoom(styled_dom, NodeId::new(0)),
     };
 
     // Create initial resolution params (with viewport as containing block for now)

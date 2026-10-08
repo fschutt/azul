@@ -266,7 +266,7 @@ pub fn parse_rice_header(source: &str) -> RiceHeader {
     };
     let mut unknown: Vec<String> = Vec::new();
     let mut known = false;
-    for item in text.split(|c: char| c == ';' || c == '\n') {
+    for item in text.split([';', '\n']) {
         let item = item.trim().trim_start_matches('*').trim();
         let Some((key, value)) = item.split_once(':') else {
             continue;
@@ -338,7 +338,7 @@ pub fn parse_rice_header(source: &str) -> RiceHeader {
 /// A version component without its pre-release / build suffix (`0-beta` is `0`).
 fn numeric_part(component: &str) -> &str {
     component
-        .split(|c: char| c == '-' || c == '+')
+        .split(['-', '+'])
         .next()
         .unwrap_or("")
         .trim()
@@ -347,7 +347,7 @@ fn numeric_part(component: &str) -> &str {
 /// Up to three numeric components of `v` (`v1.2`, `1.2.3-beta`); `None` if
 /// one is not a number.
 fn version_parts(v: &str) -> Option<Vec<u64>> {
-    let v = v.trim().trim_start_matches(|c: char| c == 'v' || c == 'V');
+    let v = v.trim().trim_start_matches(['v', 'V']);
     if v.is_empty() {
         return None;
     }
@@ -372,7 +372,7 @@ fn full_version(parts: &[u64]) -> [u64; 3] {
 fn wildcard_matches(pattern: &str, version: &str) -> bool {
     let pattern = pattern
         .trim()
-        .trim_start_matches(|c: char| c == '=' || c == 'v' || c == 'V')
+        .trim_start_matches(['=', 'v', 'V'])
         .trim();
     if pattern.is_empty() {
         return false;
@@ -971,7 +971,7 @@ impl RiceStatus {
         if self.files.is_empty() {
             out.push_str("files: none\n");
         }
-        for f in self.files.iter() {
+        for f in &self.files {
             out.push_str(&format!(
                 "  [{}] {} {}{} {}: {} rules, {} live, {} inert",
                 f.state.label(),
@@ -1008,7 +1008,7 @@ impl RiceStatus {
         }
         if !self.warnings.is_empty() {
             out.push_str("warnings:\n");
-            for w in self.warnings.iter() {
+            for w in &self.warnings {
                 out.push_str(&format!("  - {}\n", w.as_str()));
             }
         }
@@ -1017,7 +1017,7 @@ impl RiceStatus {
     }
 }
 
-fn or_none(s: &str) -> &str {
+const fn or_none(s: &str) -> &str {
     if s.is_empty() {
         "(none)"
     } else {

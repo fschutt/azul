@@ -377,7 +377,7 @@ impl FileInput {
             icon_style: OptionCssPropertyWithConditionsVec::None,
             trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
             disabled_reason: AzString::from_const_str(""),
-            toggled: azul_css::OptionBool::None,
+            toggled: OptionBool::None,
             on_click: Some(ButtonOnClick {
                 refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {
@@ -490,7 +490,7 @@ extern "C" fn fileinput_on_files_picked(
     let Some(picked) = FileOpenMultiResult::downcast(result).into_option() else {
         return Update::DoNothing;
     };
-    let paths: alloc::vec::Vec<AzString> = picked
+    let paths: Vec<AzString> = picked
         .paths
         .as_ref()
         .iter()
@@ -539,7 +539,7 @@ fn accept_filter(accept: &StringVec) -> crate::desktop::dialogs::OptionFileTypeL
         .iter()
         .map(|t| t.as_str().trim())
         .filter(|t| !t.is_empty())
-        .collect::<alloc::vec::Vec<_>>()
+        .collect::<Vec<_>>()
         .join(", ");
     OptionFileTypeList::Some(FileTypeList {
         document_types: StringVec::from_vec(patterns.into_iter().map(AzString::from).collect()),
@@ -553,7 +553,7 @@ fn accept_filter(accept: &StringVec) -> crate::desktop::dialogs::OptionFileTypeL
 /// extension of that kind a desktop knows. A MIME type this table does not
 /// know is taken by its subtype (`image/bmp` -> `*.bmp`).
 #[cfg_attr(not(feature = "extra"), allow(dead_code))]
-pub(crate) fn accept_patterns(accept: &StringVec) -> alloc::vec::Vec<alloc::string::String> {
+pub(crate) fn accept_patterns(accept: &StringVec) -> Vec<String> {
     use alloc::{string::String, vec::Vec};
 
     /// MIME type -> the extensions of its files.

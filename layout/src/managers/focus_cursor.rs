@@ -408,19 +408,15 @@ impl crate::managers::NodeIdRemap for FocusManager {
             if focused.dom != dom_id {
                 return true;
             }
-            match focused
+            if let Some(new_id) = focused
                 .node
                 .into_crate_internal()
-                .and_then(|old| map.resolve(old))
-            {
-                Some(new_id) => {
-                    focused.node = NodeHierarchyItemId::from_crate_internal(Some(new_id));
-                    true
-                }
-                None => {
-                    seats_lost.push(*focused);
-                    false
-                }
+                .and_then(|old| map.resolve(old)) {
+                focused.node = NodeHierarchyItemId::from_crate_internal(Some(new_id));
+                true
+            } else {
+                seats_lost.push(*focused);
+                false
             }
         });
         for lost in seats_lost {
@@ -429,21 +425,17 @@ impl crate::managers::NodeIdRemap for FocusManager {
         // 1. currently focused node
         if let Some(focused) = self.focused_node {
             if focused.dom == dom_id {
-                match focused
+                if let Some(new_id) = focused
                     .node
                     .into_crate_internal()
-                    .and_then(|old| map.resolve(old))
-                {
-                    Some(new_id) => {
-                        self.focused_node = Some(DomNodeId {
-                            dom: dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(new_id)),
-                        });
-                    }
-                    None => {
-                        self.focused_node = None;
-                        self.record_focus_lost_to_unmount(focused);
-                    }
+                    .and_then(|old| map.resolve(old)) {
+                    self.focused_node = Some(DomNodeId {
+                        dom: dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(new_id)),
+                    });
+                } else {
+                    self.focused_node = None;
+                    self.record_focus_lost_to_unmount(focused);
                 }
             }
         }
@@ -3384,7 +3376,7 @@ fn grid_pick(o: &Edges, beyond: &[(DomNodeId, Edges)], dir: FocusDirection) -> O
 ///    none, a container that can still scroll that way SCROLLS (unless it says `focus`); otherwise
 ///    the search moves out (`navnotarget`).
 /// 3. azul extension: when the whole DOM is exhausted, candidates in the window's OTHER DOMs
-///    (VirtualView content, or the host of the DOM the focus is in). This stands in for the spec's
+///    (`VirtualView` content, or the host of the DOM the focus is in). This stands in for the spec's
 ///    nested-browsing-context step.
 ///
 /// `spatial-navigation-function` is read off each container searched.
@@ -3452,9 +3444,7 @@ pub fn get_spatial_navigation_container(
 ) -> Option<DomNodeId> {
     let lr = env.layout_results.get(&node.dom)?;
     let n = node.node.into_crate_internal()?;
-    if lr.styled_dom.node_data.as_container().get(n).is_none() {
-        return None;
-    }
+    lr.styled_dom.node_data.as_container().get(n)?;
     Some(
         spatial_navigation_containers(env.layout_results, node)
             .into_iter()
@@ -3511,17 +3501,14 @@ pub fn spatial_navigation_search(
         Some(c) => get_spatial_navigation_container(env, c)?,
         None => get_spatial_navigation_container(env, node)?,
     };
-    let areas: Vec<(DomNodeId, LogicalRect)> = match options.candidates.as_ref() {
-        Some(list) => list
-            .iter()
-            .copied()
-            .filter(|c| *c != node)
-            .filter_map(|c| Some((c, geom.rect(c)?)))
-            .collect(),
-        None => {
-            let pool = spatial_candidate_pool(env);
-            candidates_in(env, &geom, &pool, container, node, true)
-        }
+    let areas: Vec<(DomNodeId, LogicalRect)> = if let Some(list) = options.candidates.as_ref() { list
+    .iter()
+    .copied()
+    .filter(|c| *c != node)
+    .filter_map(|c| Some((c, geom.rect(c)?)))
+    .collect() } else {
+        let pool = spatial_candidate_pool(env);
+        candidates_in(env, &geom, &pool, container, node, true)
     };
     select_best_candidate(
         origin_rect,

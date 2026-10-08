@@ -1,11 +1,11 @@
-//! ShellThemeScope - the app's root: the widget theme's ground and an ACCENT
-//! family, set once (05-widget-backlog.md, ShellThemeScope).
+//! `ShellThemeScope` - the app's root: the widget theme's ground and an ACCENT
+//! family, set once (05-widget-backlog.md, `ShellThemeScope`).
 //!
 //! The app THEME (flat, flora, ...) is the window's: `AppConfig::with_theme`
 //! chooses it at start, `CallbackInfo::set_theme` switches it, and every
 //! widget that follows the app theme picks its `@theme(<name>)` block by it.
 //! What the widgets cannot know is the app's ACCENT - Office paints Word
-//! blue, Excel green, PowerPoint orange - so the scope carries it: one of
+//! blue, Excel green, `PowerPoint` orange - so the scope carries it: one of
 //! five families ([`ShellThemeAccent`]: blue, leaf, plum, clay, slate, flora's
 //! accent ramps), published to the app's own CSS as custom properties on the
 //! scope's root (`var(--az-accent, #2F4A85)` and friends, each with its
@@ -51,7 +51,7 @@ pub enum ShellThemeAccent {
     /// Writer, Mail, Calendar, Contacts, Files.
     #[default]
     Blue = 0,
-    /// Spreadsheet, ERP, ToDo, Health.
+    /// Spreadsheet, ERP, `ToDo`, Health.
     Leaf = 1,
     /// Vector, Notes, Chat / Meet.
     Plum = 2,

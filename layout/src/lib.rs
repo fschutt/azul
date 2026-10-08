@@ -151,7 +151,7 @@ extern crate self as azul_layout;
 /// call site. A `std::env::var_os` takes the process-wide environment lock
 /// (~100 ns on macOS), and these checks sat in layout's innermost loops - the
 /// taffy cache lookup, the scrollbar painter, the shaper - about 4% of a
-/// 300-contact list's layout (AzContacts, 2026-10-06).
+/// 300-contact list's layout (`AzContacts`, 2026-10-06).
 #[cfg(feature = "std")]
 macro_rules! env_flag {
     ($name:literal) => {{

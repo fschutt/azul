@@ -395,7 +395,7 @@ impl HostOut for AzString {
 impl HostOut for RefAny {
     /// A handle to nothing: a null `RefCount` never touches memory on drop.
     fn unwritten() -> Self {
-        RefAny {
+        Self {
             sharing_info: crate::refany::RefCount {
                 ptr: core::ptr::null(),
                 run_destructor: false,
@@ -457,7 +457,7 @@ impl DataArg for RefAny {
 
 impl DataArg for &mut RefAny {
     fn data_ptr(&self) -> *const RefAny {
-        &**self
+        &raw const **self
     }
 }
 

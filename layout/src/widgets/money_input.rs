@@ -676,7 +676,7 @@ fn read_number(
         Some(p) => (&toks[..p], &toks[p + 1..]),
         None => (&toks[..], &toks[toks.len()..]),
     };
-    if frac_toks.iter().any(|t| *t == Tok::Group) {
+    if frac_toks.contains(&Tok::Group) {
         return Err(MoneyInputError::Invalid);
     }
     let mut runs: Vec<Vec<u8>> = alloc::vec![Vec::new()];
@@ -755,7 +755,7 @@ pub(crate) fn group_digits(digits: &str, separator: Option<char>) -> String {
     let count = digits.chars().count();
     let mut out = String::with_capacity(digits.len() + count / 3 * 3);
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (count - i) % 3 == 0 {
+        if i > 0 && (count - i).is_multiple_of(3) {
             if let Some(g) = separator {
                 out.push(g);
             }

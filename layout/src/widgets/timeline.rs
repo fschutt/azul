@@ -880,7 +880,7 @@ pub fn snap_time(t: f64, points: &[f64], pps: f32) -> f64 {
     let mut best: Option<(f64, f64)> = None;
     for p in points {
         let d = (p - t).abs();
-        if d <= reach && best.map_or(true, |(bd, _)| d < bd) {
+        if d <= reach && best.is_none_or(|(bd, _)| d < bd) {
             best = Some((d, *p));
         }
     }

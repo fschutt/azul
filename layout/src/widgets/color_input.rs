@@ -773,7 +773,7 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
             CssPropertyWithConditions::simple(bg(light_mode)),
             CssPropertyWithConditions {
                 property: bg(dark_mode),
-                apply_if: vec![DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)].into(),
+                apply_if: vec![DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)].into(),
             },
         ])
     };
@@ -1293,7 +1293,7 @@ fn publish(
 ///   [`picker_step`]: Shift, or the platform's primary modifier). On the
 ///   plane Left / Right move saturation and Up / Down brightness; on the
 ///   bars Left / Down decrease and Right / Up increase.
-/// - PageUp / PageDown are the 10% step (the plane's y-axis, brightness).
+/// - `PageUp` / `PageDown` are the 10% step (the plane's y-axis, brightness).
 /// - Home / End go to the minimum / maximum (the plane's x-axis,
 ///   saturation).
 ///
@@ -1873,7 +1873,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -3941,7 +3941,7 @@ mod theme_tests {
     }
 
     fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
-        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
             .map(|(p, c)| CssPropertyWithConditions {
                 property: p.clone(),
                 apply_if: c.clone(),

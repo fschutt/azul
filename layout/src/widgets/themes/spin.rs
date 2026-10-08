@@ -348,7 +348,7 @@ fn respin_layer(layer: &StyleBackgroundContent, map: &SpinMap) -> Option<StyleBa
         StyleBackgroundContent::LinearGradient(g) => {
             let stops = respin_slice(g.stops.as_ref(), |s| {
                 swap_stop(&s.color, map).map(|color| {
-                    let mut s = s.clone();
+                    let mut s = *s;
                     s.color = color;
                     s
                 })
@@ -360,7 +360,7 @@ fn respin_layer(layer: &StyleBackgroundContent, map: &SpinMap) -> Option<StyleBa
         StyleBackgroundContent::RadialGradient(g) => {
             let stops = respin_slice(g.stops.as_ref(), |s| {
                 swap_stop(&s.color, map).map(|color| {
-                    let mut s = s.clone();
+                    let mut s = *s;
                     s.color = color;
                     s
                 })
@@ -372,7 +372,7 @@ fn respin_layer(layer: &StyleBackgroundContent, map: &SpinMap) -> Option<StyleBa
         StyleBackgroundContent::ConicGradient(g) => {
             let stops = respin_slice(g.stops.as_ref(), |s| {
                 swap_stop(&s.color, map).map(|color| {
-                    let mut s = s.clone();
+                    let mut s = *s;
                     s.color = color;
                     s
                 })

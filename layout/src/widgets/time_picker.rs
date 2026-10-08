@@ -636,7 +636,7 @@ impl TimePicker {
         let minute_text = AzString::from(format!("{:02}", inner.minute));
         let container_style = self
             .container_style
-            .clone()
+
             .into_option()
             .unwrap_or_else(|| skin.container.clone());
 
@@ -914,11 +914,11 @@ fn adjust_spinner_at(
     update
 }
 
-/// How far PageUp / PageDown move the hour column: the spin button's "larger
+/// How far `PageUp` / `PageDown` move the hour column: the spin button's "larger
 /// step" (WAI-ARIA APG) - two hours, as react-aria's time field steps.
 const PAGE_STEP_HOURS: i64 = 2;
 
-/// How far PageUp / PageDown move the minute column: a quarter hour.
+/// How far `PageUp` / `PageDown` move the minute column: a quarter hour.
 const PAGE_STEP_MINUTES: i64 = 15;
 
 /// A delta past both ends of every band, however far out of range a
@@ -928,7 +928,7 @@ const PAGE_STEP_MINUTES: i64 = 15;
 const TO_THE_END: i64 = 1 << 40;
 
 /// A column is a SPIN BUTTON (WAI-ARIA APG spinbutton): ONE Tab stop whose
-/// value the keys change - Up / Down by one, PageUp / PageDown by the large
+/// value the keys change - Up / Down by one, `PageUp` / `PageDown` by the large
 /// step, Home / End to the ends of its band - through the very body an arrow
 /// click and the wheel take ([`adjust_spinner_at`]: clamp, retext, announce,
 /// `on_change`, which also fires for a step clamped away, as a click does).

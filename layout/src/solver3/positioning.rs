@@ -1002,7 +1002,7 @@ pub(crate) fn inline_relative_offset(
                 shifted.push(id);
             }
         }
-        current = hierarchy.get(id).and_then(|h| h.parent_id());
+        current = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     if shifted.is_empty() {
         return LogicalPosition::zero();

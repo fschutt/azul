@@ -913,7 +913,7 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
     }
 
     let mut entry = TextInput::create()
-        .with_text(state.text.clone())
+        .with_text(state.text)
         .with_accessibility_name(accessibility_name.clone())
         .with_on_text_input(shared.clone(), on_entry_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(shared.clone(), on_entry_key as TextInputOnVirtualKeyDownCallbackType);

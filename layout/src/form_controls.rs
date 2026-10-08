@@ -193,7 +193,7 @@ pub const REPLACED_MARKER_ATTRIBUTE: &str = "data-azul-form-control";
 /// how a form reset forgets, and a form submit reads, what the user gave it.
 pub const MEMORY_KEY_ATTRIBUTE: &str = "data-azul-form-key";
 
-/// The scope of the layout callback's DOM. A VirtualView's DOM gets its own
+/// The scope of the layout callback's DOM. A `VirtualView`'s DOM gets its own
 /// (`form_scope_of_virtual_view`, used by
 /// `LayoutWindow::style_user_dom_in_scope`), so a control at the same tree
 /// path in two DOMs is two controls.
@@ -742,7 +742,7 @@ fn prepass(dom: &Dom, out: &mut Prepass) {
         }
         _ => {}
     }
-    for child in dom.children.iter() {
+    for child in &dom.children {
         prepass(child, out);
     }
 }
@@ -1023,7 +1023,7 @@ fn flag(node: &NodeData, name: &str) -> bool {
 }
 
 fn is_checked(node: &NodeData) -> bool {
-    for a in node.attributes().iter() {
+    for a in node.attributes() {
         match a {
             AttributeType::CheckedTrue => return true,
             AttributeType::CheckedFalse => return false,
@@ -1075,7 +1075,7 @@ fn push_text(dom: &Dom, out: &mut String) {
         NodeType::Text(t) => out.push_str(t.as_str()),
         _ => {}
     }
-    for child in dom.children.iter() {
+    for child in &dom.children {
         push_text(child, out);
     }
 }
@@ -1085,7 +1085,7 @@ fn push_text(dom: &Dom, out: &mut String) {
 /// as headings over their options. HTML's optgroups do not nest; an option
 /// in a group inside a group belongs to the outer one.
 fn collect_choices(dom: &Dom, out: &mut Vec<Choice>, mut groups: Option<&mut Vec<Group>>) {
-    for child in dom.children.iter() {
+    for child in &dom.children {
         match child.root.get_node_type() {
             NodeType::SelectOption => {
                 let text = text_content(child).trim().to_string();
@@ -1543,7 +1543,7 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         memory: ctx.memory.clone(),
         key,
         defaults,
-        radio_value: own_value.clone(),
+        radio_value: own_value,
     });
     let name = spec.label.clone();
 
@@ -2080,7 +2080,7 @@ pub(crate) fn default_submission(raw: &Dom) -> Submission {
         FormWidget::Form => Submission::Unknown,
         // The app's value, submitted as it is.
         FormWidget::Hidden => {
-            Submission::Entries(alloc::vec![spec.value.clone().unwrap_or_default()])
+            Submission::Entries(alloc::vec![spec.value.unwrap_or_default()])
         }
         _ => match default_value(kind, &spec) {
             Some(default) => Submission::Entries(Spelling::of(kind, &spec, node).spell(&default)),
@@ -2153,7 +2153,7 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     // 1. Attributes: the widget's, then the raw node's (ids and classes
     //    included), then the marker.
     let mut attrs = widget.root.attributes().as_slice().to_vec();
-    for attr in from.attributes().iter() {
+    for attr in from.attributes() {
         if kind != FormWidget::Hidden && is_consumed(attr) {
             continue;
         }
@@ -2180,9 +2180,9 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
     let mut keyframes = widget.root.style.keyframes.clone().into_library_owned_vec();
     keyframes.extend(from.style.keyframes.clone().into_library_owned_vec());
     let mut sheets = widget.css.clone().into_library_owned_vec();
-    for sheet in raw.css.iter() {
+    for sheet in &raw.css {
         let mut rest = Vec::new();
-        for rule in sheet.rules.iter() {
+        for rule in &sheet.rules {
             // On a `<form>` a bare `* { .. }` reaches its whole content, as
             // before: it stays a scoped sheet.
             if kind != FormWidget::Form && targets_the_node_itself(rule) {
@@ -2263,10 +2263,10 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
             dst.description = src.description.clone();
         }
         if dst.labelled_by.is_none() {
-            dst.labelled_by = src.labelled_by.clone();
+            dst.labelled_by = src.labelled_by;
         }
         if dst.described_by.is_none() {
-            dst.described_by = src.described_by.clone();
+            dst.described_by = src.described_by;
         }
     }
 }

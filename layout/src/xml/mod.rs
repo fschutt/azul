@@ -28,7 +28,7 @@ pub mod svg;
 /// HTML Standard's 2231 names (`&copy;`, `&NotEqualTilde;`), each ended by
 /// its `;`. Returns `Cow::Borrowed` when there is nothing to decode.
 fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
-    azul_core::xml::html::decode_character_references(s, azul_core::xml::html::CharRefMode::Xml)
+    html::decode_character_references(s, html::CharRefMode::Xml)
 }
 
 /// [`decode_xml_entities`], always allocating (the twin the tests compare
@@ -415,11 +415,11 @@ struct FastOpen {
 /// tree loader's DOM builder leaves it out.
 struct FastDomSink<'k> {
     builder: CompactDomBuilder,
-    /// One bump arena for every AzString produced during this parse —
+    /// One bump arena for every `AzString` produced during this parse —
     /// id/class tokens, text nodes, etc. Replaces ~1k small heap allocs
-    /// with a handful of 64 KiB chunks. Each AzString carries its own
+    /// with a handful of 64 KiB chunks. Each `AzString` carries its own
     /// Arc reference to the arena, so the arena survives until the last
-    /// string is dropped (typically when the StyledDom is dropped).
+    /// string is dropped (typically when the `StyledDom` is dropped).
     str_arena: azul_css::corety::StringArena,
     /// The parser's key map, computed once (the `style` attributes).
     css_key_map: &'k azul_css::props::property::CssKeyMap,

@@ -548,7 +548,7 @@ pub fn set_skip_display_list(skip: bool) {
 /// its old style, and a value it changed can be inherited by what it
 /// contains. Empty when the pass carries no css dirt (a resize).
 fn css_dirty_reemit_set(
-    tree: &layout_tree::LayoutTree,
+    tree: &LayoutTree,
     css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
 ) -> std::collections::BTreeSet<usize> {
     let mut out = std::collections::BTreeSet::new();
@@ -1009,7 +1009,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // inline-level box is re-solved by its container, or its
             // siblings keep the slots they had; a box in a multi-column
             // flow by the multi-column container.
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, &node_of);
+            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, node_of);
             recon_result.layout_roots.extend(promoted);
             // A root below another one is laid out by that one's pass (the
             // reconcile's own roots were cleaned the same way).

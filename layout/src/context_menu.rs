@@ -28,7 +28,7 @@ use crate::{managers::hover::InputPointId, window::LayoutWindow};
 /// context menu - on `platform`?
 ///
 /// The right button everywhere. On macOS a primary press with Control held
-/// is one too: AppKit hands it to a view as a LEFT `mouseDown:` with the
+/// is one too: `AppKit` hands it to a view as a LEFT `mouseDown:` with the
 /// Control flag, and every Mac user without a second button opens menus that
 /// way. Command + click is not a secondary click anywhere (on macOS it
 /// extends a selection).

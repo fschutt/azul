@@ -732,7 +732,7 @@ pub mod encode {
     encode_func!(encode_pnm, PnmEncoder, "pnm");
 
     #[cfg(feature = "png")]
-    #[must_use] 
+    #[must_use]
     pub fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
         use image::ImageEncoder;
 
@@ -782,7 +782,7 @@ pub mod encode {
     }
 
     #[cfg(feature = "jpeg")]
-    #[must_use] 
+    #[must_use]
     pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
         let Ok(width) = u32::try_from(image.width) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };
         let Ok(height) = u32::try_from(image.height) else { return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError) };

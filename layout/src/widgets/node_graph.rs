@@ -1382,7 +1382,7 @@ fn render_node(
         &[StyleFontFamily::System(STRING_9416190750059025162)];
     const LINEAR_COLOR_STOP_4373556077110009258_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(20),
             color: ColorOrSystem::color(ColorU {
                 r: 0,
@@ -1392,7 +1392,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 0,
@@ -1404,7 +1404,7 @@ fn render_node(
     ];
     const LINEAR_COLOR_STOP_7397113864565941600_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(0),
             color: ColorOrSystem::color(ColorU {
                 r: 229,
@@ -1414,7 +1414,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 227,
@@ -1426,7 +1426,7 @@ fn render_node(
     ];
     const LINEAR_COLOR_STOP_15596411095679453272_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(0),
             color: ColorOrSystem::color(ColorU {
                 r: 47,
@@ -1436,7 +1436,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(50),
             color: ColorOrSystem::color(ColorU {
                 r: 47,
@@ -1446,7 +1446,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
-            offset_px: azul_css::props::basic::FloatValue::const_new(0),
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 32,

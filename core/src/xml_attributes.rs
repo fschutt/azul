@@ -36,7 +36,7 @@ use crate::dom::{AttributeNameValue, AttributeType, IdOrClass, NodeData, TabInde
 /// What an XML attribute sets on a node: the one vocabulary the XML → DOM
 /// builders apply ([`apply_settings`]) and the code generator writes as a
 /// builder call.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeSetting {
     /// `id`: every whitespace-separated id (`.with_id(..)`).
     Ids(Vec<AzString>),
@@ -523,12 +523,9 @@ pub fn apply_settings(
     }
     let mut inline = Vec::new();
     if let Some(s) = style_text {
-        match css_key_map {
-            Some(map) => inline.extend(style_declarations(s.as_str(), map)),
-            None => {
-                let map = azul_css::props::property::get_css_key_map();
-                inline.extend(style_declarations(s.as_str(), &map));
-            }
+        if let Some(map) = css_key_map { inline.extend(style_declarations(s.as_str(), map)) } else {
+            let map = azul_css::props::property::get_css_key_map();
+            inline.extend(style_declarations(s.as_str(), &map));
         }
     }
     if hints.is_empty() && inline.is_empty() {
@@ -728,7 +725,7 @@ fn parse_html_legacy_color(value: &str) -> Option<String> {
             *c = '0';
         }
     }
-    while digits.is_empty() || digits.len() % 3 != 0 {
+    while digits.is_empty() || !digits.len().is_multiple_of(3) {
         digits.push('0');
     }
     let len = digits.len() / 3;

@@ -71,7 +71,7 @@ pub const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackground
     })];
 pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 193,
@@ -81,7 +81,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(10),
         color: ColorOrSystem::color(ColorU {
             r: 205,
@@ -91,7 +91,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(15),
         color: ColorOrSystem::color(ColorU {
             r: 156,
@@ -101,7 +101,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(20),
         color: ColorOrSystem::color(ColorU {
             r: 0,
@@ -111,7 +111,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(30),
         color: ColorOrSystem::color(ColorU {
             r: 0,
@@ -121,7 +121,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(70),
         color: ColorOrSystem::color(ColorU {
             r: 32,
@@ -131,7 +131,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 32,
@@ -143,7 +143,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
 ];
 pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 243,
@@ -153,7 +153,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(10),
         color: ColorOrSystem::color(ColorU {
             r: 252,
@@ -163,7 +163,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(15),
         color: ColorOrSystem::color(ColorU {
             r: 218,
@@ -173,7 +173,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(20),
         color: ColorOrSystem::color(ColorU {
             r: 201,
@@ -183,7 +183,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(30),
         color: ColorOrSystem::color(ColorU {
             r: 218,
@@ -193,7 +193,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(70),
         color: ColorOrSystem::color(ColorU {
             r: 203,
@@ -203,7 +203,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
-        offset_px: azul_css::props::basic::FloatValue::const_new(0),
+        offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 203,

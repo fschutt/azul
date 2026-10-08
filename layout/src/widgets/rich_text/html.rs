@@ -1,7 +1,7 @@
 //! A [`RichTextDoc`] as HTML and as plain text, and HTML / DOM back into
 //! blocks.
 //!
-//! - [`doc_to_html`]: the HTML a mail's `text/html` part carries (AzMail's
+//! - [`doc_to_html`]: the HTML a mail's `text/html` part carries (`AzMail`'s
 //!   `MailDoc::to_html`, promoted and widened to every block kind): a `<div>`
 //!   per paragraph (`<div><br></div>` for an empty one, as mail clients
 //!   write it), quote levels nested as `<blockquote type="cite">`, list items
@@ -15,7 +15,7 @@
 //! - [`html_to_doc`]: HTML into blocks through the engine's paste sanitizer
 //!   (`paste_html::sanitize_html`: the lenient parser and ONE policy of
 //!   what survives) and [`blocks_from_doms`] - a reopened draft keeps its
-//!   bold, italic and links (scripts/DEDUP_EDITORS F3).
+//!   bold, italic and links (`scripts/DEDUP_EDITORS` F3).
 //! - [`blocks_from_doms`]: DOM subtrees into blocks - a sanitized paste,
 //!   and the content of the engine's structural edits (a paste or a delete
 //!   across blocks), which clones the editor's own block and run elements

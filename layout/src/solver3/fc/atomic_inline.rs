@@ -402,20 +402,15 @@ pub(super) fn measure_atomic_inline<T: ParsedFontTrait>(
     let height_is_auto =
         percentage_is_auto || matches!(css_height.clone().unwrap_or_default(), LayoutHeight::Auto);
     // Determine final border-box height
-    let final_height = match height_is_auto {
-        true if !is_replaced_atomic => atomic_inline_auto_height(
-            tree.get(LayoutNodeId::new(child_index))
-                .map(|n| n.formatting_context),
-            tree.get(LayoutNodeId::new(child_index))
-                .and_then(|n| n.used_size)
-                .map(|s| s.height),
-            layout_result.output.overflow_size.height,
-            box_props.padding.main_sum(writing_mode) + box_props.border.main_sum(writing_mode),
-        ),
-        // Explicit height (calculate_used_size_for_node gave the border-box
-        // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
-        _ => tentative_size.height,
-    };
+    let final_height = if height_is_auto && !is_replaced_atomic { atomic_inline_auto_height(
+        tree.get(LayoutNodeId::new(child_index))
+            .map(|n| n.formatting_context),
+        tree.get(LayoutNodeId::new(child_index))
+            .and_then(|n| n.used_size)
+            .map(|s| s.height),
+        layout_result.output.overflow_size.height,
+        box_props.padding.main_sum(writing_mode) + box_props.border.main_sum(writing_mode),
+    ) } else { tentative_size.height };
 
     debug_info!(
         ctx,

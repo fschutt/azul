@@ -592,12 +592,9 @@ fn land_common(
     );
     let hints = super::builtin_presentational_hints(element.tag, element.pairs());
     if !hints.is_empty() {
-        match landing.css_key_map {
-            Some(map) => intrinsic.extend(super::attributes::style_declarations(&hints, map)),
-            None => {
-                let map = azul_css::props::property::get_css_key_map();
-                intrinsic.extend(super::attributes::style_declarations(&hints, &map));
-            }
+        if let Some(map) = landing.css_key_map { intrinsic.extend(super::attributes::style_declarations(&hints, map)) } else {
+            let map = azul_css::props::property::get_css_key_map();
+            intrinsic.extend(super::attributes::style_declarations(&hints, &map));
         }
     }
     super::attributes::apply_settings(

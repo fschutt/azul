@@ -151,7 +151,7 @@ impl TimelineShell {
             meters,
             timeline_ratio,
         } = self;
-        let mut bottom_row: alloc::vec::Vec<Dom> = alloc::vec![Dom::create_div()
+        let mut bottom_row: Vec<Dom> = alloc::vec![Dom::create_div()
             .with_class(AzString::from_const_str(TRACKS_CLASS))
             .with_css_props(part(GROW_COLUMN_BASE, &[]))
             .with_child(timeline)];

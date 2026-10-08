@@ -271,6 +271,7 @@ pub struct SystemLanguage {
 }
 
 impl SystemLanguage {
+    #[must_use]
     pub fn new(id: &str, is_rtl: bool) -> Self {
         Self {
             id: AzString::from(id),
@@ -288,9 +289,9 @@ impl SystemLanguage {
     /// language subtag lends its `is_rtl` (`ar-DZ` is RTL because `ar-SA`
     /// is); failing that, the language is taken as left-to-right.
     #[must_use]
-    pub fn resolve(os_locale: &str, known: &[SystemLanguage]) -> Self {
+    pub fn resolve(os_locale: &str, known: &[Self]) -> Self {
         let tag = os_locale
-            .split(|c: char| c == '.' || c == '@')
+            .split(['.', '@'])
             .next()
             .unwrap_or("")
             .trim()
@@ -302,7 +303,7 @@ impl SystemLanguage {
             return exact.clone();
         }
         let primary_subtag = |t: &str| -> String {
-            t.split(|c: char| c == '-' || c == '_')
+            t.split(['-', '_'])
                 .next()
                 .unwrap_or("")
                 .to_ascii_lowercase()
@@ -901,7 +902,7 @@ pub struct TitlebarMetrics {
     ///
     /// macOS draws one under every standard titlebar: one device pixel
     /// (0.5pt) of #D0D0D0 in light mode and #000000 in dark mode (measured
-    /// through AppKit on macOS 15.5), which is why the macOS presets carry it
+    /// through `AppKit` on macOS 15.5), which is why the macOS presets carry it
     /// per theme.
     pub separator_color: OptionColorU,
     /// The line's colour while the window does NOT have focus. `None` = the
@@ -2360,35 +2361,32 @@ impl SystemStyle {
         );
 
         // Platform-specific button styling
-        match self.platform {
-            Platform::MacOs => {
-                // macOS traffic lights. They stay IN FLOW: taking them out of
-                // it left the title with one block beside it instead of two,
-                // and the bar could no longer centre it. The block they live
-                // in is pinned to the leading edge by `justify-content`
-                // above, and inset by the bar's own horizontal padding, which
-                // is what `left: 8px` was approximating.
-                css.push_str(
-                    ".csd-close { background: rgb(255, 95, 86); width: 12px; height: 12px; \
-                     border-radius: 50%; } ",
-                );
-                css.push_str(
-                    ".csd-minimize { background: rgb(255, 189, 46); width: 12px; height: 12px; \
-                     border-radius: 50%; } ",
-                );
-                css.push_str(
-                    ".csd-maximize { background: rgb(40, 201, 64); width: 12px; height: 12px; \
-                     border-radius: 50%; } ",
-                );
-            }
-            _ => {
-                // Windows, Linux and the rest: the bar centres its title, the
-                // controls take the side the desktop puts them on. (Linux used
-                // to left-align the title here. It was dead - the widget's own
-                // inline `text-align: center` outranks a class rule - and it
-                // said the opposite of what a GNOME, KDE or Xfwm4 caption
-                // actually does, which is centre it.)
-            }
+        if self.platform == Platform::MacOs {
+            // macOS traffic lights. They stay IN FLOW: taking them out of
+            // it left the title with one block beside it instead of two,
+            // and the bar could no longer centre it. The block they live
+            // in is pinned to the leading edge by `justify-content`
+            // above, and inset by the bar's own horizontal padding, which
+            // is what `left: 8px` was approximating.
+            css.push_str(
+                ".csd-close { background: rgb(255, 95, 86); width: 12px; height: 12px; \
+                 border-radius: 50%; } ",
+            );
+            css.push_str(
+                ".csd-minimize { background: rgb(255, 189, 46); width: 12px; height: 12px; \
+                 border-radius: 50%; } ",
+            );
+            css.push_str(
+                ".csd-maximize { background: rgb(40, 201, 64); width: 12px; height: 12px; \
+                 border-radius: 50%; } ",
+            );
+        } else {
+            // Windows, Linux and the rest: the bar centres its title, the
+            // controls take the side the desktop puts them on. (Linux used
+            // to left-align the title here. It was dead - the widget's own
+            // inline `text-align: center` outranks a class rule - and it
+            // said the opposite of what a GNOME, KDE or Xfwm4 caption
+            // actually does, which is centre it.)
         }
 
         // Parse CSS string into a Css.

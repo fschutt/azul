@@ -214,7 +214,7 @@ impl_vec_mut!(CodeViewCursor, CodeViewCursorVec);
 impl_vec_partialeq!(CodeViewCursor, CodeViewCursorVec);
 
 /// What a run of a line is, for its colour. The themes colour every kind in
-/// both modes; a highlighter maps its own categories (TextMate scopes,
+/// both modes; a highlighter maps its own categories (`TextMate` scopes,
 /// tree-sitter captures) onto these.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -261,7 +261,7 @@ pub(crate) const CODE_TOKEN_KINDS: usize = 17;
 
 impl CodeTokenKind {
     /// Every kind, in declaration order (`kind as usize` indexes it).
-    pub const ALL: [CodeTokenKind; CODE_TOKEN_KINDS] = [
+    pub const ALL: [Self; CODE_TOKEN_KINDS] = [
         Self::Plain,
         Self::Keyword,
         Self::Type,
@@ -1611,7 +1611,7 @@ pub(crate) fn apply_changes(
     let mut kept: Vec<(usize, Change)> = Vec::with_capacity(all.len());
     for (i, c) in all {
         if let Some((_, prev)) = kept.last() {
-            if c.start < prev.end || c.start == prev.start {
+            if c.end < prev.end || c.start == prev.start {
                 continue;
             }
         }
@@ -1868,8 +1868,8 @@ fn next_occurrence(cv: &CodeView, lines: &dyn Lines) -> Option<CodeViewEvent> {
             let at = from + i;
             let after = at + needle.len();
             if whole_word {
-                let left_ok = text[..at].chars().next_back().map_or(true, |c| !is_word_char(c));
-                let right_ok = text[after..].chars().next().map_or(true, |c| !is_word_char(c));
+                let left_ok = text[..at].chars().next_back().is_none_or(|c| !is_word_char(c));
+                let right_ok = text[after..].chars().next().is_none_or(|c| !is_word_char(c));
                 if !left_ok || !right_ok {
                     continue;
                 }

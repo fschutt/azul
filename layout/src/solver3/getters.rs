@@ -118,7 +118,7 @@ pub fn get_element_font_size(
 /// The web-lift build keeps the walk (M12.7: the memo's `OnceLock` mis-lifts
 /// to wasm). Native builds had lost the memo with it: every lookup - each
 /// inline formatting context asks, at every visit - walked to the root and
-/// allocated the chain, a tenth of a 300-contact list's layout (AzContacts,
+/// allocated the chain, a tenth of a 300-contact list's layout (`AzContacts`,
 /// 2026-10-06).
 #[cfg(not(feature = "web_lift"))]
 fn memoised_font_size(
@@ -362,8 +362,8 @@ impl PaintZoom {
     #[must_use]
     pub fn length(
         &self,
-        v: azul_css::props::basic::pixel::PixelValue,
-    ) -> azul_css::props::basic::pixel::PixelValue {
+        v: PixelValue,
+    ) -> PixelValue {
         use azul_css::props::basic::{pixel::PixelValue, SizeMetric};
         match v.metric {
             SizeMetric::Percent
@@ -1736,7 +1736,7 @@ get_css_property!(
 /// each of them decide the axis the author left unset differently. A row
 /// wider than an `overflow-y: auto` flex item went to taffy as horizontally
 /// VISIBLE, so its width leaked into the flex container's content size and
-/// the viewport scrolled it (177px of sideways travel on the AzWidgets page).
+/// the viewport scrolled it (177px of sideways travel on the `AzWidgets` page).
 #[must_use]
 pub fn get_overflow_x(
     styled_dom: &StyledDom,
@@ -2374,7 +2374,7 @@ pub fn get_border_radius(
 
     // CSS `zoom`: an absolute radius scales by the effective zoom, an em or a
     // percentage already follows the zoomed font size / box (`zoomed_length`).
-    let resolve = |v: azul_css::props::basic::pixel::PixelValue| -> f32 {
+    let resolve = |v: PixelValue| -> f32 {
         zoomed_length(
             styled_dom,
             node_id,
@@ -2719,10 +2719,10 @@ fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<Co
     }
     let node_data = styled_dom.node_data.as_container();
     let hierarchy = styled_dom.node_hierarchy.as_container();
-    let ty = azul_css::props::property::CssPropertyType::TextColor;
+    let ty = CssPropertyType::TextColor;
     let mut cur = Some(dom_id);
     while let Some(n) = cur {
-        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
+        if let Some(CssProperty::TextColor(v)) =
             cache.get_user_override(&n, &ty)
         {
             return v.get_property().map(|c| c.inner);
@@ -5176,7 +5176,7 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
                 .node_hierarchy
                 .as_container()
                 .get(NodeId::new(i))
-                .and_then(|h| h.parent_id())
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
             {
                 Some(parent) => parent.index(),
                 None => continue,

@@ -134,7 +134,7 @@ pub struct IconGridItem {
     /// The icon glyph (a `Dom::create_icon` name: "folder", "image") shown
     /// while there is no thumbnail.
     pub icon: AzString,
-    /// A small glyph over the icon's corner ("cloud_done"), or empty.
+    /// A small glyph over the icon's corner ("`cloud_done`"), or empty.
     pub badge: AzString,
     /// The thumbnail, once the app has it (it replaces the icon).
     pub image: OptionImageRef,
@@ -1326,23 +1326,20 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
         } else {
             None
         };
-        let picture = match item.image.into_option() {
-            Some(image) => Dom::create_image(image).with_css_props(CssPropertyWithConditionsVec::from_vec(
-                decl::fill_box().to_vec(),
-            )),
-            None => {
-                let glyph = part(
-                    &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-                        icon_px.round() as isize,
-                    )))],
-                    &look.icon,
-                );
-                let glyph = match tile {
-                    Some(color) => stacked(glyph, &[decl::simple(decl::ink(color.contrast_text()))]),
-                    None => glyph,
-                };
-                Dom::create_icon(item.icon.clone()).with_css_props(glyph)
-            }
+        let picture = if let Some(image) = item.image.into_option() { Dom::create_image(image).with_css_props(CssPropertyWithConditionsVec::from_vec(
+            decl::fill_box().to_vec(),
+        )) } else {
+            let glyph = part(
+                &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+                    icon_px.round() as isize,
+                )))],
+                &look.icon,
+            );
+            let glyph = match tile {
+                Some(color) => stacked(glyph, &[decl::simple(decl::ink(color.contrast_text()))]),
+                None => glyph,
+            };
+            Dom::create_icon(item.icon.clone()).with_css_props(glyph)
         };
         let mut in_thumb = alloc::vec![picture];
         if !item.badge.as_str().is_empty() {

@@ -1818,7 +1818,7 @@ pub(crate) fn scroll_bar(
     rows: u32,
     history: u32,
     up: f32,
-) -> Option<crate::widgets::data_table::ScrollBar> {
+) -> Option<ScrollBar> {
     if history == 0 || !height.is_finite() || height <= 0.0 {
         return None;
     }
@@ -1832,7 +1832,7 @@ pub(crate) fn scroll_bar(
     };
     // 0 with the oldest line at the top of the view, 1 at the output.
     let along = (oldest - up) / oldest;
-    Some(crate::widgets::data_table::ScrollBar {
+    Some(ScrollBar {
         track: (x, 0.0, SCROLLBAR_PX, height),
         thumb_start: (height - thumb_len) * along,
         thumb_len,
@@ -1914,7 +1914,7 @@ pub(crate) fn follow_button(
     };
     let x = text_width - FOLLOW_MARGIN_PX - width;
     let y = height - FOLLOW_MARGIN_PX - FOLLOW_SIZE_PX;
-    (x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0).then(|| FollowButton {
+    (x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0).then_some(FollowButton {
         rect: (x, y, width, FOLLOW_SIZE_PX),
         label,
     })
@@ -1929,7 +1929,7 @@ pub(crate) fn follow_button(
     clippy::cast_precision_loss
 )] // a fraction of the scrollback, clamped
 pub(crate) fn scroll_for_thumb(
-    bar: &crate::widgets::data_table::ScrollBar,
+    bar: &ScrollBar,
     thumb_top: f32,
     history: u32,
 ) -> u32 {
@@ -2084,7 +2084,7 @@ pub(crate) const TERMINAL_WHEEL_NOTCH_PX: f32 = crate::widgets::cell_grid::WHEEL
 /// keeping what is not a whole notch yet.
 ///
 /// The platforms hand the wheel over UP-POSITIVE - X11's button 4 is +1, a
-/// forward `WM_MOUSEWHEEL` and AppKit's `scrollingDeltaY` towards what is
+/// forward `WM_MOUSEWHEEL` and `AppKit`'s `scrollingDeltaY` towards what is
 /// above are positive, the map zooms in on it - while a notch counts towards
 /// the user. So the delta is turned around: a wheel turned up (two fingers
 /// down a trackpad) shows older lines. Taken as it came, a turn up at the

@@ -974,7 +974,7 @@ impl CssPropertyCache {
             // here - over the inline style AS RESOLVED (`var()` substituted).
             azul_css::css::inline_in_cascade_order(
                 self.inline_properties(nd, i),
-                &rank,
+                rank,
                 &mut inline_in_order,
             );
             for &(prop, conds) in &inline_in_order {

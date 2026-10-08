@@ -134,7 +134,7 @@ impl SpringCurve {
     /// The previous test, `|x| < 0.06 && |v| < 0.06`, put the two epsilons on
     /// unrelated scales: on a spring's tail `|v| ~ omega |x|` (omega = 13 for
     /// SMOOTH), so the velocity term demanded `|x| < 0.005` and a converged,
-    /// invisible state such as `(0.016, -0.2)` counted as moving - AzWidgets
+    /// invisible state such as `(0.016, -0.2)` counted as moving - `AzWidgets`
     /// held 476 such FLIP moves at rest and never went idle (PR #476 ledger).
     #[must_use]
     pub fn is_settled(&self, value: f32, target: f32, velocity: f32) -> bool {
