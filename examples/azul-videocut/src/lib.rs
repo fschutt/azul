@@ -1023,8 +1023,12 @@ extern "C" fn playback_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Ti
 const ROOT_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 const PANE_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
      min-width: 0px; padding: 6px; background-color: system:window-background;";
+// Under flora (`@theme(flora)` after the flat values; flat is unchanged): pane titles are
+// flora's label (capitals), the tool bar is flora's strip over a hairline, the timecode is
+// Garamond (tabular figures), notes 12px, the bin's items at the house radius.
 const PANE_TITLE_CSS: &str = "font-size: 12px; font-weight: bold; color: system:secondary-text; \
-     padding: 0px 2px 6px 2px; user-select: none;";
+     padding: 0px 2px 6px 2px; user-select: none; @theme(flora) { font-size: 11px; \
+     text-transform: uppercase; letter-spacing: 0.12em; }";
 const STAGE_CSS: &str = "display: flex; flex-grow: 1; min-height: 120px; background-color: #000000; \
      overflow: hidden;";
 const IMAGE_CSS: &str = "width: 100%; height: 100%;";
@@ -1032,12 +1036,14 @@ const ROW_CSS: &str = "display: flex; flex-direction: row; align-items: center; 
      padding-top: 6px;";
 const GAP_CSS: &str = "margin-right: 6px;";
 const TC_CSS: &str = "font-size: 13px; font-family: system:monospace; color: system:text; \
-     margin-right: 10px; user-select: none;";
-const NOTE_CSS: &str = "font-size: 11px; color: system:secondary-text; user-select: none;";
+     margin-right: 10px; user-select: none; @theme(flora) { font-family: EB Garamond, Georgia, \
+     serif; font-size: 14px; font-variant-numeric: tabular-nums lining-nums; }";
+const NOTE_CSS: &str = "font-size: 11px; color: system:secondary-text; user-select: none; \
+     @theme(flora) { font-size: 12px; }";
 const LIST_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
      overflow-y: auto;";
 const BIN_ITEM_CSS: &str = "display: flex; flex-direction: row; align-items: center; padding: 4px; \
-     margin-bottom: 2px; border-radius: 4px; cursor: pointer;";
+     margin-bottom: 2px; border-radius: 4px; cursor: pointer; @theme(flora) { border-radius: 3px; }";
 const BIN_ITEM_SELECTED_CSS: &str = "background-color: system:selection-background;";
 const BIN_THUMB_CSS: &str = "width: 64px; height: 36px; margin-right: 8px; background-color: #000000;";
 const BIN_NAME_CSS: &str = "font-size: 12px; color: system:text; user-select: none;";
@@ -1051,7 +1057,9 @@ const METER_ROW_CSS: &str = "display: flex; flex-direction: row; flex-grow: 1; m
 const METER_CSS: &str = "width: 8px; margin: 0px 3px; background-color: system:control-background; \
      border-radius: 2px;";
 const TOOLBAR_CSS: &str = "display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; \
-     padding: 4px 8px; background-color: system:window-background;";
+     padding: 4px 8px; background-color: system:window-background; @theme(flora) { \
+     background-color: #E9E7E2; border-bottom: 1px solid system:separator; @media \
+     (prefers-color-scheme: dark) { background-color: #1F1F1F; } }";
 const TIMELINE_HOST_CSS: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 const DIALOG_BODY_CSS: &str = "display: flex; flex-direction: column; min-width: 420px; padding: 4px;";
 
