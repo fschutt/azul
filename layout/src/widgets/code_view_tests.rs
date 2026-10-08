@@ -735,6 +735,20 @@ fn the_view_builds_its_lines_with_the_kind_classes_and_the_caret() {
 }
 
 #[test]
+fn the_view_is_one_tab_stop_hosting_a_virtual_view() {
+    // The lines are the DOM of a VirtualView inside the view node, so a
+    // scroll renders them again alone - a wheel notch that rebuilt the whole
+    // window (AzCode: the app's layout callback, the cascade and the layout
+    // of every node of the workbench) was what made the editor lag.
+    let dom = sample().with_theme(UiTheme::Flat).dom();
+    assert_eq!(dom.root.get_tab_index(), Some(azul_core::dom::TabIndex::Auto), "one focus stop");
+    assert!(tc::has_class(&dom, VIEW_CLASS_NAME), "the view node wears the view's class");
+    let kids = dom.children.as_ref();
+    assert_eq!(kids.len(), 1, "the view node holds its lines' VirtualView and nothing else");
+    assert!(kids[0].root.is_virtual_view_node(), "the view node's child is a VirtualView");
+}
+
+#[test]
 fn the_view_follows_the_app_theme() {
     checks::assert_follows_the_app_theme(
         "code_view",

@@ -971,3 +971,5 @@ mod a_long_status_text_leaves_the_zoom_in_its_bar;
 mod a_line_too_long_for_its_box_ends_in_an_ellipsis;
 #[path = "a_blocks_text_decoration_decorates_the_text_in_it.rs"]
 mod a_blocks_text_decoration_decorates_the_text_in_it;
+#[path = "a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window.rs"]
+mod a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;

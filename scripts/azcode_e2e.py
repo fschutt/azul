@@ -18,8 +18,10 @@ welcome page, the search over the folder, the terminal panel, the command palett
        Replace all (AZCODE_REPLACED), "tally" shows; UNDO in the code view brings
        "counts" back (one undo step);
     5. A HUNDRED THOUSAND LINES: huge.rs opens (AZCODE_OPENED huge.rs 100001), only the lines
-       in view are in the tree, Ctrl/Cmd+G 90003 jumps there, the colours arrive from the
-       background walk; Ctrl/Cmd+End shows the last lines;
+       in view are in the tree (the DOM of the code view's VirtualView), five wheel notches
+       scroll it without rebuilding the window (no DOM regeneration: the view renders its own
+       lines again), Ctrl/Cmd+G 90003 jumps there, the colours arrive from the background walk;
+       Ctrl/Cmd+End shows the last lines;
     6. a screenshot after each step, flat light; the mode switched to dark at the end.
     7. THE EMPTY START, a second run without --sample on a fresh data folder and without
        --mode (AzCode is dark by default, as VSCode is): the explorer says "You have not yet
@@ -62,12 +64,51 @@ EDITOR = "#__azcode_editor"
 DIRTY = "__azcode_tab-dirty"
 KEYWORD = "__azul-native-code-view-keyword"
 LINE = "__azul-native-code-view-line"
+GUTTER = "__azul-native-code-view-gutter"
+
+
+def view_nodes(app):
+    """Every node of every DOM the window shows, as (dom, node): the code view's lines are the
+    DOM of its VirtualView, which DOM 0's hierarchy does not hold."""
+    found = []
+    for dom in app.dom_ids():
+        answer = app.op("get_node_hierarchy", dom_id=dom)
+        found.extend((dom, d) for d in e2e.dicts(answer) if "index" in d and "type" in d)
+    return found
+
+
+def texts_inside(app, cls):
+    """The texts of every DOM whose node lies inside a node wearing `cls`."""
+    nodes = view_nodes(app)
+    by_index = {(dom, n["index"]): n for dom, n in nodes}
+
+    def inside(dom, node):
+        for _ in range(256):
+            if node is None:
+                return False
+            if cls in (node.get("classes") or []):
+                return True
+            node = by_index.get((dom, node.get("parent")))
+        return False
+
+    return [n["text"] for dom, n in nodes if n.get("text") and inside(dom, n)]
+
+
+def with_class(app, cls):
+    """The nodes of every DOM wearing `cls` (a line, a kind of token), as (dom, index)."""
+    return [(dom, n["index"]) for dom, n in view_nodes(app) if cls in (n.get("classes") or [])]
 
 
 def code_shows(app, text):
     """Whether the code view's lines show `text` (the find and replace fields hold the
     searched and the replacing word too, so `shows` alone proves nothing there)."""
-    return any(text in t for t in app.texts_within(LINE))
+    return any(text in t for t in texts_inside(app, LINE))
+
+
+def first_line(app):
+    """The number of the first line in view (its gutter's), or None."""
+    numbers = [int(t) for t in texts_inside(app, GUTTER) if t.strip().isdigit()]
+    return min(numbers) if numbers else None
 
 
 def listed(app, folder):
@@ -120,9 +161,9 @@ def body(args, logs, out):
             raise Failure("the code view (#__azcode_editor) is not in the tree")
         if not app.has_id("__azcode_tab-0") or app.has_id("__azcode_welcome"):
             raise Failure("main.rs is not in a tab in front of the welcome page")
-        if not app.shows("word_counts"):
+        if not code_shows(app, "word_counts"):
             raise Failure("main.rs's text is not shown")
-        if not app.nodes_with_class(KEYWORD):
+        if not with_class(app, KEYWORD):
             raise Failure("no run of main.rs wears the keyword colour")
         app.screenshot(os.path.join(out, "2-main-rs.png"))
 
@@ -132,7 +173,7 @@ def body(args, logs, out):
         app.must("text_input", text="// azcode was here")
         app.frame(2)
         app.key("return")
-        if not app.shows("// azcode was here"):
+        if not code_shows(app, "// azcode was here"):
             raise Failure("the typed text is not shown")
         app.until("main.rs dirty", lambda: app.printed("AZCODE_DIRTY", r"src/main\.rs 1"))
         app.frame(2)
@@ -174,21 +215,40 @@ def body(args, logs, out):
         click_row(app, "huge.rs")
         app.until("huge.rs opened", lambda: app.printed("AZCODE_OPENED", r"huge\.rs 100001"))
         app.frame(3)
-        lines = len(app.nodes_with_class(LINE))
+        lines = len(with_class(app, LINE))
         if not (10 <= lines <= 80):
             raise Failure("%d lines of huge.rs are in the tree - only the lines in view should be" % lines)
+
+        # ---- the wheel: the view scrolls itself, the window is not rebuilt ----
+        # A notch used to rebuild the whole window (CODESCROLL13: one DOM regeneration per
+        # notch - the app's layout callback, the cascade and the layout of the workbench, ~50 ms
+        # of every notch - where AzWidgets' page scrolls with none): the editor lagged.
+        box = app.rect("__azcode_editor")
+        x, y = box["x"] + box["width"] / 2.0, box["y"] + box["height"] / 2.0
+        top = first_line(app) or 0
+        app.must("reset_frame_counters")
+        for _ in range(5):
+            app.must("wheel", x=x, y=y, delta_x=0.0, delta_y=-95.0)
+            app.frame(1)
+        app.until("the wheel scrolled the code view", lambda: (first_line(app) or 0) > top)
+        rebuilt = app.value("get_frame_report").get("dom_regenerations")
+        if rebuilt:
+            raise Failure("five wheel notches over the code view rebuilt the window %s times - a "
+                          "scroll renders only the view's lines" % rebuilt)
+        app.screenshot(os.path.join(out, "5-wheel.png"))
+
         app.key("g", primary=True)
         app.text_input("#__azcode_goto-input", "90003")
         app.key("return")
         app.frame(3)
-        if not app.shows("pub fn f9000(x: u64)"):
+        if not code_shows(app, "pub fn f9000(x: u64)"):
             raise Failure("go to line 90003 does not show it")
-        app.until("the colours of the far lines", lambda: app.nodes_with_class(KEYWORD), interval=0.5)
+        app.until("the colours of the far lines", lambda: with_class(app, KEYWORD), interval=0.5)
         app.screenshot(os.path.join(out, "5-line-90003.png"))
         app.click(selector=EDITOR)
         app.key("end", primary=True)
         app.frame(3)
-        if not app.shows("line 99996"):
+        if not code_shows(app, "line 99996"):
             raise Failure("Ctrl/Cmd+End does not show the last lines")
         app.screenshot(os.path.join(out, "6-the-end.png"))
 
