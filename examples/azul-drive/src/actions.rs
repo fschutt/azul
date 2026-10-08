@@ -2563,9 +2563,7 @@ pub(crate) fn request_view_work(info: &mut CallbackInfo, app: &RefAny, s: &mut D
             let shown = ui_view::shown_order(s);
             let stats =
                 listing::stats_wanted(&shown, range.clone(), &s.stats_asked, listing::STAT_MAX);
-            let folders: Vec<String> = shown
-                .get(range.clone())
-                .unwrap_or(&[])
+            let folders: Vec<String> = listing::in_view(&shown, range.clone())
                 .iter()
                 .filter(|e| e.is_folder)
                 .map(|e| e.key.clone())
@@ -2631,9 +2629,7 @@ fn request_thumbnails_in(
     }
     let items: Vec<(String, Option<u64>)> = {
         let shown = ui_view::shown_order(s);
-        shown
-            .get(range)
-            .unwrap_or(&[])
+        listing::in_view(&shown, range)
             .iter()
             .filter(|e| {
                 !e.is_folder && preview::preview_kind(&e.name) == preview::PreviewKind::Image

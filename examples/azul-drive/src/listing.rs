@@ -194,12 +194,23 @@ pub fn lines_window(tops: &[f32], total: f32, scroll_y: f32, viewport: f32) -> R
     first..end
 }
 
+/// The items of `items` at positions `range`, the range cut to what `items` holds. A view's
+/// range is what it has room for - a grid of twelve cells over a folder of one picture - and
+/// `slice::get` answers `None` for a range that runs past the end, which read as "nothing in
+/// view": a folder smaller than its view never had its sizes, counts or thumbnails asked for.
+#[must_use]
+pub fn in_view<T>(items: &[T], range: Range<usize>) -> &[T] {
+    let end = range.end.min(items.len());
+    let start = range.start.min(end);
+    &items[start..end]
+}
+
 /// The item positions the lines `range` of `lines` hold.
 #[must_use]
 pub fn positions_of(lines: &[Line], range: Range<usize>) -> Range<usize> {
     let mut start = usize::MAX;
     let mut end = 0;
-    for line in lines.get(range).unwrap_or(&[]) {
+    for line in in_view(lines, range) {
         if let Line::Items { start: s, end: e } = *line {
             start = start.min(s);
             end = end.max(e);
@@ -221,9 +232,7 @@ pub fn stats_wanted(
     asked: &HashSet<String>,
     max: usize,
 ) -> Vec<String> {
-    shown
-        .get(range)
-        .unwrap_or(&[])
+    in_view(shown, range)
         .iter()
         .filter(|e| !e.known && !asked.contains(&e.key))
         .take(max)
@@ -336,6 +345,22 @@ pub fn grouped_digits(n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_view_with_room_for_more_than_its_folder_holds_still_holds_the_folders_items() {
+        let items = [1, 2, 3];
+        assert_eq!(in_view(&items, 0..12), &[1, 2, 3], "a grid of twelve over three items");
+        assert_eq!(in_view(&items, 2..12), &[3]);
+        assert!(in_view(&items, 5..12).is_empty(), "scrolled past the end");
+        assert_eq!(in_view(&items, 1..2), &[2]);
+        let entries = [scanned_entry("", "a.txt", false), scanned_entry("", "b.txt", false)];
+        let shown: Vec<&Entry> = entries.iter().collect();
+        assert_eq!(
+            stats_wanted(&shown, 0..40, &HashSet::new(), 10).len(),
+            2,
+            "a folder smaller than its view has its sizes asked for"
+        );
+    }
     use super::*;
 
     fn file(name: &str) -> Entry {
