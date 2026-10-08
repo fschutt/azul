@@ -6128,8 +6128,9 @@ fn chrome_leaf(v: &mut Vec<CssPropertyWithConditions>) {
 // of field paper (`--fl-fld` in `--fl-bd2`, sunk by `--fl-well`) whose picked
 // cell is washed in the accent's soft tint (`--fl-soft`; by night the lifted
 // face `--fl-hT`, a light tint being a light island there) and rimmed in the
-// accent; its expansion panel and the touch chrome's tab picker are popover
-// leaves. Labels are `--fl-ink`, glyphs `--fl-icon`, chevrons and captions
+// accent; its expansion panel, a collapsed group's popup and the touch
+// chrome's tab picker are popover leaves. Labels are `--fl-ink`, glyphs
+// `--fl-icon`, chevrons and captions
 // `--fl-soft1` / `--fl-soft2`; the accent as text is `--fl-acc` by day and
 // `--fl-glow` by night. The touch chrome's picked group is the sunken stone,
 // its own colour in either mode.
@@ -6264,6 +6265,10 @@ pub(crate) fn ribbon_style(
     });
     let e = s.resolved_gallery_panel_style();
     chrome_part(&mut s.gallery_panel_style, &e, chrome_leaf);
+    // A collapsed group's popup is a floating leaf too, the group laid on it
+    // as on the band's leaf.
+    let e = s.resolved_group_popup_style();
+    chrome_part(&mut s.group_popup_style, &e, chrome_leaf);
     // The spinner's buttons have no border to colour: they ring with an
     // inset halo (the frame clips an outer one).
     let e = s.resolved_gallery_spinner_button_style();

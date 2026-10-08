@@ -24,8 +24,18 @@
 //! → `RibbonArrow::Split`/`Menu`, `box`/`buttonGroup` → `Row`/`Column`,
 //! `comboBox` → `Combo`, `dropDown` → `Drop`, `checkBox` → `Check`,
 //! `gallery` → `Gallery`, `separator` → `Separator`,
-//! `dialogBoxLauncher` → [`RibbonGroup::launcher`]. Contextual tabs, KeyTips,
-//! the backstage view and automatic size collapsing are out of scope.
+//! `dialogBoxLauncher` → [`RibbonGroup::launcher`]. Contextual tabs, KeyTips
+//! and the backstage view are out of scope.
+//!
+//! A tab wider than the ribbon scales down as Office's does (its "ribbon
+//! scaling"), step by step and the rightmost group first: large buttons
+//! become small ones (the label beside a 16 px icon, three to a column),
+//! galleries show fewer cells, buttons show their icons alone - and only
+//! then does a group collapse into one button (its icon over its label and
+//! ▾) that opens the whole group in a popup. Every control stays reachable
+//! at any width. The width is that of the window the DOM is built for,
+//! asked through the recorded size queries (a resize across a step rebuilds
+//! the ribbon, any other re-flows it), or [`Ribbon::available_width`].
 //!
 //! The controls are laid out as Office 2010 lays them out: a large button's
 //! label of two words or more is set on two balanced lines with a menu's ▾
@@ -47,12 +57,15 @@
 //! to re-theme without touching widget code.
 
 use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec, OptionDom,
+        ComponentEventFilter, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass,
+        IdOrClass::Class, IdOrClassVec, NodeData, NodeType, OptionDom, TabIndex,
     },
     refany::RefAny,
+    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
+    window::WindowBackgroundMaterial,
 };
 use azul_css::{
     dynamic_selector::OptionCssPropertyWithConditionsVec,
@@ -80,7 +93,7 @@ use azul_css::{
 };
 
 use super::{
-    button::{styled_button, OptionButtonOnClick},
+    button::{styled_button, ButtonOnClickCallbackType, OptionButtonOnClick},
     check_box::CheckBox,
     combobox::ComboBox,
     drop_down::DropDown,
@@ -1381,6 +1394,29 @@ fn theme_gallery_panel(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// The panel a collapsed group's popup shows the group on: a piece of the
+/// content band - its face, Office 2010's fade for a palette with Office
+/// 2010's states - closed by the chrome's border, the group laid on it as it
+/// is in the band. The ribbon's font is declared again: the popup is a
+/// window of its own, and its root inherits nothing from the ribbon.
+fn theme_group_popup(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+        Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+    ];
+    if t.has_office_2010_faces() {
+        v.extend(flat::band_face_both());
+    } else {
+        v.extend(bg_both(t, |p| p.content_bg));
+    }
+    push_box_border_both(&mut v, t, |p| p.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
 fn theme_gallery_spinner_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
         cond_border_box(),
@@ -2069,6 +2105,14 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub gallery_spinner_icon_style: OptionCssPropertyWithConditionsVec,
+    /// The panel a collapsed group's popup shows the whole group on (a tab
+    /// too wide for the ribbon collapses its groups, see [`Ribbon`]).
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub group_popup_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl RibbonStyle {
@@ -2144,6 +2188,7 @@ impl RibbonStyle {
             mobile_group_list_item_selected_style: OptionCssPropertyWithConditionsVec::None,
             gallery_spinner_button_style: OptionCssPropertyWithConditionsVec::None,
             gallery_spinner_icon_style: OptionCssPropertyWithConditionsVec::None,
+            group_popup_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -2585,6 +2630,16 @@ impl RibbonStyle {
             .unwrap_or_else(|| theme_gallery_spinner_icon(&self.theme))
     }
 
+    /// The `group_popup_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_group_popup_style(&self) -> CssPropertyWithConditionsVec {
+        self.group_popup_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_group_popup(&self.theme))
+    }
+
     /// Derives the ribbon style from the OS theme (see
     /// [`RibbonTheme::from_system`]). Pass `SystemStyle::detect()` for the
     /// live system look, e.g. to render a "system native" ribbon.
@@ -2714,6 +2769,12 @@ pub struct Ribbon {
     /// describes; flora lays flora's paper, hairlines and stones on the same
     /// metrics. A part the caller set in [`Self::style`] wins in either theme.
     pub theme: OptionUiTheme,
+    /// The width the ribbon is laid out in, px, which the active tab's
+    /// groups scale down to when they do not fit (Office's ribbon scaling,
+    /// see the module docs). 0 = the width of the window the DOM is built
+    /// for, asked of the window so a resize across a scaling step rebuilds
+    /// the ribbon; set it for a ribbon in a narrower box than its window.
+    pub available_width: f32,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -2770,6 +2831,11 @@ pub struct RibbonGroup {
     /// When set, this group absorbs the remaining ribbon width (the classic office-suite
     /// Styles gallery group stretches; the other groups are content-sized).
     pub fills_space: bool,
+    /// The icon of the one button the group becomes when its tab is too
+    /// wide for the ribbon and the group collapses (Office's group image):
+    /// the button opens the whole group in a popup. Empty = the icon of the
+    /// group's first button.
+    pub icon: AzString,
 }
 
 /// One control slot inside a [`RibbonGroup`].
@@ -3084,6 +3150,7 @@ impl RibbonGroup {
             items: RibbonItemVec::from_const_slice(&[]),
             launcher: OptionButtonOnClick::None,
             fills_space: false,
+            icon: AzString::from_const_str(""),
         }
     }
 
@@ -3091,6 +3158,19 @@ impl RibbonGroup {
     #[must_use]
     pub const fn with_fills_space(mut self, fills_space: bool) -> Self {
         self.fills_space = fills_space;
+        self
+    }
+
+    /// Sets the icon the group's button shows when the group collapses
+    /// (see [`Self::icon`]).
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// Builder method: [`Self::set_icon`].
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
         self
     }
 
@@ -3439,7 +3519,26 @@ impl Ribbon {
             style: RibbonStyle::office_2010(),
             behavior: RibbonBehavior::office_2013(),
             theme: OptionUiTheme::None,
+            available_width: 0.0,
         }
+    }
+
+    /// The width the ribbon is laid out in, px (see
+    /// [`Self::available_width`]); 0 or a width that is not a number: the
+    /// window's.
+    pub fn set_available_width(&mut self, width: f32) {
+        self.available_width = if width.is_finite() {
+            width.max(0.0)
+        } else {
+            0.0
+        };
+    }
+
+    /// [`Self::set_available_width`] for the builder chain.
+    #[must_use]
+    pub fn with_available_width(mut self, width: f32) -> Self {
+        self.set_available_width(width);
+        self
     }
 
     /// Pick the widget theme: the ribbon, its buttons and every embedded
@@ -3580,14 +3679,50 @@ impl Ribbon {
     /// merged into ONE tree in the structure of the theme the DOM is built
     /// for (`UiTheme::current()`), every node carrying each look's
     /// declarations in its `@theme(<name>)` block.
+    ///
+    /// The active tab's scaling is decided once, before either look is
+    /// built: both lay their parts out on the same metrics, so both build the
+    /// same structure - and the window is asked about each width once.
     fn themed(self, mode: RibbonChromeMode) -> Dom {
+        let scales = self.scales_for(mode);
         match self.theme.into_option() {
-            Some(theme) => self.build_in(theme, mode),
+            Some(theme) => self.build_in(theme, mode, &scales),
             None => {
-                let flat = self.clone().build_in(UiTheme::Flat, mode);
-                let flora = self.build_in(UiTheme::Flora, mode);
+                let flat = self.clone().build_in(UiTheme::Flat, mode, &scales);
+                let flora = self.build_in(UiTheme::Flora, mode, &scales);
                 crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
             }
+        }
+    }
+
+    /// How the active tab's groups are drawn (Office's ribbon scaling,
+    /// [`walk_scaling_steps`]): the first step - every group as the app built
+    /// it, then narrower and narrower - whose width fits the ribbon's. The
+    /// width is [`Self::available_width`] when the app set one, else the
+    /// window's the DOM is built for, asked through the recorded size queries
+    /// (`build_window_width_less_than`): only the widths of the steps tried,
+    /// widest first, so a resize rebuilds the ribbon exactly when it crosses
+    /// one of them. Outside a window's build, with no width set, every group
+    /// is drawn as built. The touch chrome shows one group at a time and is
+    /// never scaled.
+    fn scales_for(&self, mode: RibbonChromeMode) -> Vec<GroupScale> {
+        let Some(tab) = self.tabs.as_slice().get(self.active_tab) else {
+            return Vec::new();
+        };
+        let groups = tab.groups.as_slice();
+        if matches!(mode, RibbonChromeMode::Mobile) {
+            return vec![GroupScale::FULL; groups.len()];
+        }
+        let available = self.available_width;
+        if available > 0.0 {
+            chosen_scales(groups, |total| total + FIT_SLACK_PX <= available)
+        } else {
+            chosen_scales(groups, |total| {
+                !matches!(
+                    azul_core::callbacks::build_window_width_less_than(total + FIT_SLACK_PX),
+                    Some(true)
+                )
+            })
         }
     }
 
@@ -3596,8 +3731,8 @@ impl Ribbon {
     /// paint on the same geometry (`themes::flora::ribbon_style`) - and its
     /// own tab row, which it cuts as Firefox's (Australis): its application
     /// button and selected tab carry curves, unless the caller's part
-    /// replaced flora's.
-    fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode) -> Dom {
+    /// replaced flora's. The active tab's groups are drawn at `scales`.
+    fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode, scales: &[GroupScale]) -> Dom {
         let mut curves = TabRowCurves::default();
         if theme == UiTheme::Flora {
             use crate::widgets::themes::flora;
@@ -3609,10 +3744,16 @@ impl Ribbon {
             }
             self.style = flora::ribbon_style(self.style);
         }
-        self.build_chrome(mode, theme, &curves)
+        self.build_chrome(mode, theme, &curves, scales)
     }
 
-    fn build_chrome(self, mode: RibbonChromeMode, theme: UiTheme, curves: &TabRowCurves) -> Dom {
+    fn build_chrome(
+        self,
+        mode: RibbonChromeMode,
+        theme: UiTheme,
+        curves: &TabRowCurves,
+        scales: &[GroupScale],
+    ) -> Dom {
         let Self {
             app_button,
             tabs,
@@ -3624,6 +3765,8 @@ impl Ribbon {
             // The look to build is `theme`: the field is the caller's pin,
             // already resolved by `themed`.
             theme: _,
+            // Already turned into `scales` by `themed`.
+            available_width: _,
         } = self;
         let has_callback = on_tab_click.is_some();
 
@@ -3811,7 +3954,11 @@ impl Ribbon {
                     .groups
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|g| group_dom(g, &style, behavior, theme))
+                    .enumerate()
+                    .map(|(i, g)| {
+                        let scale = scales.get(i).copied().unwrap_or(GroupScale::FULL);
+                        group_dom(g, &style, behavior, theme, scale)
+                    })
                     .collect(),
                 None => Vec::new(),
             };
@@ -4125,6 +4272,21 @@ static CLS_GALLERY_CELL_ICON: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 /// Added to the strip of a list gallery (`RibbonGallery::columns` > 0).
 pub const RIBBON_GALLERY_LIST_CLASS: &str = "__azul-native-ribbon-gallery-list";
+
+/// Added to a group the ribbon collapsed into one button (a tab too wide for
+/// the ribbon, see the module docs), next to the group's own class.
+pub const RIBBON_GROUP_COLLAPSED_CLASS: &str = "__azul-native-ribbon-group-collapsed";
+/// The button a collapsed group is: its icon over its label and ▾.
+pub const RIBBON_GROUP_BUTTON_CLASS: &str = "__azul-native-ribbon-group-button";
+/// The `<transient-window>` a collapsed group's button opens: the group's
+/// last child, so the group is its anchor.
+pub const RIBBON_GROUP_POPUP_WINDOW_CLASS: &str = "__azul-native-ribbon-group-popup-window";
+/// The panel inside it that holds the whole group.
+pub const RIBBON_GROUP_POPUP_CLASS: &str = "__azul-native-ribbon-group-popup";
+static CLS_GROUP_POPUP_WINDOW: &[IdOrClass] = &[Class(AzString::from_const_str(
+    RIBBON_GROUP_POPUP_WINDOW_CLASS,
+))];
+static CLS_GROUP_POPUP: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_GROUP_POPUP_CLASS))];
 
 /// How many small items Office stacks in one column, and how many rows a
 /// list gallery has: three 22 px rows fill the 68 px item area.
@@ -4562,8 +4724,16 @@ fn split_button_dom(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiThe
 
 /// One item in the ribbon's theme. An embedded widget the caller left
 /// without a theme (`None`) is part of the ribbon's look and is built in
-/// `theme`; one the caller pinned keeps its pin.
-fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
+/// `theme`; one the caller pinned keeps its pin. A gallery shows at most
+/// `cells` cells in the ribbon (`None`: as many as the app asked for), the
+/// cap a tab too wide for the ribbon puts on its group's galleries.
+fn item_dom(
+    item: RibbonItem,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    cells: Option<usize>,
+) -> Dom {
     match item {
         RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s, theme),
         RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s, theme),
@@ -4574,7 +4744,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme
                 col.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b, theme))
+                    .map(|it| item_dom(it, s, b, theme, cells))
                     .collect(),
             )),
         RibbonItem::Row(row) => Dom::create_div()
@@ -4584,7 +4754,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme
                 row.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b, theme))
+                    .map(|it| item_dom(it, s, b, theme, cells))
                     .collect(),
             )),
         RibbonItem::Combo(mut combo) => {
@@ -4605,7 +4775,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme
             }
             check.dom()
         }
-        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b, theme),
+        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b, theme, cells),
         RibbonItem::Separator => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEPARATOR))
             .with_css_props(s.resolved_separator_style()),
@@ -4683,17 +4853,35 @@ static GROUP_FILL_STYLE: &[Cond] = &[
     Cond::simple(P::const_min_width(LayoutMinWidth::const_px(160))),
 ];
 
-fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
+/// One group of the active tab, drawn at `scale` (Office's ribbon scaling,
+/// [`walk_scaling_steps`]): as the app built it, with its buttons small or
+/// their icons alone ([`scaled_items`]) and its galleries showing fewer
+/// cells - or collapsed into one button that opens the whole group in a
+/// popup ([`collapsed_group_dom`]).
+fn group_dom(
+    group: RibbonGroup,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    scale: GroupScale,
+) -> Dom {
+    if scale.size == GroupSize::Collapsed {
+        return collapsed_group_dom(group, s, b, theme);
+    }
     let RibbonGroup {
         label,
         items,
         launcher,
         fills_space,
+        // The collapsed group's button shows the icon; a group drawn whole
+        // shows its items.
+        icon: _,
     } = group;
 
-    let item_doms: Vec<Dom> = stack_small_items(items.into_library_owned_vec())
+    let items = scaled_items(items.into_library_owned_vec(), scale.size);
+    let item_doms: Vec<Dom> = stack_small_items(items)
         .into_iter()
-        .map(|it| item_dom(it, s, b, theme))
+        .map(|it| item_dom(it, s, b, theme, scale.gallery_cells))
         .collect();
 
     let items_row = Dom::create_div()
@@ -4767,12 +4955,42 @@ fn gallery_window(len: usize, selected: usize, visible: usize) -> core::ops::Ran
     start..start + visible
 }
 
-fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
+/// How many cells a gallery's in-ribbon strip shows: a classic strip the
+/// `visible` cells around the selected one (every cell when `visible` is 0
+/// or covers them all), a list gallery its first `columns` x 3 commands (or
+/// its `visible` ones) - and at most `cap` of them, the cap a tab too wide
+/// for the ribbon puts on its group's galleries.
+fn gallery_shown(gallery: &RibbonGallery, cap: Option<usize>) -> usize {
+    let len = gallery.cells.len();
+    let asked = if gallery.columns > 0 {
+        let shown = if gallery.visible == 0 {
+            gallery.columns.saturating_mul(ROWS_PER_COLUMN)
+        } else {
+            gallery.visible
+        };
+        shown.min(len)
+    } else if gallery.visible == 0 || gallery.visible >= len {
+        len
+    } else {
+        gallery.visible
+    };
+    cap.map_or(asked, |cap| asked.min(cap))
+}
+
+fn gallery_dom(
+    gallery: RibbonGallery,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    cap: Option<usize>,
+) -> Dom {
+    let shown = gallery_shown(&gallery, cap);
     let RibbonGallery {
         cells,
         selected,
         on_select,
-        visible,
+        // Counted into `shown`.
+        visible: _,
         columns,
     } = gallery;
     // A list gallery is commands (Quick Steps): no cell stays selected, and
@@ -4782,14 +5000,9 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
     let auto_select = b.auto_select_gallery && !list;
     let cells = cells.into_library_owned_vec();
     let (strip_cells, selected) = if list {
-        let shown = if visible == 0 {
-            columns * ROWS_PER_COLUMN
-        } else {
-            visible
-        };
-        (0..cells.len().min(shown), usize::MAX)
+        (0..shown, usize::MAX)
     } else {
-        (gallery_window(cells.len(), selected, visible), selected)
+        (gallery_window(cells.len(), selected, shown), selected)
     };
     let cell_base = if list {
         merged_style(
@@ -4980,6 +5193,1021 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_WRAPPER))
         .with_css_props(s.resolved_gallery_wrapper_style())
         .with_children(DomVec::from_vec(vec![frame, panel]))
+}
+
+// -- Ribbon scaling --
+//
+// Office scales a tab that does not fit its ribbon down step by step (its
+// "ribbon scaling": the size definitions and scaling policy of Windows'
+// Ribbon framework). First the large buttons become small ones, the label
+// beside a 16 px icon, three to a column with the group's small items; then
+// the galleries show fewer cells; then every button shows its icon alone,
+// still three to a column; and only then does a group collapse into one
+// large button - its icon over its label and ▾ - that opens the whole group
+// in a popup. Each step is one group's, the rightmost group first (Office's
+// order when a tab names none), and a group takes it only where it makes the
+// group narrower: three large buttons with short labels are narrower than a
+// column of small ones.
+//
+// Choosing a step needs every group's width at every step BEFORE anything is
+// laid out, so the ribbon measures its parts from the metrics their styles
+// declare - the paddings, borders and gaps of `theme_large_button`,
+// `theme_small_button`, `theme_group` and the gallery's parts, the 32 px and
+// 16 px icons, the 120 px gallery cells - and a label from its characters'
+// advances in a sans-serif UI face at the part's font size. The estimate
+// errs wide (`TEXT_WIDTH_FACTOR`, `FIT_SLACK_PX`): a group gives way a
+// little early rather than overflowing its window. Flora repaints the ribbon
+// on the same metrics, so one measure serves both looks.
+
+/// A large button's border box across its content: padding 7 + 7 and the
+/// chassis' 1 px border on each side (`theme_large_button`).
+const LARGE_BUTTON_FRAME_PX: f32 = 16.0;
+/// A large button's minimum width (`theme_large_button`).
+const LARGE_BUTTON_MIN_PX: f32 = 44.0;
+/// The margin after a large button (`theme_large_button`).
+const LARGE_BUTTON_GAP_PX: f32 = 1.0;
+/// A large button's icon (`theme_large_icon`).
+const LARGE_ICON_PX: f32 = 32.0;
+/// A large split button's arrow part across its label: padding 3 + 3 and
+/// its border (`SPLIT_LARGE_ARROW_STYLE`).
+const SPLIT_LARGE_ARROW_FRAME_PX: f32 = 8.0;
+/// A small button's padding 3 + 3 and border 1 + 1 (`theme_small_button`).
+const SMALL_BUTTON_FRAME_PX: f32 = 8.0;
+/// A small button's icon (`theme_small_icon`).
+const SMALL_ICON_PX: f32 = 16.0;
+/// The space before a small button's label (`theme_small_label`).
+const SMALL_LABEL_GAP_PX: f32 = 5.0;
+/// A small split button's arrow part (`SPLIT_SMALL_ARROW_STYLE`).
+const SPLIT_SMALL_ARROW_PX: f32 = 14.0;
+/// A menu's ▾ (`theme_arrow_icon`).
+const ARROW_PX: f32 = 14.0;
+/// A button label's font size (`theme_large_label`, `theme_small_label`).
+const LABEL_FONT_PX: f32 = 12.0;
+/// A group caption's font size (`theme_group_label`).
+const CAPTION_FONT_PX: f32 = 11.0;
+/// A drop-down box's font size (the drop-down widget's own).
+const DROP_DOWN_FONT_PX: f32 = 13.0;
+/// What a drop-down box puts around its longest choice: its padding, its
+/// border and its ▾.
+const DROP_DOWN_FRAME_PX: f32 = 34.0;
+/// The margin after a ribbon combo box (`theme_combo_wrapper_base`).
+const COMBO_GAP_PX: f32 = 2.0;
+/// A check box: 14 px, padding 2 + 2 and border 1 + 1 (`check_box`).
+const CHECK_BOX_PX: f32 = 20.0;
+/// A separator and its margins (`theme_separator`).
+const SEPARATOR_PX: f32 = 7.0;
+/// What an app's own control is taken to put around its texts and icons.
+const CUSTOM_FRAME_PX: f32 = 8.0;
+/// A group's padding 2 + 2 and its 1 px separator (`theme_group`).
+const GROUP_FRAME_PX: f32 = 5.0;
+/// A dialog launcher and the spacer that balances it
+/// (`theme_launcher_button`, `FOOTER_SPACER_STYLE`).
+const LAUNCHER_PX: f32 = 34.0;
+/// A group that fills the space shrinks to its floor: `GROUP_FILL_STYLE`'s
+/// min-width and the group's frame.
+const FILL_GROUP_MIN_PX: f32 = 165.0;
+/// A classic gallery cell (`theme_gallery_cell`).
+const GALLERY_CELL_PX: f32 = 120.0;
+/// A gallery's spinner column - 15 px and its 1 px rule - and its frame's
+/// border (`theme_gallery_spinner`, `theme_gallery_frame`).
+const GALLERY_FRAME_PX: f32 = 18.0;
+/// A gallery frame's minimum width (`theme_gallery_frame`).
+const GALLERY_MIN_PX: f32 = 137.0;
+/// A list gallery cell around its name: its border, its padding 3 + 8 and
+/// its 16 px icon box (`GALLERY_LIST_CELL_STYLE`, `GALLERY_LIST_ICON_STYLE`).
+const GALLERY_LIST_CELL_FRAME_PX: f32 = 28.0;
+/// The fewest cells a classic gallery shows in the ribbon as its tab
+/// narrows (a list gallery keeps one column): Office's in-ribbon galleries
+/// keep a few, and More shows them all.
+const GALLERY_MIN_CELLS: usize = 2;
+/// How much wider than Helvetica's advances a label is taken to be: the UI
+/// faces (San Francisco, Segoe UI, Cantarell) run a little wider.
+const TEXT_WIDTH_FACTOR: f32 = 1.1;
+/// Room left at the ribbon's edge for what the estimate misses.
+const FIT_SLACK_PX: f32 = 4.0;
+/// A collapsed group's button: the group's item area and its caption row
+/// (`GROUP_ITEMS_STYLE`, `GROUP_FOOTER_STYLE`) - Office's spans the group.
+const COLLAPSED_BUTTON_HEIGHT_PX: isize = 86;
+/// The icon of a collapsed group none of whose buttons has one.
+const GROUP_FALLBACK_ICON: &str = "apps";
+
+/// A character's advance in a sans-serif UI face, in thousandths of an em:
+/// Helvetica's, which the UI faces of macOS, Windows and Linux are close to
+/// (`TEXT_WIDTH_FACTOR` covers the rest). Ideographs, kana and hangul are an
+/// em wide; any other character is taken to be a wide letter.
+const fn advance_milli_em(c: char) -> u32 {
+    match c {
+        '\'' => 191,
+        'i' | 'j' | 'l' => 222,
+        '|' => 260,
+        ' ' | '\u{a0}' | '!' | ',' | '.' | '/' | ':' | ';' | '[' | '\\' | ']' | 'I' | 'f' | 't' => {
+            278
+        }
+        'r' | '(' | ')' | '-' | '`' => 333,
+        '{' | '}' => 334,
+        '"' => 355,
+        '*' => 389,
+        '^' => 469,
+        'J' | 'c' | 'k' | 's' | 'v' | 'x' | 'y' | 'z' => 500,
+        '0'..='9'
+        | '#'
+        | '$'
+        | '?'
+        | '_'
+        | 'L'
+        | 'a'
+        | 'b'
+        | 'd'
+        | 'e'
+        | 'g'
+        | 'h'
+        | 'n'..='q'
+        | 'u' => 556,
+        '+' | '<' | '=' | '>' | '~' => 584,
+        'F' | 'T' | 'Z' => 611,
+        '&' | 'A' | 'B' | 'E' | 'K' | 'P' | 'S' | 'V' | 'X' | 'Y' => 667,
+        'C' | 'D' | 'H' | 'N' | 'R' | 'U' | 'w' => 722,
+        'G' | 'O' | 'Q' => 778,
+        'M' | 'm' => 833,
+        '%' => 889,
+        'W' => 944,
+        '@' => 1015,
+        '\u{1100}'..='\u{11ff}'
+        | '\u{2e80}'..='\u{a4cf}'
+        | '\u{ac00}'..='\u{d7a3}'
+        | '\u{f900}'..='\u{faff}'
+        | '\u{ff00}'..='\u{ff60}' => 1000,
+        _ => 600,
+    }
+}
+
+/// The width of `text` set at `font_px`, as the ribbon estimates it.
+fn text_px(text: &str, font_px: f32) -> f32 {
+    let milli: u64 = text.chars().map(|c| u64::from(advance_milli_em(c))).sum();
+    milli as f32 / 1000.0 * font_px * TEXT_WIDTH_FACTOR
+}
+
+/// A button label's width.
+fn label_px(text: &str) -> f32 {
+    text_px(text, LABEL_FONT_PX)
+}
+
+/// A large button's label block as [`large_label_text`] sets it: the longer
+/// of its two balanced lines, the ▾ glued to the last word - or its one
+/// word over the ▾.
+fn large_label_px(label: &str, arrow: bool) -> f32 {
+    let words: Vec<&str> = label.split_whitespace().collect();
+    match balanced_break(&words) {
+        Some(k) => {
+            let glued = if arrow {
+                label_px("\u{a0}") + ARROW_PX
+            } else {
+                0.0
+            };
+            label_px(&words[..k].join(" ")).max(label_px(&words[k..].join(" ")) + glued)
+        }
+        None => {
+            let word = label_px(label.trim());
+            if arrow {
+                word.max(ARROW_PX)
+            } else {
+                word
+            }
+        }
+    }
+}
+
+/// A large button across, its margin included.
+fn large_button_px(rb: &RibbonButton) -> f32 {
+    if rb.is_split() {
+        // The icon over the label and its ▾: two parts, as wide as the wider.
+        let main = LARGE_ICON_PX + LARGE_BUTTON_FRAME_PX;
+        let arrow_part = large_label_px(rb.label.as_str(), true) + SPLIT_LARGE_ARROW_FRAME_PX;
+        return main.max(arrow_part).max(LARGE_BUTTON_MIN_PX) + LARGE_BUTTON_GAP_PX;
+    }
+    let icon = if rb.icon.as_str().is_empty() {
+        0.0
+    } else {
+        LARGE_ICON_PX
+    };
+    let label = large_label_px(rb.label.as_str(), rb.arrow != RibbonArrow::None);
+    (icon.max(label) + LARGE_BUTTON_FRAME_PX).max(LARGE_BUTTON_MIN_PX) + LARGE_BUTTON_GAP_PX
+}
+
+/// A small button across; `icon_only` drops the label of a button that has
+/// an icon ([`icon_only`]).
+fn small_button_px(rb: &RibbonButton, icon_only: bool) -> f32 {
+    let has_icon = !rb.icon.as_str().is_empty();
+    let icon = if has_icon { SMALL_ICON_PX } else { 0.0 };
+    let label = if (icon_only && has_icon) || rb.label.as_str().is_empty() {
+        0.0
+    } else {
+        SMALL_LABEL_GAP_PX + label_px(rb.label.as_str())
+    };
+    if rb.is_split() {
+        // The main part - padded 2 on its right, not 3 - beside the ▾'s part.
+        return SMALL_BUTTON_FRAME_PX - 1.0 + icon + label + SPLIT_SMALL_ARROW_PX;
+    }
+    let arrow = if rb.arrow == RibbonArrow::None {
+        0.0
+    } else {
+        ARROW_PX
+    };
+    SMALL_BUTTON_FRAME_PX + icon + label + arrow
+}
+
+/// A combo box across: the width the app gave its wrapper
+/// ([`RibbonStyle::styled_combo_box`]), else the combo box's own minimum.
+fn combo_px(combo: &ComboBox) -> f32 {
+    let declared = combo.wrapper_style.as_ref().and_then(|style| {
+        style.as_ref().iter().rev().find_map(|declaration| {
+            if !declaration.apply_if.as_ref().is_empty() {
+                return None;
+            }
+            match &declaration.property {
+                P::Width(azul_css::css::CssPropertyValue::Exact(LayoutWidth::Px(px))) => {
+                    px.to_pixels_absolute().into_option()
+                }
+                _ => None,
+            }
+        })
+    });
+    declared.unwrap_or(super::combobox::MIN_WIDTH as f32) + COMBO_GAP_PX
+}
+
+/// A drop-down box across: its longest choice and what it puts around it.
+fn drop_px(drop: &DropDown) -> f32 {
+    drop.choices
+        .as_ref()
+        .iter()
+        .map(|choice| text_px(choice.as_str(), DROP_DOWN_FONT_PX))
+        .fold(0.0, f32::max)
+        + DROP_DOWN_FRAME_PX
+}
+
+/// An app's own control across, roughly: its texts at a label's size and its
+/// icons side by side, and a little room around them.
+fn custom_px(dom: &Dom) -> f32 {
+    fn content(dom: &Dom) -> f32 {
+        let own = match dom.root.get_node_type() {
+            NodeType::Text(text) => label_px(text.as_str()),
+            NodeType::Icon(_) => SMALL_ICON_PX,
+            _ => 0.0,
+        };
+        own + dom.children.as_ref().iter().map(content).sum::<f32>()
+    }
+    content(dom) + CUSTOM_FRAME_PX
+}
+
+/// A gallery across: its strip of cells - at most `fit.cells` of them, or
+/// as narrow as its frame lets it in a group that fills the space - its
+/// spinner and its frame.
+fn gallery_px(gallery: &RibbonGallery, fit: Fit) -> f32 {
+    if fit.elastic {
+        return GALLERY_MIN_PX;
+    }
+    let shown = gallery_shown(gallery, fit.cells);
+    let strip = if gallery.columns > 0 {
+        // Columns of three commands, each as wide as its widest.
+        let cells: Vec<f32> = gallery
+            .cells
+            .as_ref()
+            .iter()
+            .take(shown)
+            .map(|cell| {
+                GALLERY_LIST_CELL_FRAME_PX + SMALL_LABEL_GAP_PX + label_px(cell.label.as_str())
+            })
+            .collect();
+        cells
+            .chunks(ROWS_PER_COLUMN)
+            .map(|column| column.iter().copied().fold(0.0, f32::max))
+            .sum::<f32>()
+    } else {
+        shown as f32 * GALLERY_CELL_PX
+    };
+    (strip + GALLERY_FRAME_PX).max(GALLERY_MIN_PX)
+}
+
+/// How far a group is scaled down, in the order a tab that does not fit
+/// takes the sizes (Office's group sizes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum GroupSize {
+    /// As the app built it.
+    Large,
+    /// Its large buttons are small ones - the label beside a 16 px icon -
+    /// stacked three to a column with its small items.
+    Medium,
+    /// Every button is its icon alone, named by its label, three to a
+    /// column.
+    Small,
+    /// One button - the group's icon over its label and ▾ - that opens the
+    /// whole group in a popup.
+    Collapsed,
+}
+
+/// One group's scaling: its size, and the most cells its galleries show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct GroupScale {
+    size: GroupSize,
+    /// The most cells a gallery of the group shows in the ribbon; `None`:
+    /// as many as the app asked for.
+    gallery_cells: Option<usize>,
+}
+
+impl GroupScale {
+    /// The group as the app built it.
+    const FULL: Self = Self {
+        size: GroupSize::Large,
+        gallery_cells: None,
+    };
+}
+
+/// How a group at a scale lays out one of its items ([`item_extent`]).
+#[derive(Debug, Clone, Copy)]
+struct Fit {
+    size: GroupSize,
+    /// The cap on the group's galleries.
+    cells: Option<usize>,
+    /// The group fills the space: its galleries clip, down to their frame's
+    /// minimum.
+    elastic: bool,
+}
+
+/// One item as a group at `fit` lays it out: whether Office stacks it three
+/// to a column with its neighbours (one control tall: [`is_small_item`] once
+/// [`scaled_items`] made it small) and how wide it is.
+fn item_extent(item: &RibbonItem, fit: Fit) -> (bool, f32) {
+    match item {
+        RibbonItem::LargeButton(rb) if fit.size == GroupSize::Large => (false, large_button_px(rb)),
+        RibbonItem::LargeButton(rb) | RibbonItem::SmallButton(rb) => {
+            (true, small_button_px(rb, fit.size >= GroupSize::Small))
+        }
+        RibbonItem::Column(col) => (
+            false,
+            col.items
+                .as_ref()
+                .iter()
+                .map(|it| item_extent(it, fit).1)
+                .fold(0.0, f32::max),
+        ),
+        RibbonItem::Row(row) => (
+            true,
+            row.items
+                .as_ref()
+                .iter()
+                .map(|it| item_extent(it, fit).1)
+                .sum::<f32>(),
+        ),
+        RibbonItem::Combo(combo) => (true, combo_px(combo)),
+        RibbonItem::Drop(drop) => (true, drop_px(drop)),
+        RibbonItem::Check(_) => (true, CHECK_BOX_PX),
+        RibbonItem::Gallery(gallery) => (false, gallery_px(gallery, fit)),
+        RibbonItem::Separator => (false, SEPARATOR_PX),
+        RibbonItem::Custom(dom) => (false, custom_px(dom)),
+    }
+}
+
+/// A group's item row across: its items side by side, every run of two or
+/// more that stack packed three to a column, as [`stack_small_items`] packs
+/// them.
+fn items_px(items: &[RibbonItem], fit: Fit) -> f32 {
+    fn flush(run: &mut Vec<f32>, total: &mut f32) {
+        if run.len() < 2 {
+            *total += run.iter().sum::<f32>();
+        } else {
+            for column in run.chunks(ROWS_PER_COLUMN) {
+                *total += column.iter().copied().fold(0.0, f32::max);
+            }
+        }
+        run.clear();
+    }
+    let mut total = 0.0;
+    let mut run: Vec<f32> = Vec::new();
+    for item in items {
+        let (stacks, width) = item_extent(item, fit);
+        if stacks {
+            run.push(width);
+        } else {
+            flush(&mut run, &mut total);
+            total += width;
+        }
+    }
+    flush(&mut run, &mut total);
+    total
+}
+
+/// A group across at `scale`, its padding and its separator included: its
+/// item row or its caption, whichever is wider - a group that fills the
+/// space no narrower than its floor - or its one button, collapsed.
+fn group_px(group: &RibbonGroup, scale: GroupScale) -> f32 {
+    if scale.size == GroupSize::Collapsed {
+        return GROUP_FRAME_PX + large_button_px(&collapsed_button(group));
+    }
+    let fit = Fit {
+        size: scale.size,
+        cells: scale.gallery_cells,
+        elastic: group.fills_space,
+    };
+    let items = items_px(group.items.as_ref(), fit);
+    let launcher = if group.launcher.is_some() {
+        LAUNCHER_PX
+    } else {
+        0.0
+    };
+    let caption = text_px(group.label.as_str(), CAPTION_FONT_PX) + launcher;
+    let width = GROUP_FRAME_PX + items.max(caption);
+    if group.fills_space {
+        width.max(FILL_GROUP_MIN_PX)
+    } else {
+        width
+    }
+}
+
+/// The most and the fewest cells the galleries among `items` show in the
+/// ribbon - the range a tab too wide for it steps them through, a cell at a
+/// time: a classic gallery keeps [`GALLERY_MIN_CELLS`], a list gallery one
+/// column. `None` for items without a gallery.
+fn gallery_cell_range(items: &[RibbonItem]) -> Option<(usize, usize)> {
+    let mut range: Option<(usize, usize)> = None;
+    for item in items {
+        let found = match item {
+            RibbonItem::Gallery(gallery) => {
+                let most = gallery_shown(gallery, None);
+                let fewest = if gallery.columns > 0 {
+                    ROWS_PER_COLUMN
+                } else {
+                    GALLERY_MIN_CELLS
+                };
+                Some((most, fewest.min(most)))
+            }
+            RibbonItem::Column(col) => gallery_cell_range(col.items.as_ref()),
+            RibbonItem::Row(row) => gallery_cell_range(row.items.as_ref()),
+            _ => None,
+        };
+        if let Some((most, fewest)) = found {
+            range = Some(match range {
+                Some((m, f)) => (m.max(most), f.max(fewest)),
+                None => (most, fewest),
+            });
+        }
+    }
+    range
+}
+
+/// A tab's groups while the scaling walk ([`walk_scaling_steps`]) scales
+/// them down: each group's scale, and its width there.
+struct ScalingWalk<'a> {
+    groups: &'a [RibbonGroup],
+    scales: Vec<GroupScale>,
+    widths: Vec<f32>,
+}
+
+impl<'a> ScalingWalk<'a> {
+    fn new(groups: &'a [RibbonGroup]) -> Self {
+        Self {
+            groups,
+            scales: vec![GroupScale::FULL; groups.len()],
+            widths: groups
+                .iter()
+                .map(|g| group_px(g, GroupScale::FULL))
+                .collect(),
+        }
+    }
+
+    /// The tab across at the groups' scales.
+    fn total(&self) -> f32 {
+        self.widths.iter().sum()
+    }
+
+    /// Scales group `i` to `candidate` if that makes it narrower (by more
+    /// than a rounding error); whether it did.
+    fn take(&mut self, i: usize, candidate: GroupScale) -> bool {
+        let width = group_px(&self.groups[i], candidate);
+        if width + 0.5 < self.widths[i] {
+            self.scales[i] = candidate;
+            self.widths[i] = width;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Walks Office's ribbon scaling for a tab of `groups`, widest first: every
+/// group as the app built it, then one group's step at a time - every step
+/// that makes a group narrower, the rightmost group first, in four rounds:
+/// (1) its large buttons small, (2) its galleries a cell narrower each, down
+/// to their fewest cells, (3) every button its icon alone, (4) the group
+/// collapsed into one button. `stop` sees the groups' scales and the tab's
+/// width at each step and says whether to stop there.
+fn walk_scaling_steps(groups: &[RibbonGroup], mut stop: impl FnMut(&[GroupScale], f32) -> bool) {
+    let mut walk = ScalingWalk::new(groups);
+    if stop(&walk.scales, walk.total()) {
+        return;
+    }
+    let right_to_left = (0..groups.len()).rev();
+    for i in right_to_left.clone() {
+        let medium = GroupScale {
+            size: GroupSize::Medium,
+            ..walk.scales[i]
+        };
+        if walk.take(i, medium) && stop(&walk.scales, walk.total()) {
+            return;
+        }
+    }
+    for i in right_to_left.clone() {
+        // A group that fills the space clips its gallery as it shrinks.
+        if groups[i].fills_space {
+            continue;
+        }
+        let Some((most, fewest)) = gallery_cell_range(groups[i].items.as_ref()) else {
+            continue;
+        };
+        let mut cells = most;
+        while cells > fewest {
+            cells -= 1;
+            let fewer = GroupScale {
+                gallery_cells: Some(cells),
+                ..walk.scales[i]
+            };
+            if walk.take(i, fewer) && stop(&walk.scales, walk.total()) {
+                return;
+            }
+        }
+    }
+    for i in right_to_left.clone() {
+        let small = GroupScale {
+            size: GroupSize::Small,
+            ..walk.scales[i]
+        };
+        if walk.take(i, small) && stop(&walk.scales, walk.total()) {
+            return;
+        }
+    }
+    for i in right_to_left {
+        let collapsed = GroupScale {
+            size: GroupSize::Collapsed,
+            ..walk.scales[i]
+        };
+        if walk.take(i, collapsed) && stop(&walk.scales, walk.total()) {
+            return;
+        }
+    }
+}
+
+/// The groups' scales at the first step of [`walk_scaling_steps`] whose
+/// width `fits` - or at the narrowest step, when none does.
+fn chosen_scales(groups: &[RibbonGroup], mut fits: impl FnMut(f32) -> bool) -> Vec<GroupScale> {
+    let mut chosen = vec![GroupScale::FULL; groups.len()];
+    walk_scaling_steps(groups, |scales, total| {
+        chosen.clear();
+        chosen.extend_from_slice(scales);
+        fits(total)
+    });
+    chosen
+}
+
+/// `items` as a group at `size` draws them (Office's group sizes): from
+/// medium on every large button a small one, at small every button its icon
+/// alone - in the app's own rows and columns too.
+fn scaled_items(items: Vec<RibbonItem>, size: GroupSize) -> Vec<RibbonItem> {
+    if size == GroupSize::Large {
+        return items;
+    }
+    items
+        .into_iter()
+        .map(|item| scaled_item(item, size))
+        .collect()
+}
+
+fn scaled_item(item: RibbonItem, size: GroupSize) -> RibbonItem {
+    match item {
+        RibbonItem::LargeButton(rb) | RibbonItem::SmallButton(rb) => {
+            RibbonItem::SmallButton(if size >= GroupSize::Small {
+                icon_only(rb)
+            } else {
+                rb
+            })
+        }
+        RibbonItem::Column(col) => RibbonItem::Column(RibbonColumn {
+            items: RibbonItemVec::from_vec(scaled_items(col.items.into_library_owned_vec(), size)),
+        }),
+        RibbonItem::Row(row) => RibbonItem::Row(RibbonRow {
+            items: RibbonItemVec::from_vec(scaled_items(row.items.into_library_owned_vec(), size)),
+        }),
+        other => other,
+    }
+}
+
+/// A button as its icon alone, named by its label - what a screen reader
+/// says, as for any icon-only button. A button without an icon keeps its
+/// label.
+fn icon_only(mut rb: RibbonButton) -> RibbonButton {
+    if rb.icon.as_str().is_empty() || rb.label.as_str().is_empty() {
+        return rb;
+    }
+    if rb.alt.as_str().is_empty() {
+        rb.alt = rb.label.clone();
+    }
+    rb.label = AzString::from_const_str("");
+    rb
+}
+
+// -- A collapsed group and its popup --
+
+/// The button a collapsed group is (Office's group button): the group's
+/// icon - its own, else its first button's - over its label and ▾.
+fn collapsed_button(group: &RibbonGroup) -> RibbonButton {
+    let icon = if group.icon.as_str().is_empty() {
+        first_icon(group.items.as_ref())
+            .unwrap_or_else(|| AzString::from_const_str(GROUP_FALLBACK_ICON))
+    } else {
+        group.icon.clone()
+    };
+    RibbonButton::new(icon, group.label.clone()).with_arrow(RibbonArrow::Menu)
+}
+
+/// The icon of the first button among `items` that has one, depth first.
+fn first_icon(items: &[RibbonItem]) -> Option<AzString> {
+    items.iter().find_map(|item| match item {
+        RibbonItem::LargeButton(rb) | RibbonItem::SmallButton(rb)
+            if !rb.icon.as_str().is_empty() =>
+        {
+            Some(rb.icon.clone())
+        }
+        RibbonItem::Column(col) => first_icon(col.items.as_ref()),
+        RibbonItem::Row(row) => first_icon(row.items.as_ref()),
+        _ => None,
+    })
+}
+
+/// A collapsed group (module docs): one large button spanning the group -
+/// its icon over its label and ▾ - whose click opens the whole group, as a
+/// window wide enough draws it, in a popup under it
+/// ([`group_popup_window`], the group's last child: the group is the
+/// popup's anchor).
+fn collapsed_group_dom(
+    group: RibbonGroup,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+) -> Dom {
+    let shared = RefAny::new(GroupPopupShared { pending: None });
+    let mut button = collapsed_button(&group);
+    button.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
+        shared.clone(),
+        on_ribbon_group_button_click as ButtonOnClickCallbackType,
+    ));
+    let mut button = expand_ribbon_button(button, true, s, theme);
+    button
+        .root
+        .add_class(AzString::from_const_str(RIBBON_GROUP_BUTTON_CLASS));
+    // The button is the whole group - its item area and its caption row -
+    // and its label is the group's caption.
+    button
+        .root
+        .upsert_inline_css_property(P::const_height(LayoutHeight::const_px(
+            COLLAPSED_BUTTON_HEIGHT_PX,
+        )));
+    let popup = group_popup_window(group, s, b, theme, shared);
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+            CLS_GROUP[0].clone(),
+            Class(AzString::from_const_str(RIBBON_GROUP_COLLAPSED_CLASS)),
+        ]))
+        .with_css_props(s.resolved_group_style())
+        .with_children(DomVec::from_vec(vec![button, popup]))
+}
+
+/// The window a collapsed group's button opens: closed, under the group,
+/// closed by a press outside or Escape, with per-pixel alpha so a look's
+/// rounded panel keeps its corners.
+const fn group_popup_config() -> TransientWindowConfig {
+    TransientWindowConfig::closed()
+        .with_anchor(TransientAnchor::Bottom)
+        .with_dismiss(TransientDismiss::Outside)
+        .with_material(WindowBackgroundMaterial::Transparent)
+}
+
+/// A collapsed group's popup: the `<transient-window>` holding the whole
+/// group - drawn as a window wide enough draws it - on the look's popup
+/// panel. A command there (a button, a split button's main part, a gallery
+/// cell) is noted and closes the popup, and the app runs it in its own
+/// window once the popup has closed ([`deferred_in_popup`],
+/// [`on_ribbon_group_popup_dismissed`]), as the File menu hands over its
+/// picks; everything else runs where it is clicked, a rebuild it asks for
+/// reaching the app's window too ([`run_in_popup_window`]).
+fn group_popup_window(
+    group: RibbonGroup,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    shared: RefAny,
+) -> Dom {
+    let label = group.label.clone();
+    let mut whole = group_dom(
+        deferred_in_popup(group, &shared),
+        s,
+        b,
+        theme,
+        GroupScale::FULL,
+    );
+    // Alone on its panel, the group wants no separator to its right.
+    whole
+        .root
+        .upsert_inline_css_property(P::const_border_right_width(
+            LayoutBorderRightWidth::const_px(0),
+        ));
+    let mut panel = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_POPUP))
+        .with_css_props(s.resolved_group_popup_style())
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Grouping,
+            accessibility_name: Some(label).into(),
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(vec![whole]));
+    run_in_popup_window(&mut panel);
+    let mut window = NodeData::create_node(NodeType::TransientWindow(group_popup_config()));
+    // The popup's root holds no Tab stop of its own: its first control takes
+    // the focus.
+    window.set_tab_index(TabIndex::NoKeyboardFocus);
+    window.add_callback(
+        EventFilter::Component(ComponentEventFilter::Dismissed),
+        shared,
+        Callback::from_ptr(on_ribbon_group_popup_dismissed).to_core(),
+    );
+    Dom::create_from_data(window)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_POPUP_WINDOW))
+        .with_children(DomVec::from_vec(vec![panel]))
+}
+
+/// `group` as its popup holds it: the click of each command - a plain or a
+/// toggled button, a split button's main part, a gallery cell - is noted
+/// ([`on_ribbon_group_popup_command`], [`on_ribbon_group_popup_select`])
+/// rather than run, and the app runs it in its own window once the popup has
+/// closed: run in the popup's window, a command's thread, timer or new
+/// window would belong to a window about to close. A button whose whole face
+/// opens a menu keeps its click, for its menu to open beside it.
+fn deferred_in_popup(mut group: RibbonGroup, shared: &RefAny) -> RibbonGroup {
+    let items = core::mem::replace(&mut group.items, RibbonItemVec::from_const_slice(&[]));
+    group.items = RibbonItemVec::from_vec(deferred_items(items.into_library_owned_vec(), shared));
+    group
+}
+
+fn deferred_items(items: Vec<RibbonItem>, shared: &RefAny) -> Vec<RibbonItem> {
+    items
+        .into_iter()
+        .map(|item| deferred_item(item, shared))
+        .collect()
+}
+
+fn deferred_item(item: RibbonItem, shared: &RefAny) -> RibbonItem {
+    match item {
+        RibbonItem::LargeButton(rb) => RibbonItem::LargeButton(deferred_button(rb, shared)),
+        RibbonItem::SmallButton(rb) => RibbonItem::SmallButton(deferred_button(rb, shared)),
+        RibbonItem::Column(col) => RibbonItem::Column(RibbonColumn {
+            items: RibbonItemVec::from_vec(deferred_items(
+                col.items.into_library_owned_vec(),
+                shared,
+            )),
+        }),
+        RibbonItem::Row(row) => RibbonItem::Row(RibbonRow {
+            items: RibbonItemVec::from_vec(deferred_items(
+                row.items.into_library_owned_vec(),
+                shared,
+            )),
+        }),
+        RibbonItem::Gallery(mut gallery) => {
+            let on_select =
+                core::mem::replace(&mut gallery.on_select, OptionRibbonGalleryOnSelect::None);
+            if let Some(on_select) = on_select.into_option() {
+                gallery.on_select =
+                    OptionRibbonGalleryOnSelect::Some(RibbonGalleryOnSelect::create(
+                        RefAny::new(PopupSelect {
+                            shared: shared.clone(),
+                            on_select,
+                        }),
+                        on_ribbon_group_popup_select as RibbonGalleryOnSelectCallbackType,
+                    ));
+            }
+            RibbonItem::Gallery(gallery)
+        }
+        other => other,
+    }
+}
+
+fn deferred_button(mut rb: RibbonButton, shared: &RefAny) -> RibbonButton {
+    // A Menu - or a split button without an arrow part, drawn like one -
+    // opens its menu with its whole face: it runs in the popup, beside it.
+    if rb.arrow != RibbonArrow::None && !rb.is_split() {
+        return rb;
+    }
+    let on_click = core::mem::replace(&mut rb.on_click, OptionButtonOnClick::None);
+    if let Some(on_click) = on_click.into_option() {
+        rb.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
+            RefAny::new(PopupCommand {
+                shared: shared.clone(),
+                on_click,
+            }),
+            on_ribbon_group_popup_command as ButtonOnClickCallbackType,
+        ));
+    }
+    rb
+}
+
+/// What a callback of a collapsed group's popup was built with.
+struct InPopupWindow {
+    callback: CoreCallback,
+    refany: RefAny,
+}
+
+/// Every callback under `dom` through [`on_ribbon_group_popup_event`].
+fn run_in_popup_window(dom: &mut Dom) {
+    let callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
+    if !callbacks.is_empty() {
+        let wrapped: Vec<CoreCallbackData> = callbacks
+            .into_iter()
+            .map(|c| CoreCallbackData {
+                event: c.event,
+                callback: CoreCallback {
+                    cb: on_ribbon_group_popup_event as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(InPopupWindow {
+                    callback: c.callback,
+                    refany: c.refany,
+                }),
+            })
+            .collect();
+        dom.root.set_callbacks(wrapped.into());
+    }
+    let children: &mut [Dom] = dom.children.as_mut();
+    for child in children {
+        run_in_popup_window(child);
+    }
+}
+
+/// What a collapsed group's popup and its `<transient-window>` share: the
+/// command a click in the popup picked, waiting for the popup to close.
+struct GroupPopupShared {
+    pending: Option<PopupPick>,
+}
+
+/// A command picked in a collapsed group's popup.
+enum PopupPick {
+    /// A button's click.
+    Click(super::button::ButtonOnClick),
+    /// A gallery cell, by its index.
+    Select(RibbonGalleryOnSelect, usize),
+}
+
+/// A command button of a collapsed group's popup: the popup's shared part
+/// and the app's click.
+struct PopupCommand {
+    shared: RefAny,
+    on_click: super::button::ButtonOnClick,
+}
+
+/// A gallery of a collapsed group's popup: the popup's shared part and the
+/// app's pick.
+struct PopupSelect {
+    shared: RefAny,
+    on_select: RibbonGalleryOnSelect,
+}
+
+/// A rebuild asked for in a popup's window must reach the app's window too:
+/// the popup shows a subtree of the app's DOM, which only the app's window
+/// rebuilds.
+const fn everywhere(update: Update) -> Update {
+    match update {
+        Update::RefreshDom => Update::RefreshDomAllWindows,
+        other => other,
+    }
+}
+
+/// A collapsed group's button was clicked: its popup opens - or closes, when
+/// it shows. The engine knows whether it shows: a press outside or Escape
+/// closes it too, and a rebuild of the app keeps it up.
+extern "C" fn on_ribbon_group_button_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(group) = ancestor_with_class(&info, hit, RIBBON_GROUP_COLLAPSED_CLASS) else {
+        return Update::DoNothing;
+    };
+    let Some(popup) = info.get_last_child(group) else {
+        return Update::DoNothing;
+    };
+    let open = !info.is_transient_window_open(popup);
+    if open {
+        // A fresh showing forgets a pick an earlier one left.
+        if let Some(mut shared) = data.downcast_mut::<GroupPopupShared>() {
+            shared.pending = None;
+        }
+    }
+    info.set_transient_window_open(popup, open);
+    Update::DoNothing
+}
+
+/// A callback of a collapsed group's popup - a check box, a combo box, a
+/// button that opens a menu, the app's own control - run where it was
+/// clicked, in the popup's window, with a rebuild it asks for widened to
+/// every window ([`everywhere`]).
+extern "C" fn on_ribbon_group_popup_event(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((callback, refany)) = data
+        .downcast_ref::<InPopupWindow>()
+        .map(|p| (p.callback.clone(), p.refany.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    everywhere(Callback::from_core(callback).invoke(refany, info))
+}
+
+/// A command of a collapsed group's popup was clicked: it is noted and the
+/// popup closes; the app runs it in its own window once the popup has
+/// closed ([`on_ribbon_group_popup_dismissed`]).
+extern "C" fn on_ribbon_group_popup_command(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let Some((mut shared, on_click)) = data
+        .downcast_ref::<PopupCommand>()
+        .map(|c| (c.shared.clone(), c.on_click.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    note_and_close(&mut shared, PopupPick::Click(on_click), &mut info);
+    Update::DoNothing
+}
+
+/// A gallery cell of a collapsed group's popup was clicked: noted, as a
+/// command is ([`on_ribbon_group_popup_command`]).
+extern "C" fn on_ribbon_group_popup_select(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    cell_index: usize,
+) -> Update {
+    let Some((mut shared, on_select)) = data
+        .downcast_ref::<PopupSelect>()
+        .map(|c| (c.shared.clone(), c.on_select.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    note_and_close(
+        &mut shared,
+        PopupPick::Select(on_select, cell_index),
+        &mut info,
+    );
+    Update::DoNothing
+}
+
+/// Notes `pick` in the popup's shared part and closes the popup the click
+/// was in.
+fn note_and_close(shared: &mut RefAny, pick: PopupPick, info: &mut CallbackInfo) {
+    if let Some(mut s) = shared.downcast_mut::<GroupPopupShared>() {
+        s.pending = Some(pick);
+    }
+    let hit = info.get_hit_node();
+    if let Some(window) = popup_window_of(info, hit) {
+        info.set_transient_window_open(window, false);
+    }
+}
+
+/// The `<transient-window>` of the collapsed group whose popup `node` is in:
+/// in the popup's own window its root (the window node, its classes kept),
+/// in the app's window the window node itself. The walk is bounded so a
+/// malformed tree cannot spin.
+fn popup_window_of(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
+    let mut current = Some(node);
+    for _ in 0..64 {
+        let n = current?;
+        if info
+            .get_node_classes(n)
+            .as_ref()
+            .iter()
+            .any(|c| c.as_str() == RIBBON_GROUP_POPUP_WINDOW_CLASS)
+        {
+            return Some(n);
+        }
+        current = info.get_parent(n);
+    }
+    None
+}
+
+/// A collapsed group's popup closed - a command closed it, or a press
+/// outside, or Escape - in the app's window: the command it noted, if any,
+/// runs now, once.
+extern "C" fn on_ribbon_group_popup_dismissed(mut data: RefAny, info: CallbackInfo) -> Update {
+    let pick = match data.downcast_mut::<GroupPopupShared>() {
+        Some(mut shared) => shared.pending.take(),
+        None => return Update::DoNothing,
+    };
+    match pick {
+        Some(PopupPick::Click(super::button::ButtonOnClick { refany, callback })) => {
+            callback.invoke(refany, info)
+        }
+        Some(PopupPick::Select(RibbonGalleryOnSelect { refany, callback }, cell)) => {
+            callback.invoke(refany, info, cell)
+        }
+        None => Update::DoNothing,
+    }
 }
 
 // -- Trampolines --
@@ -8293,12 +9521,17 @@ mod office_2010_kinds_tests {
             )));
         let items = items_of(group);
         let ch = items.children.as_ref();
-        assert_eq!(ch.len(), 2, "[the three rows in a column, the large button]");
+        assert_eq!(
+            ch.len(),
+            2,
+            "[the three rows in a column, the large button]"
+        );
         assert!(has_class(&ch[0], "__azul-native-ribbon-column"));
         let rows = ch[0].children.as_ref();
         assert_eq!(rows.len(), 3);
         assert!(
-            rows.iter().all(|r| has_class(r, "__azul-native-ribbon-row")),
+            rows.iter()
+                .all(|r| has_class(r, "__azul-native-ribbon-row")),
             "each row as the app built it, one under the other"
         );
         assert_eq!(
