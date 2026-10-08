@@ -2,7 +2,7 @@
 //! order, sizes and dates as text, the way back and up, the breadcrumb, and the
 //! "Add drive" form. No azul types here, so all of it is tested without a window.
 
-use std::{cmp::Ordering, path::Path};
+use std::{borrow::Cow, cmp::Ordering, path::Path};
 
 use azul_storage::{
     config::{DriveAuth, DriveEntry, DriveLocation},
@@ -105,6 +105,10 @@ pub struct Entry {
     pub modified: Option<u64>,
     /// An S3 object's entity tag, when the listing has one.
     pub etag: Option<String>,
+    /// Whether `size` and `modified` say what the item has. A bucket listing carries both; a
+    /// scan of a folder on this computer reads only the names and kinds (no stat per entry, so a
+    /// folder of any size opens at once), and the rows in view are stat'ed afterwards.
+    pub known: bool,
 }
 
 impl Entry {
@@ -137,6 +141,13 @@ impl Entry {
         kind_of(&self.name, self.is_folder)
     }
 
+    /// [`Self::kind`] without an allocation for the kinds Explorer names (what a sort by Type
+    /// compares, once per pair of rows).
+    #[must_use]
+    pub fn kind_label(&self) -> Cow<'static, str> {
+        kind_label(&self.name, self.is_folder)
+    }
+
     /// A hidden item: its name starts with a dot (the trash folder too).
     #[must_use]
     pub fn is_hidden(&self) -> bool {
@@ -157,11 +168,18 @@ pub fn extension_of(name: &str) -> Option<&str> {
 /// What Explorer's Type column says for a name.
 #[must_use]
 pub fn kind_of(name: &str, is_folder: bool) -> String {
+    kind_label(name, is_folder).into_owned()
+}
+
+/// [`kind_of`], borrowed for the kinds Explorer names: only an unknown extension ("RS File")
+/// allocates.
+#[must_use]
+pub fn kind_label(name: &str, is_folder: bool) -> Cow<'static, str> {
     if is_folder {
-        return String::from("File folder");
+        return Cow::Borrowed("File folder");
     }
     let Some(ext) = extension_of(name) else {
-        return String::from("File");
+        return Cow::Borrowed("File");
     };
     let known = match ext.to_ascii_lowercase().as_str() {
         "txt" => "Text Document",
@@ -187,9 +205,9 @@ pub fn kind_of(name: &str, is_folder: bool) -> String {
         _ => "",
     };
     if known.is_empty() {
-        format!("{} File", ext.to_ascii_uppercase())
+        Cow::Owned(format!("{} File", ext.to_ascii_uppercase()))
     } else {
-        known.to_string()
+        Cow::Borrowed(known)
     }
 }
 
@@ -206,6 +224,8 @@ pub fn entries_of(page: &ListPage, prefix: &str) -> Vec<Entry> {
             size: None,
             modified: None,
             etag: None,
+            // A bucket's folder is a common prefix: it has no date to learn.
+            known: true,
         })
     });
     // A key ending in `/` is a "folder marker" object some tools write: the folder
@@ -221,40 +241,53 @@ pub fn entries_of(page: &ListPage, prefix: &str) -> Vec<Entry> {
             size: Some(object.size),
             modified: object.modified,
             etag: object.etag.clone(),
+            known: true,
         });
     folders.chain(files).collect()
 }
 
+/// Two names without case, character by character - `to_lowercase` on both names allocated two
+/// strings per comparison, which a sort of a 100,000-item folder does two million times.
+fn compare_without_case(a: &str, b: &str) -> Ordering {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .cmp(b.chars().flat_map(char::to_lowercase))
+}
+
 /// Names compare without case first, then with it (so the order is total).
 fn compare_names(a: &Entry, b: &Entry) -> Ordering {
-    a.name
-        .to_lowercase()
-        .cmp(&b.name.to_lowercase())
-        .then_with(|| a.name.cmp(&b.name))
+    compare_without_case(&a.name, &b.name).then_with(|| a.name.cmp(&b.name))
+}
+
+/// The order of two rows under `sort`: folders first, then the column (turned round when
+/// descending), ties by name. The one comparison the sort and the merge of a listing's batches
+/// ([`crate::listing::merge_batch`]) both use, so a streamed listing ends in the order a sort
+/// of the whole folder gives.
+#[must_use]
+pub fn compare_entries(a: &Entry, b: &Entry, sort: Sort) -> Ordering {
+    b.is_folder
+        .cmp(&a.is_folder)
+        .then_with(|| {
+            let by_column = match sort.column {
+                Column::Name => compare_names(a, b),
+                Column::Size => a.size.cmp(&b.size),
+                Column::Modified => a.modified.cmp(&b.modified),
+                Column::Type => a.kind_label().cmp(&b.kind_label()),
+                Column::Path => a.key.cmp(&b.key),
+                Column::Tag => a.etag.cmp(&b.etag),
+            };
+            if sort.descending {
+                by_column.reverse()
+            } else {
+                by_column
+            }
+        })
+        .then_with(|| compare_names(a, b))
 }
 
 /// Puts the rows in `sort` order, folders first; ties go by name.
 pub fn sort_entries(entries: &mut [Entry], sort: Sort) {
-    entries.sort_by(|a, b| {
-        b.is_folder
-            .cmp(&a.is_folder)
-            .then_with(|| {
-                let by_column = match sort.column {
-                    Column::Name => compare_names(a, b),
-                    Column::Size => a.size.cmp(&b.size),
-                    Column::Modified => a.modified.cmp(&b.modified),
-                    Column::Type => a.kind().cmp(&b.kind()),
-                    Column::Path => a.key.cmp(&b.key),
-                    Column::Tag => a.etag.cmp(&b.etag),
-                };
-                if sort.descending {
-                    by_column.reverse()
-                } else {
-                    by_column
-                }
-            })
-            .then_with(|| compare_names(a, b))
-    });
+    entries.sort_by(|a, b| compare_entries(a, b, sort));
 }
 
 /// `0 B`, `999 B`, `1.5 KB`, `5.0 MB`, `324 GB` (azul's
@@ -627,6 +660,7 @@ mod tests {
             size: Some(size),
             modified: Some(modified),
             etag: None,
+            known: true,
         }
     }
 
@@ -638,11 +672,49 @@ mod tests {
             size: None,
             modified: None,
             etag: None,
+            known: true,
         }
     }
 
     fn names(entries: &[Entry]) -> Vec<&str> {
         entries.iter().map(|e| e.name.as_str()).collect()
+    }
+
+    /// The comparison the sort and the batch merge share orders names without case, then with
+    /// it (a total order), folders before files, without allocating per pair.
+    #[test]
+    fn names_compare_without_case_first_and_folders_lead() {
+        let sort = Sort::default();
+        let (a, b, big_a) = (file("apple", 1, 1), file("Banana", 1, 1), file("Apple", 1, 1));
+        assert_eq!(compare_entries(&a, &b, sort), Ordering::Less, "apple before Banana");
+        assert_eq!(
+            compare_entries(&big_a, &a, sort),
+            Ordering::Less,
+            "Apple before apple: case breaks the tie"
+        );
+        assert_eq!(compare_entries(&folder("zeta"), &a, sort), Ordering::Less);
+        let down = Sort {
+            column: Column::Name,
+            descending: true,
+        };
+        assert_eq!(compare_entries(&a, &b, down), Ordering::Greater);
+        assert_eq!(
+            compare_entries(&folder("zeta"), &a, down),
+            Ordering::Less,
+            "folders lead in either direction"
+        );
+        assert_eq!(compare_without_case("ÄPFEL", "äpfel"), Ordering::Equal);
+        assert_eq!(compare_without_case("Report", "readme"), Ordering::Greater);
+    }
+
+    /// The Type column's label for the kinds Explorer names is borrowed, an unknown extension's
+    /// is made, and both read as `kind()` does.
+    #[test]
+    fn a_kind_label_is_borrowed_for_known_kinds() {
+        assert!(matches!(kind_label("a.txt", false), Cow::Borrowed("Text Document")));
+        assert!(matches!(kind_label("dir", true), Cow::Borrowed("File folder")));
+        assert_eq!(kind_label("main.rs", false), "RS File");
+        assert_eq!(kind_of("main.rs", false), "RS File");
     }
 
     #[test]

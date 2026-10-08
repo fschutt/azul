@@ -68,6 +68,8 @@ pub mod fileops;
 mod ids;
 mod jobs;
 pub mod keys;
+/// The open folder's listing as it streams in, and the window of it the views build.
+pub mod listing;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;

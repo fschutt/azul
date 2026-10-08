@@ -1823,6 +1823,7 @@ fn show_properties(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
                     size: None,
                     modified: None,
                     etag: None,
+                    known: false,
                 });
             }
             open_properties(info, app, s, items, None);
