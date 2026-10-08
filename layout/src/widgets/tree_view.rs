@@ -3430,6 +3430,36 @@ mod theme_tests {
             "the two looks are two looks"
         );
     }
+
+    /// Every colour the flat tree paints is one flat's theme module declares
+    /// (THEME12): the tree carried ten colours of its own in its widget file
+    /// - a #FCFCFC field, a neutral grey for its chevrons, a blue of its own
+    /// for its counts - none of them Office 2010's. Pinned, and following the
+    /// app theme, alike.
+    #[test]
+    fn every_colour_the_flat_tree_paints_is_one_of_flats() {
+        use crate::widgets::themes::theme_blocks::checks::under;
+        let nodes = || {
+            tree()
+                .with_child(TreeViewNode::new("Inbox").with_badge(AzString::from("3")))
+                .with_child(
+                    TreeViewNode::new("Sent")
+                        .with_badge(AzString::from("1"))
+                        .with_selected(true),
+                )
+        };
+        for dom in [
+            TreeView::new(nodes()).with_theme(UiTheme::Flat).dom(),
+            under(UiTheme::Flat, || TreeView::new(nodes()).dom()),
+        ] {
+            let foreign = tc::foreign_colours(&dom, UiTheme::Flat);
+            assert!(
+                foreign.is_empty(),
+                "the flat tree paints colours flat does not have:\n  {}",
+                foreign.join("\n  ")
+            );
+        }
+    }
 }
 
 /// R5: a tree's STRUCTURE (display, flex, overflow, cursor, ...) is its base

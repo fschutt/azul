@@ -433,6 +433,129 @@ pub(crate) fn assert_theme_invariants(what: &str, dom: &Dom) {
     }
 }
 
+// ==== a widget paints only its theme's colours ====
+
+/// Every colour one declaration paints: a fill (every stop of a gradient), an
+/// ink, a border, a shadow. A `system:` colour is the desktop's and counts
+/// for no theme.
+pub(crate) fn colours_of(p: &CssProperty) -> Vec<ColorU> {
+    use azul_css::props::basic::color::ColorOrSystem;
+    let stop = |c: &ColorOrSystem| match c {
+        ColorOrSystem::Color(c) => Some(*c),
+        ColorOrSystem::System(_) => None,
+    };
+    match p {
+        CssProperty::BackgroundContent(v) => v
+            .get_property()
+            .map(|layers| {
+                layers
+                    .as_ref()
+                    .iter()
+                    .flat_map(|layer| match layer {
+                        StyleBackgroundContent::Color(c) => alloc::vec![*c],
+                        StyleBackgroundContent::LinearGradient(g) => {
+                            g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
+                        }
+                        StyleBackgroundContent::RadialGradient(g) => {
+                            g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
+                        }
+                        StyleBackgroundContent::ConicGradient(g) => {
+                            g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
+                        }
+                        _ => Vec::new(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        CssProperty::TextColor(v) => v.get_property().map(|c| c.inner).into_iter().collect(),
+        p => border_color(p)
+            .or_else(|| shadow_color_and_reach(p).map(|(c, _)| c))
+            .into_iter()
+            .collect(),
+    }
+}
+
+/// Every colour a theme module declares for the widgets: its palette by day
+/// and by night, and the faces and states it names on top of it - what
+/// [`foreign_colours`] measures a widget's paint against.
+pub(crate) fn theme_colours(theme: UiTheme) -> Vec<ColorU> {
+    match theme {
+        UiTheme::Flat => {
+            use super::flat::*;
+            alloc::vec![
+                LIGHT_PG, LIGHT_SUR, LIGHT_DESK, LIGHT_STRIP, LIGHT_TRACK, LIGHT_BD, LIGHT_BD2,
+                LIGHT_BD3, LIGHT_BD4, LIGHT_BD5, LIGHT_SEP, LIGHT_SEP2, LIGHT_INK, LIGHT_INK2,
+                LIGHT_INTRO, LIGHT_SOFT1, LIGHT_SOFT2, LIGHT_SOFT3, LIGHT_ICON, LIGHT_RT,
+                LIGHT_RB, LIGHT_HT, LIGHT_HB, LIGHT_PT, LIGHT_PB, LIGHT_FLD, LIGHT_FLD2,
+                LIGHT_DISBG, LIGHT_DISTX, LIGHT_QT, LIGHT_QT2, LIGHT_ACC, LIGHT_DEEP,
+                LIGHT_SOFT, LIGHT_GLOW, LIGHT_ON_ACC, DARK_PG, DARK_SUR, DARK_DESK, DARK_STRIP,
+                DARK_TRACK, DARK_BD, DARK_BD2, DARK_BD3, DARK_BD4, DARK_BD5, DARK_SEP,
+                DARK_SEP2, DARK_INK, DARK_INK2, DARK_INTRO, DARK_SOFT1, DARK_SOFT2, DARK_SOFT3,
+                DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
+                DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
+                DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
+                // Office 2010's faces.
+                LIGHT_HOVER_BORDER, DARK_HOVER_BORDER, LIGHT_PRESSED_BORDER,
+                DARK_PRESSED_BORDER, LIGHT_SELECTION_TOP, LIGHT_SELECTION_BOTTOM,
+                LIGHT_SELECTION_BORDER, DARK_SELECTION_TOP, DARK_SELECTION_BOTTOM,
+                DARK_SELECTION_BORDER,
+                // The row and field states.
+                LIGHT_ROW_HOVER, DARK_ROW_HOVER, LIGHT_OPTION_HOVER, FIELD_RING,
+                // The list's own header and row states.
+                LIGHT_LIST_HEADER_HOVER_LINE, LIGHT_LIST_HEADER_HOVER_TOP,
+                LIGHT_LIST_HEADER_HOVER_MID, LIGHT_LIST_HEADER_HOVER_BOTTOM,
+                LIGHT_LIST_HEADER_PRESSED, LIGHT_LIST_HEADER_PRESSED_BORDER,
+                LIGHT_LIST_HEADER_PRESSED_SHADOW, LIGHT_LIST_ROW_HOVER_BORDER,
+            ]
+        }
+        UiTheme::Flora => {
+            use super::flora::*;
+            alloc::vec![
+                LIGHT_PG, LIGHT_SUR, LIGHT_DESK, LIGHT_STRIP, LIGHT_TRACK, LIGHT_BD, LIGHT_BD2,
+                LIGHT_BD3, LIGHT_BD4, LIGHT_BD5, LIGHT_SEP, LIGHT_SEP2, LIGHT_INK, LIGHT_INK2,
+                LIGHT_INTRO, LIGHT_SOFT1, LIGHT_SOFT2, LIGHT_SOFT3, LIGHT_ICON, LIGHT_RT,
+                LIGHT_RB, LIGHT_HT, LIGHT_HB, LIGHT_PT, LIGHT_PB, LIGHT_FLD, LIGHT_FLD2,
+                LIGHT_DISBG, LIGHT_DISTX, LIGHT_QT, LIGHT_QT2, LIGHT_ACC, LIGHT_DEEP,
+                LIGHT_SOFT, LIGHT_GLOW, LIGHT_ON_ACC, DARK_PG, DARK_SUR, DARK_DESK, DARK_STRIP,
+                DARK_TRACK, DARK_BD, DARK_BD2, DARK_BD3, DARK_BD4, DARK_BD5, DARK_SEP,
+                DARK_SEP2, DARK_INK, DARK_INK2, DARK_INTRO, DARK_SOFT1, DARK_SOFT2, DARK_SOFT3,
+                DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
+                DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
+                DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
+                // The metal rule.
+                TAB_METAL,
+            ]
+        }
+    }
+}
+
+/// Every colour `dom` paints (its nodes' inline declarations live under the
+/// app theme the probes evaluate under, [`probe_theme`]) that is not one of
+/// `theme`'s ([`theme_colours`]), one line each: `<path> <property>:
+/// <colour>`. A colour matches by its RGB - a wash is a palette colour at an
+/// alpha, and a spin keeps the alpha - and a transparent one is nothing at
+/// all (a ring slot).
+pub(crate) fn foreign_colours(dom: &Dom, theme: UiTheme) -> Vec<String> {
+    let palette = theme_colours(theme);
+    let is_theirs = |c: ColorU| {
+        c.a == 0 || palette.iter().any(|p| p.r == c.r && p.g == c.g && p.b == c.b)
+    };
+    let mut out = Vec::new();
+    for (path, node) in nodes(dom) {
+        for (p, conds) in node.root.style.iter_inline_properties() {
+            if live_conditions(conds, probe_theme()).is_none() {
+                continue;
+            }
+            for c in colours_of(p) {
+                if !is_theirs(c) {
+                    out.push(format!("{path} {:?}: {c:?}", p.get_type()));
+                }
+            }
+        }
+    }
+    out
+}
+
 // ==== R5: a widget's structure is its BASE, never a theme's ====
 
 /// The properties that lay a widget out. They are the same in every theme,

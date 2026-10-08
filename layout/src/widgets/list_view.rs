@@ -2323,15 +2323,12 @@ mod roving_tabindex_tests {
 /// the selection; and every text reads.
 #[cfg(test)]
 mod theme_tests {
-    use azul_css::{
-        dynamic_selector::PseudoStateType, props::basic::color::ColorOrSystem,
-        system::DarkLightMode,
-    };
+    use azul_css::{dynamic_selector::PseudoStateType, system::DarkLightMode};
 
     use super::*;
     use crate::widgets::themes::{
         decl, flat, flora,
-        theme_blocks::checks::{live_inline, under, BOTH},
+        theme_blocks::checks::{under, BOTH},
         theme_checks as tc, UiTheme,
     };
 
@@ -2399,104 +2396,6 @@ mod theme_tests {
             .and_then(tc::border_color)
     }
 
-    /// Every colour one declaration paints: a fill (a gradient's every stop),
-    /// an ink, a border, a shadow.
-    fn colours(p: &CssProperty) -> Vec<ColorU> {
-        let stop = |c: &ColorOrSystem| match c {
-            ColorOrSystem::Color(c) => Some(*c),
-            ColorOrSystem::System(_) => None,
-        };
-        match p {
-            CssProperty::BackgroundContent(v) => v
-                .get_property()
-                .map(|layers| {
-                    layers
-                        .as_ref()
-                        .iter()
-                        .flat_map(|layer| match layer {
-                            StyleBackgroundContent::Color(c) => vec![*c],
-                            StyleBackgroundContent::LinearGradient(g) => {
-                                g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
-                            }
-                            StyleBackgroundContent::RadialGradient(g) => {
-                                g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
-                            }
-                            StyleBackgroundContent::ConicGradient(g) => {
-                                g.stops.as_ref().iter().filter_map(|s| stop(&s.color)).collect()
-                            }
-                            _ => Vec::new(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner).into_iter().collect(),
-            p => tc::border_color(p)
-                .or_else(|| tc::shadow_color_and_reach(p).map(|(c, _)| c))
-                .into_iter()
-                .collect(),
-        }
-    }
-
-    /// Every colour a theme module declares: its palette by day and by night,
-    /// and the faces and states it names on top of it.
-    fn palette(theme: UiTheme) -> Vec<ColorU> {
-        match theme {
-            UiTheme::Flat => {
-                use flat::*;
-                vec![
-                    LIGHT_PG, LIGHT_SUR, LIGHT_DESK, LIGHT_STRIP, LIGHT_TRACK, LIGHT_BD, LIGHT_BD2,
-                    LIGHT_BD3, LIGHT_BD4, LIGHT_BD5, LIGHT_SEP, LIGHT_SEP2, LIGHT_INK, LIGHT_INK2,
-                    LIGHT_INTRO, LIGHT_SOFT1, LIGHT_SOFT2, LIGHT_SOFT3, LIGHT_ICON, LIGHT_RT,
-                    LIGHT_RB, LIGHT_HT, LIGHT_HB, LIGHT_PT, LIGHT_PB, LIGHT_FLD, LIGHT_FLD2,
-                    LIGHT_DISBG, LIGHT_DISTX, LIGHT_QT, LIGHT_QT2, LIGHT_ACC, LIGHT_DEEP,
-                    LIGHT_SOFT, LIGHT_GLOW, LIGHT_ON_ACC, DARK_PG, DARK_SUR, DARK_DESK, DARK_STRIP,
-                    DARK_TRACK, DARK_BD, DARK_BD2, DARK_BD3, DARK_BD4, DARK_BD5, DARK_SEP,
-                    DARK_SEP2, DARK_INK, DARK_INK2, DARK_INTRO, DARK_SOFT1, DARK_SOFT2, DARK_SOFT3,
-                    DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
-                    DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
-                    DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
-                    // Office 2010's faces.
-                    LIGHT_HOVER_BORDER, DARK_HOVER_BORDER, LIGHT_PRESSED_BORDER,
-                    DARK_PRESSED_BORDER, LIGHT_SELECTION_TOP, LIGHT_SELECTION_BOTTOM,
-                    LIGHT_SELECTION_BORDER, DARK_SELECTION_TOP, DARK_SELECTION_BOTTOM,
-                    DARK_SELECTION_BORDER,
-                    // The row and field states.
-                    LIGHT_ROW_HOVER, DARK_ROW_HOVER, FIELD_RING,
-                    // The list's own header and row states.
-                    LIGHT_LIST_HEADER_HOVER_LINE, LIGHT_LIST_HEADER_HOVER_TOP,
-                    LIGHT_LIST_HEADER_HOVER_MID, LIGHT_LIST_HEADER_HOVER_BOTTOM,
-                    LIGHT_LIST_HEADER_PRESSED, LIGHT_LIST_HEADER_PRESSED_BORDER,
-                    LIGHT_LIST_HEADER_PRESSED_SHADOW, LIGHT_LIST_ROW_HOVER_BORDER,
-                ]
-            }
-            UiTheme::Flora => {
-                use flora::*;
-                vec![
-                    LIGHT_PG, LIGHT_SUR, LIGHT_DESK, LIGHT_STRIP, LIGHT_TRACK, LIGHT_BD, LIGHT_BD2,
-                    LIGHT_BD3, LIGHT_BD4, LIGHT_BD5, LIGHT_SEP, LIGHT_SEP2, LIGHT_INK, LIGHT_INK2,
-                    LIGHT_INTRO, LIGHT_SOFT1, LIGHT_SOFT2, LIGHT_SOFT3, LIGHT_ICON, LIGHT_RT,
-                    LIGHT_RB, LIGHT_HT, LIGHT_HB, LIGHT_PT, LIGHT_PB, LIGHT_FLD, LIGHT_FLD2,
-                    LIGHT_DISBG, LIGHT_DISTX, LIGHT_QT, LIGHT_QT2, LIGHT_ACC, LIGHT_DEEP,
-                    LIGHT_SOFT, LIGHT_GLOW, LIGHT_ON_ACC, DARK_PG, DARK_SUR, DARK_DESK, DARK_STRIP,
-                    DARK_TRACK, DARK_BD, DARK_BD2, DARK_BD3, DARK_BD4, DARK_BD5, DARK_SEP,
-                    DARK_SEP2, DARK_INK, DARK_INK2, DARK_INTRO, DARK_SOFT1, DARK_SOFT2, DARK_SOFT3,
-                    DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
-                    DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
-                    DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
-                    // The metal rule.
-                    TAB_METAL,
-                ]
-            }
-        }
-    }
-
-    /// Whether `c` is one of `palette`'s colours: the same RGB (a wash is a
-    /// palette colour at an alpha - a spin keeps the alpha too), or nothing
-    /// at all (a transparent ring slot).
-    fn is_one_of(c: ColorU, palette: &[ColorU]) -> bool {
-        c.a == 0 || palette.iter().any(|p| p.r == c.r && p.g == c.g && p.b == c.b)
-    }
-
     #[test]
     fn under_either_theme_an_empty_list_is_that_themes_field_in_its_ink() {
         for theme in BOTH {
@@ -2528,19 +2427,8 @@ mod theme_tests {
     #[test]
     fn every_colour_a_list_paints_is_one_of_its_themes() {
         for theme in BOTH {
-            let palette = palette(theme);
             under(theme, || {
-                let dom = files().dom();
-                let mut foreign = Vec::new();
-                for (path, node) in tc::nodes(&dom) {
-                    for (p, _) in live_inline(node) {
-                        for c in colours(&p) {
-                            if !is_one_of(c, &palette) {
-                                foreign.push(alloc::format!("{path} {:?}: {c:?}", p.get_type()));
-                            }
-                        }
-                    }
-                }
+                let foreign = tc::foreign_colours(&files().dom(), theme);
                 assert!(
                     foreign.is_empty(),
                     "a list built for {theme:?} paints colours its theme does not have:\n  {}",
