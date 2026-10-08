@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
-use azcloud_kit::{Checkout, CheckoutStatus, DriveBundle, Tiers, TokenServer};
+use azcloud_kit::{Checkout, CheckoutStatus, ClaimKey, DriveBundle, Tiers, TokenServer};
 use azul::{
     image::{ImageRef, RawImage},
     prelude::*,
@@ -197,7 +197,7 @@ pub(crate) enum Job {
         name: String,
         tier: String,
     },
-    /// A checkout of `tier` for `months` months.
+    /// A checkout of `tier` for `months` months, its sign-up sealed to a new claim key.
     Checkout {
         serial: u64,
         token_url: String,
@@ -205,11 +205,13 @@ pub(crate) enum Job {
         months: u32,
     },
     /// The wait for checkout `checkout_id`'s payment: its status asked every few seconds
-    /// until the drive is there, the payment declined, `cancel` set or an hour gone.
+    /// until the drive is there (opened with `claim`), the payment declined, the checkout gone,
+    /// `cancel` set or an hour gone.
     AwaitPayment {
         serial: u64,
         token_url: String,
         checkout_id: String,
+        claim: ClaimKey,
         cancel: Arc<AtomicBool>,
     },
     /// The settings file written (through a LocalDrive on the config folder).
@@ -313,10 +315,11 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<DriveBundle, String>,
     },
-    /// A checkout to pay in the browser (or why there is none).
+    /// A checkout to pay in the browser and the claim key its sign-up is sealed to (or why there
+    /// is none).
     CheckoutStarted {
         serial: u64,
-        result: Result<Checkout, String>,
+        result: Result<(Checkout, ClaimKey), String>,
     },
     /// The wait for a payment ended without a drive: why.
     PaymentEnded { serial: u64, why: String },
@@ -883,9 +886,16 @@ const PAYMENT_POLL_SECS: u64 = 3;
 const PAYMENT_WAIT_SECS: u64 = 3600;
 
 /// Asks the token server about checkout `checkout_id` every few seconds until it is paid
-/// (the drive), declined, `cancel` is set or the wait is too long. A question without an answer
-/// is asked again (the network may come back); a refusal ends the wait.
-fn await_payment(serial: u64, token_url: &str, checkout_id: &str, cancel: &AtomicBool) -> Outcome {
+/// (the drive, its sign-up opened with `claim`), declined, gone, `cancel` is set or the wait is
+/// too long. A question without an answer is asked again (the network may come back); a
+/// refusal ends the wait.
+fn await_payment(
+    serial: u64,
+    token_url: &str,
+    checkout_id: &str,
+    claim: &ClaimKey,
+    cancel: &AtomicBool,
+) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let server = match TokenServer::new(token_url, &transport) {
         Ok(server) => server,
@@ -917,7 +927,7 @@ fn await_payment(serial: u64, token_url: &str, checkout_id: &str, cancel: &Atomi
                 ),
             };
         }
-        match server.checkout_status(checkout_id) {
+        match server.checkout_status(checkout_id, claim) {
             Ok(CheckoutStatus::Pending) | Err(azcloud_kit::TokenError::Connect(_)) => continue,
             Ok(CheckoutStatus::Approved(bundle)) => {
                 return Outcome::Bought {
@@ -925,13 +935,10 @@ fn await_payment(serial: u64, token_url: &str, checkout_id: &str, cancel: &Atomi
                     result: Ok(*bundle),
                 }
             }
-            Ok(CheckoutStatus::ApprovedElsewhere) => {
+            Ok(CheckoutStatus::Gone(why)) => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::from(
-                        "The payment went through, but the new drive was handed to another \
-                         window. Look for it there.",
-                    ),
+                    why: format!("The token server no longer has the checkout: {why}."),
                 }
             }
             Ok(CheckoutStatus::Declined(why)) => {
@@ -1193,19 +1200,32 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             months,
         } => {
             let transport = AzulTransport::new(USER_AGENT);
-            let result = TokenServer::new(&token_url, &transport)
-                .and_then(|server| {
-                    server.checkout(&tier, months, azcloud_kit::token::DEFAULT_METHOD)
-                })
-                .map_err(|e| e.to_string());
+            // A claim key of this checkout's own: the token server seals the drive's sign-up
+            // to it.
+            let result = ClaimKey::generate()
+                .map_err(|e| e.to_string())
+                .and_then(|claim| {
+                    TokenServer::new(&token_url, &transport)
+                        .and_then(|server| {
+                            server.checkout(
+                                &tier,
+                                months,
+                                azcloud_kit::token::DEFAULT_METHOD,
+                                &claim,
+                            )
+                        })
+                        .map(|checkout| (checkout, claim))
+                        .map_err(|e| e.to_string())
+                });
             Outcome::CheckoutStarted { serial, result }
         }
         Job::AwaitPayment {
             serial,
             token_url,
             checkout_id,
+            claim,
             cancel,
-        } => await_payment(serial, &token_url, &checkout_id, &cancel),
+        } => await_payment(serial, &token_url, &checkout_id, &claim, &cancel),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },

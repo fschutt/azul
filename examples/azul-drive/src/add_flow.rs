@@ -9,7 +9,7 @@
 
 use std::sync::{atomic::AtomicBool, Arc};
 
-use azcloud_kit::{Checkout, DriveBundle, Tiers};
+use azcloud_kit::{Checkout, ClaimKey, DriveBundle, Tiers};
 use azul::{prelude::*, url::Url};
 use azul_storage::{
     config::{self, DriveEntry, DrivesFile},
@@ -411,14 +411,14 @@ pub(crate) fn checkout_started(
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<Checkout, String>,
+    result: Result<(Checkout, ClaimKey), String>,
 ) {
     let token_url = s.token.url.clone().unwrap_or_default();
     let Some(d) = dialog_of(s, serial) else {
         return;
     };
-    let checkout = match result {
-        Ok(checkout) => checkout,
+    let (checkout, claim) = match result {
+        Ok(started) => started,
         Err(why) => {
             d.step = BuyStep::Idle;
             d.notice = format!("The payment could not be prepared: {why}");
@@ -455,6 +455,7 @@ pub(crate) fn checkout_started(
             serial,
             token_url,
             checkout_id: checkout.checkout_id,
+            claim,
             cancel,
         },
     );
