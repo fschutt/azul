@@ -3,7 +3,6 @@
 
 mod catalog;
 mod config;
-/// A SQLite file browsed as files (the database drivers: feature `sql`).
 #[cfg(feature = "sql")]
 mod database;
 mod key;

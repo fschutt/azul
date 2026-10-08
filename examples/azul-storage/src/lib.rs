@@ -44,6 +44,7 @@ pub mod ops;
 pub mod s3;
 pub mod scoped;
 pub mod sigv4;
+pub mod tables;
 pub mod time;
 pub mod transfer;
 pub mod transport;
