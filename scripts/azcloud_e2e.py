@@ -338,8 +338,10 @@ def main():
         before = st["expires_at"]
         r = a.az("refresh")
         expect(r["drive"] == s["drive"], "refresh answered for another drive")
-        return "drive %s, bucket %s, %d nodes; refresh ok (was %s, now %s)" % (
-            s["drive"], s["bucket"], s["nodes"], before, r["expires_at"])
+        info = a.az("info")
+        expect(info.get("id") == s["drive"], "info: %s" % info)
+        return "drive %s, bucket %s, %d nodes; refresh ok (was %s, now %s); info %s" % (
+            s["drive"], s["bucket"], s["nodes"], before, r["expires_at"], info.get("tier"))
 
     def up_down(machine, size, key, *flags):
         src = os.path.join(machine.work, key.replace("/", "_"))
@@ -362,7 +364,14 @@ def main():
         keys = {o["key"]: o["size"] for o in listing["objects"]}
         expect(keys.get("e2e/1m.bin") == MIB, "ls: %s" % keys)
         expect(keys.get("e2e/big.bin") == args.big_mib * MIB, "ls: %s" % keys)
-        return "1 MiB and %d MiB match (over %s; big up %.1f s, down %.1f s)" % (
+        # A presigned link reads the object without any credentials.
+        link = a.az("share", "e2e/1m.bin", "--expires", "600")
+        with urllib.request.urlopen(link["url"], timeout=60) as r:
+            shared = r.read()
+        expect(hashlib.sha256(shared).hexdigest()
+               == sha256_file(os.path.join(a.work, "e2e_1m.bin")),
+               "the presigned link read other bytes")
+        return "1 MiB and %d MiB match (over %s; big up %.1f s, down %.1f s); share link ok" % (
             args.big_mib, up1["transport"], upb["_seconds"], downb["_seconds"])
 
     def make_sync_folder(root):
@@ -407,6 +416,9 @@ def main():
         again = sync_report(b.az("sync", dst, "--prefix", "e2e/sync/"))
         expect(again["files_up"] == 0 and not again["index_written"], "B's second sync: %s"
                % again)
+        gc = a.az("gc", "e2e/sync/", "--dry-run", "--grace-hours", "0")["reports"][0]
+        expect(gc["deleted"] >= 1, "the edit and the delete left no unreferenced blob: %s" % gc)
+        expect(gc["referenced"] >= 26, "gc: %s" % gc)
         return ("26 up, then 0 up and no index write; edit/add/delete travelled; "
                 "B joined and got %d files" % got["files_down"])
 
