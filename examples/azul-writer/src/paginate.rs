@@ -39,8 +39,11 @@ pub fn content_size() -> (f32, f32) {
 }
 
 /// The font of the paper (the sheet on screen and the print add the ink:
-/// the mode's text colour on screen, black on white in the PDF).
-pub const PAPER_TEXT_CSS: &str = "font-family: sans-serif;";
+/// the mode's text colour on screen, black on white in the PDF). AzWriter is
+/// always flora (`start` pins it), whose running text is EB Garamond: named,
+/// so the paginator on its thread (no theme there) measures the face the
+/// sheet shows and the PDF embeds.
+pub const PAPER_TEXT_CSS: &str = "font-family: 'EB Garamond', Georgia, serif;";
 
 /// What is known about the pages.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +214,14 @@ extern "C" fn on_paginated(mut app: RefAny, mut msg: RefAny, mut info: CallbackI
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_paper_is_set_in_floras_garamond() {
+        // flora's running text, named (the paginator's thread has no theme to
+        // resolve a role or a generic family by).
+        assert!(PAPER_TEXT_CSS.contains("font-family: 'EB Garamond'"), "{PAPER_TEXT_CSS}");
+        assert!(!PAPER_TEXT_CSS.contains("sans-serif"));
+    }
 
     #[test]
     fn a_page_starts_at_the_block_a_break_falls_in() {

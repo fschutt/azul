@@ -217,10 +217,13 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
         ])],
     );
 
+    // A style's sample is set in the paper's face (the ribbon's own face is
+    // the chrome's); the Code style names its own family after it.
     let cells: Vec<RibbonGalleryCell> = STYLES
         .iter()
         .map(|(name, css)| {
-            RibbonGalleryCell::create(Dom::create_span_with_text(s("AaBbCc")).with_css(s(css)), s(name))
+            let css = format!("{} {css}", crate::paginate::PAPER_TEXT_CSS);
+            RibbonGalleryCell::create(Dom::create_span_with_text(s("AaBbCc")).with_css(s(&css)), s(name))
         })
         .collect();
     // A row of three styles (the row with the caret's) and More, as Word's
