@@ -502,6 +502,8 @@ mod textinput_first_draw_and_focus;
 mod textinput_resize_selection;
 #[path = "textinput_seed_style.rs"]
 mod textinput_seed_style;
+#[path = "the_apps_rebuild_outranks_a_widgets_own_restyle.rs"]
+mod the_apps_rebuild_outranks_a_widgets_own_restyle;
 #[path = "the_layout_of_a_broad_corpus_matches_its_golden_dumps.rs"]
 mod the_layout_of_a_broad_corpus_matches_its_golden_dumps;
 #[path = "the_macos_titlebar_lines_up_with_its_traffic_lights.rs"]
