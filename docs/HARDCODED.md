@@ -95,3 +95,79 @@ by those agents (listed, not edited here) - **AZCLOUD15** being done in the endp
 | azul-mail/src/sample.rs:69-101 | IMAP `localhost:1143` (no TLS), SMTP `localhost:2525` | the `--sample` account | low (start scripts/imap_server.py with `--port 1143`) | `endpoints.imap` / `endpoints.smtp` | AZMAIL15 |
 | azul-mail/src/imap_client.rs:25-27; submit.rs:72; pictures.rs:15; ui_main.rs:1889-1893; send.rs:238; sync.rs:151-152 | IMAP 20 s / 120 s, submission 60 s, pictures 20 s, give up after 5 days, batches of 25 / 8 MiB | timeouts and batches | low | `mail.timeouts.*` | AZMAIL15 |
 | azul-mail/scripts/sync_e2e.py:394-399 | only `AZMAIL_DATA` is set | e2e environment | med: the kit's `mail/settings.json`, the To-Do store and `~/.azlin/config.json` are the user's | add `AZLIN_DATA` and `AZLIN_CONFIG` | AZMAIL15 |
+
+## 5. AzDrive and azul-storage (examples/azul-drive, examples/azul-storage)
+
+| file:line | value | what it is | risk | config key | status |
+|---|---|---|---|---|---|
+| azul-drive/src/lib.rs:1908-1912, 1945-1950; args.rs:20, 231-233, 342-391 | the user's home folder; `--sample` writes 9 items (`Documents/notes.txt`, `Code/main.rs`, `Pictures/gradient.png`, ...) into it | the Home drive, and the `--sample` target | high: `--sample` with only `AZLIN_DATA` set writes into the user's real home | `--home`, `AZDRIVE_HOME` (the local profile sets it); default to `<root>/home` when a data root is named | USER |
+| azul-drive/src/lib.rs:1913-1917 | the OS Downloads folder | where Download saves | med | `--downloads`, `AZDRIVE_DOWNLOADS` | DESIGN (the profile sets it) |
+| azul-drive/src/lib.rs:1918-1922; azul-storage/src/config.rs:31, 230-235 | `<OS config dir>/azul-storage/drives.json` | the drives the user added | med: adding the local S3 drive in a test writes it into the user's list | `--drives`, `AZUL_DRIVES` (the profile sets it) | DESIGN |
+| azul-drive/src/browse.rs:547, 570, 609; ui_dialogs.rs:202 | region `us-east-1` when blank (the Azlin token server says the same), `path_style: true`, placeholder `https://s3.eu-central-1.amazonaws.com`, no endpoint prefilled | the Add-drive form | low: the right shape for the :9000 balancer; nothing prefills it | prefill from `endpoints.s3` | OPEN (AZCLOUD15's Azlin drive signs up through the token server instead) |
+| azul-storage/src/azul_transport.rs:30-32 (AzDrive lib.rs:186, jobs.rs:1033, actions.rs:2380; UA lib.rs:125) | 60 s + 30 s grace; UA `AzDrive/0.2` | S3 request timeout | low (`with_timeout` exists, AzDrive never calls it) | `storage.http_timeout_secs` | OPEN |
+| azul-drive/src/actions.rs:2364; azul-storage/src/s3.rs:434 | 7 days | presigned share link expiry (also the maximum) | low | `drive.link_expiry_secs` | OPEN |
+| azul-storage/src/config.rs:103-106, 239-240 | `DriveAuth::AccessLink` -> Unsupported; keyring names `azul-storage/s3/<drive id>` | access-link drives; S3 credentials in the keyring | low today; a windowed test leaves the stack's test keys in the user's keychain | `endpoints.token`; `AZ_KEYRING_SERVICE` | AZCLOUD15 / OPEN |
+| azul-drive/src/lib.rs:2077; azul-tasks/src/detail.rs:1032 | `<tmp>/AzDrive-open`, `<tmp>/AzTasks-open/<id>` | where Open copies a file for the OS | low: parallel runs share the folder | `<tmp>/<app>-<pid>` | OPEN |
+| azul-drive/scripts/browse.py:369-385 | the caller's environment only | AzDrive's e2e | med: `drive/view.json`, the "Azlin" drive and `~/.azlin/config.json` were the user's | `--data-dir <logs>/data`, `AZLIN_CONFIG=off` | FIXED 999636fe7 |
+| azul-drive/scripts/browse.py:57-59; s3_server.py:60-62, 716-806 | `AKIDAZDRIVEE2E` / `azdrive-e2e-secret-key`, `us-east-1`; `--port 9000` | mock S3 credentials and port | low: 9000 is the stack's balancer when started by hand | `--port`, `--access-key` | DESIGN (test) |
+
+## 6. AzMaps and the map widget
+
+| file:line | value | what it is | risk | config key | status |
+|---|---|---|---|---|---|
+| layout/src/widgets/map.rs:351-372; azul-maps/src/lib.rs (`MapTileLayer::default()`) | `https://tiles.openfreemap.org/planet/20260531_080002_pt/{z}/{x}/{y}.pbf`, zoom 0-14 | the vector-tile server, pinned to a dated planet build | med: AzMaps always fetched the public host (no offline e2e); the dated path goes stale (empty tiles) | AzMaps: `--tiles` > `AZMAPS_TILES` > `endpoints.tiles` > the widget's own | FIXED d77ee39f8 / a68c5afc6 (an engine-wide `AZ_MAP_TILES_URL`, and resolving the planet build from its TileJSON, OPEN) |
+| dll/src/desktop/extra/map/mod.rs:204-205 -> layout/src/http.rs:204-206 | 30 s, UA `azul-http/1.0`, 100 MB | tile download requests | low | `map.http_timeout_secs` | OPEN |
+
+## 7. The other apps
+
+| file:line | value | what it is | risk | config key | status |
+|---|---|---|---|---|---|
+| azul-tasks/src/lib.rs:77-83, 419-445 | `--data` > `AZTASKS_DATA` > `<user data dir>/Azlin`; `--data-dir` rejected | AzTasks' data root (the Azlin root: `tasks/`, `aztasks/settings.json`) | high: a run that sets only `AZLIN_DATA` used the user's real root | `--data` > `AZTASKS_DATA` > `AZLIN_DATA` > the user's folder | FIXED d2bab5687 / 5677e5cc9 (`--data-dir` as an alias: OPEN) |
+| azul-builder/src/lib.rs:26-41 | `8080` | the debug server AzBuilder opens in the browser | med: the local stack's sqld port - the bind fails or the browser opens sqld | `AZ_DEBUG` > 8765 | FIXED db34c5c6e / cd15020e4 |
+| azul-news/scripts/feed_server.py:219 | `--port 8790` | the manual test feed server | med: the stack's meeting server port | a free port, printed (`FEED_SERVER <url>`); the e2e already asked for one | FIXED 999636fe7 |
+| azul-news/src/jobs.rs:33-41; fetch.rs:22, 149-162 | feeds 30 s, pictures 20 s, UA `AzNews/0.1`; a bare host becomes `https://` | feed downloads | low: `127.0.0.1:8790/feed.xml` typed without a scheme fails | type the scheme | DESIGN |
+| azul-music/src/scan.rs:44-50; app.rs:87, 235-243 | `$HOME/Music` | the music library | low: a test root still scans the user's library | `--music-dir` / `AZMUSIC_DIR` | OPEN |
+| azul-player/src/app.rs:106-139; ui.rs:1244-1245 | the OS media folders; the sample URL `https://test-videos.co.uk/...` | media folders, the address dialog's sample | low | `--music-dir` ... exist; `player.sample_url` | DESIGN |
+| azul-shells/scripts/shells_e2e.py:155; azul-meet/scripts/meet-e2e.mjs:174-181 | no `AZLIN_CONFIG` | e2e environments | low: they read the user's shared look | `AZLIN_CONFIG=off` | OPEN |
+| examples/azul-{maps,meet,paint,widgets,writer}/Dockerfile:13 | `AZ_BACKEND="web://0.0.0.0:8080..."` | the web demos | low: the stack's sqld port inside one container | another port | DESIGN |
+
+## 8. The engine (layout, dll, core) under the apps
+
+| file:line | value | what it is | risk | config key | status |
+|---|---|---|---|---|---|
+| layout/src/request.rs:483-503, 709-760 | with `AZ_E2E` / `AZ_E2E_TEST` set every unmocked HTTP request is refused; a canned answer replaces, never passes through | the e2e mock policy | high: a scripted run could not reach the local stack at all | `AZ_E2E_ALLOW_HTTP=http://127.0.0.1:*,...` (comma-separated, the mock table's patterns) | FIXED 943f9160b / 84fa9cfcc |
+| dll/src/desktop/extra/keyring/apple.rs:25, linux.rs:28/127, windows.rs:27; keyring/mod.rs:46-50 | `com.azul.keyring` | the one OS keyring service every app shares | med: a windowed test writes to (and can overwrite) the user's keychain; headless / `AZ_E2E_TEST` use an in-memory store | `AZ_KEYRING_SERVICE` | OPEN |
+| layout/src/http.rs:204-206, 1030, 1509 | 30 s, 100 MB, `azul-http/1.0`; WebPKI roots only; reachability check 10 s; follows `HTTP(S)_PROXY` | default HTTP client | low: an https stack with its own CA cannot be trusted; a proxy in the environment catches 127.0.0.1 unless `NO_PROXY` | `AZ_EXTRA_CA_FILE`, `AZ_HTTP_TIMEOUT_SECS`; the profile sets `NO_PROXY` | OPEN |
+| layout/src/telemetry/config.rs:52-68, 214; queue.rs:25, 106-114; mod.rs:1320 | `AZ_OBSERVE=1` -> `http://127.0.0.1:4318` with token `azul-demo-token`; 60 s flush, 20 s upload, 3 s crash upload; queue under `{data_dir}/{app}/telemetry/` | telemetry | low (off by default; every Azlin app reports as `azul-app` unless it sets `updates.app_name`) | `AZ_TELEMETRY*`, `AZ_OBSERVE=<url>`; the profile sets `AZ_TELEMETRY=off` | DESIGN |
+| layout/src/telemetry/crash_mail.rs:56, 85-95; dll/src/desktop/app.rs:509-519 | SMTP ports `[25, 587, 2525]`, straight to the mail server of `report_problem`'s domain (`...@localhost` goes to 127.0.0.1) | crash reports by mail | low (no Azlin app sets `report_problem`) | `with_ports`; `AZ_CRASH_MAIL_RELAY` | OPEN |
+| layout/src/updater.rs:2300-2316, 2359; core/src/resources.rs:195 | the state folder `<data>/<app_name>`; no manifest URL | the updater | low: inactive until an app sets `AppConfig.updates.manifest_url` (none does) | `endpoints.updates` once an app ships updates | DESIGN |
+| dll/src/desktop/extra/sqlite/mod.rs:119, 325-329; core/src/db.rs:584-585 | `<OS local data>/azul-db/<name>.sqlite`; no sync URL | the engine's database and its Turso sync | low (no Azlin app uses it yet) | `DbConfig.backup_sync_url` -> `endpoints.db` (sqld at :8080) | OPEN |
+| dll/src/desktop/shader_cache.rs:172; css/src/rice.rs:789, 798; layout/src/icon_remap.rs:182 | `~/Library/Caches/azul/shaders`, `~/.azul`, `<config>/azul/styles/<app>.css` | engine folders | low: outside `AZLIN_DATA`; `HOME` (and `XDG_*`) re-root them | - | DESIGN |
+
+## 9. Data folders, app by app
+
+- **The kit rule** (`--data-dir` > `AZLIN_DATA` > `<user data dir>/Azlin`, a folder per app):
+  AzCalculator, AzClock, AzCode, AzContacts, AzDashboard, AzErp, AzKeys (its device secret is a
+  keyring entry), AzMaps, AzMonitor, AzNews, AzNotes, AzPaint, AzPdf, AzPhoto, AzReader, AzReview,
+  AzSetup, AzSheets, AzShells, AzShow, AzTerm, AzVideoCut, AzWriter; AzMeet (a headless run without
+  either uses `<tmp>/azmeet-<pid>`); AzMusic and AzPlayer for their data (their media folders are
+  their own settings).
+- **The kit rule plus folders of their own**: AzMail (`AZMAIL_DATA`, else `<root>/mail`, with the
+  legacy move of section 4); AzDrive (`--home` / `AZDRIVE_HOME`, `--downloads` /
+  `AZDRIVE_DOWNLOADS`, `--drives` / `AZUL_DRIVES`, all outside the root).
+- **Not the kit rule**: AzCalendar (`--data` > `AZCAL_DATA` > `<user data>/AzCalendar`; its task
+  store follows `AZLIN_DATA` since 5677e5cc9) and AzTasks (`--data` > `AZTASKS_DATA` > `AZLIN_DATA`
+  since 5677e5cc9 > `<user data>/Azlin`); neither takes `--data-dir`.
+- **The engine** writes outside every root: the keyring, telemetry, the updater state, the database
+  store, the shader cache, `~/.azul`. On macOS and Linux a `HOME` (and `XDG_*`) pointing at a
+  temporary folder re-roots all of them, `~/.azlin` too - except the keyring.
+
+## 10. Decisions for the user
+
+- Where AzCalendar's events go under the Azlin root (`<root>/calendar/events/` like every kit app's
+  folder, or `<root>/events/` as the S3 split names it) - until then `AZCAL_DATA` isolates it.
+- Whether AzDrive's Home drive (and `--sample`) should follow a named data root (`<root>/home`).
+- Whether AzMeet (and AzCalendar, which follows it) should rank `AZMEET_WORKER` above the server
+  saved in the app; today `--worker` is the way to override a saved one.
+- Whether a keyring service per profile (`AZ_KEYRING_SERVICE`) is wanted, so a windowed local-stack
+  run never touches the user's keychain.
