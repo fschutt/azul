@@ -2116,7 +2116,7 @@ mod theme_pairs {
         // its twin (`themes::flat::list_view_look`, `flora::list_view_look`).
         // The tree view's label used to be listed here twice (its root row's
         // and its first child's label): the label now declares its light ink
-        // beside the dark twin (`tree_view::LABEL_STYLE`), so the pair is
+        // beside the dark twin (`themes::flat::TREE_LABEL_STYLE`), so the pair is
         // whole wherever the tree is built - the shells' navigation pane
         // embeds it at paths no mask could name.
     ];

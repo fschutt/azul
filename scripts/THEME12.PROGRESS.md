@@ -11,8 +11,14 @@ The user: "the list view in AzDrive (and in general?) doesn't follow the theme".
   follows / pinned / structure / invariants tests; KNOWN_HALF_PAIRS list_view entry gone.
   api.json: ListView field `theme: OptionUiTheme`, fns `set_theme`, `with_theme`.
 
+- GREEN 7c2501245 (list) as above.
+- RED 978a67313: `tree_view::theme_tests::every_colour_the_flat_tree_paints_is_one_of_flats`;
+  shared `theme_checks::{colours_of, theme_colours, foreign_colours}` (the list test reads it).
+- GREEN (tree): flat's tree skins (`TREE_*_STYLE` statics) + colours moved into flat.rs, on
+  the flat palette's tokens (field #FCFCFC -> PG, chevrons -> ICON, counts -> ACC / SOFT,
+  night ink -> DARK_INK); tree_view.rs keeps only its bases.
+
 ## NEXT
-- tree_view: move the flat skin + its colours into flat.rs (values unchanged).
 - audit notes (cell_grid, data_table, icon_grid: no production colour literals).
 - AzDrive notes for the report.
 

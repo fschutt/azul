@@ -4273,28 +4273,185 @@ pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
 
 // ==== tree_view ====
 //
-// The flat tree is the widget's established look, unchanged: a near-white
-// field (the list view's surface) in the system font, rows that wash on hover
-// (`ROW_HOVER`, with its dark twin), the selected row in the Windows accent
-// with white ink, a 16px indent per level. Its selected row's icon and label
-// keep the resting styles, as they always had.
+// The flat tree is Outlook 2010's navigation pane on Office's paper: the page
+// white (the night page by night) in the system font and the ink, rows that
+// wash on hover (`ROW_HOVER`, with its dark twin), the selected row on
+// Outlook's selection blue (the selection face's foot, #C1DCFC, and its night
+// foot) in the ordinary ink, a 16px indent per level, the chevrons in the
+// icon ink and a node's count in the accent (the soft accent by night, as the
+// data table's sorted title). Its selected row's icon and label keep the
+// resting styles, as they always had.
+//
+// These skins were the widget's own statics in `tree_view.rs`, with ten
+// colours of their own - a #FCFCFC field, a neutral grey for the chevrons,
+// a blue of their own for the counts, a #E6E6E6 night ink - beside palette
+// values written out by hand. They are the theme's now, in its tokens.
+
+/// The tree's skin (on `tree_view::TREE_CONTAINER_BASE`): the field in the
+/// system font, in the ink.
+pub(crate) static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
+            LIGHT_PG,
+        )]),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_INK,
+    })),
+    // Inline CSS carries the dark-mode conditions and a later property wins,
+    // so each dark value comes right after the light one it replaces: a tree
+    // is no white box in a dark window.
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_PG)]),
+    )),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_INK,
+    })),
+];
+
+/// A row's skin (on `tree_view::ROW_BASE`): its padding and the hover wash.
+pub(crate) static TREE_ROW_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(4),
+    )),
+    ROW_HOVER,
+    ROW_HOVER_DARK,
+];
+
+/// The selected row's skin (on `tree_view::ROW_BASE`): [`TREE_ROW_STYLE`]'s
+/// padding (a const slice cannot splice another; keep the two alike) on
+/// Outlook's selection blue, in the ordinary ink.
+pub(crate) static TREE_ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
+            LIGHT_SELECTION_BOTTOM,
+        )]),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_INK,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
+            DARK_SELECTION_BOTTOM,
+        )]),
+    )),
+    // The selected label is the ordinary ink on the light blue, so by night
+    // it is the night's ink on the night's blue.
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_INK,
+    })),
+];
+
+/// An open parent's children (on `tree_view::CHILDREN_BASE`): the indent.
+pub(crate) static TREE_CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(16),
+    )),
+];
+
+/// The disclosure chevron (on `tree_view::ICON_BASE`). Its 16px must match
+/// `tree_view::LEAF_SPACER_STYLE`'s width, so a leaf lines up with a parent.
+pub(crate) static TREE_ICON_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_ICON,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_ICON,
+    })),
+];
+
+/// A label (on `tree_view::LABEL_BASE`). Its ink is declared HERE, on the
+/// node that carries the text, beside its dark twin, so the pair is whole
+/// wherever the tree is built (`widgets::theme_pairs`, the shells'
+/// navigation pane); the light half is the container's own ink.
+pub(crate) static TREE_LABEL_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_INK,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_INK,
+    })),
+];
+
+/// A node's count (on `tree_view::BADGE_BASE`): semibold, in the accent (the
+/// soft accent by night).
+pub(crate) static TREE_BADGE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_ACC,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_SOFT,
+    })),
+];
+
+/// The count on a selected row: written like the label beside it
+/// ([`TREE_LABEL_STYLE`]'s ink).
+pub(crate) static TREE_BADGE_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: LIGHT_INK,
+    })),
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: DARK_INK,
+    })),
+];
 
 /// Flat's tree-view look: the widget's base under each part ([`on_base`]),
-/// then the tree's established const styles.
+/// then the tree's skins above.
 #[must_use]
 pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
     use crate::widgets::tree_view as t;
     t::TreeViewLook {
-        container: on_base(t::TREE_CONTAINER_BASE, t::TREE_CONTAINER_STYLE),
-        row: on_base(t::ROW_BASE, t::ROW_STYLE),
-        row_selected: on_base(t::ROW_BASE, t::ROW_SELECTED_STYLE),
-        children: on_base(t::CHILDREN_BASE, t::CHILDREN_STYLE),
-        icon: on_base(t::ICON_BASE, t::ICON_STYLE),
-        icon_selected: on_base(t::ICON_BASE, t::ICON_STYLE),
+        container: on_base(t::TREE_CONTAINER_BASE, TREE_CONTAINER_STYLE),
+        row: on_base(t::ROW_BASE, TREE_ROW_STYLE),
+        row_selected: on_base(t::ROW_BASE, TREE_ROW_SELECTED_STYLE),
+        children: on_base(t::CHILDREN_BASE, TREE_CHILDREN_STYLE),
+        icon: on_base(t::ICON_BASE, TREE_ICON_STYLE),
+        icon_selected: on_base(t::ICON_BASE, TREE_ICON_STYLE),
         // No skin: the spacer's style is the same in every theme.
         leaf_spacer: CssPropertyWithConditionsVec::from_const_slice(t::LEAF_SPACER_STYLE),
-        label: on_base(t::LABEL_BASE, t::LABEL_STYLE),
-        label_selected: on_base(t::LABEL_BASE, t::LABEL_STYLE),
+        label: on_base(t::LABEL_BASE, TREE_LABEL_STYLE),
+        label_selected: on_base(t::LABEL_BASE, TREE_LABEL_STYLE),
         marker: None,
     }
 }
@@ -5965,17 +6122,17 @@ pub(crate) fn cell_grid(g: crate::widgets::cell_grid::CellGridResolved) -> Dom {
 // ==== tree_view badge ====
 //
 // The count after a tree node's label (a mail folder's unread messages):
-// flat writes it semibold in Windows' accent blue, and on a selected row in
-// the label's ink. The skins are the widget's own statics, like the rest of
-// flat's tree (`tree_view::BADGE_STYLE`, `BADGE_SELECTED_STYLE`).
+// flat writes it semibold in the accent, and on a selected row in the
+// label's ink. The skins are statics, like the rest of flat's tree
+// (`TREE_BADGE_STYLE`, `TREE_BADGE_SELECTED_STYLE`).
 
 /// Flat's look for a tree node's badge.
 #[must_use]
 pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadgeLook {
     use crate::widgets::tree_view as t;
     t::TreeViewBadgeLook {
-        badge: on_base(t::BADGE_BASE, t::BADGE_STYLE),
-        badge_selected: on_base(t::BADGE_BASE, t::BADGE_SELECTED_STYLE),
+        badge: on_base(t::BADGE_BASE, TREE_BADGE_STYLE),
+        badge_selected: on_base(t::BADGE_BASE, TREE_BADGE_SELECTED_STYLE),
     }
 }
 
