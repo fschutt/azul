@@ -261,7 +261,27 @@ mod url_test;
 
 #[cfg(all(test, feature = "std"))]
 mod opener_tests {
-    use super::opener_command;
+    use super::{opener_command, opens_nothing};
+
+    /// The environment `pairs` describe, as `opens_nothing` reads it.
+    fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_string())
+        }
+    }
+
+    /// A headless or scripted run (an E2E test) starts no browser and no app: an app that
+    /// opens a payment page there must not pop it up on the machine running the test.
+    #[test]
+    fn a_headless_or_scripted_run_starts_no_opener() {
+        assert!(opens_nothing(&env(&[("AZ_BACKEND", "headless")])));
+        assert!(opens_nothing(&env(&[("AZ_E2E_TEST", "/tmp/scenario.json")])));
+        assert!(!opens_nothing(&env(&[])));
+        assert!(!opens_nothing(&env(&[("AZ_BACKEND", "metal")])));
+    }
 
     /// `cmd /C start <url>` re-parsed the line: an `&` (every URL with two
     /// query parameters) ended the command there, and a quoted first
