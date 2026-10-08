@@ -101,8 +101,12 @@ class Dialog:
         self.win.until("the dialog's content", lambda: self.win.has(DIALOG))
 
     def click(self, short, what=None):
+        """Clicks the dialog's control `short` - scrolled into view first: the sources and a
+        long form scroll inside the dialog, and a click lands where the control is painted."""
         selector = add_id(short) if not short.startswith("#") else short
         self.win.until(what or selector, lambda: self.win.has(selector))
+        self.win.op("scroll_into_view", selector=selector, block="center", behavior="instant")
+        self.win.frame(2)
         self.win.click(selector=selector)
 
     def page(self, line, action):
