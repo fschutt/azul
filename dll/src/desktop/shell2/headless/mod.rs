@@ -11443,9 +11443,13 @@ mod tests {
             body = body.with_child(sized(Dom::create_div(), 40.0, 50.0));
         }
         if stage <= 1 {
-            body = body
-                .with_child(sized(Dom::create_p_with_text("guard"), 40.0, 20.0))
-                .with_child(sized(Dom::create_p_with_text("line"), 40.0, 20.0));
+            // The paragraphs declare their move (moves are opt-in): pushed down
+            // by the box, they slide - a FLIP in flight.
+            let moving = |text: &str| {
+                Dom::create_p_with_text(text)
+                    .with_css("width: 40px; height: 20px; animation: move 300ms ease-out;")
+            };
+            body = body.with_child(moving("guard")).with_child(moving("line"));
         } else {
             body = body
                 .with_child(sized(Dom::create_div_with_text("guard"), 40.0, 20.0))

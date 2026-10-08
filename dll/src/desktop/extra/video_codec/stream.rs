@@ -874,10 +874,12 @@ mod stream_tests {
             let shade = (i * 3) as u8;
             let frame = VideoFrame::new(w, h, U8Vec::from_vec(vec![shade; (w * h * 4) as usize]));
             assert!(encoder.encode(frame, i % 30 == 0));
-        }
-        encoder.flush();
-        while let OptionU8Vec::Some(packet) = encoder.recv_packet() {
-            assert!(muxer.write_annexb(packet));
+            // The codec thread's queue is bounded - a full one refuses the next frame - so
+            // each frame is encoded and its packets taken before the next one goes in.
+            encoder.flush();
+            while let OptionU8Vec::Some(packet) = encoder.recv_packet() {
+                assert!(muxer.write_annexb(packet));
+            }
         }
         let clip = muxer.finish().as_ref().to_vec();
         assert!(clip.len() > 1_000, "an MP4 came out");
