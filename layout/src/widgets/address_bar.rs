@@ -1049,6 +1049,103 @@ mod address_bar_tests {
         assert_eq!(path_key_event(None), None);
     }
 
+    /// The first node carrying `class`.
+    fn node_with_class(styled: &StyledDom, class: &str) -> Option<NodeId> {
+        styled
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|nd| {
+                nd.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(s) if s.as_str() == class))
+            })
+            .map(NodeId::new)
+    }
+
+    /// `root` and every node under it, in document order.
+    fn subtree(styled: &StyledDom, root: NodeId) -> Vec<NodeId> {
+        let mut out = vec![root];
+        for child in children(styled, root) {
+            out.extend(subtree(styled, child));
+        }
+        out
+    }
+
+    /// Whether `node` registered a handler for `event`.
+    fn has_callback(styled: &StyledDom, node: NodeId, event: EventFilter) -> bool {
+        styled.node_data.as_ref()[node.index()]
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .any(|cb| cb.event == event)
+    }
+
+    /// The node a click on `node` reaches first: `node` itself or its
+    /// nearest ancestor with a click handler (the test runner fires one
+    /// node's handler, it does not bubble).
+    fn clickable_from(styled: &StyledDom, node: NodeId) -> Option<NodeId> {
+        let click = EventFilter::Hover(HoverEventFilter::Click);
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let mut at = Some(node);
+        while let Some(n) = at {
+            if has_callback(styled, n, click) {
+                return Some(n);
+            }
+            at = hierarchy[n.index()].parent_id();
+        }
+        None
+    }
+
+    /// The path field takes the keyboard as it opens. A click on the trail's
+    /// empty space swaps the trail for the field; unless the field then
+    /// holds the focus, neither Escape nor a click elsewhere (its focus
+    /// loss) can ever end the edit, and the bar stays a text field until the
+    /// next navigation - the "poor text field" AzDrive showed.
+    #[test]
+    fn the_path_field_takes_the_keyboard_when_it_opens() {
+        use azul_core::dom::ComponentEventFilter;
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(
+            bar(&log)
+                .with_editing(true)
+                .with_theme(UiTheme::Flat)
+                .dom(),
+        );
+        let mount = EventFilter::Component(ComponentEventFilter::AfterMount);
+        let field = node_with_class(&styled, "__azul-native-address-bar-field")
+            .expect("the bar has a path field");
+        let mounted = subtree(&styled, field)
+            .into_iter()
+            .find(|n| has_callback(&styled, *n, mount))
+            .expect("a node of the path field takes the keyboard when it mounts");
+        let (_, changes) = rv::fire(&styled, id(mounted), mount).expect("the mount handler runs");
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::SetFocusTarget { .. })),
+            "the mount asks for the keyboard focus: {changes:?}"
+        );
+    }
+
+    /// Every crumb goes where it names, the current folder's too: Explorer's
+    /// last segment is a button like the others. A click on it used to fall
+    /// through to the field under it and turn the trail into a text field.
+    #[test]
+    fn a_click_on_the_current_crumb_goes_there_instead_of_starting_an_edit() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(bar(&log).with_theme(UiTheme::Flat).dom());
+        let label = node_labelled(&styled, "Documents");
+        let target = clickable_from(&styled, label).expect("something takes the click");
+        click(&styled, target).expect("the click runs a handler");
+        assert_eq!(
+            events(&log),
+            vec![(AddressBarEventKind::Crumb, 2, String::new())],
+            "the current crumb reports itself, it does not start an edit"
+        );
+    }
+
     #[test]
     fn an_address_bar_without_a_theme_follows_the_app_theme() {
         let log: Log = Arc::new(Mutex::new(Vec::new()));
