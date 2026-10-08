@@ -356,6 +356,54 @@ pub fn link_with_secret(link: &str, secret: Option<&str>) -> String {
     }
 }
 
+/// The polls of `poll_ms` between two announcements when the meeting server keeps a ticket
+/// `ttl_secs` (its `peer_ttl_seconds`): a sixth of it, so two lost announcements in a row still
+/// keep the ticket listed - 10 polls of 2 s for the Worker's 120 s; at least 1.
+#[must_use]
+pub fn reannounce_polls(ttl_secs: f64, poll_ms: u64) -> u32 {
+    let polls = (ttl_secs * 1000.0 / 6.0 / poll_ms.max(1) as f64).floor();
+    if polls.is_finite() && polls >= 1.0 {
+        polls.min(f64::from(u32::MAX)) as u32
+    } else {
+        1
+    }
+}
+
+/// `starts` to `ends` (seconds since 1970) in the time zone `offset_secs` east of UTC: "Thu 9 Oct
+/// 2026, 14:00-15:00", or both dates when it ends on another day.
+#[must_use]
+pub fn when_text(starts: u64, ends: u64, offset_secs: i32) -> String {
+    use chrono::{FixedOffset, TimeZone};
+    let Some(zone) = FixedOffset::east_opt(offset_secs) else {
+        return String::new();
+    };
+    let at = |secs: u64| {
+        i64::try_from(secs)
+            .ok()
+            .and_then(|secs| zone.timestamp_opt(secs, 0).single())
+    };
+    let (Some(a), Some(b)) = (at(starts), at(ends)) else {
+        return String::new();
+    };
+    const DAY: &str = "%a %-d %b %Y, %H:%M";
+    if a.date_naive() == b.date_naive() {
+        format!("{}-{}", a.format(DAY), b.format("%H:%M"))
+    } else {
+        format!("{} - {}", a.format(DAY), b.format(DAY))
+    }
+}
+
+/// A start typed as `YYYY-MM-DD HH:MM` in the time zone `offset_secs` east of UTC, as seconds
+/// since 1970; `None` for anything else.
+#[must_use]
+pub fn parse_local_start(text: &str, offset_secs: i32) -> Option<u64> {
+    use chrono::{FixedOffset, NaiveDateTime, TimeZone};
+    let naive = NaiveDateTime::parse_from_str(text.trim(), "%Y-%m-%d %H:%M").ok()?;
+    let zone = FixedOffset::east_opt(offset_secs)?;
+    let at = zone.from_local_datetime(&naive).single()?;
+    u64::try_from(at.timestamp()).ok()
+}
+
 /// `n` minutes as people say it: "5 min", "2 h", "2 h 5 min", "3 days".
 fn span(minutes: u64) -> String {
     match minutes {
@@ -449,6 +497,33 @@ mod tests {
         assert_eq!(meeting_status(starts, ends, starts - 30), "starts in 1 min", "never 0");
         assert_eq!(meeting_status(starts, ends, starts + 300), "started 5 min ago, ends in 55 min");
         assert_eq!(meeting_status(starts, ends, ends + 7200), "ended 2 h ago");
+    }
+
+    /// 2026-10-09T14:00:00Z, a Friday.
+    const FRIDAY_14_UTC: u64 = 1_791_554_400;
+
+    #[test]
+    fn a_meetings_times_show_in_the_time_zone_and_a_typed_start_reads_back() {
+        let t = FRIDAY_14_UTC;
+        assert_eq!(when_text(t, t + 3600, 0), "Fri 9 Oct 2026, 14:00-15:00");
+        assert_eq!(when_text(t, t + 3600, 7200), "Fri 9 Oct 2026, 16:00-17:00");
+        assert_eq!(
+            when_text(t, t + 11 * 3600, 7200),
+            "Fri 9 Oct 2026, 16:00 - Sat 10 Oct 2026, 03:00",
+            "both dates when it ends on another day"
+        );
+        assert_eq!(parse_local_start("2026-10-09 16:00", 7200), Some(t));
+        assert_eq!(parse_local_start(" 2026-10-09 14:00 ", 0), Some(t));
+        assert_eq!(parse_local_start("next friday", 0), None);
+        assert_eq!(parse_local_start("2026-02-30 10:00", 0), None);
+    }
+
+    #[test]
+    fn a_ticket_is_announced_again_after_a_sixth_of_the_servers_ttl() {
+        assert_eq!(reannounce_polls(120.0, 2000), 10, "the Worker's default: every 20 s");
+        assert_eq!(reannounce_polls(30.0, 2000), 2);
+        assert_eq!(reannounce_polls(5.0, 2000), 1, "at least every poll");
+        assert_eq!(reannounce_polls(f64::NAN, 2000), 1);
     }
 
     #[test]
