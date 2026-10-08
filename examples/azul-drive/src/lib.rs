@@ -561,6 +561,11 @@ impl DriveState {
 
     /// The selected rows, in the shown order.
     pub fn selected_entries(&self) -> Vec<&Entry> {
+        // Nothing selected (the usual case) asks no row: a folder of 100,000 items would hash
+        // every key once per caller, several times per build of the window.
+        if self.selection.is_empty() {
+            return Vec::new();
+        }
         self.visible_entries()
             .into_iter()
             .filter(|e| self.selection.contains(&e.key))

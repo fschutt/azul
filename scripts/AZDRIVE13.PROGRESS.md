@@ -29,16 +29,22 @@ fast-forwarded to a4d14a02c). No cargo here; the lead builds and runs everything
 - A5 (app): address bar usage; A6: E2E.
 
 ## DONE
+- db6aadb6b W1 RED address bar tests (sub-agent); a24b1bd20 W2 AddressBar = Explorer 8's row;
+  179a9ce5e W3 RibbonFileMenu + RibbonAppButton.menu hook (sub-agent's progress file:
+  scripts/AZDRIVE13_WIDGETS.PROGRESS.md).
 - 77dd5beaf A1 listing model (listing.rs) + allocation-free compare_entries, Entry.known.
-- (next commit) A2+A3: Job::Scan (read_dir batches, cancel on navigation), Job::Stat (rows in
+- ee0f39581 A2+A3: Job::Scan (read_dir batches, cancel on navigation), Job::Stat (rows in
   view), Job::Count (read_dir counts: folder sizes column, details pane, This PC tiles),
   Job::Folders (tree, no stat per entry); refresh keeps the old rows until the scan ends;
-  virtual folder view (ui_view::folder_view / folder_lines, fixed line heights, group headers as
-  lines), IconGrid items on demand, thumbnails only in view, keyboard reveal.
+  virtual folder view, IconGrid items on demand, thumbnails only in view, keyboard reveal.
+- 0246239fa A4: the ribbon (Home / Share / View; Computer at This PC), the File menu, no title
+  row (tabs in the titlebar), window title = path, --open, Move to / Copy to recent folders +
+  the system folder dialog, Print, Hide selected items.
+- (E2E commit) A6: scripts/azdrive_e2e.py (ribbon, breadcrumb, File menu, 3,000 files) and
+  examples/azul-drive/scripts/browse.py.
 
 ## IN PROGRESS
-- A4 ribbon + File menu wiring (waiting for the widget sub-agent's RibbonFileMenu API - names
-  fixed in the spec, see the sub-agent prompt).
+- an independent compile review of the app diff (sub-agent); fixes from it.
 
 ## NEXT
-- A4, A5 (address bar usage: with_icon / with_available_width), A6 E2E.
+- final report (api.json list = the sub-agent's report + nothing app-specific).

@@ -113,7 +113,12 @@ extern "C" fn on_address(
             let drive_name = s.drive_name(&s.place);
             if let Some((_, place)) = browse::crumbs_of(&s.place, &drive_name).get(index) {
                 let place = place.clone();
-                go(info, app, s, place, true);
+                if place == s.place {
+                    // The open folder's own crumb: Explorer reads the folder again.
+                    crate::refresh(info, app, s);
+                } else {
+                    go(info, app, s, place, true);
+                }
             }
         }
         AddressBarEventKind::CrumbMenu => {
