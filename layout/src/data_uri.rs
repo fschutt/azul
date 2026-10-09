@@ -30,6 +30,7 @@ pub fn base64_payload(uri: &str) -> Option<Vec<u8>> {
 /// ONCE per URI - a page DOM rebuilt as it scrolls back into view gets the
 /// same picture / font again - and forgotten oldest first, so a document
 /// that scrolls through a thousand pages does not keep a thousand fonts.
+#[derive(Debug)]
 pub struct UriMemo<T> {
     capacity: usize,
     entries: Mutex<VecDeque<(u64, T)>>,
@@ -80,6 +81,7 @@ impl<T: Clone> UriMemo<T> {
             entries.pop_front();
         }
         entries.push_back((key, made.clone()));
+        drop(entries);
         Some(made)
     }
 }

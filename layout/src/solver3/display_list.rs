@@ -9760,7 +9760,7 @@ where
         // The table layers 2-6 over the inline table's own box (see above).
         // A grid that cannot be analysed leaves the box as painted.
         if let Some(table) = inline_table {
-            let _ = self.paint_table_items(builder, table);
+            drop(self.paint_table_items(builder, table));
         }
 
         // Push hit-test area for this inline-block element

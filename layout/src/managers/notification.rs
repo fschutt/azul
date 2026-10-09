@@ -429,7 +429,7 @@ pub fn with_current_notification_event<R>(event: &NotificationEvent, f: impl FnO
     impl Drop for Restore {
         fn drop(&mut self) {
             let previous = self.0.take();
-            let _ = CURRENT_EVENT.try_with(|slot| slot.replace(previous));
+            drop(CURRENT_EVENT.try_with(|slot| slot.replace(previous)));
         }
     }
     let previous = CURRENT_EVENT.with(|slot| slot.replace(Some(event.clone())));

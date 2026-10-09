@@ -405,6 +405,7 @@ type AnswerTable = Arc<Mutex<BTreeMap<GlobalHotkey, SimulatedAnswer>>>;
 /// The backend a headless run installs: nothing is grabbed at the OS, every
 /// grab is granted unless an answer was programmed, and a hotkey fires only
 /// through [`GlobalHotkeyManager::simulate`].
+#[derive(Debug)]
 pub struct SimulatedBackend {
     answers: AnswerTable,
 }
@@ -627,7 +628,7 @@ impl GlobalHotkeyManager {
         self.retry.clear();
         // Queued presses and answers carry the OLD backend's ids.
         self.fires.clear();
-        let _ = self.sink.drain();
+        drop(self.sink.drain());
         self.backend = backend;
         self.dirty = true;
         self.status_changed = true;
@@ -1446,7 +1447,7 @@ impl SharedGlobalHotkeys {
         let _ = self.refresh_app_declarations();
         let mut manager = self.lock();
         manager.poll_backend();
-        let _ = manager.sync();
+        drop(manager.sync());
         let presses = manager.take_deliveries();
         let app_window = manager
             .app_target(live)
@@ -1511,7 +1512,7 @@ impl SharedGlobalHotkeys {
             static_items,
             snapshot,
         } = job;
-        let _ = take_recorded_global_hotkeys();
+        drop(take_recorded_global_hotkeys());
         callback.invoke(data, GlobalHotkeysCallbackInfo::new(&snapshot));
         let recorded = take_recorded_global_hotkeys();
         if recorded.overflowed {

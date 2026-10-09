@@ -457,7 +457,7 @@ impl A11yRetainedTree {
 /// One frame's inputs to the accessibility tree: everything a node's
 /// content, its place and the focus are built from.
 #[cfg(feature = "a11y")]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct A11yTreeInputs<'a> {
     pub layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
     pub scroll_manager: &'a crate::managers::scroll_state::ScrollManager,
@@ -896,7 +896,7 @@ impl A11yManager {
             cursor_info,
         };
         let mut retained = A11yRetainedTree::default();
-        let _ = Self::rebuild_retained(&mut retained, root_id, &inputs);
+        drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
         retained.full_update(root_id)
     }
 
