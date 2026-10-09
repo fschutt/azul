@@ -939,6 +939,9 @@ pub struct PaintedWebView {
     /// scroll frame and the window's own edges; `None` when nothing of it
     /// shows (scrolled out, clipped away).
     pub clip: Option<LogicalRect>,
+    /// How the page maps into `rect`: its own size and the linear part of
+    /// the transforms above it (untransformed without any).
+    pub transform: crate::managers::webview::WebViewTransform,
 }
 
 /// Every `<webview>` the display lists reserve a rect for
@@ -955,7 +958,8 @@ pub struct PaintedWebView {
 /// nested dom paints at its host's `VirtualView` item
 /// ([`resolve_virtual_view_placements`]) and is seen through that view's
 /// viewport too. A transformed view is placed at its transformed bounding
-/// box (a native view cannot rotate).
+/// box, and the linear part of its map comes with it (`transform`: a native
+/// view zooms by it, or turns where it can).
 ///
 /// Empty - and no list walked - when no display list holds a web view.
 #[must_use]
@@ -1072,7 +1076,20 @@ pub fn painted_webviews(
                     }
                 }
                 I::WebView { node_id, bounds } => {
-                    let rect = to_screen(shift(*bounds.inner()), &chain);
+                    let local = shift(*bounds.inner());
+                    let rect = to_screen(local, &chain);
+                    let resolved = (!chain.is_empty())
+                        .then(|| resolve_chain(&chain, resolve_scroll, resolve_transform));
+                    let transform = match resolved {
+                        Some(r) if r.has_transform => crate::managers::webview::WebViewTransform {
+                            size: local.size,
+                            sx: r.forward.sx,
+                            shy: r.forward.shy,
+                            shx: r.forward.shx,
+                            sy: r.forward.sy,
+                        },
+                        _ => crate::managers::webview::WebViewTransform::untransformed(local.size),
+                    };
                     let clip = host_clips
                         .iter()
                         .chain(&clips)
@@ -1086,6 +1103,7 @@ pub fn painted_webviews(
                         node_id: *node_id,
                         rect,
                         clip,
+                        transform,
                     });
                 }
                 _ => {}

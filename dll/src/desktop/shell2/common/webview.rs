@@ -69,7 +69,7 @@ use azul_core::{
 };
 use azul_css::AzString;
 use azul_layout::managers::webview::{
-    WebViewId, WebViewOp, WebViewPlacement, WebViewRecorder, WebViewReport,
+    WebViewId, WebViewOp, WebViewPlacement, WebViewRecorder, WebViewReport, WebViewTransform,
 };
 
 use super::event::PlatformWindow;
@@ -92,6 +92,14 @@ pub trait WebViewBackend {
     fn create(&mut self, id: WebViewId, config: WebViewConfig, src: &str) -> Result<(), String>;
     /// Move, resize, clip, show or hide view `id` (window logical px).
     fn place(&mut self, id: WebViewId, placement: &WebViewPlacement);
+    /// How view `id`'s page maps into its placement changed (a CSS
+    /// transform above it): show the page at its own `size`, zoomed - or
+    /// turned, where the native view can turn. Not called for a view that
+    /// was never transformed. The default shows it untransformed at its
+    /// placement (a native view that cannot zoom).
+    fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
+        let _ = (id, transform);
+    }
     /// Load `url` in view `id`.
     fn navigate(&mut self, id: WebViewId, url: &str);
     /// Load view `id`'s page again.
@@ -114,6 +122,7 @@ pub trait WebViewBackend {
             WebViewOp::Reload { id } => self.reload(*id),
             WebViewOp::GoBack { id } => self.go_back(*id),
             WebViewOp::Place { id, placement } => self.place(*id, placement),
+            WebViewOp::Transform { id, transform } => self.transform(*id, transform),
             WebViewOp::Destroy { id } => self.destroy(*id),
         }
         Ok(())
@@ -149,6 +158,12 @@ impl WebViewBackend for HeadlessWebViews {
         self.recorder.apply(&WebViewOp::Place {
             id,
             placement: *placement,
+        });
+    }
+    fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
+        self.recorder.apply(&WebViewOp::Transform {
+            id,
+            transform: *transform,
         });
     }
     fn navigate(&mut self, id: WebViewId, url: &str) {

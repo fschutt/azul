@@ -34,7 +34,7 @@ use alloc::{format, string::String, vec::Vec};
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeType},
     events::SyntheticEvent,
-    geom::LogicalRect,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     task::Instant,
     webview::{
         create_webview_event, WebViewCommand, WebViewConfig, WebViewEvent, WebViewLoadError,
@@ -101,6 +101,108 @@ impl WebViewPlacement {
     }
 }
 
+/// How a web view's page maps into its placement
+/// ([`WebViewOp::Transform`]): the page's own size and the linear part of
+/// the CSS transforms above its box.
+///
+/// A placement's `rect` is the bounding box of the page's box under the
+/// whole map, so the map's translation follows from it: the backend gets
+/// the size and the linear part here, and [`Self::to_window`] /
+/// [`Self::to_page`] put the two together. An upright scale
+/// ([`Self::is_axis_aligned`]) is what a native view shows exactly - at
+/// `rect`, zoomed by [`Self::zoom`]; a turn or a skew only a backend that
+/// can transform its view (or draws the page itself) shows as such.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct WebViewTransform {
+    /// The page's own size: its content box, in CSS px - what it lays out
+    /// at, whatever the transform.
+    pub size: LogicalSize,
+    /// The linear part of the page-to-window map, row-vector convention:
+    /// `x' = x * sx + y * shx`, `y' = x * shy + y * sy`.
+    pub sx: f32,
+    pub shy: f32,
+    pub shx: f32,
+    pub sy: f32,
+}
+
+impl WebViewTransform {
+    /// How close to zero a coefficient counts as zero (a quarter turn's
+    /// cosine is not exactly zero in `f32`).
+    const EPSILON: f32 = 1e-5;
+
+    /// A page of `size` shown at its size, upright.
+    #[must_use]
+    pub const fn untransformed(size: LogicalSize) -> Self {
+        Self {
+            size,
+            sx: 1.0,
+            shy: 0.0,
+            shx: 0.0,
+            sy: 1.0,
+        }
+    }
+
+    /// Shown at its own size, upright: its placement says all.
+    #[must_use]
+    pub fn is_untransformed(&self) -> bool {
+        self.is_axis_aligned()
+            && (self.sx - 1.0).abs() < Self::EPSILON
+            && (self.sy - 1.0).abs() < Self::EPSILON
+    }
+
+    /// Upright - a scale, no turn, no skew.
+    #[must_use]
+    pub fn is_axis_aligned(&self) -> bool {
+        self.shx.abs() < Self::EPSILON && self.shy.abs() < Self::EPSILON
+    }
+
+    /// How much the page is magnified along its own x and y: the lengths
+    /// the map gives its unit vectors.
+    #[must_use]
+    pub fn zoom(&self) -> (f32, f32) {
+        (self.sx.hypot(self.shy), self.shx.hypot(self.sy))
+    }
+
+    /// The page point `p` (CSS px from its top-left corner) on screen, for
+    /// a page placed at `rect`.
+    #[must_use]
+    pub fn to_window(&self, rect: LogicalRect, p: LogicalPosition) -> LogicalPosition {
+        let origin = self.origin(rect);
+        LogicalPosition::new(
+            p.x.mul_add(self.sx, p.y * self.shx) + origin.x,
+            p.x.mul_add(self.shy, p.y * self.sy) + origin.y,
+        )
+    }
+
+    /// The page point at window point `p`, for a page placed at `rect`;
+    /// `None` for a map that flattens the page (nothing of it can be hit).
+    #[must_use]
+    pub fn to_page(&self, rect: LogicalRect, p: LogicalPosition) -> Option<LogicalPosition> {
+        let det = self.sx.mul_add(self.sy, -(self.shx * self.shy));
+        if det.abs() < Self::EPSILON {
+            return None;
+        }
+        let origin = self.origin(rect);
+        let (x, y) = (p.x - origin.x, p.y - origin.y);
+        Some(LogicalPosition::new(
+            self.sy.mul_add(x, -(self.shx * y)) / det,
+            self.sx.mul_add(y, -(self.shy * x)) / det,
+        ))
+    }
+
+    /// Where the page's top-left corner lands: the translation that puts
+    /// the bounds of its mapped box at `rect`.
+    fn origin(&self, rect: LogicalRect) -> LogicalPosition {
+        let (w, h) = (self.size.width, self.size.height);
+        // The mapped corners' x and y: (0, 0), (w, 0), (0, h), (w, h).
+        let across = [0.0, w * self.sx, h * self.shx, w.mul_add(self.sx, h * self.shx)];
+        let down = [0.0, w * self.shy, h * self.sy, w.mul_add(self.shy, h * self.sy)];
+        let left = across.iter().copied().fold(f32::INFINITY, f32::min);
+        let top = down.iter().copied().fold(f32::INFINITY, f32::min);
+        LogicalPosition::new(rect.origin.x - left, rect.origin.y - top)
+    }
+}
+
 /// What a window's web view backend must do, in queue order
 /// ([`WebViewManager::take_ops`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +225,13 @@ pub enum WebViewOp {
         id: WebViewId,
         placement: WebViewPlacement,
     },
+    /// How the page maps into its placement changed: a transform above it
+    /// came, changed or went (an untransformed one again). Never sent for a
+    /// view that was never transformed.
+    Transform {
+        id: WebViewId,
+        transform: WebViewTransform,
+    },
     /// Its node unmounted: destroy the native view.
     Destroy { id: WebViewId },
 }
@@ -137,6 +246,7 @@ impl WebViewOp {
             | Self::Reload { id }
             | Self::GoBack { id }
             | Self::Place { id, .. }
+            | Self::Transform { id, .. }
             | Self::Destroy { id } => *id,
         }
     }
@@ -186,6 +296,9 @@ pub struct MountedWebView {
     pub loading: bool,
     /// Where the backend was last told it is.
     pub placement: WebViewPlacement,
+    /// The transform the backend was last told of; `None` while it shows
+    /// untransformed (it never heard one, or the last one it heard said so).
+    pub transform: Option<WebViewTransform>,
     /// The last [`MAX_NAVIGATION_RECORDS`] navigations it was asked about.
     pub navigations: Vec<WebViewNavigationRecord>,
     /// The last event it reported: what a callback at its node reads.
@@ -368,6 +481,7 @@ impl WebViewManager {
                 title: AzString::from_const_str(""),
                 loading: false,
                 placement: WebViewPlacement::HIDDEN,
+                transform: None,
                 navigations: Vec::new(),
                 last_event: None,
                 known: absent.is_none(),
@@ -389,25 +503,35 @@ impl WebViewManager {
 
     /// Place every view where the display lists put it this frame
     /// (`crate::headless::painted_webviews`); a view not among them is
-    /// hidden. Only a CHANGED placement is queued for the backend.
+    /// hidden. Only a CHANGED placement is queued for the backend, and a
+    /// view's transform only when it changed - none for a view that was
+    /// never transformed; a hidden view keeps the last one.
     pub fn sync_placements(&mut self, painted: &[PaintedWebView]) {
         if !self.has_backend() {
             return;
         }
         for view in &mut self.views {
-            let placement = painted
-                .iter()
-                .find(|p| {
-                    p.dom_id == view.node.dom
-                        && view.node.node.into_crate_internal() == Some(p.node_id)
-                })
-                .map_or(WebViewPlacement::HIDDEN, WebViewPlacement::of);
+            let found = painted.iter().find(|p| {
+                p.dom_id == view.node.dom
+                    && view.node.node.into_crate_internal() == Some(p.node_id)
+            });
+            let placement = found.map_or(WebViewPlacement::HIDDEN, WebViewPlacement::of);
             if placement != view.placement {
                 view.placement = placement;
                 self.ops.push(WebViewOp::Place {
                     id: view.id,
                     placement,
                 });
+            }
+            if let Some(p) = found {
+                let transform = (!p.transform.is_untransformed()).then_some(p.transform);
+                if transform != view.transform {
+                    view.transform = transform;
+                    self.ops.push(WebViewOp::Transform {
+                        id: view.id,
+                        transform: p.transform,
+                    });
+                }
             }
         }
     }
@@ -595,6 +719,8 @@ pub struct RecordedWebView {
     pub config: WebViewConfig,
     /// Where it was last placed.
     pub placement: WebViewPlacement,
+    /// The last transform it was told of (`None` before any).
+    pub transform: Option<WebViewTransform>,
     /// The pages it went to, oldest first; the last is the current one.
     pub history: Vec<AzString>,
     /// Requests reported and not answered yet: (handle, page, a step back).
@@ -629,6 +755,7 @@ impl WebViewRecorder {
                     id: *id,
                     config: *config,
                     placement: WebViewPlacement::HIDDEN,
+                    transform: None,
                     history: Vec::new(),
                     pending: Vec::new(),
                 });
@@ -654,6 +781,11 @@ impl WebViewRecorder {
             WebViewOp::Place { id, placement } => {
                 if let Some(view) = self.views.iter_mut().find(|v| v.id == *id) {
                     view.placement = *placement;
+                }
+            }
+            WebViewOp::Transform { id, transform } => {
+                if let Some(view) = self.views.iter_mut().find(|v| v.id == *id) {
+                    view.transform = Some(*transform);
                 }
             }
             WebViewOp::Destroy { id } => self.views.retain(|v| v.id != *id),

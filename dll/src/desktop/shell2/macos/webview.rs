@@ -49,7 +49,7 @@ use azul_core::webview::{
     WebViewConfig, WebViewEvent, WebViewLoadError, WebViewNavigation, WebViewStorage,
 };
 use azul_css::AzString;
-use azul_layout::managers::webview::{WebViewId, WebViewPlacement, WebViewReport};
+use azul_layout::managers::webview::{WebViewId, WebViewPlacement, WebViewReport, WebViewTransform};
 use block2::{Block, RcBlock};
 use objc2::{
     define_class, msg_send,
@@ -597,6 +597,28 @@ impl WebViewBackend for MacWebViews {
             let _: () = msg_send![&*view.container, setFrame: container_frame];
             let _: () = msg_send![&*view.web_view, setFrame: web_view_frame];
             let _: () = msg_send![&*view.container, setHidden: Bool::NO];
+        }
+    }
+
+    /// A transformed page: the web view already fills the transformed box's
+    /// bounds (`place`), so the page is zoomed to keep its own size inside
+    /// it (`pageZoom`, macOS 11+) - by the smaller of the two scales when
+    /// they differ. An `NSView` subview does not turn: a turned page shows
+    /// upright in its bounds.
+    fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
+        let Some(view) = self.views.get(&id) else {
+            return;
+        };
+        let (zoom_x, zoom_y) = transform.zoom();
+        let zoom = f64::from(zoom_x.min(zoom_y));
+        if !zoom.is_finite() || zoom <= 0.0 {
+            return;
+        }
+        unsafe {
+            let zooms: Bool = msg_send![&*view.web_view, respondsToSelector: sel!(setPageZoom:)];
+            if zooms.as_bool() {
+                let _: () = msg_send![&*view.web_view, setPageZoom: zoom];
+            }
         }
     }
 
