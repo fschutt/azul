@@ -50,6 +50,11 @@
 // `syn` 1.0.x ↔ 2.0.x (the proc-macro ecosystem is mid-migration; both are
 // pulled in transitively). Documented allow — re-audit when the dep tree aligns.
 #![allow(clippy::multiple_crate_versions)]
+// `redundant_pub_crate` (nursery) wants `pub(crate)` items in private modules
+// spelled `pub`, which is exactly what the `unreachable_pub` rustc lint above
+// flags - the two fight each other (clippy documents the conflict). The crate
+// keeps `unreachable_pub` and `pub(crate)`.
+#![allow(clippy::redundant_pub_crate)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,

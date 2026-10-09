@@ -61,6 +61,11 @@
     ambiguous_glob_reexports,             // layout/style mod re-exports
     unreachable_patterns,                  // exhaustive match in generated code
 )]
+// `redundant_pub_crate` (nursery) wants `pub(crate)` items in private modules
+// spelled `pub`, which is exactly what the `unreachable_pub` rustc lint above
+// flags - the two fight each other (clippy documents the conflict). The crate
+// keeps `unreachable_pub` and `pub(crate)`.
+#![allow(clippy::redundant_pub_crate)]
 
 // #![no_std]
 
