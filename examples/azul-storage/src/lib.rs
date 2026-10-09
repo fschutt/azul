@@ -92,6 +92,9 @@ pub mod crypto;
 pub mod encrypted;
 #[cfg(feature = "encryption")]
 pub use encrypted::{open_encrypted, EncryptedDrive, IndexProvider, MemoryIndex, NameIndex};
+/// A plaintext drive's files moved into its encrypted namespace, resumably.
+#[cfg(feature = "encryption")]
+pub mod migrate;
 
 use std::{fmt, io::Read, path::PathBuf};
 

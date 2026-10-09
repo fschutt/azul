@@ -37,6 +37,9 @@ mod encrypted;
 /// The keys on a device: setup, unlock, invites, recovery (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod device;
+/// A plaintext drive moved into its encrypted namespace (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod migrate;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
