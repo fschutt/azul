@@ -219,6 +219,23 @@ fn a_file_over_the_size_limit_is_not_read_but_its_name_is_found() {
 }
 
 #[test]
+fn a_utf16_file_is_text_unless_the_app_reads_utf8_only() {
+    let dir = TempDir::new("utf16");
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in "the picked one\n".encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    dir.write("notes.txt", &bytes);
+    dir.write("plain.txt", b"picked\n");
+    let request = Request::new(dir.path()).with_contents(Pattern::literal("picked"));
+    let (text, _) = run(&request);
+    assert_eq!(content_paths(&text), vec!["notes.txt", "plain.txt"]);
+    let (utf8_only, summary) = run(&request.clone().with_utf16(false));
+    assert_eq!(content_paths(&utf8_only), vec!["plain.txt"]);
+    assert_eq!(summary.binary, 1, "passed over as binary");
+}
+
+#[test]
 fn ignore_files_and_hidden_files_are_honoured_unless_turned_off() {
     let dir = TempDir::new("ignore");
     dir.write(".gitignore", b"target/\n*.log\n");

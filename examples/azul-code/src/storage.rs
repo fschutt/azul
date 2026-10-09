@@ -779,17 +779,22 @@ mod tests {
         }
     }
 
+    /// The editor opens a file as UTF-8 (invalid bytes replaced): a UTF-16 file's match could
+    /// not be shown where it is, so the search passes the file over as binary (as before the
+    /// shared engine, which could read it).
     #[test]
-    fn a_search_of_the_folder_reads_a_utf16_text_file_as_text() {
+    fn a_search_of_the_folder_passes_over_a_utf16_file_the_editor_cannot_show() {
         let mut utf16 = vec![0xFF, 0xFE];
         for unit in "first line\nthe picked one\n".encode_utf16() {
             utf16.extend_from_slice(&unit.to_le_bytes());
         }
-        let (dir, root) = workspace_with("search-utf16", &[("notes.txt", &utf16[..])]);
+        let (dir, root) = workspace_with(
+            "search-utf16",
+            &[("notes.txt", &utf16[..]), ("plain.txt", &b"the picked one\n"[..])],
+        );
         let found = search_files(&root.folder(), &picked());
-        assert_eq!(found.files.len(), 1, "{found:?}");
-        let hit = &found.files[0].hits[0];
-        assert_eq!((hit.line, hit.start, hit.preview.as_str()), (1, 4, "the picked one"));
+        let keys: Vec<&str> = found.files.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["plain.txt"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
