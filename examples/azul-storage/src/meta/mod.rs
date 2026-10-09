@@ -35,7 +35,7 @@
 //!
 //! The bucket sees that a repository exists, its size and its write times;
 //! names, the tree's shape and git's hashes stay inside the ciphertext. What
-//! seals is a `Sealer` (the drive key's; an authenticated cipher with
+//! seals is a [`Sealer`] (the drive key's; an authenticated cipher with
 //! associated data). The associated data of every sealed object is its key in
 //! the bucket, so the bucket cannot answer one object with another.
 //!
@@ -58,3 +58,104 @@
 //! dependency already), a pack whose sealed chunks can be read in ranges, and
 //! a three-way merge of trees whose conflicts are files to keep or rename,
 //! never text to merge. That is this module, with no new crate.
+
+pub mod bucket;
+pub mod seal;
+
+use std::fmt;
+
+pub use bucket::{
+    Bucket, ConditionalPut, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts,
+    Version,
+};
+pub use seal::{SealError, Sealer, TestSealer};
+
+use crate::DriveError;
+
+/// Why a call of the metadata repository failed. Every variant reads as a
+/// sentence; none carries plaintext of the repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetaError {
+    /// A conditional write lost: the object was there already, or it changed
+    /// since it was read (S3: 412 Precondition Failed). Nothing was written.
+    Conflict { key: String },
+    /// The bucket's own error.
+    Drive(DriveError),
+    /// The object does not open with this drive key (another key, or a changed byte).
+    Sealed { key: String, reason: String },
+    /// The object opened but makes no sense.
+    Corrupt { key: String, reason: String },
+    /// The bucket cannot do what the repository needs (conditional writes, versions).
+    Unsupported(String),
+    /// The bucket holds no metadata repository.
+    NoRepository,
+    /// The bucket holds a metadata repository already.
+    RepositoryExists,
+    /// Other devices kept publishing first; gave up after this many attempts.
+    Contended { attempts: u32 },
+    /// A ref was not at the value the update expected (`None` = absent).
+    RefConflict {
+        name: String,
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    /// The bucket served an older manifest than one this device has seen: a
+    /// replay, or a bucket that lost writes.
+    Rollback { seen: u64, served: u64 },
+    /// Another device holds the lease until `expires_at` (seconds since 1970).
+    LeaseHeld { holder: String, expires_at: u64 },
+    /// A git object the repository needs is in none of its packs.
+    MissingObject { id: String },
+}
+
+impl fmt::Display for MetaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MetaError::Conflict { key } => {
+                write!(f, "\"{key}\" was written by another device in the meantime")
+            }
+            MetaError::Drive(e) => write!(f, "{e}"),
+            MetaError::Sealed { key, reason } => {
+                write!(f, "\"{key}\" does not open with this drive's key: {reason}")
+            }
+            MetaError::Corrupt { key, reason } => write!(f, "\"{key}\" is damaged: {reason}"),
+            MetaError::Unsupported(message) => {
+                write!(f, "this storage cannot hold a drive index: {message}")
+            }
+            MetaError::NoRepository => f.write_str("this drive has no index yet"),
+            MetaError::RepositoryExists => f.write_str("this drive has an index already"),
+            MetaError::Contended { attempts } => write!(
+                f,
+                "other devices kept changing the drive; gave up after {attempts} attempts"
+            ),
+            MetaError::RefConflict {
+                name,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "{name} is at {} instead of {}",
+                actual.as_deref().unwrap_or("nothing"),
+                expected.as_deref().unwrap_or("nothing")
+            ),
+            MetaError::Rollback { seen, served } => write!(
+                f,
+                "the storage answered with an older index (revision {served}) than this \
+                 device has seen (revision {seen})"
+            ),
+            MetaError::LeaseHeld { holder, expires_at } => write!(
+                f,
+                "the device {holder} is tidying the index (until {expires_at})"
+            ),
+            MetaError::MissingObject { id } => write!(f, "the index lacks the object {id}"),
+        }
+    }
+}
+
+impl std::error::Error for MetaError {}
+
+impl From<DriveError> for MetaError {
+    fn from(e: DriveError) -> Self {
+        MetaError::Drive(e)
+    }
+}
