@@ -24,19 +24,31 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     `credentials_revoked` (reuse revokes the family).
  7. POST /v1/drives/<a drive nobody has>/credentials: 404 `no_such_drive`.
  8. A route nobody serves: 404 `not_found`.
+ 9. The claim (CLAIM CONTRACT v1, scripts/azlin_claim.py): POST /v1/checkout without a
+    `claim_key` is 400 `claim_key_required`; with one it is 201 with a checkout id and a payment
+    page; paid with the test provider's approving card, GET /v1/checkout/<id> answers `approved`
+    with a `sealed_signup` (and no plaintext `signup`) that opens with the claim secret for that
+    checkout id to a drive bundle - and opens for no other checkout id; a second GET answers it
+    again (kept, not deleted on read); an unknown checkout is 404.
 
-Every drive token is secret: none is printed.
+Every drive token and claim secret is secret: none is printed.
 """
 import argparse
+import json
 import os
 import re
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import azlin_claim  # noqa: E402
 import azlin_client  # noqa: E402
+
+# The test provider's card that approves (the mock's and azlin-token's payments.rs).
+APPROVING_CARD = '4242 4242 4242 4242'
 
 TOKEN = re.compile(r'^dt_(f_[a-z2-7]+)\.(\d+)\.[A-Za-z0-9_-]+$')
 
@@ -129,7 +141,59 @@ def run(token_url, s3_url=None):
     status, value, _ = client.call('GET', '/v1/nothing-here')
     suite.check('a route nobody serves is 404 not_found',
                 status == 404 and error_code(value) == 'not_found', '(HTTP %d %r)' % (status, value))
+    claim_checks(suite, client)
     return suite.failures
+
+
+def claim_checks(suite, client):
+    """9. The claim of a paid drive: the sign-up sealed to the checkout's claim key."""
+    order = {'tier': '100GB', 'months': 1, 'method': 'card'}
+    status, value, _ = client.call('POST', '/v1/checkout', order)
+    suite.check('a checkout without a claim key is 400 claim_key_required',
+                status == 400 and error_code(value) == 'claim_key_required',
+                '(HTTP %d %r)' % (status, value))
+    secret, claim_key = azlin_claim.new_claim_key()
+    status, value, text = client.call('POST', '/v1/checkout', dict(order, claim_key=claim_key))
+    checkout_id = (value or {}).get('checkout_id') or ''
+    if not suite.check('a checkout with a claim key is 201 with its id and payment page',
+                       status == 201 and bool(checkout_id) and bool((value or {}).get('pay_url')),
+                       '(HTTP %d %s)' % (status, text[:200])):
+        return
+    path = '/v1/checkout/' + checkout_id
+    status, value, _ = client.call('POST', path + '/pay', {'card_number': APPROVING_CARD})
+    # The test provider may approve a moment later (`approves_in_secs`).
+    deadline = time.time() + 60
+    answer = {}
+    while time.time() < deadline:
+        status, answer, _ = client.call('GET', path)
+        if (answer or {}).get('status') != 'pending':
+            break
+        time.sleep(1)
+    answer = answer or {}
+    sealed = answer.get('sealed_signup') or ''
+    suite.check('the paid checkout is approved with a sealed sign-up and no plaintext one',
+                answer.get('status') == 'approved' and bool(sealed) and 'signup' not in answer,
+                '(status %r, keys %s)' % (answer.get('status'), sorted(answer)))
+    try:
+        bundle = json.loads(azlin_claim.open_sealed(sealed, secret, checkout_id))
+    except ValueError as e:
+        bundle = None
+        suite.check('the sealed sign-up opens with the claim secret', False, '(%s)' % e)
+    if bundle is not None:
+        drive_id = ((bundle.get('drive') or {}).get('id')) or ''
+        suite.check('the sealed sign-up opens with the claim secret to a drive bundle',
+                    drive_id.startswith('d_') and TOKEN.match(bundle.get('drive_token') or '')
+                    is not None, '(drive %r)' % drive_id)
+    try:
+        azlin_claim.open_sealed(sealed, secret, checkout_id + 'x')
+        suite.check('the sealed sign-up opens for no other checkout id', False)
+    except ValueError:
+        suite.check('the sealed sign-up opens for no other checkout id', True)
+    _, again, _ = client.call('GET', path)
+    suite.check('a second poll answers the sealed sign-up again (kept, not deleted on read)',
+                (again or {}).get('sealed_signup') == sealed)
+    status, value, _ = client.call('GET', '/v1/checkout/ck_' + 'a' * 26)
+    suite.check('an unknown checkout is 404', status == 404, '(HTTP %d %r)' % (status, value))
 
 
 def main():

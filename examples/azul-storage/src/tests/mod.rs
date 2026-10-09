@@ -6,6 +6,7 @@ mod config;
 #[cfg(feature = "sql")]
 mod database;
 mod key;
+mod keyring;
 mod local;
 mod manifest;
 mod ops;

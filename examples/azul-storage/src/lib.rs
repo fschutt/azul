@@ -30,14 +30,16 @@
 //! Configuration ([`config`]): the list of drives the user added lives in
 //! `<config dir>/azul-storage/drives.json` WITHOUT secrets; the secrets (an S3
 //! drive's credentials, an Azlin drive's session, a data source's passwords and
-//! tokens) live in the OS keyring under [`config::keyring_key`]. The Add drive
-//! dialog's sources and their forms are [`catalog`]. Nothing here logs a secret
-//! or puts one in `Debug` output.
+//! tokens) live in the OS keyring under [`config::keyring_key`]; [`keyring`] is
+//! the seam a worker thread reads and writes them through (azul's keyring in the
+//! apps, feature `azul`). The Add drive dialog's sources and their forms are
+//! [`catalog`]. Nothing here logs a secret or puts one in `Debug` output.
 
 pub mod catalog;
 pub mod config;
 pub mod ids;
 pub mod key;
+pub mod keyring;
 pub mod local;
 pub mod manifest;
 pub mod ops;
@@ -50,6 +52,8 @@ pub mod transfer;
 pub mod transport;
 pub(crate) mod xml;
 
+#[cfg(feature = "azul")]
+pub mod azul_keyring;
 #[cfg(feature = "azul")]
 pub mod azul_transport;
 

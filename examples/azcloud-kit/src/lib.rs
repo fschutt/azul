@@ -11,9 +11,16 @@
 //!   family for another device, the drive's info, the lockdown, a restore.
 //! - [`bundle`]: what the token server answers for a drive - its drives-file entry, its S3
 //!   credentials (temporary, 12 h, or long-lived), its drive token, its nodes.
+//! - [`claim`]: the claim of a paid drive - the X25519 key a checkout names, the sign-up the
+//!   token server seals to it and the app opens however late it asks.
+//! - [`pending`]: the checkouts this device has no drive of yet - one keyring entry that
+//!   outlives the app - polled into their drives (after "Stop waiting", at the next start).
 //! - [`session`]: what an app keeps in the OS keyring for an Azlin drive (the drive token and
 //!   the current credentials, one JSON text that azul-storage also reads as plain
 //!   credentials).
+//! - [`shared`] and [`lock`]: the keyring every process of this user shares and the locks its
+//!   entries change under (an OS file lock per entry: two windows or two apps never spend one
+//!   drive token twice).
 //! - [`endpoints`]: the token server of this run, from azul-appkit's shared config
 //!   (`--token-url`, the environment, `~/.azlin/config.json`'s `endpoints`, the profile).
 //! - [`drive`]: an Azlin drive as an azul-storage `Drive` that refreshes its credentials before
@@ -55,13 +62,17 @@
 pub mod account;
 pub mod bucket;
 pub mod bundle;
+pub mod claim;
 pub mod drive;
 pub mod endpoints;
 pub mod error;
+pub mod lock;
+pub mod pending;
 pub mod secrets;
 pub mod session;
 pub mod settings;
 pub mod share;
+pub mod shared;
 pub mod state;
 pub mod store;
 pub mod sync;
@@ -74,11 +85,15 @@ mod tests;
 pub use account::{Account, JoinCode};
 pub use bucket::Bucket;
 pub use bundle::DriveBundle;
+pub use claim::{ClaimError, ClaimKey};
 pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
+pub use lock::LockDir;
+pub use pending::{PendingCheckout, Polled};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
+pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{Checkout, CheckoutStatus, Tier, Tiers, TokenError, TokenServer};

@@ -18,18 +18,28 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
     GET /health, GET /v1/health
     GET /v1/tiers                                   200 the price ladder (tiers.rs: sizes, cents
                                                     a month / a year, EUR, the methods)
-    POST /v1/checkout {"tier", "months", "method"}  201 a checkout: its pay_url, its amount
-    GET /v1/checkout/<id>                           200 pending | approved (with the drive
-                                                    bundle as "signup", ONCE) | declined
+    POST /v1/checkout {"tier", "months", "method",  201 a checkout: its pay_url, its amount
+                       "claim_key"}                 (400 claim_key_required without the key)
+    GET /v1/checkout/<id>                           200 pending | approved (the drive bundle
+                                                    SEALED to the claim key as "sealed_signup",
+                                                    to every poll for 30 days) | declined |
+                                                    expired
     POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
                                                     approves (the drive is made), others decline
     GET /v1/pay/<id>                                200 the payment page (HTML)
 
+  The claim (CLAIM CONTRACT v1, scripts/azlin_claim.py): a checkout names the standard padded
+  base64 of the X25519 public key the app made for it; the approved checkout's sign-up is sealed
+  to it (X25519 + HKDF-SHA256 "azlin-claim-v1" + ChaCha20-Poly1305, the checkout id as associated
+  data), so only that app opens it - however late it asks, from another process, after a
+  restart. The plaintext `signup` of earlier token servers is gone.
+
   Errors are {"error": "<code>", "message": "<sentence>"} with azlin-token's codes (no_such_drive,
-  unauthorized, token_reuse, credentials_revoked, bad_tier, not_found). Ids look like the real
-  ones: drives d_<base32>, buckets d-<base32>, tokens dt_<family>.<generation>.<random>.
-  The S3 credentials are the S3 server's one key with a session token and an expiry --ttl seconds
-  ahead (the real token server: 12 hours, derived per drive).
+  unauthorized, token_reuse, credentials_revoked, bad_tier, no_such_checkout, claim_key_required,
+  bad_claim_key, not_found). Ids look like the real ones: drives d_<base32>, buckets d-<base32>,
+  tokens dt_<family>.<generation>.<random>. The S3 credentials are the S3 server's one key with
+  a session token and an expiry --ttl seconds ahead (the real token server: 12 hours, derived per
+  drive).
 
 scripts/azlin_token_conformance.py runs the same HTTP checks against this server and the real one
 (`azctl dev up --processes`), so the two cannot drift apart unnoticed.
@@ -61,7 +71,9 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(REPO, 'examples', 'azul-drive', 'scripts'))
+sys.path.insert(0, HERE)
 
+import azlin_claim  # noqa: E402
 import s3_server  # noqa: E402
 
 # The tiers azlin-token knows (tiers.rs): id, bytes, cents a month, cents a year; a sign-up
@@ -82,6 +94,8 @@ METHODS = ['sepa', 'bank_transfer', 'prepaid', 'voucher', 'app_store', 'card']
 PREPAY_MONTHS = [1, 3, 6, 12, 24]
 APPROVING_CARD = '4242424242424242'
 DECLINING_CARD = '4000000000000002'
+# How long an approved checkout keeps its sealed sign-up (then it answers "expired").
+SEALED_KEEP_SECS = 30 * 86400
 
 
 def tier_list():
@@ -147,6 +161,8 @@ class TokenState:
         self.families = {}
         self.checkouts = {}
         self.base_url = ''
+        # Seconds an approved checkout keeps its sealed sign-up (a test may shorten it).
+        self.sealed_keep = SEALED_KEEP_SECS
 
     def new_token(self, family):
         state = self.families[family]
@@ -211,7 +227,8 @@ class TokenState:
             return self.bundle(drive, token)
 
     def checkout(self, body):
-        """POST /v1/checkout (payments.rs `create_checkout`): a checkout to pay on its page."""
+        """POST /v1/checkout (payments.rs `create_checkout`): a checkout to pay on its page, its
+        sign-up to be sealed to the `claim_key` it names."""
         tier = str(body.get('tier') or '').strip().upper().replace(' ', '')
         if tier not in TIERS:
             raise ApiError(400, 'bad_tier', 'unknown tier')
@@ -223,11 +240,21 @@ class TokenState:
             raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
         if method == 'bank_transfer' and months < 12:
             raise ApiError(400, 'bad_method', 'bank transfer is for yearly plans')
+        claim_key = body.get('claim_key')
+        if not claim_key:
+            raise ApiError(400, 'claim_key_required',
+                           'a checkout names the claim key its sign-up is sealed to')
+        try:
+            azlin_claim.claim_key_bytes(str(claim_key))
+        except ValueError as e:
+            raise ApiError(400, 'bad_claim_key', str(e))
         amount = price_cents(tier, months)
         with self.lock:
             checkout_id = random_id('ck_')
             self.checkouts[checkout_id] = {'tier': tier, 'method': method, 'months': months,
-                                           'amount': amount, 'status': 'pending', 'signup': None}
+                                           'amount': amount, 'status': 'pending',
+                                           'claim_key': str(claim_key), 'sealed_signup': None,
+                                           'approved_at': None}
         return {'checkout_id': checkout_id,
                 'pay_url': '%s/v1/pay/%s' % (self.base_url, checkout_id),
                 'tier': tier, 'method': method, 'months': months, 'amount_cents': amount,
@@ -235,8 +262,8 @@ class TokenState:
                 'withdrawal_consent_required': True, 'mock': True}
 
     def checkout_status(self, checkout_id):
-        """GET /v1/checkout/<id>: pending | approved (with the drive, handed over ONCE) |
-        declined."""
+        """GET /v1/checkout/<id>: pending | approved (the sign-up sealed to the claim key, to
+        every poll until it is `sealed_keep` seconds old) | declined | expired."""
         with self.lock:
             checkout = self.checkouts.get(checkout_id)
             if checkout is None:
@@ -244,14 +271,17 @@ class TokenState:
             out = {'checkout_id': checkout_id, 'status': checkout['status'],
                    'tier': checkout['tier'], 'months': checkout['months'],
                    'amount_cents': checkout['amount']}
-            if checkout['status'] == 'approved' and checkout['signup'] is not None:
-                out['signup'] = checkout['signup']
-                checkout['signup'] = None
+            if checkout['status'] == 'approved':
+                if time.time() - checkout['approved_at'] > self.sealed_keep:
+                    out['status'] = 'expired'
+                else:
+                    out['sealed_signup'] = checkout['sealed_signup']
             return out
 
     def pay(self, checkout_id, body):
         """POST /v1/checkout/<id>/pay (the test provider's page posts here): the approving card
-        (or `prepaid`) makes the drive, anything else declines."""
+        (or `prepaid`) makes the drive and seals its sign-up to the checkout's claim key,
+        anything else declines."""
         with self.lock:
             checkout = self.checkouts.get(checkout_id)
             if checkout is None:
@@ -262,9 +292,12 @@ class TokenState:
         card = ''.join(c for c in str(body.get('card_number') or '') if c.isdigit())
         if card == APPROVING_CARD or body.get('prepaid') is True:
             bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
+            sealed = azlin_claim.seal(json.dumps(bundle).encode('utf-8'), checkout['claim_key'],
+                                      checkout_id)
             with self.lock:
                 checkout['status'] = 'approved'
-                checkout['signup'] = bundle
+                checkout['sealed_signup'] = sealed
+                checkout['approved_at'] = time.time()
             return {'status': 'approved'}
         with self.lock:
             checkout['status'] = 'declined'

@@ -15,6 +15,7 @@ pub mod app;
 pub mod audio;
 pub mod capability;
 pub mod iroh;
+pub mod keyring;
 pub mod map;
 pub mod pdf;
 pub mod sqlite;
