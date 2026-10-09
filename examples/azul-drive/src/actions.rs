@@ -13,7 +13,7 @@ use std::{
 
 use azul::{
     dialog::{FileDialog, FileOpenMultiResult, FileOpenResult},
-    dom::{ClipboardContent, DomNodeId, FocusTarget, VirtualKeyCode},
+    dom::{ClipboardContent, DomId, DomNodeId, FocusTarget, VirtualKeyCode},
     menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, MenuPopupPosition, StringMenuItem},
     option::{OptionFileTypeList, OptionMenuItemIcon},
     prelude::*,
@@ -52,6 +52,10 @@ pub(crate) enum Toggle {
     Extensions,
     HiddenItems,
     ConfirmDelete,
+    /// The search reads the files' contents too (the Search tab's "File contents").
+    SearchContents,
+    /// The search passes over what .gitignore / .ignore files name.
+    SearchIgnoreFiles,
 }
 
 /// Every command of the ribbon, its File menu, the menus and the backstage.
@@ -149,6 +153,9 @@ pub(crate) enum Action {
     /// Hide the selected items (a name with a leading dot is hidden), or show them again when
     /// they all are hidden.
     HideSelected,
+    // Search
+    /// The Search tab's Close search: the box empties, the folder shows again.
+    CloseSearch,
 }
 
 /// A button's / menu item's click data.
@@ -330,6 +337,16 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
         }),
         Action::HideSelected => need_selection(),
+        Action::Toggle(Toggle::SearchContents) if s.find.as_ref().is_some_and(|f| f.remote) => {
+            Some(String::from(
+                "A cloud drive is searched by name: its files would have to be downloaded to be \
+                 read.",
+            ))
+        }
+        Action::CloseSearch => s
+            .find
+            .is_none()
+            .then(|| String::from("No search is open.")),
         _ => None,
     }
 }
@@ -544,7 +561,18 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::Print => print_selected(s),
         Action::HideSelected => hide_selected(info, app, s),
+        Action::CloseSearch => close_search(info, s),
     }
+}
+
+/// The search box empties and the search stops: the folder's own rows show again.
+pub(crate) fn close_search(info: &mut CallbackInfo, s: &mut DriveState) {
+    let was_open = crate::stop_find(s);
+    if was_open || !s.search.is_empty() {
+        println!("AZDRIVE_SEARCH_CLOSED");
+        clear_search_box(info);
+    }
+    s.search.clear();
 }
 
 // ==== File menu, Print, Hide ====
@@ -1025,8 +1053,8 @@ pub(crate) fn run_command(
             s.type_ahead.clear();
             if s.editing_path {
                 s.editing_path = false;
-            } else if !s.search.is_empty() {
-                s.search.clear();
+            } else if !s.search.is_empty() || s.find.is_some() {
+                close_search(info, s);
             } else {
                 s.selection.clear();
                 s.print_selection();
@@ -1111,6 +1139,22 @@ fn focus_search(info: &mut CallbackInfo) {
     if let Some(search) = find_class(info, start, "__azul-native-address-bar-search", 16) {
         if let Some(input) = info.get_first_child(search).into_option() {
             info.set_focus(FocusTarget::Id(input));
+        }
+    }
+}
+
+/// The search box shows nothing any more: the app SETS its text (a rebuild with an empty text
+/// alone would not: what was typed there outranks the DOM until the app sets it).
+pub(crate) fn clear_search_box(info: &mut CallbackInfo) {
+    let dom = DomId { inner: 0 };
+    let host = info.get_node_id_by_id_attribute(dom, AzString::from("shell-address-bar"));
+    if host.into_raw() == 0 {
+        return;
+    }
+    let start = DomNodeId { dom, node: host };
+    if let Some(search) = find_class(info, start, "__azul-native-address-bar-search", 16) {
+        if let Some(input) = info.get_first_child(search).into_option() {
+            TextInput::set_text_in(*info, input, AzString::from(""));
         }
     }
 }
@@ -2587,8 +2631,11 @@ pub(crate) fn request_view_work(info: &mut CallbackInfo, app: &RefAny, s: &mut D
     if let Some(root) = s.local_root(index) {
         let (stat_keys, folder_keys) = {
             let shown = ui_view::shown_order(s);
+            // A search's rows keep their own record of what was asked (a folder's row and a
+            // result can share a key, each its own row).
+            let asked_for = s.find.as_ref().map_or(&s.stats_asked, |f| &f.stats_asked);
             let stats =
-                listing::stats_wanted(&shown, range.clone(), &s.stats_asked, listing::STAT_MAX);
+                listing::stats_wanted(&shown, range.clone(), asked_for, listing::STAT_MAX);
             let folders: Vec<String> = listing::in_view(&shown, range.clone())
                 .iter()
                 .filter(|e| e.is_folder)
@@ -2597,7 +2644,10 @@ pub(crate) fn request_view_work(info: &mut CallbackInfo, app: &RefAny, s: &mut D
             (stats, folders)
         };
         if !stat_keys.is_empty() {
-            s.stats_asked.extend(stat_keys.iter().cloned());
+            match s.find.as_mut() {
+                Some(find) => find.stats_asked.extend(stat_keys.iter().cloned()),
+                None => s.stats_asked.extend(stat_keys.iter().cloned()),
+            }
             let serial = s.list_serial;
             spawn(
                 info,
@@ -2611,7 +2661,7 @@ pub(crate) fn request_view_work(info: &mut CallbackInfo, app: &RefAny, s: &mut D
             );
             asked = true;
         }
-        let counts_shown = matches!(s.settings.layout, ViewLayout::Details | ViewLayout::Content);
+        let counts_shown = matches!(s.view_layout(), ViewLayout::Details | ViewLayout::Content);
         if counts_shown && !folder_keys.is_empty() {
             crate::request_counts(info, app, s, index, folder_keys);
         }
@@ -2647,7 +2697,7 @@ fn request_thumbnails_in(
     range: std::ops::Range<usize>,
 ) -> bool {
     let wanted = matches!(
-        s.settings.layout,
+        s.view_layout(),
         ViewLayout::MediumIcons | ViewLayout::LargeIcons | ViewLayout::ExtraLargeIcons
     );
     if !wanted || s.current_drive().is_none() {
@@ -2742,6 +2792,10 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
         Toggle::Extensions => settings.show_extensions = !settings.show_extensions,
         Toggle::HiddenItems => settings.show_hidden = !settings.show_hidden,
         Toggle::ConfirmDelete => settings.confirm_delete = !settings.confirm_delete,
+        Toggle::SearchContents => settings.search_contents = !settings.search_contents,
+        Toggle::SearchIgnoreFiles => {
+            settings.search_ignore_files = !settings.search_ignore_files;
+        }
     }
     println!(
         "AZDRIVE_PANES {} {} {}",
@@ -2768,6 +2822,15 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
             request_preview(info, app, s);
         }
         _ => {}
+    }
+    if s.find.is_some()
+        && matches!(
+            which,
+            Toggle::HiddenItems | Toggle::SearchContents | Toggle::SearchIgnoreFiles
+        )
+    {
+        // The open search runs again with the new setting.
+        crate::start_find(info, app, s);
     }
     save_settings(info, app, s);
 }
