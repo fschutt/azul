@@ -6004,6 +6004,46 @@ impl LayoutWindow {
         self.webviews.sync_placements(&painted);
     }
 
+    /// A composited backend's new `frame` of web view `id` - its page,
+    /// rendered offscreen - drawn at the view's content box from now on, as
+    /// an image of its node (the content overlay: it follows the node across
+    /// rebuilds and goes with it). The next frame replaces it in place, with
+    /// no layout and no rebuild of the list; only the first one rebuilds the
+    /// list of the view's DOM, which had no image for it yet.
+    ///
+    /// Returns whether a repaint is due: the frame changed and some of the
+    /// view is on screen. `false` for a view that is gone.
+    pub fn set_webview_frame(
+        &mut self,
+        id: crate::managers::webview::WebViewId,
+        frame: &ImageRef,
+    ) -> bool {
+        use crate::{overlay::ContentDirtyTier, solver3::display_list::DisplayListItem};
+
+        let Some(node) = self.webviews.get(id).map(|view| view.node) else {
+            return false;
+        };
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return false;
+        };
+        let tier = self
+            .apply_image_change(node.dom, node_id, frame, true, None)
+            .tier;
+        let drawn = self.layout_results.get(&node.dom).is_some_and(|lr| {
+            let list = &lr.display_list;
+            list.items.iter().enumerate().any(|(i, item)| {
+                matches!(item, DisplayListItem::Image { .. })
+                    && list.node_mapping.get(i).copied().flatten() == Some(node_id)
+            })
+        });
+        if !drawn {
+            // The first frame: the list has no image of the view to patch.
+            self.regenerate_display_list_for_dom(node.dom);
+            return self.node_is_visible_in_window(node.dom, node_id);
+        }
+        matches!(tier, ContentDirtyTier::Paint)
+    }
+
     /// The user dismissed the popup hanging off `source_node` (outside click,
     /// Escape). Closes it in the manager — edge-triggered, so the node's
     /// still-`open` attribute does not reopen it — drops its layout result,

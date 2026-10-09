@@ -3552,16 +3552,21 @@ impl DisplayListBuilder {
     }
     /// A `<webview>`'s reserved rect (`DisplayListItem::WebView`),
     /// attributed to its node like a view placeholder: it is the node's own
-    /// content.
+    /// content. A composited web view's last `frame` is drawn there first,
+    /// as an image of the node (patched in place by the next one).
     pub(crate) fn push_webview(
         &mut self,
         node_id: NodeId,
         layout_index: usize,
         bounds: LogicalRect,
+        frame: Option<ImageRef>,
     ) {
         let (node, layout) = (self.current_node, self.current_layout);
         self.current_node = Some(node_id);
         self.current_layout = Some((layout_index, EmitPhase::Content));
+        if let Some(frame) = frame {
+            self.push_image(bounds, frame, BorderRadius::default());
+        }
         self.push_item(DisplayListItem::WebView {
             node_id,
             bounds: bounds.into(),
@@ -6042,7 +6047,10 @@ where
         let content_box = BorderBoxRect(paint_rect)
             .to_content_box(&bp.padding, &bp.border)
             .rect();
-        builder.push_webview(dom_id, node_index, content_box);
+        // A composited backend's last frame of the page (the content
+        // overlay: `LayoutWindow::set_webview_frame`); a native view has none.
+        let frame = self.ctx.resolved_content().image_for_paint(dom_id);
+        builder.push_webview(dom_id, node_index, content_box, frame);
     }
 
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
