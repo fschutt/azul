@@ -772,6 +772,12 @@ jobs:
           cargo test -p azcloud-kit --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
           ./scripts/zero_test_guard.sh --strict azcloud-kit-tests.txt
 
+      - name: Run azul-search tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-search --no-fail-fast 2>&1 | tee azul-search-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-search-tests.txt
+
       - name: Run azul-termkit tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
