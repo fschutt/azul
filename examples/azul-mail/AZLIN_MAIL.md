@@ -200,5 +200,26 @@ arrival is a later layer between the Worker and the bucket.
 - `scripts/azlin_client.py`: the scripts' one client of the token server and of a drive's
   bucket.
 - The Rust side's tests: `azlin.rs` (names, markers, the session, the token server client over
-  a fake transport, the endpoints) and `azlin_sync.rs` (Send/Receive and every action, with a
-  folder on disk as the drive).
+  a fake transport, the endpoints; now in examples/azul-mail-core) and `azlin_sync.rs`
+  (Send/Receive and every action, with a folder on disk as the drive).
+
+## 11. Other mail programs: the Azlin Bridge
+
+Apple Mail, Outlook and Thunderbird reach the same mailbox through the Azlin Bridge
+(examples/azul-bridge): IMAP and SMTP submission on 127.0.0.1 of the user's own computer. It
+reads and writes exactly this layout (through azul-mail-core's `azlin` module):
+
+- Mailboxes are the folders under `mail/` with the roles of section 1 (`INBOX`, and `\Sent`,
+  `\Drafts`, `\Archive`, `\Junk`, `\Trash` on the well-known ones), names in modified UTF-7.
+- `\Seen`, `\Flagged` and `\Answered` are the markers of section 3, so a mail read in Apple Mail
+  is read in AzMail. `\Deleted`, `\Draft` and keywords are kept in the bridge's memory only (a
+  mail program sets `\Deleted` and expunges at once); EXPUNGE deletes the object, and its
+  markers when no other folder holds the same name.
+- APPEND, COPY and MOVE write objects named by section 2 (APPEND: the time it gives, else now);
+  a copy shares its markers with the original (the same `<id>`).
+- IMAP's UIDs are the bridge's own: a map per mailbox in its state folder (names numbered in
+  name order when it first sees the mailbox, later names after them; UIDVALIDITY the map's
+  creation time). Nothing of it is written into the bucket.
+- A mail submitted over SMTP goes out through AzMail's sending path (section 8) and its copy
+  is put into `mail/Sent/` at once, read; the mail program's own APPEND of that copy to Sent
+  is recognised by its Message-ID and not filed twice.
