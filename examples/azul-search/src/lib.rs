@@ -56,10 +56,12 @@ pub use pattern::{Case, ContentMatcher, NameMatcher, Pattern, PatternError, Patt
 pub struct Filters {
     /// Only the files whose path below the searched folder matches one of these globs
     /// (gitignore syntax: `*.rs`, `src/**`, `/top-level.txt`); empty: every file. Folders are
-    /// still walked (a folder name is not reported while this is set).
+    /// still walked (a folder name is not reported while this is set). As ripgrep's `-g`, the
+    /// globs outrank the other rules: a file they name is searched even when it is hidden or
+    /// ignored (in a folder that is walked).
     pub include: Vec<String>,
     /// Never the files or folders that match one of these (gitignore syntax: `target/`,
-    /// `*.min.js`, `/.azlin/`).
+    /// `*.min.js`, `/.azlin/`); they outrank every other rule too.
     pub exclude: Vec<String>,
     /// Hidden files and folders (a name starting with a dot) too.
     pub hidden: bool,
