@@ -3789,6 +3789,7 @@ mod autotest_generated {
             After,
             Marker,
             Placeholder,
+            WebView,
         ]
     };
 
@@ -3798,7 +3799,7 @@ mod autotest_generated {
         // without being added here, this count check fails and points at the omission.
         assert_eq!(
             ALL_TAGS.len(),
-            183, // +TransientWindow (2026-08-22)
+            184, // +WebView (2026-10-10)
             "ALL_TAGS is out of sync with the NodeTypeTag enum"
         );
         let mut seen: Vec<NodeTypeTag> = Vec::new();
