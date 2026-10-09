@@ -748,10 +748,12 @@ fn hide_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         } else {
             format!(".{}", entry.name)
         };
-        if name.is_empty() || s.entries.iter().any(|e| e.name == name) {
+        let parent = fileops::parent_of(&entry.key);
+        // A search's result in another folder: the drive refuses a name that is taken there.
+        let taken = parent == s.prefix() && s.entries.iter().any(|e| e.name == name);
+        if name.is_empty() || taken {
             continue; // nothing left of the name, or the name is taken
         }
-        let parent = fileops::parent_of(&entry.key);
         let to = if entry.is_folder {
             format!("{parent}{name}/")
         } else {
@@ -2175,10 +2177,14 @@ pub(crate) fn commit_rename(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
         s.renaming = Some(renaming);
         return;
     }
-    if s
-        .entries
-        .iter()
-        .any(|e| e.key != entry.key && e.name.eq_ignore_ascii_case(&name))
+    let parent = fileops::parent_of(&entry.key);
+    // The open folder's rows know its names; a search's result in another folder leaves the
+    // clash to the drive, which never renames over what is there.
+    if parent == s.prefix()
+        && s
+            .entries
+            .iter()
+            .any(|e| e.key != entry.key && e.name.eq_ignore_ascii_case(&name))
     {
         s.error(format!(
             "There is already an item named \"{name}\" in this folder."
@@ -2186,7 +2192,6 @@ pub(crate) fn commit_rename(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
         s.renaming = Some(renaming);
         return;
     }
-    let parent = fileops::parent_of(&entry.key);
     let to = if entry.is_folder {
         format!("{parent}{name}/")
     } else {
