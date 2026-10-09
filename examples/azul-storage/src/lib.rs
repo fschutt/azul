@@ -78,6 +78,11 @@ mod tests;
 /// Client-side encryption: the keys of an encrypted drive and its AZL1 objects.
 #[cfg(feature = "encryption")]
 pub mod crypto;
+/// A drive whose bucket holds only ciphertext under random names.
+#[cfg(feature = "encryption")]
+pub mod encrypted;
+#[cfg(feature = "encryption")]
+pub use encrypted::{EncryptedDrive, MemoryIndex, NameIndex};
 
 use std::{fmt, io::Read, path::PathBuf};
 
