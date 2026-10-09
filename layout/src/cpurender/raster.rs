@@ -9789,6 +9789,35 @@ mod autotest_generated {
         assert_eq!(before, p.data(), "alpha=0 source pixels must not blend");
     }
 
+    /// An app's "nothing to show yet" - an image node holding a null image
+    /// without a src (AzMeet's remote tile before its first frame,
+    /// AzVideocut's empty monitor, a canvas callback's fallback) - paints
+    /// nothing, as WebRender does (a null image has no pixels to upload) and
+    /// as a browser's `<video>` or `<canvas>` with no frame yet: the box's own
+    /// background shows. The CPU renderer alone painted a flat #C8C8C8 tile.
+    #[test]
+    fn a_null_image_with_nothing_to_show_yet_paints_nothing() {
+        for radius in [0.0, 6.0] {
+            let dl = DisplayList {
+                items: vec![DisplayListItem::Image {
+                    bounds: wrect(0.0, 0.0, 6.0, 6.0),
+                    image: ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new()),
+                    border_radius: BorderRadius {
+                        top_left: radius,
+                        top_right: radius,
+                        bottom_left: radius,
+                        bottom_right: radius,
+                    },
+                }],
+                ..Default::default()
+            };
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            run_list(&dl, &mut p, 1.0).expect("must render");
+            assert_eq!(before, p.data(), "radius {radius}: nothing is painted");
+        }
+    }
+
     // ==================================================================
     // render_border / render_border_sides
     // ==================================================================
