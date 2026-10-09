@@ -34,7 +34,9 @@
 //! KEYBOARD: the field is ONE Tab stop, the entry. Enter commits the
 //! highlighted suggestion or the typed text, Tab commits the typed text
 //! (and leaves when there is none), `,` / `;` commit what is before them,
-//! Down / Up move the highlight, Escape hides the list, Backspace in an
+//! Down / Up move the highlight, Escape hides the list (and its highlight:
+//! Enter then commits the typed text, a second Escape is not the field's,
+//! Down / Up show the list again), Backspace in an
 //! empty entry removes the last chip, Left in an empty entry goes to the
 //! chips: Left / Right walk them (Right past the last returns to the
 //! entry), Delete / Backspace remove the focused one, Enter / Space press
@@ -837,6 +839,9 @@ struct TokenShared {
     state: TokenInputState,
     shown: Vec<AzString>,
     allow_duplicates: bool,
+    /// Escape hid the list (an override no rebuild has taken back yet):
+    /// nothing shows, so nothing is highlighted.
+    dismissed: bool,
 }
 
 /// A chip's (or a suggestion's) payload: its index (among the tokens, or
@@ -877,6 +882,7 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         state: state.clone(),
         shown: shown.clone(),
         allow_duplicates,
+        dismissed: false,
     });
 
     // The field: a chip per token, then the entry.
@@ -1028,11 +1034,20 @@ fn emit(shared: &mut RefAny, mut info: CallbackInfo, event: TokenInputEvent) -> 
         None => Update::DoNothing,
     };
     if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
-        if let Some(list) = list_of(&info, info.get_hit_node()) {
-            info.override_css_property(list, CssProperty::initial(CssPropertyType::Display));
-        }
+        show_list_again(shared, &mut info);
     }
     update
+}
+
+/// Takes a list Escape hid back ([`EntryKey::Dismiss`]): the override goes
+/// (`initial` removes it), the list shows what the DOM was built with.
+fn show_list_again(shared: &mut RefAny, info: &mut CallbackInfo) {
+    if let Some(list) = list_of(info, info.get_hit_node()) {
+        info.override_css_property(list, CssProperty::initial(CssPropertyType::Display));
+    }
+    if let Some(mut s) = shared.downcast_mut::<TokenShared>() {
+        s.dismissed = false;
+    }
 }
 
 /// The list of suggestions of the token input `node` is in, if it shows one.
@@ -1191,10 +1206,14 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
     };
     let modified = ks.shift_down() || ks.ctrl_down() || ks.alt_down() || ks.super_down();
     let text = state.get_text();
-    let Some((tokens, shown, active)) = data
-        .downcast_ref::<TokenShared>()
-        .map(|s| (s.state.tokens.len(), s.shown.len(), s.state.active.into_option()))
-    else {
+    let Some((tokens, shown, active, dismissed)) = data.downcast_ref::<TokenShared>().map(|s| {
+        (
+            s.state.tokens.len(),
+            s.shown.len(),
+            s.state.active.into_option(),
+            s.dismissed,
+        )
+    }) else {
         return pass;
     };
     let container = info.get_hit_node();
@@ -1202,6 +1221,21 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
         update,
         valid: TextInputValid::No,
     };
+    // A list Escape hid shows nothing, so nothing is highlighted: Enter
+    // commits the typed text and Escape is not the list's (Chrome's
+    // `<input list>`). Down / Up open it again from its first / last
+    // suggestion (the ARIA combobox).
+    let reopen = dismissed && !modified && matches!(key, VirtualKeyCode::Down | VirtualKeyCode::Up);
+    let (shown, active) = if reopen {
+        (shown, None)
+    } else if dismissed {
+        (0, None)
+    } else {
+        (shown, active)
+    };
+    if reopen && shown > 0 {
+        show_list_again(&mut data, &mut info);
+    }
     let event = match entry_key(key, text.trim().is_empty(), tokens, shown, active, modified) {
         EntryKey::Pass => return pass,
         EntryKey::CommitText => {
@@ -1240,6 +1274,9 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
             // outranks every later rebuild.
             if let Some(list) = list_of(&info, container) {
                 info.set_css_property(list, CssProperty::const_display(LayoutDisplay::None));
+            }
+            if let Some(mut s) = data.downcast_mut::<TokenShared>() {
+                s.dismissed = true;
             }
             return taken(Update::DoNothing);
         }
