@@ -561,6 +561,146 @@ impl NodeIdRemap for WebViewManager {
     }
 }
 
+/// The web view "browser" of a window without one: the headless backend
+/// (`AZ_BACKEND=headless`) and the in-crate E2E runner.
+///
+/// It loads nothing. It keeps what a backend is told - which views exist,
+/// where they are, which page each is on and its history - and answers the
+/// ops the way an engine does as far as the APP can see: every load it is
+/// asked for (the initial `src`, a navigation, a reload, a step back) is
+/// first reported as a navigation request, and a page counts as the view's
+/// once that request was allowed. What a real page would do on its own -
+/// finish loading, change its title, redirect - is what a test or a
+/// scenario simulates (`WebViewManager::push_simulated`). One recorder for
+/// both hosts, so a scenario means the same thing on either.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct WebViewRecorder {
+    views: Vec<RecordedWebView>,
+    /// The last request handle handed out; handles start at 1 (`0` is a
+    /// simulated report nobody waits for).
+    last_request: u64,
+    reports: Vec<WebViewReport>,
+}
+
+/// One view as the recorder knows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordedWebView {
+    /// The view.
+    pub id: WebViewId,
+    /// The store it was created with.
+    pub config: WebViewConfig,
+    /// Where it was last placed.
+    pub placement: WebViewPlacement,
+    /// The pages it went to, oldest first; the last is the current one.
+    pub history: Vec<AzString>,
+    /// Requests reported and not answered yet: (handle, page, a step back).
+    pending: Vec<(u64, AzString, bool)>,
+}
+
+impl WebViewRecorder {
+    /// No views.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Every view it was told to create and not to destroy.
+    #[must_use]
+    pub fn views(&self) -> &[RecordedWebView] {
+        &self.views
+    }
+
+    /// The view `id`.
+    #[must_use]
+    pub fn get(&self, id: WebViewId) -> Option<&RecordedWebView> {
+        self.views.iter().find(|v| v.id == id)
+    }
+
+    /// Apply one op.
+    pub fn apply(&mut self, op: &WebViewOp) {
+        match op {
+            WebViewOp::Create { id, config, src } => {
+                self.views.retain(|v| v.id != *id);
+                self.views.push(RecordedWebView {
+                    id: *id,
+                    config: *config,
+                    placement: WebViewPlacement::HIDDEN,
+                    history: Vec::new(),
+                    pending: Vec::new(),
+                });
+                if !src.as_str().is_empty() {
+                    self.request(*id, src.clone(), false);
+                }
+            }
+            WebViewOp::Navigate { id, url } => self.request(*id, url.clone(), false),
+            WebViewOp::Reload { id } => {
+                if let Some(url) = self.get(*id).and_then(|v| v.history.last().cloned()) {
+                    self.request(*id, url, false);
+                }
+            }
+            WebViewOp::GoBack { id } => {
+                let previous = self.get(*id).and_then(|v| {
+                    let n = v.history.len();
+                    (n >= 2).then(|| v.history[n - 2].clone())
+                });
+                if let Some(url) = previous {
+                    self.request(*id, url, true);
+                }
+            }
+            WebViewOp::Place { id, placement } => {
+                if let Some(view) = self.views.iter_mut().find(|v| v.id == *id) {
+                    view.placement = *placement;
+                }
+            }
+            WebViewOp::Destroy { id } => self.views.retain(|v| v.id != *id),
+        }
+    }
+
+    /// The answer to a navigation request: an allowed page becomes the
+    /// view's (a step back drops the page it left). A handle it did not
+    /// hand out - a simulated request - changes nothing here.
+    pub fn decide(&mut self, id: WebViewId, request: u64, allow: bool) {
+        let Some(view) = self.views.iter_mut().find(|v| v.id == id) else {
+            return;
+        };
+        let Some(i) = view.pending.iter().position(|(r, _, _)| *r == request) else {
+            return;
+        };
+        let (_, url, back) = view.pending.remove(i);
+        if !allow {
+            return;
+        }
+        if back {
+            let _ = view.history.pop();
+        } else {
+            view.history.push(url);
+        }
+    }
+
+    /// What it reported since the last call.
+    pub fn take_reports(&mut self) -> Vec<WebViewReport> {
+        core::mem::take(&mut self.reports)
+    }
+
+    /// Report a navigation of `id` to `url` and wait for its answer.
+    fn request(&mut self, id: WebViewId, url: AzString, back: bool) {
+        let Some(view) = self.views.iter_mut().find(|v| v.id == id) else {
+            return;
+        };
+        self.last_request += 1;
+        let request = self.last_request;
+        view.pending.push((request, url.clone(), back));
+        self.reports.push(WebViewReport {
+            id,
+            request,
+            event: WebViewEvent::NavigationRequested(azul_core::webview::WebViewNavigation {
+                url,
+                is_redirect: false,
+            }),
+        });
+    }
+}
+
 /// Whether `url` is a `file:` URL - a page a web view never loads.
 fn is_file_url(url: &str) -> bool {
     url.trim_start()

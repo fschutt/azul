@@ -503,6 +503,11 @@ pub enum CallbackChange {
         node: DomNodeId,
         command: azul_core::webview::WebViewCommand,
     },
+    /// The debug server plays a web view's browser (`simulate_webview_*`):
+    /// deliver `report` like a backend's (`WebViewManager::push_simulated`).
+    SimulateWebViewReport {
+        report: crate::managers::webview::WebViewReport,
+    },
     /// Re-render EVERY `VirtualView` on the existing DOM (no node id needed).
     /// For shared-dataset changes that arrive out-of-band (e.g. a background
     /// tile-fetch writeback): the views re-read their cloned dataset in place.

@@ -6787,6 +6787,14 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::SimulateWebViewReport { report } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    // Delivered by the web view pump, like a backend's.
+                    lw.webviews.push_simulated(report.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::SettleScrollGesture => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.scroll_manager.settle_scroll_gesture();
