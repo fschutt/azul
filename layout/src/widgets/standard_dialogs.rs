@@ -39,8 +39,8 @@ use crate::{
     callbacks::CallbackInfo,
     widgets::{
         alert::AlertKind,
-        button::{ButtonOnClickCallbackType, ButtonType},
-        check_box::{CheckBoxOnToggleCallbackType, CheckBoxState},
+        button::ButtonType,
+        check_box::CheckBoxState,
         dialog_kit::{
             self, DialogKitLook, BUTTON_BOX_BASE, BUTTON_BOX_CLASS, BUTTON_ROW_BASE, FIXED_BASE,
             ROW_MIDDLE_BASE, ROW_TOP_BASE, SCROLL_BOX_BASE, SPACER_BASE,

@@ -52,7 +52,7 @@ use crate::{
     widgets::{
         alert::AlertKind,
         button::{Button, ButtonOnClickCallbackType},
-        check_box::{CheckBoxOnToggleCallbackType, CheckBoxState},
+        check_box::CheckBoxState,
         dialog_kit::{self, DialogKitLook, FIXED_BASE, ROW_MIDDLE_BASE, SCROLL_BOX_BASE},
         info_bar::InfoBar,
         path_input::{PathInput, PathInputOnChangeCallbackType},
