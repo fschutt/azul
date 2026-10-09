@@ -6074,24 +6074,30 @@ impl LayoutWindow {
     /// no layout and no rebuild of the list; only the first one rebuilds the
     /// list of the view's DOM, which had no image for it yet.
     ///
-    /// Returns whether a repaint is due: the frame changed and some of the
-    /// view is on screen. `false` for a view that is gone.
+    /// Returns what the window must do, as for every content change: `Paint`
+    /// (the patched list, repainted), `PaintHidden` (nothing of the view is
+    /// on screen), `RebuildDisplayList` for the first frame (the list was
+    /// rebuilt here; the GPU needs it whole), `Unchanged` for the same frame
+    /// again or a view that is gone.
     pub fn set_webview_frame(
         &mut self,
         id: crate::managers::webview::WebViewId,
         frame: &ImageRef,
-    ) -> bool {
+    ) -> crate::overlay::ContentDirtyTier {
         use crate::{overlay::ContentDirtyTier, solver3::display_list::DisplayListItem};
 
         let Some(node) = self.webviews.get(id).map(|view| view.node) else {
-            return false;
+            return ContentDirtyTier::Unchanged;
         };
         let Some(node_id) = node.node.into_crate_internal() else {
-            return false;
+            return ContentDirtyTier::Unchanged;
         };
         let tier = self
             .apply_image_change(node.dom, node_id, frame, true, None)
             .tier;
+        if tier == ContentDirtyTier::Unchanged {
+            return tier;
+        }
         let drawn = self.layout_results.get(&node.dom).is_some_and(|lr| {
             let list = &lr.display_list;
             list.items.iter().enumerate().any(|(i, item)| {
@@ -6102,9 +6108,9 @@ impl LayoutWindow {
         if !drawn {
             // The first frame: the list has no image of the view to patch.
             self.regenerate_display_list_for_dom(node.dom);
-            return self.node_is_visible_in_window(node.dom, node_id);
+            return ContentDirtyTier::RebuildDisplayList;
         }
-        matches!(tier, ContentDirtyTier::Paint)
+        tier
     }
 
     /// The user dismissed the popup hanging off `source_node` (outside click,

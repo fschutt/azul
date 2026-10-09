@@ -65,6 +65,7 @@ use alloc::{string::String, vec::Vec};
 use azul_core::{
     callbacks::{RelayoutReason, Update},
     events::ProcessEventResult,
+    resources::ImageRef,
     webview::WebViewConfig,
 };
 use azul_css::AzString;
@@ -120,6 +121,12 @@ pub trait WebViewBackend {
     fn destroy(&mut self, id: WebViewId);
     /// What the views reported since the last call, oldest first.
     fn poll_reports(&mut self) -> Vec<WebViewReport>;
+    /// The newest frame of each composited view since the last call, for
+    /// the window to draw (`LayoutWindow::set_webview_frame`). A native
+    /// view draws itself: none.
+    fn poll_frames(&mut self) -> Vec<(WebViewId, ImageRef)> {
+        Vec::new()
+    }
 
     /// Apply one engine op. `Err` only from [`Self::create`].
     fn apply(&mut self, op: &WebViewOp) -> Result<(), String> {
@@ -271,6 +278,22 @@ pub fn pump<W: PlatformWindow + ?Sized>(window: &mut W) -> ProcessEventResult {
         for report in reports {
             result = result.max(deliver(window, &report));
         }
+    }
+    // A composited backend's new frames, drawn by the window: what each
+    // costs is a content change's (a repaint; the first frame a display
+    // list), never a layout.
+    let frames = window
+        .webview_backend()
+        .map(|backend| backend.poll_frames())
+        .unwrap_or_default();
+    if !frames.is_empty() {
+        let tier = window.get_layout_window_mut().and_then(|lw| {
+            frames
+                .iter()
+                .map(|(id, frame)| lw.set_webview_frame(*id, frame))
+                .max()
+        });
+        result = result.max(window.content_change_result(tier));
     }
     if matches!(
         result,
