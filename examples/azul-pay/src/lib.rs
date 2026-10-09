@@ -35,5 +35,7 @@
 //! Nothing here prints, logs or `Debug`s a client secret, a publishable key, a URL's query or
 //! fragment, or a cardholder's name. No azul types, no network.
 
+pub mod url;
+
 #[cfg(test)]
 mod tests;
