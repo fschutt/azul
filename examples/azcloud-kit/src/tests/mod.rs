@@ -3,10 +3,13 @@
 
 mod account;
 mod bucket;
+mod claim;
 mod cloud_drive;
 mod drive;
 mod endpoints;
 mod fake_s3;
+mod lock;
+mod pending;
 mod secrets;
 mod session;
 mod settings;

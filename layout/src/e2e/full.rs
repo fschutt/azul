@@ -3152,6 +3152,54 @@ pub enum DebugEvent {
         launched_app: bool,
     },
 
+    // `<webview>` (`azul_core::webview`, `managers::webview`). The headless
+    // backend and the in-crate runner have no browser: the scenario plays
+    // its part. Each `simulate_*` names the view by `webview` (its id from
+    // `list_webviews`; 0 or absent = the first view) and is delivered like a
+    // backend's report - the view's callbacks have run by the next
+    // `wait_frame`.
+    /// `{ "op": "list_webviews" }` - every web view of the window: `id`,
+    /// `dom`, `node`, `src`, `url` (the page it is on or going to), `title`,
+    /// `loading`, `visible`, `rect` / `clip` (window logical px) and its
+    /// `navigations` (`url`, `redirect`, `allowed`); plus whether the window
+    /// has a `backend` and, without one, why (`unavailable`).
+    ListWebviews,
+    /// `{ "op": "simulate_webview_navigation", "url": "...", "redirect":
+    /// true }` - the page navigates (a link, a script, a server redirect
+    /// with `redirect`): the app's `WebViewNavigationRequested` callbacks
+    /// decide, and `list_webviews` shows the answer.
+    SimulateWebviewNavigation {
+        #[serde(default)]
+        webview: u64,
+        url: String,
+        #[serde(default)]
+        redirect: bool,
+    },
+    /// `{ "op": "simulate_webview_load_finished" }` - the page finished
+    /// loading, on `url` (default: the page the view is on).
+    SimulateWebviewLoadFinished {
+        #[serde(default)]
+        webview: u64,
+        #[serde(default)]
+        url: Option<String>,
+    },
+    /// `{ "op": "simulate_webview_title", "title": "..." }` - the page
+    /// changed its title.
+    SimulateWebviewTitle {
+        #[serde(default)]
+        webview: u64,
+        title: String,
+    },
+    /// `{ "op": "simulate_webview_load_failed", "reason": "..." }` - the
+    /// page could not be loaded (`url` default: the page the view is on).
+    SimulateWebviewLoadFailed {
+        #[serde(default)]
+        webview: u64,
+        #[serde(default)]
+        url: Option<String>,
+        reason: String,
+    },
+
     /// `{ "op": "print", "text": "..." }` - write a line to the run's output.
     ///
     /// Scenario-level `printf`. Without it the only way to see what an op
@@ -5276,6 +5324,104 @@ fn settle_result_from_name(
             ))
         }
     })
+}
+
+// ==== `<webview>` (`list_webviews`, `simulate_webview_*`) ====
+
+/// `list_webviews`' answer: every web view of the window and what the
+/// engine knows of it (see `DebugEvent::ListWebviews`).
+fn webviews_json(callback_info: &azul_layout::callbacks::CallbackInfo) -> serde_json::Value {
+    let manager = &callback_info.get_layout_window().webviews;
+    let rect = |r: &azul_core::geom::LogicalRect| {
+        serde_json::json!({
+            "x": r.origin.x,
+            "y": r.origin.y,
+            "w": r.size.width,
+            "h": r.size.height,
+        })
+    };
+    let views: Vec<serde_json::Value> = manager
+        .views()
+        .iter()
+        .map(|v| {
+            let navigations: Vec<serde_json::Value> = v
+                .navigations
+                .iter()
+                .map(|n| {
+                    serde_json::json!({
+                        "url": n.url.as_str(),
+                        "redirect": n.is_redirect,
+                        "allowed": n.allowed,
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "id": v.id.0,
+                "dom": v.node.dom.inner,
+                "node": v.node.node.into_crate_internal().map(|n| n.index()),
+                "src": v.src.as_str(),
+                "url": v.url.as_str(),
+                "title": v.title.as_str(),
+                "loading": v.loading,
+                "visible": v.placement.visible,
+                "rect": rect(&v.placement.rect),
+                "clip": rect(&v.placement.clip),
+                "navigations": navigations,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "backend": manager.has_backend(),
+        "unavailable": manager.unavailable_reason().map(|r| r.as_str().to_string()),
+        "webviews": views,
+    })
+}
+
+/// A `simulate_webview_*` step: find the view it names (`webview`: an id
+/// from `list_webviews`, 0 = the first view), build its event from the
+/// page the view is on (`event`), and hand the report to the window - the
+/// shell's web view pump (or the runner's) delivers it like a backend's.
+fn simulate_webview(
+    request: &DebugRequest,
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    op: &str,
+    webview: u64,
+    event: impl FnOnce(azul_css::AzString) -> azul_core::webview::WebViewEvent,
+) {
+    let found = {
+        let views = callback_info.get_layout_window().webviews.views();
+        let view = if webview == 0 {
+            views.first()
+        } else {
+            views.iter().find(|v| v.id.0 == webview)
+        };
+        match view {
+            Some(v) => Ok((v.id, v.url.clone())),
+            None if views.is_empty() => Err(String::from("there is no web view in this window")),
+            None => Err(format!(
+                "no web view {webview} (the window has {})",
+                views
+                    .iter()
+                    .map(|v| v.id.0.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    };
+    match found {
+        Err(e) => send_err(request, format!("{op}: {e}")),
+        Ok((id, url)) => {
+            let report = azul_layout::managers::webview::WebViewReport {
+                id,
+                request: 0,
+                event: event(url),
+            };
+            callback_info.push_change(
+                azul_layout::callbacks::CallbackChange::SimulateWebViewReport { report },
+            );
+            send_ok(request, None, None);
+        }
+    }
 }
 
 // ==== E2E notification events (`notification_event`) ====
@@ -16282,6 +16428,73 @@ pub fn process_debug_event(
                 }
             }
         },
+
+        // ==== `<webview>` (`list_webviews`, `simulate_webview_*`) ====
+        DebugEvent::ListWebviews => {
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Json(webviews_json(callback_info))),
+            );
+        }
+        DebugEvent::SimulateWebviewNavigation {
+            webview,
+            url,
+            redirect,
+        } => simulate_webview(
+            request,
+            callback_info,
+            "simulate_webview_navigation",
+            *webview,
+            |_| {
+                azul_core::webview::WebViewEvent::NavigationRequested(
+                    azul_core::webview::WebViewNavigation {
+                        url: azul_css::AzString::from(url.as_str()),
+                        is_redirect: *redirect,
+                    },
+                )
+            },
+        ),
+        DebugEvent::SimulateWebviewLoadFinished { webview, url } => simulate_webview(
+            request,
+            callback_info,
+            "simulate_webview_load_finished",
+            *webview,
+            |current| {
+                azul_core::webview::WebViewEvent::LoadFinished(
+                    url.as_deref().map_or(current, azul_css::AzString::from),
+                )
+            },
+        ),
+        DebugEvent::SimulateWebviewTitle { webview, title } => simulate_webview(
+            request,
+            callback_info,
+            "simulate_webview_title",
+            *webview,
+            |_| {
+                azul_core::webview::WebViewEvent::TitleChanged(azul_css::AzString::from(
+                    title.as_str(),
+                ))
+            },
+        ),
+        DebugEvent::SimulateWebviewLoadFailed {
+            webview,
+            url,
+            reason,
+        } => simulate_webview(
+            request,
+            callback_info,
+            "simulate_webview_load_failed",
+            *webview,
+            |current| {
+                azul_core::webview::WebViewEvent::LoadFailed(
+                    azul_core::webview::WebViewLoadError {
+                        url: url.as_deref().map_or(current, azul_css::AzString::from),
+                        reason: azul_css::AzString::from(reason.as_str()),
+                    },
+                )
+            },
+        ),
 
         DebugEvent::TakeScreenshot => {
             log(

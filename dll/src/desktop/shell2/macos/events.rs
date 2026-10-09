@@ -177,6 +177,10 @@ impl MacOSWindow {
         let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
+        // A press on azul's own content (a `WKWebView` takes its own) gives
+        // the keyboard back to the render view if a web view held it.
+        self.reclaim_keyboard_from_webviews();
+
         // The press router FIRST (before state changes): scrollbar, then
         // content. A press a scrollbar takes is recorded (the button is still
         // PHYSICALLY DOWN for the whole thumb drag) and swallowed by the

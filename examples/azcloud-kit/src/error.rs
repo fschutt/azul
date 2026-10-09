@@ -1,12 +1,12 @@
 //! Why an account, state-folder, sync or share call failed, as one type the apps can tell apart:
 //! the token server's refusal ([`TokenError`]: a drive token this device must sign in again for,
-//! no answer, ...), the bucket's ([`DriveError`]), a file of this computer, or anything else as
-//! a sentence - with what was being done in front of it ([`Context`]). The sentences name entries,
-//! keys and files, never a secret's value.
+//! no answer, ...), the bucket's ([`DriveError`]), the keyring's ([`KeyringError`]), a file of
+//! this computer, or anything else as a sentence - with what was being done in front of it
+//! ([`Context`]). The sentences name entries, keys and files, never a secret's value.
 
 use std::fmt;
 
-use azul_storage::DriveError;
+use azul_storage::{keyring::KeyringError, DriveError};
 
 use crate::token::TokenError;
 
@@ -17,6 +17,8 @@ pub enum CloudError {
     Token(TokenError),
     /// The bucket (or a folder of this computer seen as a drive) could not help.
     Drive(DriveError),
+    /// The keyring could not help (none on this system, refused, failed).
+    Keyring(KeyringError),
     /// A file of this computer: the state folder, a synced folder.
     Io(String),
     /// Anything else, as a sentence: a key that cannot be one, a damaged index, a plan stopped
@@ -70,6 +72,7 @@ impl fmt::Display for CloudError {
         match self {
             CloudError::Token(e) => write!(f, "{e}"),
             CloudError::Drive(e) => write!(f, "{e}"),
+            CloudError::Keyring(e) => write!(f, "{e}"),
             CloudError::Io(e) | CloudError::Failed(e) => write!(f, "{e}"),
             CloudError::Context { what, error } => write!(f, "{what}: {error}"),
         }
@@ -87,6 +90,12 @@ impl From<TokenError> for CloudError {
 impl From<DriveError> for CloudError {
     fn from(e: DriveError) -> Self {
         CloudError::Drive(e)
+    }
+}
+
+impl From<KeyringError> for CloudError {
+    fn from(e: KeyringError) -> Self {
+        CloudError::Keyring(e)
     }
 }
 

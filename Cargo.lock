@@ -1144,9 +1144,16 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-storage",
+ "base64 0.22.1",
  "blake3",
+ "chacha20poly1305",
+ "getrandom 0.2.17",
+ "hkdf",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1431,8 +1438,12 @@ checksum = "343e24eeae9f09f61afeafcc7112e8d62f965bf0c6b30cedb5f89cc0b200380f"
 name = "azul-storage"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "azul-dll",
+ "blake3",
+ "chacha20poly1305",
  "futures",
+ "getrandom 0.2.17",
  "hmac 0.12.1",
  "http",
  "opendal",
@@ -1442,6 +1453,9 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tokio",
+ "x25519-dalek",
+ "zeroize",
+ "zstd 0.13.3",
 ]
 
 [[package]]

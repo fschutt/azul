@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     sigv4, ByteRange, Credentials, Drive, DriveError, HttpCall, HttpReply, ListRequest, Method,
-    S3Config, S3Drive, Transport,
+    Precondition, S3Config, S3Drive, Transport,
 };
 
 /// 2013-05-24T00:00:00Z, the date of the S3 reference examples.
@@ -758,4 +758,46 @@ fn a_failed_raw_answer_reads_as_the_drives_own_error() {
         S3Drive::failure_of(&busy, None),
         DriveError::Service(e) if e.status == 503 && e.code == "ServiceUnavailable"
     ));
+}
+
+#[test]
+fn a_conditional_put_asks_if_none_match_or_if_match_and_reads_a_412_as_a_conflict() {
+    let fake = Fake::default();
+    fake.answer(200, &[("ETag", "\"e1\"")], "");
+    fake.answer(
+        412,
+        &[],
+        "<Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions \
+         you specified did not hold</Message></Error>",
+    );
+    fake.answer(200, &[("ETag", "\"e2\"")], "");
+    let drive = local_drive(&fake);
+
+    let created = drive.put_if("data/ab/obj", b"one", &Precondition::Absent);
+    assert_eq!(created, Ok(Some(String::from("e1"))));
+    let call = fake.last();
+    assert_eq!(call.method, Method::Put);
+    assert_eq!(header(&call, "if-none-match"), Some("*"));
+    assert!(header(&call, "authorization")
+        .unwrap()
+        .contains("SignedHeaders=host;if-none-match;x-amz-content-sha256;x-amz-date,"));
+
+    assert_eq!(
+        drive.put_if("data/ab/obj", b"two", &Precondition::Absent),
+        Err(DriveError::Conflict {
+            key: String::from("data/ab/obj")
+        })
+    );
+
+    let replaced = drive.put_if(
+        "data/ab/obj",
+        b"three",
+        &Precondition::Matches(String::from("e1")),
+    );
+    assert_eq!(replaced, Ok(Some(String::from("e2"))));
+    let call = fake.last();
+    assert_eq!(header(&call, "if-match"), Some("\"e1\""), "the tag goes in quotes");
+    assert_eq!(header(&call, "if-none-match"), None);
+    assert_eq!(call.body, b"three");
+    assert_eq!(fake.calls().len(), 3);
 }

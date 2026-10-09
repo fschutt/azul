@@ -1,5 +1,5 @@
 use super::TempDir;
-use crate::{ByteRange, Drive, DriveError, ListRequest, LocalDrive};
+use crate::{ByteRange, Drive, DriveError, ListRequest, LocalDrive, Precondition};
 
 fn keys(page: &crate::ListPage) -> Vec<&str> {
     page.objects.iter().map(|o| o.key.as_str()).collect()
@@ -219,4 +219,70 @@ fn path_traversal_keys_never_touch_the_disk_outside_the_root() {
         std::fs::read(tmp.path().join("outside.txt")).unwrap(),
         b"secret"
     );
+}
+
+/// Yields `left` bytes of `x`, then fails: a source that breaks in the middle.
+struct BreaksAfter {
+    left: usize,
+}
+
+impl std::io::Read for BreaksAfter {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            return Err(std::io::Error::other("the source broke"));
+        }
+        let n = buf.len().min(self.left);
+        buf[..n].fill(b'x');
+        self.left -= n;
+        Ok(n)
+    }
+}
+
+/// The names in `dir`, sorted.
+fn names_in(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn put_from_streams_a_reader_into_the_file_and_records_it_in_the_manifest() {
+    let tmp = TempDir::new("local-put-from");
+    let drive = LocalDrive::new(tmp.path());
+    let body: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+    let written = drive.put_from("big/file.bin", &mut &body[..]).unwrap();
+    assert_eq!(written, body.len() as u64);
+    assert_eq!(drive.get("big/file.bin").unwrap(), body);
+    assert_eq!(
+        drive.manifest().unwrap().get("big/file.bin").map(|e| e.size),
+        Some(body.len() as u64)
+    );
+    assert_eq!(names_in(&tmp.path().join("big")), vec!["file.bin"]);
+}
+
+#[test]
+fn a_put_from_whose_reader_breaks_leaves_the_old_file_and_no_temporary_one() {
+    let tmp = TempDir::new("local-put-from-broken");
+    let drive = LocalDrive::new(tmp.path());
+    drive.put("docs/a.txt", b"old").unwrap();
+    let error = drive
+        .put_from("docs/a.txt", &mut BreaksAfter { left: 100_000 })
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Io(_)), "{error:?}");
+    assert_eq!(drive.get("docs/a.txt").unwrap(), b"old");
+    assert_eq!(names_in(&tmp.path().join("docs")), vec!["a.txt"]);
+}
+
+#[test]
+fn a_folder_on_disk_cannot_write_conditionally() {
+    let tmp = TempDir::new("local-put-if");
+    let drive = LocalDrive::new(tmp.path());
+    assert!(matches!(
+        drive.put_if("a.txt", b"x", &Precondition::Absent),
+        Err(DriveError::Unsupported(_))
+    ));
+    assert!(!tmp.path().join("a.txt").exists());
 }

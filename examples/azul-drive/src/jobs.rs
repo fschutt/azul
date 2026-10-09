@@ -6,7 +6,8 @@
 //! undo, a preview, a folder's size, an object's metadata, a zip, the
 //! settings file, a download to open; and the Add drive dialog's calls (a
 //! source's connection test, Azlin's storage tiers, a test drive, a checkout
-//! and the wait for its payment). Every answer comes back to the UI
+//! and the wait for its payment) with the claims of the checkouts no dialog
+//! waits for (in the background, at every start). Every answer comes back to the UI
 //! thread as an [`Outcome`] through the thread's write-back. No callback
 //! ever waits on a drive.
 
@@ -20,7 +21,11 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
-use azcloud_kit::{Checkout, CheckoutStatus, DriveBundle, Tiers, TokenServer};
+use azcloud_kit::{
+    pending::{self, Claimed, Polled},
+    Checkout, ClaimKey, CloudError, DriveBundle, PendingCheckout, SharedKeyring, Tiers,
+    TokenServer,
+};
 use azul::{
     image::{ImageRef, RawImage},
     prelude::*,
@@ -58,6 +63,16 @@ pub(crate) enum PreviewContent {
     Audio(preview::WavSamples),
     /// Why there is nothing to show.
     Message(String),
+}
+
+/// A test drive a development token server made: its bundle, its session's keyring text, and
+/// why the keyring did not take the session (`None`: it is there, written under the drive's
+/// lock).
+pub(crate) struct BoughtDrive {
+    pub bundle: DriveBundle,
+    /// Never printed.
+    pub session: String,
+    pub unsaved: Option<String>,
 }
 
 /// A folder's size, counted for the Properties dialog.
@@ -190,27 +205,46 @@ pub(crate) enum Job {
     },
     /// Buy storage's tier list from the token server at `token_url`.
     Tiers { serial: u64, token_url: String },
-    /// A test drive without payment (a development token server).
+    /// A test drive without payment (a development token server), its session into `keyring`
+    /// under the drive's lock.
     CreateTestDrive {
         serial: u64,
         token_url: String,
         name: String,
         tier: String,
+        keyring: SharedKeyring,
     },
-    /// A checkout of `tier` for `months` months.
+    /// A checkout of `tier` for `months` months, its sign-up sealed to a new claim key, on the
+    /// keyring's list of unfinished checkouts (with the drive's `name`) before its payment page
+    /// opens.
     Checkout {
         serial: u64,
         token_url: String,
         tier: String,
         months: u32,
+        name: String,
+        keyring: SharedKeyring,
     },
-    /// The wait for checkout `checkout_id`'s payment: its status asked every few seconds
-    /// until the drive is there, the payment declined, `cancel` set or an hour gone.
+    /// The dialog's wait for `checkout`'s payment: its status asked every few seconds (at
+    /// `token_url`, the checkout's) until the drive is the app's, the checkout ends, `cancel`
+    /// is set or an hour is gone.
     AwaitPayment {
         serial: u64,
+        checkout: PendingCheckout,
         token_url: String,
-        checkout_id: String,
+        keyring: SharedKeyring,
         cancel: Arc<AtomicBool>,
+    },
+    /// The background claims: the keyring's unfinished checkouts asked about every few seconds
+    /// (each at its own token server, else `token_url`) until none is left or an hour is gone.
+    Claims {
+        keyring: SharedKeyring,
+        token_url: Option<String>,
+    },
+    /// A claimed checkout taken off the keyring's list (its drive is in the drives file).
+    ForgetCheckout {
+        keyring: SharedKeyring,
+        checkout_id: String,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -308,18 +342,36 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<Tiers, String>,
     },
-    /// A new Azlin drive: a test drive, or a paid checkout's (or why there is none).
+    /// A development server's test drive (or why there is none).
     Bought {
         serial: u64,
-        result: Result<DriveBundle, String>,
+        result: Result<BoughtDrive, String>,
     },
-    /// A checkout to pay in the browser (or why there is none).
+    /// A checkout to pay in the browser, on the keyring's list of unfinished checkouts (or why
+    /// there is none).
     CheckoutStarted {
         serial: u64,
-        result: Result<Checkout, String>,
+        result: Result<(Checkout, PendingCheckout), String>,
     },
-    /// The wait for a payment ended without a drive: why.
+    /// The wait for a payment ended without a drive: why (empty: "Stop waiting" said it).
     PaymentEnded { serial: u64, why: String },
+    /// A paid checkout's drive, its session in the keyring: from the dialog's wait (`serial`)
+    /// or from the background claims (`None`: a message of a job that still runs).
+    Claimed {
+        serial: Option<u64>,
+        checkout: PendingCheckout,
+        claimed: Box<Claimed>,
+    },
+    /// The background claims took a checkout off the keyring's list (the payment declined, the
+    /// token server no longer has it): why - to be said once. A job that still runs.
+    CheckoutDropped { checkout_id: String, why: String },
+    /// The background claims ended: what kept them from asking, if anything.
+    ClaimsDone { problem: Option<String> },
+    /// A claimed checkout off the keyring's list (`false`: another window took it off).
+    CheckoutForgotten {
+        checkout_id: String,
+        result: Result<bool, String>,
+    },
     SettingsSaved {
         result: Result<(), DriveError>,
     },
@@ -882,10 +934,47 @@ const PAYMENT_POLL_SECS: u64 = 3;
 /// How long the dialog waits for a payment before it gives up (the payment page stays valid).
 const PAYMENT_WAIT_SECS: u64 = 3600;
 
-/// Asks the token server about checkout `checkout_id` every few seconds until it is paid
-/// (the drive), declined, `cancel` is set or the wait is too long. A question without an answer
-/// is asked again (the network may come back); a refusal ends the wait.
-fn await_payment(serial: u64, token_url: &str, checkout_id: &str, cancel: &AtomicBool) -> Outcome {
+/// Seconds between two rounds of the background claims.
+const CLAIM_POLL_SECS: u64 = 10;
+/// How long the background claims go on in one run (the next start asks again).
+const CLAIM_WAIT_SECS: u64 = 3600;
+
+/// A checkout of `tier`, its sign-up sealed to a new claim key; the checkout (its key's secret,
+/// its tier, the drive's `name`, its token server) goes on the keyring's list of unfinished
+/// checkouts BEFORE its payment page opens - a drive paid after this window stopped waiting, or
+/// after AzDrive closed, is claimed with it.
+fn start_checkout(
+    token_url: &str,
+    tier: &str,
+    months: u32,
+    name: &str,
+    keyring: &SharedKeyring,
+) -> Result<(Checkout, PendingCheckout), String> {
+    let transport = AzulTransport::new(USER_AGENT);
+    let claim = ClaimKey::generate().map_err(|e| e.to_string())?;
+    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let checkout = server
+        .checkout(tier, months, azcloud_kit::token::DEFAULT_METHOD, &claim)
+        .map_err(|e| e.to_string())?;
+    let kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
+    pending::add(keyring, &kept).map_err(|e| {
+        format!("the keyring did not keep the checkout's claim key ({e}), so it was not opened")
+    })?;
+    Ok((checkout, kept))
+}
+
+/// Asks the token server about `checkout` every few seconds until its drive is the app's (its
+/// session in the keyring), the checkout ends (declined, gone: off the keyring's list), `cancel`
+/// is set ("Stop waiting") or the wait is too long. A question without an answer is asked again
+/// (the network may come back); the checkout stays on the list for the background claims and
+/// the next start.
+fn await_payment(
+    serial: u64,
+    checkout: &PendingCheckout,
+    token_url: &str,
+    keyring: &SharedKeyring,
+    cancel: &AtomicBool,
+) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let server = match TokenServer::new(token_url, &transport) {
         Ok(server) => server,
@@ -897,56 +986,139 @@ fn await_payment(serial: u64, token_url: &str, checkout_id: &str, cancel: &Atomi
         }
     };
     let started = Instant::now();
+    let mut last_problem = String::new();
     loop {
         // A few seconds in short steps: Stop waiting is heard at once.
         for _ in 0..(PAYMENT_POLL_SECS * 4) {
             if cancel.load(Ordering::SeqCst) {
+                // "Stop waiting" said why, and the background claims take over.
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::from("Stopped waiting for the payment."),
+                    why: String::new(),
                 };
             }
             std::thread::sleep(Duration::from_millis(250));
         }
         if started.elapsed() > Duration::from_secs(PAYMENT_WAIT_SECS) {
+            let problem = if last_problem.is_empty() {
+                String::new()
+            } else {
+                format!(" (last: {last_problem})")
+            };
             return Outcome::PaymentEnded {
                 serial,
-                why: String::from(
-                    "No payment arrived within an hour. A payment made later still creates the \
-                     drive at the token server.",
+                why: format!(
+                    "No payment arrived within an hour{problem}. The checkout is kept: a payment \
+                     made later still brings the drive, at the next start at the latest."
                 ),
             };
         }
-        match server.checkout_status(checkout_id) {
-            Ok(CheckoutStatus::Pending) | Err(azcloud_kit::TokenError::Connect(_)) => continue,
-            Ok(CheckoutStatus::Approved(bundle)) => {
-                return Outcome::Bought {
-                    serial,
-                    result: Ok(*bundle),
+        match pending::poll(&server, keyring, checkout) {
+            Polled::Pending => {}
+            Polled::Kept(why) => last_problem = why,
+            Polled::Claimed(claimed) => {
+                return Outcome::Claimed {
+                    serial: Some(serial),
+                    checkout: checkout.clone(),
+                    claimed,
                 }
             }
-            Ok(CheckoutStatus::ApprovedElsewhere) => {
+            Polled::Dropped(why) => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: String::from(
-                        "The payment went through, but the new drive was handed to another \
-                         window. Look for it there.",
-                    ),
+                    why: format!("The checkout ended: {why}."),
                 }
             }
-            Ok(CheckoutStatus::Declined(why)) => {
+            Polled::Settled => {
                 return Outcome::PaymentEnded {
                     serial,
-                    why: format!("The payment did not go through: {why}."),
-                }
-            }
-            Err(e) => {
-                return Outcome::PaymentEnded {
-                    serial,
-                    why: e.to_string(),
+                    why: String::from("Another AzDrive window finished this checkout."),
                 }
             }
         }
+    }
+}
+
+/// The background claims: the unfinished checkouts on the keyring's list, each asked at its
+/// own token server (else `token_url`), every few seconds until none is left or an hour is gone
+/// (the next start asks again). The list is read anew every round (another window adds to it).
+/// A paid one's drive and a dropped one go to the window at once; a drive claimed here is not
+/// reported again while the window takes its checkout off the list.
+fn claim_pending(
+    keyring: &SharedKeyring,
+    token_url: Option<&str>,
+    sender: &mut ThreadSender,
+) -> Outcome {
+    let transport = AzulTransport::new(USER_AGENT);
+    let started = Instant::now();
+    let mut reported: Vec<String> = Vec::new();
+    loop {
+        let open: Vec<PendingCheckout> = match pending::list(keyring) {
+            Ok(checkouts) => checkouts
+                .into_iter()
+                .filter(|c| !reported.contains(&c.checkout_id))
+                .collect(),
+            Err(e) => {
+                // A system without a keyring kept no checkout either: nothing to say then.
+                let no_keyring = matches!(
+                    e.root(),
+                    CloudError::Keyring(azul_storage::keyring::KeyringError::Unavailable)
+                );
+                return Outcome::ClaimsDone {
+                    problem: (!no_keyring).then(|| {
+                        format!("The unfinished checkouts could not be read from the keyring: {e}")
+                    }),
+                };
+            }
+        };
+        if open.is_empty() {
+            return Outcome::ClaimsDone { problem: None };
+        }
+        let mut asked = 0;
+        for checkout in open {
+            let url = if checkout.token_url.is_empty() {
+                token_url.unwrap_or_default().to_string()
+            } else {
+                checkout.token_url.clone()
+            };
+            let Ok(server) = TokenServer::new(&url, &transport) else {
+                continue;
+            };
+            asked += 1;
+            match pending::poll(&server, keyring, &checkout) {
+                Polled::Claimed(claimed) => {
+                    reported.push(checkout.checkout_id.clone());
+                    send(
+                        sender,
+                        Outcome::Claimed {
+                            serial: None,
+                            checkout,
+                            claimed,
+                        },
+                    );
+                }
+                Polled::Dropped(why) => send(
+                    sender,
+                    Outcome::CheckoutDropped {
+                        checkout_id: checkout.checkout_id,
+                        why,
+                    },
+                ),
+                Polled::Pending | Polled::Kept(_) | Polled::Settled => {}
+            }
+        }
+        if asked == 0 {
+            return Outcome::ClaimsDone {
+                problem: Some(String::from(
+                    "Unfinished checkouts wait in the keyring, but no Azlin token server is set \
+                     to ask about them.",
+                )),
+            };
+        }
+        if started.elapsed() > Duration::from_secs(CLAIM_WAIT_SECS) {
+            return Outcome::ClaimsDone { problem: None };
+        }
+        std::thread::sleep(Duration::from_secs(CLAIM_POLL_SECS));
     }
 }
 
@@ -1170,6 +1342,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             token_url,
             name,
             tier,
+            keyring,
         } => {
             let transport = AzulTransport::new(USER_AGENT);
             let result = TokenServer::new(&token_url, &transport)
@@ -1183,6 +1356,20 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                     } else {
                         e.to_string()
                     }
+                })
+                // The session into the keyring under the drive's lock before anything uses it,
+                // as every later refresh of the drive writes it.
+                .map(|bundle| match keyring.keep_new_drive(&bundle) {
+                    Ok((session, _)) => BoughtDrive {
+                        bundle,
+                        session,
+                        unsaved: None,
+                    },
+                    Err(e) => BoughtDrive {
+                        session: bundle.session().to_keyring_secret(),
+                        bundle,
+                        unsaved: Some(e.to_string()),
+                    },
                 });
             Outcome::Bought { serial, result }
         }
@@ -1191,21 +1378,29 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             token_url,
             tier,
             months,
-        } => {
-            let transport = AzulTransport::new(USER_AGENT);
-            let result = TokenServer::new(&token_url, &transport)
-                .and_then(|server| {
-                    server.checkout(&tier, months, azcloud_kit::token::DEFAULT_METHOD)
-                })
-                .map_err(|e| e.to_string());
-            Outcome::CheckoutStarted { serial, result }
-        }
+            name,
+            keyring,
+        } => Outcome::CheckoutStarted {
+            serial,
+            result: start_checkout(&token_url, &tier, months, &name, &keyring),
+        },
         Job::AwaitPayment {
             serial,
+            checkout,
             token_url,
-            checkout_id,
+            keyring,
             cancel,
-        } => await_payment(serial, &token_url, &checkout_id, &cancel),
+        } => await_payment(serial, &checkout, &token_url, &keyring, &cancel),
+        Job::Claims { keyring, token_url } => {
+            claim_pending(&keyring, token_url.as_deref(), sender)
+        }
+        Job::ForgetCheckout {
+            keyring,
+            checkout_id,
+        } => Outcome::CheckoutForgotten {
+            result: pending::remove(&keyring, &checkout_id).map_err(|e| e.to_string()),
+            checkout_id,
+        },
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },

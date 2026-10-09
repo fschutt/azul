@@ -924,6 +924,191 @@ fn resolve_virtual_view_placements(
     placements
 }
 
+/// One `<webview>` where the display lists put it right now, in window
+/// logical coordinates ([`painted_webviews`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaintedWebView {
+    /// The dom the web view is in.
+    pub dom_id: DomId,
+    /// The `<webview>` node.
+    pub node_id: NodeId,
+    /// Its content box on screen - where its native view goes, past the
+    /// window's edges if it reaches past them.
+    pub rect: LogicalRect,
+    /// The part of `rect` the window shows, after every enclosing clip and
+    /// scroll frame and the window's own edges; `None` when nothing of it
+    /// shows (scrolled out, clipped away).
+    pub clip: Option<LogicalRect>,
+}
+
+/// Every `<webview>` the display lists reserve a rect for
+/// (`DisplayListItem::WebView`), where it is on screen NOW.
+///
+/// By the raster's own rule `screen = T_total(pos - scroll_total)`, read off
+/// the same records it paints from: each list is walked with the scroll and
+/// reference frames open at each item - so the live scroll offsets
+/// (`resolve_scroll`) and the transforms (`resolve_transform`) move the view
+/// exactly as they move the pixels around it - and with the clips open at
+/// it: every `PushClip` and every scroll frame's viewport, each mapped by
+/// the frames it was pushed under (a scroll frame's viewport does not move
+/// with its own scroll), intersected with the window. A web view in a
+/// nested dom paints at its host's `VirtualView` item
+/// ([`resolve_virtual_view_placements`]) and is seen through that view's
+/// viewport too. A transformed view is placed at its transformed bounding
+/// box (a native view cannot rotate).
+///
+/// Empty - and no list walked - when no display list holds a web view.
+#[must_use]
+pub fn painted_webviews(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    viewport: LogicalSize,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> Vec<PaintedWebView> {
+    use crate::solver3::display_list::DisplayListItem as I;
+
+    let has_webview = |lr: &DomLayoutResult| {
+        lr.display_list
+            .items
+            .iter()
+            .any(|item| matches!(item, I::WebView { .. }))
+    };
+    if !layout_results.values().any(has_webview) {
+        return Vec::new();
+    }
+    let placements = if layout_results.len() > 1 {
+        resolve_virtual_view_placements(layout_results)
+    } else {
+        BTreeMap::new()
+    };
+    let to_screen = |r: LogicalRect, chain: &[HitChainLink]| -> LogicalRect {
+        if chain.is_empty() {
+            return r;
+        }
+        let resolved = resolve_chain(chain, resolve_scroll, resolve_transform);
+        let shifted = LogicalRect::new(
+            LogicalPosition::new(r.origin.x - resolved.scroll.x, r.origin.y - resolved.scroll.y),
+            r.size,
+        );
+        if resolved.has_transform {
+            resolved.forward.map_rect(shifted)
+        } else {
+            shifted
+        }
+    };
+    let window = LogicalRect::new(LogicalPosition::zero(), viewport);
+    let mut out = Vec::new();
+    for (dom_id, lr) in layout_results {
+        if !has_webview(lr) {
+            continue;
+        }
+        // A nested dom is shifted by its placement, seen through every
+        // enclosing view's viewport and moved by the host's frames; one no
+        // display list mounts is nowhere.
+        let (offset, host_clips, host_chain) = if *dom_id == DomId::ROOT_ID {
+            (LogicalPosition::zero(), Vec::new(), Vec::new())
+        } else if let Some(p) = placements.get(dom_id) {
+            (p.rect.origin, p.clips.clone(), p.chain.clone())
+        } else {
+            continue;
+        };
+        let shift = |r: LogicalRect| {
+            LogicalRect::new(
+                LogicalPosition::new(r.origin.x + offset.x, r.origin.y + offset.y),
+                r.size,
+            )
+        };
+        let base_depth = host_chain.len();
+        let mut chain = host_chain;
+        // The open clips and scroll-frame viewports, each with the chain it
+        // was pushed under.
+        let mut clips: Vec<(LogicalRect, Vec<HitChainLink>)> = Vec::new();
+        let mut frames: Vec<(LogicalRect, Vec<HitChainLink>)> = Vec::new();
+        for (item_idx, item) in lr.display_list.items.iter().enumerate() {
+            match item {
+                I::PushClip { bounds, .. } => clips.push((shift(*bounds.inner()), chain.clone())),
+                I::PopClip => {
+                    clips.pop();
+                }
+                I::PushScrollFrame {
+                    clip_bounds,
+                    scroll_id,
+                    ..
+                } => {
+                    frames.push((shift(*clip_bounds.inner()), chain.clone()));
+                    // `scroll_id` names its node (see `resolve_virtual_view_placements`).
+                    let nid = lr
+                        .scroll_id_to_node_id
+                        .get(scroll_id)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            NodeId::new(usize::try_from(*scroll_id).unwrap_or(usize::MAX))
+                        });
+                    chain.push(HitChainLink::Scroll(*dom_id, nid));
+                }
+                I::PopScrollFrame => {
+                    frames.pop();
+                    if matches!(chain.last(), Some(HitChainLink::Scroll(..)))
+                        && chain.len() > base_depth
+                    {
+                        chain.pop();
+                    }
+                }
+                I::PushReferenceFrame { .. } => {
+                    let nid = lr
+                        .display_list
+                        .node_mapping
+                        .get(item_idx)
+                        .copied()
+                        .flatten()
+                        .unwrap_or(NodeId::ZERO);
+                    chain.push(HitChainLink::Transform(*dom_id, nid));
+                }
+                I::PopReferenceFrame => {
+                    if matches!(chain.last(), Some(HitChainLink::Transform(..)))
+                        && chain.len() > base_depth
+                    {
+                        chain.pop();
+                    }
+                }
+                I::WebView { node_id, bounds } => {
+                    let rect = to_screen(shift(*bounds.inner()), &chain);
+                    let clip = host_clips
+                        .iter()
+                        .chain(&clips)
+                        .chain(&frames)
+                        .try_fold(window, |visible, (c, c_chain)| {
+                            intersect_rects(visible, to_screen(*c, c_chain))
+                        })
+                        .and_then(|visible| intersect_rects(visible, rect));
+                    out.push(PaintedWebView {
+                        dom_id: *dom_id,
+                        node_id: *node_id,
+                        rect,
+                        clip,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// The overlap of two rects; `None` when they do not overlap.
+fn intersect_rects(a: LogicalRect, b: LogicalRect) -> Option<LogicalRect> {
+    let (x0, y0) = (a.origin.x.max(b.origin.x), a.origin.y.max(b.origin.y));
+    let (x1, y1) = (a.max_x().min(b.max_x()), a.max_y().min(b.max_y()));
+    if x1 > x0 && y1 > y0 {
+        Some(LogicalRect::new(
+            LogicalPosition::new(x0, y0),
+            LogicalSize::new(x1 - x0, y1 - y0),
+        ))
+    } else {
+        None
+    }
+}
+
 impl CpuHitTester {
     /// Create a new empty hit tester.
     #[must_use]

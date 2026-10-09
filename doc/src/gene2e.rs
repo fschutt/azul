@@ -429,6 +429,14 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("global_hotkey",             None),
     ("global_hotkey_answer",      None),
     ("global_hotkey_settle",      None),
+    // `<webview>`: the scenario plays the browser - the headless backend and
+    // the in-crate runner share one recording backend - and lists the views
+    // the engine keeps. Deterministic input, like key_down.
+    ("list_webviews",                  None),
+    ("simulate_webview_navigation",    None),
+    ("simulate_webview_load_finished", None),
+    ("simulate_webview_title",         None),
+    ("simulate_webview_load_failed",   None),
     // DENY: a notification click / button / dismissal queued into the
     // mailbox. Only the dll's notification service (AZ_BACKEND=headless)
     // routes it to a callback; the in-crate runner generated tests run in

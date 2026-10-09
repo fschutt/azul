@@ -1,13 +1,15 @@
-//! The token server's API: tiers, a development sign-up, a checkout and its status, a refresh.
+//! The token server's API: tiers, a development sign-up, a checkout and its sealed sign-up, a
+//! refresh.
 
 use azul_storage::{config::DriveAuth, config::DriveLocation, Method};
 
 use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
+    claim::seal,
     token::{
         check_id, check_token_url, is_loopback_host, CheckoutStatus, TokenError, TokenServer,
     },
-    CloudError, DriveBundle,
+    ClaimKey, CloudError, DriveBundle,
 };
 
 /// azlin-token's price ladder (tiers.rs), as GET /v1/tiers answers.
@@ -124,14 +126,19 @@ fn a_production_token_server_refuses_test_drives_with_its_own_sentence() {
 }
 
 #[test]
-fn a_checkout_says_where_to_pay_and_its_status_hands_the_drive_over_once() {
+fn a_checkout_names_its_claim_key_and_its_status_opens_the_sealed_signup_every_time() {
+    let claim = ClaimKey::generate().unwrap();
     let checkout = r#"{"checkout_id": "ck_1", "pay_url": "http://127.0.0.1:18081/v1/pay/ck_1",
         "tier": "100GB", "method": "sepa", "months": 12, "amount_cents": 990, "currency": "EUR",
         "first_month_free": true, "withdrawal_consent_required": true, "mock": true}"#;
+    let sealed = seal(
+        &claim.public_base64(),
+        "ck_1",
+        bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").as_bytes(),
+    );
     let approved = format!(
         r#"{{"checkout_id": "ck_1", "status": "approved", "tier": "100GB", "months": 12,
-             "amount_cents": 990, "signup": {}}}"#,
-        bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")
+             "amount_cents": 990, "sealed_signup": "{sealed}"}}"#
     );
     let answers = vec![
         json(201, checkout),
@@ -141,14 +148,16 @@ fn a_checkout_says_where_to_pay_and_its_status_hands_the_drive_over_once() {
                 "amount_cents": 990}"#,
         ),
         json(200, &approved),
-        json(
-            200,
-            r#"{"checkout_id": "ck_1", "status": "approved", "tier": "100GB", "months": 12,
-                "amount_cents": 990}"#,
-        ),
+        // The token server keeps the sealed sign-up 30 days: a second poll opens it again.
+        json(200, &approved),
         json(
             200,
             r#"{"checkout_id": "ck_2", "status": "declined", "tier": "100GB", "months": 1,
+                "amount_cents": 99, "reason": "insufficient funds"}"#,
+        ),
+        json(
+            200,
+            r#"{"checkout_id": "ck_3", "status": "reversed", "tier": "100GB", "months": 1,
                 "amount_cents": 99}"#,
         ),
     ];
@@ -156,7 +165,7 @@ fn a_checkout_says_where_to_pay_and_its_status_hands_the_drive_over_once() {
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
 
-    let started = server.checkout("100GB", 12, "sepa").unwrap();
+    let started = server.checkout("100GB", 12, "sepa", &claim).unwrap();
     assert_eq!(started.checkout_id, "ck_1");
     assert_eq!(started.pay_url, "http://127.0.0.1:18081/v1/pay/ck_1");
     assert_eq!(started.amount_cents, 990);
@@ -169,22 +178,103 @@ fn a_checkout_says_where_to_pay_and_its_status_hands_the_drive_over_once() {
     assert_eq!(body["tier"], "100GB");
     assert_eq!(body["months"], 12);
     assert_eq!(body["method"], "sepa");
+    // The public half of the claim key, never its secret.
+    assert_eq!(body["claim_key"], claim.public_base64().as_str());
+    let sent = String::from_utf8_lossy(&call.body).into_owned();
+    assert!(!sent.contains(claim.to_base64().as_str()), "{sent}");
 
-    assert_eq!(server.checkout_status("ck_1").unwrap(), CheckoutStatus::Pending);
-    match server.checkout_status("ck_1").unwrap() {
-        CheckoutStatus::Approved(drive) => assert_eq!(drive.drive_id(), "d_1"),
-        other => panic!("not approved with its drive: {other:?}"),
+    assert_eq!(
+        server.checkout_status("ck_1", &claim).unwrap(),
+        CheckoutStatus::Pending
+    );
+    for _ in 0..2 {
+        match server.checkout_status("ck_1", &claim).unwrap() {
+            CheckoutStatus::Approved(drive) => {
+                assert_eq!(drive.drive_id(), "d_1");
+                assert_eq!(drive.drive_token, "dt_f.0.aaa");
+                assert_eq!(drive.credentials.access_key_id, "AKID1");
+            }
+            other => panic!("not approved with its drive: {other:?}"),
+        }
     }
     assert_eq!(
-        server.checkout_status("ck_1").unwrap(),
-        CheckoutStatus::ApprovedElsewhere
+        server.checkout_status("ck_2", &claim).unwrap(),
+        CheckoutStatus::Declined(String::from("insufficient funds"))
     );
     assert!(matches!(
-        server.checkout_status("ck_2").unwrap(),
+        server.checkout_status("ck_3", &claim).unwrap(),
         CheckoutStatus::Declined(_)
     ));
     assert_eq!(fake.calls()[1].method, Method::Get);
     assert_eq!(fake.calls()[1].url, format!("{TOKEN}/v1/checkout/ck_1"));
+}
+
+#[test]
+fn a_checkout_the_token_server_no_longer_has_is_gone() {
+    let fake = Fake::new(|call, _| {
+        Ok(if call.url.ends_with("/ck_old") {
+            json(
+                200,
+                r#"{"checkout_id": "ck_old", "status": "expired", "tier": "100GB", "months": 1,
+                    "amount_cents": 99}"#,
+            )
+        } else {
+            json(
+                404,
+                r#"{"error": "no_such_checkout", "message": "unknown checkout"}"#,
+            )
+        })
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let claim = ClaimKey::generate().unwrap();
+    assert!(matches!(
+        server.checkout_status("ck_old", &claim).unwrap(),
+        CheckoutStatus::Gone(_)
+    ));
+    match server.checkout_status("ck_nobody", &claim).unwrap() {
+        CheckoutStatus::Gone(why) => assert!(why.contains("unknown checkout"), "{why}"),
+        other => panic!("a 404 is a checkout that is gone, not {other:?}"),
+    }
+}
+
+#[test]
+fn an_approved_checkout_whose_signup_is_not_sealed_to_its_claim_key_is_refused() {
+    let claim = ClaimKey::generate().unwrap();
+    let other = ClaimKey::generate().unwrap();
+    let signup = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa");
+    let answers = vec![
+        // A token server without claims: the plaintext sign-up, readable by anyone who knows
+        // the checkout id - not taken.
+        format!(r#"{{"checkout_id": "ck_1", "status": "approved", "signup": {signup}}}"#),
+        // Sealed to another checkout's key.
+        format!(
+            r#"{{"checkout_id": "ck_1", "status": "approved", "sealed_signup": "{}"}}"#,
+            seal(&other.public_base64(), "ck_1", signup.as_bytes())
+        ),
+        // Sealed for another checkout.
+        format!(
+            r#"{{"checkout_id": "ck_1", "status": "approved", "sealed_signup": "{}"}}"#,
+            seal(&claim.public_base64(), "ck_2", signup.as_bytes())
+        ),
+        // Opens, but holds no drive bundle.
+        format!(
+            r#"{{"checkout_id": "ck_1", "status": "approved", "sealed_signup": "{}"}}"#,
+            seal(&claim.public_base64(), "ck_1", b"{}")
+        ),
+    ];
+    let fake = Fake::new(move |_, n| Ok(json(200, &answers[n.min(answers.len() - 1)])));
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for case in 0..4 {
+        assert!(
+            matches!(
+                server.checkout_status("ck_1", &claim),
+                Err(TokenError::Protocol(_))
+            ),
+            "answer {case}"
+        );
+    }
 }
 
 #[test]

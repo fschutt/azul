@@ -93,6 +93,8 @@ pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
+/// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
+mod webview;
 
 use coregraphics::CoreGraphicsFunctions;
 use corevideo::CoreVideoFunctions;
@@ -4418,6 +4420,9 @@ pub struct MacOSWindow {
     /// Aqua / DarkAqua, `None` = nil (inherits the app's, i.e. the desktop's).
     /// A fresh `NSWindow` inherits, so it starts `None`.
     applied_chrome_mode: Option<azul_core::window::DarkLightMode>,
+    /// The window's `<webview>`s (`webview::MacWebViews`), made at the first
+    /// one: an app without a web view never loads WebKit.
+    webviews: Option<webview::MacWebViews>,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -4437,6 +4442,13 @@ unsafe extern "C" {
 impl PlatformWindow for MacOSWindow {
     fn start_native_eyedropper(&mut self, request_id: u64) -> bool {
         crate::desktop::eyedropper::macos::start(request_id)
+    }
+
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        self.webviews_mut()
+            .map(|views| views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
     }
 
     fn regenerate_layout_once(
@@ -6040,6 +6052,10 @@ impl MacOSWindow {
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
+        // `<webview>`s are WKWebViews (`webview::MacWebViews`).
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
 
         // Initialize monitor cache once at window creation
         if let Ok(mut guard) = layout_window.monitors.lock() {
@@ -6200,6 +6216,7 @@ impl MacOSWindow {
             surface_needs_update: true, // First frame always needs update
             redraw_requested: true,   // First frame must not be skipped
             applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
+            webviews: None,            // made (and WebKit loaded) at the first web view
         };
 
         // The titlebar in the mode the window will show, before it is ever
@@ -9033,6 +9050,13 @@ impl MacOSWindow {
             "[render_and_present] FRAME COMPLETE"
         );
 
+        // `<webview>`s where this frame put them (after its layout and its
+        // scroll): placements and queued ops to WebKit. No callback runs
+        // inside a frame; the reports wait for `drain_loop_work`.
+        if crate::desktop::shell2::common::webview::sync(self) {
+            self.request_redraw();
+        }
+
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_info!(
@@ -9090,6 +9114,10 @@ impl Drop for MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::drop] Cleaning up window resources"
         );
+
+        // The web views first: their pending decisions are answered and
+        // their views leave the render view before it goes.
+        drop(self.webviews.take());
 
         // SAFETY: display_link must be stopped before window is dropped, because the
         // CVDisplayLink callback retains the NSWindow from another thread.
@@ -9192,6 +9220,68 @@ impl MacOSWindow {
         };
         for tag in pending_actions {
             self.handle_menu_action(tag);
+        }
+
+        // `<webview>`s: what WebKit reported (a navigation to decide, a
+        // load, a title) runs the views' callbacks, and the placements and
+        // ops of the last frames reach WebKit (`common::webview::pump`). Only
+        // while a web view exists or is owed something.
+        let has_webviews = self.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if has_webviews {
+            let result = self.pump_webviews();
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
+                self.request_redraw();
+            }
+        }
+    }
+
+    /// The window's `<webview>` backend, made at the first call (it loads
+    /// nothing itself: WebKit is loaded by its first view). `None` without a
+    /// render view.
+    fn webviews_mut(&mut self) -> Option<&mut webview::MacWebViews> {
+        if self.webviews.is_none() {
+            let parent = self.render_view_object()?;
+            self.webviews = Some(webview::MacWebViews::new(parent));
+        }
+        self.webviews.as_mut()
+    }
+
+    /// The view azul renders into (`GLView` / `CPUView`), as an object.
+    fn render_view_object(&self) -> Option<Retained<objc2::runtime::AnyObject>> {
+        let view: *mut objc2::runtime::AnyObject = if let Some(gl) = self.gl_view.as_ref() {
+            Retained::as_ptr(gl) as *mut objc2::runtime::AnyObject
+        } else if let Some(cpu) = self.cpu_view.as_ref() {
+            Retained::as_ptr(cpu) as *mut objc2::runtime::AnyObject
+        } else {
+            return None;
+        };
+        // SAFETY: a live view this window owns; the retain keeps it for the
+        // web views that are its subviews.
+        unsafe { Retained::retain(view) }
+    }
+
+    /// A press on azul's own content takes the keyboard back from a web
+    /// view that had it: AppKit makes a clicked `WKWebView` the first
+    /// responder, and nothing else would ever hand it back to the render
+    /// view, whose `keyDown:` azul's keyboard input runs through.
+    pub(crate) fn reclaim_keyboard_from_webviews(&self) {
+        if self
+            .webviews
+            .as_ref()
+            .is_none_or(webview::MacWebViews::is_empty)
+        {
+            return;
+        }
+        let Some(view) = self.render_view_object() else {
+            return;
+        };
+        unsafe {
+            let first: *mut objc2::runtime::AnyObject = msg_send![&*self.window, firstResponder];
+            if first != Retained::as_ptr(&view) as *mut objc2::runtime::AnyObject {
+                let _: Bool = msg_send![&*self.window, makeFirstResponder: &*view];
+            }
         }
     }
 

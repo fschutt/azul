@@ -2231,9 +2231,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         }
         if let Some(dom_id) = node.dom_node_id {
             let nd = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            if matches!(nd.get_node_type(), azul_core::dom::NodeType::Image(_))
-                || nd.is_virtual_view_node()
-            {
+            if nd.is_sized_replaced_node() {
                 return None;
             }
         }
@@ -2613,9 +2611,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                         .get(LayoutNodeId::new(node_idx))
                         .and_then(|n| n.dom_node_id);
                     let is_replaced = dom_id.is_some_and(|id| {
-                        let nd = &self.ctx.styled_dom.node_data.as_container()[id];
-                        matches!(nd.get_node_type(), azul_core::dom::NodeType::Image(_))
-                            || nd.is_virtual_view_node()
+                        self.ctx.styled_dom.node_data.as_container()[id].is_sized_replaced_node()
                     });
                     match (is_replaced, dom_id) {
                         (true, Some(id)) => {
