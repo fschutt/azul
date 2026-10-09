@@ -2538,4 +2538,25 @@ mod webview_node_tests {
             persistent.format()
         );
     }
+
+    /// A web view takes the pointer and the keyboard as an iframe does:
+    /// hit-testable and focusable (`tabindex` auto) without a callback of
+    /// its own, so a composited page can be clicked into and typed into.
+    #[test]
+    fn a_webview_is_hit_testable_and_focusable_without_a_callback() {
+        let mut dom = Dom::create_body().with_child(Dom::create_webview(AzString::from(
+            "https://example.com/",
+        )));
+        let styled = crate::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mapping = styled
+            .tag_ids_to_node_ids
+            .as_ref()
+            .iter()
+            .find(|m| m.node_id.into_crate_internal() == Some(NodeId::new(1)))
+            .expect("the web view has a hit-test tag");
+        assert_eq!(
+            mapping.tab_index,
+            crate::dom::OptionTabIndex::Some(crate::dom::TabIndex::Auto)
+        );
+    }
 }
