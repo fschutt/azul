@@ -19,6 +19,7 @@ mail/.state/<id>/seen                 empty object: the message is read
 mail/.state/<id>/flagged              empty object: flagged for follow-up
 mail/.state/<id>/answered             empty object: replied to (read; AzMail does not set it yet)
 mail/.state/<id>/label/<label>        empty object: a label (category), the name percent-encoded
+mail/.state/<id>/deleted              empty object: marked deleted by another program, not expunged (hidden)
 mail/.index/                          reserved for a folder summary cache (not written, see 4.4)
 ```
 
@@ -71,6 +72,7 @@ Every user action is ONE idempotent object operation (or two, for a move):
 | read / unread | PUT / DELETE `mail/.state/<id>/seen` (empty) |
 | flag / unflag | PUT / DELETE `mail/.state/<id>/flagged` |
 | label / unlabel | PUT / DELETE `mail/.state/<id>/label/<label>` |
+| mark deleted / undelete (a mail program through the Azlin Bridge, section 11) | PUT / DELETE `mail/.state/<id>/deleted`; AzMail hides a message while it has this marker |
 | move (Archive, Junk, Move to) | CopyObject to `mail/<To>/<name>.eml`, then DeleteObject of the old key; the markers stay |
 | delete | a move to `mail/Trash/`; deleting in Trash deletes the object, then its markers |
 | save a draft | PUT `mail/Drafts/<new name>.eml`, then DELETE the draft it replaces |
@@ -212,9 +214,13 @@ reads and writes exactly this layout (through azul-mail-core's `azlin` module):
 - Mailboxes are the folders under `mail/` with the roles of section 1 (`INBOX`, and `\Sent`,
   `\Drafts`, `\Archive`, `\Junk`, `\Trash` on the well-known ones), names in modified UTF-7.
 - `\Seen`, `\Flagged` and `\Answered` are the markers of section 3, so a mail read in Apple Mail
-  is read in AzMail. `\Deleted`, `\Draft` and keywords are kept in the bridge's memory only (a
-  mail program sets `\Deleted` and expunges at once); EXPUNGE deletes the object, and its
-  markers when no other folder holds the same name.
+  is read in AzMail. A keyword (`$Forwarded`, `Work`, ...) is a label marker
+  (`label/<keyword>`), so AzMail's categories and the programs' keywords are one thing.
+  `\Draft` is no marker: every message of the Drafts folder has it, no other one does.
+- `\Deleted` is the marker `mail/.state/<id>/deleted` (added for the bridge; older AzMails
+  ignore it, AzMail now hides a message while it is there). EXPUNGE deletes the object, then
+  every marker of the message when no other folder holds the same name - else only its
+  `deleted` marker, so the copy elsewhere is not hidden.
 - APPEND, COPY and MOVE write objects named by section 2 (APPEND: the time it gives, else now);
   a copy shares its markers with the original (the same `<id>`).
 - IMAP's UIDs are the bridge's own: a map per mailbox in its state folder (names numbered in

@@ -278,6 +278,18 @@ fn sync_folder(
 ) -> Result<FolderReport, SyncError> {
     let key = mailbox.key.as_str();
     let path = mailbox.server_name.as_str();
+    // A message another program marked deleted (IMAP's \Deleted through the Azlin Bridge, not
+    // expunged yet) is hidden here as if it were gone, until the mark goes or the message does.
+    let visible: Vec<ObjectInfo> = listed
+        .iter()
+        .filter(|object| {
+            azlin::message_id(&object.key)
+                .and_then(|id| states.get(id))
+                .is_none_or(|state| !state.deleted)
+        })
+        .cloned()
+        .collect();
+    let listed = visible.as_slice();
     let mut index = read_index(store, key);
     let mut state = FolderState::create(path, &mailbox.display, AZLIN_UIDVALIDITY);
     state.last_uid = read_state(store, key).map_or(0, |old| old.last_uid);

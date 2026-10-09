@@ -50,6 +50,9 @@ pub const SEEN: &str = "seen";
 pub const FLAGGED: &str = "flagged";
 /// The marker of a message replied to.
 pub const ANSWERED: &str = "answered";
+/// The marker of a message another program marked deleted and has not expunged yet (IMAP's
+/// `\Deleted`, written by the Azlin Bridge): AzMail hides the message while it is there.
+pub const DELETED: &str = "deleted";
 /// The folder of a message's label markers in its state.
 pub const LABEL_DIR: &str = "label";
 
@@ -188,6 +191,8 @@ pub struct MessageState {
     pub seen: bool,
     pub flagged: bool,
     pub answered: bool,
+    /// Marked deleted by another program (not expunged yet): hidden in AzMail.
+    pub deleted: bool,
     pub labels: BTreeSet<String>,
 }
 
@@ -199,6 +204,7 @@ impl MessageState {
                 SEEN => self.seen = true,
                 FLAGGED => self.flagged = true,
                 ANSWERED => self.answered = true,
+                DELETED => self.deleted = true,
                 _ => {}
             },
             Marker::Label(label) => {
@@ -859,6 +865,14 @@ mod tests {
             MessageState::default(),
             "an unknown flag is left out"
         );
+    }
+
+    #[test]
+    fn a_deleted_marker_is_read_and_is_no_imap_flag_of_the_index() {
+        let states = states_from_keys(["mail/.state/D/deleted", "mail/.state/D/seen"]);
+        assert!(states["D"].deleted);
+        assert_eq!(states["D"].imap_flags(), vec!["\\Seen"]);
+        assert_eq!(marker_key("D", DELETED), "mail/.state/D/deleted");
     }
 
     #[test]
