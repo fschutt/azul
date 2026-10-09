@@ -5,6 +5,7 @@ mod bucket;
 mod merge;
 mod objects;
 mod pack;
+mod repo;
 mod seal;
 mod tree;
 mod wal;

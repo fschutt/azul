@@ -63,6 +63,7 @@ pub mod bucket;
 pub mod merge;
 pub mod objects;
 pub mod pack;
+pub mod repo;
 pub mod seal;
 pub mod tree;
 pub mod wal;
@@ -76,10 +77,11 @@ pub use bucket::{
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
+pub use repo::{CommitOutcome, MetaRepo};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
-    LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Publish, Published, RefUpdate,
+    LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Packs, Publish, Published, RefUpdate,
     RepoState, SyncReport,
 };
 

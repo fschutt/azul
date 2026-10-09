@@ -44,7 +44,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::{
     bucket::{Bucket, Fetched, Version},
     keys,
-    objects::Objects,
+    objects::{ObjectId, Objects},
     pack::{PackIndex, PackWriter},
     MetaError, SealError, Sealer,
 };
@@ -256,6 +256,37 @@ fn attempt_id() -> String {
         crate::ids::random_seed(),
         crate::ids::random_seed()
     )
+}
+
+/// Reads a repository's packs (also while a publish is being built).
+pub struct Packs<'a, B: Bucket, S: Sealer> {
+    bucket: &'a B,
+    sealer: &'a S,
+}
+
+impl<B: Bucket, S: Sealer> Packs<'_, B, S> {
+    /// Opens the index of `pack`.
+    pub fn index(&self, pack: &PackRef) -> Result<PackIndex, MetaError> {
+        let key = keys::idx(&pack.name);
+        let (bytes, _) = self
+            .bucket
+            .read(&key)?
+            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
+        PackIndex::open(self.sealer, &pack.name, &bytes)
+    }
+
+    /// Reads every object of `pack` into `objects`, each checked against its
+    /// id; the ids the pack holds.
+    pub fn fetch(&self, pack: &PackRef, objects: &mut Objects) -> Result<Vec<ObjectId>, MetaError> {
+        let index = self.index(pack)?;
+        let key = keys::pack(&pack.name);
+        let (bytes, _) = self
+            .bucket
+            .read(&key)?
+            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
+        index.read_into(self.sealer, &bytes, objects)?;
+        Ok(index.entries().iter().map(|e| e.id).collect())
+    }
 }
 
 /// The manifest as this device last read or wrote it.
@@ -521,23 +552,21 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
 
     /// Opens the index of `pack`.
     pub fn pack_index(&self, pack: &PackRef) -> Result<PackIndex, MetaError> {
-        let key = keys::idx(&pack.name);
-        let (bytes, _) = self
-            .bucket
-            .read(&key)?
-            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
-        PackIndex::open(&self.sealer, &pack.name, &bytes)
+        self.packs().index(pack)
     }
 
     /// Reads every object of `pack` into `objects`, each checked against its id.
     pub fn fetch_pack(&self, pack: &PackRef, objects: &mut Objects) -> Result<(), MetaError> {
-        let index = self.pack_index(pack)?;
-        let key = keys::pack(&pack.name);
-        let (bytes, _) = self
-            .bucket
-            .read(&key)?
-            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
-        index.read_into(&self.sealer, &bytes, objects)
+        self.packs().fetch(pack, objects).map(|_| ())
+    }
+
+    /// The repository's packs, to read.
+    #[must_use]
+    pub fn packs(&self) -> Packs<'_, B, S> {
+        Packs {
+            bucket: &self.bucket,
+            sealer: &self.sealer,
+        }
     }
 
     // ---- publishing ----
@@ -551,9 +580,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     where
         F: FnMut(&RepoState) -> Result<Option<Publish>, MetaError>,
     {
+        self.publish_with(|state, _| build(state))
+    }
+
+    /// [`MetaStore::publish`] whose `build` can also read the packs the fresh
+    /// state names (the other devices' objects, to merge with).
+    pub fn publish_with<F>(&mut self, mut build: F) -> Result<Option<Published>, MetaError>
+    where
+        F: FnMut(&RepoState, &Packs<'_, B, S>) -> Result<Option<Publish>, MetaError>,
+    {
         for attempt in 1..=self.attempts {
             self.sync()?;
-            let Some(publish) = build(&self.state)? else {
+            let packs = Packs {
+                bucket: &self.bucket,
+                sealer: &self.sealer,
+            };
+            let Some(publish) = build(&self.state, &packs)? else {
                 return Ok(None);
             };
             for update in &publish.updates {
