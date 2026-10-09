@@ -356,6 +356,53 @@ pub fn shown_host(text: &str) -> String {
     String::from("an address that is no web address")
 }
 
+/// One component of a query or fragment, `application/x-www-form-urlencoded`: letters, digits
+/// and `-._~` as they are, a space as `+`, every other byte of its UTF-8 as `%XX`.
+#[must_use]
+pub fn form_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(char::from(b));
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// One form-encoded component, decoded (`+` a space, `%XX` a byte); `None` for an escape that is
+/// none or bytes that are no UTF-8.
+#[must_use]
+pub fn form_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while let Some(&b) = bytes.get(i) {
+        match b {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' => {
+                let hex = text.get(i + 1..i + 3)?;
+                if !hex.bytes().all(|c| c.is_ascii_hexdigit()) {
+                    return None;
+                }
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 3;
+            }
+            other => {
+                out.push(other);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 fn clip(text: &str) -> String {
     const MAX: usize = 64;
     if text.chars().count() <= MAX {

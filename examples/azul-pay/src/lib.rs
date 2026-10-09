@@ -35,10 +35,19 @@
 //! Nothing here prints, logs or `Debug`s a client secret, a publishable key, a URL's query or
 //! fragment, or a cardholder's name. No azul types, no network.
 
+pub mod bridge;
+pub mod machine;
 pub mod offer;
 pub mod pills;
 pub mod registry;
+pub mod surface;
 pub mod url;
+
+pub use machine::{step, Effect, Event, Notice, State};
+pub use offer::{Offer, OfferContext, OfferedProvider};
+pub use pills::{Choice, Pill, PillContext};
+pub use registry::{Method, ProviderKind, SurfaceKind};
+pub use surface::{Created, Look, SecretUrl, Surface};
 
 #[cfg(test)]
 mod tests;

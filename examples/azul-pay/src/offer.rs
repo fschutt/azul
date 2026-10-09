@@ -198,18 +198,27 @@ impl OfferedProvider {
         self.origins.iter().any(|o| o.matches(url))
     }
 
-    /// Which return page `url` is, if it is one (query and fragment do not matter).
+    /// Which of its return pages `url` is, if it is one (query and fragment do not matter).
     #[must_use]
     pub fn return_kind(&self, url: &WebUrl) -> Option<ReturnKind> {
-        if !self.spec.on_pages(url) {
+        self.returns.kind_of(url, self)
+    }
+}
+
+impl Returns {
+    /// Which of these return pages of `provider` `url` is, if it is one: on the provider's pages
+    /// origin, the path equal (query and fragment do not matter).
+    #[must_use]
+    pub fn kind_of(&self, url: &WebUrl, provider: &OfferedProvider) -> Option<ReturnKind> {
+        if !provider.spec.on_pages(url) {
             return None;
         }
         let path = url.path();
-        if path == self.returns.success {
+        if path == self.success {
             Some(ReturnKind::Success)
-        } else if path == self.returns.cancel {
+        } else if path == self.cancel {
             Some(ReturnKind::Cancel)
-        } else if path == self.returns.pending {
+        } else if path == self.pending {
             Some(ReturnKind::Pending)
         } else {
             None
@@ -317,7 +326,7 @@ fn provider(d: &Value, ctx: &OfferContext, dropped: &mut Vec<String>) -> Option<
         }
     };
     let fields_page = fields_page(spec, d.get("fields_page"), dropped);
-    let returns = returns(spec, &d["return"], dropped);
+    let returns = returns_over(Returns::default(), spec, &d["return"], dropped);
     let mut methods = Vec::new();
     for m in d["methods"].as_array().map(Vec::as_slice).unwrap_or_default() {
         if let Some(offered) = method(spec, m, fields_page.is_some(), dropped) {
@@ -371,9 +380,15 @@ fn fields_page(
     }
 }
 
-/// The return pages: the server's paths where its URLs are on the pages origin.
-fn returns(spec: &'static ProviderSpec, given: &Value, dropped: &mut Vec<String>) -> Returns {
-    let mut out = Returns::default();
+/// The return pages `base` with the server's paths where its URLs (`given`: `{"success",
+/// "cancel", "pending"}`) are on the provider's pages origin.
+pub(crate) fn returns_over(
+    base: Returns,
+    spec: &'static ProviderSpec,
+    given: &Value,
+    dropped: &mut Vec<String>,
+) -> Returns {
+    let mut out = base;
     for (key, slot) in [
         ("success", &mut out.success),
         ("cancel", &mut out.cancel),
