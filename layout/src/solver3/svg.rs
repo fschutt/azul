@@ -183,7 +183,7 @@ fn scaled_style(style: &StyleProperties, s: f32) -> StyleProperties {
         #[allow(clippy::cast_precision_loss)] // whole pixels
         Spacing::Px(px) => Spacing::PxF(px as f32 * s),
         Spacing::PxF(px) => Spacing::PxF(px * s),
-        other => other,
+        other @ Spacing::Em(_) => other,
     };
     scaled.letter_spacing = spacing(scaled.letter_spacing);
     scaled.word_spacing = spacing(scaled.word_spacing);

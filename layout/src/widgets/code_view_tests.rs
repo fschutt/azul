@@ -633,7 +633,7 @@ fn a_press_places_the_caret_under_the_pointer_and_a_press_on_a_line_number_selec
     assert_eq!(geo.text_left, 50.0);
     let hit = hit_test(&cv, &geo, &lines, 50.0 + 6.0 * 8.0 + 1.0, 19.0 * 1.5);
     assert_eq!(hit, Hit::Text(p(1, 3)), "visual column 6 is past the tab, on the t");
-    let e = press_event(&cv, &geo, &lines, hit, NONE, 0.0).expect("a press");
+    let e = press_event(&cv, &geo, &lines, hit, NONE, 0.0);
     assert_eq!(e.view.cursors.as_slice(), &[CodeViewCursor::create(p(1, 3))]);
     assert_eq!(e.view.drag, CodeViewDragKind::Select);
     assert_eq!(
@@ -649,14 +649,14 @@ fn a_press_places_the_caret_under_the_pointer_and_a_press_on_a_line_number_selec
 
     let hit = hit_test(&cv, &geo, &lines, 10.0, 19.0 * 1.2);
     assert_eq!(hit, Hit::Gutter(1));
-    let e = press_event(&cv, &geo, &lines, hit, NONE, 0.0).expect("a press");
+    let e = press_event(&cv, &geo, &lines, hit, NONE, 0.0);
     assert_eq!(e.view.cursors.as_slice(), &[CodeViewCursor::create_selection(p(1, 0), p(2, 0))]);
 
     at(&mut cv, 0, 2);
-    let e = press_event(&cv, &geo, &lines, Hit::Text(p(1, 3)), SHIFT, 0.0).expect("a press");
+    let e = press_event(&cv, &geo, &lines, Hit::Text(p(1, 3)), SHIFT, 0.0);
     assert_eq!(e.view.primary(), CodeViewCursor::create_selection(p(0, 2), p(1, 3)));
     let alt = Mods { alt: true, ..NONE };
-    let e = press_event(&cv, &geo, &lines, Hit::Text(p(1, 3)), alt, 0.0).expect("a press");
+    let e = press_event(&cv, &geo, &lines, Hit::Text(p(1, 3)), alt, 0.0);
     assert_eq!(heads(&e.view), vec![p(0, 2), p(1, 3)], "Alt adds a cursor");
 }
 
@@ -667,7 +667,7 @@ fn a_drag_extends_the_selection_from_the_press() {
     let mut cv = over(text);
     cv.view.char_width = 8.0;
     let geo = geometry(&cv);
-    let e = press_event(&cv, &geo, &lines, Hit::Text(p(0, 1)), NONE, 0.0).expect("a press");
+    let e = press_event(&cv, &geo, &lines, Hit::Text(p(0, 1)), NONE, 0.0);
     cv.view = e.view;
     let e = drag_event(&cv, &geo, &lines, geo.text_left + 3.0 * 8.0, 19.0 * 1.5).expect("a drag");
     assert_eq!(e.view.primary(), CodeViewCursor::create_selection(p(0, 1), p(1, 3)));
@@ -710,12 +710,12 @@ fn the_scroll_bar_thumb_drags_through_every_line() {
     let thumb_y = bar.thumb_start + 1.0;
     assert_eq!(hit_test(&cv, &geo, &lines, x + w / 2.0, thumb_y), Hit::Thumb);
     assert_eq!(hit_test(&cv, &geo, &lines, x + w / 2.0, h - 1.0), Hit::TrackBelow);
-    let e = press_event(&cv, &geo, &lines, Hit::Thumb, NONE, thumb_y).expect("a press");
+    let e = press_event(&cv, &geo, &lines, Hit::Thumb, NONE, thumb_y);
     assert_eq!(e.view.drag, CodeViewDragKind::ScrollBar);
     cv.view = e.view;
     let e = drag_event(&cv, &geo, &lines, x, thumb_y + h).expect("a drag");
     assert_eq!(e.view.top_line, 99, "dragged to the end of the track: the last line");
-    let e = press_event(&cv, &geo, &lines, Hit::TrackBelow, NONE, h - 1.0).expect("a page");
+    let e = press_event(&cv, &geo, &lines, Hit::TrackBelow, NONE, h - 1.0);
     assert_eq!(e.view.top_line, geo.fit_lines.saturating_sub(1));
 }
 

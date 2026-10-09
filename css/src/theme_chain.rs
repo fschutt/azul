@@ -144,10 +144,11 @@ impl ModeWord {
     }
 }
 
-/// The environment's request ([`ThemeEnv`]), read from `AZ_THEME` and
-/// `AZ_MODE` on first use and kept for the life of the process: the theme
-/// chain is a startup decision, and a pin that changed mid-run would make a
-/// screenshot disagree with itself.
+/// The environment's request ([`ThemeEnv`]), read from `AZ_THEME` and `AZ_MODE`
+/// on first use and kept for the life of the process.
+///
+/// The theme chain is a startup decision, and a pin that changed mid-run would
+/// make a screenshot disagree with itself.
 #[must_use]
 pub fn theme_env() -> &'static ThemeEnv {
     static ENV: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
@@ -185,9 +186,10 @@ pub struct ThemeChain {
 }
 
 /// Is `name` one of the mode's words - `light`, `dark`, `system`, `auto`, in
-/// any case? No theme may take one: `@theme(dark)` is the mode, and a theme
-/// called `dark` would shadow it and the deprecated `AZ_THEME=dark` alias
-/// (§9.1 pitfall 5).
+/// any case?
+///
+/// No theme may take one: `@theme(dark)` is the mode, and a theme called `dark`
+/// would shadow it and the deprecated `AZ_THEME=dark` alias (§9.1 pitfall 5).
 #[must_use]
 pub fn is_reserved_theme_name(name: &str) -> bool {
     ModeWord::of(name) != ModeWord::NotAMode

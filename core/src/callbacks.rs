@@ -1173,10 +1173,11 @@ mod build_window {
     }
 }
 
-/// While alive, the DOM built on this thread is built for a window of the
-/// size it was entered with ([`build_window_width_less_than`]). The engine
-/// enters one around every `layout()` call; dropping it restores the scope
-/// around it, so scopes nest. Bound to the thread that entered it.
+/// While alive, the DOM built on this thread is built for a window of the size
+/// it was entered with ([`build_window_width_less_than`]).
+///
+/// The engine enters one around every `layout()` call; dropping it restores the
+/// scope around it, so scopes nest. Bound to the thread that entered it.
 #[must_use = "the scope ends when the guard is dropped"]
 pub struct WindowSizeScope {
     #[cfg(feature = "std")]

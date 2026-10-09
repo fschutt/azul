@@ -849,7 +849,7 @@ fn current_form_data(info: &mut CallbackInfo, form: DomNodeId) -> (FormData, Vec
 
 /// The rendered form `node` belongs to: the nearest [`Form`] node (see
 /// [`form_state_of`]), `node` itself included.
-fn enclosing_form(info: &mut CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
+fn enclosing_form(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
     let mut current = Some(node);
     while let Some(n) = current {
         if form_state(info, n).is_some() {
@@ -1328,7 +1328,7 @@ pub extern "C" fn default_on_form_button_click(mut data: RefAny, mut info: Callb
         return Update::DoNothing;
     };
     let button = info.get_hit_node();
-    let Some(form) = enclosing_form(&mut info, button) else {
+    let Some(form) = enclosing_form(&info, button) else {
         return Update::DoNothing;
     };
     match action {

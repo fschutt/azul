@@ -1802,7 +1802,7 @@ fn specified_overflow_x(
 /// clip, hit testing and pagination keep reading the declared value: applied
 /// to every reader, the rule turned every page into a clipping box and
 /// reddened pagination, hit testing and margin escape alike.
-pub(crate) fn apply_viewport_overflow_rule(
+pub(crate) const fn apply_viewport_overflow_rule(
     node_id: NodeId,
     value: MultiValue<LayoutOverflow>,
 ) -> MultiValue<LayoutOverflow> {
@@ -2902,7 +2902,7 @@ pub fn get_border_info(
 /// the box model (`layout_tree`'s box props) and the painter
 /// ([`get_border_info`]) share.
 #[must_use]
-pub fn used_border_width(
+pub const fn used_border_width(
     declared: MultiValue<PixelValue>,
     style: azul_css::props::style::border::BorderStyle,
 ) -> PixelValue {
@@ -2921,7 +2921,7 @@ pub fn used_border_width(
 /// another unit (`1in`, `0.25em`) or an explicit `inherit` is a sentinel
 /// (`I16_SENTINEL` / `I16_INHERIT`) that means "ask the cascade", not "no
 /// width". (`auto` / `initial` are the initial `medium`.)
-pub(crate) fn compact_border_width_needs_cascade(raw: i16) -> bool {
+pub(crate) const fn compact_border_width_needs_cascade(raw: i16) -> bool {
     raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
         && raw != azul_css::compact_cache::I16_AUTO
         && raw != azul_css::compact_cache::I16_INITIAL
@@ -4751,7 +4751,7 @@ fn at_optical_size(mut stack: Vec<FontSelector>, font_size_px: f32) -> Vec<FontS
 /// longer knows `-apple-system`; Safari draws it as the system font, and azul
 /// follows Safari there - SYSUI8). Elsewhere they are ordinary family names
 /// no system has, as in Chrome.
-fn is_apple_system_ui_alias(family: &str, platform: &azul_css::system::Platform) -> bool {
+const fn is_apple_system_ui_alias(family: &str, platform: &azul_css::system::Platform) -> bool {
     matches!(
         platform,
         azul_css::system::Platform::MacOs | azul_css::system::Platform::Ios
@@ -5752,7 +5752,8 @@ pub fn variable_instance(
         (meta.weight != weight && requested >= min && requested <= max).then_some(weight as u16)
     });
     let opsz = axes.opsz.and_then(|(min, default, max)| {
-        if optical_size == 0 || !(min <= max) {
+        // An inverted or NaN range would make `clamp` panic.
+        if optical_size == 0 || min > max || min.is_nan() || max.is_nan() {
             return None;
         }
         let at = f32::from(optical_size).clamp(min, max);

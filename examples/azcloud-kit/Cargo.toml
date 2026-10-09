@@ -33,6 +33,17 @@ serde_json = "1"
 # The sync's content addresses: every blob is named by its BLAKE3 (no new crate: azul's tree has
 # 1.8.7 already).
 blake3 = "1.8"
+# The claim of a paid drive (claim.rs): the sign-up the token server seals to a checkout's X25519
+# key - X25519, HKDF-SHA256, ChaCha20-Poly1305 - opened with the key the app keeps, made from the
+# OS random source, kept as base64. No new crates: AzMeet's sealed room keys use the same
+# versions and features (Cargo.lock has them), AzMail base64 0.22.
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
+hkdf = "0.12"
+sha2 = "0.10"
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+getrandom = "0.2"
+base64 = "0.22"
+zeroize = { version = "1.8", features = ["alloc"] }
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).

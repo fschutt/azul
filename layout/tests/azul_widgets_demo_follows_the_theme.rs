@@ -15,14 +15,13 @@
 
 use azul_css::{
     css::{Css, CssDeclaration},
-    dynamic_selector::{DynamicSelector, ThemeCondition},
+    dynamic_selector::DynamicSelector,
     props::{
         basic::color::{ColorU, SystemColorRef},
         property::{CssProperty, CssPropertyType},
         style::StyleBackgroundContent,
     },
 };
-use azul_css::system::DarkLightMode;
 
 /// `examples/azul-widgets/src/lib.rs`, verbatim, at compile time.
 const DEMO: &str = include_str!("../../examples/azul-widgets/src/lib.rs");

@@ -38,6 +38,9 @@ pub mod log_gate;
 pub mod process_exit;
 pub mod seats;
 pub mod transient;
+/// `<webview>`: the backend trait every platform's native web view
+/// implements, the headless one, and the pump that runs them.
+pub mod webview;
 /// The X11 backend on a non-Linux host (`x11-macos`): library names per host,
 /// the macOS windowing request, and the "X11 drives this process" flag.
 pub mod x11_host;

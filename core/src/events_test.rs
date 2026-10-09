@@ -2234,7 +2234,11 @@ mod autotest_generated {
             EventType::MediaControl => EventType::PointerLockChange,
             EventType::PointerLockChange => EventType::SystemAudioChange,
             EventType::SystemAudioChange => EventType::TypingStyleChanged,
-            EventType::TypingStyleChanged => return None,
+            EventType::TypingStyleChanged => EventType::WebViewNavigationRequested,
+            EventType::WebViewNavigationRequested => EventType::WebViewLoadFinished,
+            EventType::WebViewLoadFinished => EventType::WebViewTitleChanged,
+            EventType::WebViewTitleChanged => EventType::WebViewLoadFailed,
+            EventType::WebViewLoadFailed => return None,
         })
     }
 
@@ -2399,6 +2403,10 @@ mod autotest_generated {
             (EventType::PointerLockChange, EventData::None),
             (EventType::SystemAudioChange, EventData::None),
             (EventType::TypingStyleChanged, EventData::None),
+            (EventType::WebViewNavigationRequested, EventData::None),
+            (EventType::WebViewLoadFinished, EventData::None),
+            (EventType::WebViewTitleChanged, EventData::None),
+            (EventType::WebViewLoadFailed, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
@@ -5314,5 +5322,67 @@ mod event_path_across_doms_tests {
             &page_in_node_2,
         );
         assert_eq!(planned_ids(&plan), vec![(at(1, 1), 3)]);
+    }
+}
+
+#[cfg(test)]
+mod webview_event_tests {
+    use crate::events::{
+        event_type_to_filters, ComponentEventFilter, EventData, EventFilter, EventType,
+    };
+
+    /// A web view's four events each plan exactly their own `Component`
+    /// listener, at the web view's node: a sign-in page's
+    /// `WebViewNavigationRequested` callback is reached by a navigation of
+    /// that view and by nothing else, and no pointer event wakes it.
+    #[test]
+    fn every_web_view_event_plans_exactly_its_component_listener() {
+        const PAIRS: &[(EventType, ComponentEventFilter)] = &[
+            (
+                EventType::WebViewNavigationRequested,
+                ComponentEventFilter::WebViewNavigationRequested,
+            ),
+            (
+                EventType::WebViewLoadFinished,
+                ComponentEventFilter::WebViewLoadFinished,
+            ),
+            (
+                EventType::WebViewTitleChanged,
+                ComponentEventFilter::WebViewTitleChanged,
+            ),
+            (
+                EventType::WebViewLoadFailed,
+                ComponentEventFilter::WebViewLoadFailed,
+            ),
+        ];
+        for &(event_type, listener) in PAIRS {
+            let planned = event_type_to_filters(event_type, &EventData::None);
+            let components: Vec<ComponentEventFilter> = planned
+                .iter()
+                .filter_map(|f| match f {
+                    EventFilter::Component(c) => Some(*c),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                components,
+                vec![listener],
+                "{event_type:?} must reach exactly the {listener:?} listener; planned {planned:?}"
+            );
+            assert_eq!(
+                planned.len(),
+                1,
+                "{event_type:?} is a component event only; planned {planned:?}"
+            );
+        }
+        for ty in [EventType::Click, EventType::KeyDown, EventType::Mount] {
+            let planned = event_type_to_filters(ty, &EventData::None);
+            assert!(
+                !planned.iter().any(|f| PAIRS
+                    .iter()
+                    .any(|(_, l)| *f == EventFilter::Component(*l))),
+                "{ty:?} must not wake a web view listener; planned {planned:?}"
+            );
+        }
     }
 }

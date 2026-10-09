@@ -62,6 +62,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use core::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub use crate::system::{ricing_mode, ricing_mode_from, RicingMode};
@@ -392,18 +393,21 @@ fn wildcard_matches(pattern: &str, version: &str) -> bool {
     true
 }
 
-/// Does the running azul `running` match the `azul:` list `patterns`? An
-/// OR list; empty (the key is absent) matches everywhere. Each entry is a
-/// version with `*` as wildcard (`0.2.*`), or a plain version that matches
-/// as a prefix (`0.2` is every `0.2.x`).
+/// Does the running azul `running` match the `azul:` list `patterns`?
+///
+/// An OR list; empty (the key is absent) matches everywhere. Each entry is a
+/// version with `*` as wildcard (`0.2.*`), or a plain version that matches as a
+/// prefix (`0.2` is every `0.2.x`).
 #[must_use]
 pub fn azul_version_matches(patterns: &[String], running: &str) -> bool {
     patterns.is_empty() || patterns.iter().any(|p| wildcard_matches(p, running))
 }
 
-/// Does `version` satisfy the Cargo-style `range`? `^1.2` (and a bare
-/// `1.2`): same left-most non-zero component; `~1.2`: same major.minor;
-/// `=1.2.3`, `>=`, `>`, `<=`, `<`; `1.*` wildcards; `*` or empty: any.
+/// Does `version` satisfy the Cargo-style `range`?
+///
+/// `^1.2` (and a bare `1.2`): same left-most non-zero component; `~1.2`: same
+/// major.minor; `=1.2.3`, `>=`, `>`, `<=`, `<`; `1.*` wildcards; `*` or empty:
+/// any.
 #[must_use]
 pub fn version_satisfies(range: &str, version: &str) -> bool {
     let Some(have) = version_parts(version) else {
@@ -440,7 +444,7 @@ pub fn version_satisfies(range: &str, version: &str) -> bool {
             let pivot = given
                 .iter()
                 .position(|&c| c != 0)
-                .unwrap_or(given.len().saturating_sub(1));
+                .unwrap_or_else(|| given.len().saturating_sub(1));
             let mut upper = base;
             upper[pivot] = upper[pivot].saturating_add(1);
             for slot in upper.iter_mut().skip(pivot + 1) {
@@ -624,11 +628,12 @@ fn drop_remote_urls(bytes: &mut [u8], warnings: &mut Vec<String>) {
     }
 }
 
-/// Make a rice source safe to parse: comments blanked (`//` lines included,
-/// which CSS does not have), `@import` statements dropped, and every
-/// declaration with a REMOTE `url()` dropped (a rice cannot make the app
-/// fetch from the network, pitfall 8). A relative, `file:///` or `data:`
-/// url stays. One warning per drop.
+/// Make a rice source safe to parse.
+///
+/// Comments are blanked (`//` lines included, which CSS does not have),
+/// `@import` statements dropped, and every declaration with a REMOTE `url()`
+/// dropped (a rice cannot make the app fetch from the network, pitfall 8). A
+/// relative, `file:///` or `data:` url stays. One warning per drop.
 #[must_use]
 pub fn sanitize_rice_source(source: &str) -> SanitizedRice {
     let mut bytes = blank_comments(source);
@@ -677,10 +682,11 @@ fn is_palette_source(source: &str) -> bool {
 }
 
 /// The on-disk path segments of the theme `name` (`xyz:pink` is
-/// `["xyz", "pink"]`), or `None` when the name is refused: a segment must be
-/// ASCII letters, digits, `-` and `_` (so no `..`, no separator, nothing
-/// absolute), no segment may be empty, and the name may not start with a
-/// colour scheme ([`RESERVED_THEME_NAMES`]).
+/// `["xyz", "pink"]`), or `None` when the name is refused.
+///
+/// A segment must be ASCII letters, digits, `-` and `_` (so no `..`, no
+/// separator, nothing absolute), no segment may be empty, and the name may not
+/// start with a colour scheme ([`RESERVED_THEME_NAMES`]).
 #[must_use]
 pub fn theme_dir_segments(name: &str) -> Option<Vec<&str>> {
     let segments: Vec<&str> = name.split(':').collect();
@@ -698,7 +704,8 @@ pub fn theme_dir_segments(name: &str) -> Option<Vec<&str>> {
     (valid && !reserved).then_some(segments)
 }
 
-/// THE walk from a theme chain to its directories under the rice root:
+/// THE walk from a theme chain to its directories under the rice root.
+///
 /// `<root>/<kind>/<segment>/<segment>/` for every entry, in chain order,
 /// refused names ([`theme_dir_segments`]) left out. `kind` is `"css"` for
 /// the stylesheets and `"icons"` for the icon remap tables.
@@ -790,9 +797,10 @@ pub fn default_rice_root() -> Option<PathBuf> {
     home_dir().map(|home| home.join(".azul"))
 }
 
-/// The legacy per-app stylesheet of `app`: `$XDG_CONFIG_HOME` (else
-/// `~/.config`) `/azul/styles/<app>.css` on Linux and the BSDs,
-/// `~/Library/Application Support/azul/styles/<app>.css` on macOS,
+/// The legacy per-app stylesheet of `app`.
+///
+/// `$XDG_CONFIG_HOME` (else `~/.config`) `/azul/styles/<app>.css` on Linux and
+/// the BSDs, `~/Library/Application Support/azul/styles/<app>.css` on macOS,
 /// `%APPDATA%\azul\styles\<app>.css` on Windows.
 #[must_use]
 pub fn legacy_stylesheet_path(app: &str) -> Option<PathBuf> {
@@ -967,12 +975,13 @@ impl RiceStatus {
             self.azul_version.as_str()
         );
         let chain: Vec<&str> = self.chain.iter().map(AzString::as_str).collect();
-        out.push_str(&format!("chain: {}\n", or_none(&chain.join(" > "))));
+        let _ = writeln!(out, "chain: {}", or_none(&chain.join(" > ")));
         if self.files.is_empty() {
             out.push_str("files: none\n");
         }
         for f in &self.files {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "  [{}] {} {}{} {}: {} rules, {} live, {} inert",
                 f.state.label(),
                 f.priority.name(),
@@ -990,26 +999,27 @@ impl RiceStatus {
                 f.rule_count,
                 f.live_rules,
                 f.inert_rules,
-            ));
+            );
             if !f.app.as_str().is_empty() {
-                out.push_str(&format!("; app {}", f.app.as_str()));
+                let _ = write!(out, "; app {}", f.app.as_str());
             }
             if !f.requires.as_str().is_empty() {
-                out.push_str(&format!(
+                let _ = write!(
+                    out,
                     "; requires {}: {}",
                     f.requires.as_str(),
                     f.requires_check.as_str()
-                ));
+                );
             }
             if !f.note.as_str().is_empty() {
-                out.push_str(&format!("; {}", f.note.as_str()));
+                let _ = write!(out, "; {}", f.note.as_str());
             }
             out.push('\n');
         }
         if !self.warnings.is_empty() {
             out.push_str("warnings:\n");
             for w in &self.warnings {
-                out.push_str(&format!("  - {}\n", w.as_str()));
+                let _ = writeln!(out, "  - {}", w.as_str());
             }
         }
         out.push_str(RICE_SUPPORT_POLICY);
@@ -1194,10 +1204,11 @@ fn push_unique(out: &mut Vec<String>, items: &[String]) {
     }
 }
 
-/// The `fallback:` list of the theme `name`, from the headers of its files
-/// (its directory's, and the global files whose `theme:` names it), in file
-/// order, de-duplicated. Only files that apply to this app and this azul
-/// speak. What the theme chain's expansion asks ([`rice_chain`]).
+/// The `fallback:` list of the theme `name`, from the headers of its files (its
+/// directory's, and the global files whose `theme:` names it).
+///
+/// In file order, de-duplicated. Only files that apply to this app and this
+/// azul speak. What the theme chain's expansion asks ([`rice_chain`]).
 #[must_use]
 pub fn fallback_of(env: &RiceEnv, name: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -1223,10 +1234,12 @@ pub fn fallback_of(env: &RiceEnv, name: &str) -> Vec<String> {
     out
 }
 
-/// The theme chain the rice of `head` is loaded for: the theme chain's
-/// expansion (`crate::theme_chain::expand_chain`: `:` prefixes, `fallback:`
-/// headers transitively, `app_default` as the floor), fed by the headers
-/// this loader parses. Returns the chain and the expansion's warnings.
+/// The theme chain the rice of `head` is loaded for, and the expansion's
+/// warnings.
+///
+/// The theme chain's expansion (`crate::theme_chain::expand_chain`: `:`
+/// prefixes, `fallback:` headers transitively, `app_default` as the floor), fed
+/// by the headers this loader parses.
 #[must_use]
 pub fn rice_chain(env: &RiceEnv, head: &str, app_default: &str) -> (Vec<String>, Vec<String>) {
     let fallback = |name: &str| fallback_of(env, name);
@@ -1487,18 +1500,13 @@ fn check_requirements(entries: &mut [Entry], warnings: &mut Vec<String>) {
     }
 }
 
-/// Load the rice of the theme chain `chain` (most specific first) from
-/// `env`: the global files, every chain entry's directory, the legacy file.
-///
-/// The returned stylesheet orders the rules for the cascade: files of themes
-/// outside the chain (inert), unthemed files, then the chain from its last
-/// entry to its head; per-app files after the global files of their theme.
-/// At equal priority the chain's rank decides, then this order.
-#[must_use]
-pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
-    let mut warnings: Vec<String> = Vec::new();
-
-    // Collect: global files, the chain's directories, the legacy file.
+/// The rice files [`load_rice`] reads for `chain`, in collection order: the
+/// global files, the chain's directories, the legacy file.
+fn collect_raw_files(
+    env: &RiceEnv,
+    chain: &[String],
+    warnings: &mut Vec<String>,
+) -> Vec<RawFile> {
     let mut raws: Vec<RawFile> = Vec::new();
     if let Some(root) = env.root.as_ref() {
         let canon = std::fs::canonicalize(root).ok();
@@ -1529,6 +1537,20 @@ pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
     if let Some(legacy) = env.legacy_file.as_ref().filter(|p| p.exists()) {
         raws.push(load_raw(legacy.clone(), None, true, None));
     }
+    raws
+}
+
+/// Load the rice of the theme chain `chain` (most specific first) from
+/// `env`: the global files, every chain entry's directory, the legacy file.
+///
+/// The returned stylesheet orders the rules for the cascade: files of themes
+/// outside the chain (inert), unthemed files, then the chain from its last
+/// entry to its head; per-app files after the global files of their theme.
+/// At equal priority the chain's rank decides, then this order.
+#[must_use]
+pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
+    let mut warnings: Vec<String> = Vec::new();
+    let raws = collect_raw_files(env, chain, &mut warnings);
 
     let mut entries: Vec<Entry> = raws
         .into_iter()
@@ -1542,13 +1564,9 @@ pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
     // its floor to its head; within a group global before per-app, then the
     // collection order (global files, directory files, legacy; by name).
     let group = |e: &Entry| -> usize {
-        match &e.theme {
-            None => 1,
-            Some(t) => match chain.iter().position(|c| c == t) {
-                Some(rank) => 2 + (chain.len() - 1 - rank),
-                None => 0,
-            },
-        }
+        e.theme.as_ref().map_or(1, |t| {
+            chain.iter().position(|c| c == t).map_or(0, |rank| 2 + (chain.len() - 1 - rank))
+        })
     };
     let mut order: Vec<usize> = (0..entries.len()).collect();
     order.sort_by_key(|&i| (group(&entries[i]), entries[i].per_app));
@@ -1745,8 +1763,9 @@ pub fn generation() -> u64 {
     with_process(|p| p.as_ref().map_or(0, |p| p.generation))
 }
 
-/// `AZ_RICING=watch`: has a rice file changed since the last poll? If so the
-/// loaded rice is dropped (the next [`rice_for_theme`] reloads), the
+/// `AZ_RICING=watch`: has a rice file changed since the last poll?
+///
+/// If so the loaded rice is dropped (the next [`rice_for_theme`] reloads), the
 /// [`generation`] moves on, and [`take_reload_signal`] answers `true` once.
 /// Reads the file tree (names, sizes, modification times) - call it off the
 /// event loop, a few times a second. `false` in any other mode.
@@ -1812,13 +1831,11 @@ pub fn take_pending_status(ctx: &DynamicSelectorContext) -> Option<RiceStatus> {
 /// there is nothing.
 #[must_use]
 pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
-    let (loaded, mode, env) = with_process(|p| match p.as_ref() {
-        Some(p) => (
-            p.loaded.as_ref().map(|(_, l)| l.clone()),
-            p.mode,
-            Some(p.env.clone()),
-        ),
-        None => (None, ricing_mode(), None),
+    let (loaded, mode, env) = with_process(|p| {
+        p.as_ref().map_or_else(
+            || (None, ricing_mode(), None),
+            |p| (p.loaded.as_ref().map(|(_, l)| l.clone()), p.mode, Some(p.env.clone())),
+        )
     });
     if let Some(loaded) = loaded {
         let mut ctx = ctx
@@ -1847,9 +1864,10 @@ pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
     }
 }
 
-/// [`fallback_of`] against this process's rice root: what the theme chain
-/// of the cascade (`DynamicSelectorContext::theme_chain`) asks, so the
-/// window's chain and the rice's chain are one chain. Empty before
+/// [`fallback_of`] against this process's rice root.
+///
+/// What the theme chain of the cascade (`DynamicSelectorContext::theme_chain`)
+/// asks, so the window's chain and the rice's chain are one chain. Empty before
 /// [`install`] and under `AZ_RICING=off`.
 #[must_use]
 pub fn installed_fallback_of(name: &str) -> Vec<String> {

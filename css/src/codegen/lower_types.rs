@@ -5813,6 +5813,7 @@ impl Lower for crate::css::NodeTypeTag {
             Self::Marker => "Marker",
             Self::Placeholder => "Placeholder",
             Self::PageBreak => "PageBreak",
+            Self::WebView => "WebView",
         };
         Expr::unit("NodeTypeTag", EnumShape::CLike, variant)
     }

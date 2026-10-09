@@ -457,7 +457,7 @@ impl A11yRetainedTree {
 /// One frame's inputs to the accessibility tree: everything a node's
 /// content, its place and the focus are built from.
 #[cfg(feature = "a11y")]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct A11yTreeInputs<'a> {
     pub layout_results: &'a BTreeMap<DomId, DomLayoutResult>,
     pub scroll_manager: &'a crate::managers::scroll_state::ScrollManager,
@@ -756,7 +756,7 @@ impl A11yManager {
     /// Hand the parked update to a platform adapter. Every shell drains the
     /// slot through this. (`delivered` already describes the tree the
     /// adapter holds afterwards: [`Self::publish`] advanced it.)
-    pub fn take_pending(&mut self) -> Option<TreeUpdate> {
+    pub const fn take_pending(&mut self) -> Option<TreeUpdate> {
         self.last_tree_update.take()
     }
 
@@ -896,7 +896,7 @@ impl A11yManager {
             cursor_info,
         };
         let mut retained = A11yRetainedTree::default();
-        let _ = Self::rebuild_retained(&mut retained, root_id, &inputs);
+        drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
         retained.full_update(root_id)
     }
 
@@ -1930,6 +1930,9 @@ impl A11yManager {
             NodeType::Video => Role::Video,
             NodeType::Svg => Role::SvgRoot,
             NodeType::Object | NodeType::Embed => Role::EmbeddedObject,
+            // The native view exposes the page's own tree; this node is its
+            // place in ours.
+            NodeType::WebView(_) => Role::WebView,
 
             // === Everything else: Group (visible to VoiceOver) ===
             _ => Role::Group,

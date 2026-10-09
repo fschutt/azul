@@ -984,20 +984,22 @@ pub mod rule_priority {
     /// overrides it.
     pub const UA: u8 = 0;
 
-    /// Stylesheets the host system reports (system fonts, theme CSS
-    /// derived from `SystemStyle`). One step above UA so they win
-    /// against framework defaults but lose against anything the app
-    /// author writes. Also a rice file's `priority: base`, the default
-    /// (`crate::rice`): it fills what nobody declared and cannot break the
-    /// app.
+    /// Stylesheets the host system reports (system fonts, theme CSS derived
+    /// from `SystemStyle`).
+    ///
+    /// One step above UA so they win against framework defaults but lose
+    /// against anything the app author writes. Also a rice file's
+    /// `priority: base`, the default (`crate::rice`): it fills what nobody
+    /// declared and cannot break the app.
     pub const SYSTEM: u8 = 10;
 
-    /// A node's PRESENTATIONAL HINTS: what its markup attributes say about
-    /// its style (`<svg width="100">`, `<img height>`, an SVG `<text>`'s
-    /// `font-size`). Author-level with specificity 0 (CSS 2.2 6.4.4): every
-    /// stylesheet rule and inline style beats them. Stored on the node (its
-    /// `style`) but cascaded as the first of its stylesheet rules, not as
-    /// inline style.
+    /// A node's PRESENTATIONAL HINTS: what its markup attributes say about its
+    /// style (`<svg width="100">`, `<img height>`, an SVG `<text>`'s
+    /// `font-size`).
+    ///
+    /// Author-level with specificity 0 (CSS 2.2 6.4.4): every stylesheet rule
+    /// and inline style beats them. Stored on the node (its `style`) but
+    /// cascaded as the first of its stylesheet rules, not as inline style.
     pub const PRESENTATIONAL: u8 = 15;
 
     /// Default for parser-produced rules: the app author's CSS.
@@ -1014,18 +1016,19 @@ pub mod rule_priority {
     /// inline storage into the same Vec.
     pub const INLINE: u8 = 30;
 
-    /// A rice file's `priority: widgets`, and the priority a CSS base theme
-    /// is written at: a full theme. Above the widgets' inline declarations,
-    /// below the app's own runtime overrides ([`RUNTIME`]: a colour-picker
-    /// preview, a drag ghost).
+    /// A rice file's `priority: widgets`, and the priority a CSS base theme is
+    /// written at: a full theme.
+    ///
+    /// Above the widgets' inline declarations, below the app's own runtime
+    /// overrides ([`RUNTIME`]: a colour-picker preview, a drag ghost).
     pub const WIDGETS: u8 = 35;
 
     /// A rice file of custom properties only (`priority: palette`, or a
-    /// header-less file whose every declaration is a `--name`). The SAME slot
-    /// as [`WIDGETS`]: a palette sets values, never geometry, and a
-    /// spin-off's `:root { --accent }` has to meet its base theme's
-    /// definitions in one slot so the theme chain's rank decides between
-    /// them.
+    /// header-less file whose every declaration is a `--name`).
+    ///
+    /// The SAME slot as [`WIDGETS`]: a palette sets values, never geometry, and
+    /// a spin-off's `:root { --accent }` has to meet its base theme's
+    /// definitions in one slot so the theme chain's rank decides between them.
     pub const PALETTE: u8 = WIDGETS;
 
     /// Reserved for direct-rule runtime overrides.
@@ -1500,6 +1503,10 @@ pub enum NodeTypeTag {
     /// `Dom::create_page_break()`): an empty block with UA
     /// `break-before: page`. CSS tag: `pagebreak`.
     PageBreak,
+    /// A native web view (`<webview src=..>` / `Dom::create_webview`), a
+    /// replaced element. CSS tag: `webview`. APPENDED at the end for ABI
+    /// stability.
+    WebView,
 }
 
 /// Error returned when a CSS tag name string cannot be mapped to a [`NodeTypeTag`].
@@ -1772,6 +1779,7 @@ impl NodeTypeTag {
             "icon" => Ok(Self::Icon),
             "geolocation-probe" => Ok(Self::GeolocationProbe),
             "pagebreak" => Ok(Self::PageBreak),
+            "webview" => Ok(Self::WebView),
 
             // Pseudo-elements (usually prefixed with ::)
             "before" | "::before" => Ok(Self::Before),
@@ -2007,6 +2015,7 @@ impl fmt::Display for NodeTypeTag {
             Self::Icon => write!(f, "icon"),
             Self::GeolocationProbe => write!(f, "geolocation-probe"),
             Self::PageBreak => write!(f, "pagebreak"),
+            Self::WebView => write!(f, "webview"),
 
             // Pseudo-elements
             Self::Before => write!(f, "::before"),
@@ -3783,6 +3792,7 @@ mod autotest_generated {
             After,
             Marker,
             Placeholder,
+            WebView,
         ]
     };
 
@@ -3792,7 +3802,7 @@ mod autotest_generated {
         // without being added here, this count check fails and points at the omission.
         assert_eq!(
             ALL_TAGS.len(),
-            183, // +TransientWindow (2026-08-22)
+            184, // +WebView (2026-10-10)
             "ALL_TAGS is out of sync with the NodeTypeTag enum"
         );
         let mut seen: Vec<NodeTypeTag> = Vec::new();
@@ -4835,11 +4845,13 @@ mod autotest_generated {
 }
 
 /// [`Css::winning_inline_property`] over any `(declaration, conditions)`
-/// stream - the cascade's readers pass the node's inline style AS RESOLVED
-/// (`CssPropertyCache::inline_properties`: `var()` references substituted),
-/// so the rank decides over the values that will actually paint. Among the
-/// declarations of `property_type` that `applies`, the lowest `rank` wins,
-/// the LAST in source order among equals.
+/// stream.
+///
+/// The cascade's readers pass the node's inline style AS RESOLVED
+/// (`CssPropertyCache::inline_properties`: `var()` references substituted), so
+/// the rank decides over the values that will actually paint. Among the
+/// declarations of `property_type` that `applies`, the lowest `rank` wins, the
+/// LAST in source order among equals.
 pub fn winning_inline_in<'a>(
     items: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
     property_type: CssPropertyType,
@@ -4859,9 +4871,11 @@ pub fn winning_inline_in<'a>(
     best.map(|(_, p)| p)
 }
 
-/// [`Css::inline_properties_in_cascade_order`] over any `(declaration,
-/// conditions)` stream (see [`winning_inline_in`]): into `out`, cleared
-/// first, weakest first - applied in turn, later overwriting earlier.
+/// [`Css::inline_properties_in_cascade_order`] over any
+/// `(declaration, conditions)` stream (see [`winning_inline_in`]).
+///
+/// Into `out`, cleared first, weakest first - applied in turn, later
+/// overwriting earlier.
 pub fn inline_in_cascade_order<'a>(
     items: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
     rank: impl Fn(&[DynamicSelector]) -> usize,

@@ -315,6 +315,7 @@ mod autotest_generated {
             NodeType::VirtualView,
             NodeType::Icon(BoxOrStatic::heap(AzString::from("home"))),
             NodeType::GeolocationProbe(crate::geolocation::GeolocationProbeConfig::default()),
+            NodeType::WebView(crate::webview::WebViewConfig::persistent()),
         ]
     }
 
@@ -2482,5 +2483,59 @@ mod attribute_getter_tests {
         );
         assert_eq!(NodeType::Div.get_text(), None);
         assert_eq!(NodeType::Br.get_text(), None);
+    }
+}
+
+#[cfg(test)]
+mod webview_node_tests {
+    use super::*;
+    use crate::webview::{WebViewConfig, WebViewStorage};
+
+    /// The page a web view shows is its `src` attribute, as on an iframe:
+    /// a changed `src` on the same node is a navigation of the same view,
+    /// not a new node type.
+    #[test]
+    fn create_webview_names_its_page_in_the_src_attribute() {
+        let dom = Dom::create_webview(AzString::from("https://www.dropbox.com/oauth2/authorize"));
+        assert!(
+            matches!(
+                dom.root.get_node_type(),
+                NodeType::WebView(cfg) if cfg.storage == WebViewStorage::Ephemeral
+            ),
+            "a web view keeps nothing past the app unless it asks: {:?}",
+            dom.root.get_node_type()
+        );
+        assert_eq!(
+            dom.root.get_attribute("src").map(|s| s.as_str().to_string()),
+            Some(String::from("https://www.dropbox.com/oauth2/authorize"))
+        );
+        assert!(
+            dom.children.as_ref().is_empty(),
+            "a web view has no content of its own"
+        );
+        assert_eq!(
+            NodeData::create_webview(AzString::from("https://example.com/"))
+                .get_attribute("src")
+                .map(|s| s.as_str().to_string()),
+            Some(String::from("https://example.com/"))
+        );
+    }
+
+    /// CSS reaches a web view as `webview`, and the node type survives the
+    /// copies the engine makes of it.
+    #[test]
+    fn a_webview_is_the_webview_css_tag_and_copies_with_its_config() {
+        let persistent = NodeType::WebView(WebViewConfig {
+            storage: WebViewStorage::Persistent,
+        });
+        assert_eq!(persistent.get_path(), NodeTypeTag::WebView);
+        assert_eq!(persistent.to_library_owned_nodetype(), persistent);
+        assert_eq!(NodeTypeTag::from_str("webview"), Ok(NodeTypeTag::WebView));
+        assert_eq!(format!("{}", NodeTypeTag::WebView), "webview");
+        assert!(
+            persistent.format().is_some_and(|s| s.contains("webview")),
+            "the debug label names it: {:?}",
+            persistent.format()
+        );
     }
 }

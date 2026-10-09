@@ -62,6 +62,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 /// What a callback asked the platform to do.
 #[derive(Debug, Clone, PartialEq)]
+// A post moves the app's `Notification` through the queue to the dll's
+// backend as is; boxing it would change that API for a rare, short-lived value.
+#[allow(clippy::large_enum_variant)]
 pub enum NotificationRequest {
     /// Show (or replace, if its id is live) a notification.
     Post(Notification),
@@ -96,6 +99,9 @@ pub fn push_notification_request(request: NotificationRequest) -> bool {
 /// [`push_notification_request`], handing the request BACK when the queue is
 /// full - so a post that did not fit can still be reported
 /// ([`reject_notification`]) instead of vanishing.
+// The `Err` hands the caller's own request back unchanged on the queue-full
+// path; boxing it would allocate only to return what was passed by value.
+#[allow(clippy::result_large_err)]
 pub fn try_push_notification_request(
     request: NotificationRequest,
 ) -> Result<(), NotificationRequest> {
@@ -111,6 +117,7 @@ pub fn try_push_notification_request(
         return Err(request);
     }
     q.push(request);
+    drop(q);
     Ok(())
 }
 
@@ -429,7 +436,7 @@ pub fn with_current_notification_event<R>(event: &NotificationEvent, f: impl FnO
     impl Drop for Restore {
         fn drop(&mut self) {
             let previous = self.0.take();
-            let _ = CURRENT_EVENT.try_with(|slot| slot.replace(previous));
+            drop(CURRENT_EVENT.try_with(|slot| slot.replace(previous)));
         }
     }
     let previous = CURRENT_EVENT.with(|slot| slot.replace(Some(event.clone())));
@@ -594,6 +601,9 @@ impl ScheduledNotifications {
     /// Hold `notification` until its `deliver_at`, replacing one held under
     /// the same id. A new id beyond [`Self::MAX_HELD`] is handed back, to be
     /// reported as `Failed`.
+    // The `Err` hands the caller's own notification back unchanged (held
+    // list full); boxing it would allocate only to return it.
+    #[allow(clippy::result_large_err)]
     pub fn schedule(&mut self, notification: Notification) -> Result<(), Notification> {
         let replaced = self.withdraw(notification.id.as_str());
         if !replaced && self.held.len() >= Self::MAX_HELD {
@@ -625,12 +635,12 @@ impl ScheduledNotifications {
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.held.len()
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.held.is_empty()
     }
 }
@@ -642,6 +652,7 @@ impl ScheduledNotifications {
 /// every host - the backends that call them each compile on one OS only.
 pub mod wire {
     use alloc::{collections::BTreeMap, string::String, vec::Vec};
+    use core::fmt::Write as _;
 
     use azul_core::notification::{
         Notification, NotificationAction, NotificationEvent, NotificationSound,
@@ -703,7 +714,7 @@ pub mod wire {
             if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
                 out.push(char::from(b));
             } else {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
             }
         }
         out
@@ -1088,7 +1099,7 @@ pub mod wire {
             if unreserved {
                 out.push(char::from(b));
             } else {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
             }
         }
         out
@@ -1216,14 +1227,14 @@ pub mod wire {
         }
 
         /// The process was started for a response that has not arrived yet.
-        pub fn expect_first(&mut self) {
+        pub const fn expect_first(&mut self) {
             self.expecting_first = true;
         }
 
         /// iOS: the app became active. A response from now on is a tap on an
         /// app that was running - unless the launch NAMED it (macOS), which
         /// stays marked however late it arrives.
-        pub fn launch_finished(&mut self) {
+        pub const fn launch_finished(&mut self) {
             self.expecting_first = false;
         }
 
@@ -1395,16 +1406,18 @@ pub mod wire {
             azul_core::xml::html::encode_text(notification.title.as_str())
         );
         if !notification.body.as_str().is_empty() {
-            xml.push_str(&format!(
+            let _ = write!(
+                xml,
                 "<text>{}</text>",
                 azul_core::xml::html::encode_text(notification.body.as_str())
-            ));
+            );
         }
         if let Some(icon) = notification.icon.as_ref() {
-            xml.push_str(&format!(
+            let _ = write!(
+                xml,
                 "<image placement=\"appLogoOverride\" src=\"{}\"/>",
                 azul_core::xml::html::encode_attribute(&toast_image_src(icon.as_str()))
-            ));
+            );
         }
         xml.push_str("</binding></visual>");
         let buttons: Vec<&NotificationAction> = notification
@@ -1419,21 +1432,23 @@ pub mod wire {
         if !buttons.is_empty() {
             xml.push_str("<actions>");
             for action in buttons {
-                xml.push_str(&format!(
+                let _ = write!(
+                    xml,
                     "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
                     azul_core::xml::html::encode_attribute(action.label.as_str()),
                     azul_core::xml::html::encode_attribute(&toast_arguments(id, action.id.as_str(), payload))
-                ));
+                );
             }
             xml.push_str("</actions>");
         }
         match &notification.sound {
             NotificationSound::Silent => xml.push_str("<audio silent=\"true\"/>"),
             NotificationSound::Named(name) if name.as_str().starts_with("ms-winsoundevent:") => {
-                xml.push_str(&format!(
+                let _ = write!(
+                    xml,
                     "<audio src=\"{}\"/>",
                     azul_core::xml::html::encode_attribute(name.as_str())
-                ));
+                );
             }
             NotificationSound::Default | NotificationSound::Named(_) => {}
         }
@@ -1766,7 +1781,7 @@ pub mod wire {
 
         /// Where the id comes from, for the person reading the log.
         #[must_use]
-        pub fn origin(&self) -> &'static str {
+        pub const fn origin(&self) -> &'static str {
             match self {
                 Self::AppleBundle(_) => "the app bundle's CFBundleIdentifier",
                 Self::AndroidPackage(_) => "the Android manifest package",

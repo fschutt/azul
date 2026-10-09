@@ -579,13 +579,13 @@ impl Button {
     }
 
     /// Makes this a toggle button, on or off (see [`Self::toggled`]).
-    pub fn set_toggled(&mut self, toggled: bool) {
+    pub const fn set_toggled(&mut self, toggled: bool) {
         self.toggled = OptionBool::Some(toggled);
     }
 
     /// Builder method: makes this a toggle button, on or off.
     #[must_use]
-    pub fn with_toggled(mut self, toggled: bool) -> Self {
+    pub const fn with_toggled(mut self, toggled: bool) -> Self {
         self.set_toggled(toggled);
         self
     }

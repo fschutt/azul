@@ -161,9 +161,10 @@ fn once_keys() -> &'static Mutex<(std::collections::BTreeSet<u64>, bool)> {
     ONCE.get_or_init(|| Mutex::new((std::collections::BTreeSet::new(), false)))
 }
 
-/// [`emit`] a diagnostic ONCE: `key` names the FINDING (the problem, not the
-/// pass that saw it - a lint keys it by what the node is and how it is
-/// selected), and a key already emitted prints nothing. A lint that runs after
+/// [`emit`] a diagnostic ONCE per `key`: a key already emitted prints nothing.
+///
+/// `key` names the FINDING (the problem, not the pass that saw it - a lint keys
+/// it by what the node is and how it is selected). A lint that runs after
 /// layout passes otherwise repeats its lines for as long as the app shows the
 /// shape. `message` is built only when it is printed. [`clear`] forgets the
 /// keys with the ring, so a test or an e2e step that clears sees a finding

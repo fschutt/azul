@@ -108,7 +108,7 @@ fn a_div_holding_only_a_br_is_one_line_tall() {
     let lw = laid_out();
     let (_, text_line) = top_and_height(&lw, "a");
     assert!(
-        text_line >= LINE - 0.5 && text_line < 1.5 * LINE,
+        (LINE - 0.5..1.5 * LINE).contains(&text_line),
         "a line of text is about {LINE}px: {text_line}"
     );
     let (blank_top, blank) = top_and_height(&lw, "blank");

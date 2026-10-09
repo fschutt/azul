@@ -250,7 +250,7 @@ fn a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window() {
     let scrolled = shown_texts(&lw, lines_view);
     let new_top = format!("line {top}");
     assert!(
-        scrolled.iter().any(|t| *t == new_top),
+        scrolled.contains(&new_top),
         "the view shows its new top line, {new_top}: {scrolled:?}"
     );
     assert!(

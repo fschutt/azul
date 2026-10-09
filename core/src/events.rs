@@ -1146,6 +1146,17 @@ pub enum EventType {
     /// Before, Ctrl+B with no selection reached the app as nothing but its
     /// `KeyDown`, which runs BEFORE the toggle (EVENTS7).
     TypingStyleChanged,
+    /// A `<webview>` is about to make a top-level navigation; a callback's
+    /// `prevent_default` cancels it. Aimed at the web view's node, payload
+    /// in `CallbackInfo::get_webview_event` (`crate::webview`). APPENDED at
+    /// the end for ABI stability, like the three below.
+    WebViewNavigationRequested,
+    /// A `<webview>`'s page finished loading.
+    WebViewLoadFinished,
+    /// A `<webview>`'s page changed its title.
+    WebViewTitleChanged,
+    /// A `<webview>`'s page could not be loaded, or there is no web view.
+    WebViewLoadFailed,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1435,10 +1446,11 @@ pub struct PathPropagationResult {
     pub default_prevented: bool,
 }
 
-/// [`propagate_event`] along a path that may cross doms
-/// ([`get_event_path`]): capture from the path's root down to the target,
-/// the target, then bubbling back up the path - unless the event type does
-/// not bubble ([`EventType::bubbles`]) or is delivered at its target only
+/// [`propagate_event`] along a path that may cross doms ([`get_event_path`]).
+///
+/// Capture from the path's root down to the target, the target, then bubbling
+/// back up the path - unless the event type does not bubble
+/// ([`EventType::bubbles`]) or is delivered at its target only
 /// ([`SyntheticEvent::at_target_only`]).
 ///
 /// `path` runs root first and ends at the target. `filters_at(node)` is what
@@ -1495,10 +1507,11 @@ pub fn propagate_event_along<'a>(
     result
 }
 
-/// The callbacks a pointer event reaches - every `EventFilter::Hover`
-/// listener equal to `filter` on its propagation path - in the order they
-/// run: the target's, then its ancestors' bubbling up, through the doms
-/// that host the target's dom ([`get_event_path`]). Each callback once.
+/// The callbacks a pointer event reaches - every `EventFilter::Hover` listener
+/// equal to `filter` on its propagation path - in the order they run.
+///
+/// The target's, then its ancestors' bubbling up, through the doms that host
+/// the target's dom ([`get_event_path`]). Each callback once.
 ///
 /// The ONE plan of both dispatchers (the shells'
 /// `dispatch_events_propagated` and the e2e runner's), which each built a
@@ -1786,7 +1799,9 @@ pub enum DefaultAction {
 }
 
 /// A character format a rich-text editor toggles (Ctrl/Cmd+B, I, U, or a
-/// toolbar button): the inline formatting commands of the execCommand spec
+/// toolbar button).
+///
+/// The inline formatting commands of the execCommand spec
 /// (<https://w3c.github.io/editing/docs/execCommand/#inline-formatting-commands>)
 /// that the engine keeps as a typing style at a collapsed caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1812,10 +1827,12 @@ impl TextFormat {
     ];
 }
 
-/// A set of [`TextFormat`]s: the inline formats a stretch of text carries
-/// over the style of the block it is in (`DocumentTextEdit::runs`), or the
-/// formats the text typed next at a caret takes
-/// (`CallbackInfo::get_typing_formats` - what a toolbar shows as pressed).
+/// A set of [`TextFormat`]s.
+///
+/// The inline formats a stretch of text carries over the style of the block it
+/// is in (`DocumentTextEdit::runs`), or the formats the text typed next at a
+/// caret takes (`CallbackInfo::get_typing_formats` - what a toolbar shows as
+/// pressed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 #[repr(C)]
 pub struct TextFormatSet {
@@ -1848,7 +1865,7 @@ impl TextFormatSet {
     }
 
     /// Put `format` in the set (`on`) or take it out.
-    pub fn set(&mut self, format: TextFormat, on: bool) {
+    pub const fn set(&mut self, format: TextFormat, on: bool) {
         match format {
             TextFormat::Bold => self.bold = on,
             TextFormat::Italic => self.italic = on,
@@ -2039,6 +2056,14 @@ const fn matches_component_filter(
             | (ComponentEventFilter::Dismissed, EventType::Dismiss)
             | (ComponentEventFilter::TornOff, EventType::TearOff)
             | (ComponentEventFilter::Docked, EventType::Dock)
+            // A web view's reports (`crate::webview`), at its node.
+            | (
+                ComponentEventFilter::WebViewNavigationRequested,
+                EventType::WebViewNavigationRequested
+            )
+            | (ComponentEventFilter::WebViewLoadFinished, EventType::WebViewLoadFinished)
+            | (ComponentEventFilter::WebViewTitleChanged, EventType::WebViewTitleChanged)
+            | (ComponentEventFilter::WebViewLoadFailed, EventType::WebViewLoadFailed)
             // These two were simply absent from the match. Both filter
             // variants shipped in `ComponentEventFilter`, so a component
             // subscribing to either was collected and then dropped.
@@ -3649,6 +3674,20 @@ pub enum ComponentEventFilter {
     /// its anchor, or onto a `tearoff-zone` node, which is its anchor from
     /// here on.
     Docked,
+    /// Fired on a `<webview>` that is about to navigate (`crate::webview`):
+    /// `CallbackInfo::get_webview_event` names the URL and whether it is a
+    /// server redirect, `CallbackInfo::prevent_default` cancels it - how an
+    /// app catches the `OAuth` redirect that carries its code. APPENDED at
+    /// the end for ABI stability, like the three below.
+    WebViewNavigationRequested,
+    /// Fired on a `<webview>` whose page finished loading.
+    WebViewLoadFinished,
+    /// Fired on a `<webview>` whose page changed its title.
+    WebViewTitleChanged,
+    /// Fired on a `<webview>` whose page could not be loaded - or that has no
+    /// web view to load it in (a missing system library, a platform without
+    /// a backend yet); the reason says which.
+    WebViewLoadFailed,
 }
 
 /// Defines application-level events not tied to a specific window or node.
@@ -4153,6 +4192,10 @@ static ALL_COMPONENT: &[ComponentEventFilter] = &[
     ComponentEventFilter::Dismissed,
     ComponentEventFilter::TornOff,
     ComponentEventFilter::Docked,
+    ComponentEventFilter::WebViewNavigationRequested,
+    ComponentEventFilter::WebViewLoadFinished,
+    ComponentEventFilter::WebViewTitleChanged,
+    ComponentEventFilter::WebViewLoadFailed,
 ];
 
 /// Every `ExternalEventFilter`, for planning to probe. See [`ALL_COMPONENT`].

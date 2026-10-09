@@ -93,7 +93,9 @@ use super::*;
 /// block's height while the root's own height is auto).
 /// `constraints.containing_block_size` is the root's OWN containing block: a
 /// quarter of it made `body > img { width: 25% }` a quarter of the window.
-pub(super) fn atomic_inline_containing_block(constraints: &LayoutConstraints<'_>) -> LogicalSize {
+pub(super) const fn atomic_inline_containing_block(
+    constraints: &LayoutConstraints<'_>,
+) -> LogicalSize {
     constraints.available_size
 }
 
@@ -385,10 +387,8 @@ pub(super) fn measure_atomic_inline<T: ParsedFontTrait>(
     // measured content_height is 0 — treat their auto height like an explicit
     // height (use the CSS/intrinsic-resolved tentative_size). Fixes 0-height
     // images / VirtualViews laid out as atomic inline-blocks.
-    let is_replaced_atomic = {
-        let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
-        matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
-    };
+    let is_replaced_atomic =
+        ctx.styled_dom.node_data.as_container()[dom_id].is_sized_replaced_node();
     // A percentage height against the IFC's indefinite block size computes to
     // `auto` (CSS 2.2 10.5): as tall as the content, like an `auto` height -
     // `tentative_size` holds only the sizing estimate for it (AzMail's

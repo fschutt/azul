@@ -14,18 +14,24 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-/// What the explorer never shows (VSCode's `files.exclude` defaults).
+/// The names the explorer never shows (VSCode's `files.exclude` defaults).
+pub const HIDDEN_ENTRIES: [&str; 6] = [".git", ".svn", ".hg", "CVS", ".DS_Store", "Thumbs.db"];
+
+/// What the explorer never shows ([`HIDDEN_ENTRIES`]).
 #[must_use]
 pub fn hidden_entry(name: &str) -> bool {
-    matches!(name, ".git" | ".svn" | ".hg" | "CVS" | ".DS_Store" | "Thumbs.db")
+    HIDDEN_ENTRIES.contains(&name)
 }
+
+/// Build output and dependencies: folders quick open and the search do not walk into.
+pub const SKIPPED_FOLDERS: [&str; 3] = ["target", "node_modules", "bower_components"];
 
 /// The folders quick open's index does not walk into: version control and
 /// other dot folders, build output, dependencies (VSCode's `search.exclude`,
-/// and Cargo's `target/`).
+/// and Cargo's `target/`; [`SKIPPED_FOLDERS`]).
 #[must_use]
 pub fn skipped_folder(name: &str) -> bool {
-    name.starts_with('.') || matches!(name, "target" | "node_modules" | "bower_components")
+    name.starts_with('.') || SKIPPED_FOLDERS.contains(&name)
 }
 
 /// Where the workspace's files are: a drive's folder and a key prefix in it.
@@ -41,6 +47,19 @@ pub struct Root {
     pub data_tree: bool,
     /// What the explorer calls the workspace.
     pub name: String,
+}
+
+impl Root {
+    /// The folder on disk the workspace is: the drive's folder, or the folder its prefix names
+    /// in it (the sample's `code/sample/` in the data tree).
+    #[must_use]
+    pub fn folder(&self) -> PathBuf {
+        let mut folder = self.drive_root.clone();
+        for segment in self.prefix.split('/').filter(|s| !s.is_empty()) {
+            folder.push(segment);
+        }
+        folder
+    }
 }
 
 /// One entry of a listed folder.

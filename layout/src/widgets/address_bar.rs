@@ -397,7 +397,7 @@ fn crumb_px(label: &str) -> f32 {
 /// box's frame and Refresh (36), the location's icon (24), the search box
 /// and its gap (228) and the bar's padding (16). 0 when nothing is known.
 fn trail_room(available_width: f32, show_recent: bool, has_icon: bool) -> f32 {
-    if !(available_width > 0.0) {
+    if available_width <= 0.0 || available_width.is_nan() {
         return 0.0;
     }
     let mut fixed = 3.0 * 28.0 + 36.0 + 228.0 + 16.0;
@@ -416,7 +416,7 @@ fn trail_room(available_width: f32, show_recent: bool, has_icon: bool) -> f32 {
 /// its segment. Explorer folds from the drive end, the same way.
 #[must_use]
 pub(crate) fn folded_crumbs(labels: &[&str], room_px: f32) -> usize {
-    if !(room_px > 0.0) || labels.len() < 2 {
+    if room_px <= 0.0 || room_px.is_nan() || labels.len() < 2 {
         return 0;
     }
     let widths: Vec<f32> = labels.iter().map(|label| crumb_px(label)).collect();
@@ -785,7 +785,7 @@ extern "C" fn on_path_mounted(_data: RefAny, mut info: CallbackInfo) -> Update {
 /// What a key in the path field asks for: Enter takes the path, Escape
 /// gives the edit up, every other key is the field's own.
 #[must_use]
-pub(crate) fn path_key_event(key: Option<VirtualKeyCode>) -> Option<AddressBarEventKind> {
+pub(crate) const fn path_key_event(key: Option<VirtualKeyCode>) -> Option<AddressBarEventKind> {
     match key {
         Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
             Some(AddressBarEventKind::PathEntered)
@@ -960,17 +960,13 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
     // ---- the field: the trail of segments, or the path field ----
     let has_icon = !icon.as_str().is_empty();
     let field_children = if editing {
+        let on_key: TextInputOnVirtualKeyDownCallbackType = on_path_key;
+        let on_focus_lost: TextInputOnFocusLostCallbackType = on_path_focus_lost;
         let input = TextInput::create()
             .with_text(path)
             .with_accessibility_name(AzString::from_const_str("Address"))
-            .with_on_virtual_key_down(
-                shared.clone(),
-                on_path_key as TextInputOnVirtualKeyDownCallbackType,
-            )
-            .with_on_focus_lost(
-                shared.clone(),
-                on_path_focus_lost as TextInputOnFocusLostCallbackType,
-            )
+            .with_on_virtual_key_down(shared.clone(), on_key)
+            .with_on_focus_lost(shared.clone(), on_focus_lost)
             .with_theme(look.theme);
         // A node of its own around the input, so its mount is the field's
         // opening (the trail's row is the same node in both modes).
@@ -1112,13 +1108,11 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
     }
 
     // ---- the search box ----
+    let on_search: TextInputOnTextInputCallbackType = on_search_text;
     let search_input = TextInput::create_search()
         .with_text(search)
         .with_placeholder(search_placeholder)
-        .with_on_text_input(
-            shared.clone(),
-            on_search_text as TextInputOnTextInputCallbackType,
-        )
+        .with_on_text_input(shared.clone(), on_search)
         .with_theme(look.theme);
     let search_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SEARCH_CLASS))

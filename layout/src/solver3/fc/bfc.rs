@@ -411,7 +411,7 @@ fn bfc_prepare<T: ParsedFontTrait>(
             // placeholder too (AzMail's `height: 100%` paper, an inline-block).
             let height_is_auto = tree.warm(LayoutNodeId::new(node_index)).is_none_or(|w| {
                 crate::solver3::sizing::height_is_auto_for_children(
-                    &node.formatting_context,
+                    node.formatting_context,
                     w.computed_style.height.as_ref(),
                     constraints.containing_block_size.height.is_finite(),
                 )
@@ -2220,7 +2220,7 @@ fn bfc_place_children<T: ParsedFontTrait>(
                 let inner = child_node.box_props.inner_size(child_size, writing_mode);
                 let height_is_auto = tree.warm(LayoutNodeId::new(child_index)).is_none_or(|w| {
                     crate::solver3::sizing::height_is_auto_for_children(
-                        &child_node.formatting_context,
+                        child_node.formatting_context,
                         w.computed_style.height.as_ref(),
                         children_containing_block_size.height.is_finite(),
                     )

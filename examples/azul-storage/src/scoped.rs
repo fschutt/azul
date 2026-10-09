@@ -5,12 +5,12 @@
 //! whether writing is allowed; [`ScopedDrive`] enforces the last two whatever
 //! the backend does.
 
-use std::path::PathBuf;
+use std::{io::Read, path::PathBuf};
 
 use crate::{
     key::{check_path_key, check_path_prefix},
     ops::check_folder,
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 /// `inner` limited to the keys under `prefix`, which it shows without the
@@ -129,6 +129,21 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         let mut info = self.inner.head(&self.full_key(key)?)?;
         info.key = key.to_string();
         Ok(info)
+    }
+
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.check_writable()?;
+        self.inner.put_from(&self.full_key(key)?, body)
+    }
+
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.check_writable()?;
+        self.inner.put_if(&self.full_key(key)?, bytes, condition)
     }
 
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {

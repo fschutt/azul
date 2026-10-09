@@ -2332,19 +2332,21 @@ mod autotest_generated {
         assert_eq!(text_of(row_parts(rows[0]).1), Some(""));
     }
 
+    /// One node of `without_callback_payloads`: the node, its child count,
+    /// its stylesheets and its callbacks as `(event, function)` pairs.
+    type NodeWithoutPayloads = (
+        azul_core::dom::NodeData,
+        usize,
+        azul_css::css::CssVec,
+        Vec<(azul_core::events::EventFilter, azul_core::callbacks::CoreCallback)>,
+    );
+
     /// A render with the callbacks' `RefAny` payloads left out: every node
     /// pre-order with its child count and stylesheets, its callbacks as
     /// `(event, function)` pairs. RefAny equality is allocation identity, and
     /// every row carries its own key-handler payload, so two renders of the
     /// same tree differ only in those.
-    fn without_callback_payloads(
-        dom: &Dom,
-    ) -> Vec<(
-        azul_core::dom::NodeData,
-        usize,
-        azul_css::css::CssVec,
-        Vec<(azul_core::events::EventFilter, azul_core::callbacks::CoreCallback)>,
-    )> {
+    fn without_callback_payloads(dom: &Dom) -> Vec<NodeWithoutPayloads> {
         let mut out = Vec::new();
         let mut stack = vec![dom];
         while let Some(d) = stack.pop() {

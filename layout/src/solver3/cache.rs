@@ -1444,12 +1444,14 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
 ) -> Result<(LayoutTree, ReconciliationResult)> {
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
-    let mut recon_result = ReconciliationResult::default();
-    recon_result.css_relayout = css_dirty
-        .iter()
-        .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
-        .map(|(node, _)| *node)
-        .collect();
+    let mut recon_result = ReconciliationResult {
+        css_relayout: css_dirty
+            .iter()
+            .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
+            .map(|(node, _)| *node)
+            .collect(),
+        ..Default::default()
+    };
     // A viewport SIZE change invalidates every VIEWPORT-DEPENDENT computed
     // size — and nothing else. The old code dropped the ENTIRE cached tree
     // here (`old_tree = None`), which made every node reconcile as brand-new
@@ -1662,7 +1664,7 @@ enum TableParent {
 }
 
 impl TableParent {
-    fn of(display: LayoutDisplay) -> Option<Self> {
+    const fn of(display: LayoutDisplay) -> Option<Self> {
         match display {
             LayoutDisplay::Table | LayoutDisplay::InlineTable => Some(Self::Table),
             LayoutDisplay::TableRowGroup
@@ -3079,7 +3081,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // 2.2 10.5): its used height is only a placeholder until its content is
     // laid out, never a height its children's percentages resolve against.
     let height_is_auto = super::sizing::height_is_auto_for_children(
-        &node.formatting_context,
+        node.formatting_context,
         warm.computed_style.height.as_ref(),
         cb.height.is_definite(),
     );

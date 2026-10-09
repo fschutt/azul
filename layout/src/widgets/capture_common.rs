@@ -501,7 +501,7 @@ fn unavailable_screen_open(_request: &CaptureRequest) -> u64 {
     UNAVAILABLE_HANDLE
 }
 
-fn unavailable_read(_handle: u64, _out: &mut Vec<u8>) -> CaptureRead {
+const fn unavailable_read(_handle: u64, _out: &mut Vec<u8>) -> CaptureRead {
     CaptureRead::Ended
 }
 
@@ -510,11 +510,11 @@ fn unavailable_mic_open(_sample_rate: u32, _channels: u16) -> u64 {
     UNAVAILABLE_HANDLE
 }
 
-fn unavailable_mic_read(_handle: u64, _out: &mut Vec<f32>) -> u32 {
+const fn unavailable_mic_read(_handle: u64, _out: &mut Vec<f32>) -> u32 {
     0
 }
 
-fn unavailable_close(_handle: u64) {}
+const fn unavailable_close(_handle: u64) {}
 
 /// A camera a headless run did not ask for: it opens nothing (and says so),
 /// and ends before its first frame, so the tile keeps its placeholder.

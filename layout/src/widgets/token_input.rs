@@ -142,13 +142,13 @@ impl TokenInputState {
     }
 
     /// The highlighted suggestion (its place among the ones shown).
-    pub fn set_active(&mut self, active: usize) {
+    pub const fn set_active(&mut self, active: usize) {
         self.active = OptionUsize::Some(active);
     }
 
     /// [`Self::set_active`] for the builder chain.
     #[must_use]
-    pub fn with_active(mut self, active: usize) -> Self {
+    pub const fn with_active(mut self, active: usize) -> Self {
         self.set_active(active);
         self
     }
@@ -738,7 +738,7 @@ pub(crate) fn look_for(theme: OptionUiTheme) -> TokenInputLook {
 // ---- the base: the widget's structure, in every theme ----
 
 /// A row or column gap, px.
-fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
+const fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
     use azul_css::props::{
         layout::{LayoutColumnGap, LayoutRowGap},
         property::{LayoutColumnGapValue, LayoutRowGapValue},
@@ -880,6 +880,8 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
     });
 
     // The field: a chip per token, then the entry.
+    let on_remove: ChipOnRemoveCallbackType = on_chip_remove;
+    let on_click: ChipOnClickCallbackType = on_chip_click;
     let mut in_field: Vec<Dom> = Vec::with_capacity(state.tokens.len() + 1);
     for (index, token) in state.tokens.as_ref().iter().enumerate() {
         let data = RefAny::new(TokenData {
@@ -888,8 +890,8 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         });
         let mut chip = Chip::create(token.clone())
             .with_removable(true)
-            .with_on_remove(data.clone(), on_chip_remove as ChipOnRemoveCallbackType)
-            .with_on_click(data.clone(), on_chip_click as ChipOnClickCallbackType);
+            .with_on_remove(data.clone(), on_remove)
+            .with_on_click(data.clone(), on_click);
         if let Some(t) = theme {
             chip = chip.with_theme(t);
         }
@@ -912,11 +914,13 @@ pub(crate) fn build(input: TokenInput, look: &TokenInputLook) -> Dom {
         in_field.push(chip);
     }
 
+    let on_text: TextInputOnTextInputCallbackType = on_entry_text;
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_entry_key;
     let mut entry = TextInput::create()
         .with_text(state.text)
         .with_accessibility_name(accessibility_name.clone())
-        .with_on_text_input(shared.clone(), on_entry_text as TextInputOnTextInputCallbackType)
-        .with_on_virtual_key_down(shared.clone(), on_entry_key as TextInputOnVirtualKeyDownCallbackType);
+        .with_on_text_input(shared.clone(), on_text)
+        .with_on_virtual_key_down(shared.clone(), on_key);
     if !placeholder.as_str().is_empty() {
         entry = entry.with_placeholder(placeholder);
     }

@@ -201,19 +201,20 @@ fn curve_fill(s: SvgCubicCurve, w: f32, h: f32, left: bool) -> azul_core::svg::S
     ]))
 }
 
-/// The point of the cubic `s` at `t`, and the tangent there.
-fn cubic_at(s: &SvgCubicCurve, t: f32) -> (SvgPoint, (f32, f32)) {
+/// The point of the cubic `curve` at `t`, and the tangent there.
+fn cubic_at(curve: &SvgCubicCurve, t: f32) -> (SvgPoint, (f32, f32)) {
     let u = 1.0 - t;
-    let (p0, p1, p2, p3) = (s.start, s.ctrl_1, s.ctrl_2, s.end);
-    let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+    let (p0, p1, p2, p3) = (curve.start, curve.ctrl_1, curve.ctrl_2, curve.end);
+    // The Bernstein weights of the point, then those of its derivative.
+    let (w0, w1, w2, w3) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
     let point = SvgPoint {
-        x: a * p0.x + b * p1.x + c * p2.x + d * p3.x,
-        y: a * p0.y + b * p1.y + c * p2.y + d * p3.y,
+        x: w0 * p0.x + w1 * p1.x + w2 * p2.x + w3 * p3.x,
+        y: w0 * p0.y + w1 * p1.y + w2 * p2.y + w3 * p3.y,
     };
-    let (e, f, g) = (3.0 * u * u, 6.0 * u * t, 3.0 * t * t);
+    let (d0, d1, d2) = (3.0 * u * u, 6.0 * u * t, 3.0 * t * t);
     let tangent = (
-        e * (p1.x - p0.x) + f * (p2.x - p1.x) + g * (p3.x - p2.x),
-        e * (p1.y - p0.y) + f * (p2.y - p1.y) + g * (p3.y - p2.y),
+        d0 * (p1.x - p0.x) + d1 * (p2.x - p1.x) + d2 * (p3.x - p2.x),
+        d0 * (p1.y - p0.y) + d1 * (p2.y - p1.y) + d2 * (p3.y - p2.y),
     );
     (point, tangent)
 }

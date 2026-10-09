@@ -933,91 +933,91 @@ impl CellGrid {
     }
 
     /// Sets the px the grid fills.
-    pub fn set_viewport(&mut self, width: f32, height: f32) {
+    pub const fn set_viewport(&mut self, width: f32, height: f32) {
         self.viewport_width = width;
         self.viewport_height = height;
     }
 
     /// [`Self::set_viewport`] for the builder chain.
     #[must_use]
-    pub fn with_viewport(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_viewport(mut self, width: f32, height: f32) -> Self {
         self.set_viewport(width, height);
         self
     }
 
     /// Sets the default column width and row height, in px.
-    pub fn set_default_sizes(&mut self, column_width: f32, row_height: f32) {
+    pub const fn set_default_sizes(&mut self, column_width: f32, row_height: f32) {
         self.default_column_width = column_width;
         self.default_row_height = row_height;
     }
 
     /// [`Self::set_default_sizes`] for the builder chain.
     #[must_use]
-    pub fn with_default_sizes(mut self, column_width: f32, row_height: f32) -> Self {
+    pub const fn with_default_sizes(mut self, column_width: f32, row_height: f32) -> Self {
         self.set_default_sizes(column_width, row_height);
         self
     }
 
     /// Sets the row-number column's width and the column-letter row's
     /// height, in px.
-    pub fn set_header_sizes(&mut self, width: f32, height: f32) {
+    pub const fn set_header_sizes(&mut self, width: f32, height: f32) {
         self.header_width = width;
         self.header_height = height;
     }
 
     /// [`Self::set_header_sizes`] for the builder chain.
     #[must_use]
-    pub fn with_header_sizes(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_header_sizes(mut self, width: f32, height: f32) -> Self {
         self.set_header_sizes(width, height);
         self
     }
 
     /// Sets the scale (1.0 = 100 %).
-    pub fn set_zoom(&mut self, zoom: f32) {
+    pub const fn set_zoom(&mut self, zoom: f32) {
         self.zoom = zoom;
     }
 
     /// [`Self::set_zoom`] for the builder chain.
     #[must_use]
-    pub fn with_zoom(mut self, zoom: f32) -> Self {
+    pub const fn with_zoom(mut self, zoom: f32) -> Self {
         self.set_zoom(zoom);
         self
     }
 
     /// Sets the cells' font size in px.
-    pub fn set_font_size(&mut self, px: f32) {
+    pub const fn set_font_size(&mut self, px: f32) {
         self.font_size = px;
     }
 
     /// [`Self::set_font_size`] for the builder chain.
     #[must_use]
-    pub fn with_font_size(mut self, px: f32) -> Self {
+    pub const fn with_font_size(mut self, px: f32) -> Self {
         self.set_font_size(px);
         self
     }
 
     /// Sets the rows and columns that hold data.
-    pub fn set_content_extent(&mut self, rows: u32, columns: u32) {
+    pub const fn set_content_extent(&mut self, rows: u32, columns: u32) {
         self.content_rows = rows;
         self.content_columns = columns;
     }
 
     /// [`Self::set_content_extent`] for the builder chain.
     #[must_use]
-    pub fn with_content_extent(mut self, rows: u32, columns: u32) -> Self {
+    pub const fn with_content_extent(mut self, rows: u32, columns: u32) -> Self {
         self.set_content_extent(rows, columns);
         self
     }
 
     /// Freezes the first `rows` rows and `columns` columns.
-    pub fn set_frozen(&mut self, rows: u32, columns: u32) {
+    pub const fn set_frozen(&mut self, rows: u32, columns: u32) {
         self.frozen_rows = rows;
         self.frozen_columns = columns;
     }
 
     /// [`Self::set_frozen`] for the builder chain.
     #[must_use]
-    pub fn with_frozen(mut self, rows: u32, columns: u32) -> Self {
+    pub const fn with_frozen(mut self, rows: u32, columns: u32) -> Self {
         self.set_frozen(rows, columns);
         self
     }
@@ -1035,49 +1035,49 @@ impl CellGrid {
     }
 
     /// Shows or hides the column letters and row numbers.
-    pub fn set_show_headers(&mut self, show: bool) {
+    pub const fn set_show_headers(&mut self, show: bool) {
         self.show_headers = show;
     }
 
     /// [`Self::set_show_headers`] for the builder chain.
     #[must_use]
-    pub fn with_show_headers(mut self, show: bool) -> Self {
+    pub const fn with_show_headers(mut self, show: bool) -> Self {
         self.set_show_headers(show);
         self
     }
 
     /// Shows or hides the grid lines.
-    pub fn set_show_grid_lines(&mut self, show: bool) {
+    pub const fn set_show_grid_lines(&mut self, show: bool) {
         self.show_grid_lines = show;
     }
 
     /// [`Self::set_show_grid_lines`] for the builder chain.
     #[must_use]
-    pub fn with_show_grid_lines(mut self, show: bool) -> Self {
+    pub const fn with_show_grid_lines(mut self, show: bool) -> Self {
         self.set_show_grid_lines(show);
         self
     }
 
     /// Shows or hides the fill handle.
-    pub fn set_fill_handle(&mut self, show: bool) {
+    pub const fn set_fill_handle(&mut self, show: bool) {
         self.fill_handle = show;
     }
 
     /// [`Self::set_fill_handle`] for the builder chain.
     #[must_use]
-    pub fn with_fill_handle(mut self, show: bool) -> Self {
+    pub const fn with_fill_handle(mut self, show: bool) -> Self {
         self.set_fill_handle(show);
         self
     }
 
     /// Makes the grid read-only (or editable again).
-    pub fn set_read_only(&mut self, read_only: bool) {
+    pub const fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
     }
 
     /// [`Self::set_read_only`] for the builder chain.
     #[must_use]
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
+    pub const fn with_read_only(mut self, read_only: bool) -> Self {
         self.set_read_only(read_only);
         self
     }
@@ -1523,7 +1523,7 @@ impl Bounds<'_> {
     }
 
     /// The last row / column index in `dir`.
-    fn sheet_edge(&self, cell: CellGridCellRef, dir: Dir) -> CellGridCellRef {
+    const fn sheet_edge(&self, cell: CellGridCellRef, dir: Dir) -> CellGridCellRef {
         match dir {
             Dir::Up => CellGridCellRef::create(0, cell.column),
             Dir::Down => CellGridCellRef::create(self.row_count.saturating_sub(1), cell.column),
@@ -1533,7 +1533,7 @@ impl Bounds<'_> {
     }
 
     /// Whether `cell` lies past the data in `dir` (nothing more to find).
-    fn past_content(&self, cell: CellGridCellRef, dir: Dir) -> bool {
+    const fn past_content(&self, cell: CellGridCellRef, dir: Dir) -> bool {
         match dir {
             Dir::Down => cell.row + 1 >= self.content_rows,
             Dir::Right => cell.column + 1 >= self.content_columns,
@@ -2239,7 +2239,7 @@ pub(crate) const CELL_PADDING_PX: f32 = 3.0;
 
 /// Whether a cell draws something of its own besides text (a fill, a border):
 /// a spilled text stops before it.
-fn has_own_look(style: &CellGridCellStyle) -> bool {
+const fn has_own_look(style: &CellGridCellStyle) -> bool {
     style.fill.as_ref().is_some()
         || style.border_top.as_ref().is_some()
         || style.border_right.as_ref().is_some()
@@ -2292,7 +2292,7 @@ fn place(x: f32, y: f32, w: f32, h: f32) -> [CssPropertyWithConditions; 4] {
 }
 
 /// A thin border edge in a cell's own colour.
-fn edge(which: Dir, color: ColorU) -> [CssPropertyWithConditions; 3] {
+const fn edge(which: Dir, color: ColorU) -> [CssPropertyWithConditions; 3] {
     match which {
         Dir::Up => [
             simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
@@ -2657,10 +2657,10 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
         let first = merge.first;
         let content = cell_content(&grid.data_source, first);
         let style = cell_style(&grid.style_source, first);
-        let mut p = part(CELL_GRID_OVERLAY_BASE, &look.grid);
-        p.extend(CELL_GRID_CELL_BASE.iter().cloned());
-        p.extend(place(x, y, w, h));
-        p.extend(cell_style_props(
+        let mut props = part(CELL_GRID_OVERLAY_BASE, &look.grid);
+        props.extend(CELL_GRID_CELL_BASE.iter().cloned());
+        props.extend(place(x, y, w, h));
+        props.extend(cell_style_props(
             &style,
             content.kind,
             zoom,
@@ -2681,7 +2681,7 @@ pub(crate) fn build(resolved: CellGridResolved, look: &CellGridLook) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MERGE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(p))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
                 .with_accessibility_info(AccessibilityInfo {
                     row_index: azul_css::corety::OptionUsize::Some(first.row as usize + 1),
                     column_index: azul_css::corety::OptionUsize::Some(first.column as usize + 1),
@@ -2926,7 +2926,7 @@ fn commit_to(grid: &CellGrid, b: &Bounds<'_>, to: CellGridCellRef) -> CellGridEv
 }
 
 /// A character after which a formula waits for a reference (point mode).
-fn waits_for_reference(c: char) -> bool {
+const fn waits_for_reference(c: char) -> bool {
     matches!(
         c,
         '=' | '(' | ',' | ';' | ':' | '+' | '-' | '*' | '/' | '^' | '&' | '<' | '>' | ' '

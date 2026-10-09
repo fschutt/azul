@@ -85,7 +85,7 @@ pub mod loading {
     /// The css crate's `Platform` whose system font chains describe `os`
     /// (the Linux desktop does not change the UI font chain). `None` for
     /// wasm: no OS UI font there.
-    fn platform_of(os: OperatingSystem) -> Option<azul_css::system::Platform> {
+    const fn platform_of(os: OperatingSystem) -> Option<azul_css::system::Platform> {
         use azul_css::system::{DesktopEnvironment, Platform};
         Some(match os {
             OperatingSystem::MacOS => Platform::MacOs,

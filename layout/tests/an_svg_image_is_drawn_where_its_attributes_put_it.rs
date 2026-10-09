@@ -16,9 +16,12 @@ use rust_fontconfig::FcFontCache;
 /// A 2 x 1 picture, both pixels opaque red.
 const RED_2X1: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8DwH4QBEfcD/ePF9e8AAAAASUVORK5CYII=";
 
+/// A painted image: its `(x, y, width, height)` and its picture's size.
+type PaintedImage = ((f32, f32, f32, f32), (f32, f32));
+
 /// `(x, y, width, height)` and the picture's size of every image the
 /// `<svg>` content (`svg_px` square, viewBox 64 x 64) paints.
-fn images(svg_px: u32, content: &str) -> Vec<((f32, f32, f32, f32), (f32, f32))> {
+fn images(svg_px: u32, content: &str) -> Vec<PaintedImage> {
     let markup = format!(
         "<html><body style=\"margin: 0px\"><svg width=\"{svg_px}\" height=\"{svg_px}\" \
          viewBox=\"0 0 64 64\">{content}</svg></body></html>"

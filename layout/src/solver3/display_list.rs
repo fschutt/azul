@@ -781,6 +781,7 @@ impl DisplayList {
             | I::ScrollBar { .. }
             | I::VirtualView { .. }
             | I::VirtualViewPlaceholder { .. }
+            | I::WebView { .. }
             | I::PushClip { .. }
             | I::PopClip
             | I::PopImageMaskClip
@@ -1994,6 +1995,23 @@ pub enum DisplayListItem {
         clip_rect: WindowLogicalRect,
     },
 
+    /// The rect a native web view is shown in (`<webview>`,
+    /// `NodeType::WebView`): its node's CONTENT box, in this list's
+    /// coordinates like every other item - so the scroll frames and clips it
+    /// sits in move and cut it exactly as they do the boxes around it.
+    ///
+    /// It paints NOTHING. The platform's web view is a native child view the
+    /// window composites over its own content; this item reserves its place
+    /// and tells the window backend where that place is right now
+    /// (`crate::headless::painted_webviews` resolves it against the live
+    /// scroll offsets and the enclosing clips, every frame).
+    WebView {
+        /// The `<webview>` node.
+        node_id: NodeId,
+        /// Its content box.
+        bounds: WindowLogicalRect,
+    },
+
     // --- State-Management Commands ---
     /// Pushes a new clipping rectangle onto the renderer's clip stack.
     /// All subsequent primitives will be clipped by this rect until a `PopClip`.
@@ -2177,7 +2195,7 @@ pub enum DisplayListItem {
 /// line box the first character will create. Height is floored at 1 px so a
 /// zero font never produces an invisible caret.
 #[must_use]
-pub fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
+pub const fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
     let height = line_height_px.max(1.0);
     let height = if height.is_finite() { height } else { 1.0 };
     LogicalRect {
@@ -2574,6 +2592,10 @@ impl DisplayListItem {
             // repaint on its own. Without this it hit `_ => false` and forced
             // false-positive damage on every relayout (#12).
             (Self::HitTestArea { .. }, Self::HitTestArea { .. }) => true,
+            // A web view's item paints no pixels either (the platform draws
+            // the view); where it goes reaches the backend through the
+            // placement sync, never through damage.
+            (Self::WebView { .. }, Self::WebView { .. }) => true,
             // TextLayout: visually equal iff same box / font / colour AND the same
             // underlying (type-erased) layout allocation. A no-op relayout reuses
             // the cached layout Arc (pointer identity holds); a real text change
@@ -2739,6 +2761,10 @@ impl DisplayListItem {
             // the damaged renderer, and the render arm for TextLayout is a
             // no-op either way.
             Self::TextLayout { .. } => None,
+            // A web view's pixels are the PLATFORM's (a native child view
+            // composited over the window): the raster paints nothing for it,
+            // so moving or resizing it damages nothing of ours.
+            Self::WebView { .. } => None,
             // Text damages only where its GLYPHS are, not its whole clip box.
             //
             // `bounds()` reports a text run's `clip_rect`, and the emission
@@ -2860,6 +2886,7 @@ impl DisplayListItem {
             | Self::BoxShadow { bounds, .. }
             | Self::VirtualView { bounds, .. }
             | Self::VirtualViewPlaceholder { bounds, .. }
+            | Self::WebView { bounds, .. }
             | Self::HitTestArea { bounds, .. }
             | Self::PushClip { bounds, .. }
             | Self::PushImageMaskClip { bounds, .. }
@@ -3519,6 +3546,25 @@ impl DisplayListBuilder {
             node_id,
             bounds: bounds.into(),
             clip_rect: clip_rect.into(),
+        });
+        self.current_node = node;
+        self.current_layout = layout;
+    }
+    /// A `<webview>`'s reserved rect (`DisplayListItem::WebView`),
+    /// attributed to its node like a view placeholder: it is the node's own
+    /// content.
+    pub(crate) fn push_webview(
+        &mut self,
+        node_id: NodeId,
+        layout_index: usize,
+        bounds: LogicalRect,
+    ) {
+        let (node, layout) = (self.current_node, self.current_layout);
+        self.current_node = Some(node_id);
+        self.current_layout = Some((layout_index, EmitPhase::Content));
+        self.push_item(DisplayListItem::WebView {
+            node_id,
+            bounds: bounds.into(),
         });
         self.current_node = node;
         self.current_layout = layout;
@@ -5548,6 +5594,7 @@ where
                         node_bounds,
                     );
                 }
+                self.maybe_push_webview(builder, dom_id, context.node_index);
             }
             self.close_node_clips(builder, context.node_index, node);
         } else {
@@ -5561,6 +5608,7 @@ where
                         node_bounds,
                     );
                 }
+                self.maybe_push_webview(builder, dom_id, context.node_index);
             }
         }
 
@@ -5920,6 +5968,8 @@ where
                 let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
                 builder.push_virtual_view_placeholder(dom_id, child_index, child_bounds, child_bounds);
             }
+            // ... and a web view's reserved rect, at the same place.
+            self.maybe_push_webview(builder, dom_id, child_index);
         }
 
         // Pop the child's clips.
@@ -5958,6 +6008,41 @@ where
         node_data_container
             .get(dom_id)
             .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::VirtualView))
+    }
+
+    /// Reserve a `<webview>`'s CONTENT box (`DisplayListItem::WebView`) -
+    /// where its native view goes, inside its border and padding as an
+    /// iframe's page is. Emitted where a view placeholder is, inside the
+    /// node's own clips, so every enclosing clip and scroll frame applies to
+    /// it. A web view that is not painted (`visibility: hidden`) reserves
+    /// nothing, which hides its native view. Nothing for any other node.
+    fn maybe_push_webview(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_index: usize,
+    ) {
+        let is_webview = self
+            .ctx
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(dom_id)
+            .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::WebView(_)));
+        if !is_webview || self.is_node_hidden(node_index) {
+            return;
+        }
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
+            return;
+        };
+        let Some(paint_rect) = self.get_paint_rect(node_index) else {
+            return;
+        };
+        let bp = node.box_props.unpack();
+        let content_box = BorderBoxRect(paint_rect)
+            .to_content_box(&bp.padding, &bp.border)
+            .rect();
+        builder.push_webview(dom_id, node_index, content_box);
     }
 
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
@@ -6338,7 +6423,7 @@ where
         // VirtualViewPlaceholder emitted after pop_node_clips in
         // generate_for_stacking_context — so VirtualView nodes get only the
         // clip. See `opens_own_scroll_frame`.
-        if self.opens_own_scroll_frame(node_index, dom_id, &overflow_x, &overflow_y) {
+        if self.opens_own_scroll_frame(node_index, dom_id, overflow_x, overflow_y) {
             let scroll_id = self
                 .scroll_ids
                 .get(&LayoutNodeId::new(node_index))
@@ -6420,8 +6505,8 @@ where
         &self,
         node_index: usize,
         dom_id: NodeId,
-        overflow_x: &super::getters::MultiValue<LayoutOverflow>,
-        overflow_y: &super::getters::MultiValue<LayoutOverflow>,
+        overflow_x: super::getters::MultiValue<LayoutOverflow>,
+        overflow_y: super::getters::MultiValue<LayoutOverflow>,
     ) -> bool {
         (overflow_x.is_scroll_container() || overflow_y.is_scroll_container())
             && crate::solver3::scroll_chain::opens_scroll_frame(
@@ -6493,7 +6578,7 @@ where
             // A scroll container with a frame of its own pushed it after the
             // clip; pop it first (LIFO). `clip`, a hidden box with nothing to
             // scroll and a VirtualView only pushed a clip.
-            if self.opens_own_scroll_frame(node_index, dom_id, &overflow_x, &overflow_y) {
+            if self.opens_own_scroll_frame(node_index, dom_id, overflow_x, overflow_y) {
                 builder.pop_scroll_frame();
             }
             builder.pop_clip();
@@ -7325,8 +7410,8 @@ where
         }
         let (xs, ys, _) = self.table_grid_lines(grid);
 
-        // Vertical edges: column line `c`, runs of rows.
-        for c in 0..=cols {
+        // Vertical edges: column line `c` (at `x`), runs of rows.
+        for (c, &x) in xs.iter().enumerate().take(cols + 1) {
             let mut r = 0;
             while r < rows {
                 let Some(edge) = borders.vertical_at(r, c) else {
@@ -7342,7 +7427,7 @@ where
                     end += 1;
                 }
                 let rect = LogicalRect::new(
-                    LogicalPosition::new(edge.width.mul_add(-0.5, xs[c]), ys[r]),
+                    LogicalPosition::new(edge.width.mul_add(-0.5, x), ys[r]),
                     LogicalSize::new(edge.width, ys[end] - ys[r]),
                 );
                 Self::paint_collapsed_edge(builder, rect, &edge, false);
@@ -7367,8 +7452,8 @@ where
                 .max(below.map_or(0.0, |e| e.width))
         };
 
-        // Horizontal edges: row line `r`, runs of columns.
-        for r in 0..=rows {
+        // Horizontal edges: row line `r` (at `y`), runs of columns.
+        for (r, &y) in ys.iter().enumerate().take(rows + 1) {
             let mut c = 0;
             while c < cols {
                 let Some(edge) = borders.horizontal_at(r, c) else {
@@ -7390,7 +7475,7 @@ where
                 let x0 = joint(r, left_line).mul_add(-0.5, xs[left_line]);
                 let x1 = joint(r, right_line).mul_add(0.5, xs[right_line]);
                 let rect = LogicalRect::new(
-                    LogicalPosition::new(x0, edge.width.mul_add(-0.5, ys[r])),
+                    LogicalPosition::new(x0, edge.width.mul_add(-0.5, y)),
                     LogicalSize::new(x1 - x0, edge.width),
                 );
                 Self::paint_collapsed_edge(builder, rect, &edge, true);
@@ -8887,7 +8972,6 @@ where
     /// glyphs it replaces are left out of the runs), the content box's top
     /// left at `origin`.
     fn paint_ellipses(
-        &self,
         builder: &mut DisplayListBuilder,
         ellipsis: &TextOverflowEllipsis,
         origin: LogicalPosition,
@@ -9456,7 +9540,7 @@ where
         // The ellipses, after the text they end (in the root's colour, on the
         // background the IFC proved).
         if let Some(ellipsis) = ellipsis {
-            self.paint_ellipses(
+            Self::paint_ellipses(
                 builder,
                 ellipsis,
                 container_rect.origin,
@@ -9760,7 +9844,7 @@ where
         // The table layers 2-6 over the inline table's own box (see above).
         // A grid that cannot be analysed leaves the box as painted.
         if let Some(table) = inline_table {
-            let _ = self.paint_table_items(builder, table);
+            drop(self.paint_table_items(builder, table));
         }
 
         // Push hit-test area for this inline-block element
@@ -10392,7 +10476,10 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PopScrollFrame
         | DisplayListItem::PushStackingContext { .. }
         | DisplayListItem::PopStackingContext
-        | DisplayListItem::VirtualViewPlaceholder { .. } => None,
+        | DisplayListItem::VirtualViewPlaceholder { .. }
+        // A live web page has no printed form: a page of paged output shows
+        // what the box itself paints (its fallback content, if any).
+        | DisplayListItem::WebView { .. } => None,
 
         // Gradient items - simple bounds check
         DisplayListItem::LinearGradient {
@@ -11881,6 +11968,10 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             node_id: *node_id,
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
+        },
+        DisplayListItem::WebView { node_id, bounds } => DisplayListItem::WebView {
+            node_id: *node_id,
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
         },
         // Pass through stateless items
         DisplayListItem::PopClip => DisplayListItem::PopClip,

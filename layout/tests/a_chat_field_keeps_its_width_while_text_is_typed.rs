@@ -92,7 +92,7 @@ fn check(field_css: &str) {
         lay_out(&mut lw, chat_row(text, field_css));
         seen.push((text.len(), rect(&lw, "field"), rect(&lw, "send"), rect(&lw, "row")));
     }
-    let (_, field0, send0, row0) = seen[0].clone();
+    let (_, field0, send0, row0) = seen[0];
     assert!(field0.size.width > 100.0, "{field_css}: the field takes the row: {field0:?}");
     for (len, field, send, row) in &seen {
         assert!(

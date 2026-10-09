@@ -155,6 +155,9 @@ extern "C" fn on_address(
         AddressBarEventKind::EditCancelled => s.editing_path = false,
         AddressBarEventKind::Search => {
             s.search = text.clone();
+            // The search running stops; one for the new text starts (none for an empty box):
+            // the open folder and every folder below it.
+            crate::start_find(info, app, s);
             let keys = s.visible_keys();
             let order: Vec<&str> = keys.iter().map(String::as_str).collect();
             s.selection.retain(&order);
@@ -289,6 +292,16 @@ pub(crate) fn status_text(s: &DriveState) -> String {
             "pinned folder",
             "pinned folders",
         )),
+        Place::Folder { .. } if s.find.is_some() => {
+            // The search's own line: "Searching... 1,234 found", then the count.
+            if let Some(find) = &s.find {
+                parts.push(find.status_text());
+            }
+            let selected = s.selection.len();
+            if selected > 0 {
+                parts.push(format!("{} selected", listing::grouped_digits(selected)));
+            }
+        }
         Place::Folder { .. } if s.loading => parts.push(String::from("Loading...")),
         Place::Folder { drive, .. } => {
             let shown = s.visible_entries().len();

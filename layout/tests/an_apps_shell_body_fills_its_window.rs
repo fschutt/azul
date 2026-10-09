@@ -66,7 +66,7 @@ fn rect_where(
         .as_container()
         .internal
         .iter()
-        .position(|node| matches(node))
+        .position(matches)
         .unwrap_or_else(|| panic!("no node {what}"));
     lw.get_node_layout_rect(DomNodeId {
         dom: DomId::ROOT_ID,

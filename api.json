@@ -10308,6 +10308,93 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "WebViewConfig": {
+                        "external": "azul_core::webview::WebViewConfig",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "storage": {
+                                    "type": "WebViewStorage"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WebViewStorage": {
+                        "external": "azul_core::webview::WebViewStorage",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ephemeral": {},
+                                "Persistent": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WebViewNavigation": {
+                        "external": "azul_core::webview::WebViewNavigation",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "url": {
+                                    "type": "String"
+                                },
+                                "is_redirect": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "get_query_param": {
+                                "doc": [
+                                    "The query parameter `name` of [`Self::url`], decoded",
+                                    "([`url_query_param`]); `None` when the query has none of that name.",
+                                    "What a sign-in callback reads the `code` (or the `error`) with."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.get_query_param(name)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -20161,6 +20248,107 @@
                                     }
                                 ],
                                 "fn_body": "object.set_copy_content(target, content)"
+                            },
+                            "get_webview_event": {
+                                "doc": [
+                                    "What the `<webview>` this callback runs at reported: the URL a",
+                                    "`WebViewNavigationRequested` asks about and whether it is a server",
+                                    "redirect (`prevent_default` cancels it - how a sign-in callback",
+                                    "catches the redirect that carries its code), the page a load",
+                                    "finished or failed on and why, the new title. The payload of the",
+                                    "view's last event; `None` at a node that is no web view."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionWebViewEvent"
+                                },
+                                "fn_body": "object.get_webview_event()"
+                            },
+                            "get_webview_title": {
+                                "doc": [
+                                    "The title of the page the `<webview>` at `node` shows, as it last",
+                                    "reported it; `None` for a node that is no mounted web view."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.get_webview_title(node)"
+                            },
+                            "get_webview_url": {
+                                "doc": [
+                                    "The page the `<webview>` at `node` is on (or going to); `None` for a",
+                                    "node that is no mounted web view."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.get_webview_url(node)"
+                            },
+                            "webview_go_back": {
+                                "doc": [
+                                    "Go one entry back in the history of the `<webview>` at `node`",
+                                    "(nothing at its start)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.webview_go_back(node)"
+                            },
+                            "webview_navigate": {
+                                "doc": [
+                                    "Load `url` in the `<webview>` at `node`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "url": "String"
+                                    }
+                                ],
+                                "fn_body": "object.webview_navigate(node, url)"
+                            },
+                            "webview_reload": {
+                                "doc": [
+                                    "Load the current page of the `<webview>` at `node` again."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.webview_reload(node)"
                             }
                         },
                         "repr": "C"
@@ -27351,6 +27539,42 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::xml::dom_fragment_from_parsed_xml(xml)"
+                            },
+                            "create_webview": {
+                                "doc": [
+                                    "Creates a `<webview>` showing the page `src`: a native web view laid",
+                                    "out as a replaced element - 300x150 unless CSS (or the markup's",
+                                    "`width` / `height`) sizes it - in the app's ephemeral store.",
+                                    "",
+                                    "The view reports to the app through four component events at this",
+                                    "node: `WebViewNavigationRequested` (cancel with `prevent_default` -",
+                                    "how a sign-in flow catches its redirect), `WebViewLoadFinished`,",
+                                    "`WebViewTitleChanged` and `WebViewLoadFailed`, each read with",
+                                    "`CallbackInfo::get_webview_event`. A changed `src` on the same node",
+                                    "navigates the view it has; `CallbackInfo::webview_navigate`,",
+                                    "`webview_reload` and `webview_go_back` drive it from a callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "src": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_webview(src)"
+                            },
+                            "create_webview_with_config": {
+                                "doc": [
+                                    "[`Self::create_webview`] with an explicit configuration, e.g. the",
+                                    "app's persistent store (`WebViewConfig::persistent()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "src": "String"
+                                    },
+                                    {
+                                        "config": "WebViewConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_webview_with_config(src, config)"
                             }
                         },
                         "functions": {
@@ -28478,6 +28702,34 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::dom::NodeData::create_label_no_a11y(for_id)"
+                            },
+                            "create_webview": {
+                                "doc": [
+                                    "A `<webview>` showing the page `src`, its cookies and storage in the",
+                                    "app's ephemeral store (see [`NodeType::WebView`]). The page is the",
+                                    "node's `src` attribute, as on an iframe."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "src": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_webview(src)"
+                            },
+                            "create_webview_with_config": {
+                                "doc": [
+                                    "[`Self::create_webview`] with an explicit configuration (a persistent",
+                                    "store: `WebViewConfig::persistent()`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "src": "String"
+                                    },
+                                    {
+                                        "config": "WebViewConfig"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::NodeData::create_webview_with_config(src, config)"
                             }
                         },
                         "functions": {
@@ -29225,7 +29477,10 @@
                                 "GeolocationProbe": {
                                     "type": "GeolocationProbeConfig"
                                 },
-                                "PageBreak": {}
+                                "PageBreak": {},
+                                "WebView": {
+                                    "type": "WebViewConfig"
+                                }
                             }
                         ],
                         "functions": {
@@ -30643,7 +30898,8 @@
                                 "After": {},
                                 "Marker": {},
                                 "Placeholder": {},
-                                "PageBreak": {}
+                                "PageBreak": {},
+                                "WebView": {}
                             }
                         ],
                         "repr": "C"
@@ -37741,6 +37997,35 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "WebViewEvent": {
+                        "external": "azul_core::webview::WebViewEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NavigationRequested": {
+                                    "type": "WebViewNavigation"
+                                },
+                                "LoadFinished": {
+                                    "type": "String"
+                                },
+                                "TitleChanged": {
+                                    "type": "String"
+                                },
+                                "LoadFailed": {
+                                    "type": "WebViewLoadError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -93838,14 +94123,12 @@
                     },
                     "RichBlockKind": {
                         "external": "azul_layout::widgets::rich_text::doc::RichBlockKind",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Clone",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -181178,6 +181461,27 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionWebViewEvent": {
+                        "external": "azul_core::webview::OptionWebViewEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "WebViewEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -183908,6 +184212,29 @@
                                 "BelowMin": {},
                                 "AboveMax": {},
                                 "TooLarge": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "WebViewLoadError": {
+                        "external": "azul_core::webview::WebViewLoadError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "url": {
+                                    "type": "String"
+                                },
+                                "reason": {
+                                    "type": "String"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -187116,7 +187443,11 @@
                                 "Updated": {},
                                 "Dismissed": {},
                                 "TornOff": {},
-                                "Docked": {}
+                                "Docked": {},
+                                "WebViewNavigationRequested": {},
+                                "WebViewLoadFinished": {},
+                                "WebViewTitleChanged": {},
+                                "WebViewLoadFailed": {}
                             }
                         ],
                         "repr": "C"
@@ -188558,6 +188889,82 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "Keyring": {
+                        "external": "azul_dll::unified::keyring::Keyring",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "delete_blocking": {
+                                "doc": [
+                                    "Removes the item stored under `key`, on this thread: `Deleted` (also",
+                                    "when there was none), or why not."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::delete_blocking(key)"
+                            },
+                            "get_blocking": {
+                                "doc": [
+                                    "Reads the secret stored under `key`, on this thread: `Retrieved`,",
+                                    "`NotFound`, or why not (`Denied`, `Unavailable`, `Error`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::get_blocking(key)"
+                            },
+                            "store_blocking": {
+                                "doc": [
+                                    "Stores `secret` under `key` (replacing what was there), on this",
+                                    "thread: `Stored`, or why not. `require_biometry` as in",
+                                    "`CallbackInfo::keyring_store`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking(key, secret, require_biometry)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }

@@ -924,7 +924,10 @@ mod a11y_warning_per_build {
         A11Y_WARNINGS_ON_THIS_THREAD.with(core::cell::Cell::get) - before
     }
 
-    fn unnamed() -> [(&'static str, fn() -> Dom); 3] {
+    /// A widget's name for the message, and how to build it without one.
+    type UnnamedWidget = (&'static str, fn() -> Dom);
+
+    fn unnamed() -> [UnnamedWidget; 3] {
         [
             ("slider", || Slider::create(40.0, 0.0, 100.0).dom()),
             ("switch", || Switch::create(true).dom()),

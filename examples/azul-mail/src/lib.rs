@@ -32,9 +32,11 @@
 //!   closes the window once it is sent (it is then in Sent Items).
 //! - **Azlin accounts** keep the mailbox as files in the user's Azlin drive (`AZLIN_MAIL.md`,
 //!   `azlin.rs`, `azlin_sync.rs`): Send / Receive signs in at the token server when the drive's
-//!   credentials run out (the rotated drive token goes to the keyring at once), sends the Outbox,
-//!   then syncs the drive's folders; Archive, Junk, Delete, Move and the read / flag marks are
-//!   written into the drive on a `Thread`, a saved draft too.
+//!   credentials run out - under the account's keyring lock every AzMail of this user takes
+//!   turns at, the keyring re-read first and the rotated drive token written there before the
+//!   lock is let go, so a second AzMail on the account never spends a spent token -, sends the
+//!   Outbox, then syncs the drive's folders; Archive, Junk, Delete, Move and the read / flag
+//!   marks are written into the drive on a `Thread`, a saved draft too.
 //!
 //! Environment:
 //! - `AZMAIL_DATA`: the AzMail folder (default: `AzMail` in the user's data folder).
@@ -150,6 +152,16 @@ pub(crate) struct MailApp {
     /// Where the Azlin services are for this run (the shared Azlin config, the environment,
     /// the switches): the token server a new Azlin account signs in at, an S3 override.
     pub(crate) endpoints: azlin::Endpoints,
+    /// The keyring as the sync thread reads and writes it (azul's blocking keyring calls),
+    /// with the locks every AzMail of this user takes turns at (`<data root>/.azlin/locks`,
+    /// which never leaves the computer): an Azlin account's session is refreshed and written
+    /// there only ([`azlin::refresh_shared`]).
+    pub(crate) shared_keyring: azcloud_kit::SharedKeyring,
+    /// Azlin accounts whose session the user just gave (a typed drive token, a new drive's
+    /// session): the next Send / Receive's thread writes it into the keyring under the
+    /// account's lock before anything spends its token (never the UI thread: its write could
+    /// land after the first refresh and put the spent token back).
+    pub(crate) sessions_to_store: std::collections::HashSet<String>,
 
     // -- the navigation pane --
     /// Every mailbox's folders with their unread counts, by mailbox index (the accounts, then
@@ -256,10 +268,12 @@ pub(crate) enum SyncState {
     Failed(String),
 }
 
+/// A keyring operation of the UI thread. An Azlin account's refreshed session is never stored
+/// from here: the sync thread writes it under the account's lock ([`azlin::refresh_shared`]),
+/// where a later write of the UI thread could put a spent drive token back over another AzMail's
+/// newer one.
 pub(crate) enum KeyringOp {
     Store,
-    /// An Azlin account's session after a refresh (the new drive token): saved quietly.
-    StoreSession,
     /// A secret read to sync this account.
     Get { account: String },
     /// A DKIM private key stored.
@@ -286,6 +300,12 @@ impl MailApp {
         let today = local_today();
         let n = accounts.len();
         let data_root = kit_data_root(&kit);
+        // The locks of the account sessions beside the data root's own bookkeeping (`.azlin`
+        // is never synced): every AzMail on this data root takes turns there.
+        let shared_keyring = azcloud_kit::SharedKeyring::new(
+            std::sync::Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
+            azcloud_kit::LockDir::new(data_root.join(".azlin").join("locks")),
+        );
         // Read once, before the window (as the kit reads settings.json).
         let todo = todo::load(&data_root);
         let settings = {
@@ -308,6 +328,8 @@ impl MailApp {
             keyring_queue: std::collections::VecDeque::new(),
             dkim_keys: HashMap::new(),
             endpoints,
+            shared_keyring,
+            sessions_to_store: std::collections::HashSet::new(),
             // The accounts, then Local Folders.
             folders: vec![Vec::new(); n + 1],
             folder: None,
@@ -746,14 +768,6 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
                      keeps it only until it is closed."
                 );
             }
-            (Some(KeyringOp::StoreSession), KeyringResult::Stored) => {}
-            (Some(KeyringOp::StoreSession), _) => {
-                s.notice = format!(
-                    "The Azlin drive's new token could not be saved in the system keyring \
-                     ({outcome}): AzMail keeps it only until it is closed, then asks for a drive \
-                     token again."
-                );
-            }
             (Some(KeyringOp::Get { account }), KeyringResult::Retrieved(secret)) => {
                 s.secrets
                     .insert(account.clone(), Secret::new(secret.as_str().to_string()));
@@ -846,9 +860,15 @@ fn keyring_reading(s: &MailApp, account: &str, dkim: bool) -> bool {
     s.keyring.as_ref().is_some_and(|op| reads(op)) || s.keyring_queue.iter().any(|c| reads(&c.op))
 }
 
-/// Puts `secret` for `account` into the OS keyring (an IMAP account's password or token, an
-/// Azlin account's session) and keeps it in memory for this run.
+/// Puts `secret` for `account` into the OS keyring (an IMAP account's password or token) and
+/// keeps it in memory for this run. An Azlin account's session goes into the keyring from the
+/// next Send / Receive's thread, under the account's lock (`sessions_to_store`).
 pub(crate) fn remember_secret(s: &mut MailApp, info: &mut CallbackInfo, account: &Account, secret: Secret) {
+    if account.is_azlin() {
+        s.sessions_to_store.insert(account.id.clone());
+        s.secrets.insert(account.id.clone(), secret);
+        return;
+    }
     keyring_call(
         s,
         info,
@@ -940,6 +960,8 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         return;
     }
     let dkim_key = s.dkim_keys.get(&account.id).cloned().flatten();
+    // A session the user just gave: this thread keeps it before it spends its token.
+    let store_first = s.sessions_to_store.remove(&account.id);
     let mail_root = account::mail_root(&s.root, &account);
     println!("AZMAIL_SYNC_START {}", mail_root.path().display());
     let thread = ThreadId::unique();
@@ -961,6 +983,8 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         extra_ca: test_ca(),
         dkim_key,
         endpoints: s.endpoints.clone(),
+        keyring: s.shared_keyring.clone(),
+        store_first,
     };
     info.add_thread(thread, Thread::create(RefAny::new(init), app, sync_thread));
 }
@@ -987,15 +1011,24 @@ struct SyncInit {
     dkim_key: Option<Secret>,
     /// Where the Azlin services are (an Azlin account's token server and S3 override).
     endpoints: azlin::Endpoints,
+    /// The keyring and the locks an Azlin account's session is refreshed under.
+    keyring: azcloud_kit::SharedKeyring,
+    /// An Azlin account's `secret` is new (typed, a new drive's): kept in the keyring first.
+    store_first: bool,
 }
 
 /// What the thread reports.
 #[derive(Clone)]
 enum SyncEvent {
     Progress(Progress),
-    /// An Azlin account signed in at its token server: the new session (the rotated drive token
-    /// and the new credentials) for memory and the keyring, before anything else happens.
-    Session(Secret),
+    /// An Azlin account switched sessions: signed in at its token server (the rotated drive
+    /// token, the new credentials - in the keyring already, written under the account's lock,
+    /// unless `unsaved` says why not) or read another AzMail's newer one from the keyring. For
+    /// memory, before anything else happens.
+    Session {
+        secret: Secret,
+        unsaved: Option<String>,
+    },
     /// The sync's result, and what the outbox retry did (sent, still queued, failed).
     Finished(Result<SyncReport, SyncError>, (usize, usize, usize)),
 }
@@ -1076,30 +1109,45 @@ fn azlin_error(e: azlin::TokenError) -> SyncError {
     }
 }
 
-/// New credentials at the account's token server; the session they come in (with the next
-/// drive token: the one given is dead now) goes to the window at once, for the keyring.
+/// New credentials at the account's token server - under the account's lock, spending only the
+/// newest drive token ([`azlin::refresh_shared`]: another AzMail on this account may have
+/// refreshed, and its session is taken from the keyring then; `refused` is the access key the
+/// drive refused). The new session is in the keyring already (written before the lock was let
+/// go); it goes to the window at once, for memory.
 fn refresh_session(
     job: &SyncInit,
     link: &account::AzlinLink,
     session: &azlin::AzlinSession,
+    refused: Option<&str>,
     transport: &AzulTransport,
     sender: &mut ThreadSender,
 ) -> Result<azlin::AzlinSession, SyncError> {
-    use azlin::CloudAccount;
     let url = job.endpoints.token_url_for(&link.token_url).ok_or_else(|| {
         SyncError::Auth(account::FormError::NoTokenServer.to_string())
     })?;
     let server = azlin::TokenServer::new(&url, transport).map_err(azlin_error)?;
-    let fresh = server
-        .refresh_session(&link.drive_id, &session.drive_token)
-        .map_err(azlin_error)?;
+    let now = u64::try_from(now_unix()).unwrap_or(0);
+    let refreshed = azlin::refresh_shared(
+        &server,
+        &job.keyring,
+        &account::azlin_keyring_key(&job.account.id),
+        session,
+        refused,
+        now,
+    )
+    .map_err(azlin_error)?;
     post(
         sender,
         &job.account.id,
-        SyncEvent::Session(Secret::new(fresh.to_secret())),
+        SyncEvent::Session {
+            secret: Secret::new(refreshed.session.to_secret()),
+            unsaved: refreshed.saved.err(),
+        },
     );
-    println!("AZMAIL_AZLIN_SIGNED_IN {}", fresh.drive_id);
-    Ok(fresh)
+    if !refreshed.adopted {
+        println!("AZMAIL_AZLIN_SIGNED_IN {}", refreshed.session.drive_id);
+    }
+    Ok(refreshed.session)
 }
 
 /// One sync of the drive with `session`'s credentials.
@@ -1130,9 +1178,23 @@ fn run_azlin_sync(
     let transport = AzulTransport::new(USER_AGENT);
     let now = now_unix();
     let mut session = azlin::AzlinSession::from_secret(job.secret.expose(), &link.drive_id);
+    if job.store_first {
+        // What the user just gave replaces what the keyring had, before its token is spent.
+        let key = account::azlin_keyring_key(&job.account.id);
+        if let Err(why) = azlin::store_shared(&job.keyring, &key, &session) {
+            post(
+                sender,
+                &job.account.id,
+                SyncEvent::Session {
+                    secret: job.secret.clone(),
+                    unsaved: Some(why),
+                },
+            );
+        }
+    }
     let mut refreshed = false;
     if session.needs_refresh(u64::try_from(now).unwrap_or(0)) {
-        session = refresh_session(job, link, &session, &transport, sender)?;
+        session = refresh_session(job, link, &session, None, &transport, sender)?;
         refreshed = true;
     }
     let options = azlin_sync::AzlinOptions {
@@ -1145,7 +1207,8 @@ fn run_azlin_sync(
     });
     match first {
         Err(SyncError::Auth(_)) if !refreshed => {
-            session = refresh_session(job, link, &session, &transport, sender)?;
+            let refused = session.access_key_id.clone();
+            session = refresh_session(job, link, &session, Some(&refused), &transport, sender)?;
             sync_drive(job, &session, &transport, &options, &mut |p| {
                 report_progress(sender, receiver, &account, p)
             })
@@ -1196,7 +1259,7 @@ fn post(sender: &mut ThreadSender, account: &str, event: SyncEvent) -> bool {
 }
 
 /// A report from the sync thread, on the UI thread.
-extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: CallbackInfo) -> Update {
     let Some((account, event)) = payload
         .downcast_ref::<SyncMessage>()
         .map(|m| (m.account.clone(), m.event.clone()))
@@ -1209,20 +1272,18 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, mut info: Call
     let s = &mut *guard;
     let running_this = matches!(&s.sync, SyncState::Running { account: a, .. } if *a == account);
     match event {
-        SyncEvent::Session(secret) => {
-            // The old drive token is dead: the new session replaces it in memory and in the
-            // keyring at once (a reused token makes the token server revoke this device).
-            s.secrets.insert(account.clone(), secret.clone());
-            keyring_call(
-                s,
-                &mut info,
-                KeyringCall {
-                    op: KeyringOp::StoreSession,
-                    key: account::azlin_keyring_key(&account),
-                    secret: Some(secret),
-                },
+        SyncEvent::Session { secret, unsaved } => {
+            // The old drive token is dead: the new session replaces it in memory. The keyring
+            // has it already - the sync thread wrote it under the account's lock; a write from
+            // here could put it back over another AzMail's newer one.
+            s.secrets.insert(account, secret);
+            let Some(why) = unsaved else {
+                return Update::DoNothing;
+            };
+            s.notice = format!(
+                "The Azlin drive's new token could not be saved in the system keyring ({why}): \
+                 AzMail keeps it only until it is closed, then asks for a drive token again."
             );
-            return Update::DoNothing;
         }
         SyncEvent::Progress(progress) => {
             if !running_this {

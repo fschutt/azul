@@ -431,7 +431,7 @@ pub(super) fn border_box_to_content<T: ParsedFontTrait>(
 /// known size, the infinity became the height of every box above it (the
 /// `OfficeShell` chain of `AzNews` / `AzCode`, blank screenshots). The same net
 /// `calculate_used_size_for_node` keeps for a non-finite width.
-pub(super) fn definite_or_auto((size, explicit): (Option<f32>, bool)) -> (Option<f32>, bool) {
+pub(super) const fn definite_or_auto((size, explicit): (Option<f32>, bool)) -> (Option<f32>, bool) {
     match size {
         Some(px) if !px.is_finite() => (None, false),
         _ => (size, explicit),

@@ -257,11 +257,9 @@ impl DateTimeLocalPicker {
         if let Some(pin) = theme {
             date_part = date_part.with_theme(pin);
         }
+        let on_date_change: DatePickerOnChangeCallbackType = on_date_part_change;
         let date = date_part
-            .with_on_change(
-                shared.clone(),
-                on_date_part_change as DatePickerOnChangeCallbackType,
-            )
+            .with_on_change(shared.clone(), on_date_change)
             .with_accessibility_name(AzString::from_const_str("Date"))
             .dom();
         let mut time_part = TimePicker::create(0, 0);
@@ -269,11 +267,9 @@ impl DateTimeLocalPicker {
         if let Some(pin) = theme {
             time_part = time_part.with_theme(pin);
         }
+        let on_time_change: TimePickerOnChangeCallbackType = on_time_part_change;
         let time = time_part
-            .with_on_change(
-                shared.clone(),
-                on_time_part_change as TimePickerOnChangeCallbackType,
-            )
+            .with_on_change(shared.clone(), on_time_change)
             .with_accessibility_name(AzString::from_const_str("Time"))
             .dom();
 

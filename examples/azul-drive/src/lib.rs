@@ -30,6 +30,14 @@
 //! folders among them their item counts (one `read_dir` each) and the pictures
 //! their thumbnails, nothing else.
 //!
+//! The search box searches the open folder and every folder below it (`find`, on azul-search:
+//! ripgrep's parallel walker and searcher, AzCode's find in files' engine too): the names first,
+//! then - the Search tab's "File contents" - the files whose lines hold the text. The results
+//! stream into the view as rows (Details, with their folder and the line they matched on) and
+//! the status line counts them ("Searching... 1,234 found"); every key starts the search again
+//! (the one running stops within milliseconds), Escape closes it. A cloud drive is searched by
+//! name over a recursive listing - slower, and its files are not read.
+//!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
 //! storage call goes through `azul_storage::Drive` on an azul `Thread`; no
@@ -69,9 +77,11 @@
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
 //! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
-//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`,
-//! `AZDRIVE_FILE_MENU <action>`, `AZDRIVE_NEW_WINDOW <path>`. Keys, passwords, tokens and
-//! payment pages are never printed.
+//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
+//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
+//! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
+//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
+//! passwords, tokens and payment pages are never printed.
 //!
 //! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
 //! Options' Drives) is a modal dialog - a transient window over the window: Buy storage (Azlin's
@@ -81,6 +91,14 @@
 //! SQLite browsed as tables with `sql`; a form per source, "Test connection", "Add drive").
 //! `--token-url <url>` / `--profile <name>` name the token server (else `$AZLIN_TOKEN_URL`, the
 //! shared Azlin config, the profile's).
+//!
+//! A checkout names a claim key of its own (azcloud-kit's `claim`): the token server seals the
+//! paid drive's sign-up to it. The checkout and its key go on the keyring's list of unfinished
+//! checkouts before the payment page opens, so a drive paid after "Stop waiting" joins the
+//! source list in the background, and one paid while AzDrive was closed arrives at the next start
+//! (azcloud-kit's `pending`). An Azlin drive's session is written by worker threads only, under
+//! the drive's lock every AzDrive window shares: a second window never spends a drive token the
+//! first one has spent (the token server would revoke the device).
 
 mod actions;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
@@ -92,6 +110,10 @@ mod add_flow;
 pub mod args;
 pub mod browse;
 pub mod fileops;
+/// The search box's search of the open folder and below it, as plain data.
+pub mod find;
+#[cfg(test)]
+mod find_tests;
 mod ids;
 mod jobs;
 pub mod keys;
@@ -104,6 +126,8 @@ pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
 mod ui_dialogs;
+/// The search's results in the folder view.
+mod ui_find;
 mod ui_panes;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
@@ -174,10 +198,19 @@ const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0 + 25.0 + 23.0;
 
 // ==== Drives ====
 
-/// The sessions of Azlin drives that refreshed their credentials on a worker thread, as
-/// (drive id, keyring text): the UI thread stores each in the keyring (`store_rotated`) - the
-/// drive token they replace is spent.
-pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<(String, String)>>>;
+/// A session an Azlin drive switched to on a worker thread: refreshed there (and stored in the
+/// keyring under the drive's lock before anything used it) or read from the keyring (another
+/// window refreshed). The UI thread takes it as the drive's secret (`take_rotated`).
+pub(crate) struct Rotated {
+    pub drive_id: String,
+    /// The keyring text of the session. Never printed.
+    pub secret: String,
+    /// Why the keyring did not take it: it lives in this process only.
+    pub unsaved: Option<String>,
+}
+
+/// The sessions Azlin drives switched to on worker threads, for the UI thread.
+pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<Rotated>>>;
 
 /// A drive.
 pub(crate) struct Slot {
@@ -204,12 +237,15 @@ impl Slot {
     }
 
     /// The drive, opened on first use: an Azlin drive through azcloud-kit (it refreshes its
-    /// credentials; a rotated session lands in `rotated`, its token server is the one the entry
-    /// names, else `token_url`), every other one through azul-storage.
+    /// credentials under the drive's lock in `keyring`, which it re-reads first - another window
+    /// may have refreshed - and writes before it lets go; every session it switches to lands in
+    /// `rotated`; its token server is the one the entry names, else `token_url`), every other
+    /// one through azul-storage.
     pub fn open(
         &mut self,
         rotated: &RotatedSessions,
         token_url: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
     ) -> Result<Arc<dyn Drive>, DriveError> {
         if let Some(drive) = &self.drive {
             return Ok(drive.clone());
@@ -232,12 +268,19 @@ impl Slot {
                 &self.entry,
                 session,
                 token_url.unwrap_or_default(),
+                keyring.clone(),
                 transports,
-                Box::new(move |session: &azcloud_kit::AzlinSession| {
-                    if let Ok(mut queue) = queue.lock() {
-                        queue.push((id.clone(), session.to_keyring_secret()));
-                    }
-                }),
+                Box::new(
+                    move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
+                        if let Ok(mut queue) = queue.lock() {
+                            queue.push(Rotated {
+                                drive_id: id.clone(),
+                                secret: session.to_keyring_secret(),
+                                unsaved: saved.err(),
+                            });
+                        }
+                    },
+                ),
             )?)
         } else {
             Arc::from(self.entry.open_with_secret(
@@ -518,7 +561,13 @@ pub(crate) struct DriveState {
     pub selected_pin: Option<usize>,
     pub type_ahead: TypeAhead,
     pub settings: Settings,
+    /// The search box's text.
     pub search: String,
+    /// The search of the open folder and every folder below it, while the search box holds
+    /// text: its results are the rows the view shows.
+    pub find: Option<find::FindState>,
+    /// The searches started so far (a batch of an older one is dropped).
+    pub find_serial: u64,
     pub editing_path: bool,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
@@ -585,8 +634,14 @@ pub(crate) struct DriveState {
     /// The Azlin token server of this run (Buy storage; the refreshes of Azlin drives that
     /// name none): `--token-url`, the environment, the shared Azlin config, the profile.
     pub token: azcloud_kit::TokenEndpoint,
-    /// Azlin drives' sessions rotated on a worker thread, for the keyring.
+    /// The sessions Azlin drives switched to on worker threads, for the slots' secrets.
     pub rotated: RotatedSessions,
+    /// The keyring as the worker threads read and write it (azul's blocking keyring calls),
+    /// with the locks every AzDrive of this user shares beside the drives file: an Azlin
+    /// drive's session (its refreshes), the unfinished checkouts.
+    pub keyring: azcloud_kit::SharedKeyring,
+    /// The background claims of unfinished checkouts run (one job at a time).
+    pub claiming: bool,
 }
 
 impl DriveState {
@@ -631,13 +686,37 @@ impl DriveState {
         }
     }
 
-    /// The rows shown: hidden items only when asked, the search's matches.
+    /// The rows shown: the search's results while a search is open (the walk left the hidden
+    /// items out unless they show), else the open folder's rows - hidden items only when asked.
     pub fn visible_entries(&self) -> Vec<&Entry> {
+        if let Some(find) = &self.find {
+            return find.rows.iter().collect();
+        }
         self.entries
             .iter()
             .filter(|e| self.settings.show_hidden || !e.is_hidden())
             .filter(|e| browse::matches_search(e, &self.search))
             .collect()
+    }
+
+    /// The layout the folder view draws: the search's results always in Details (a row each,
+    /// with its folder and the line it matched on), else the user's.
+    pub fn view_layout(&self) -> model::ViewLayout {
+        if self.find.is_some() {
+            model::ViewLayout::Details
+        } else {
+            self.settings.layout
+        }
+    }
+
+    /// The grouping the folder view draws: none for the search's results (they come in the
+    /// order they were found: names first), else the user's.
+    pub fn view_grouping(&self) -> model::GroupBy {
+        if self.find.is_some() {
+            model::GroupBy::None
+        } else {
+            self.settings.group_by
+        }
     }
 
     /// The keys of the rows shown, in order.
@@ -672,11 +751,15 @@ impl DriveState {
     /// The one selected row.
     pub fn single_selected(&self) -> Option<&Entry> {
         let key = self.selection.single()?;
-        self.entries.iter().find(|e| e.key == key)
+        self.entry(key)
     }
 
+    /// The row of `key`: a search's result while a search is open, else the open folder's.
     pub fn entry(&self, key: &str) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.key == key)
+        match &self.find {
+            Some(find) => find.entry(key),
+            None => self.entries.iter().find(|e| e.key == key),
+        }
     }
 
     /// The drives as `(id, name)`, for the typed path.
@@ -774,7 +857,7 @@ impl DriveState {
     /// The items per row of a grid layout, for the arrow keys (the content
     /// is the window minus the navigation pane and the right pane).
     pub fn grid_columns(&self) -> usize {
-        if !self.settings.layout.is_grid() {
+        if !self.view_layout().is_grid() {
             return 1;
         }
         let mut width = self.window_width;
@@ -784,7 +867,7 @@ impl DriveState {
         if self.settings.preview_pane || self.settings.details_pane {
             width *= self.pane_ratios.1;
         }
-        self.settings.layout.columns_in(width - 32.0 - LEAF_FRAME_X)
+        self.view_layout().columns_in(width - 32.0 - LEAF_FRAME_X)
     }
 
     /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
@@ -876,10 +959,11 @@ pub(crate) fn open_current(s: &mut DriveState) -> Option<Arc<dyn Drive>> {
 pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
     let rotated = s.rotated.clone();
     let token_url = s.token.url.clone();
+    let keyring = s.keyring.clone();
     let opened = s
         .slots
         .get_mut(index)?
-        .open(&rotated, token_url.as_deref());
+        .open(&rotated, token_url.as_deref(), &keyring);
     match opened {
         Ok(drive) => Some(drive),
         Err(e) => {
@@ -951,6 +1035,84 @@ pub(crate) fn start_listing(
             cancel,
         },
     );
+}
+
+/// Stops the open search (its worker hears it within milliseconds; its batches would be dropped
+/// anyway): the folder's own rows show again. Whether one was open.
+pub(crate) fn stop_find(s: &mut DriveState) -> bool {
+    let Some(find) = s.find.take() else {
+        return false;
+    };
+    find.cancel.store(true, Ordering::SeqCst);
+    s.selection = Selection::default();
+    s.clear_preview();
+    true
+}
+
+/// The search box's text changed, or a setting of the search did: the search running stops and
+/// a new one starts for the open folder and every folder below it - the names, then the files'
+/// contents when "File contents" is on; a cloud drive's names over a recursive listing (slower,
+/// no contents). Its results stream into the view as rows. An empty box (Escape cleared it)
+/// shows the folder again. This PC and Quick access are not searched.
+pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let was_open = stop_find(s);
+    let query = s.search.trim().to_string();
+    let index = s.current_drive();
+    let (Some(index), false) = (index, query.is_empty()) else {
+        if was_open {
+            println!("AZDRIVE_SEARCH_CLOSED");
+        }
+        return;
+    };
+    let Some(drive) = open_slot(s, index) else {
+        return;
+    };
+    let prefix = s.prefix().to_string();
+    let dir = s.local_dir(index, &prefix);
+    let remote = dir.is_none();
+    let contents = s.settings.search_contents && !remote && find::searches_contents(&query);
+    s.find_serial += 1;
+    let serial = s.find_serial;
+    let cancel = Arc::new(AtomicBool::new(false));
+    s.find = Some(find::FindState::new(
+        query.clone(),
+        contents,
+        remote,
+        serial,
+        cancel.clone(),
+    ));
+    // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
+    // with every key typed into it (the user may have chosen another tab meanwhile).
+    if !was_open {
+        s.ribbon_tab = ui_ribbon::RibbonTabKind::Search;
+    }
+    s.view_scroll.0 = 0.0;
+    ui_view::scroll_view_to_top(info);
+    println!("AZDRIVE_SEARCHING {query}");
+    let job = match dir {
+        Some(dir) => Job::Find {
+            serial,
+            request: find::local_request(
+                dir,
+                &query,
+                contents,
+                s.settings.show_hidden,
+                s.settings.search_ignore_files,
+                prefix.is_empty(),
+            ),
+            prefix,
+            cancel,
+        },
+        None => Job::FindRemote {
+            serial,
+            drive,
+            prefix,
+            pattern: azul_search::Pattern::guess(query),
+            show_hidden: s.settings.show_hidden,
+            cancel,
+        },
+    };
+    spawn(info, app, s, job);
 }
 
 /// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
@@ -1086,6 +1248,13 @@ pub(crate) fn go(
     s.clear_notice();
     s.editing_path = false;
     s.renaming = None;
+    // A search ends where its folder is left (a result's folder opens without it): the box
+    // empties too - what was typed there outranks the rebuild until the app sets it.
+    let searching = stop_find(s);
+    if searching || !s.search.is_empty() {
+        println!("AZDRIVE_SEARCH_CLOSED");
+        actions::clear_search_box(info);
+    }
     s.search.clear();
     // The folder being left may still be read: that read stops here.
     cancel_listing(s);
@@ -1131,6 +1300,11 @@ pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState)
         refresh_disks(s);
         s.root_counts.clear();
         count_drive_roots(info, app, s);
+        return;
+    }
+    if s.find.is_some() {
+        // F5 on a search's results searches again.
+        start_find(info, app, s);
         return;
     }
     start_listing(info, app, s, true);
@@ -1241,14 +1415,15 @@ pub(crate) fn save_settings(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
 
 // ==== Keyring ====
 
-/// A keyring operation in flight or queued (the keyring answers one at a time).
+/// A keyring operation of the UI thread in flight or queued (the keyring answers one at a
+/// time). An Azlin drive's session is never written here: the worker threads write it under
+/// the drive's lock (`DriveState::keyring`), where a later write of the UI thread could put a
+/// spent drive token back over a newer one.
 pub(crate) enum KeyringOp {
     /// Reading a drive's keyring entry (keys, a session, secret settings) to open it.
     Unlock { drive_id: String },
     /// Saving a new drive's keys.
     Store { drive_id: String },
-    /// Saving an Azlin drive's rotated session (quietly: only a failure is said).
-    Rotate { drive_id: String },
     /// Removing a forgotten drive's keys.
     Forget,
 }
@@ -1274,25 +1449,26 @@ pub(crate) fn check_secret(entry: &DriveEntry, secret: &str) -> Result<(), Strin
     }
 }
 
-/// Stores the sessions Azlin drives rotated on worker threads (each one's drive token is the
-/// next refresh's; the one before is spent).
-pub(crate) fn store_rotated(info: &mut CallbackInfo, s: &mut DriveState) {
-    let rotated: Vec<(String, String)> = match s.rotated.lock() {
+/// Takes the sessions Azlin drives switched to on worker threads as their slots' secrets (a
+/// presigned link signs with the current keys). The keyring has them already - the refresh
+/// wrote them under the drive's lock -; one it did not take is said.
+pub(crate) fn take_rotated(s: &mut DriveState) {
+    let rotated: Vec<Rotated> = match s.rotated.lock() {
         Ok(mut queue) => queue.drain(..).collect(),
         Err(_) => return,
     };
-    for (drive_id, secret) in rotated {
-        if let Some(index) = s.slot_index(&drive_id) {
-            s.slots[index].secret = Some(secret.clone());
+    for session in rotated {
+        let Some(index) = s.slot_index(&session.drive_id) else {
+            continue;
+        };
+        s.slots[index].secret = Some(session.secret);
+        if let Some(why) = session.unsaved {
+            let name = s.slots[index].entry.name.clone();
+            s.error(format!(
+                "The new session of \"{name}\" could not be saved in the keyring: {why}. AzDrive \
+                 keeps it until it closes; after that the drive must be added again."
+            ));
         }
-        keyring(
-            info,
-            s,
-            KeyringOp::Rotate {
-                drive_id: drive_id.clone(),
-            },
-            KeyringCall::Store(config::keyring_key(&drive_id), secret),
-        );
     }
 }
 
@@ -1415,19 +1591,6 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                 }
             }
         }
-        KeyringOp::Rotate { drive_id } => {
-            if !matches!(result, KeyringResult::Stored) {
-                let name = s
-                    .slot_index(&drive_id)
-                    .map(|i| s.slots[i].entry.name.clone())
-                    .unwrap_or_default();
-                s.error(format!(
-                    "The new session of \"{name}\" could not be saved: {}. AzDrive keeps it until \
-                     it closes; after that the drive must be added again.",
-                    keyring_problem(&result)
-                ));
-            }
-        }
         KeyringOp::Store { drive_id } => {
             let name = s
                 .slot_index(&drive_id)
@@ -1483,6 +1646,10 @@ pub(crate) fn changed(
     if showing(s, drive_id, prefix) {
         // Read again behind the rows that show: they stay until the new ones are in.
         start_listing(info, app, s, true);
+    }
+    if s.find.is_some() && s.current_drive_id().as_deref() == Some(drive_id) {
+        // The search's results may hold what changed (a result renamed, deleted): it runs again.
+        start_find(info, app, s);
     }
     tree_invalidate(info, app, s, (drive_id.to_string(), prefix.to_string()));
 }
@@ -1575,18 +1742,23 @@ pub(crate) extern "C" fn on_job_done(
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    // A scan's batches before its last one and a transfer's progress are messages of a thread
-    // that still runs.
+    // A scan's batches before its last one, a transfer's progress and what the background
+    // claims found are messages of a thread that still runs.
     let still_running = matches!(
         outcome,
-        Outcome::Progress { .. } | Outcome::Thumbnail { .. } | Outcome::Scanned { done: false, .. }
+        Outcome::Progress { .. }
+            | Outcome::Thumbnail { .. }
+            | Outcome::Scanned { done: false, .. }
+            | Outcome::Claimed { serial: None, .. }
+            | Outcome::CheckoutDropped { .. }
+            | Outcome::Searched { end: None, .. }
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
     }
-    // An Azlin drive may have refreshed its credentials during the job: its new session (and
-    // drive token) goes to the keyring before anything else.
-    store_rotated(&mut info, s);
+    // An Azlin drive may have switched sessions during the job (refreshed, or read another
+    // window's from the keyring): the slot's secret follows.
+    take_rotated(s);
     match outcome {
         Outcome::Scanned {
             serial,
@@ -1603,7 +1775,11 @@ pub(crate) extern "C" fn on_job_done(
             if serial != s.list_serial {
                 return Update::DoNothing;
             }
-            let changed = listing::apply_stats(&mut s.entries, &stats);
+            let mut changed = listing::apply_stats(&mut s.entries, &stats);
+            if let Some(find) = s.find.as_mut() {
+                // The search's rows in view were asked for (a result's key is the drive's).
+                changed += listing::apply_stats(&mut find.rows, &stats);
+            }
             if actions::needs_all_stats(s) {
                 // A sort by Size or Date modified is a chain: every answer asks for the next
                 // rows - even one that changed no row (its rows gone since) - and the answer
@@ -1811,7 +1987,22 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::CheckoutStarted { serial, result } => {
             add_flow::checkout_started(&mut info, &handle, s, serial, result);
         }
-        Outcome::PaymentEnded { serial, why } => add_flow::payment_ended(s, serial, why),
+        Outcome::PaymentEnded { serial, why } => {
+            add_flow::payment_ended(&mut info, &handle, s, serial, why);
+        }
+        Outcome::Claimed {
+            serial,
+            checkout,
+            claimed,
+        } => add_flow::claimed(&mut info, &handle, s, serial, &checkout, &claimed),
+        Outcome::CheckoutDropped { checkout_id, why } => {
+            add_flow::checkout_dropped(s, &checkout_id, &why);
+        }
+        Outcome::ClaimsDone { problem } => add_flow::claims_done(s, problem),
+        Outcome::CheckoutForgotten {
+            checkout_id,
+            result,
+        } => add_flow::checkout_forgotten(s, &checkout_id, result),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -1826,6 +2017,31 @@ pub(crate) extern "C" fn on_job_done(
             }
         }
         Outcome::ThumbnailsDone => {}
+        Outcome::Searched {
+            serial,
+            batch,
+            phase,
+            searched,
+            end,
+        } => {
+            let Some(find) = s.find.as_mut().filter(|f| f.serial == serial) else {
+                return Update::DoNothing; // an older search, or none open any more
+            };
+            find.merge(batch);
+            find.phase = phase;
+            find.searched = searched;
+            if let Some(end) = end {
+                println!(
+                    "AZDRIVE_SEARCHED {} {} {}",
+                    find.rows.len(),
+                    if find.contents { "contents" } else { "names" },
+                    find.query
+                );
+                find.end = Some(end);
+            }
+            // The rows that came into view get their sizes and dates.
+            actions::request_view_work(&mut info, &handle, s);
+        }
     }
     Update::RefreshDom
 }
@@ -2027,7 +2243,21 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let backstage = s.backstage;
         go(info, app, s, place, false);
         s.backstage = backstage;
+        // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
+        add_flow::start_claims(info, app, s);
     })
+}
+
+/// The folder of the locks every AzDrive of this user (and every Azlin app) shares: beside the
+/// drives file (`<config dir>/azul-storage/locks`), else in the temporary folder.
+fn lock_dir(drives_file: Option<&Path>) -> PathBuf {
+    drives_file
+        .and_then(Path::parent)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map_or_else(
+            || std::env::temp_dir().join("azul-storage-locks"),
+            |dir| dir.join("locks"),
+        )
 }
 
 /// The data tree as a drive: the data root, opened as the data tree's `LocalDrive` (the one that
@@ -2182,6 +2412,12 @@ pub fn start() {
         .as_deref()
         .and_then(|text| browse::parse_path(text, &drive_names))
         .unwrap_or(place);
+    // The keyring as the worker threads use it (azul's blocking calls), with the locks of its
+    // entries beside the drives file.
+    let keyring = azcloud_kit::SharedKeyring::new(
+        Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
+        azcloud_kit::LockDir::new(lock_dir(drives_file.as_deref())),
+    );
     let mut state = DriveState {
         slots,
         place,
@@ -2205,6 +2441,8 @@ pub fn start() {
         type_ahead: TypeAhead::default(),
         settings,
         search: String::new(),
+        find: None,
+        find_serial: 0,
         editing_path: false,
         renaming: None,
         column_drag: None,
@@ -2251,6 +2489,8 @@ pub fn start() {
         kit,
         token,
         rotated: RotatedSessions::default(),
+        keyring,
+        claiming: false,
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

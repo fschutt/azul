@@ -137,10 +137,10 @@ fn styles(dom: &Dom) -> Vec<azul_css::css::Css> {
 /// The accessibility tree: every accessibility declaration, in tree order
 /// (a theme may draw a part with more or fewer presentational nodes - a
 /// spinner's spokes - without changing what a screen reader hears).
-fn a11y(dom: &Dom) -> Vec<Box<azul_core::a11y::AccessibilityInfo>> {
+fn a11y(dom: &Dom) -> Vec<azul_core::a11y::AccessibilityInfo> {
     nodes(dom)
         .into_iter()
-        .filter_map(|(_, n)| n.root.accessibility.clone())
+        .filter_map(|(_, n)| n.root.accessibility.as_deref().cloned())
         .collect()
 }
 
@@ -826,12 +826,15 @@ fn quick_access_bars_follow_the_app_theme() {
     });
 }
 
+/// A chrome widget's name, and the widget built in a theme.
+type NamedLook = (&'static str, Box<dyn Fn(UiTheme) -> Dom>);
+
 /// The follow checks above hold trivially for a widget whose two looks are
 /// one (they then need no theme blocks). The chrome widgets must not be that
 /// widget: each has a flora look of its own.
 #[test]
 fn the_ribbon_quick_access_bar_and_status_bar_each_have_a_flora_look_of_their_own() {
-    let looks: Vec<(&str, Box<dyn Fn(UiTheme) -> Dom>)> = vec![
+    let looks: Vec<NamedLook> = vec![
         (
             "ribbon",
             Box::new(|t: UiTheme| chrome_ribbon().with_theme(t).dom()),
@@ -973,8 +976,9 @@ fn titlebars_follow_the_app_theme_in_every_shape() {
             &defaults::gnome_adwaita_light(),
         )
     }
-    let bars: [(&str, fn() -> Titlebar); 3] =
-        [("create", create), ("macos", macos), ("gnome csd", gnome_csd)];
+    /// A bar's name and how it is built.
+    type NamedBar = (&'static str, fn() -> Titlebar);
+    let bars: [NamedBar; 3] = [("create", create), ("macos", macos), ("gnome csd", gnome_csd)];
     for (name, bar) in bars {
         assert_follows_the_app_theme(&format!("{name} titlebar"), |t| {
             pinned(bar(), t, Titlebar::with_theme).dom()

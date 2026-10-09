@@ -1,13 +1,17 @@
 //! An Azlin drive as an azul-storage [`Drive`]: an S3 bucket whose temporary credentials (12 h)
 //! are refreshed with the drive token before they run out, and once more when the bucket
 //! refuses them (a clock that is off, a revoked key). Every refresh spends the drive token and
-//! answers the next one; [`AzlinDrive`] hands each new session to the app's `on_rotated` (for
-//! its keyring: the old token is dead, and spending it again makes the token server revoke
-//! this device).
+//! answers the next one; spending a spent one makes the token server revoke this device.
 //!
-//! One refresh at a time: the session is behind a lock that the refresh holds, so two calls
-//! that find the credentials running out at once refresh ONCE - the second sees the first's
-//! answer. Blocking, like every drive: call it from an azul `Thread`.
+//! So a refresh is one at a time across every process of the user (two AzDrive windows, two
+//! apps over one drive): it holds the drive's lock (the lock of its keyring entry,
+//! [`SharedKeyring::lock`]) and reads the keyring first - another process may have refreshed
+//! already: its session is the newest then, and is taken as it is unless its credentials need
+//! a refresh too (which spends ITS token) - and it stores the rotated session in the keyring
+//! before it lets go. [`AzlinDrive`] hands every session it switches to to the app's
+//! `on_rotated`, with whether the keyring has it. Within the process the session is behind a
+//! lock as well, so two calls that find the credentials running out at once refresh ONCE - the
+//! second sees the first's answer. Blocking, like every drive: call it from an azul `Thread`.
 
 use std::{
     fmt,
@@ -16,19 +20,24 @@ use std::{
 };
 
 use azul_storage::{
-    config::DriveEntry, time::now_unix, ByteRange, Drive, DriveError, ListPage, ListRequest,
-    ObjectInfo, S3Drive, Transport,
+    config::{keyring_key, DriveEntry},
+    time::now_unix,
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, S3Drive, Transport,
 };
 
 use crate::{
     session::AzlinSession,
+    shared::SharedKeyring,
     token::{TokenError, TokenServer},
 };
 
 /// Makes a transport: one for every S3 drive the credentials open, one for every refresh.
 pub type TransportFactory = Arc<dyn Fn() -> Box<dyn Transport> + Send + Sync>;
-/// Hears every rotated session (the app stores it in its keyring).
-pub type OnRotated = Box<dyn Fn(&AzlinSession) + Send + Sync>;
+/// Hears every session the drive switches to (the app keeps it as the drive's secret in
+/// memory), and whether the keyring has it: `Ok` it was stored there by this refresh or read
+/// from there (another process refreshed); `Err` why it could not be stored - it lives in this
+/// process only, and the app should say so.
+pub type OnRotated = Box<dyn Fn(&AzlinSession, Result<(), String>) + Send + Sync>;
 
 /// The S3 error codes that mean "these credentials no longer work".
 const REFUSED_CREDENTIALS: &[&str] = &[
@@ -49,6 +58,8 @@ pub struct AzlinDrive {
     entry: DriveEntry,
     token_url: String,
     current: Mutex<Current>,
+    /// Where the drive's session lives between processes, and the lock its refreshes hold.
+    keyring: SharedKeyring,
     transports: TransportFactory,
     on_rotated: OnRotated,
     clock: Box<dyn Fn() -> u64 + Send + Sync>,
@@ -84,11 +95,13 @@ fn refused_credentials(e: &DriveError) -> bool {
 
 impl AzlinDrive {
     /// The Azlin drive `entry` (its location: the bucket), with the keyring's `session`. Its
-    /// refreshes go to the token server the entry names, else `token_url`. Sends nothing.
+    /// refreshes go to the token server the entry names, else `token_url`, and read and write
+    /// the drive's entry of `keyring` under its lock. Sends nothing.
     pub fn new(
         entry: &DriveEntry,
         session: AzlinSession,
         token_url: &str,
+        keyring: SharedKeyring,
         transports: TransportFactory,
         on_rotated: OnRotated,
     ) -> Result<AzlinDrive, DriveError> {
@@ -117,6 +130,7 @@ impl AzlinDrive {
                 session,
                 drive: None,
             }),
+            keyring,
             transports,
             on_rotated,
             clock: Box::new(now_unix),
@@ -147,7 +161,7 @@ impl AzlinDrive {
     fn bucket(&self) -> Result<(Arc<S3Drive>, String), DriveError> {
         let mut current = self.lock();
         if current.session.needs_refresh((self.clock)()) {
-            self.refresh(&mut current)?;
+            self.refresh(&mut current, None)?;
         }
         let drive = self.opened(&mut current)?;
         Ok((drive, current.session.access_key_id.clone()))
@@ -171,10 +185,31 @@ impl AzlinDrive {
         Ok(drive)
     }
 
-    /// Spends the drive token for fresh credentials; the new session takes the old one's place
-    /// and goes to `on_rotated`. Called with the lock held: one refresh at a time (`on_rotated`
-    /// must not call back into this drive).
-    fn refresh(&self, current: &mut Current) -> Result<(), DriveError> {
+    /// Fresh credentials: under the drive's lock, the session another process refreshed (the
+    /// keyring's, when its token is not the one `current` holds - and its credentials are not
+    /// running out, nor the ones the bucket refused: `refused`), else the drive token spent for
+    /// new ones, which go into the keyring before the lock is let go. The new session takes the
+    /// old one's place and goes to `on_rotated`. Called with `current` held: one refresh at a
+    /// time in this process too (`on_rotated` must not call back into this drive).
+    fn refresh(&self, current: &mut Current, refused: Option<&str>) -> Result<(), DriveError> {
+        let key = keyring_key(&current.session.drive_id);
+        let _held = self
+            .keyring
+            .lock(&key)
+            .map_err(|e| DriveError::Io(e.to_string()))?;
+        if let Some(newer) = self.newer_in_keyring(&key, &current.session) {
+            let usable = match refused {
+                Some(refused) => newer.access_key_id != refused,
+                None => !newer.needs_refresh((self.clock)()),
+            };
+            // The token this process held is spent either way: the keyring's is the newest.
+            current.session = newer;
+            current.drive = None;
+            if usable {
+                (self.on_rotated)(&current.session, Ok(()));
+                return Ok(());
+            }
+        }
         let transport = (self.transports)();
         let server =
             TokenServer::new(&self.token_url, transport.as_ref()).map_err(|e| drive_error_of(&e))?;
@@ -182,11 +217,26 @@ impl AzlinDrive {
             .refresh(&current.session.drive_id, &current.session.drive_token)
             .map_err(|e| drive_error_of(&e))?;
         let session = bundle.session();
-        // The app keeps the new token BEFORE it is used: the old one is spent.
-        (self.on_rotated)(&session);
+        // In the keyring BEFORE the lock is let go: the token just spent is dead, and the next
+        // process to refresh must find this one.
+        let saved = self
+            .keyring
+            .set(&key, &session.to_keyring_secret())
+            .map_err(|e| e.to_string());
+        (self.on_rotated)(&session, saved);
         current.session = session;
         current.drive = None;
         Ok(())
+    }
+
+    /// The keyring's session of the drive when it is newer than `held` - another process spent
+    /// `held`'s token -; `None` when the keyring has none, the same one, or cannot be read (the
+    /// session this process holds is the newest it knows then).
+    fn newer_in_keyring(&self, key: &str, held: &AzlinSession) -> Option<AzlinSession> {
+        let text = self.keyring.get(key).ok()??;
+        let stored = AzlinSession::from_keyring_secret(&text).ok()?;
+        (stored.drive_id == held.drive_id && stored.drive_token != held.drive_token)
+            .then_some(stored)
     }
 
     /// The bucket after the bucket refused the credentials of `refused` (an access key): a
@@ -194,7 +244,7 @@ impl AzlinDrive {
     fn after_refusal(&self, refused: &str) -> Result<Arc<S3Drive>, DriveError> {
         let mut current = self.lock();
         if current.session.access_key_id == refused {
-            self.refresh(&mut current)?;
+            self.refresh(&mut current, Some(refused))?;
         }
         self.opened(&mut current)
     }

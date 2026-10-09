@@ -675,6 +675,13 @@ pub enum NodeType {
     /// materializing an estimated break does not move content. XML tag:
     /// `<pagebreak/>`; constructor: [`Dom::create_page_break`].
     PageBreak,
+    /// `<webview src=..>` - a native web view embedded as a replaced
+    /// element (300x150 unless sized), the page in the node's `src`
+    /// attribute. It reports its navigations, loads and title to the app as
+    /// `ComponentEventFilter::WebView*` events; there is no script bridge.
+    /// The config rides inline like `TransientWindow`'s. See
+    /// `crate::webview`; constructor: [`Dom::create_webview`].
+    WebView(crate::webview::WebViewConfig),
 }
 
 /// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
@@ -909,6 +916,7 @@ impl NodeType {
             Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
             GeolocationProbe(cfg) => GeolocationProbe(*cfg),
             Self::PageBreak => Self::PageBreak,
+            Self::WebView(cfg) => Self::WebView(*cfg),
         }
     }
 
@@ -925,6 +933,7 @@ impl NodeType {
                 "geolocation-probe(hi={}, bg={}, max={}m, every={}ms)",
                 cfg.high_accuracy, cfg.background, cfg.max_accuracy_m, cfg.min_interval_ms
             )),
+            Self::WebView(cfg) => Some(format!("webview(storage={})", cfg.storage.as_str())),
             _ => None,
         }
     }
@@ -1128,6 +1137,7 @@ impl NodeType {
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::GeolocationProbe(_) => NodeTypeTag::GeolocationProbe,
             Self::PageBreak => NodeTypeTag::PageBreak,
+            Self::WebView(_) => NodeTypeTag::WebView,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
@@ -1756,13 +1766,16 @@ impl FluentArgKVVec {
             let plain_decimal = value
                 .bytes()
                 .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+'));
-            let value = if let Ok(i) = value.parse::<i32>() {
-                FluentArg::I32(i)
-            } else if let (true, Ok(f)) = (plain_decimal, value.parse::<f32>()) {
-                FluentArg::F32(f)
-            } else {
-                FluentArg::String(value.into())
-            };
+            let value = value.parse::<i32>().map_or_else(
+                |_| {
+                    if let (true, Ok(f)) = (plain_decimal, value.parse::<f32>()) {
+                        FluentArg::F32(f)
+                    } else {
+                        FluentArg::String(value.into())
+                    }
+                },
+                FluentArg::I32,
+            );
             args.push(FluentArgKV {
                 key: arg_name.into(),
                 value,
@@ -3062,6 +3075,26 @@ impl NodeData {
         nd
     }
 
+    /// A `<webview>` showing the page `src`, its cookies and storage in the
+    /// app's ephemeral store (see [`NodeType::WebView`]). The page is the
+    /// node's `src` attribute, as on an iframe.
+    #[must_use]
+    pub fn create_webview(src: AzString) -> Self {
+        Self::create_webview_with_config(src, crate::webview::WebViewConfig::ephemeral())
+    }
+
+    /// [`Self::create_webview`] with an explicit configuration (a persistent
+    /// store: `WebViewConfig::persistent()`).
+    #[must_use]
+    pub fn create_webview_with_config(
+        src: AzString,
+        config: crate::webview::WebViewConfig,
+    ) -> Self {
+        let mut nd = Self::create_node(NodeType::WebView(config));
+        nd.set_attributes(vec![AttributeType::Src(src)].into());
+        nd
+    }
+
     // -- Accessibility-aware NodeData constructors --
     // Each a11y-able element has two constructors: the canonical one takes a
     // `SmallAriaInfo` so the caller must opt in to an accessible name, and the
@@ -3263,6 +3296,19 @@ impl NodeData {
     #[must_use]
     pub const fn is_virtual_view_node(&self) -> bool {
         matches!(self.node_type, NodeType::VirtualView)
+    }
+
+    /// Whether this node is a replaced element the layout sizes from its own
+    /// box - an image, a `VirtualView` or a `<webview>`: no flow content, an
+    /// intrinsic size (its natural one, or 300x150), and a `width` / `height`
+    /// that apply even when it is inline. The one predicate the solver's
+    /// sizing paths share, so another kind of embedded view is one arm here.
+    #[must_use]
+    pub const fn is_sized_replaced_node(&self) -> bool {
+        matches!(
+            self.node_type,
+            NodeType::Image(_) | NodeType::VirtualView | NodeType::WebView(_)
+        )
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -5107,6 +5153,34 @@ impl Dom {
     #[must_use]
     pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
         Self::create_node(NodeType::GeolocationProbe(config))
+    }
+
+    /// Creates a `<webview>` showing the page `src`: a native web view laid
+    /// out as a replaced element - 300x150 unless CSS (or the markup's
+    /// `width` / `height`) sizes it - in the app's ephemeral store.
+    ///
+    /// The view reports to the app through four component events at this
+    /// node: `WebViewNavigationRequested` (cancel with `prevent_default` -
+    /// how a sign-in flow catches its redirect), `WebViewLoadFinished`,
+    /// `WebViewTitleChanged` and `WebViewLoadFailed`, each read with
+    /// `CallbackInfo::get_webview_event`. A changed `src` on the same node
+    /// navigates the view it has; `CallbackInfo::webview_navigate`,
+    /// `webview_reload` and `webview_go_back` drive it from a callback.
+    #[inline]
+    #[must_use]
+    pub fn create_webview(src: AzString) -> Self {
+        Self::create_from_data(NodeData::create_webview(src))
+    }
+
+    /// [`Self::create_webview`] with an explicit configuration, e.g. the
+    /// app's persistent store (`WebViewConfig::persistent()`).
+    #[inline]
+    #[must_use]
+    pub fn create_webview_with_config(
+        src: AzString,
+        config: crate::webview::WebViewConfig,
+    ) -> Self {
+        Self::create_from_data(NodeData::create_webview_with_config(src, config))
     }
 
     // Semantic HTML Elements with Accessibility Guidance

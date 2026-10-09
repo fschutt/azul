@@ -1147,6 +1147,11 @@ pub fn get_ua_property(
 
         // Icon Elements - inline-block so they have width/height but flow inline
         (NT::Icon(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        // A web view is azul's iframe: an inline replaced element (HTML
+        // 15.4.1), inline-block here like `<img>` so its 300x150 (or the size
+        // CSS gives it) holds in a line. No border: an app's sign-in panel
+        // draws its own frame, if any.
+        (NT::WebView(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
 
         (NT::SelectOption, PT::Display) => Some(&DISPLAY_NONE),
         (NT::OptGroup, PT::Display) => Some(&DISPLAY_NONE),
@@ -1414,11 +1419,13 @@ pub fn is_link(node: &NodeData) -> bool {
             .any(|a| matches!(a, AttributeType::Href(_)))
 }
 
-/// UA defaults of a LINK ([`is_link`]): `:link { color: #0000EE; cursor:
-/// pointer; text-decoration: underline }` (HTML rendering 15.3.4), the colour
-/// themed - #9E9EFF in the dark mode, where #0000EE cannot be read. An `<a>`
-/// without an `href` is a placeholder and gets none of them (the mail
-/// sanitizer drops the hrefs it cannot follow, and Chrome shows those
+/// UA defaults of a LINK ([`is_link`]):
+/// `:link { color: #0000EE; cursor: pointer; text-decoration: underline }`
+/// (HTML rendering 15.3.4).
+///
+/// The colour is themed - #9E9EFF in the dark mode, where #0000EE cannot be
+/// read. An `<a>` without an `href` is a placeholder and gets none of them (the
+/// mail sanitizer drops the hrefs it cannot follow, and Chrome shows those
 /// anchors plain).
 #[must_use]
 pub fn get_ua_link_property(

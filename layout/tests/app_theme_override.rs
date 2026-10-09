@@ -20,7 +20,7 @@ use azul_core::{
     window::DarkLightMode,
 };
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, DynamicSelector, ThemeCondition},
+    dynamic_selector::{CssPropertyWithConditions, DynamicSelector},
     props::{
         basic::color::ColorU,
         layout::{LayoutHeight, LayoutWidth},
@@ -55,8 +55,10 @@ fn window(desktop: SystemStyle, app_theme: &str) -> LayoutWindow {
 }
 
 fn window_state(theme: DarkLightMode) -> FullWindowState {
-    let mut ws = FullWindowState::default();
-    ws.mode = theme;
+    let mut ws = FullWindowState {
+        mode: theme,
+        ..Default::default()
+    };
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
     ws
 }

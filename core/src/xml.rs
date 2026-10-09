@@ -351,6 +351,7 @@ impl Xml {
     /// [`html`]). A fragment is a document: `<html>`, `<head>` and `<body>`
     /// are implied. The strict XML loaders stay strict.
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // C API: api.json hands the AzString over by value
     pub fn create_from_html(html: AzString) -> Self {
         Self {
             root: html::parse_html_nodes(html.as_str()).into(),
@@ -2376,14 +2377,18 @@ impl ComponentSource {
 }
 
 /// How generated code builds an instance of a component: the language-NEUTRAL
-/// half of a [`ComponentDef`] that the code generator (`azul_core::codegen`,
-/// the `codegen` feature) turns into the IR every binding language's printer
-/// prints. It replaced the per-language string hook `compile_fn`.
+/// half of a [`ComponentDef`].
+///
+/// The code generator (`azul_core::codegen`, the `codegen` feature) turns it
+/// into the IR every binding language's printer prints. It replaced the
+/// per-language string hook `compile_fn`.
 ///
 /// Variant 0 is [`ComponentCodegen::RenderFunction`], so a zero-initialised C
 /// struct is a component that code calls through its render function.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+// The C API's repr(C) enum: boxing the `Call` payload would change its ABI.
+#[allow(clippy::large_enum_variant, variant_size_differences)]
 pub enum ComponentCodegen {
     /// A call of the component's own render function,
     /// `render_<name>(<value fields>)`: the code export defines it once,
@@ -2414,15 +2419,16 @@ impl ComponentCodegen {
 
     /// [`ComponentCodegen::Call`].
     #[must_use]
-    pub fn call(call: ComponentCallCodegen) -> Self {
+    pub const fn call(call: ComponentCallCodegen) -> Self {
         Self::Call(call)
     }
 }
 
 /// A widget's constructor in api.json vocabulary, for
-/// [`ComponentCodegen::Call`]: `Button::create(label).dom()` is
-/// `{ class: "Button", constructor: "create", args: ["label"], setters: [],
-/// finish: "dom" }`.
+/// [`ComponentCodegen::Call`].
+///
+/// `Button::create(label).dom()` is
+/// `{ class: "Button", constructor: "create", args: ["label"], setters: [], finish: "dom" }`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ComponentCallCodegen {
@@ -2443,7 +2449,12 @@ pub struct ComponentCallCodegen {
 impl ComponentCallCodegen {
     /// A constructor call with no setters.
     #[must_use]
-    pub fn create(class: AzString, constructor: AzString, args: StringVec, finish: AzString) -> Self {
+    pub const fn create(
+        class: AzString,
+        constructor: AzString,
+        args: StringVec,
+        finish: AzString,
+    ) -> Self {
         Self {
             class,
             constructor,
@@ -2742,6 +2753,10 @@ macro_rules! html_tag_node_types {
                 "transient-window" => NodeType::TransientWindow(
                     crate::transient::TransientWindowConfig::closed(),
                 ),
+                // `<webview>` starts with an ephemeral store; `storage=` is
+                // applied onto the config afterwards (`element::land_common`),
+                // `src` lands as the node's attribute.
+                "webview" => NodeType::WebView(crate::webview::WebViewConfig::ephemeral()),
                 $($tag => NodeType::$variant,)*
                 // An element of a foreign vocabulary (Word's `<o:p>`,
                 // Outlook's `<st1:place>`) is HTML's unknown element: inline.
@@ -2759,6 +2774,7 @@ macro_rules! html_tag_node_types {
                 "img" | "image" => NodeTypeTag::Img,
                 "icon" => NodeTypeTag::Icon,
                 "transient-window" => NodeTypeTag::TransientWindow,
+                "webview" => NodeTypeTag::WebView,
                 $($tag => NodeTypeTag::$variant,)*
                 t if is_foreign_element(t) => NodeTypeTag::Span,
                 _ => NodeTypeTag::Div,
@@ -3767,6 +3783,28 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 "Preload hint (none, metadata, auto)"
             ),
         ],
+        // azul's native web view (`crate::webview`).
+        "webview" => alloc::vec![
+            data_field("src", String, None, "URL of the page the web view shows"),
+            data_field(
+                "storage",
+                String,
+                Some(D::String(AzString::from_const_str("ephemeral"))),
+                "Where cookies and storage live: ephemeral (in memory, the default) or persistent"
+            ),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width of the web view (300px unless set)"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Height of the web view (150px unless set)"
+            ),
+        ],
         "source" => alloc::vec![
             data_field("src", String, None, "URL of the media resource"),
             data_field(
@@ -4094,10 +4132,11 @@ impl ComponentMap {
     }
 }
 
-/// A component's ARGUMENTS from an element's attributes: `dm` with every
-/// field it declares set from the attribute of the same name, parsed to the
-/// field's type; every other field keeps its default, and an attribute no
-/// field declares adds nothing.
+/// A component's ARGUMENTS from an element's attributes.
+///
+/// `dm` with every field it declares set from the attribute of the same name,
+/// parsed to the field's type; every other field keeps its default, and an
+/// attribute no field declares adds nothing.
 ///
 /// THE one path from markup attributes to component arguments, for every
 /// component - builtin and user alike: the XML loaders fill a builtin
@@ -4161,7 +4200,8 @@ pub fn data_model_with_attributes<'a>(
 /// fields are read by the element's own path - `img` `width`/`height`, the
 /// form controls, `td` `colspan` - or not yet at all; see
 /// `scripts/MAILVIEW_2026_09_30.md`).
-const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img", "ol", "li"];
+const BUILTIN_ARGUMENT_ELEMENTS: &[&str] =
+    &["a", "area", "link", "base", "img", "ol", "li", "webview"];
 
 /// The render side of a builtin element's ARGUMENTS (its component's
 /// declared fields, filled by [`data_model_with_attributes`]): what they set
@@ -4178,6 +4218,9 @@ const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img",
 ///   presentational hint ([`builtin_presentational_hints`]: `counter-reset`).
 /// - `li`: `value` (a number) as its `Value` attribute: the item's number in its list, which
 ///   the layout's numbering reads and the next items count on from.
+/// - `webview`: `src` as its `Src` attribute - the page the web view shows, as on an iframe
+///   (`crate::webview`; its `storage` rides in the node type, its `width` / `height` are
+///   presentational hints).
 ///
 /// An empty value sets nothing; a value already on the node is not
 /// duplicated.
@@ -4203,6 +4246,9 @@ pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &m
         "img" | "image" => {
             add.extend(value("src").map(A::Src));
             add.extend(value("alt").map(A::Alt));
+        }
+        "webview" => {
+            add.extend(value("src").map(A::Src));
         }
         "ol" => {
             if argument_bool(args, "reversed") {
@@ -4240,11 +4286,13 @@ pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &m
 }
 
 /// For the XML loaders: a builtin element's component arguments from its
-/// attributes - its builtin data model filled by [`data_model_with_attributes`]
-/// and landed by [`apply_builtin_element_args`]. Only the elements whose
-/// arguments land on the node ([`BUILTIN_ARGUMENT_ELEMENTS`]) build a model,
-/// so the thousands of `div`s of a large document cost one slice lookup.
-/// `tag` is lowercase.
+/// attributes.
+///
+/// Its builtin data model is filled by [`data_model_with_attributes`] and
+/// landed by [`apply_builtin_element_args`]. Only the elements whose arguments
+/// land on the node ([`BUILTIN_ARGUMENT_ELEMENTS`]) build a model, so the
+/// thousands of `div`s of a large document cost one slice lookup. `tag` is
+/// lowercase.
 pub fn apply_builtin_args_from_attributes<'a>(
     tag: &str,
     attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
@@ -5001,6 +5049,7 @@ static BUILTIN_ELEMENTS: &[BuiltinElement] = {
         el("embed", "Embed", None, NoVisual("shows the resource its src names")),
         el("audio", "Audio", None, NoVisual("plays the audio its src names")),
         el("video", "Video", None, NoVisual("plays the video its src names")),
+        el("webview", "Web View", None, NoVisual("shows the web page its src names, in a native web view")),
         el("source", "Source", None, NoVisual("a source of its <audio> / <video>")),
         el("track", "Track", None, NoVisual("a text track of its <video>")),
         el("map", "Image Map", None, NoVisual("the clickable regions of an image: no box of its own")),
@@ -5054,9 +5103,11 @@ fn preview_xml(tag: &str, attrs: &[(&str, &str)], text: &str, children: &[Previe
 }
 
 /// What a builtin element's PREVIEW shows with `data` (its palette card, the
-/// Components view): the element with its `text` (the data model's, else its
-/// example's) plus the example attributes and children its entry in the
-/// `BUILTIN_ELEMENTS` table configures - which a drop does not insert.
+/// Components view).
+///
+/// The element with its `text` (the data model's, else its example's) plus the
+/// example attributes and children its entry in the `BUILTIN_ELEMENTS` table
+/// configures - which a drop does not insert.
 ///
 /// Unstyled on purpose: a raw `<input>` / `<select>` becomes its widget only
 /// where the widgets are, and azul-layout resolves them for the preview as it
@@ -6176,6 +6227,68 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
     })
 }
 
+/// An ellipse as four cubic Beziers (kappa scaled by `rx` on the x axis, by
+/// `ry` on the y axis), from its top round through its right, bottom and left.
+fn svg_ellipse_path(cx: f32, cy: f32, rx: f32, ry: f32) -> crate::svg::SvgPath {
+    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
+    const KAPPA: f32 = 0.552_284_8;
+    let kx = rx * KAPPA;
+    let ky = ry * KAPPA;
+    let elements = vec![
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx, y: cy - ry },
+            ctrl_1: SvgPoint {
+                x: cx + kx,
+                y: cy - ry,
+            },
+            ctrl_2: SvgPoint {
+                x: cx + rx,
+                y: cy - ky,
+            },
+            end: SvgPoint { x: cx + rx, y: cy },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx + rx, y: cy },
+            ctrl_1: SvgPoint {
+                x: cx + rx,
+                y: cy + ky,
+            },
+            ctrl_2: SvgPoint {
+                x: cx + kx,
+                y: cy + ry,
+            },
+            end: SvgPoint { x: cx, y: cy + ry },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx, y: cy + ry },
+            ctrl_1: SvgPoint {
+                x: cx - kx,
+                y: cy + ry,
+            },
+            ctrl_2: SvgPoint {
+                x: cx - rx,
+                y: cy + ky,
+            },
+            end: SvgPoint { x: cx - rx, y: cy },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx - rx, y: cy },
+            ctrl_1: SvgPoint {
+                x: cx - rx,
+                y: cy - ky,
+            },
+            ctrl_2: SvgPoint {
+                x: cx - kx,
+                y: cy - ry,
+            },
+            end: SvgPoint { x: cx, y: cy - ry },
+        }),
+    ];
+    crate::svg::SvgPath {
+        items: crate::svg::SvgPathElementVec::from_vec(elements),
+    }
+}
+
 /// The geometry of an SVG shape element (`path`, `circle`, `rect`,
 /// `ellipse`, `line`, `polygon`, `polyline`) in its user units: what its
 /// node's `SvgNodeData::Path` clips its box to. `None` for an empty or
@@ -6223,66 +6336,8 @@ fn svg_shape_geometry(element: &element::Element<'_>) -> Option<crate::svg::SvgM
             let rx = parse_svg_float(element.attribute("rx")).unwrap_or(0.0);
             let ry = parse_svg_float(element.attribute("ry")).unwrap_or(0.0);
             if rx > 0.0 && ry > 0.0 {
-                // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for
-                // y-kappa)
-                use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
-                const KAPPA: f32 = 0.552_284_8;
-                let kx = rx * KAPPA;
-                let ky = ry * KAPPA;
-                let elements = vec![
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx, y: cy - ry },
-                        ctrl_1: SvgPoint {
-                            x: cx + kx,
-                            y: cy - ry,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx + rx,
-                            y: cy - ky,
-                        },
-                        end: SvgPoint { x: cx + rx, y: cy },
-                    }),
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx + rx, y: cy },
-                        ctrl_1: SvgPoint {
-                            x: cx + rx,
-                            y: cy + ky,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx + kx,
-                            y: cy + ry,
-                        },
-                        end: SvgPoint { x: cx, y: cy + ry },
-                    }),
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx, y: cy + ry },
-                        ctrl_1: SvgPoint {
-                            x: cx - kx,
-                            y: cy + ry,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx - rx,
-                            y: cy + ky,
-                        },
-                        end: SvgPoint { x: cx - rx, y: cy },
-                    }),
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx - rx, y: cy },
-                        ctrl_1: SvgPoint {
-                            x: cx - rx,
-                            y: cy - ky,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx - kx,
-                            y: cy - ry,
-                        },
-                        end: SvgPoint { x: cx, y: cy - ry },
-                    }),
-                ];
                 Some(crate::svg::SvgMultiPolygon {
-                    rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                        items: crate::svg::SvgPathElementVec::from_vec(elements),
-                    }]),
+                    rings: crate::svg::SvgPathVec::from_vec(vec![svg_ellipse_path(cx, cy, rx, ry)]),
                 })
             } else {
                 None
@@ -6496,6 +6551,8 @@ fn attribute_pairs(xml_node: &XmlNode) -> Vec<(&str, &str)> {
 ///
 /// Recursion is bounded: at [`MAX_XML_NESTING_DEPTH`] the element is emitted
 /// without its children rather than overflowing the native stack.
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 fn walk_element(
     xml_node: &XmlNode,
     component_map: &ComponentMap,
@@ -7052,6 +7109,9 @@ pub mod element;
 
 /// HTML as a browser reads it (the lenient loader), and the ONE tree
 /// construction every XML loader shares.
+///
+// The empty `///` line ends this summary: rustdoc joins it with the `//!`
+// docs of `xml_html.rs` (clippy::too_long_first_doc_paragraph).
 #[path = "xml_html.rs"]
 pub mod html;
 

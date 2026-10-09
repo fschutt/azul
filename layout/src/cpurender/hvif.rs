@@ -156,7 +156,7 @@ impl<VS: VertexSource> VertexSource for Hinted<VS> {
     }
 }
 
-fn agg_join(join: HvifLineJoin) -> AggJoin {
+const fn agg_join(join: HvifLineJoin) -> AggJoin {
     match join {
         HvifLineJoin::Miter => AggJoin::Miter,
         HvifLineJoin::MiterRevert => AggJoin::MiterRevert,
@@ -166,7 +166,7 @@ fn agg_join(join: HvifLineJoin) -> AggJoin {
     }
 }
 
-fn agg_cap(cap: HvifLineCap) -> AggCap {
+const fn agg_cap(cap: HvifLineCap) -> AggCap {
     match cap {
         HvifLineCap::Butt => AggCap::Butt,
         HvifLineCap::Square => AggCap::Square,

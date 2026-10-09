@@ -63,7 +63,7 @@ pub struct RecordsShell {
 impl RecordsShell {
     /// A shell of the tab row and the table, nothing else.
     #[must_use]
-    pub fn create(tabs: Dom, table: Dom) -> Self {
+    pub const fn create(tabs: Dom, table: Dom) -> Self {
         Self {
             tabs,
             cards: OptionDom::None,

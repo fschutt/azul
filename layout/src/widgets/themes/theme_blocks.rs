@@ -84,7 +84,7 @@ use super::UiTheme;
 
 /// The condition of `theme`'s block: `@theme(<name>)`.
 #[must_use]
-pub(crate) fn theme_condition(theme: UiTheme) -> DynamicSelector {
+pub(crate) const fn theme_condition(theme: UiTheme) -> DynamicSelector {
     DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str(
         theme.name(),
     )))
@@ -263,12 +263,12 @@ fn interleave<T: Unit>(
             // orders cross here. The one whose twin is further ahead is the
             // one out of place.
             (Some(a), Some(b)) => {
-                let a_twin = flora[j..].iter().position(|u| u == a);
-                let b_twin = flat[i..].iter().position(|u| u == b);
+                let a_twin = flora[j..].iter().position(|unit| unit == a);
+                let b_twin = flat[i..].iter().position(|unit| unit == b);
                 let b_gives_way = match (a_twin, b_twin) {
                     (_, None) => true,
                     (None, Some(_)) => false,
-                    (Some(x), Some(y)) => y > x,
+                    (Some(a_ahead), Some(b_ahead)) => b_ahead > a_ahead,
                 };
                 return Err(types_of(if b_gives_way { b } else { a }));
             }
@@ -370,7 +370,7 @@ fn in_theme_css(css: Css, theme: UiTheme) -> Css {
 
 /// `flat` and `flora` as (the `structure` theme's, the other theme's) - and,
 /// the same swap, a (`structure`'s, other's) pair back as (flat, flora).
-fn mine_first<T>(structure: UiTheme, flat: T, flora: T) -> (T, T) {
+const fn mine_first<T>(structure: UiTheme, flat: T, flora: T) -> (T, T) {
     match structure {
         UiTheme::Flat => (flat, flora),
         UiTheme::Flora => (flora, flat),

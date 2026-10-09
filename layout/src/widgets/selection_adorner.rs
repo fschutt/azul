@@ -404,7 +404,7 @@ pub struct SelectionAdornerEvent {
 impl SelectionAdornerEvent {
     /// A `kind` event about `indices`, nothing else set.
     #[must_use]
-    pub fn create(kind: SelectionAdornerEventKind, indices: U32Vec) -> Self {
+    pub const fn create(kind: SelectionAdornerEventKind, indices: U32Vec) -> Self {
         Self {
             frames: AdornerFrameVec::from_const_slice(&[]),
             guides: AdornerGuideVec::from_const_slice(&[]),
@@ -555,61 +555,61 @@ impl SelectionAdorner {
     }
 
     /// The marquee to draw.
-    pub fn set_marquee(&mut self, marquee: AdornerFrame) {
+    pub const fn set_marquee(&mut self, marquee: AdornerFrame) {
         self.marquee = OptionAdornerFrame::Some(marquee);
     }
 
     /// [`Self::set_marquee`] for the builder chain.
     #[must_use]
-    pub fn with_marquee(mut self, marquee: AdornerFrame) -> Self {
+    pub const fn with_marquee(mut self, marquee: AdornerFrame) -> Self {
         self.set_marquee(marquee);
         self
     }
 
     /// The object whose text is being edited.
-    pub fn set_editing(&mut self, index: usize) {
+    pub const fn set_editing(&mut self, index: usize) {
         self.editing = OptionUsize::Some(index);
     }
 
     /// [`Self::set_editing`] for the builder chain.
     #[must_use]
-    pub fn with_editing(mut self, index: usize) -> Self {
+    pub const fn with_editing(mut self, index: usize) -> Self {
         self.set_editing(index);
         self
     }
 
     /// Snapping on or off.
-    pub fn set_snap(&mut self, snap: bool) {
+    pub const fn set_snap(&mut self, snap: bool) {
         self.snap = snap;
     }
 
     /// [`Self::set_snap`] for the builder chain.
     #[must_use]
-    pub fn with_snap(mut self, snap: bool) -> Self {
+    pub const fn with_snap(mut self, snap: bool) -> Self {
         self.set_snap(snap);
         self
     }
 
     /// How close (px) an edge must come to snap.
-    pub fn set_snap_distance(&mut self, px: f32) {
+    pub const fn set_snap_distance(&mut self, px: f32) {
         self.snap_distance = px.max(0.0);
     }
 
     /// [`Self::set_snap_distance`] for the builder chain.
     #[must_use]
-    pub fn with_snap_distance(mut self, px: f32) -> Self {
+    pub const fn with_snap_distance(mut self, px: f32) -> Self {
         self.set_snap_distance(px);
         self
     }
 
     /// An arrow key's fine step (with Ctrl / Cmd), canvas units.
-    pub fn set_nudge(&mut self, units: f32) {
+    pub const fn set_nudge(&mut self, units: f32) {
         self.nudge = units.max(0.0);
     }
 
     /// [`Self::set_nudge`] for the builder chain.
     #[must_use]
-    pub fn with_nudge(mut self, units: f32) -> Self {
+    pub const fn with_nudge(mut self, units: f32) -> Self {
         self.set_nudge(units);
         self
     }
@@ -696,8 +696,8 @@ pub(crate) fn to_local(f: &AdornerFrame, x: f32, y: f32) -> (f32, f32) {
     if f.rotation.abs() < f32::EPSILON {
         return (dx, dy);
     }
-    let (s, c) = (-f.rotation).to_radians().sin_cos();
-    (dx * c - dy * s, dx * s + dy * c)
+    let (sin, cos) = (-f.rotation).to_radians().sin_cos();
+    (dx * cos - dy * sin, dx * sin + dy * cos)
 }
 
 /// A point in `f`'s own axes (relative to its centre) back on the canvas.
@@ -785,8 +785,8 @@ pub(crate) fn resized(
     keep_ratio: bool,
 ) -> AdornerFrame {
     // The drag in the frame's own axes.
-    let (s, c) = (-start.rotation).to_radians().sin_cos();
-    let (ldx, ldy) = (dx * c - dy * s, dx * s + dy * c);
+    let (sin, cos) = (-start.rotation).to_radians().sin_cos();
+    let (ldx, ldy) = (dx * cos - dy * sin, dx * sin + dy * cos);
     let (hw, hh) = (start.width / 2.0, start.height / 2.0);
     let (ax, ay) = handle.anchor();
     let (mut left, mut right, mut top, mut bottom) = (-hw, hw, -hh, hh);
@@ -1310,7 +1310,7 @@ impl AdornerState {
                     .collect()
             }
         };
-        self.drag.last = frames.clone();
+        self.drag.last.clone_from(&frames);
         let mut e = SelectionAdornerEvent::create(
             SelectionAdornerEventKind::Transform,
             U32Vec::from_vec(self.drag.indices.clone()),
@@ -2078,15 +2078,16 @@ fn handles(look: &SelectionAdornerLook, rotate: bool) -> Vec<Dom> {
     out
 }
 
-/// The four edges around `f` (unturned), just outside it, at `scale`.
-fn editing_edges(look: &SelectionAdornerLook, f: &AdornerFrame, scale: f32) -> Vec<Dom> {
-    let (x, y, w, h) = (f.x * scale, f.y * scale, f.width * scale, f.height * scale);
-    let e = EDGE_PX;
+/// The four edges around `frame` (unturned), just outside it, at `scale`.
+fn editing_edges(look: &SelectionAdornerLook, frame: &AdornerFrame, scale: f32) -> Vec<Dom> {
+    let (x, y) = (frame.x * scale, frame.y * scale);
+    let (w, h) = (frame.width * scale, frame.height * scale);
+    let edge = EDGE_PX;
     [
-        (x - e, y - e, w + 2.0 * e, e),
-        (x - e, y + h, w + 2.0 * e, e),
-        (x - e, y, e, h),
-        (x + w, y, e, h),
+        (x - edge, y - edge, w + 2.0 * edge, edge),
+        (x - edge, y + h, w + 2.0 * edge, edge),
+        (x - edge, y, edge, h),
+        (x + w, y, edge, h),
     ]
     .into_iter()
     .map(|(ex, ey, ew, eh)| {

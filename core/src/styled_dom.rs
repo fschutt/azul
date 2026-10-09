@@ -1350,6 +1350,8 @@ impl StyledDom {
     ) -> Self {
         use crate::dom::EventFilter;
 
+        static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
+
         // HTML's presentational hints (`<table width cellpadding>`, `<td
         // bgcolor align nowrap>`): the attributes the XML loaders keep on
         // the node become inline declarations in front of each element's
@@ -1360,7 +1362,6 @@ impl StyledDom {
             node_hierarchy.as_container().internal,
         );
 
-        static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
 
         let node_count = compact_dom.len();

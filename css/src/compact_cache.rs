@@ -1316,9 +1316,11 @@ pub fn encode_line_height_factor(factor: f32) -> i16 {
     i16::try_from(scaled).unwrap_or(I16_AUTO)
 }
 
-/// Encode an absolute line-height in px: -px x 100, so to the hundredth of a
-/// pixel (tenths pitched `line-height: 14pt` lines 18.7px apart instead of
-/// 18.67px) up to 327.68px; `I16_AUTO` (read the cascade) beyond.
+/// Encode an absolute line-height in px: -px x 100, to the hundredth of a
+/// pixel.
+///
+/// Tenths pitched `line-height: 14pt` lines 18.7px apart instead of 18.67px. Up
+/// to 327.68px; `I16_AUTO` (read the cascade) beyond.
 #[inline]
 #[must_use]
 pub fn encode_line_height_px(px: f32) -> i16 {

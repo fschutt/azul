@@ -48,8 +48,10 @@ fn env_pinned() -> bool {
 }
 
 fn window_state(theme: DarkLightMode) -> FullWindowState {
-    let mut ws = FullWindowState::default();
-    ws.mode = theme;
+    let mut ws = FullWindowState {
+        mode: theme,
+        ..Default::default()
+    };
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
     ws
 }
@@ -180,9 +182,12 @@ fn click(lw: &mut LayoutWindow, node: NodeId) {
     }
 }
 
+/// A node's look: its background and its ink.
+type Look = (Option<CssProperty>, Option<CssProperty>);
+
 /// What `node` paints with: its background and its ink, as the cascade
 /// resolves them (user overrides first - what the display list reads).
-fn look(lw: &LayoutWindow, node: NodeId) -> (Option<CssProperty>, Option<CssProperty>) {
+fn look(lw: &LayoutWindow, node: NodeId) -> Look {
     let sd = styled(lw);
     let node_data = sd.node_data.as_container();
     let state = sd.get_styled_node_state(&node);
@@ -198,10 +203,7 @@ fn look(lw: &LayoutWindow, node: NodeId) -> (Option<CssProperty>, Option<CssProp
 }
 
 /// The looks of every node carrying one of `parts`, in document order.
-fn looks(
-    lw: &LayoutWindow,
-    parts: &[&str],
-) -> Vec<(NodeId, (Option<CssProperty>, Option<CssProperty>))> {
+fn looks(lw: &LayoutWindow, parts: &[&str]) -> Vec<(NodeId, Look)> {
     let mut nodes: Vec<NodeId> = parts.iter().flat_map(|p| with_class(lw, p)).collect();
     nodes.sort();
     nodes.into_iter().map(|n| (n, look(lw, n))).collect()

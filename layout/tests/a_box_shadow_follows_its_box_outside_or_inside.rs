@@ -13,6 +13,7 @@
 //!   background and the border only) - both WPT pages are inline-blocks;
 //! - an inset shadow was drawn as an outer one, BELOW the background;
 //! - an outer shadow kept a 1px sliver under the border box.
+//!
 //! Not compiled by the author (house rule); expected RED.
 
 use crate::painted::{painted, Painted, WHITE};

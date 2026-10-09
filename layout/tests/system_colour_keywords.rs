@@ -42,10 +42,7 @@ fn preset(theme: DarkLightMode) -> SystemStyle {
 }
 
 fn window_theme(theme: DarkLightMode) -> DarkLightMode {
-    match theme {
-        DarkLightMode::Light => DarkLightMode::Light,
-        DarkLightMode::Dark => DarkLightMode::Dark,
-    }
+    theme
 }
 
 /// The preset's own value for a slot, so the expectation is read from the

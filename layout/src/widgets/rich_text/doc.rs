@@ -90,7 +90,7 @@ impl RichFormats {
     }
 
     /// Turns `format` on or off.
-    pub fn set(&mut self, format: RichFormat, on: bool) {
+    pub const fn set(&mut self, format: RichFormat, on: bool) {
         match format {
             RichFormat::Bold => self.bold = on,
             RichFormat::Italic => self.italic = on,
@@ -102,7 +102,7 @@ impl RichFormats {
 
     /// The set with `format` on (for building documents in code).
     #[must_use]
-    pub fn with(mut self, format: RichFormat) -> Self {
+    pub const fn with(mut self, format: RichFormat) -> Self {
         self.set(format, true);
         self
     }
@@ -135,7 +135,7 @@ pub struct RichRun {
 impl RichRun {
     /// A plain run of `text`.
     #[must_use]
-    pub fn create(text: AzString) -> Self {
+    pub const fn create(text: AzString) -> Self {
         Self {
             text,
             link: OptionString::None,
@@ -158,7 +158,7 @@ impl RichRun {
 
     /// The run with these formats.
     #[must_use]
-    pub fn with_formats(mut self, formats: RichFormats) -> Self {
+    pub const fn with_formats(mut self, formats: RichFormats) -> Self {
         self.formats = formats;
         self
     }
@@ -201,7 +201,7 @@ impl RichRun {
 
     /// No format and no link: rendered as a bare text node.
     #[must_use]
-    pub fn is_plain(&self) -> bool {
+    pub const fn is_plain(&self) -> bool {
         self.formats.is_empty() && self.link.is_none()
     }
 
@@ -270,7 +270,7 @@ pub struct RichTableRow {
 impl RichTableRow {
     /// A row of `cells`.
     #[must_use]
-    pub fn create(cells: StringVec) -> Self {
+    pub const fn create(cells: StringVec) -> Self {
         Self { cells }
     }
 
@@ -322,7 +322,7 @@ pub struct RichTable {
 impl RichTable {
     /// A table of `rows`.
     #[must_use]
-    pub fn create(rows: RichTableRowVec, has_header: bool) -> Self {
+    pub const fn create(rows: RichTableRowVec, has_header: bool) -> Self {
         Self { rows, has_header }
     }
 
@@ -505,7 +505,7 @@ pub struct RichBlock {
 impl RichBlock {
     /// A block of `kind` holding `runs`.
     #[must_use]
-    pub fn create(kind: RichBlockKind, runs: RichRunVec) -> Self {
+    pub const fn create(kind: RichBlockKind, runs: RichRunVec) -> Self {
         Self {
             kind,
             runs,
@@ -553,14 +553,14 @@ impl RichBlock {
 
     /// The block quoted `depth` levels deep.
     #[must_use]
-    pub fn with_quote_depth(mut self, depth: u8) -> Self {
+    pub const fn with_quote_depth(mut self, depth: u8) -> Self {
         self.quote_depth = depth;
         self
     }
 
     /// The block aligned `align`.
     #[must_use]
-    pub fn with_align(mut self, align: RichAlign) -> Self {
+    pub const fn with_align(mut self, align: RichAlign) -> Self {
         self.align = align;
         self
     }

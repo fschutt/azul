@@ -157,7 +157,8 @@ fn the_host_publishes_its_paragraphs_and_the_caret_in_them() {
         .a11y_manager
         .take_pending()
         .expect("the tree update is published");
-    let host_id = accesskit::NodeId((0u64 << 32) | (HOST as u64 + 1));
+    // An a11y id is `(dom << 32) | (index + 1)`; the host is in the root dom.
+    let host_id = accesskit::NodeId(((DomId::ROOT_ID.inner as u64) << 32) | (HOST as u64 + 1));
     let host = update
         .nodes
         .iter()

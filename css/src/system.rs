@@ -243,10 +243,11 @@ pub enum DesktopEnvironment {
     Other(AzString),
 }
 
-/// Dark or light: the MODE a window or the whole desktop is drawn in
-/// (`AppConfig::set_mode` pins it, `get_mode` reads it). A mode, not a
-/// theme: the THEME is the app's look (`flat`, `flora`, ...), and every
-/// theme comes in both modes.
+/// Dark or light: the MODE a window or the whole desktop is drawn in.
+///
+/// `AppConfig::set_mode` pins it, `get_mode` reads it. A mode, not a theme: the
+/// THEME is the app's look (`flat`, `flora`, ...), and every theme comes in
+/// both modes.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum DarkLightMode {
@@ -1487,9 +1488,11 @@ pub mod windows_fonts {
 }
 
 /// The Windows UI accent colour, parsed from the registry as the `reg query`
-/// CLI prints it. Pure text parsing, so it is tested on every platform; the
-/// Windows discovery (`dll/src/desktop/shell2/windows/system_style.rs`) runs
-/// the queries and hands the output here.
+/// CLI prints it.
+///
+/// Pure text parsing, so it is tested on every platform; the Windows discovery
+/// (`dll/src/desktop/shell2/windows/system_style.rs`) runs the queries and
+/// hands the output here.
 pub mod windows_accent {
     use super::SystemStyle;
     use crate::props::basic::color::{ColorU, OptionColorU};
@@ -1535,7 +1538,8 @@ pub mod windows_accent {
             .or_else(|| accent_palette_from_reg_query(output).map(|p| p.accent))
     }
 
-    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`]:
+    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`].
+    ///
     /// `AccentPalette` is a `REG_BINARY` of eight RGBA entries, Light3 first,
     /// the base accent fourth, Dark3 seventh (the eighth is unused).
     #[must_use]
@@ -2203,7 +2207,7 @@ impl SystemStyle {
     pub fn create_csd_stylesheet(&self) -> Css {
         use alloc::format;
 
-        use crate::parser2::new_from_str;
+        use crate::{parser2::new_from_str, props::basic::pixel::DEFAULT_FONT_SIZE};
 
         // Build CSS string from SystemStyle
         let mut css = String::new();
@@ -2237,7 +2241,6 @@ impl SystemStyle {
             .metrics
             .corner_radius
             .map(|px| {
-                use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
                 format!(
                     "{}px",
                     px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
@@ -2250,7 +2253,6 @@ impl SystemStyle {
         // frame that is not reads as a foreign toolkit, which is exactly what
         // it is until it asks. The constants stay as the fallback for a
         // platform that reports nothing.
-        use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
         let tb = &self.metrics.titlebar;
         let px_of = |v: &OptionPixelValue, fallback: f32| -> f32 {
             v.as_option().map_or(fallback, |p| {
@@ -2329,6 +2331,20 @@ impl SystemStyle {
         // buttons rather than to a bar.
         css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
 
+        self.write_csd_button_rules(&mut css, &corner_radius, text_color);
+
+        // Parse CSS string into a Css.
+        let (mut parsed_css, _warnings) = new_from_str(&css);
+        // Tag every rule as system-level so author CSS overrides win.
+        for rule in parsed_css.rules.as_mut() {
+            rule.priority = crate::css::rule_priority::SYSTEM;
+        }
+        parsed_css
+    }
+
+    /// The button rules of [`Self::create_csd_stylesheet`]: the buttons,
+    /// their hover states and the platform's own button faces.
+    fn write_csd_button_rules(&self, css: &mut String, corner_radius: &str, text_color: ColorU) {
         // Buttons. The glyph inside is CENTRED BY THE BOX, not by the line
         // box: a control's glyph is an `<svg>` (an inline-block) as often as
         // it is a character, and an inline-block sits on the BASELINE, which
@@ -2388,14 +2404,6 @@ impl SystemStyle {
             // said the opposite of what a GNOME, KDE or Xfwm4 caption
             // actually does, which is centre it.)
         }
-
-        // Parse CSS string into a Css.
-        let (mut parsed_css, _warnings) = new_from_str(&css);
-        // Tag every rule as system-level so author CSS overrides win.
-        for rule in parsed_css.rules.as_mut() {
-            rule.priority = crate::css::rule_priority::SYSTEM;
-        }
-        parsed_css
     }
 }
 

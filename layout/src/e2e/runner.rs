@@ -137,6 +137,11 @@ struct Runner {
     /// of the frame ([`Runner::confirm_app_close`]), where the headless loop
     /// serves it.
     close_unconfirmed: bool,
+    /// The web view "browser" - the same recorder the headless backend
+    /// drives (`managers::webview::WebViewRecorder`): it loads nothing, and
+    /// reports every load it is asked for as a navigation request, so a
+    /// scenario plays the rest (`simulate_webview_*`).
+    webview_recorder: crate::managers::webview::WebViewRecorder,
 }
 
 impl Runner {
@@ -199,6 +204,9 @@ impl Runner {
                 } else {
                     azul_core::resources::SystemAnimations::disabled()
                 });
+                // A recording web view backend, as the headless shell has.
+                lw.webviews
+                    .set_platform(crate::managers::webview::WebViewPlatform::Backend);
                 lw
             },
             renderer_resources: RendererResources::default(),
@@ -215,6 +223,7 @@ impl Runner {
             unsupported_changes: Vec::new(),
             pending_redraw: false,
             close_unconfirmed: false,
+            webview_recorder: crate::managers::webview::WebViewRecorder::new(),
         }
     }
 
@@ -535,6 +544,10 @@ impl Runner {
         // here, after their requesting activation returned - the same
         // ordering the DLL shells give them.
         result = result.max(self.pump_completed_requests());
+        // The web views: the ops of this pass's layouts and commands reach
+        // the recorder, and what it (or a `simulate_webview_*` op) reported
+        // runs the views' callbacks - the dll's web view pump, ported.
+        result = result.max(self.pump_webviews());
         // The ops above committed text through `apply_user_change` (a
         // `text_input` op is `CreateTextInput`), never through the event
         // pass - the post-commit notifications they owe are drained here.
@@ -838,6 +851,54 @@ impl Runner {
 
         if needs_dom_regeneration {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        result
+    }
+
+    /// The web view pump - port of the dll's (`common::webview::pump`) with
+    /// the recorder as its backend: placements synced, the ops applied, and
+    /// every report (the recorder's, a scenario's simulated ones) dispatched
+    /// at its view's node, the answer to a navigation request going back.
+    /// Rounds, because a callback's command (`webview_navigate`) makes ops
+    /// that make reports; the cap keeps a callback that navigates forever
+    /// from hanging the run.
+    fn pump_webviews(&mut self) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+
+        const MAX_WEBVIEW_ROUNDS: usize = 64;
+
+        let mut result = ProcessEventResult::DoNothing;
+        for _ in 0..MAX_WEBVIEW_ROUNDS {
+            self.layout_window.sync_webview_placements();
+            for op in self.layout_window.webviews.take_ops() {
+                self.webview_recorder.apply(&op);
+            }
+            let mut reports = self.webview_recorder.take_reports();
+            reports.extend(self.layout_window.webviews.take_simulated());
+            if reports.is_empty() {
+                break;
+            }
+            for report in reports {
+                let now = self.now();
+                let event = self.layout_window.webviews.begin_report(&report, &now);
+                let dispatched = event.is_some();
+                let mut prevented = false;
+                if let Some(event) = event {
+                    let (r, update, any_prevented, _) = self.dispatch_events_propagated(&[event]);
+                    result = result.max(r);
+                    if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    }
+                    prevented = any_prevented;
+                }
+                let allowed = self
+                    .layout_window
+                    .webviews
+                    .finish_report(&report, dispatched, prevented);
+                if let (Some(allow), true) = (allowed, report.request != 0) {
+                    self.webview_recorder.decide(report.id, report.request, allow);
+                }
+            }
         }
         result
     }
@@ -2092,6 +2153,17 @@ impl Runner {
             // so an e2e scenario can pin the six media events.
             CallbackChange::MediaTransport { node, op } => {
                 self.layout_window.media_player_manager.apply(*node, *op);
+                ProcessEventResult::DoNothing
+            }
+            // Engine state too: the command is queued on the manager, where
+            // a scenario's `list_webviews` sees what the backend would do.
+            CallbackChange::WebViewCommand { node, command } => {
+                let _ = self.layout_window.webviews.queue_command(*node, command);
+                ProcessEventResult::DoNothing
+            }
+            // Delivered by `pump_webviews`, after this pass's changes.
+            CallbackChange::SimulateWebViewReport { report } => {
+                self.layout_window.webviews.push_simulated(report.clone());
                 ProcessEventResult::DoNothing
             }
 
@@ -7959,6 +8031,14 @@ mod tests {
 #[cfg(test)]
 #[path = "tooling_tests.rs"]
 mod tooling_tests;
+
+// ==== WEBVIEW17: a `<webview>` sign-in flow, headless ====
+// `list_webviews` / `simulate_webview_*` and the app's navigation callback
+// catching the loopback redirect. A child of this module for
+// `run_e2e_test_keeping_runner`.
+#[cfg(test)]
+#[path = "webview_tests.rs"]
+mod webview_tests;
 
 // The close protocol (INFRA6, user ruling 2026-10-02): a close the APP asks
 // for (`close_window`, the e2e `close` op, the CSD titlebar's close button)

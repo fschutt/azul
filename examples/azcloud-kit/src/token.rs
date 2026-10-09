@@ -5,8 +5,10 @@
 //! |---------------------------------------|---------------------------------------------------|
 //! | `GET /v1/tiers`                       | the storage tiers and their prices                |
 //! | `POST /v1/drives`                     | a drive without payment (development servers)     |
-//! | `POST /v1/checkout`                   | a paid drive: where the browser pays              |
-//! | `GET /v1/checkout/{id}`               | pending / approved (the drive, once) / declined   |
+//! | `POST /v1/checkout`                   | a paid drive: where the browser pays (the claim   |
+//! |                                       | key the sign-up is sealed to)                     |
+//! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
+//! |                                       | / declined / expired                              |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
 //! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
@@ -22,7 +24,7 @@ use std::fmt;
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
 
-use crate::bundle::DriveBundle;
+use crate::{bundle::DriveBundle, claim::ClaimKey};
 
 /// The tier a sign-up without one gets (the token server's default too).
 pub const DEFAULT_TIER: &str = "100GB";
@@ -217,12 +219,13 @@ pub struct Checkout {
 pub enum CheckoutStatus {
     /// Not paid yet.
     Pending,
-    /// Paid: the new drive (the token server hands it over ONCE - keep it).
+    /// Paid: the new drive, opened from the sign-up the token server sealed to the checkout's
+    /// claim key (it answers it to every poll for 30 days).
     Approved(Box<DriveBundle>),
-    /// Paid, and the drive was handed over to an earlier poll.
-    ApprovedElsewhere,
     /// The payment was declined or reversed: why.
     Declined(String),
+    /// The token server no longer has the checkout (it expired, or it is unknown: a 404): why.
+    Gone(String),
 }
 
 // ==== The client ====
@@ -407,9 +410,21 @@ impl<'a> TokenServer<'a> {
     }
 
     /// A checkout of `tier` for `months` months (1, 3, 6, 12 or 24) paid by `method` (`sepa`,
-    /// `card`, ...): where the browser pays. The drive comes with [`Self::checkout_status`].
-    pub fn checkout(&self, tier: &str, months: u32, method: &str) -> Result<Checkout, TokenError> {
-        let body = json!({ "tier": tier.trim(), "months": months, "method": method.trim() });
+    /// `card`, ...): where the browser pays. Its sign-up is sealed to `claim` (the public half
+    /// is sent, `claim_key`); the drive comes with [`Self::checkout_status`], opened with it.
+    pub fn checkout(
+        &self,
+        tier: &str,
+        months: u32,
+        method: &str,
+        claim: &ClaimKey,
+    ) -> Result<Checkout, TokenError> {
+        let body = json!({
+            "tier": tier.trim(),
+            "months": months,
+            "method": method.trim(),
+            "claim_key": claim.public_base64(),
+        });
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
         let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
         let checkout = Checkout {
@@ -432,31 +447,68 @@ impl<'a> TokenServer<'a> {
         Ok(checkout)
     }
 
-    /// Where the checkout `checkout_id` stands; once it is paid, the new drive (handed over
-    /// ONCE: the next poll answers [`CheckoutStatus::ApprovedElsewhere`]).
-    pub fn checkout_status(&self, checkout_id: &str) -> Result<CheckoutStatus, TokenError> {
+    /// Where the checkout `checkout_id` stands; once it is paid, the new drive - its sign-up
+    /// opened with `claim`, the key the checkout named (every poll for 30 days answers it).
+    ///
+    /// # Errors
+    ///
+    /// No answer or a refusal; [`TokenError::Protocol`] for an approved checkout whose sign-up
+    /// is not sealed to `claim` for this checkout (or is no drive bundle).
+    pub fn checkout_status(
+        &self,
+        checkout_id: &str,
+        claim: &ClaimKey,
+    ) -> Result<CheckoutStatus, TokenError> {
         let id = checkout_id.trim();
         if id.is_empty() {
             return Err(TokenError::Config(String::from("There is no checkout to ask about.")));
         }
         let path = format!("/v1/checkout/{}", uri_encode(id, true));
-        let value = self.call(Method::Get, &path, None, None)?;
+        let value = match self.call(Method::Get, &path, None, None) {
+            Ok(value) => value,
+            Err(TokenError::Refused {
+                status: 404,
+                code,
+                message,
+            }) => {
+                let why = match (message.is_empty(), code.is_empty()) {
+                    (false, _) => message,
+                    (true, false) => code,
+                    (true, true) => String::from("the token server does not know the checkout"),
+                };
+                return Ok(CheckoutStatus::Gone(why));
+            }
+            Err(e) => return Err(e),
+        };
+        let reason = |default: &str| value["reason"].as_str().unwrap_or(default).to_string();
         match value["status"].as_str().unwrap_or_default() {
             "pending" => Ok(CheckoutStatus::Pending),
-            "approved" => match value.get("signup").filter(|s| s.is_object()) {
-                Some(signup) => Ok(CheckoutStatus::Approved(Box::new(
-                    DriveBundle::from_value(signup)?,
-                ))),
-                None => Ok(CheckoutStatus::ApprovedElsewhere),
-            },
-            "declined" | "reversed" => Ok(CheckoutStatus::Declined(
-                value["reason"]
+            "approved" => {
+                // The plaintext `signup` of a token server without claims is never taken: anyone
+                // who knew the checkout id could have read it.
+                let sealed = value["sealed_signup"]
                     .as_str()
-                    .unwrap_or("the payment was declined")
-                    .to_string(),
-            )),
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| {
+                        TokenError::Protocol(String::from(
+                            "the approved checkout has no sealed sign-up",
+                        ))
+                    })?;
+                let signup = claim
+                    .open(id, sealed)
+                    .map_err(|e| TokenError::Protocol(e.to_string()))?;
+                Ok(CheckoutStatus::Approved(Box::new(DriveBundle::parse(
+                    &signup,
+                )?)))
+            }
+            "declined" | "reversed" => Ok(CheckoutStatus::Declined(reason(
+                "the payment was declined",
+            ))),
+            "expired" => Ok(CheckoutStatus::Gone(reason(
+                "the checkout expired at the token server",
+            ))),
             other => Err(TokenError::Protocol(format!(
-                "the checkout is \"{other}\", neither pending, approved nor declined"
+                "the checkout is \"{other}\", neither pending, approved, declined nor expired"
             ))),
         }
     }

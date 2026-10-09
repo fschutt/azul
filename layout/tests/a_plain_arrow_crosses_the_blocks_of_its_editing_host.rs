@@ -70,9 +70,13 @@ fn caret_in(editor: &mut Editor, text_node: usize, byte: u32) {
     );
 }
 
+/// The caret (text node, byte), the key, the caret afterwards (block
+/// element, byte in its text).
+type Row = ((usize, u32), Key, (usize, u32));
+
 /// Rows: the caret (text node, byte), the key, the caret afterwards
 /// (block element, byte in its text).
-const ROWS: &[((usize, u32), Key, (usize, u32))] = &[
+const ROWS: &[Row] = &[
     // Right at the end of a paragraph: the start of the next block, in a quote.
     ((3, 6), Key::Right, (5, 0)),
     // Left at the start of the quoted paragraph: the end of the one before.

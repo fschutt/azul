@@ -39,8 +39,10 @@ fn window(button: Button) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.set_system_style(Arc::new(defaults::macos_modern_light()));
     lw.mode = OptionDarkLightMode::None;
-    let mut ws = FullWindowState::default();
-    ws.mode = DarkLightMode::Light;
+    let mut ws = FullWindowState {
+        mode: DarkLightMode::Light,
+        ..Default::default()
+    };
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
     lw.current_window_state = ws.clone();
     let dom = Dom::create_body()
@@ -183,14 +185,13 @@ fn a_link_declares_no_face_fade() {
     // Flat's link is text: it underlines on hover. Flora's (the QUIET
     // command, flora.css's `.btn-quiet`) is paper with a face, and fades it
     // like every flora command.
-    for theme in [UiTheme::Flat] {
-        let mut lw =
-            window(Button::with_type(AzString::from("More"), ButtonType::Link).with_theme(theme));
-        let node = button_node(&lw);
-        hover(&mut lw, node);
-        assert!(
-            lw.css_transitions.iter().all(|t| t.node != node),
-            "{theme:?}: a link underlines on hover - a discrete change, nothing to fade"
-        );
-    }
+    let theme = UiTheme::Flat;
+    let mut lw =
+        window(Button::with_type(AzString::from("More"), ButtonType::Link).with_theme(theme));
+    let node = button_node(&lw);
+    hover(&mut lw, node);
+    assert!(
+        lw.css_transitions.iter().all(|t| t.node != node),
+        "{theme:?}: a link underlines on hover - a discrete change, nothing to fade"
+    );
 }

@@ -418,8 +418,10 @@ mod tests {
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
-        let mut current_window_state = FullWindowState::default();
-        current_window_state.keyboard_state = keys;
+        let current_window_state = FullWindowState {
+            keyboard_state: keys,
+            ..Default::default()
+        };
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();
@@ -566,9 +568,11 @@ mod tests {
     fn escape_closes_the_modal() {
         let (styled, data) = rendered(Modal::create(Dom::default()).with_open(true));
         let window = index_of_class(&styled, "__azul-native-dialog-window");
-        let mut keys = KeyboardState::default();
-        keys.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
-        keys.pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
+        let keys = KeyboardState {
+            current_virtual_keycode: Some(VirtualKeyCode::Escape).into(),
+            pressed_virtual_keycodes: vec![VirtualKeyCode::Escape].into(),
+            ..Default::default()
+        };
         let (_, changes) = with_info(styled, window, keys, |info| {
             on_dialog_key(data.clone(), info)
         });
