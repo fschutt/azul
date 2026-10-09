@@ -13,7 +13,7 @@ use crate::{
     dates, mime,
     net::{self, looks_like_http, Conn, Input, RateLimiter, ReadError},
     sent,
-    store::{self, Mark, MailboxInfo, StoreError, StoredMessage},
+    store::{self, Mark, MailboxInfo, Marks, StoreError, StoredMessage},
 };
 
 use super::{
@@ -531,8 +531,19 @@ impl<'s, C: Conn> Session<'s, C> {
         Ok(name)
     }
 
-    /// The messages of `path` now: UIDs, marks and the flags kept in memory.
+    /// Whether `path` is the Drafts folder (its messages are `\Draft`).
+    fn is_drafts(&self, path: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .imap
+            .store
+            .mailboxes()?
+            .iter()
+            .any(|b| b.role == Role::Drafts && b.path == path))
+    }
+
+    /// The messages of `path` now: UIDs and flags (the drive's markers; `\Draft` in Drafts).
     fn snapshot(&self, path: &str) -> Result<(u32, u32, Vec<Msg>), StoreError> {
+        let in_drafts = self.is_drafts(path)?;
         let messages: Vec<StoredMessage> = self.imap.store.messages(path)?;
         let names: Vec<String> = messages.iter().map(|m| m.name.clone()).collect();
         let numbered = self.imap.uids.number(path, &names);
@@ -544,11 +555,10 @@ impl<'s, C: Conn> Session<'s, C> {
             .iter()
             .filter_map(|(name, uid)| {
                 let message = by_name.get(name.as_str())?;
-                let mut flags = Flags::from_marks(marks.get(&message.id).copied().unwrap_or_default());
-                let volatile = self.imap.volatile_of(path, name);
-                flags.deleted = volatile.deleted;
-                flags.draft = volatile.draft;
-                flags.keywords = volatile.keywords;
+                let flags = match marks.get(&message.id) {
+                    Some(marks) => Flags::from_marks(marks, in_drafts),
+                    None => Flags::from_marks(&Marks::default(), in_drafts),
+                };
                 Some(Msg {
                     uid: *uid,
                     name: name.clone(),
@@ -579,9 +589,8 @@ impl<'s, C: Conn> Session<'s, C> {
         if read_only {
             out.push_str("* OK [PERMANENTFLAGS ()] Read-only\r\n");
         } else {
-            out.push_str(
-                "* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)] Limited\r\n",
-            );
+            // \Draft follows from the folder; keywords are kept (label markers).
+            out.push_str("* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Deleted \\Seen \\*)] Kept in the drive\r\n");
         }
         out.push_str(&format!("* {} EXISTS\r\n* 0 RECENT\r\n", msgs.len()));
         if let Some(first) = msgs.iter().position(|m| !m.flags.seen) {
@@ -759,7 +768,6 @@ impl<'s, C: Conn> Session<'s, C> {
             Err(e) => return self.store_no(tag, &e),
         };
         self.imap.marks_changed();
-        self.imap.set_volatile(&info.path, &stored.name, &wanted);
         let code = self
             .uid_of(&info.path, &stored.name)
             .map_or(String::new(), |(validity, uid)| format!("[APPENDUID {validity} {uid}] "));
@@ -1071,7 +1079,7 @@ impl<'s, C: Conn> Session<'s, C> {
         silent: bool,
         flags: &[String],
     ) -> Next {
-        let Some((path, read_only)) = self.selected().map(|s| (s.path.clone(), s.read_only)) else {
+        let Some(read_only) = self.selected().map(|s| s.read_only) else {
             return self.bad(tag, "Select a mailbox first");
         };
         if read_only {
@@ -1089,21 +1097,12 @@ impl<'s, C: Conn> Session<'s, C> {
             for flag in flags {
                 new.set(flag, mode != StoreMode::Remove);
             }
-            for (mark, before, after) in [
-                (Mark::Seen, msg.flags.seen, new.seen),
-                (Mark::Flagged, msg.flags.flagged, new.flagged),
-                (Mark::Answered, msg.flags.answered, new.answered),
-            ] {
-                if before != after {
-                    if let Err(e) = self.imap.store.set_mark(&msg.id, mark, after) {
-                        self.imap.marks_changed();
-                        let _ = self.send(&out);
-                        return self.store_no(tag, &e);
-                    }
-                }
+            // \Draft follows from the folder: a STORE does not change it.
+            new.draft = msg.flags.draft;
+            if let Err(e) = self.imap.write_marks(&msg.id, &msg.flags, &new) {
+                let _ = self.send(&out);
+                return self.store_no(tag, &e);
             }
-            self.imap.marks_changed();
-            self.imap.set_volatile(&path, &msg.name, &new);
             if !silent {
                 let uid_part = if uid { format!(" UID {}", msg.uid) } else { String::new() };
                 out.extend_from_slice(
@@ -1189,8 +1188,7 @@ impl<'s, C: Conn> Session<'s, C> {
         let mut out = Vec::new();
         if let State::Selected(selected) = &mut self.state {
             for &i in doomed.iter().rev() {
-                let msg = selected.msgs.remove(i);
-                self.imap.set_volatile(&path, &msg.name, &Flags::default());
+                selected.msgs.remove(i);
                 out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
             }
         }
@@ -1262,7 +1260,6 @@ impl<'s, C: Conn> Session<'s, C> {
                 }
                 msg.name.clone()
             };
-            self.imap.set_volatile(&target.path, &name, &msg.flags);
             copied.push((msg.uid, name));
         }
         // COPYUID: the source UIDs and the ones the messages have in the target now.
@@ -1310,8 +1307,7 @@ impl<'s, C: Conn> Session<'s, C> {
             places.sort_unstable();
             for &i in places.iter().rev() {
                 if i < selected.msgs.len() {
-                    let msg = selected.msgs.remove(i);
-                    self.imap.set_volatile(&source, &msg.name, &Flags::default());
+                    selected.msgs.remove(i);
                     out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
                 }
             }

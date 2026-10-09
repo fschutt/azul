@@ -11,9 +11,10 @@
 //! SPECIAL-USE, NAMESPACE, UNSELECT, LITERAL-, SASL-IR, ID, IDLE - are here as the rev1
 //! extensions they started as.
 //!
-//! Flags: `\Seen`, `\Flagged` and `\Answered` are the drive's state markers (every device sees
-//! them); `\Deleted`, `\Draft` and keywords live in the bridge's memory until EXPUNGE or a
-//! restart. A mailbox's UIDs come from [`crate::uids`].
+//! Flags are the drive's state markers, so every device sees them (`AZLIN_MAIL.md` section 11):
+//! `\Seen`, `\Flagged`, `\Answered`, `\Deleted` (the `deleted` marker AzMail hides a message
+//! by) and keywords (label markers). `\Draft` is no marker: the Drafts folder's messages have
+//! it. A mailbox's UIDs come from [`crate::uids`].
 
 pub mod fetch;
 pub mod parse;
@@ -42,7 +43,7 @@ pub const CAPABILITIES: &str =
 /// ...and before: the sign-in methods too.
 pub const CAPABILITIES_BEFORE_LOGIN: &str = "IMAP4rev1 SASL-IR LITERAL+ ID ENABLE IDLE NAMESPACE \
      UNSELECT UIDPLUS MOVE SPECIAL-USE CHILDREN AUTH=PLAIN AUTH=LOGIN";
-/// Keywords one message keeps at most (they live in memory).
+/// Keywords one message gets at most (each is a marker object).
 pub const MAX_KEYWORDS: usize = 32;
 /// How long a listing of every message's marks is reused (a client's STATUS of every
 /// mailbox in a row).
@@ -60,35 +61,28 @@ pub struct Flags {
 }
 
 impl Flags {
-    /// The flags the drive's markers give.
+    /// The flags of a message with the drive's `marks`, in the Drafts folder or not.
     #[must_use]
-    pub fn from_marks(marks: Marks) -> Flags {
+    pub fn from_marks(marks: &Marks, in_drafts: bool) -> Flags {
         Flags {
             seen: marks.seen,
             answered: marks.answered,
             flagged: marks.flagged,
-            ..Flags::default()
+            deleted: marks.deleted,
+            draft: in_drafts,
+            keywords: marks.labels.clone(),
         }
     }
 
-    /// The part the drive keeps.
+    /// What the drive keeps of them (`\Draft` follows from the folder).
     #[must_use]
     pub fn marks(&self) -> Marks {
         Marks {
             seen: self.seen,
             flagged: self.flagged,
             answered: self.answered,
-        }
-    }
-
-    /// Only the part the bridge keeps in memory.
-    #[must_use]
-    pub fn volatile(&self) -> Flags {
-        Flags {
             deleted: self.deleted,
-            draft: self.draft,
-            keywords: self.keywords.clone(),
-            ..Flags::default()
+            labels: self.keywords.clone(),
         }
     }
 
@@ -156,8 +150,6 @@ pub struct Imap {
     pub gate: Arc<FailureGate>,
     pub limits: Limits,
     pub sent: Arc<SentRegistry>,
-    /// `\Deleted`, `\Draft` and keywords, by (mailbox, name).
-    volatile: Mutex<HashMap<(String, String), Flags>>,
     marks: Mutex<Option<(Instant, Arc<HashMap<String, Marks>>)>>,
 }
 
@@ -186,7 +178,6 @@ impl Imap {
             gate,
             limits,
             sent,
-            volatile: Mutex::new(HashMap::new()),
             marks: Mutex::new(None),
         }
     }
@@ -224,27 +215,35 @@ impl Imap {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
-    pub(crate) fn volatile_of(&self, mailbox: &str, name: &str) -> Flags {
-        self.volatile
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&(mailbox.to_string(), name.to_string()))
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    pub(crate) fn set_volatile(&self, mailbox: &str, name: &str, flags: &Flags) {
-        let volatile = flags.volatile();
-        let mut map = self
-            .volatile
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let key = (mailbox.to_string(), name.to_string());
-        if volatile == Flags::default() {
-            map.remove(&key);
-        } else {
-            map.insert(key, volatile);
-        }
+    /// Writes the marks of `before` -> `after` that differ for the message `id`: the yes / no
+    /// markers and the labels (keywords). `\Draft` is not written (it follows the folder).
+    ///
+    /// # Errors
+    ///
+    /// The store's; the marks written before it stay.
+    pub(crate) fn write_marks(&self, id: &str, before: &Flags, after: &Flags) -> Result<(), StoreError> {
+        use crate::store::Mark;
+        let result: Result<(), StoreError> = (|| {
+            for (mark, was, is) in [
+                (Mark::Seen, before.seen, after.seen),
+                (Mark::Flagged, before.flagged, after.flagged),
+                (Mark::Answered, before.answered, after.answered),
+                (Mark::Deleted, before.deleted, after.deleted),
+            ] {
+                if was != is {
+                    self.store.set_mark(id, mark, is)?;
+                }
+            }
+            for label in after.keywords.difference(&before.keywords) {
+                self.store.set_label(id, label, true)?;
+            }
+            for label in before.keywords.difference(&after.keywords) {
+                self.store.set_label(id, label, false)?;
+            }
+            Ok(())
+        })();
+        self.marks_changed();
+        result
     }
 }
 

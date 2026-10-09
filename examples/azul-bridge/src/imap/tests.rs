@@ -287,9 +287,10 @@ fn fetch_gives_envelopes_structures_and_sections_and_only_body_marks_read() {
 }
 
 #[test]
-fn store_writes_the_shared_marks_and_keeps_deleted_until_expunge() {
+fn store_writes_every_flag_as_a_marker_every_device_sees() {
     let drive = seeded();
-    let mut client = Client::signed_in(bridge(drive.clone()));
+    let imap = bridge(drive.clone());
+    let mut client = Client::signed_in(imap.clone());
     client.ok("t0", "SELECT INBOX");
     let lines = client.ok("t1", "STORE 2 +FLAGS (\\Flagged \\Answered $Work)");
     assert!(has(&lines, "* 2 FETCH (FLAGS (\\Answered \\Flagged $Work))"), "{lines:?}");
@@ -297,16 +298,30 @@ fn store_writes_the_shared_marks_and_keeps_deleted_until_expunge() {
         drive.keys().iter().filter(|k| k.ends_with("/flagged") || k.ends_with("/answered")).count(),
         2
     );
+    // A keyword is a label marker (AzMail's categories), percent-encoded.
+    assert!(drive.keys().iter().any(|k| k.ends_with("/label/%24Work")), "{:?}", drive.keys());
     let lines = client.ok("t2", "UID STORE 1 -FLAGS.SILENT (\\Seen)");
     assert!(!has(&lines, "FETCH"), "{lines:?}");
     assert!(!drive.keys().iter().any(|k| k.ends_with("/seen")));
+    // \Deleted is the `deleted` marker: another session (another program) sees it.
     client.ok("t3", "STORE 1 +FLAGS (\\Deleted)");
+    assert!(drive.keys().iter().any(|k| k.ends_with("/deleted")), "{:?}", drive.keys());
     assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Inbox/")).count(), 2);
+    let mut other = Client::signed_in(imap);
+    other.ok("o0", "SELECT INBOX");
+    assert!(has(&other.ok("o1", "FETCH 1 FLAGS"), "FLAGS (\\Deleted)"));
+    // \Draft follows from the folder: a STORE of it changes nothing.
+    let draft = client.ok("t3b", "STORE 1 +FLAGS (\\Draft)");
+    assert!(has(&draft, "* 1 FETCH (FLAGS (\\Deleted))"), "{draft:?}");
     let gone = client.ok("t4", "EXPUNGE");
     assert!(has(&gone, "* 1 EXPUNGE"), "{gone:?}");
     assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Inbox/")).count(), 1);
+    assert!(!drive.keys().iter().any(|k| k.ends_with("/deleted")), "expunged with its markers");
     let left = client.ok("t5", "FETCH 1:* (UID FLAGS)");
     assert!(has(&left, "* 1 FETCH (UID 2 FLAGS (\\Answered \\Flagged $Work))"), "{left:?}");
+    let removed = client.ok("t5b", "STORE 1 -FLAGS ($Work)");
+    assert!(has(&removed, "FLAGS (\\Answered \\Flagged)"), "{removed:?}");
+    assert!(!drive.keys().iter().any(|k| k.contains("/label/")), "{:?}", drive.keys());
     client.ok("t6", "EXAMINE INBOX");
     let refused = client.run("t7", "STORE 1 +FLAGS (\\Seen)");
     assert!(refused.last().unwrap().starts_with("t7 NO [READ-ONLY]"));

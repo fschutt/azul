@@ -11,7 +11,7 @@
 //! same trait later; the servers do not change.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -42,30 +42,35 @@ pub struct StoredMessage {
     pub arrived: u64,
 }
 
-/// The marks every device shares.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// The marks every device shares: read, flagged, answered, marked deleted (not expunged yet),
+/// and the labels (IMAP's keywords, AzMail's categories).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Marks {
     pub seen: bool,
     pub flagged: bool,
     pub answered: bool,
+    pub deleted: bool,
+    pub labels: BTreeSet<String>,
 }
 
-/// One of the [`Marks`].
+/// One of the yes / no [`Marks`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mark {
     Seen,
     Flagged,
     Answered,
+    Deleted,
 }
 
 impl Mark {
-    /// The marker's name in the drive (`seen`, `flagged`, `answered`).
+    /// The marker's name in the drive (`seen`, `flagged`, `answered`, `deleted`).
     #[must_use]
     pub fn marker(self) -> &'static str {
         match self {
             Mark::Seen => azlin::SEEN,
             Mark::Flagged => azlin::FLAGGED,
             Mark::Answered => azlin::ANSWERED,
+            Mark::Deleted => azlin::DELETED,
         }
     }
 }
@@ -151,6 +156,13 @@ pub trait MailStore: Send + Sync {
     ///
     /// The store's.
     fn set_mark(&self, id: &str, mark: Mark, on: bool) -> Result<(), StoreError>;
+
+    /// Sets (`on`) or clears the label `label` of the message `id`.
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    fn set_label(&self, id: &str, label: &str, on: bool) -> Result<(), StoreError>;
 
     /// Files `bytes` in the mailbox `path` as having arrived at `arrived`, with `marks`.
     ///
@@ -382,6 +394,8 @@ impl MailStore for DriveMailStore {
                         seen: state.seen,
                         flagged: state.flagged,
                         answered: state.answered,
+                        deleted: state.deleted,
+                        labels: state.labels,
                     },
                 )
             })
@@ -418,6 +432,18 @@ impl MailStore for DriveMailStore {
         }
     }
 
+    fn set_label(&self, id: &str, label: &str, on: bool) -> Result<(), StoreError> {
+        if label.is_empty() {
+            return Err(StoreError::Invalid(format!("\"{label}\" cannot be a label")));
+        }
+        let key = azlin::label_marker_key(id, label);
+        if on {
+            self.drive.put(&key, &[]).map_err(drive_error)
+        } else {
+            self.drive.delete(&key).map_err(drive_error)
+        }
+    }
+
     fn append(
         &self,
         path: &str,
@@ -438,10 +464,14 @@ impl MailStore for DriveMailStore {
             (Mark::Seen, marks.seen),
             (Mark::Flagged, marks.flagged),
             (Mark::Answered, marks.answered),
+            (Mark::Deleted, marks.deleted),
         ] {
             if on {
                 self.set_mark(&id, mark, true)?;
             }
+        }
+        for label in &marks.labels {
+            self.set_label(&id, label, true)?;
         }
         // A first message makes a well-known folder real.
         self.forget_mailboxes();
@@ -481,14 +511,19 @@ impl MailStore for DriveMailStore {
                 ids.push(id.to_string());
             }
         }
-        // The marks go with the last copy: a message another mailbox still holds keeps them.
+        // The marks go with the last copy: a message another mailbox still holds keeps them -
+        // all but its `deleted` marker, which would hide that copy too.
         let elsewhere: HashSet<String> = azlin::list_mailbox(&*self.drive)
             .map_err(drive_error)?
             .into_iter()
             .flat_map(|folder| folder.messages)
             .filter_map(|object| azlin::message_id(&object.key).map(str::to_string))
             .collect();
-        for id in ids.iter().filter(|id| !elsewhere.contains(*id)) {
+        for id in &ids {
+            if elsewhere.contains(id) {
+                self.set_mark(id, Mark::Deleted, false)?;
+                continue;
+            }
             for marker in ops::list_all(&*self.drive, &azlin::state_prefix(id)).map_err(drive_error)? {
                 self.drive.delete(&marker.key).map_err(drive_error)?;
             }
@@ -629,7 +664,7 @@ mod tests {
         store.set_mark("m1", Mark::Answered, true).unwrap();
         assert_eq!(
             store.marks().unwrap()["m1"],
-            Marks { seen: false, flagged: true, answered: true }
+            Marks { seen: false, flagged: true, answered: true, ..Marks::default() }
         );
         store.set_mark("m1", Mark::Flagged, false).unwrap();
         assert_eq!(drive.keys(), vec!["mail/.state/m1/answered"]);
@@ -651,6 +686,35 @@ mod tests {
         store.expunge("Archive", &[m.name.clone()]).unwrap();
         assert!(store.marks().unwrap().is_empty());
         assert!(drive.keys().iter().all(|k| !k.contains(&m.id)), "{:?}", drive.keys());
+    }
+
+    #[test]
+    fn labels_and_the_deleted_mark_are_markers_and_a_kept_copy_loses_only_deleted() {
+        let (drive, store) = store();
+        let mut marks = Marks {
+            deleted: true,
+            ..Marks::default()
+        };
+        marks.labels.insert(String::from("$Forwarded"));
+        let m = store.append("Inbox", &mail("labelled"), OCT_1, marks).unwrap();
+        assert!(drive.keys().contains(&format!("mail/.state/{}/label/%24Forwarded", m.id)));
+        assert!(drive.keys().contains(&format!("mail/.state/{}/deleted", m.id)));
+        let all = store.marks().unwrap();
+        let read = &all[&m.id];
+        assert!(read.deleted && read.labels.contains("$Forwarded"), "{read:?}");
+        store.set_label(&m.id, "Work", true).unwrap();
+        store.set_label(&m.id, "$Forwarded", false).unwrap();
+        assert_eq!(
+            store.marks().unwrap()[&m.id].labels.iter().collect::<Vec<_>>(),
+            vec!["Work"]
+        );
+        // A copy elsewhere keeps the labels but not the deleted mark of the expunged one.
+        store.copy("Inbox", &m.name, "Archive").unwrap();
+        store.expunge("Inbox", &[m.name.clone()]).unwrap();
+        let all = store.marks().unwrap();
+        let kept = &all[&m.id];
+        assert!(!kept.deleted && kept.labels.contains("Work"), "{kept:?}");
+        assert!(matches!(store.set_label(&m.id, "", true), Err(StoreError::Invalid(_))));
     }
 
     #[test]
