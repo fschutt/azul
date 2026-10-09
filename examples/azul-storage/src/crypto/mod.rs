@@ -26,6 +26,7 @@
 //! `*_CONTEXT` constants): one key, one purpose. Secrets wipe themselves when dropped
 //! (`zeroize`) and print as `***`; nothing here logs.
 
+pub mod azl1;
 pub mod codec;
 
 use std::fmt;

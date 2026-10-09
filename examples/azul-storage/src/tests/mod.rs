@@ -24,6 +24,9 @@ mod opendal_drive;
 /// The keys of an encrypted drive (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod crypto;
+/// The AZL1 object format (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod azl1;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
