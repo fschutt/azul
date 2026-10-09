@@ -155,8 +155,11 @@ const DISMISS_TAP_MS: u128 = 600;
 const PIN_HEAD: &str = "width: 20px; height: 20px; border-radius: 10px 10px 10px 0px; background: \
                         #e5322d; transform: rotate(-45deg); box-shadow: 0px 1px 3px \
                         rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: \
-                        center; cursor: pointer;";
-const PIN_DOT: &str = "width: 7px; height: 7px; border-radius: 4px; background: #ffffff;";
+                        center; cursor: pointer; @theme(flora) { background: #7E4A42; box-shadow: \
+                        0px 1px 3px rgba(48, 45, 38, 0.45); @media (prefers-color-scheme: dark) { \
+                        background: #B3837A; box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.55); } }";
+const PIN_DOT: &str = "width: 7px; height: 7px; border-radius: 4px; background: #ffffff; \
+                       @theme(flora) { background: #F4F2EA; }";
 /// Where the pin's box sits relative to its place: half its width to the
 /// left, its centre 10 * sqrt(2) px above the point.
 const PIN_HALF_WIDTH: f32 = 10.0;
@@ -171,7 +174,9 @@ const ROOT: &str =
 /// Under flora (`@theme(flora)` blocks after the flat values here and below; flat is
 /// unchanged) the ground is flora's desk, the floating panels are leaves at flora's corners
 /// under its warm shadow, a section head is flora's label, the licence line and the toast
-/// are flora's paper and clay. The map's own marks (pins, route, location) stay the map's.
+/// are flora's paper and clay. The map's marks are flora's too, not Google's red and blue: a
+/// pin and the destination in flora's clay (its glow at night), the start, the travel line and
+/// where you are in the theme's accent (a spin's stone, the glow at night).
 const MAP_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
                         background: #cbd2d8; overflow: hidden; @theme(flora) { background: \
                         system:under-page-background; }";
@@ -212,9 +217,12 @@ const FIELDS: &str =
     "display: flex; flex-direction: column; gap: 6px; flex-grow: 1; min-width: 0px;";
 const FIELD_GROW: &str = "flex-grow: 1; min-width: 0px;";
 const FROM_MARK: &str = "width: 10px; height: 10px; border-radius: 6px; border: 2px solid \
-                         #1a73e8; background: #ffffff;";
+                         #1a73e8; background: #ffffff; @theme(flora) { border: 2px solid \
+                         system:accent; background: system:control-background; }";
 const TO_MARK: &str = "width: 10px; height: 10px; border-radius: 6px; border: 2px solid \
-                       #e5322d; background: #e5322d;";
+                       #e5322d; background: #e5322d; @theme(flora) { border: 2px solid #7E4A42; \
+                       background: #7E4A42; @media (prefers-color-scheme: dark) { border: 2px \
+                       solid #B3837A; background: #B3837A; } }";
 const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color: \
                         system:secondary-text; white-space: nowrap;";
 const RECENTS_SECTION: &str =
@@ -243,15 +251,17 @@ const NOTICE: &str = "position: absolute; left: 50%; bottom: 30px; width: 360px;
                       { color: #F4F2EA; background: rgba(126, 74, 66, 0.94); border-radius: 3px; }";
 const LOCATION_DOT: &str = "position: absolute; width: 16px; height: 16px; margin-left: -8px; \
                             margin-top: -8px; background: #4285f4; border-radius: 8px; \
-                            box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
+                            box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35); @theme(flora) { \
+                            background: system:accent; box-shadow: 0px 0px 0px 3px \
+                            system:selection-background; }";
 const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 50px; width: 44px; height: \
                              44px; border-radius: 22px; background: rgba(20,20,28,0.85); border: \
                              2px solid #6a7080; display: flex; align-items: center; \
                              justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
 const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
 const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
-/// The travel preview: a straight line from the start to the destination.
-const ROUTE_COLOR: &str = "#1a73e8";
+/// The travel preview's paint: a straight line from the start to the destination.
+const ROUTE_PAINT: &str = "background: #1a73e8; @theme(flora) { background: system:accent; }";
 
 // ==== State ====
 
@@ -784,8 +794,8 @@ fn route_line(a: (f32, f32), b: (f32, f32)) -> Dom {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let css = format!(
         "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: 4px; \
-         margin-top: -2px; background: {ROUTE_COLOR}; border-radius: 2px; opacity: 0.85; \
-         transform-origin: 0px 50%; transform: rotate({:.2}deg);",
+         margin-top: -2px; border-radius: 2px; opacity: 0.85; transform-origin: 0px 50%; \
+         transform: rotate({:.2}deg); {ROUTE_PAINT}",
         a.0,
         a.1,
         dx.hypot(dy),
@@ -849,7 +859,7 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
         if let Some((lat, lon)) = s.last_fix {
             let (x, y) = at(lat, lon);
             if visible((x, y)) {
-                let dot = format!("{LOCATION_DOT} left: {x:.1}px; top: {y:.1}px;");
+                let dot = format!("left: {x:.1}px; top: {y:.1}px; {LOCATION_DOT}");
                 area.add_child(
                     Dom::create_div()
                         .with_css(dot.as_str())
