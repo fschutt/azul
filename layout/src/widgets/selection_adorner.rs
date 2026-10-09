@@ -696,8 +696,8 @@ pub(crate) fn to_local(f: &AdornerFrame, x: f32, y: f32) -> (f32, f32) {
     if f.rotation.abs() < f32::EPSILON {
         return (dx, dy);
     }
-    let (s, c) = (-f.rotation).to_radians().sin_cos();
-    (dx * c - dy * s, dx * s + dy * c)
+    let (sin, cos) = (-f.rotation).to_radians().sin_cos();
+    (dx * cos - dy * sin, dx * sin + dy * cos)
 }
 
 /// A point in `f`'s own axes (relative to its centre) back on the canvas.
@@ -785,8 +785,8 @@ pub(crate) fn resized(
     keep_ratio: bool,
 ) -> AdornerFrame {
     // The drag in the frame's own axes.
-    let (s, c) = (-start.rotation).to_radians().sin_cos();
-    let (ldx, ldy) = (dx * c - dy * s, dx * s + dy * c);
+    let (sin, cos) = (-start.rotation).to_radians().sin_cos();
+    let (ldx, ldy) = (dx * cos - dy * sin, dx * sin + dy * cos);
     let (hw, hh) = (start.width / 2.0, start.height / 2.0);
     let (ax, ay) = handle.anchor();
     let (mut left, mut right, mut top, mut bottom) = (-hw, hw, -hh, hh);
@@ -1310,7 +1310,7 @@ impl AdornerState {
                     .collect()
             }
         };
-        self.drag.last = frames.clone();
+        self.drag.last.clone_from(&frames);
         let mut e = SelectionAdornerEvent::create(
             SelectionAdornerEventKind::Transform,
             U32Vec::from_vec(self.drag.indices.clone()),
@@ -2078,15 +2078,16 @@ fn handles(look: &SelectionAdornerLook, rotate: bool) -> Vec<Dom> {
     out
 }
 
-/// The four edges around `f` (unturned), just outside it, at `scale`.
-fn editing_edges(look: &SelectionAdornerLook, f: &AdornerFrame, scale: f32) -> Vec<Dom> {
-    let (x, y, w, h) = (f.x * scale, f.y * scale, f.width * scale, f.height * scale);
-    let e = EDGE_PX;
+/// The four edges around `frame` (unturned), just outside it, at `scale`.
+fn editing_edges(look: &SelectionAdornerLook, frame: &AdornerFrame, scale: f32) -> Vec<Dom> {
+    let (x, y) = (frame.x * scale, frame.y * scale);
+    let (w, h) = (frame.width * scale, frame.height * scale);
+    let edge = EDGE_PX;
     [
-        (x - e, y - e, w + 2.0 * e, e),
-        (x - e, y + h, w + 2.0 * e, e),
-        (x - e, y, e, h),
-        (x + w, y, e, h),
+        (x - edge, y - edge, w + 2.0 * edge, edge),
+        (x - edge, y + h, w + 2.0 * edge, edge),
+        (x - edge, y, edge, h),
+        (x + w, y, edge, h),
     ]
     .into_iter()
     .map(|(ex, ey, ew, eh)| {

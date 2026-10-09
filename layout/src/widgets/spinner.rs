@@ -408,7 +408,7 @@ pub(crate) fn build(s: Spinner, look: &SpinnerLook) -> Dom {
                 Some(c) => (StyleBackgroundContent::Color(c), None),
                 None => look.spoke_ink.clone(),
             };
-            for k in 0..SPOKES {
+            for (k, &track) in SPOKE_TRACKS.iter().enumerate() {
                 tracks.push(spoke_track(k));
                 parts.push(part(
                     "__azul-spinner-spoke",
@@ -416,7 +416,7 @@ pub(crate) fn build(s: Spinner, look: &SpinnerLook) -> Dom {
                     Some(ink.clone()),
                     Some(spoke_opacity(k, 0)),
                     Some(Motion {
-                        track: SPOKE_TRACKS[k],
+                        track,
                         millis: CYCLE_MS,
                         timing: AnimationTiming::Linear,
                     }),
@@ -786,17 +786,17 @@ fn half_circle(centre: SvgPoint, h: f32, a: (f32, f32), b: (f32, f32), out: &mut
 pub(crate) fn spoke_shape(d: f32, k: usize) -> SvgMultiPolygon {
     #[allow(clippy::cast_precision_loss)] // k < 8
     let deg = k as f32 * 360.0 / SPOKES as f32;
-    let c = d / 2.0;
-    let h = d / 16.0;
+    let mid = d / 2.0;
+    let cap_radius = d / 16.0;
     let (r_in, r_out) = (d * 13.0 / 64.0, d / 2.0);
-    let (s, co) = deg.to_radians().sin_cos();
-    let out = (s, -co); // away from the centre
-    let side = (co, s); // clockwise across the spoke
-    let inner_cap = polar(c, r_in + h, deg);
-    let outer_cap = polar(c, r_out - h, deg);
+    let (sin, cos) = deg.to_radians().sin_cos();
+    let out = (sin, -cos); // away from the centre
+    let side = (cos, sin); // clockwise across the spoke
+    let inner_cap = polar(mid, r_in + cap_radius, deg);
+    let outer_cap = polar(mid, r_out - cap_radius, deg);
     let mut points = Vec::with_capacity(2 * (CAP_STEPS + 1));
-    half_circle(outer_cap, h, side, out, &mut points);
-    half_circle(inner_cap, h, (-side.0, -side.1), (-out.0, -out.1), &mut points);
+    half_circle(outer_cap, cap_radius, side, out, &mut points);
+    half_circle(inner_cap, cap_radius, (-side.0, -side.1), (-out.0, -out.1), &mut points);
     SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)]))
 }
 
@@ -843,18 +843,18 @@ pub(crate) fn ring_window_shape(d: f32) -> SvgMultiPolygon {
 /// A round cap: a disc as wide as the stroke, centred on the ring's centre
 /// line `deg` degrees clockwise from 12 o'clock.
 pub(crate) fn cap_shape(d: f32, deg: f32) -> SvgMultiPolygon {
-    let c = d / 2.0;
-    let (rc, h) = ring_metrics(d);
-    let centre = polar(c, rc, deg);
-    let n = 4 * CAP_STEPS;
-    let points: Vec<SvgPoint> = (0..n)
+    let mid = d / 2.0;
+    let (rc, half_stroke) = ring_metrics(d);
+    let centre = polar(mid, rc, deg);
+    let steps = 4 * CAP_STEPS;
+    let points: Vec<SvgPoint> = (0..steps)
         .map(|i| {
             #[allow(clippy::cast_precision_loss)] // i < 32
-            let phi = core::f32::consts::TAU * i as f32 / n as f32;
-            let (s, co) = phi.sin_cos();
+            let phi = core::f32::consts::TAU * i as f32 / steps as f32;
+            let (sin, cos) = phi.sin_cos();
             SvgPoint {
-                x: centre.x + h * co,
-                y: centre.y + h * s,
+                x: centre.x + half_stroke * cos,
+                y: centre.y + half_stroke * sin,
             }
         })
         .collect();
@@ -1099,14 +1099,15 @@ mod makeover_tests {
     }
 
     fn ctx(theme: azul_css::system::DarkLightMode, reduced_motion: bool) -> DynamicSelectorContext {
-        let mut c = DynamicSelectorContext::default();
-        c.mode = theme;
-        c.prefers_reduced_motion = if reduced_motion {
-            BoolCondition::True
-        } else {
-            BoolCondition::False
-        };
-        c
+        DynamicSelectorContext {
+            mode: theme,
+            prefers_reduced_motion: if reduced_motion {
+                BoolCondition::True
+            } else {
+                BoolCondition::False
+            },
+            ..Default::default()
+        }
     }
 
     fn light() -> DynamicSelectorContext {
