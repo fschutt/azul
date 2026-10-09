@@ -6192,8 +6192,9 @@ fn chrome_leaf(v: &mut Vec<CssPropertyWithConditions>) {
 // A flora ribbon is flora's toolbar strip (`--fl-strip`, closed along its foot
 // by the 2px rule of metal) over a leaf (`--fl-sur`) that holds the groups,
 // each ruled off from the next by a `--fl-sep` hairline and captioned in
-// flora's capitals in soft ink (`--fl-soft1`). Its tab row is Firefox's (Australis) in flora's metal
-// ("the Australis tab" below): the unselected tabs are flora's nav tabs
+// flora's capitals in soft ink (`--fl-soft1`). Its tab row is Firefox's
+// (Australis) in flora's metal ("the Australis tab" below): the unselected
+// tabs are flora's nav tabs
 // (`.nav-links a`), soft ink on the strip lifting to the hover face and the
 // house ink under the pointer; the selected tab is the sunken accent stone
 // (`.nav-links a.active`: `--fl-gem-sunken` under the sunken rig) in a
