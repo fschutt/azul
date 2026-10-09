@@ -175,7 +175,30 @@ impl NameMatcher {
     ///
     /// An empty pattern, a glob or a regular expression that does not compile.
     pub fn new(pattern: &Pattern) -> Result<NameMatcher, PatternError> {
-        todo!("SEARCH17: the matchers are the next commit")
+        check_not_empty(pattern)?;
+        if pattern.kind != PatternKind::Glob {
+            return Ok(NameMatcher {
+                how: NameHow::Text(regex_matcher(pattern, None)?),
+            });
+        }
+        let insensitive = match pattern.case {
+            Case::Insensitive => true,
+            Case::Sensitive => false,
+            Case::Smart => !pattern.text.chars().any(char::is_uppercase),
+        };
+        let glob = GlobBuilder::new(&pattern.text)
+            .case_insensitive(insensitive)
+            .literal_separator(true)
+            .backslash_escape(true)
+            .build()
+            .map_err(|e| PatternError::new(format!("\"{}\" is not a glob: {e}", pattern.text)))?
+            .compile_matcher();
+        Ok(NameMatcher {
+            how: NameHow::Glob {
+                glob,
+                path: pattern.text.contains('/'),
+            },
+        })
     }
 
     /// Where the pattern matches `name`, the name of the item at `path` (its `/`-separated path
@@ -183,7 +206,17 @@ impl NameMatcher {
     /// covers - all of them for a glob.
     #[must_use]
     pub fn find(&self, name: &str, path: &str) -> Option<(usize, usize)> {
-        todo!("SEARCH17: the matchers are the next commit")
+        match &self.how {
+            NameHow::Text(matcher) => matcher
+                .find(name.as_bytes())
+                .ok()
+                .flatten()
+                .map(|m| (m.start(), m.end())),
+            NameHow::Glob { glob, path: true } => glob.is_match(path).then_some((0, name.len())),
+            NameHow::Glob { glob, path: false } => {
+                glob.is_match(name).then_some((0, name.len()))
+            }
+        }
     }
 }
 
@@ -200,13 +233,26 @@ impl ContentMatcher {
     /// An empty pattern, a glob (globs match names), a regular expression that does not
     /// compile or that holds a line break.
     pub fn new(pattern: &Pattern) -> Result<ContentMatcher, PatternError> {
-        todo!("SEARCH17: the matchers are the next commit")
+        check_not_empty(pattern)?;
+        if pattern.kind == PatternKind::Glob {
+            return Err(PatternError::new(
+                "a glob matches names; file contents take a literal or a regular expression",
+            ));
+        }
+        Ok(ContentMatcher {
+            matcher: regex_matcher(pattern, Some(b'\n'))?,
+        })
     }
 
     /// The matches in `line` (a line without its line break), as byte ranges.
     #[must_use]
     pub fn find_all(&self, line: &str) -> Vec<(usize, usize)> {
-        todo!("SEARCH17: the matchers are the next commit")
+        let mut ranges = Vec::new();
+        let _ = self.matcher.find_iter(line.as_bytes(), |m| {
+            ranges.push((m.start(), m.end()));
+            true
+        });
+        ranges
     }
 }
 

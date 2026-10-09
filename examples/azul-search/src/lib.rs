@@ -37,7 +37,9 @@
 //! });
 //! ```
 
+mod content;
 pub mod pattern;
+mod walk;
 
 #[cfg(test)]
 mod tests;
@@ -281,6 +283,46 @@ pub fn search(
     cancel: &AtomicBool,
     on_event: &mut dyn FnMut(Event),
 ) -> Result<Summary, PatternError> {
-    let _ = (request, cancel, on_event, Ordering::SeqCst);
-    todo!("SEARCH17: the engine (the walks, the content search) is the next commit")
+    let names = request.names.as_ref().map(NameMatcher::new).transpose()?;
+    let contents = request.contents.as_ref().map(ContentMatcher::new).transpose()?;
+    let overrides = walk::overrides(&request.root, &request.filters)?;
+    let limit = AtomicBool::new(false);
+    let shared = walk::Shared {
+        root: &request.root,
+        filters: &request.filters,
+        overrides,
+        limits: request.limits,
+        context: request.context,
+        stop: walk::Stop {
+            cancel,
+            limit: &limit,
+        },
+        counters: walk::Counters::default(),
+    };
+    let mut gate = walk::Gate::new(request.limits, shared.stop);
+    if let Some(names) = &names {
+        on_event(Event::Phase(Phase::Names));
+        walk::run(&shared, walk::Look::Names(names), true, &mut gate, on_event);
+    }
+    if let Some(contents) = &contents {
+        if !shared.stop.is_set() {
+            on_event(Event::Phase(Phase::Contents));
+            walk::run(
+                &shared,
+                walk::Look::Contents(contents),
+                names.is_none(),
+                &mut gate,
+                on_event,
+            );
+        }
+    }
+    let mut summary = gate.summary;
+    let counters = &shared.counters;
+    summary.walked = counters.walked.load(Ordering::Relaxed);
+    summary.searched = counters.searched.load(Ordering::Relaxed);
+    summary.binary = counters.binary.load(Ordering::Relaxed);
+    summary.too_large = counters.too_large.load(Ordering::Relaxed);
+    summary.errors = counters.errors.load(Ordering::Relaxed);
+    summary.cancelled = cancel.load(Ordering::SeqCst);
+    Ok(summary)
 }
