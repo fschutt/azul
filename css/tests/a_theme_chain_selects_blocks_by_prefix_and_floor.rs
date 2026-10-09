@@ -26,14 +26,15 @@ fn named(name: &str) -> DynamicSelector {
 }
 
 fn chain(names: &[&str]) -> DynamicSelectorContext {
-    let mut ctx = DynamicSelectorContext::default();
-    ctx.theme_chain = StringVec::from_vec(
-        names
-            .iter()
-            .map(|n| AzString::from((*n).to_string()))
-            .collect(),
-    );
-    ctx
+    DynamicSelectorContext {
+        theme_chain: StringVec::from_vec(
+            names
+                .iter()
+                .map(|n| AzString::from((*n).to_string()))
+                .collect(),
+        ),
+        ..DynamicSelectorContext::default()
+    }
 }
 
 fn live(name: &str, names: &[&str]) -> bool {

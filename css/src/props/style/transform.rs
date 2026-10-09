@@ -1218,50 +1218,54 @@ const fn transform_identity(f: &StyleTransform) -> Option<StyleTransform> {
 
 /// One pair of functions of the same kind at `t`; `None` for a pair of
 /// different kinds (or a kind without a per-argument tween).
-fn interpolate_transform(a: &StyleTransform, b: &StyleTransform, t: f32) -> Option<StyleTransform> {
+fn interpolate_transform(
+    from: &StyleTransform,
+    to: &StyleTransform,
+    t: f32,
+) -> Option<StyleTransform> {
     use StyleTransform as T;
     // Degrees, UNFOLDED: `rotate(720deg)` is two turns, not none.
-    let angle = |x: &AngleValue, y: &AngleValue| {
-        let (x, y) = (x.to_degrees_raw(), y.to_degrees_raw());
-        AngleValue::deg((y - x).mul_add(t, x))
+    let angle = |from: &AngleValue, to: &AngleValue| {
+        let (from, to) = (from.to_degrees_raw(), to.to_degrees_raw());
+        AngleValue::deg((to - from).mul_add(t, from))
     };
-    Some(match (a, b) {
-        (T::Rotate(x), T::Rotate(y)) => T::Rotate(angle(x, y)),
-        (T::RotateX(x), T::RotateX(y)) => T::RotateX(angle(x, y)),
-        (T::RotateY(x), T::RotateY(y)) => T::RotateY(angle(x, y)),
-        (T::RotateZ(x), T::RotateZ(y)) => T::RotateZ(angle(x, y)),
-        (T::SkewX(x), T::SkewX(y)) => T::SkewX(angle(x, y)),
-        (T::SkewY(x), T::SkewY(y)) => T::SkewY(angle(x, y)),
-        (T::Skew(x), T::Skew(y)) => T::Skew(StyleTransformSkew2D {
-            x: angle(&x.x, &y.x),
-            y: angle(&x.y, &y.y),
+    Some(match (from, to) {
+        (T::Rotate(from), T::Rotate(to)) => T::Rotate(angle(from, to)),
+        (T::RotateX(from), T::RotateX(to)) => T::RotateX(angle(from, to)),
+        (T::RotateY(from), T::RotateY(to)) => T::RotateY(angle(from, to)),
+        (T::RotateZ(from), T::RotateZ(to)) => T::RotateZ(angle(from, to)),
+        (T::SkewX(from), T::SkewX(to)) => T::SkewX(angle(from, to)),
+        (T::SkewY(from), T::SkewY(to)) => T::SkewY(angle(from, to)),
+        (T::Skew(from), T::Skew(to)) => T::Skew(StyleTransformSkew2D {
+            x: angle(&from.x, &to.x),
+            y: angle(&from.y, &to.y),
         }),
-        (T::TranslateX(x), T::TranslateX(y)) => T::TranslateX(x.interpolate(y, t)),
-        (T::TranslateY(x), T::TranslateY(y)) => T::TranslateY(x.interpolate(y, t)),
-        (T::TranslateZ(x), T::TranslateZ(y)) => T::TranslateZ(x.interpolate(y, t)),
-        (T::Translate(x), T::Translate(y)) => T::Translate(StyleTransformTranslate2D {
-            x: x.x.interpolate(&y.x, t),
-            y: x.y.interpolate(&y.y, t),
+        (T::TranslateX(from), T::TranslateX(to)) => T::TranslateX(from.interpolate(to, t)),
+        (T::TranslateY(from), T::TranslateY(to)) => T::TranslateY(from.interpolate(to, t)),
+        (T::TranslateZ(from), T::TranslateZ(to)) => T::TranslateZ(from.interpolate(to, t)),
+        (T::Translate(from), T::Translate(to)) => T::Translate(StyleTransformTranslate2D {
+            x: from.x.interpolate(&to.x, t),
+            y: from.y.interpolate(&to.y, t),
         }),
-        (T::Translate3D(x), T::Translate3D(y)) => T::Translate3D(StyleTransformTranslate3D {
-            x: x.x.interpolate(&y.x, t),
-            y: x.y.interpolate(&y.y, t),
-            z: x.z.interpolate(&y.z, t),
+        (T::Translate3D(from), T::Translate3D(to)) => T::Translate3D(StyleTransformTranslate3D {
+            x: from.x.interpolate(&to.x, t),
+            y: from.y.interpolate(&to.y, t),
+            z: from.z.interpolate(&to.z, t),
         }),
-        (T::Scale(x), T::Scale(y)) => T::Scale(StyleTransformScale2D {
-            x: x.x.interpolate(&y.x, t),
-            y: x.y.interpolate(&y.y, t),
+        (T::Scale(from), T::Scale(to)) => T::Scale(StyleTransformScale2D {
+            x: from.x.interpolate(&to.x, t),
+            y: from.y.interpolate(&to.y, t),
         }),
-        (T::Scale3D(x), T::Scale3D(y)) => T::Scale3D(StyleTransformScale3D {
-            x: x.x.interpolate(&y.x, t),
-            y: x.y.interpolate(&y.y, t),
-            z: x.z.interpolate(&y.z, t),
+        (T::Scale3D(from), T::Scale3D(to)) => T::Scale3D(StyleTransformScale3D {
+            x: from.x.interpolate(&to.x, t),
+            y: from.y.interpolate(&to.y, t),
+            z: from.z.interpolate(&to.z, t),
         }),
-        (T::ScaleX(x), T::ScaleX(y)) => T::ScaleX(x.interpolate(y, t)),
-        (T::ScaleY(x), T::ScaleY(y)) => T::ScaleY(x.interpolate(y, t)),
-        (T::ScaleZ(x), T::ScaleZ(y)) => T::ScaleZ(x.interpolate(y, t)),
-        (T::Perspective(x), T::Perspective(y)) => T::Perspective(x.interpolate(y, t)),
-        _ if a == b => *a,
+        (T::ScaleX(from), T::ScaleX(to)) => T::ScaleX(from.interpolate(to, t)),
+        (T::ScaleY(from), T::ScaleY(to)) => T::ScaleY(from.interpolate(to, t)),
+        (T::ScaleZ(from), T::ScaleZ(to)) => T::ScaleZ(from.interpolate(to, t)),
+        (T::Perspective(from), T::Perspective(to)) => T::Perspective(from.interpolate(to, t)),
+        _ if from == to => *from,
         _ => return None,
     })
 }

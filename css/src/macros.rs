@@ -1109,6 +1109,7 @@ macro_rules! impl_option {
         // The size lints: this is the C API's `repr(C)` option, boxing the
         // payload would change its ABI.
         #[allow(missing_copy_implementations, variant_size_differences)]
+        #[allow(clippy::large_enum_variant)]
         pub enum $struct_name {
             None,
             Some($struct_type)
@@ -1251,9 +1252,10 @@ macro_rules! impl_result {
     );
 }
 
+// Only `codegen::format` uses it, so it exists with that feature only.
+#[cfg(feature = "codegen")]
 macro_rules! impl_color_value_fmt {
     ($struct_name:ty) => {
-        #[cfg(feature = "codegen")]
         impl FormatAsRustCode for $struct_name {
             fn format_as_rust_code(&self, _tabs: usize) -> String {
                 format!(

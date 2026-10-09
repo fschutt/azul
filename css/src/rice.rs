@@ -62,6 +62,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use core::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub use crate::system::{ricing_mode, ricing_mode_from, RicingMode};
@@ -443,7 +444,7 @@ pub fn version_satisfies(range: &str, version: &str) -> bool {
             let pivot = given
                 .iter()
                 .position(|&c| c != 0)
-                .unwrap_or(given.len().saturating_sub(1));
+                .unwrap_or_else(|| given.len().saturating_sub(1));
             let mut upper = base;
             upper[pivot] = upper[pivot].saturating_add(1);
             for slot in upper.iter_mut().skip(pivot + 1) {
@@ -974,12 +975,13 @@ impl RiceStatus {
             self.azul_version.as_str()
         );
         let chain: Vec<&str> = self.chain.iter().map(AzString::as_str).collect();
-        out.push_str(&format!("chain: {}\n", or_none(&chain.join(" > "))));
+        let _ = writeln!(out, "chain: {}", or_none(&chain.join(" > ")));
         if self.files.is_empty() {
             out.push_str("files: none\n");
         }
         for f in &self.files {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "  [{}] {} {}{} {}: {} rules, {} live, {} inert",
                 f.state.label(),
                 f.priority.name(),
@@ -997,26 +999,27 @@ impl RiceStatus {
                 f.rule_count,
                 f.live_rules,
                 f.inert_rules,
-            ));
+            );
             if !f.app.as_str().is_empty() {
-                out.push_str(&format!("; app {}", f.app.as_str()));
+                let _ = write!(out, "; app {}", f.app.as_str());
             }
             if !f.requires.as_str().is_empty() {
-                out.push_str(&format!(
+                let _ = write!(
+                    out,
                     "; requires {}: {}",
                     f.requires.as_str(),
                     f.requires_check.as_str()
-                ));
+                );
             }
             if !f.note.as_str().is_empty() {
-                out.push_str(&format!("; {}", f.note.as_str()));
+                let _ = write!(out, "; {}", f.note.as_str());
             }
             out.push('\n');
         }
         if !self.warnings.is_empty() {
             out.push_str("warnings:\n");
             for w in &self.warnings {
-                out.push_str(&format!("  - {}\n", w.as_str()));
+                let _ = writeln!(out, "  - {}", w.as_str());
             }
         }
         out.push_str(RICE_SUPPORT_POLICY);
@@ -1497,18 +1500,13 @@ fn check_requirements(entries: &mut [Entry], warnings: &mut Vec<String>) {
     }
 }
 
-/// Load the rice of the theme chain `chain` (most specific first) from
-/// `env`: the global files, every chain entry's directory, the legacy file.
-///
-/// The returned stylesheet orders the rules for the cascade: files of themes
-/// outside the chain (inert), unthemed files, then the chain from its last
-/// entry to its head; per-app files after the global files of their theme.
-/// At equal priority the chain's rank decides, then this order.
-#[must_use]
-pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
-    let mut warnings: Vec<String> = Vec::new();
-
-    // Collect: global files, the chain's directories, the legacy file.
+/// The rice files [`load_rice`] reads for `chain`, in collection order: the
+/// global files, the chain's directories, the legacy file.
+fn collect_raw_files(
+    env: &RiceEnv,
+    chain: &[String],
+    warnings: &mut Vec<String>,
+) -> Vec<RawFile> {
     let mut raws: Vec<RawFile> = Vec::new();
     if let Some(root) = env.root.as_ref() {
         let canon = std::fs::canonicalize(root).ok();
@@ -1539,6 +1537,20 @@ pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
     if let Some(legacy) = env.legacy_file.as_ref().filter(|p| p.exists()) {
         raws.push(load_raw(legacy.clone(), None, true, None));
     }
+    raws
+}
+
+/// Load the rice of the theme chain `chain` (most specific first) from
+/// `env`: the global files, every chain entry's directory, the legacy file.
+///
+/// The returned stylesheet orders the rules for the cascade: files of themes
+/// outside the chain (inert), unthemed files, then the chain from its last
+/// entry to its head; per-app files after the global files of their theme.
+/// At equal priority the chain's rank decides, then this order.
+#[must_use]
+pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
+    let mut warnings: Vec<String> = Vec::new();
+    let raws = collect_raw_files(env, chain, &mut warnings);
 
     let mut entries: Vec<Entry> = raws
         .into_iter()
@@ -1552,13 +1564,9 @@ pub fn load_rice(env: &RiceEnv, chain: &[String]) -> LoadedRice {
     // its floor to its head; within a group global before per-app, then the
     // collection order (global files, directory files, legacy; by name).
     let group = |e: &Entry| -> usize {
-        match &e.theme {
-            None => 1,
-            Some(t) => match chain.iter().position(|c| c == t) {
-                Some(rank) => 2 + (chain.len() - 1 - rank),
-                None => 0,
-            },
-        }
+        e.theme.as_ref().map_or(1, |t| {
+            chain.iter().position(|c| c == t).map_or(0, |rank| 2 + (chain.len() - 1 - rank))
+        })
     };
     let mut order: Vec<usize> = (0..entries.len()).collect();
     order.sort_by_key(|&i| (group(&entries[i]), entries[i].per_app));
@@ -1823,13 +1831,11 @@ pub fn take_pending_status(ctx: &DynamicSelectorContext) -> Option<RiceStatus> {
 /// there is nothing.
 #[must_use]
 pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
-    let (loaded, mode, env) = with_process(|p| match p.as_ref() {
-        Some(p) => (
-            p.loaded.as_ref().map(|(_, l)| l.clone()),
-            p.mode,
-            Some(p.env.clone()),
-        ),
-        None => (None, ricing_mode(), None),
+    let (loaded, mode, env) = with_process(|p| {
+        p.as_ref().map_or_else(
+            || (None, ricing_mode(), None),
+            |p| (p.loaded.as_ref().map(|(_, l)| l.clone()), p.mode, Some(p.env.clone())),
+        )
     });
     if let Some(loaded) = loaded {
         let mut ctx = ctx
