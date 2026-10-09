@@ -235,9 +235,10 @@ pub fn create_scroll_physics_timer(
     scroll_physics.timer_interval_ms = u32::try_from(frame_interval_nanos.saturating_add(500_000) / 1_000_000)
         .unwrap_or(u32::MAX)
         .max(1);
+    let callback: crate::timer::TimerCallbackType = scroll_physics_timer_callback;
     crate::timer::Timer::create(
         RefAny::new(ScrollPhysicsState::new(input_queue, scroll_physics)),
-        scroll_physics_timer_callback as crate::timer::TimerCallbackType,
+        callback,
         crate::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
     )
     .with_interval(azul_core::task::Duration::System(

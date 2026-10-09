@@ -219,6 +219,8 @@ impl GlobalHotkeyError {
 /// the grab is `Pending` until the desktop answers.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+// The C API's repr(C) status: boxing the error would change its ABI.
+#[allow(variant_size_differences)]
 pub enum GlobalHotkeyStatus {
     /// Nobody declares it and no failure is remembered for it.
     NotRegistered,
@@ -292,7 +294,7 @@ impl_vec_hash!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
 impl GlobalHotkeyCallbackData {
     /// A declaration without a description.
     #[must_use]
-    pub fn create(hotkey: GlobalHotkey, data: RefAny, callback: CoreCallback) -> Self {
+    pub const fn create(hotkey: GlobalHotkey, data: RefAny, callback: CoreCallback) -> Self {
         Self {
             hotkey,
             description: AzString::from_const_str(""),
@@ -489,9 +491,10 @@ pub(crate) fn record_status_read() {
 #[cfg(not(feature = "std"))]
 pub(crate) fn record_status_read() {}
 
-/// Drain what was declared since the last drain on THIS thread. Call right
-/// after a `layout()` / `AppConfig` hotkeys callback returns, on the same
-/// thread - and once right before it, to clear anything stale.
+/// Drain what was declared since the last drain on THIS thread.
+///
+/// Call right after a `layout()` / `AppConfig` hotkeys callback returns, on the
+/// same thread - and once right before it, to clear anything stale.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
@@ -508,11 +511,13 @@ pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
 // The AppConfig's derived set (apps with no window)
 // ---------------------------------------------------------------------------
 
-/// Derives the app-level global hotkeys from the app's state (the `RefAny`
-/// the `App` was created with), for an app with no `layout()` - a tray-only
-/// or background utility - or hotkeys that belong to no window. Declares
-/// through [`GlobalHotkeysCallbackInfo::add_global_hotkey`], exactly like
-/// `layout()` does through `LayoutCallbackInfo`.
+/// Derives the app-level global hotkeys from the app's state (the `RefAny` the
+/// `App` was created with).
+///
+/// It serves an app with no `layout()` - a tray-only or background utility - or
+/// hotkeys that belong to no window. Declares through
+/// [`GlobalHotkeysCallbackInfo::add_global_hotkey`], exactly like `layout()`
+/// does through `LayoutCallbackInfo`.
 ///
 /// Runs once when the app starts, again after any callback returns
 /// `Update::RefreshDom` / `RefreshDomAllWindows` (the only "the app state
@@ -592,7 +597,7 @@ impl GlobalHotkeysCallbackInfo {
     /// An info reading `snapshot`, which must outlive every use of it (the
     /// engine builds it on the stack around one call).
     #[must_use]
-    pub fn new(snapshot: &GlobalHotkeyInfoVec) -> Self {
+    pub const fn new(snapshot: &GlobalHotkeyInfoVec) -> Self {
         Self {
             ref_data: core::ptr::from_ref::<GlobalHotkeyInfoVec>(snapshot),
             callable_ptr: core::ptr::null(),
@@ -601,7 +606,7 @@ impl GlobalHotkeysCallbackInfo {
     }
 
     /// Set the callable pointer for FFI language bindings.
-    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+    pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
         self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
@@ -927,7 +932,7 @@ impl GlobalHotkey {
         self.format_with(mac, if mac { "Cmd" } else { "Super" })
     }
 
-    fn format_with(&self, mac: bool, meta_name: &str) -> String {
+    fn format_with(self, mac: bool, meta_name: &str) -> String {
         let mut out = String::new();
         let mut push = |part: &str| {
             if !out.is_empty() {
@@ -1147,10 +1152,11 @@ pub fn xkb_keysym_name(key: VirtualKeyCode) -> Option<&'static str> {
         .map(|(_, _, xkb)| *xkb)
 }
 
-/// The `preferred_trigger` the xdg-desktop-portal `GlobalShortcuts`
-/// interface takes, in the XDG shortcuts format: the modifiers `CTRL`, `ALT`,
-/// `SHIFT`, `LOGO` (in that order) and the xkb keysym name, joined by `+` -
-/// `"CTRL+ALT+k"`, `"SHIFT+LOGO+k"`, `"F13"`.
+/// The `preferred_trigger` the xdg-desktop-portal `GlobalShortcuts` interface
+/// takes, in the XDG shortcuts format.
+///
+/// The modifiers `CTRL`, `ALT`, `SHIFT`, `LOGO` (in that order) and the xkb
+/// keysym name, joined by `+` - `"CTRL+ALT+k"`, `"SHIFT+LOGO+k"`, `"F13"`.
 ///
 /// `None` for a key the portal cannot name.
 #[must_use]
@@ -1181,7 +1187,7 @@ pub fn portal_trigger(hotkey: &GlobalHotkey) -> Option<String> {
 
 /// Keys that may be grabbed without Ctrl / Alt / Cmd: they type nothing and
 /// move no caret, so owning them system-wide steals nothing from typing.
-fn may_stand_alone(key: VirtualKeyCode) -> bool {
+const fn may_stand_alone(key: VirtualKeyCode) -> bool {
     matches!(
         key,
         K::F1

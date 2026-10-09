@@ -1892,7 +1892,7 @@ mod autotest_generated {
     /// One widget, two nodes: the wrapper merges (keeps the retained state),
     /// the panel inside it carries a clone of the same dataset and no merge
     /// callback. Merged node by node the panel ended on the fresh allocation
-    /// - an orphan - because the wrapper's re-point ran before the panel held
+    /// (an orphan), because the wrapper's re-point ran before the panel held
     /// it. Merged as a batch, both end on the retained state.
     #[test]
     fn autotest_merge_fresh_datasets_unifies_a_widget_spread_over_two_nodes() {

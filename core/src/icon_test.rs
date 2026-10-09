@@ -1478,19 +1478,20 @@ mod remap_rules_tests {
     }
 
     fn ctx_with(dark: bool, chain: &[&str]) -> DynamicSelectorContext {
-        let mut ctx = DynamicSelectorContext::default();
-        ctx.mode = if dark {
-            azul_css::system::DarkLightMode::Dark
-        } else {
-            azul_css::system::DarkLightMode::Light
-        };
-        ctx.theme_chain = azul_css::StringVec::from_vec(
-            chain
-                .iter()
-                .map(|t| azul_css::AzString::from((*t).to_string()))
-                .collect(),
-        );
-        ctx
+        DynamicSelectorContext {
+            mode: if dark {
+                azul_css::system::DarkLightMode::Dark
+            } else {
+                azul_css::system::DarkLightMode::Light
+            },
+            theme_chain: azul_css::StringVec::from_vec(
+                chain
+                    .iter()
+                    .map(|t| azul_css::AzString::from((*t).to_string()))
+                    .collect(),
+            ),
+            ..DynamicSelectorContext::default()
+        }
     }
 
     // apply-if: the dynamic-selector vocabulary
@@ -1796,14 +1797,15 @@ mod pack_condition_tests {
 
     /// A window's context under the app theme chain `names`.
     fn theme(names: &[&str]) -> DynamicSelectorContext {
-        let mut ctx = DynamicSelectorContext::default();
-        ctx.theme_chain = azul_css::StringVec::from_vec(
-            names
-                .iter()
-                .map(|t| azul_css::AzString::from((*t).to_string()))
-                .collect(),
-        );
-        ctx
+        DynamicSelectorContext {
+            theme_chain: azul_css::StringVec::from_vec(
+                names
+                    .iter()
+                    .map(|t| azul_css::AzString::from((*t).to_string()))
+                    .collect(),
+            ),
+            ..DynamicSelectorContext::default()
+        }
     }
 
     fn in_theme(inner: &IconProviderInner, spec: &str, names: &[&str]) -> Option<u32> {

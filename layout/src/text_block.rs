@@ -88,7 +88,7 @@ impl EditHost {
 
     /// The host element as a `DomNodeId`.
     #[must_use]
-    pub fn dom_node(self) -> DomNodeId {
+    pub const fn dom_node(self) -> DomNodeId {
         DomNodeId {
             dom: self.dom,
             node: NodeHierarchyItemId::from_crate_internal(Some(self.node)),

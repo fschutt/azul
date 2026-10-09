@@ -93,7 +93,9 @@ use super::*;
 /// block's height while the root's own height is auto).
 /// `constraints.containing_block_size` is the root's OWN containing block: a
 /// quarter of it made `body > img { width: 25% }` a quarter of the window.
-pub(super) fn atomic_inline_containing_block(constraints: &LayoutConstraints<'_>) -> LogicalSize {
+pub(super) const fn atomic_inline_containing_block(
+    constraints: &LayoutConstraints<'_>,
+) -> LogicalSize {
     constraints.available_size
 }
 

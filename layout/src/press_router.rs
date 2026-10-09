@@ -240,7 +240,7 @@ impl LayoutWindow {
 
 /// The `ScrollbarHitId` a hit names: the thumb, or the rest of the bar
 /// (track and arrow buttons alike).
-fn scrollbar_hit_id(hit: &ScrollbarHit) -> ScrollbarHitId {
+const fn scrollbar_hit_id(hit: &ScrollbarHit) -> ScrollbarHitId {
     match (hit.orientation, hit.component) {
         (ScrollbarOrientation::Vertical, ScrollbarComponent::Thumb) => {
             ScrollbarHitId::VerticalThumb(hit.dom_id, hit.node_id)

@@ -525,13 +525,7 @@ impl AppState {
     /// tree): where a new terminal starts.
     #[must_use]
     pub fn workspace_folder(&self) -> Option<PathBuf> {
-        let root = &self.workspace.as_ref()?.root;
-        let prefix = root.prefix.trim_end_matches('/');
-        Some(if prefix.is_empty() {
-            root.drive_root.clone()
-        } else {
-            root.drive_root.join(prefix)
-        })
+        Some(self.workspace.as_ref()?.root.folder())
     }
 
     /// Some open file has unsaved changes.

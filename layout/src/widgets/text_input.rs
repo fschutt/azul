@@ -1324,7 +1324,7 @@ pub(crate) static SEARCH_FIELD_BASE: &[CssPropertyWithConditions] = &[
 /// or hidden (`display: none`): a box of its own size that centres its
 /// cross, under the pointer.
 #[must_use]
-pub(crate) fn search_clear_base(visible: bool) -> [CssPropertyWithConditions; 5] {
+pub(crate) const fn search_clear_base(visible: bool) -> [CssPropertyWithConditions; 5] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_display(if visible {
             SEARCH_CLEAR_SHOWN
@@ -1680,7 +1680,7 @@ struct LooksBefore {
     invalid: bool,
 }
 
-fn looks_of(state: &TextInputState) -> LooksBefore {
+const fn looks_of(state: &TextInputState) -> LooksBefore {
     LooksBefore {
         empty: state.text.is_empty(),
         invalid: !state.validity.is_valid(),

@@ -46,10 +46,12 @@ pub struct CssPropertyWithOrigin {
 }
 
 /// What the root of a HOSTED DOM - a `VirtualView`'s content - inherits from
-/// the node that hosts it: the host's value of every inheritable property it
-/// has one for, sorted by type ([`CssPropertyCache::inherited_from_host`],
-/// built by [`CssPropertyCache::inherited_values_for_hosted_dom`]). Empty for
-/// a document of its own.
+/// the node that hosts it.
+///
+/// The host's value of every inheritable property it has one for, sorted by
+/// type ([`CssPropertyCache::inherited_from_host`], built by
+/// [`CssPropertyCache::inherited_values_for_hosted_dom`]). Empty for a document
+/// of its own.
 pub type InheritedFromHost = Vec<(CssPropertyType, CssPropertyWithOrigin)>;
 
 use azul_css::{
@@ -5303,7 +5305,7 @@ impl CssPropertyCache {
                     // copied the same value.
                     self.cascaded_props
                         .build_mut(node_index)
-                        .retain(|e| !(is_normal_of(e) && !e.ua_origin));
+                        .retain(|e| !is_normal_of(e) || e.ua_origin);
                     stale[node_index] = Some(copy);
                 } else if ua.is_some_and(|u| u != copy) {
                     // The UA push shadows the copy on this element (pushed
@@ -5836,12 +5838,14 @@ pub(crate) fn rank_of(
     no_context_theme: Option<&AzString>,
     conditions: &[azul_css::dynamic_selector::DynamicSelector],
 ) -> usize {
-    match ctx {
-        Some(ctx) => ctx.cascade_rank(conditions),
-        None => no_context_theme.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |t| {
-            azul_css::dynamic_selector::cascade_rank(&[t.as_str()], conditions)
-        }),
-    }
+    ctx.map_or_else(
+        || {
+            no_context_theme.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |t| {
+                azul_css::dynamic_selector::cascade_rank(&[t.as_str()], conditions)
+            })
+        },
+        |ctx| ctx.cascade_rank(conditions),
+    )
 }
 
 /// Whether a non-pseudo condition holds for a `StyledDom`: against the
@@ -5855,10 +5859,10 @@ pub(crate) fn condition_holds(
     no_context_theme: Option<&AzString>,
     condition: &azul_css::dynamic_selector::DynamicSelector,
 ) -> bool {
-    match ctx {
-        Some(ctx) => condition.matches(ctx),
-        None => no_context_theme.is_some_and(|t| condition.matches_without_context(t.as_str())),
-    }
+    ctx.map_or_else(
+        || no_context_theme.is_some_and(|t| condition.matches_without_context(t.as_str())),
+        |ctx| condition.matches(ctx),
+    )
 }
 
 /// Whether the host a DOM is hosted at hands the DOM's root a value of

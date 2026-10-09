@@ -1226,14 +1226,14 @@ impl DatePicker {
     /// Light the days from `start` to `end`, both included, where the
     /// displayed month has them (see [`Self::range_start`]): a calendar's
     /// date navigator showing which days the calendar shows.
-    pub fn set_range(&mut self, start: DatePickerState, end: DatePickerState) {
+    pub const fn set_range(&mut self, start: DatePickerState, end: DatePickerState) {
         self.range_start = OptionDatePickerState::Some(start);
         self.range_end = OptionDatePickerState::Some(end);
     }
 
     /// [`Self::set_range`] for the builder chain.
     #[must_use]
-    pub fn with_range(mut self, start: DatePickerState, end: DatePickerState) -> Self {
+    pub const fn with_range(mut self, start: DatePickerState, end: DatePickerState) -> Self {
         self.set_range(start, end);
         self
     }
@@ -6481,7 +6481,9 @@ mod app_theme_tests {
     #[test]
     fn a_date_picker_declares_its_structure_once_for_every_theme() {
         use crate::widgets::themes::theme_checks::assert_structure_is_shared;
-        let pickers: [(&str, fn() -> DatePicker); 3] = [
+        /// A picker mode's name and how to build it.
+        type NamedPicker = (&'static str, fn() -> DatePicker);
+        let pickers: [NamedPicker; 3] = [
             ("date", || DatePicker::create(2024, 2, 15)),
             ("month", || DatePicker::create_month(2024, 2)),
             ("week", || DatePicker::create_week(2024, 7)),

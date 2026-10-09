@@ -90,7 +90,7 @@ pub struct CanvasShell {
 impl CanvasShell {
     /// A shell around `canvas`, nothing else.
     #[must_use]
-    pub fn create(canvas: Dom) -> Self {
+    pub const fn create(canvas: Dom) -> Self {
         Self {
             menu_bar: OptionDom::None,
             tool_options: OptionDom::None,

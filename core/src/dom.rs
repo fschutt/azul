@@ -1766,13 +1766,16 @@ impl FluentArgKVVec {
             let plain_decimal = value
                 .bytes()
                 .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+'));
-            let value = if let Ok(i) = value.parse::<i32>() {
-                FluentArg::I32(i)
-            } else if let (true, Ok(f)) = (plain_decimal, value.parse::<f32>()) {
-                FluentArg::F32(f)
-            } else {
-                FluentArg::String(value.into())
-            };
+            let value = value.parse::<i32>().map_or_else(
+                |_| {
+                    if let (true, Ok(f)) = (plain_decimal, value.parse::<f32>()) {
+                        FluentArg::F32(f)
+                    } else {
+                        FluentArg::String(value.into())
+                    }
+                },
+                FluentArg::I32,
+            );
             args.push(FluentArgKV {
                 key: arg_name.into(),
                 value,

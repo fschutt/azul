@@ -24,6 +24,9 @@ azcloud-kit = { path = "../azcloud-kit" }
 # The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
 # Data, Shortcuts, About), the --shot timer.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The search box: the open folder and every folder below it, names then contents (ripgrep's
+# walker and searcher; AzCode's find in files runs on it too).
+azul-search = { path = "../azul-search" }
 # The same features azul-layout and AzCalendar build chrono with (the local time of a date).
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # The settings file (already in the tree through azul-storage and azul-layout).

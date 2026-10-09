@@ -47,6 +47,7 @@ tested: AzTasks              # dll_tests (quick-add parser, repeat rules, smart 
 tested: azul-pim             # dll_tests (dates, RRULE, repeats, content lines, addresses, search, initials, the task store)
 tested: azul-icons-haiku     # dll_tests (names sorted and mapped once, every Material name drawn, every icon an HVIF azul draws)
 tested: azcloud-kit          # dll_tests (the token server's API, sessions, endpoints, the Azlin drive, the account, the bucket, the sync, links)
+tested: azul-search          # dll_tests (names, contents, regexes, globs, binary files, ignore files, filters, limits, cancellation)
 tested: azul-termkit         # dll_tests (the VT parser, panes, sessions, the sample screens)
 tested: AzBuilder            # dll_tests (its lib; its page is also tested by scripts/debugger-ui/builder-dnd-*.mjs)
 tested: AzWidgets            # dll_tests (the video page's helpers)

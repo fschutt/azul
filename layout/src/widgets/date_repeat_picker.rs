@@ -517,7 +517,7 @@ pub(crate) fn apply(rule: &mut DateRepeatRule, part: Part) {
 
 /// A typed number as a whole number from 1 to 999; `None` for no number.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 1..=999 first
-fn whole(typed: f32) -> Option<u32> {
+const fn whole(typed: f32) -> Option<u32> {
     if typed.is_nan() {
         return None;
     }
@@ -790,7 +790,7 @@ pub(crate) static RECURRENCE_FIXED_BASE: &[CssPropertyWithConditions] = &[
 ];
 
 /// "day" / "days", "week" / "weeks", ...: the unit after the interval.
-fn unit_word(frequency: DateRepeatFrequency, n: u32) -> &'static str {
+const fn unit_word(frequency: DateRepeatFrequency, n: u32) -> &'static str {
     let one = n == 1;
     match frequency {
         DateRepeatFrequency::Daily if one => "day",
@@ -916,9 +916,10 @@ pub(crate) fn build(editor: DateRepeatPicker, look: &DateRepeatPickerLook) -> Do
                             day: u32::try_from(day).unwrap_or(0),
                             shared: shared.clone(),
                         });
+                        let on_click: ButtonOnClickCallbackType = on_weekday_part;
                         let mut b = Button::create(AzString::from_const_str(WEEKDAY_SHORT[day]))
                             .with_toggled(chosen & (1 << day) != 0)
-                            .with_on_click(data, on_weekday_part as ButtonOnClickCallbackType);
+                            .with_on_click(data, on_click);
                         if let Some(t) = theme {
                             b = b.with_theme(t);
                         }
@@ -952,14 +953,12 @@ pub(crate) fn build(editor: DateRepeatPicker, look: &DateRepeatPickerLook) -> Do
                 ends.push(unit(if rule.count == 1 { "time" } else { "times" }));
             }
             DateRepeatEnd::OnDate => {
+                let on_change: DatePickerOnChangeCallbackType = on_until_part;
                 let mut picker =
                     DatePicker::create(rule.until.year, rule.until.month, rule.until.day)
                         .with_week_start(week_start)
                         .with_accessibility_name("Last date")
-                        .with_on_change(
-                            shared.clone(),
-                            on_until_part as DatePickerOnChangeCallbackType,
-                        );
+                        .with_on_change(shared.clone(), on_change);
                 if let Some(t) = theme {
                     picker = picker.with_theme(t);
                 }
@@ -970,12 +969,10 @@ pub(crate) fn build(editor: DateRepeatPicker, look: &DateRepeatPickerLook) -> Do
             rows.push(row(ends));
         }
         if completion_option {
+            let on_toggle: CheckBoxOnToggleCallbackType = on_completion_part;
             let mut check = CheckBox::create(rule.from_completion)
                 .with_accessibility_name(AzString::from_const_str(COMPLETION_LABEL))
-                .with_on_toggle(
-                    shared.clone(),
-                    on_completion_part as CheckBoxOnToggleCallbackType,
-                );
+                .with_on_toggle(shared.clone(), on_toggle);
             if let Some(t) = theme {
                 check = check.with_theme(t);
             }

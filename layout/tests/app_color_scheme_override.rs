@@ -28,7 +28,6 @@ use azul_core::{
     window::{OptionDarkLightMode, DarkLightMode},
 };
 use azul_css::{
-    dynamic_selector::ThemeCondition,
     props::basic::color::{ColorU, SystemColorRef},
     system::{defaults, SystemStyle},
 };
@@ -59,8 +58,10 @@ fn window(desktop: SystemStyle, app: OptionDarkLightMode) -> LayoutWindow {
 }
 
 fn window_state(theme: DarkLightMode) -> FullWindowState {
-    let mut ws = FullWindowState::default();
-    ws.mode = theme;
+    let mut ws = FullWindowState {
+        mode: theme,
+        ..Default::default()
+    };
     ws.size.dimensions = LogicalSize::new(400.0, 300.0);
     ws
 }
@@ -419,12 +420,12 @@ fn the_env_pin_outranks_the_app_which_outranks_the_window() {
     for app in [FOLLOW, PIN_LIGHT, PIN_DARK] {
         for own in [Light, Dark] {
             assert_eq!(
-                resolve_window_mode_with(env_light.clone(), app, own),
+                resolve_window_mode_with(env_light, app, own),
                 Light,
                 "AZ_MODE=light wins over app {app:?} and window {own:?}"
             );
             assert_eq!(
-                resolve_window_mode_with(env_dark.clone(), app, own),
+                resolve_window_mode_with(env_dark, app, own),
                 Dark,
                 "AZ_MODE=dark wins over app {app:?} and window {own:?}"
             );

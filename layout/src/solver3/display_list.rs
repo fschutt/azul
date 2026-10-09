@@ -2195,7 +2195,7 @@ pub enum DisplayListItem {
 /// line box the first character will create. Height is floored at 1 px so a
 /// zero font never produces an invisible caret.
 #[must_use]
-pub fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
+pub const fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
     let height = line_height_px.max(1.0);
     let height = if height.is_finite() { height } else { 1.0 };
     LogicalRect {
@@ -6423,7 +6423,7 @@ where
         // VirtualViewPlaceholder emitted after pop_node_clips in
         // generate_for_stacking_context — so VirtualView nodes get only the
         // clip. See `opens_own_scroll_frame`.
-        if self.opens_own_scroll_frame(node_index, dom_id, &overflow_x, &overflow_y) {
+        if self.opens_own_scroll_frame(node_index, dom_id, overflow_x, overflow_y) {
             let scroll_id = self
                 .scroll_ids
                 .get(&LayoutNodeId::new(node_index))
@@ -6505,8 +6505,8 @@ where
         &self,
         node_index: usize,
         dom_id: NodeId,
-        overflow_x: &super::getters::MultiValue<LayoutOverflow>,
-        overflow_y: &super::getters::MultiValue<LayoutOverflow>,
+        overflow_x: super::getters::MultiValue<LayoutOverflow>,
+        overflow_y: super::getters::MultiValue<LayoutOverflow>,
     ) -> bool {
         (overflow_x.is_scroll_container() || overflow_y.is_scroll_container())
             && crate::solver3::scroll_chain::opens_scroll_frame(
@@ -6578,7 +6578,7 @@ where
             // A scroll container with a frame of its own pushed it after the
             // clip; pop it first (LIFO). `clip`, a hidden box with nothing to
             // scroll and a VirtualView only pushed a clip.
-            if self.opens_own_scroll_frame(node_index, dom_id, &overflow_x, &overflow_y) {
+            if self.opens_own_scroll_frame(node_index, dom_id, overflow_x, overflow_y) {
                 builder.pop_scroll_frame();
             }
             builder.pop_clip();
@@ -7410,8 +7410,8 @@ where
         }
         let (xs, ys, _) = self.table_grid_lines(grid);
 
-        // Vertical edges: column line `c`, runs of rows.
-        for c in 0..=cols {
+        // Vertical edges: column line `c` (at `x`), runs of rows.
+        for (c, &x) in xs.iter().enumerate().take(cols + 1) {
             let mut r = 0;
             while r < rows {
                 let Some(edge) = borders.vertical_at(r, c) else {
@@ -7427,7 +7427,7 @@ where
                     end += 1;
                 }
                 let rect = LogicalRect::new(
-                    LogicalPosition::new(edge.width.mul_add(-0.5, xs[c]), ys[r]),
+                    LogicalPosition::new(edge.width.mul_add(-0.5, x), ys[r]),
                     LogicalSize::new(edge.width, ys[end] - ys[r]),
                 );
                 Self::paint_collapsed_edge(builder, rect, &edge, false);
@@ -7452,8 +7452,8 @@ where
                 .max(below.map_or(0.0, |e| e.width))
         };
 
-        // Horizontal edges: row line `r`, runs of columns.
-        for r in 0..=rows {
+        // Horizontal edges: row line `r` (at `y`), runs of columns.
+        for (r, &y) in ys.iter().enumerate().take(rows + 1) {
             let mut c = 0;
             while c < cols {
                 let Some(edge) = borders.horizontal_at(r, c) else {
@@ -7475,7 +7475,7 @@ where
                 let x0 = joint(r, left_line).mul_add(-0.5, xs[left_line]);
                 let x1 = joint(r, right_line).mul_add(0.5, xs[right_line]);
                 let rect = LogicalRect::new(
-                    LogicalPosition::new(x0, edge.width.mul_add(-0.5, ys[r])),
+                    LogicalPosition::new(x0, edge.width.mul_add(-0.5, y)),
                     LogicalSize::new(x1 - x0, edge.width),
                 );
                 Self::paint_collapsed_edge(builder, rect, &edge, true);
@@ -8972,7 +8972,6 @@ where
     /// glyphs it replaces are left out of the runs), the content box's top
     /// left at `origin`.
     fn paint_ellipses(
-        &self,
         builder: &mut DisplayListBuilder,
         ellipsis: &TextOverflowEllipsis,
         origin: LogicalPosition,
@@ -9541,7 +9540,7 @@ where
         // The ellipses, after the text they end (in the root's colour, on the
         // background the IFC proved).
         if let Some(ellipsis) = ellipsis {
-            self.paint_ellipses(
+            Self::paint_ellipses(
                 builder,
                 ellipsis,
                 container_rect.origin,
@@ -9845,7 +9844,7 @@ where
         // The table layers 2-6 over the inline table's own box (see above).
         // A grid that cannot be analysed leaves the box as painted.
         if let Some(table) = inline_table {
-            let _ = self.paint_table_items(builder, table);
+            drop(self.paint_table_items(builder, table));
         }
 
         // Push hit-test area for this inline-block element

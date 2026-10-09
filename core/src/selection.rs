@@ -465,7 +465,7 @@ impl TextBlock {
 
     /// [`Self::container`] as a `DomNodeId`.
     #[must_use]
-    pub fn container_dom_node(&self) -> DomNodeId {
+    pub const fn container_dom_node(&self) -> DomNodeId {
         DomNodeId {
             dom: self.dom,
             node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(

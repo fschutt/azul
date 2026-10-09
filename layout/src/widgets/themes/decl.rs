@@ -83,7 +83,7 @@ pub(crate) fn fill(color: ColorU) -> CssProperty {
 /// `background` built from layers, painted first to last (the base colour
 /// goes FIRST - the reverse of a CSS comma list).
 #[must_use]
-pub(crate) fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
+pub(crate) const fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
     CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(list))
 }
 
@@ -784,6 +784,7 @@ pub(crate) fn fill_box() -> [CssPropertyWithConditions; 2] {
 
 /// Which edges [`themed_border`] draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // one flag per box edge, as CSS names them
 pub(crate) struct Edges {
     pub(crate) top: bool,
     pub(crate) right: bool,

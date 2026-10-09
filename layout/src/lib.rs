@@ -49,6 +49,11 @@
     unsafe_op_in_unsafe_fn,
     let_underscore_drop,
 ))]
+// `redundant_pub_crate` (nursery) wants `pub(crate)` items in private modules
+// spelled `pub`, which is exactly what the `unreachable_pub` rustc lint above
+// flags - the two fight each other (clippy documents the conflict). The crate
+// keeps `unreachable_pub` and `pub(crate)`.
+#![allow(clippy::redundant_pub_crate)]
 #![allow(
     // `unknown_lints` lets the two forward-compat lints below be listed even on
     // the CI toolchain (1.90), where they may not be known yet, without emitting an

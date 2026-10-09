@@ -327,7 +327,7 @@ pub struct SummaryRow {
 impl SummaryRow {
     /// A read, unflagged message `id` from `from` about `subject`.
     #[must_use]
-    pub fn create(id: u64, from: AzString, subject: AzString) -> Self {
+    pub const fn create(id: u64, from: AzString, subject: AzString) -> Self {
         Self {
             id,
             from,
@@ -1306,13 +1306,11 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
     });
 
     // The search row: the search box, then the scope buttons.
+    let on_text: TextInputOnTextInputCallbackType = on_search_text;
     let mut search_input = TextInput::create_search()
         .with_text(search)
         .with_placeholder(search_placeholder)
-        .with_on_text_input(
-            shared.clone(),
-            on_search_text as TextInputOnTextInputCallbackType,
-        );
+        .with_on_text_input(shared.clone(), on_text);
     if let Some(theme) = theme {
         search_input = search_input.with_theme(theme);
     }
@@ -1321,9 +1319,10 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
         .with_css_props(part(SUMMARY_LIST_SEARCH_BASE, &look.search))
         .with_child(search_input.dom())];
     if !scopes.as_ref().is_empty() {
+        let on_change: SegmentedOnChangeCallbackType = on_scope_change;
         let mut segmented = Segmented::create(scopes)
             .with_selected_index(scope)
-            .with_on_change(shared.clone(), on_scope_change as SegmentedOnChangeCallbackType);
+            .with_on_change(shared.clone(), on_change);
         if let Some(theme) = theme {
             segmented = segmented.with_theme(theme);
         }
@@ -1470,9 +1469,10 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
         // mark leaves bare carries none.
         let mark_icon = mark.icon(flagged);
         if !mark_icon.is_empty() {
+            let on_click: ButtonOnClickCallbackType = on_flag_click;
             let mut flag = Button::create(AzString::from_const_str(""))
                 .with_icon(AzString::from_const_str(mark_icon))
-                .with_on_click(data.clone(), on_flag_click as ButtonOnClickCallbackType);
+                .with_on_click(data.clone(), on_click);
             // The mark's name says what a press does.
             flag.alt = AzString::from_const_str(mark.name(flagged));
             if let Some(theme) = theme {

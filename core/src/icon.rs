@@ -253,10 +253,11 @@ impl IconDesignedFor {
 }
 
 /// Alternative artwork for other modes, each an icon SPEC (the same
-/// comma-separated fallback chain `Dom::create_icon` takes). The default
-/// resolver redirects to the variant for the current mode by resolving the
-/// `<icon>` to that spec, so a variant is any registered icon: another
-/// image, a font glyph, an SVG, a DOM.
+/// comma-separated fallback chain `Dom::create_icon` takes).
+///
+/// The default resolver redirects to the variant for the current mode by
+/// resolving the `<icon>` to that spec, so a variant is any registered icon:
+/// another image, a font glyph, an SVG, a DOM.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub struct IconVariants {
@@ -355,6 +356,8 @@ impl IconModeColors {
 /// "request x capability". The resolver never guesses it from the kind.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
+// The C API's repr(C) recolor mode: boxing the palette would change its ABI.
+#[allow(variant_size_differences)]
 pub enum IconRecolor {
     /// The artwork follows the cascaded `color` of the `<icon>` node, like a
     /// font glyph (the font default). A tint request becomes that colour.
@@ -470,13 +473,13 @@ impl IconMeta {
     }
 
     #[must_use]
-    pub fn with_designed_for(mut self, designed_for: IconDesignedFor) -> Self {
+    pub const fn with_designed_for(mut self, designed_for: IconDesignedFor) -> Self {
         self.designed_for = designed_for;
         self
     }
 
     #[must_use]
-    pub fn with_monochrome(mut self, monochrome: bool) -> Self {
+    pub const fn with_monochrome(mut self, monochrome: bool) -> Self {
         self.monochrome = monochrome;
         self
     }
@@ -763,11 +766,9 @@ impl IconProviderInner {
     /// condition ([`IconProviderHandle::set_pack_condition`]) only while all
     /// its terms hold - and never without a context to hold under.
     fn pack_takes_part(&self, pack_name: &str, context: Option<&DynamicSelectorContext>) -> bool {
-        match self.pack_conditions.get(pack_name) {
-            None => true,
-            Some(conditions) => context
-                .is_some_and(|ctx| conditions.iter().all(|c| c.matches(ctx, &self.app_name))),
-        }
+        self.pack_conditions.get(pack_name).is_none_or(|conditions| {
+            context.is_some_and(|ctx| conditions.iter().all(|c| c.matches(ctx, &self.app_name)))
+        })
     }
 
     /// The first pack, in lookup order, that has `name_lower` and takes part

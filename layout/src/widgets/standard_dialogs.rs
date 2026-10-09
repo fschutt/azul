@@ -24,6 +24,7 @@
 //! Key types: the five dialogs, [`StandardDialogEvent`].
 
 use alloc::vec::Vec;
+use core::fmt::Write as _;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
@@ -38,8 +39,8 @@ use crate::{
     callbacks::CallbackInfo,
     widgets::{
         alert::AlertKind,
-        button::{ButtonOnClickCallbackType, ButtonType},
-        check_box::{CheckBoxOnToggleCallbackType, CheckBoxState},
+        button::ButtonType,
+        check_box::CheckBoxState,
         dialog_kit::{
             self, DialogKitLook, BUTTON_BOX_BASE, BUTTON_BOX_CLASS, BUTTON_ROW_BASE, FIXED_BASE,
             ROW_MIDDLE_BASE, ROW_TOP_BASE, SCROLL_BOX_BASE, SPACER_BASE,
@@ -129,7 +130,7 @@ pub struct StandardDialogEvent {
 impl StandardDialogEvent {
     /// An event of `kind` at `index`.
     #[must_use]
-    pub fn create(kind: StandardDialogEventKind, index: usize, checked: bool) -> Self {
+    pub const fn create(kind: StandardDialogEventKind, index: usize, checked: bool) -> Self {
         Self {
             text: AzString::from_const_str(""),
             index,
@@ -368,12 +369,7 @@ fn button_in(
         face,
         dialog_kit::RowAction::enabled_or(
             held.is_none(),
-            || {
-                (
-                    report(on_event, kind, index, false),
-                    on_button as ButtonOnClickCallbackType,
-                )
-            },
+            || (report(on_event, kind, index, false), on_button),
             AzString::from_const_str(held.unwrap_or("")),
         ),
         theme,
@@ -397,11 +393,7 @@ fn check(
     dialog_kit::check_row(
         label,
         checked,
-        (
-            report(on_event, kind, index, checked),
-            on_check as CheckBoxOnToggleCallbackType,
-            on_check_label as ButtonOnClickCallbackType,
-        ),
+        (report(on_event, kind, index, checked), on_check, on_check_label),
         DIALOG_CHECK_CLASS,
         theme,
         look,
@@ -751,7 +743,7 @@ fn alert_description(text: &AzString, steps: &StringVec) -> AzString {
         if !said.is_empty() {
             said.push('\n');
         }
-        said.push_str(&alloc::format!("{}. {}", i + 1, step.as_str()));
+        let _ = write!(said, "{}. {}", i + 1, step.as_str());
     }
     AzString::from(said)
 }
@@ -1042,6 +1034,8 @@ fn field(
         checked: false,
         enter,
     });
+    let on_text: TextInputOnTextInputCallbackType = on_field_text;
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_field_key;
     let mut input = if password {
         TextInput::create_password()
     } else {
@@ -1049,11 +1043,8 @@ fn field(
     }
     .with_text(text.clone())
     .with_accessibility_name(label.clone())
-    .with_on_text_input(
-        data.clone(),
-        on_field_text as TextInputOnTextInputCallbackType,
-    )
-    .with_on_virtual_key_down(data, on_field_key as TextInputOnVirtualKeyDownCallbackType);
+    .with_on_text_input(data.clone(), on_text)
+    .with_on_virtual_key_down(data, on_key);
     if let Some(t) = theme {
         input = input.with_theme(t);
     }

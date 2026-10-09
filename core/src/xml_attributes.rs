@@ -18,7 +18,7 @@
 //! reading, not a setting any element can carry.
 
 use alloc::{format, string::String, vec::Vec};
-use core::fmt;
+use core::fmt::{self, Write as _};
 
 use azul_css::{
     css::{CssDeclaration, CssPropertyValue},
@@ -89,9 +89,10 @@ impl AttributeScope {
 
 /// The form controls: the elements whose HTML attributes (`type`, `value`,
 /// `min`, `checked`, `data-*` ...) land as the typed attributes a
-/// `Dom::create_input(..).with_attribute(..)` would carry. `<button>` is here
-/// for its `type` / `name` / `value` / `disabled`: a `type="reset"` button is
-/// recognised by its `InputType` attribute alone.
+/// `Dom::create_input(..).with_attribute(..)` would carry.
+///
+/// `<button>` is here for its `type` / `name` / `value` / `disabled`: a
+/// `type="reset"` button is recognised by its `InputType` attribute alone.
 #[must_use]
 pub fn is_form_control_tag(tag: &str) -> bool {
     [
@@ -131,10 +132,10 @@ impl fmt::Debug for XmlAttribute {
 impl XmlAttribute {
     /// `true` if this entry takes attribute `name` (lowercase) on `tag`.
     fn takes(&self, name: &str, tag: &str) -> bool {
-        let named = match self.name.strip_suffix('*') {
-            Some(prefix) => name.starts_with(prefix),
-            None => name == self.name,
-        };
+        let named = self
+            .name
+            .strip_suffix('*')
+            .map_or_else(|| name == self.name, |prefix| name.starts_with(prefix));
         named && self.scope.admits(tag)
     }
 }
@@ -187,11 +188,15 @@ fn contenteditable(_: &str, value: &str) -> Option<NodeSetting> {
     })
 }
 
-fn autofocus(_: &str, _: &str) -> Option<NodeSetting> {
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
+const fn autofocus(_: &str, _: &str) -> Option<NodeSetting> {
     // Boolean attribute: presence is the value, as in HTML.
     Some(NodeSetting::Attribute(AttributeType::Autofocus))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn placeholder(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Placeholder(value.into())))
 }
@@ -220,10 +225,14 @@ fn dir(_: &str, value: &str) -> Option<NodeSetting> {
 /// its subtree - `hyphens: auto` picks its hyphenation resource by it (CSS
 /// Text 3 5.4), the accessibility tree reports it. Kept as written, an empty
 /// value too: `lang=""` says "unknown" and hides an ancestor's language.
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn lang(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Lang(value.trim().into())))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn style(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Style(value.into()))
 }
@@ -234,6 +243,8 @@ fn style(_: &str, value: &str) -> Option<NodeSetting> {
 /// [`apply_presentational_hints`] when the DOM is styled), so an app that
 /// builds `Dom::create_td().with_attribute(..)` gets the same result as
 /// markup, and an app reads the attribute like any other.
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn presentational(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Custom(
         AttributeNameValue {
@@ -299,6 +310,8 @@ fn form_control(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(attr))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn data(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Data(AttributeNameValue {
         attr_name: name.into(),
@@ -306,6 +319,8 @@ fn data(name: &str, value: &str) -> Option<NodeSetting> {
     })))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn l10n(name: &str, _: &str) -> Option<NodeSetting> {
     // The builders give a `data-l10n="key"` element the key as its first,
     // translatable text child and the `data-l10n-*` arguments as its fluent
@@ -319,6 +334,8 @@ fn l10n(name: &str, _: &str) -> Option<NodeSetting> {
     )))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn callback(name: &str, _: &str) -> Option<NodeSetting> {
     Some(NodeSetting::NotExported(AzString::from(
         format!(
@@ -418,9 +435,11 @@ pub fn builtin_attributes() -> &'static [XmlAttribute] {
 static REGISTERED: std::sync::RwLock<Vec<XmlAttribute>> = std::sync::RwLock::new(Vec::new());
 
 /// Add an entry to the table: every XML → DOM builder and the code generator
-/// take it from now on. It is looked up before the builtin ones (a later
-/// registration of the same name replaces an earlier one), so it may also
-/// change what a builtin attribute sets.
+/// take it from now on.
+///
+/// It is looked up before the builtin ones (a later registration of the same
+/// name replaces an earlier one), so it may also change what a builtin
+/// attribute sets.
 #[cfg(feature = "std")]
 pub fn register_xml_attribute(entry: XmlAttribute) {
     let mut r = REGISTERED
@@ -471,9 +490,10 @@ pub fn node_settings(xml_node: &XmlNode, tag: &str) -> Vec<NodeSetting> {
 }
 
 /// Land an element's `settings` ([`node_settings`] / [`setting_of`] +
-/// [`ordered`]) on `node`, the way every XML → DOM builder does: ids and
-/// classes together, the typed attributes after the node's own, a later tab
-/// index over an earlier one, and ONE inline style - `intrinsic` (the
+/// [`ordered`]) on `node`, the way every XML → DOM builder does.
+///
+/// Ids and classes together, the typed attributes after the node's own, a later
+/// tab index over an earlier one, and ONE inline style - `intrinsic` (the
 /// element's own sizing, e.g. an `<svg>`'s), then the writing direction, then
 /// the `style` attribute (the author's inline style wins). `css_key_map`: the
 /// parser's key map if the caller has one (else it is built when a `style`
@@ -747,7 +767,7 @@ fn parse_html_legacy_color(value: &str) -> Option<String> {
     for p in &parts {
         let two: String = p.iter().take(2).collect();
         let byte = u8::from_str_radix(&two, 16).unwrap_or(0);
-        out.push_str(&format!("{byte:02x}"));
+        let _ = write!(out, "{byte:02x}");
     }
     Some(out)
 }
@@ -790,11 +810,12 @@ fn table_border_width(table: &[(&str, &str)]) -> Option<i64> {
     hint_attr(table, "border").map(|v| parse_html_non_negative(v).unwrap_or(1))
 }
 
-/// The CSS declarations (`prop: value; ...`) HTML's rendering section maps
-/// the presentational attributes of a `tag` element to. `attributes` are the
-/// element's own, `table` the attributes of the nearest enclosing `table`
-/// (what its `cellpadding` / `border` / `bordercolor` give a `td` / `th`;
-/// empty for other elements). Empty when nothing applies.
+/// The CSS declarations (`prop: value; ...`) HTML's rendering section maps the
+/// presentational attributes of a `tag` element to.
+///
+/// `attributes` are the element's own, `table` the attributes of the nearest
+/// enclosing `table` (what its `cellpadding` / `border` / `bordercolor` give a
+/// `td` / `th`; empty for other elements). Empty when nothing applies.
 ///
 /// - `width` / `height` (table, cells, `col`): the dimension properties,
 ///   ignoring zero (a row's `height` keeps zero).
@@ -898,7 +919,7 @@ pub fn presentational_css(
 
 /// The tag [`presentational_css`] knows a node type by (`None` for the
 /// elements no presentational attribute applies to).
-fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
+const fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
     use crate::dom::NodeType as N;
     Some(match node_type {
         N::Body => "body",
@@ -940,13 +961,14 @@ fn custom_attributes(node: &NodeData) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Land the presentational hints of every element of a DOM about to be
-/// styled: each element's [`presentational_css`] (with its nearest
-/// enclosing table's attributes for a cell) as inline declarations IN FRONT
-/// of its own inline style. `node_data` and `hierarchy` are the flat arena
-/// of the DOM (pre-order: a parent before its children). Called once per
-/// styled DOM (`StyledDom` creation); a DOM without presentational
-/// attributes costs one scan.
+/// Land the presentational hints of every element of a DOM about to be styled.
+///
+/// Each element's [`presentational_css`] (with its nearest enclosing table's
+/// attributes for a cell) goes in as inline declarations IN FRONT of its own
+/// inline style. `node_data` and `hierarchy` are the flat arena of the DOM
+/// (pre-order: a parent before its children). Called once per styled DOM
+/// (`StyledDom` creation); a DOM without presentational attributes costs one
+/// scan.
 pub fn apply_presentational_hints(
     node_data: &mut [NodeData],
     hierarchy: &[crate::styled_dom::NodeHierarchyItem],

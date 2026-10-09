@@ -5,8 +5,8 @@
 //! `<body bgcolor>` mail and three WPT pages stay white around their body:
 //!
 //! - `background-color-body-propagation-001`: `html { background-color:
-//!   transparent }` (an EXPLICIT transparent) and `body { background: green }`
-//!   - the viewport must be green. azul took the root's transparent colour
+//!   transparent }` (an EXPLICIT transparent) and `body { background: green }` -
+//!   the viewport must be green. azul took the root's transparent colour
 //!   for "the root has a background", so nothing was propagated and only the
 //!   body's own box turned green;
 //! - `background-color-body-propagation-002`: the root's own background wins

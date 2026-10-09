@@ -3526,7 +3526,7 @@ impl Ribbon {
     /// The width the ribbon is laid out in, px (see
     /// [`Self::available_width`]); 0 or a width that is not a number: the
     /// window's.
-    pub fn set_available_width(&mut self, width: f32) {
+    pub const fn set_available_width(&mut self, width: f32) {
         self.available_width = if width.is_finite() {
             width.max(0.0)
         } else {
@@ -3536,7 +3536,7 @@ impl Ribbon {
 
     /// [`Self::set_available_width`] for the builder chain.
     #[must_use]
-    pub fn with_available_width(mut self, width: f32) -> Self {
+    pub const fn with_available_width(mut self, width: f32) -> Self {
         self.set_available_width(width);
         self
     }
@@ -5845,9 +5845,10 @@ fn collapsed_group_dom(
 ) -> Dom {
     let shared = RefAny::new(GroupPopupShared { pending: None });
     let mut button = collapsed_button(&group);
+    let on_click: ButtonOnClickCallbackType = on_ribbon_group_button_click;
     button.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
         shared.clone(),
-        on_ribbon_group_button_click as ButtonOnClickCallbackType,
+        on_click,
     ));
     let mut button = expand_ribbon_button(button, true, s, theme);
     button
@@ -5979,13 +5980,14 @@ fn deferred_item(item: RibbonItem, shared: &RefAny) -> RibbonItem {
             let on_select =
                 core::mem::replace(&mut gallery.on_select, OptionRibbonGalleryOnSelect::None);
             if let Some(on_select) = on_select.into_option() {
+                let in_popup: RibbonGalleryOnSelectCallbackType = on_ribbon_group_popup_select;
                 gallery.on_select =
                     OptionRibbonGalleryOnSelect::Some(RibbonGalleryOnSelect::create(
                         RefAny::new(PopupSelect {
                             shared: shared.clone(),
                             on_select,
                         }),
-                        on_ribbon_group_popup_select as RibbonGalleryOnSelectCallbackType,
+                        in_popup,
                     ));
             }
             RibbonItem::Gallery(gallery)
@@ -6002,12 +6004,13 @@ fn deferred_button(mut rb: RibbonButton, shared: &RefAny) -> RibbonButton {
     }
     let on_click = core::mem::replace(&mut rb.on_click, OptionButtonOnClick::None);
     if let Some(on_click) = on_click.into_option() {
+        let in_popup: ButtonOnClickCallbackType = on_ribbon_group_popup_command;
         rb.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
             RefAny::new(PopupCommand {
                 shared: shared.clone(),
                 on_click,
             }),
-            on_ribbon_group_popup_command as ButtonOnClickCallbackType,
+            in_popup,
         ));
     }
     rb

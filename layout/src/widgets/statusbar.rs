@@ -1596,7 +1596,7 @@ impl StatusBarZoom {
     }
 
     /// Sets the zoom percent.
-    pub fn set_percent(&mut self, percent: f32) {
+    pub const fn set_percent(&mut self, percent: f32) {
         self.percent = percent;
     }
 
@@ -1664,7 +1664,7 @@ impl StatusBarZoom {
     }
 
     /// Shows or hides the "100%" label after the + button.
-    pub fn set_show_label(&mut self, show_label: bool) {
+    pub const fn set_show_label(&mut self, show_label: bool) {
         self.show_label = show_label;
     }
 

@@ -368,10 +368,11 @@ impl_vec_clone!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor);
 impl_vec_partialeq!(VideoFrame, VideoFrameVec);
 
 /// One encoded access unit of a video stream (one picture's worth of NAL
-/// units), as a demuxer hands it out: Annex-B bytes (start-code-prefixed
-/// NALs, the parameter sets in front of a keyframe so a decoder can start
-/// there), when it is SHOWN, and whether a decoder can start at it.
-/// `VideoDecoder::decode` takes `data` as it is.
+/// units), as a demuxer hands it out.
+///
+/// Annex-B bytes (start-code-prefixed NALs, the parameter sets in front of a
+/// keyframe so a decoder can start there), when it is SHOWN, and whether a
+/// decoder can start at it. `VideoDecoder::decode` takes `data` as it is.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoChunk {

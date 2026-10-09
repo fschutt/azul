@@ -752,6 +752,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             .faces
             .remove(&font_hash)?;
         embedded.insert(font_hash, font.clone());
+        drop(embedded);
         Some(font)
     }
 

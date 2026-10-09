@@ -100,6 +100,42 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
 }
 
 #[test]
+fn the_unfinished_checkouts_stay_within_what_every_keyring_keeps_in_one_entry() {
+    // Windows' Credential Manager keeps at most 2560 bytes per entry, the strictest keyring:
+    // the list never grows past it - a checkout that would not fit is refused (before its
+    // payment page opens), and a name is cut to what a drive name needs.
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, keyring) = shared(&dir);
+    let mut added = 0;
+    loop {
+        let claim = ClaimKey::generate().unwrap();
+        let mut ck = checkout(&format!("ck_{added:026}"), &claim);
+        ck.name = "A drive with a long name ".repeat(10);
+        match pending::add(&shared, &ck) {
+            Ok(()) => added += 1,
+            Err(e) => {
+                assert!(e.to_string().contains("unfinished checkouts"), "{e}");
+                break;
+            }
+        }
+        let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
+        assert!(text.len() <= pending::MAX_PENDING_BYTES, "{} bytes", text.len());
+        assert!(added < 100, "the list never stops growing");
+    }
+    assert!(added >= 5, "a few checkouts always fit, not {added}");
+    let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
+    assert!(text.len() <= pending::MAX_PENDING_BYTES, "{} bytes", text.len());
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), added, "every kept checkout is whole");
+    assert!(listed.iter().all(|c| c.name.chars().count() <= 64));
+    assert!(listed.iter().all(|c| c.claim_key().is_ok()));
+    // Taking one off makes room again.
+    assert!(pending::remove(&shared, &listed[0].checkout_id).unwrap());
+    let claim = ClaimKey::generate().unwrap();
+    pending::add(&shared, &checkout("ck_room", &claim)).unwrap();
+}
+
+#[test]
 fn a_pending_checkout_keeps_its_claim_secret_and_debug_shows_none() {
     let claim = ClaimKey::generate().unwrap();
     let pending = checkout("ck_1", &claim);

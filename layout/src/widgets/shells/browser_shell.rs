@@ -84,7 +84,7 @@ pub struct BrowserShell {
 impl BrowserShell {
     /// A shell of the address bar, the tree and the content, nothing else.
     #[must_use]
-    pub fn create(address_bar: Dom, tree: Dom, content: Dom) -> Self {
+    pub const fn create(address_bar: Dom, tree: Dom, content: Dom) -> Self {
         Self {
             ribbon: OptionDom::None,
             address_bar,

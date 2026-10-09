@@ -3,7 +3,8 @@
 //! when it started, the token server it was made at and the name typed for the drive - changed
 //! only under the lock of that entry, so two windows (two processes) never lose each other's.
 //! The entry outlives the app: a drive paid after "Stop waiting", or while the app was closed,
-//! still reaches it.
+//! still reaches it. It stays within [`MAX_PENDING_BYTES`] (Windows' Credential Manager keeps no
+//! more in one entry): a checkout that would not fit is refused before its payment page opens.
 //!
 //! An app polls them while its dialog waits, at every start and in the background after "Stop
 //! waiting" ([`poll`]): an approved checkout becomes the drive - its session goes into the
@@ -31,6 +32,12 @@ use crate::{
 pub const PENDING_KEY: &str = "azcloud/checkouts";
 /// The `format` of its text.
 pub const PENDING_FORMAT: &str = "azcloud.checkouts";
+/// The most bytes the list's entry takes: Windows' Credential Manager keeps at most 2560 per
+/// credential (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), the strictest of the keyrings - about ten
+/// checkouts.
+pub const MAX_PENDING_BYTES: usize = 2560;
+/// The longest drive name a checkout keeps, in characters.
+pub const MAX_NAME_CHARS: usize = 64;
 
 /// One unfinished checkout. `Debug` shows no claim secret.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,7 +87,7 @@ impl PendingCheckout {
             tier: tier.trim().to_string(),
             started_at: crate::now(),
             token_url: token_url.trim().trim_end_matches('/').to_string(),
-            name: name.trim().to_string(),
+            name: short_name(name),
         }
     }
 
@@ -120,17 +127,22 @@ fn read(shared: &SharedKeyring) -> CloudResult<Vec<PendingCheckout>> {
     Ok(file.checkouts)
 }
 
-fn write(shared: &SharedKeyring, checkouts: Vec<PendingCheckout>) -> CloudResult<()> {
-    if checkouts.is_empty() {
-        return shared.delete(PENDING_KEY);
-    }
+/// The entry's text of `checkouts`.
+fn text_of(checkouts: Vec<PendingCheckout>) -> CloudResult<String> {
     let file = PendingFile {
         format: PENDING_FORMAT.to_string(),
         version: 1,
         checkouts,
     };
-    let text = serde_json::to_string(&file)
-        .map_err(|_| CloudError::failed("the list of unfinished checkouts cannot be written"))?;
+    serde_json::to_string(&file)
+        .map_err(|_| CloudError::failed("the list of unfinished checkouts cannot be written"))
+}
+
+fn write(shared: &SharedKeyring, checkouts: Vec<PendingCheckout>) -> CloudResult<()> {
+    if checkouts.is_empty() {
+        return shared.delete(PENDING_KEY);
+    }
+    let text = text_of(checkouts)?;
     shared.set(PENDING_KEY, &text)
 }
 
@@ -143,17 +155,36 @@ pub fn list(shared: &SharedKeyring) -> CloudResult<Vec<PendingCheckout>> {
     read(shared)
 }
 
-/// Adds `checkout` to the list (replacing one with its id).
+/// Adds `checkout` to the list (replacing one with its id; its name cut to
+/// [`MAX_NAME_CHARS`]) - unless the list's entry would grow past [`MAX_PENDING_BYTES`]: then
+/// the checkout is refused, before its payment page opens (the ones waiting finish or expire
+/// first; a paid one is claimed at the next poll).
 ///
 /// # Errors
 ///
-/// When the list cannot be read or written.
+/// When the list cannot be read or written, or has no room left.
 pub fn add(shared: &SharedKeyring, checkout: &PendingCheckout) -> CloudResult<()> {
     let _lock = shared.lock(PENDING_KEY)?;
     let mut checkouts = read(shared)?;
     checkouts.retain(|c| c.checkout_id != checkout.checkout_id);
-    checkouts.push(checkout.clone());
-    write(shared, checkouts)
+    let waiting = checkouts.len();
+    let mut kept = checkout.clone();
+    kept.name = short_name(&kept.name);
+    checkouts.push(kept);
+    let text = text_of(checkouts)?;
+    if text.len() > MAX_PENDING_BYTES {
+        fail!(
+            "{waiting} unfinished checkouts wait already, and the keyring keeps no more of them in \
+             one entry (Windows keeps {MAX_PENDING_BYTES} bytes): let them be paid or expire \
+             first"
+        );
+    }
+    shared.set(PENDING_KEY, &text)
+}
+
+/// `name` trimmed and cut to [`MAX_NAME_CHARS`] characters.
+fn short_name(name: &str) -> String {
+    name.trim().chars().take(MAX_NAME_CHARS).collect::<String>().trim_end().to_string()
 }
 
 /// Takes the checkout `checkout_id` off the list; whether this call did (`false`: it was not

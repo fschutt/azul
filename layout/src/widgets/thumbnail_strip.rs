@@ -126,7 +126,7 @@ pub struct ThumbnailItem {
 impl ThumbnailItem {
     /// An item showing `content`, numbered `label`, named `name`.
     #[must_use]
-    pub fn create(content: Dom, label: AzString, name: AzString) -> Self {
+    pub const fn create(content: Dom, label: AzString, name: AzString) -> Self {
         Self {
             content,
             label,
@@ -332,14 +332,14 @@ impl ThumbnailStrip {
     }
 
     /// The preview box's size, px.
-    pub fn set_thumb_size(&mut self, width: f32, height: f32) {
+    pub const fn set_thumb_size(&mut self, width: f32, height: f32) {
         self.thumb_width = width.max(1.0);
         self.thumb_height = height.max(1.0);
     }
 
     /// [`Self::set_thumb_size`] for the builder chain.
     #[must_use]
-    pub fn with_thumb_size(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_thumb_size(mut self, width: f32, height: f32) -> Self {
         self.set_thumb_size(width, height);
         self
     }

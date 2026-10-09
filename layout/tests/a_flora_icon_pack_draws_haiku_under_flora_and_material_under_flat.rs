@@ -39,14 +39,15 @@ fn material_font() -> FontRef {
 
 /// A window's context under the app theme chain `names`.
 fn window(names: &[&str]) -> DynamicSelectorContext {
-    let mut ctx = DynamicSelectorContext::default();
-    ctx.theme_chain = azul_css::StringVec::from_vec(
-        names
-            .iter()
-            .map(|t| azul_css::AzString::from((*t).to_string()))
-            .collect(),
-    );
-    ctx
+    DynamicSelectorContext {
+        theme_chain: azul_css::StringVec::from_vec(
+            names
+                .iter()
+                .map(|t| azul_css::AzString::from((*t).to_string()))
+                .collect(),
+        ),
+        ..Default::default()
+    }
 }
 
 /// What `<icon>inbox</icon>` becomes in a window of the theme chain `names`.
