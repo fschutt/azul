@@ -69,7 +69,8 @@ use azul_core::{
 };
 use azul_css::AzString;
 use azul_layout::managers::webview::{
-    WebViewId, WebViewOp, WebViewPlacement, WebViewRecorder, WebViewReport, WebViewTransform,
+    WebViewId, WebViewInput, WebViewOp, WebViewPlacement, WebViewRecorder, WebViewReport,
+    WebViewTransform,
 };
 
 use super::event::PlatformWindow;
@@ -100,6 +101,12 @@ pub trait WebViewBackend {
     fn transform(&mut self, id: WebViewId, transform: &WebViewTransform) {
         let _ = (id, transform);
     }
+    /// Input aimed at view `id`'s page - only for a backend whose window
+    /// composites its pages (`WebViewPlatform::Composited`); a native view
+    /// takes its input itself.
+    fn input(&mut self, id: WebViewId, input: &WebViewInput) {
+        let _ = (id, input);
+    }
     /// Load `url` in view `id`.
     fn navigate(&mut self, id: WebViewId, url: &str);
     /// Load view `id`'s page again.
@@ -123,6 +130,7 @@ pub trait WebViewBackend {
             WebViewOp::GoBack { id } => self.go_back(*id),
             WebViewOp::Place { id, placement } => self.place(*id, placement),
             WebViewOp::Transform { id, transform } => self.transform(*id, transform),
+            WebViewOp::Input { id, input } => self.input(*id, input),
             WebViewOp::Destroy { id } => self.destroy(*id),
         }
         Ok(())
@@ -164,6 +172,12 @@ impl WebViewBackend for HeadlessWebViews {
         self.recorder.apply(&WebViewOp::Transform {
             id,
             transform: *transform,
+        });
+    }
+    fn input(&mut self, id: WebViewId, input: &WebViewInput) {
+        self.recorder.apply(&WebViewOp::Input {
+            id,
+            input: input.clone(),
         });
     }
     fn navigate(&mut self, id: WebViewId, url: &str) {

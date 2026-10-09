@@ -6002,6 +6002,69 @@ impl LayoutWindow {
             &|d, n| self.painted_transform_of(d, n),
         );
         self.webviews.sync_placements(&painted);
+        // A composited page hears the keyboard focus move to or from it.
+        let focused = self.focus_manager.get_focused_node().copied();
+        self.webviews.sync_focus(focused);
+    }
+
+    /// Route a pointer `event` at window point `at` to the composited
+    /// web view page it is aimed at - the one whose node is the topmost
+    /// under the pointer in the last hit test (nothing stacked above it), or
+    /// the one a press went to, until its release
+    /// (`WebViewManager::route_pointer`). Called by a compositing shell for
+    /// each pointer event, after its hit test; returns whether a page took
+    /// it. The window's own events for the web view's node still run.
+    pub fn route_webview_pointer(
+        &mut self,
+        at: LogicalPosition,
+        event: crate::managers::webview::WebViewPointer,
+    ) -> bool {
+        use crate::managers::hover::InputPointId;
+
+        if !self.webviews.is_composited() || self.webviews.views().is_empty() {
+            return false;
+        }
+        // The topmost regular hit and the point in its content box: a web
+        // view's content box IS its page, and the hit tester has already
+        // undone every scroll and transform above it.
+        let target = self
+            .hover_manager
+            .get_current(&InputPointId::Mouse)
+            .and_then(|hit| {
+                hit.hovered_nodes
+                    .iter()
+                    .flat_map(|(dom, test)| {
+                        test.regular_hit_test_nodes
+                            .iter()
+                            .map(move |(node, item)| (*dom, *node, item))
+                    })
+                    .min_by_key(|(_, _, item)| item.hit_depth)
+                    .map(|(dom, node, item)| {
+                        (
+                            DomNodeId {
+                                dom,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                            },
+                            item.point_relative_to_item.get(),
+                        )
+                    })
+            });
+        self.webviews.route_pointer(target, at, event)
+    }
+
+    /// Route a key - in the shell's own codes, which only its backend reads
+    /// - to the composited web view page that has the keyboard focus.
+    /// Returns whether a page took it (the shell then leaves it out of the
+    /// window's own key handling).
+    pub fn route_webview_key(
+        &mut self,
+        native_key: u32,
+        native_scan: u32,
+        pressed: bool,
+        modifiers: azul_core::events::KeyModifiers,
+    ) -> bool {
+        let focused = self.focus_manager.get_focused_node().copied();
+        self.webviews.route_key(focused, native_key, native_scan, pressed, modifiers)
     }
 
     /// A composited backend's new `frame` of web view `id` - its page,
