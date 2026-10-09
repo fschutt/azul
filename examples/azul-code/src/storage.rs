@@ -264,8 +264,8 @@ fn depth(key: &str) -> usize {
 
 /// Every match of the job's query in the files of the workspace's `folder` on disk, through
 /// azul-search (ripgrep's parallel walker and searcher - the engine AzDrive's search box runs
-/// on): binary files (a NUL byte), files over [`SEARCH_MAX_FILE`] and the folders quick open
-/// leaves out are passed over, a UTF-16 file with a byte-order mark is read as text; at most
+/// on): binary files (a NUL byte; a UTF-16 file too, which the editor could not show), files
+/// over [`SEARCH_MAX_FILE`] and the folders quick open leaves out are passed over; at most
 /// [`SEARCH_MAX_HITS`] matches. The files nearest the folder come first, in name order. A
 /// raised `cancel` stops it.
 pub fn search_files(folder: &Path, job: &SearchJob) -> SearchOutcome {
