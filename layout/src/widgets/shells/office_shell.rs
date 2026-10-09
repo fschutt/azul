@@ -766,12 +766,13 @@ fn split(
         sp = sp.with_theme(t);
     }
     if on_pane_resize.is_some() {
+        let on_resize: SplitPaneOnResizeCallbackType = on_split_resize;
         sp = sp.with_on_resize(
             RefAny::new(SplitRef {
                 pane_index,
                 on_pane_resize: on_pane_resize.clone(),
             }),
-            on_split_resize as SplitPaneOnResizeCallbackType,
+            on_resize,
         );
     }
     sp.dom()

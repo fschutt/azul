@@ -712,12 +712,14 @@ pub(crate) fn build(palette: ShellCommandPalette, look: &ShellLook) -> Dom {
         rows: matching.clone(),
     });
 
+    let on_text: TextInputOnTextInputCallbackType = on_query_text;
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_query_key;
     let mut field = TextInput::create_search()
         .with_text(query)
         .with_placeholder(placeholder)
         .with_accessibility_name("Command")
-        .with_on_text_input(shared.clone(), on_query_text as TextInputOnTextInputCallbackType)
-        .with_on_virtual_key_down(shared.clone(), on_query_key as TextInputOnVirtualKeyDownCallbackType);
+        .with_on_text_input(shared.clone(), on_text)
+        .with_on_virtual_key_down(shared.clone(), on_key);
     if let Some(t) = inner {
         field = field.with_theme(t);
     }

@@ -521,11 +521,7 @@ fn check_row(
     dialog_kit::check_row(
         label,
         checked,
-        (
-            shared,
-            on_check_toggle as CheckBoxOnToggleCallbackType,
-            on_check_label as ButtonOnClickCallbackType,
-        ),
+        (shared, on_check_toggle, on_check_label),
         CHECK_ROW_CLASS,
         theme,
         look,
@@ -575,6 +571,7 @@ fn option_rows(
             .collect();
         let labels: Vec<AzString> = indices.iter().map(|&j| list[j].label.clone()).collect();
         let chosen = indices.iter().position(|&j| list[j].checked).unwrap_or(0);
+        let on_change: RadioGroupOnChangeCallbackType = on_radio;
         let mut radios = RadioGroup::create(StringVec::from_vec(labels))
             .with_selected_index(chosen)
             .with_accessibility_name(o.label.clone())
@@ -583,7 +580,7 @@ fn option_rows(
                     on_event: on_event.clone(),
                     indices: indices.clone(),
                 }),
-                on_radio as RadioGroupOnChangeCallbackType,
+                on_change,
             );
         if let Some(t) = theme {
             radios = radios.with_theme(t);
@@ -1055,6 +1052,7 @@ fn build_destination(page: WizardDestinationPage, look: &DialogKitLook) -> Dom {
         &with_block(&look.text, look),
     ));
     children.push(dialog_kit::line(page.field_label.clone(), &[], &look.label));
+    let on_change: PathInputOnChangeCallbackType = on_path;
     let mut field = PathInput::create(page.path.clone())
         .with_accessibility_name(page.field_label.clone())
         .with_browse_label(page.browse_label.clone())
@@ -1063,7 +1061,7 @@ fn build_destination(page: WizardDestinationPage, look: &DialogKitLook) -> Dom {
             RefAny::new(PathRef {
                 on_event: page.on_event.clone(),
             }),
-            on_path as PathInputOnChangeCallbackType,
+            on_change,
         );
     if let Some(t) = theme {
         field = field.with_theme(t);
@@ -1672,6 +1670,7 @@ fn build_progress(page: WizardProgressPage, look: &DialogKitLook) -> Dom {
         )
         .with_ids_and_classes(dialog_kit::class(PROGRESS_ITEM_CLASS)),
     );
+    let on_click: ButtonOnClickCallbackType = on_details;
     let mut details = Button::create(if page.show_log {
         page.hide_label.clone()
     } else {
@@ -1684,7 +1683,7 @@ fn build_progress(page: WizardProgressPage, look: &DialogKitLook) -> Dom {
             index: 0,
             checked: page.show_log,
         }),
-        on_details as ButtonOnClickCallbackType,
+        on_click,
     );
     if let Some(t) = theme {
         details = details.with_theme(t);

@@ -596,14 +596,12 @@ pub(crate) fn build(layout: ShellSettingsLayout, look: &ShellLook) -> Dom {
     let inner = inner_theme(theme);
     let kit = crate::widgets::dialog_kit::look_for(theme);
 
+    let on_text: TextInputOnTextInputCallbackType = on_search_text;
     let mut field = TextInput::create_search()
         .with_text(search.clone())
         .with_placeholder(search_placeholder)
         .with_accessibility_name("Search settings")
-        .with_on_text_input(
-            RefAny::new(SearchRef { on_search }),
-            on_search_text as TextInputOnTextInputCallbackType,
-        );
+        .with_on_text_input(RefAny::new(SearchRef { on_search }), on_text);
     if let Some(t) = inner {
         field = field.with_theme(t);
     }

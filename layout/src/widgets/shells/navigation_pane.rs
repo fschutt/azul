@@ -825,6 +825,7 @@ fn footer(collapsed: bool, on_event: &OptionShellNavigationPaneOnEvent, inner: O
     } else {
         ("chevron_left", "Collapse the navigation pane")
     };
+    let on_click: ButtonOnClickCallbackType = on_collapse_click;
     let mut button = Button::create(AzString::from_const_str(""))
         .with_icon(AzString::from_const_str(icon))
         .with_on_click(
@@ -834,7 +835,7 @@ fn footer(collapsed: bool, on_event: &OptionShellNavigationPaneOnEvent, inner: O
                 index: 0,
                 expand: collapsed,
             }),
-            on_collapse_click as ButtonOnClickCallbackType,
+            on_click,
         );
     if let Some(t) = inner {
         button = button.with_theme(t);
@@ -859,13 +860,16 @@ fn group_tree(
         index: 0,
         expand: is_open,
     });
+    let on_click: TreeViewOnNodeClickCallbackType = on_tree_click;
+    let on_toggle: TreeViewOnNodeToggleCallbackType = on_tree_toggle;
     let mut tree = TreeView::new(tree)
-        .with_on_node_click(group_ref.clone(), on_tree_click as TreeViewOnNodeClickCallbackType)
-        .with_on_node_toggle(group_ref.clone(), on_tree_toggle as TreeViewOnNodeToggleCallbackType);
+        .with_on_node_click(group_ref.clone(), on_click)
+        .with_on_node_toggle(group_ref.clone(), on_toggle);
     // A pane the app listens to is a drop target: a drop on a node is
     // its `NodeDropped`.
     if on_event.is_some() {
-        tree = tree.with_on_node_drop(group_ref, on_tree_drop as TreeViewOnNodeDropCallbackType);
+        let on_drop: TreeViewOnNodeDropCallbackType = on_tree_drop;
+        tree = tree.with_on_node_drop(group_ref, on_drop);
     }
     if let Some(t) = inner {
         tree = tree.with_theme(t);
@@ -916,6 +920,7 @@ fn groups(
         .collect();
     // The accordion reports the section index; the groups ref knows the
     // open states, so the pane reports the state the group is in now.
+    let on_toggle: AccordionOnToggleCallbackType = on_group_toggle;
     let mut accordion = Accordion::new(AccordionSectionVec::from_vec(sections))
         .with_variant(AccordionVariant::Groups)
         .with_on_toggle(
@@ -923,7 +928,7 @@ fn groups(
                 on_event: on_event.clone(),
                 open,
             }),
-            on_group_toggle as AccordionOnToggleCallbackType,
+            on_toggle,
         );
     if let Some(t) = inner {
         accordion = accordion.with_theme(t);

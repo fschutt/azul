@@ -995,6 +995,7 @@ fn tool(
         index,
         shared: shared.clone(),
     });
+    let on_click: ButtonOnClickCallbackType = on_item_click;
     let mut b = crate::widgets::button::styled_button(
         item.icon.clone(),
         if shows_label { item.label.clone() } else { none() },
@@ -1007,10 +1008,7 @@ fn tool(
         part(TOOLBAR_ICON_BASE, &look.icon),
         part(&toolbar_label_base(), &look.label),
         part(TOOLBAR_ARROW_BASE, &look.arrow),
-        OptionButtonOnClick::Some(ButtonOnClick::create(
-            data.clone(),
-            on_item_click as ButtonOnClickCallbackType,
-        )),
+        OptionButtonOnClick::Some(ButtonOnClick::create(data.clone(), on_click)),
         item.disabled_reason.clone(),
         // An icon-only tool is named by its label.
         if shows_label { none() } else { item.label.clone() },

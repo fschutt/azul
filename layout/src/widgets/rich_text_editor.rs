@@ -1351,6 +1351,7 @@ fn toolbar_buttons(editor: &RichTextEditor, data: &RefAny) -> Vec<Dom> {
         items.push(("undo", "Undo", RichTextCommand::Undo, false));
         items.push(("redo", "Redo", RichTextCommand::Redo, false));
     }
+    let on_click: ButtonOnClickCallbackType = on_toolbar_click;
     items
         .into_iter()
         .map(|(icon, label, command, pressed)| {
@@ -1372,7 +1373,7 @@ fn toolbar_buttons(editor: &RichTextEditor, data: &RefAny) -> Vec<Dom> {
                         editor: data.clone(),
                         command,
                     }),
-                    on_toolbar_click as ButtonOnClickCallbackType,
+                    on_click,
                 )
                 .dom()
                 .with_css("margin: 2px;")

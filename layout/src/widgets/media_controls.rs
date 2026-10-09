@@ -397,12 +397,13 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
         if let Some(on) = toggled {
             b = b.with_toggled(on);
         }
+        let on_click: ButtonOnClickCallbackType = on_media_button;
         b.set_on_click(
             RefAny::new(ActionData {
                 shared: shared.clone(),
                 action,
             }),
-            on_media_button as ButtonOnClickCallbackType,
+            on_click,
         );
         if let Some(t) = theme.into_option() {
             b = b.with_theme(t);
@@ -468,12 +469,10 @@ pub(crate) fn build(controls: MediaControls, look: &MediaControlsLook) -> Dom {
         ));
     }
     if volume >= 0.0 {
+        let on_change: SliderOnValueChangeCallbackType = on_media_volume;
         let mut slider = Slider::create(volume.clamp(0.0, 1.0) * 100.0, 0.0, 100.0)
             .with_accessibility_name("Volume")
-            .with_on_value_change(
-                shared.clone(),
-                on_media_volume as SliderOnValueChangeCallbackType,
-            );
+            .with_on_value_change(shared.clone(), on_change);
         if let Some(t) = theme.into_option() {
             slider = slider.with_theme(t);
         }

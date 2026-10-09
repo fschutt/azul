@@ -368,12 +368,7 @@ fn button_in(
         face,
         dialog_kit::RowAction::enabled_or(
             held.is_none(),
-            || {
-                (
-                    report(on_event, kind, index, false),
-                    on_button as ButtonOnClickCallbackType,
-                )
-            },
+            || (report(on_event, kind, index, false), on_button),
             AzString::from_const_str(held.unwrap_or("")),
         ),
         theme,
@@ -397,11 +392,7 @@ fn check(
     dialog_kit::check_row(
         label,
         checked,
-        (
-            report(on_event, kind, index, checked),
-            on_check as CheckBoxOnToggleCallbackType,
-            on_check_label as ButtonOnClickCallbackType,
-        ),
+        (report(on_event, kind, index, checked), on_check, on_check_label),
         DIALOG_CHECK_CLASS,
         theme,
         look,
@@ -1042,6 +1033,8 @@ fn field(
         checked: false,
         enter,
     });
+    let on_text: TextInputOnTextInputCallbackType = on_field_text;
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_field_key;
     let mut input = if password {
         TextInput::create_password()
     } else {
@@ -1049,11 +1042,8 @@ fn field(
     }
     .with_text(text.clone())
     .with_accessibility_name(label.clone())
-    .with_on_text_input(
-        data.clone(),
-        on_field_text as TextInputOnTextInputCallbackType,
-    )
-    .with_on_virtual_key_down(data, on_field_key as TextInputOnVirtualKeyDownCallbackType);
+    .with_on_text_input(data.clone(), on_text)
+    .with_on_virtual_key_down(data, on_key);
     if let Some(t) = theme {
         input = input.with_theme(t);
     }

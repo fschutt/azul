@@ -689,11 +689,12 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
     };
 
     // The calendar: the date picker, inline, today ringed.
+    let on_change: DatePickerOnChangeCallbackType = on_calendar_change;
     let mut picker = DatePicker::create(calendar.year, calendar.month, calendar.day)
         .with_inline(true)
         .with_week_start(week_start)
         .with_accessibility_name("Calendar")
-        .with_on_change(shared.clone(), on_calendar_change as DatePickerOnChangeCallbackType);
+        .with_on_change(shared.clone(), on_change);
     if let Some(t) = today.into_option() {
         picker = picker.with_today(t.year, t.month, t.day);
     }
@@ -737,13 +738,11 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
         .with_children(DomVec::from_vec(appointment_rows));
 
     // The task line.
+    let on_key: TextInputOnVirtualKeyDownCallbackType = on_task_key;
     let mut input = TextInput::create()
         .with_text(task_text)
         .with_placeholder(task_placeholder)
-        .with_on_virtual_key_down(
-            shared.clone(),
-            on_task_key as TextInputOnVirtualKeyDownCallbackType,
-        );
+        .with_on_virtual_key_down(shared.clone(), on_key);
     if let Some(theme) = theme {
         input = input.with_theme(theme);
     }
@@ -753,6 +752,7 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
         .with_child(input.dom());
 
     // The tasks: a box, the title as a link, the due date.
+    let on_toggle: CheckBoxOnToggleCallbackType = on_task_toggle;
     let task_rows: Vec<Dom> = tasks
         .into_library_owned_vec()
         .into_iter()
@@ -771,7 +771,7 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
             });
             let mut check = CheckBox::create(done)
                 .with_accessibility_name(title.clone())
-                .with_on_toggle(data.clone(), on_task_toggle as CheckBoxOnToggleCallbackType);
+                .with_on_toggle(data.clone(), on_toggle);
             if let Some(theme) = theme {
                 check = check.with_theme(theme);
             }

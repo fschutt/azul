@@ -1721,13 +1721,14 @@ fn toggle(
     let mut b = Button::with_type(AzString::from_const_str(""), ButtonType::Link)
         .with_icon(AzString::from_const_str(icon));
     b.alt = AzString::from(name);
+    let on_click: ButtonOnClickCallbackType = on_track_toggle;
     b.set_on_click(
         RefAny::new(ToggleData {
             shared: shared.clone(),
             track,
             kind,
         }),
-        on_track_toggle as ButtonOnClickCallbackType,
+        on_click,
     );
     if let Some(t) = theme.into_option() {
         b = b.with_theme(t);
