@@ -13041,6 +13041,11 @@ mod tests {
     #[cfg(feature = "a11y")]
     mod request_resumes;
 
+    // A `<webview>` on the headless backend: created and placed through the
+    // web view pump, its sign-in redirect caught by the app's callback
+    // (`tests/webview_sign_in.rs`, WEBVIEW17).
+    mod webview_sign_in;
+
     // --- Video tiles: a new frame is an image CONTENT update ---------------
     //
     // A camera / decoder frame reaches its tile as `ChangeNodeImage` (the
