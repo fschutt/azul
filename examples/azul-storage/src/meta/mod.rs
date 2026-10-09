@@ -63,6 +63,7 @@ pub mod bucket;
 pub mod objects;
 pub mod pack;
 pub mod seal;
+pub mod wal;
 
 use std::fmt;
 
@@ -73,6 +74,10 @@ pub use bucket::{
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
 pub use seal::{SealError, Sealer, TestSealer};
+pub use wal::{
+    LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Publish, Published, RefUpdate,
+    RepoState, SyncReport,
+};
 
 use crate::DriveError;
 

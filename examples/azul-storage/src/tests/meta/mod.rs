@@ -5,6 +5,7 @@ mod bucket;
 mod objects;
 mod pack;
 mod seal;
+mod wal;
 
 use super::TempDir;
 use crate::meta::{Bucket, DriveBucket, FolderBucket, MemoryBucket};
