@@ -28,8 +28,8 @@
 //! |---|---|---|
 //! | headless | [`HeadlessWebViews`]: the shared recorder, no browser | done |
 //! | macOS | `macos::webview` - `WKWebView`, `WebKit.framework` dlopen'd at the first view | done |
-//! | Linux (X11, Wayland) | WPE `WebKit` through dlopen (`linux::webview`): the loading layer | probe only |
-//! | Windows | `WebView2` through `WebView2Loader.dll` (`windows::webview`) | probe only |
+//! | Linux (X11, Wayland) | WPE `WebKit` via dlopen (`linux::webview`), the loading layer | probe |
+//! | Windows | `WebView2` via `WebView2Loader.dll` (`windows::webview`) | probe |
 //! | iOS | `WKWebView` in a `UIView`, the macOS shape | none yet |
 //! | Android | `android.webkit.WebView` through JNI | none yet |
 //!

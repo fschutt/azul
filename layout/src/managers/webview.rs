@@ -449,7 +449,11 @@ impl WebViewManager {
     /// app is not asked - the view is gone, or the navigation is to a
     /// `file://` page, which a web view never loads. Either way
     /// [`Self::finish_report`] answers it.
-    pub fn begin_report(&mut self, report: &WebViewReport, now: &Instant) -> Option<SyntheticEvent> {
+    pub fn begin_report(
+        &mut self,
+        report: &WebViewReport,
+        now: &Instant,
+    ) -> Option<SyntheticEvent> {
         if let WebViewEvent::NavigationRequested(nav) = &report.event {
             if is_file_url(nav.url.as_str()) {
                 return None;
