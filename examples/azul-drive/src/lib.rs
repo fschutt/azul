@@ -77,16 +77,11 @@
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
 //! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
-<<<<<<< HEAD
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
-//! `AZDRIVE_NEW_WINDOW <path>`. Keys, passwords, tokens and payment pages are never printed.
-=======
-//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`,
-//! `AZDRIVE_FILE_MENU <action>`, `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
+//! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
 //! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
 //! passwords, tokens and payment pages are never printed.
->>>>>>> worktree-agent-a865b806512f47155
 //!
 //! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
 //! Options' Drives) is a modal dialog - a transient window over the window: Buy storage (Azlin's
@@ -1754,12 +1749,9 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Progress { .. }
             | Outcome::Thumbnail { .. }
             | Outcome::Scanned { done: false, .. }
-<<<<<<< HEAD
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
-=======
             | Outcome::Searched { end: None, .. }
->>>>>>> worktree-agent-a865b806512f47155
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
