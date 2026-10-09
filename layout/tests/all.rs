@@ -666,6 +666,8 @@ mod a_webview_in_a_virtual_view_follows_the_views_re_renders;
 mod a_transformed_webview_tells_its_backend_how_its_page_is_mapped;
 #[path = "a_composited_webviews_frames_are_drawn_in_its_box.rs"]
 mod a_composited_webviews_frames_are_drawn_in_its_box;
+#[path = "a_composited_webview_gets_the_input_aimed_at_its_page.rs"]
+mod a_composited_webview_gets_the_input_aimed_at_its_page;
 #[path = "mail_markup_gets_the_html_rendering_defaults.rs"]
 mod mail_markup_gets_the_html_rendering_defaults;
 #[path = "a_block_holding_only_a_line_break_is_one_line_tall.rs"]
