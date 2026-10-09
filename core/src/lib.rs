@@ -241,7 +241,7 @@ pub mod hash {
             }
 
             #[inline]
-            fn add(&mut self, word: u64) {
+            const fn add(&mut self, word: u64) {
                 self.hash = (self.hash.rotate_left(ROTATE) ^ word).wrapping_mul(SEED);
             }
         }

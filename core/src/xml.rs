@@ -2416,7 +2416,7 @@ impl ComponentCodegen {
 
     /// [`ComponentCodegen::Call`].
     #[must_use]
-    pub fn call(call: ComponentCallCodegen) -> Self {
+    pub const fn call(call: ComponentCallCodegen) -> Self {
         Self::Call(call)
     }
 }

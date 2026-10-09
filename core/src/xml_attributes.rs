@@ -901,7 +901,7 @@ pub fn presentational_css(
 
 /// The tag [`presentational_css`] knows a node type by (`None` for the
 /// elements no presentational attribute applies to).
-fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
+const fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
     use crate::dom::NodeType as N;
     Some(match node_type {
         N::Body => "body",

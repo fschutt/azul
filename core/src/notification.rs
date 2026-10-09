@@ -173,7 +173,7 @@ impl Notification {
     /// A notification with a title, no body, no icon, no actions, the
     /// platform's default sound and no callback.
     #[must_use]
-    pub fn create(id: AzString, title: AzString) -> Self {
+    pub const fn create(id: AzString, title: AzString) -> Self {
         Self {
             id,
             title,
@@ -190,7 +190,7 @@ impl Notification {
     /// Show it at `unix_ms` (milliseconds since 1970, UTC) instead of now -
     /// see [`Notification::deliver_at`].
     #[must_use]
-    pub fn with_deliver_at(mut self, unix_ms: u64) -> Self {
+    pub const fn with_deliver_at(mut self, unix_ms: u64) -> Self {
         self.deliver_at = OptionU64::Some(unix_ms);
         self
     }

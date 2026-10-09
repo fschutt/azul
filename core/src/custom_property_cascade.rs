@@ -217,7 +217,7 @@ impl CustomPropertyEnvs {
 
     /// Whether this DOM has no custom property at all.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.normal.is_empty()
     }
 

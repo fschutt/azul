@@ -1183,13 +1183,13 @@ impl AppConfig {
     /// dark, `None` (the default, "system") follows the desktop. See
     /// [`Self::mode`]; switch it later with `CallbackInfo::set_mode`.
     #[must_use]
-    pub fn with_mode(mut self, mode: crate::window::OptionDarkLightMode) -> Self {
+    pub const fn with_mode(mut self, mode: crate::window::OptionDarkLightMode) -> Self {
         self.set_mode(mode);
         self
     }
 
     /// In-place [`Self::with_mode`].
-    pub fn set_mode(&mut self, mode: crate::window::OptionDarkLightMode) {
+    pub const fn set_mode(&mut self, mode: crate::window::OptionDarkLightMode) {
         self.mode = mode;
     }
 
@@ -1916,7 +1916,7 @@ impl RgbToYuv {
     }
 
     /// The Y sample of one straight RGB pixel (0..=255 each).
-    fn luma(&self, r: i32, g: i32, b: i32) -> u8 {
+    const fn luma(&self, r: i32, g: i32, b: i32) -> u8 {
         let y = (self.y_off << 16) + self.y[0] * r + self.y[1] * g + self.y[2] * b + 32768;
         clamp_u8(y >> 16)
     }

@@ -1854,7 +1854,7 @@ impl TextFormatSet {
     }
 
     /// Put `format` in the set (`on`) or take it out.
-    pub fn set(&mut self, format: TextFormat, on: bool) {
+    pub const fn set(&mut self, format: TextFormat, on: bool) {
         match format {
             TextFormat::Bold => self.bold = on,
             TextFormat::Italic => self.italic = on,

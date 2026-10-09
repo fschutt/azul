@@ -471,13 +471,13 @@ impl IconMeta {
     }
 
     #[must_use]
-    pub fn with_designed_for(mut self, designed_for: IconDesignedFor) -> Self {
+    pub const fn with_designed_for(mut self, designed_for: IconDesignedFor) -> Self {
         self.designed_for = designed_for;
         self
     }
 
     #[must_use]
-    pub fn with_monochrome(mut self, monochrome: bool) -> Self {
+    pub const fn with_monochrome(mut self, monochrome: bool) -> Self {
         self.monochrome = monochrome;
         self
     }

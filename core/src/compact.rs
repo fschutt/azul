@@ -1408,7 +1408,7 @@ fn compact_font_size_px(dims: &CompactNodeProps) -> f32 {
 /// Track a node's own winning `line-height` declaration while the builder
 /// applies its properties in cascade order: the last one with a value wins,
 /// as in [`apply_css_property_to_compact`].
-fn note_line_height(
+const fn note_line_height(
     prop: &CssProperty,
     own: &mut Option<azul_css::props::style::text::StyleLineHeight>,
 ) {

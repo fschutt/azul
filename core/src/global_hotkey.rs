@@ -292,7 +292,7 @@ impl_vec_hash!(GlobalHotkeyCallbackData, GlobalHotkeyCallbackDataVec);
 impl GlobalHotkeyCallbackData {
     /// A declaration without a description.
     #[must_use]
-    pub fn create(hotkey: GlobalHotkey, data: RefAny, callback: CoreCallback) -> Self {
+    pub const fn create(hotkey: GlobalHotkey, data: RefAny, callback: CoreCallback) -> Self {
         Self {
             hotkey,
             description: AzString::from_const_str(""),
@@ -595,7 +595,7 @@ impl GlobalHotkeysCallbackInfo {
     /// An info reading `snapshot`, which must outlive every use of it (the
     /// engine builds it on the stack around one call).
     #[must_use]
-    pub fn new(snapshot: &GlobalHotkeyInfoVec) -> Self {
+    pub const fn new(snapshot: &GlobalHotkeyInfoVec) -> Self {
         Self {
             ref_data: core::ptr::from_ref::<GlobalHotkeyInfoVec>(snapshot),
             callable_ptr: core::ptr::null(),
@@ -604,7 +604,7 @@ impl GlobalHotkeysCallbackInfo {
     }
 
     /// Set the callable pointer for FFI language bindings.
-    pub fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
+    pub const fn set_callable_ptr(&mut self, callable: &OptionRefAny) {
         self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
@@ -1185,7 +1185,7 @@ pub fn portal_trigger(hotkey: &GlobalHotkey) -> Option<String> {
 
 /// Keys that may be grabbed without Ctrl / Alt / Cmd: they type nothing and
 /// move no caret, so owning them system-wide steals nothing from typing.
-fn may_stand_alone(key: VirtualKeyCode) -> bool {
+const fn may_stand_alone(key: VirtualKeyCode) -> bool {
     matches!(
         key,
         K::F1
