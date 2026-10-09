@@ -51,6 +51,9 @@
 //!   content-addressed BLAKE3 blobs, a local index per folder, a three-way merge per file, the
 //!   Azlin tree (the data root and `~/.azlin`) with what never leaves the computer.
 //! - [`share`]: presigned links, lockdown and restore.
+//! - `encryption` (feature `encryption`): the drive encrypted on this device - its keys in the
+//!   keyring, the join code's key seal for a second device, the recovery code, the files
+//!   through azul-storage's `EncryptedDrive` with the index an `IndexProvider` opens.
 //! - [`error`]: [`CloudError`], what went wrong, telling a drive token to sign in again for
 //!   from everything else.
 //!
@@ -64,6 +67,8 @@ pub mod bucket;
 pub mod bundle;
 pub mod claim;
 pub mod drive;
+#[cfg(feature = "encryption")]
+pub mod encryption;
 pub mod endpoints;
 pub mod error;
 pub mod lock;

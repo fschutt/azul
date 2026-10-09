@@ -6,6 +6,8 @@ mod bucket;
 mod claim;
 mod cloud_drive;
 mod drive;
+#[cfg(feature = "encryption")]
+mod encryption;
 mod endpoints;
 mod fake_s3;
 mod lock;

@@ -335,6 +335,11 @@ pub struct JoinCode {
     /// The token server the code came from (the joining device uses its own
     /// configured one, and says so when they differ).
     pub token_url: String,
+    /// For an encrypted drive: the secret of the one-time key the inviting device
+    /// sealed the drive key to (64 hex digits; azul-storage's `crypto::device`
+    /// invite). With it the joining device gets the drive key once. A secret too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_seal: Option<String>,
 }
 
 impl std::fmt::Debug for JoinCode {
@@ -345,6 +350,7 @@ impl std::fmt::Debug for JoinCode {
             .field("member", &self.member)
             .field("name", &self.name)
             .field("token_url", &self.token_url)
+            .field("key_seal", &self.key_seal.as_ref().map(|_| "<hidden>"))
             .finish()
     }
 }
@@ -659,6 +665,7 @@ impl Account {
             member: answer["member"].as_str().unwrap_or("member").to_string(),
             name: self.record.name.clone(),
             token_url: self.token_url.clone(),
+            key_seal: None,
         })
     }
 
