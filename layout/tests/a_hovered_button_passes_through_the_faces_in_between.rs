@@ -78,11 +78,13 @@ fn window(button: &Button, look: Look, dark: bool) -> LayoutWindow {
     }));
     lw.mode = OptionDarkLightMode::None;
     lw.app_theme = AzString::from(app_theme.name());
-    let mut ws = FullWindowState::default();
-    ws.mode = if dark {
-        DarkLightMode::Dark
-    } else {
-        DarkLightMode::Light
+    let mut ws = FullWindowState {
+        mode: if dark {
+            DarkLightMode::Dark
+        } else {
+            DarkLightMode::Light
+        },
+        ..Default::default()
     };
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
     lw.current_window_state = ws.clone();

@@ -60,7 +60,7 @@ pub struct PimShell {
 impl PimShell {
     /// A shell of the three panes, nothing else.
     #[must_use]
-    pub fn create(navigation: Dom, list: Dom, reading: Dom) -> Self {
+    pub const fn create(navigation: Dom, list: Dom, reading: Dom) -> Self {
         Self {
             navigation,
             list,

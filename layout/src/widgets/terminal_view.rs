@@ -96,6 +96,9 @@ use crate::{callbacks::CallbackInfo, widgets::chart::ChartColor};
 
 /// A colour of a cell, as the program asked for it. The palette turns it
 /// into a colour ([`TerminalPalette::color_of`]).
+// repr(C, u8) FFI enum (api.json): boxing the 4-byte RGB would change the C ABI and put a
+// heap pointer in every Copy cell colour.
+#[allow(variant_size_differences)]
 #[repr(C, u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TerminalColor {
@@ -744,15 +747,15 @@ fn key_bytes(t: &TerminalModes, key: VirtualKeyCode, m: KeyModifiers) -> Option<
 /// The bytes of [`TerminalModes::encode_mouse`]; `None` when nothing is
 /// reported.
 fn mouse_bytes(
-    t: &TerminalModes,
+    modes: &TerminalModes,
     button: TerminalMouseButton,
     action: TerminalMouseAction,
     point: TerminalPoint,
-    m: KeyModifiers,
+    modifiers: KeyModifiers,
 ) -> Option<Vec<u8>> {
     use TerminalMouseAction as A;
     use TerminalMouseButton as B;
-    match (t.mouse, action) {
+    match (modes.mouse, action) {
         (TerminalMouseMode::Off, _) | (TerminalMouseMode::Click, A::Motion) => return None,
         (TerminalMouseMode::Drag, A::Motion) if button == B::None => return None,
         _ => {}
@@ -769,11 +772,13 @@ fn mouse_bytes(
         B::WheelUp => 64,
         B::WheelDown => 65,
     };
-    let mods = 4 * u32::from(m.shift) + 8 * u32::from(m.alt) + 16 * u32::from(m.ctrl);
+    let mods = 4 * u32::from(modifiers.shift)
+        + 8 * u32::from(modifiers.alt)
+        + 16 * u32::from(modifiers.ctrl);
     let motion = if action == A::Motion { 32 } else { 0 };
     let x = point.column.saturating_add(1);
     let y = point.line.saturating_add(1);
-    if t.mouse_encoding == TerminalMouseEncoding::Sgr {
+    if modes.mouse_encoding == TerminalMouseEncoding::Sgr {
         let code = base + mods + motion;
         let final_char = if action == A::Release { 'm' } else { 'M' };
         return Some(alloc::format!("\x1b[<{code};{x};{y}{final_char}").into_bytes());
@@ -784,7 +789,7 @@ fn mouse_bytes(
     let mut out = alloc::vec![0x1b, b'[', b'M'];
     for value in [code, x, y] {
         let v = value.checked_add(32)?;
-        if t.mouse_encoding == TerminalMouseEncoding::Utf8 {
+        if modes.mouse_encoding == TerminalMouseEncoding::Utf8 {
             // xterm's 1005 limit: 2047 as a two-byte character.
             if v > 2047 {
                 return None;
@@ -979,11 +984,12 @@ impl TerminalPalette {
     pub(crate) fn colors_of(&self, style: &TerminalStyle) -> TerminalStyleColors {
         let mut ink = self.color_of(style.fg);
         let mut ground = self.color_of(style.bg);
-        let mut paints_ground = style.bg != TerminalColor::Background;
-        if style.inverse {
+        let paints_ground = if style.inverse {
             core::mem::swap(&mut ink, &mut ground);
-            paints_ground = true;
-        }
+            true
+        } else {
+            style.bg != TerminalColor::Background
+        };
         if style.hidden {
             ink = ground;
         } else if style.dim {
@@ -1123,7 +1129,7 @@ pub struct TerminalScreen {
 impl TerminalScreen {
     /// A screen of `lines`, no scrollback, the cursor hidden.
     #[must_use]
-    pub fn create(lines: TerminalLineVec) -> Self {
+    pub const fn create(lines: TerminalLineVec) -> Self {
         Self {
             lines,
             line_below: OptionTerminalLine::None,
@@ -1285,7 +1291,7 @@ pub struct TerminalViewEvent {
 impl TerminalViewEvent {
     /// A `kind` event, nothing else set.
     #[must_use]
-    pub fn create(kind: TerminalViewEventKind) -> Self {
+    pub const fn create(kind: TerminalViewEventKind) -> Self {
         Self {
             bytes: U8Vec::from_vec(Vec::new()),
             scroll: 0,
@@ -1433,7 +1439,7 @@ impl TerminalView {
     /// A view at 13 px with the app theme's colours, no data until
     /// [`Self::with_data_source`].
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self {
             data_source: OptionTerminalViewDataSource::None,
             on_event: OptionTerminalViewOnEvent::None,
@@ -1963,7 +1969,7 @@ pub(crate) enum KeyAction {
 
 /// Whether Ctrl+Shift+`key` is the window's off macOS: a digit (Key1..Key0
 /// are 0..=9), a letter (A..Z are 10..=35), a bracket.
-fn is_window_chord_key(key: VirtualKeyCode) -> bool {
+const fn is_window_chord_key(key: VirtualKeyCode) -> bool {
     (key as u32) <= 35 || matches!(key, VirtualKeyCode::LBracket | VirtualKeyCode::RBracket)
 }
 

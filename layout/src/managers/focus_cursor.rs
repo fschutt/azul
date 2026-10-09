@@ -2744,7 +2744,19 @@ pub struct SpatialNavigationEnv<'a> {
     pub transform: &'a dyn Fn(DomId, NodeId) -> Option<ComputedTransform3D>,
 }
 
-fn no_transform(_dom: DomId, _node: NodeId) -> Option<ComputedTransform3D> {
+// The two lookups are closures, which have no `Debug`: the impl shows the
+// geometry and whether a live scroll state is wired in.
+impl core::fmt::Debug for SpatialNavigationEnv<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SpatialNavigationEnv")
+            .field("layout_results", self.layout_results)
+            .field("out_of_scope", self.out_of_scope)
+            .field("has_scroll_info", &self.scroll_info.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+const fn no_transform(_dom: DomId, _node: NodeId) -> Option<ComputedTransform3D> {
     None
 }
 

@@ -159,7 +159,7 @@ pub(crate) static PANE_VALUE_BASE: &[CssPropertyWithConditions] = &[
 impl DetailsPane {
     /// A pane for `title`, with no icon, subtitle or properties.
     #[must_use]
-    pub fn create(title: AzString) -> Self {
+    pub const fn create(title: AzString) -> Self {
         Self {
             icon: AzString::from_const_str(""),
             title,

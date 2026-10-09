@@ -845,7 +845,7 @@ impl ScrollManager {
 
     /// Consume the pending reveal: whoever performs it takes it, so it runs
     /// exactly once.
-    pub fn take_pending_reveal(&mut self) -> Option<RevealRequest> {
+    pub const fn take_pending_reveal(&mut self) -> Option<RevealRequest> {
         self.pending_reveal.take()
     }
 

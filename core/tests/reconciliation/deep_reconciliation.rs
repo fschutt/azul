@@ -558,13 +558,13 @@ fn csd_chrome_wrapper_keeps_every_user_node_matched() {
     }
 
     // 2. Every user node survives, shifted by the chrome it now sits below.
-    for old in 0..old_nd.len() {
+    for (old, node) in old_nd.iter().enumerate() {
         assert_eq!(
             map.get(&old).copied(),
             Some(old + CHROME_NODES),
             "user node {old} ({:?}) must survive the chrome wrapper as new node \
              {}; old -> new = {map:?}",
-            old_nd[old].get_node_type(),
+            node.get_node_type(),
             old + CHROME_NODES,
         );
     }

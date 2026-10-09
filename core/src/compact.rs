@@ -1264,16 +1264,14 @@ fn resolve_relative_font_weight(
     if !own.is_relative() {
         return;
     }
-    let parent = match parent_id {
-        Some(pid) => Some(pid.index())
-            .filter(|&pi| pi < node_idx)
-            .map(|pi| tier1[pi]),
-        None => root_parent,
-    }
-    .map_or(
-        azul_css::props::basic::font::StyleFontWeight::Normal,
-        decode_font_weight,
-    );
+    let parent = parent_id
+        .map_or(root_parent, |pid| {
+            Some(pid.index()).filter(|&pi| pi < node_idx).map(|pi| tier1[pi])
+        })
+        .map_or(
+            azul_css::props::basic::font::StyleFontWeight::Normal,
+            decode_font_weight,
+        );
     let encoded = u64::from(style_font_weight_to_u8(own.computed(parent)));
     let mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
     tier1[node_idx] =
@@ -1375,23 +1373,21 @@ fn encode_line_height(
     root_font_size_px: f32,
 ) -> i16 {
     use azul_css::props::style::text::StyleLineHeight;
+    // A factor of the font size: the px it comes to when the size is known.
+    let of_font_size = |factor: f32| {
+        font_size_px.map_or_else(
+            || encode_line_height_factor(factor),
+            |fs| encode_line_height_px(factor * fs),
+        )
+    };
     match lh {
         StyleLineHeight::Normal => I16_SENTINEL,
         StyleLineHeight::Number(n) => encode_line_height_factor(n.get()),
-        StyleLineHeight::Percentage(p) => match font_size_px {
-            Some(fs) => encode_line_height_px(p.normalized() * fs),
-            None => encode_line_height_factor(p.normalized()),
-        },
+        StyleLineHeight::Percentage(p) => of_font_size(p.normalized()),
         StyleLineHeight::Length(l) => match l.metric {
             SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => I16_AUTO,
-            SizeMetric::Em => match font_size_px {
-                Some(fs) => encode_line_height_px(l.number.get() * fs),
-                None => encode_line_height_factor(l.number.get()),
-            },
-            SizeMetric::Percent => match font_size_px {
-                Some(fs) => encode_line_height_px(l.number.get() / 100.0 * fs),
-                None => encode_line_height_factor(l.number.get() / 100.0),
-            },
+            SizeMetric::Em => of_font_size(l.number.get()),
+            SizeMetric::Percent => of_font_size(l.number.get() / 100.0),
             _ => encode_line_height_px(l.to_pixels_internal(0.0, 0.0, root_font_size_px)),
         },
     }
@@ -1408,7 +1404,7 @@ fn compact_font_size_px(dims: &CompactNodeProps) -> f32 {
 /// Track a node's own winning `line-height` declaration while the builder
 /// applies its properties in cascade order: the last one with a value wins,
 /// as in [`apply_css_property_to_compact`].
-fn note_line_height(
+const fn note_line_height(
     prop: &CssProperty,
     own: &mut Option<azul_css::props::style::text::StyleLineHeight>,
 ) {

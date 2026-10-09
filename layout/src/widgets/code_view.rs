@@ -75,6 +75,7 @@
 //! [`CodeViewSpan`], [`CodeTokenKind`], [`CodeViewEvent`], [`CodeViewEdit`].
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
@@ -464,7 +465,7 @@ impl CodeViewView {
 
     /// How many cursors there are.
     #[must_use]
-    pub fn cursor_count(&self) -> usize {
+    pub const fn cursor_count(&self) -> usize {
         self.cursors.len()
     }
 
@@ -496,7 +497,7 @@ impl CodeViewView {
     }
 
     /// Scrolls so `line` is the first line shown.
-    pub fn scroll_to_line(&mut self, line: u32) {
+    pub const fn scroll_to_line(&mut self, line: u32) {
         self.top_line = line;
     }
 
@@ -520,7 +521,7 @@ impl CodeViewView {
     }
 
     /// The whole lines the view shows (a screenful when not measured yet).
-    pub(crate) fn fit_lines(&self) -> u32 {
+    pub(crate) const fn fit_lines(&self) -> u32 {
         if self.visible_lines > 0 {
             self.visible_lines
         } else {
@@ -609,7 +610,7 @@ pub struct CodeViewEvent {
 impl CodeViewEvent {
     /// A `kind` event leaving `view`, nothing else set.
     #[must_use]
-    pub fn create(kind: CodeViewEventKind, view: CodeViewView) -> Self {
+    pub const fn create(kind: CodeViewEventKind, view: CodeViewView) -> Self {
         Self {
             view,
             edits: CodeViewEditVec::from_const_slice(&[]),
@@ -834,38 +835,38 @@ impl CodeView {
     }
 
     /// The px the view fills.
-    pub fn set_viewport(&mut self, width: f32, height: f32) {
+    pub const fn set_viewport(&mut self, width: f32, height: f32) {
         self.viewport_width = width;
         self.viewport_height = height;
     }
 
     /// [`Self::set_viewport`] for the builder chain.
     #[must_use]
-    pub fn with_viewport(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_viewport(mut self, width: f32, height: f32) -> Self {
         self.set_viewport(width, height);
         self
     }
 
     /// A line's height in px.
-    pub fn set_line_height(&mut self, px: f32) {
+    pub const fn set_line_height(&mut self, px: f32) {
         self.line_height = px;
     }
 
     /// [`Self::set_line_height`] for the builder chain.
     #[must_use]
-    pub fn with_line_height(mut self, px: f32) -> Self {
+    pub const fn with_line_height(mut self, px: f32) -> Self {
         self.set_line_height(px);
         self
     }
 
     /// The text's font size in px.
-    pub fn set_font_size(&mut self, px: f32) {
+    pub const fn set_font_size(&mut self, px: f32) {
         self.font_size = px;
     }
 
     /// [`Self::set_font_size`] for the builder chain.
     #[must_use]
-    pub fn with_font_size(mut self, px: f32) -> Self {
+    pub const fn with_font_size(mut self, px: f32) -> Self {
         self.set_font_size(px);
         self
     }
@@ -883,37 +884,37 @@ impl CodeView {
     }
 
     /// Show the line-number gutter.
-    pub fn set_show_line_numbers(&mut self, show: bool) {
+    pub const fn set_show_line_numbers(&mut self, show: bool) {
         self.show_line_numbers = show;
     }
 
     /// [`Self::set_show_line_numbers`] for the builder chain.
     #[must_use]
-    pub fn with_show_line_numbers(mut self, show: bool) -> Self {
+    pub const fn with_show_line_numbers(mut self, show: bool) -> Self {
         self.set_show_line_numbers(show);
         self
     }
 
     /// A view that is read, not edited.
-    pub fn set_read_only(&mut self, read_only: bool) {
+    pub const fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
     }
 
     /// [`Self::set_read_only`] for the builder chain.
     #[must_use]
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
+    pub const fn with_read_only(mut self, read_only: bool) -> Self {
         self.set_read_only(read_only);
         self
     }
 
     /// Tint the caret's line.
-    pub fn set_highlight_current_line(&mut self, highlight: bool) {
+    pub const fn set_highlight_current_line(&mut self, highlight: bool) {
         self.highlight_current_line = highlight;
     }
 
     /// [`Self::set_highlight_current_line`] for the builder chain.
     #[must_use]
-    pub fn with_highlight_current_line(mut self, highlight: bool) -> Self {
+    pub const fn with_highlight_current_line(mut self, highlight: bool) -> Self {
         self.set_highlight_current_line(highlight);
         self
     }
@@ -1002,7 +1003,7 @@ pub(crate) fn visual_column(text: &str, byte: u32, tab: u32) -> u32 {
 }
 
 /// The visual column after `ch`, which starts at `column`.
-fn advance(column: u32, ch: char, tab: u32) -> u32 {
+const fn advance(column: u32, ch: char, tab: u32) -> u32 {
     if ch == '\t' {
         (column / tab).saturating_add(1).saturating_mul(tab)
     } else {
@@ -1134,7 +1135,7 @@ pub(crate) fn word_at(text: &str, byte: u32) -> (u32, u32) {
 pub(crate) fn first_non_blank(text: &str) -> u32 {
     text.char_indices()
         .find(|(_, c)| !c.is_whitespace())
-        .map_or(len32(text), |(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
+        .map_or_else(|| len32(text), |(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
 }
 
 /// `text` with its tabs expanded to spaces, `text` starting at visual
@@ -1256,7 +1257,7 @@ pub(crate) fn char_width_of(cv: &CodeView) -> f32 {
 }
 
 /// How many decimal digits `n` has.
-pub(crate) fn digits(mut n: u32) -> u32 {
+pub(crate) const fn digits(mut n: u32) -> u32 {
     let mut d = 1;
     while n >= 10 {
         n /= 10;
@@ -1648,6 +1649,7 @@ pub(crate) fn apply_changes(
 
 /// The modifiers of a key, read the platform's way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(clippy::struct_excessive_bools)] // independent keys held at once, not a state machine
 pub(crate) struct Mods {
     /// Shift: extend the selection.
     pub shift: bool,
@@ -2249,10 +2251,10 @@ pub(crate) fn copy_text(view: &CodeViewView, lines: &dyn Lines) -> String {
         let mut taken: Vec<u32> = cursors.iter().map(|c| c.head.line).collect();
         taken.sort_unstable();
         taken.dedup();
-        return taken
-            .into_iter()
-            .map(|l| alloc::format!("{}\n", lines.text(l)))
-            .collect();
+        return taken.into_iter().fold(String::new(), |mut out, l| {
+            let _ = writeln!(out, "{}", lines.text(l));
+            out
+        });
     }
     let mut selections: Vec<&CodeViewCursor> = cursors.iter().filter(|c| !c.is_empty()).collect();
     selections.sort_by_key(|c| c.start());
@@ -2355,7 +2357,7 @@ pub(crate) fn press_event(
     hit: Hit,
     mods: Mods,
     y: f32,
-) -> Option<CodeViewEvent> {
+) -> CodeViewEvent {
     let mut view = cv.view.clone();
     let last = last_line(lines);
     let page = geo.fit_lines.saturating_sub(1).max(1);
@@ -2399,7 +2401,7 @@ pub(crate) fn press_event(
             CodeViewEventKind::Move
         }
     };
-    Some(CodeViewEvent::create(kind, view))
+    CodeViewEvent::create(kind, view)
 }
 
 /// What a move to `(x, y)` does while a drag is in progress.
@@ -3188,7 +3190,7 @@ fn measured_char_width(_cv: &CodeView, _info: &CallbackInfo) -> Option<f32> {
 }
 
 /// The view's text, through the data callback.
-fn lines_of(cv: &CodeView) -> SourceLines<'_> {
+const fn lines_of(cv: &CodeView) -> SourceLines<'_> {
     SourceLines {
         source: &cv.data_source,
         count: cv.line_count,
@@ -3305,9 +3307,6 @@ extern "C" fn on_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let lines = lines_of(&cv);
         let hit = hit_test(&cv, &geo, &lines, x, y);
         press_event(&cv, &geo, &lines, hit, mods, y)
-    };
-    let Some(event) = event else {
-        return Update::DoNothing;
     };
     let node = info.get_hit_node();
     info.set_focus(azul_core::callbacks::FocusTarget::Id(node));

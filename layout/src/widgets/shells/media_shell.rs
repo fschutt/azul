@@ -53,7 +53,7 @@ pub struct MediaShell {
 impl MediaShell {
     /// A shell of the sidebar, the content and the now-playing bar.
     #[must_use]
-    pub fn create(sidebar: Dom, content: Dom, now_playing: Dom) -> Self {
+    pub const fn create(sidebar: Dom, content: Dom, now_playing: Dom) -> Self {
         Self {
             sidebar: OptionDom::Some(sidebar),
             content,

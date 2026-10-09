@@ -17,6 +17,8 @@ extern "C" {
 /// Writes the PGO counters now, once: later calls and the exit handler write
 /// nothing. `false` in a build without `--cfg azul_pgo`, which has no counters.
 #[must_use = "false means no profile was written"]
+// Not const: the `azul_pgo` build calls the profiler runtime (an extern fn).
+#[allow(clippy::missing_const_for_fn)]
 pub fn dump_profile() -> bool {
     #[cfg(azul_pgo)]
     {

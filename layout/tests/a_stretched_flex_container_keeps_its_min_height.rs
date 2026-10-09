@@ -12,6 +12,7 @@
 //! - item `display: flex; flex-direction: column; min-height: 22px` -> 12 px (the content);
 //! - the same item with `padding: 1px 2px; border: 1px` -> 16 px; with `align-items: center`
 //!   on the row -> 22 px (right).
+//!
 //! So the min-height of a flex-CONTAINER item is lost when the row stretches it. Every
 //! `TextInput` is such an item (`display: flex; flex-direction: column; min-height: 22px`): in a
 //! row that stretches - AzNotes' title row - the field is 17 px instead of 22, smaller than the

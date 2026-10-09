@@ -209,7 +209,7 @@ pub struct ShellThemeScope {
 impl ShellThemeScope {
     /// A scope around `content` in the blue accent, following the app theme.
     #[must_use]
-    pub fn create(content: Dom) -> Self {
+    pub const fn create(content: Dom) -> Self {
         Self {
             content,
             theme: OptionUiTheme::None,

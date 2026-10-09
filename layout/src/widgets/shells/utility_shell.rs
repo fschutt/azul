@@ -74,7 +74,7 @@ pub struct UtilityShell {
 impl UtilityShell {
     /// A shell around `content`, nothing else.
     #[must_use]
-    pub fn create(content: Dom) -> Self {
+    pub const fn create(content: Dom) -> Self {
         Self {
             title_row: OptionDom::None,
             modes: OptionDom::None,

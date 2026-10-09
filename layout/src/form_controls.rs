@@ -201,7 +201,7 @@ pub use crate::window::{form_scope_of_virtual_view, FORM_SCOPE_MEASURE, FORM_SCO
 
 /// `data-azul-widget="none"`, for `Dom::with_attribute`.
 #[must_use]
-pub fn opt_out_attribute() -> AttributeType {
+pub const fn opt_out_attribute() -> AttributeType {
     AttributeType::Data(AttributeNameValue {
         attr_name: AzString::from_const_str(OPT_OUT_ATTRIBUTE),
         value: AzString::from_const_str(OPT_OUT_VALUE),
@@ -887,6 +887,9 @@ struct Group {
 
 /// Everything the widget is built from, read once off the raw node.
 #[derive(Debug, Default)]
+// One bool per HTML boolean attribute (checked, disabled, readonly,
+// multiple): independent by definition, not the states of one machine.
+#[allow(clippy::struct_excessive_bools)]
 struct Spec {
     /// The input `type`, lower-case (empty for select / textarea).
     ty: String,
@@ -1215,9 +1218,12 @@ fn parse_time(value: &str) -> Option<(u32, u32)> {
     Some((hour, minute))
 }
 
+/// `((year, month, day), (hour, minute))`.
+type DateAndTime = ((u32, u32, u32), (u32, u32));
+
 /// `((year, month, day), (hour, minute))` from a `datetime-local` value,
 /// `YYYY-MM-DDTHH:MM[:SS]` (HTML also accepts a space for the `T`).
-fn parse_datetime(value: &str) -> Option<((u32, u32, u32), (u32, u32))> {
+fn parse_datetime(value: &str) -> Option<DateAndTime> {
     let (date, time) = value.trim().split_once(['T', 't', ' '])?;
     Some((parse_date("date", date)?, parse_time(time)?))
 }
@@ -1243,9 +1249,7 @@ fn snap_to_step(value: f32, min: f32, max: f32, step: Option<&String>) -> f32 {
         Some(step) => min + ((value - min) / step).round() * step,
         None => value,
     };
-    if snapped.is_nan() {
-        min
-    } else if snapped < min {
+    if snapped.is_nan() || snapped < min {
         min
     } else if snapped > max {
         max
@@ -1425,7 +1429,7 @@ extern "C" fn record_text_area(
 // ── A raw <form>'s own handlers ─────────────────────────────────────────────
 
 /// The engine's form events: `Submit` and `Reset` on the form node.
-fn is_form_event(event: &EventFilter) -> bool {
+const fn is_form_event(event: EventFilter) -> bool {
     matches!(
         event,
         EventFilter::Hover(HoverEventFilter::Submit | HoverEventFilter::Reset)
@@ -1524,9 +1528,9 @@ fn build(kind: FormWidget, spec: &Spec, raw: &Dom, ctx: &Ctx<'_>, path: &[u32]) 
         .filter(|n| !n.is_empty());
     let (key, defaults) = match &group {
         Some(name) => {
-            let group_default = ctx.pre.radio_defaults.get(name).cloned().unwrap_or_default();
             let mut h = azul_core::hash::DefaultHasher::new();
-            group_default.hash(&mut h);
+            // The group's default (`""` without one); a `String` hashes as its `str`.
+            ctx.pre.radio_defaults.get(name).map_or("", String::as_str).hash(&mut h);
             (radio_group_key(ctx.scope, name), h.finish())
         }
         None => (identity_key(ctx.scope, path, node, kind), spec.defaults(kind)),
@@ -1875,7 +1879,7 @@ fn text_of(value: Option<&FormValue>) -> String {
     }
 }
 
-fn number_of(value: Option<&FormValue>) -> f32 {
+const fn number_of(value: Option<&FormValue>) -> f32 {
     match value {
         Some(FormValue::Number(number)) => *number,
         _ => 0.0,
@@ -2219,7 +2223,7 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
             from.callbacks
                 .as_ref()
                 .iter()
-                .filter(|c| kind != FormWidget::Form || !is_form_event(&c.event))
+                .filter(|c| kind != FormWidget::Form || !is_form_event(c.event))
                 .cloned(),
         );
         widget.root.callbacks = callbacks.into();

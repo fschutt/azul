@@ -73,7 +73,7 @@ pub fn rms_percent(samples: &[f32]) -> f32 {
 /// percent.
 #[must_use]
 pub fn peak_percent(peak: f32) -> f32 {
-    if !(peak > 0.0) {
+    if peak <= 0.0 || peak.is_nan() {
         return 0.0;
     }
     db_percent(20.0 * peak.log10())
@@ -122,7 +122,7 @@ pub struct LevelMeter {
 impl LevelMeter {
     /// A horizontal meter at `level` percent (see [`rms_percent`] / [`peak_percent`]).
     #[must_use]
-    pub fn create(level: f32) -> Self {
+    pub const fn create(level: f32) -> Self {
         Self {
             accessibility_name: OptionString::None,
             theme: OptionUiTheme::None,
@@ -132,25 +132,25 @@ impl LevelMeter {
     }
 
     /// The level, percent.
-    pub fn set_level(&mut self, level: f32) {
+    pub const fn set_level(&mut self, level: f32) {
         self.level = level;
     }
 
     /// [`Self::set_level`] for the builder chain.
     #[must_use]
-    pub fn with_level(mut self, level: f32) -> Self {
+    pub const fn with_level(mut self, level: f32) -> Self {
         self.set_level(level);
         self
     }
 
     /// Which way the meter fills.
-    pub fn set_orientation(&mut self, orientation: LevelMeterOrientation) {
+    pub const fn set_orientation(&mut self, orientation: LevelMeterOrientation) {
         self.orientation = orientation;
     }
 
     /// [`Self::set_orientation`] for the builder chain.
     #[must_use]
-    pub fn with_orientation(mut self, orientation: LevelMeterOrientation) -> Self {
+    pub const fn with_orientation(mut self, orientation: LevelMeterOrientation) -> Self {
         self.set_orientation(orientation);
         self
     }

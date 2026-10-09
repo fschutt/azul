@@ -167,15 +167,12 @@ fn build(nodes: &[Markup], next: &mut usize, marks: &mut Marks) -> Vec<Dom> {
     out
 }
 
+/// What [`host_dom`] builds: the DOM, every text node (its index and its
+/// text, the markers taken out), and where `[` and `]` stood (text node, byte).
+pub type HostDom = (Dom, Vec<(usize, String)>, Option<(usize, u32)>, Option<(usize, u32)>);
+
 /// The DOM `markup` describes, inside `body > div[contenteditable]`.
-pub fn host_dom(
-    markup: &str,
-) -> (
-    Dom,
-    Vec<(usize, String)>,
-    Option<(usize, u32)>,
-    Option<(usize, u32)>,
-) {
+pub fn host_dom(markup: &str) -> HostDom {
     let mut marks = Marks::default();
     let mut next = HOST + 1;
     let children = build(&parse(markup), &mut next, &mut marks);

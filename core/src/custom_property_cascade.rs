@@ -217,7 +217,7 @@ impl CustomPropertyEnvs {
 
     /// Whether this DOM has no custom property at all.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.normal.is_empty()
     }
 
@@ -434,31 +434,7 @@ impl CssPropertyCache {
 
         // 1. The nodes' own definitions, after the stylesheet's: a node's
         //    style beats the rules that match it.
-        let mut depends_on_context = false;
-        for (idx, nd) in node_data.iter().enumerate() {
-            for rule in nd.style.rules.as_ref() {
-                let conditions = rule.conditions.as_slice();
-                for d in rule.declarations.as_ref() {
-                    match d {
-                        CssDeclaration::CustomProperty(c) => {
-                            if conditions
-                                .iter()
-                                .any(|cond| !matches!(cond, DynamicSelector::PseudoState(_)))
-                            {
-                                depends_on_context = true;
-                            }
-                            if let Some(state) = applying_state(conditions, ctx) {
-                                stage.defs[idx].push((state, c.name.clone(), c.value.clone()));
-                            }
-                        }
-                        CssDeclaration::Dynamic(_) if d.env_variable().is_some() => {
-                            depends_on_context = true;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        let depends_on_context = push_node_definitions(&mut stage, node_data, ctx);
 
         // 2. Every node's maps.
         let envs = CustomPropertyEnvs::build(&stage.defs, node_hierarchy, non_leaf_nodes);
@@ -522,17 +498,15 @@ impl CssPropertyCache {
         for (idx, nd) in node_data.iter().enumerate() {
             let mut entry = ResolvedInline::default();
             for rule in nd.style.rules.as_ref() {
-                let state = declared_state(rule.conditions.as_slice());
+                let rule_state = declared_state(rule.conditions.as_slice());
                 for d in rule.declarations.as_ref() {
                     let CssDeclaration::Dynamic(dy) = d else {
                         continue;
                     };
-                    let value = match d.var_reference() {
-                        Some(r) => resolver.resolve(r, envs.map_for(idx, state)),
-                        None => d
-                            .resolve_in_cascade(ctx)
-                            .unwrap_or_else(|| dy.default_value.clone()),
-                    };
+                    let value = d.var_reference().map_or_else(
+                        || d.resolve_in_cascade(ctx).unwrap_or_else(|| dy.default_value.clone()),
+                        |r| resolver.resolve(r, envs.map_for(idx, rule_state)),
+                    );
                     entry.values.push((dy.clone(), value));
                 }
             }
@@ -550,6 +524,43 @@ impl CssPropertyCache {
         self.variables_depend_on_context = depends_on_context;
         warn_undefined_without_fallback(&resolver.missing_without_fallback);
     }
+}
+
+/// Step 1 of [`CssPropertyCache::run_variable_pass`]: the nodes' own
+/// custom-property definitions, pushed after the stylesheet's (a node's style
+/// beats the rules that match it). Returns whether any definition, or an
+/// `env()` reference, depends on the context.
+fn push_node_definitions(
+    stage: &mut VarStage,
+    node_data: &[NodeData],
+    ctx: Option<&DynamicSelectorContext>,
+) -> bool {
+    let mut depends_on_context = false;
+    for (idx, nd) in node_data.iter().enumerate() {
+        for rule in nd.style.rules.as_ref() {
+            let conditions = rule.conditions.as_slice();
+            for d in rule.declarations.as_ref() {
+                match d {
+                    CssDeclaration::CustomProperty(c) => {
+                        if conditions
+                            .iter()
+                            .any(|cond| !matches!(cond, DynamicSelector::PseudoState(_)))
+                        {
+                            depends_on_context = true;
+                        }
+                        if let Some(state) = applying_state(conditions, ctx) {
+                            stage.defs[idx].push((state, c.name.clone(), c.value.clone()));
+                        }
+                    }
+                    CssDeclaration::Dynamic(_) if d.env_variable().is_some() => {
+                        depends_on_context = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    depends_on_context
 }
 
 /// The state variants of a node's own resting `var()` declarations: each one
@@ -607,10 +618,12 @@ fn inline_state_variants(
 fn warn_undefined_without_fallback(names: &BTreeSet<String>) {
     use std::sync::{Mutex, OnceLock};
 
+    static SUPPRESSED: OnceLock<bool> = OnceLock::new();
+    static WARNED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
+
     if names.is_empty() {
         return;
     }
-    static SUPPRESSED: OnceLock<bool> = OnceLock::new();
     if *SUPPRESSED.get_or_init(|| {
         let v = std::env::var("AZ_SUPPRESS")
             .or_else(|_| std::env::var("AZ_SUPRESS"))
@@ -622,7 +635,6 @@ fn warn_undefined_without_fallback(names: &BTreeSet<String>) {
     }) {
         return;
     }
-    static WARNED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
     let Ok(mut warned) = WARNED.get_or_init(|| Mutex::new(BTreeSet::new())).lock() else {
         return; // a poisoned lint set must never take the app down
     };

@@ -541,7 +541,7 @@ fn the_inputs_id_classes_and_inline_style_move_to_the_widget_root() {
             CssDeclaration::Static(p @ CssProperty::Width(_)) => Some(p.clone()),
             _ => None,
         })
-        .last();
+        .next_back();
     assert_eq!(
         last_width,
         Some(width.property),
@@ -984,8 +984,10 @@ fn text_the_widget_reported_survives_a_rebuild_even_after_the_overlay_is_acked()
             .expect("the text input's state");
         ti.on_text_input.as_ref().cloned().expect("the replacement listens")
     };
-    let mut typed = TextInputState::default();
-    typed.text = "hello world".chars().map(|c| c as u32).collect::<Vec<_>>().into();
+    let typed = TextInputState {
+        text: "hello world".chars().map(|c| c as u32).collect::<Vec<_>>().into(),
+        ..Default::default()
+    };
     let _ = with_info(&lw, dom_node(field), |info| {
         hook.callback.invoke(hook.refany.clone(), info, typed)
     });
@@ -1044,7 +1046,7 @@ mod dedicated_widgets {
         ));
         assert_eq!(raw_form_nodes(&styled), vec![], "{:?}", node_types(&styled));
         let field = one_with_class(&styled, TEXT_INPUT_CONTAINER_CLASS);
-        let bullets: String = core::iter::repeat(PASSWORD_MASK_CHAR).take(7).collect();
+        let bullets: String = core::iter::repeat_n(PASSWORD_MASK_CHAR, 7).collect();
         assert_eq!(
             text_under(&styled, field),
             bullets,
@@ -1665,8 +1667,10 @@ mod form_reset {
                 .expect("the text input's state");
             ti.on_text_input.as_ref().cloned().expect("the replacement listens")
         };
-        let mut typed = TextInputState::default();
-        typed.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
+        let typed = TextInputState {
+            text: text.chars().map(|c| c as u32).collect::<Vec<_>>().into(),
+            ..Default::default()
+        };
         let _ = with_info(lw, dom_node(field), |info| {
             hook.callback.invoke(hook.refany.clone(), info, typed)
         });
@@ -2071,7 +2075,7 @@ mod datalist {
                 }
                 _ => None,
             })
-            .last()
+            .next_back()
     }
 
     #[test]

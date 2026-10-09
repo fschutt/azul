@@ -1060,7 +1060,7 @@ pub(crate) struct QueryPlan {
 
 impl QueryPlan {
     /// Whether the query keeps every row in the app's order.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub(crate) const fn is_empty(&self) -> bool {
         self.sort.is_empty() && self.filters.is_empty()
     }
 }
@@ -1578,13 +1578,13 @@ impl DataTable {
     }
 
     /// How many rows the app has.
-    pub fn set_row_count(&mut self, row_count: u32) {
+    pub const fn set_row_count(&mut self, row_count: u32) {
         self.row_count = row_count;
     }
 
     /// [`Self::set_row_count`] for the builder chain.
     #[must_use]
-    pub fn with_row_count(mut self, row_count: u32) -> Self {
+    pub const fn with_row_count(mut self, row_count: u32) -> Self {
         self.set_row_count(row_count);
         self
     }
@@ -1639,74 +1639,74 @@ impl DataTable {
     }
 
     /// The px the table fills.
-    pub fn set_viewport(&mut self, width: f32, height: f32) {
+    pub const fn set_viewport(&mut self, width: f32, height: f32) {
         self.viewport_width = width;
         self.viewport_height = height;
     }
 
     /// [`Self::set_viewport`] for the builder chain.
     #[must_use]
-    pub fn with_viewport(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_viewport(mut self, width: f32, height: f32) -> Self {
         self.set_viewport(width, height);
         self
     }
 
     /// A row's height in px.
-    pub fn set_row_height(&mut self, px: f32) {
+    pub const fn set_row_height(&mut self, px: f32) {
         self.row_height = px;
     }
 
     /// [`Self::set_row_height`] for the builder chain.
     #[must_use]
-    pub fn with_row_height(mut self, px: f32) -> Self {
+    pub const fn with_row_height(mut self, px: f32) -> Self {
         self.set_row_height(px);
         self
     }
 
     /// The cells' font size in px.
-    pub fn set_font_size(&mut self, px: f32) {
+    pub const fn set_font_size(&mut self, px: f32) {
         self.font_size = px;
     }
 
     /// [`Self::set_font_size`] for the builder chain.
     #[must_use]
-    pub fn with_font_size(mut self, px: f32) -> Self {
+    pub const fn with_font_size(mut self, px: f32) -> Self {
         self.set_font_size(px);
         self
     }
 
     /// The columns frozen at the left.
-    pub fn set_frozen_columns(&mut self, columns: u32) {
+    pub const fn set_frozen_columns(&mut self, columns: u32) {
         self.frozen_columns = columns;
     }
 
     /// [`Self::set_frozen_columns`] for the builder chain.
     #[must_use]
-    pub fn with_frozen_columns(mut self, columns: u32) -> Self {
+    pub const fn with_frozen_columns(mut self, columns: u32) -> Self {
         self.set_frozen_columns(columns);
         self
     }
 
     /// Shows or hides the filter row.
-    pub fn set_show_filter_row(&mut self, show: bool) {
+    pub const fn set_show_filter_row(&mut self, show: bool) {
         self.show_filter_row = show;
     }
 
     /// [`Self::set_show_filter_row`] for the builder chain.
     #[must_use]
-    pub fn with_show_filter_row(mut self, show: bool) -> Self {
+    pub const fn with_show_filter_row(mut self, show: bool) -> Self {
         self.set_show_filter_row(show);
         self
     }
 
     /// Makes the table read-only (or editable again).
-    pub fn set_read_only(&mut self, read_only: bool) {
+    pub const fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
     }
 
     /// [`Self::set_read_only`] for the builder chain.
     #[must_use]
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
+    pub const fn with_read_only(mut self, read_only: bool) -> Self {
         self.set_read_only(read_only);
         self
     }
@@ -2361,7 +2361,7 @@ impl From<DataTable> for Dom {
 }
 
 /// How a cell of `column` lines up its content.
-fn justify(column: Option<&DataTableColumn>) -> LayoutJustifyContent {
+const fn justify(column: Option<&DataTableColumn>) -> LayoutJustifyContent {
     let Some(c) = column else {
         return LayoutJustifyContent::Start;
     };

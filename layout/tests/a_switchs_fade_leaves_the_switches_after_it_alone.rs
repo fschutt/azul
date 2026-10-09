@@ -1,8 +1,8 @@
 //! A Switch's fade leaves the switches after it alone.
 //!
 //! The track's colour fade is patched into the display list in place
-//! (`DisplayList::patch_paint_colors`), over the items of the track's subtree
-//! - a text colour reaches its descendants that way - whose colour is the
+//! (`DisplayList::patch_paint_colors`), over the items of the track's subtree -
+//! a text colour reaches its descendants that way - whose colour is the
 //! fade's `from`. The subtree's end came from `subtree_len`, which measured a
 //! node WITHOUT a next sibling to the end of the whole tree. A switch is the
 //! last child of its settings row, so its range ran over every node after

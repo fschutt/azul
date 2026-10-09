@@ -121,7 +121,7 @@ pub struct CallShell {
 impl CallShell {
     /// A shell of the tiles and the controls bar.
     #[must_use]
-    pub fn create(tiles: DomVec, controls: Dom) -> Self {
+    pub const fn create(tiles: DomVec, controls: Dom) -> Self {
         Self {
             header: OptionDom::None,
             tiles,

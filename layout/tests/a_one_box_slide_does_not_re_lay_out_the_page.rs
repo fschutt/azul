@@ -7,8 +7,8 @@
 //! inside a 36x20 track, so a 150 ms glide showed one or two frames.
 //!
 //! The knob's containers are flex boxes all the way up to the body, so the
-//! dirty knob is re-solved from the body (`promote_layout_roots_to_containers`)
-//! - correct, a flex item's slot is its container's to decide. What made that
+//! dirty knob is re-solved from the body (`promote_layout_roots_to_containers`) -
+//! correct, a flex item's slot is its container's to decide. What made that
 //! pass cost the whole page is what it found beside the knob's ancestors:
 //! every relayout reconciles, the reconcile CLONES every clean node, and the
 //! clone threw its flex measurements away (`clone_node_from_old` cleared its
@@ -33,7 +33,7 @@ use azul_core::{
 };
 use azul_css::props::{
     layout::{LayoutMarginLeft, LayoutWidth},
-    property::{CssProperty, CssPropertyType},
+    property::CssProperty,
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,

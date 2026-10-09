@@ -334,16 +334,17 @@ pub(crate) fn build(input: PathInput, look: &DialogKitLook) -> Dom {
         directory,
     });
 
+    let on_text: TextInputOnTextInputCallbackType = on_typed;
     let mut field = TextInput::create()
         .with_text(path)
         .with_placeholder(placeholder)
         .with_accessibility_name(accessibility_name)
-        .with_on_text_input(shared.clone(), on_typed as TextInputOnTextInputCallbackType);
+        .with_on_text_input(shared.clone(), on_text);
     if let Some(t) = inner {
         field = field.with_theme(t);
     }
-    let mut browse =
-        Button::create(browse_label).with_on_click(shared, on_browse as ButtonOnClickCallbackType);
+    let on_click: ButtonOnClickCallbackType = on_browse;
+    let mut browse = Button::create(browse_label).with_on_click(shared, on_click);
     if let Some(t) = inner {
         browse = browse.with_theme(t);
     }

@@ -58,7 +58,7 @@ pub struct DocumentShell {
 impl DocumentShell {
     /// A shell around `document`, nothing else.
     #[must_use]
-    pub fn create(document: Dom) -> Self {
+    pub const fn create(document: Dom) -> Self {
         Self {
             navigation: OptionDom::None,
             document,

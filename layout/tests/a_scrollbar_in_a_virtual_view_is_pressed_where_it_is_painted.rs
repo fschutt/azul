@@ -6,8 +6,8 @@
 //! one lift the raster, the hit tester and the IME rects share). The scroll
 //! manager builds the bars every shell hit-tests BEFORE the content
 //! (`hit_test_scrollbars`, through `LayoutWindow::route_press`) from each
-//! box's registered scrollport - for a child dom, child-local coordinates
-//! - and moved them only by the scroll frames inside their own dom. So a
+//! box's registered scrollport - for a child dom, child-local coordinates -
+//! and moved them only by the scroll frames inside their own dom. So a
 //! child's bar was pressed near the WINDOW's top-left corner, over whatever
 //! the page shows there, and not where it is painted.
 //!

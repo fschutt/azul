@@ -361,15 +361,15 @@ pub fn compute_node_changes(
         // reference is a property of THIS node: added, removed or changed,
         // it counts as its property type. A custom-property definition feeds
         // every descendant that reads it: its own flag, whole-subtree scope.
-        let (old_refs, old_defs) = non_static_declarations(old_node);
-        let (new_refs, new_defs) = non_static_declarations(new_node);
-        for (d, _) in new_refs.iter().filter(|r| !old_refs.contains(r)) {
+        let (old_references, old_definitions) = non_static_declarations(old_node);
+        let (new_references, new_definitions) = non_static_declarations(new_node);
+        for (d, _) in new_references.iter().filter(|r| !old_references.contains(r)) {
             mark(d.default_value.get_type(), &mut has_layout, &mut has_paint);
         }
-        for (d, _) in old_refs.iter().filter(|r| !new_refs.contains(r)) {
+        for (d, _) in old_references.iter().filter(|r| !new_references.contains(r)) {
             mark(d.default_value.get_type(), &mut has_layout, &mut has_paint);
         }
-        if old_defs != new_defs {
+        if old_definitions != new_definitions {
             changes.insert(NodeChangeSet::CUSTOM_PROPERTIES);
         }
 
@@ -827,7 +827,7 @@ pub fn reconcile_dom(
                     .get(idx)
                     .and_then(NodeHierarchyItem::parent_id)
                     .filter(|p| p.index() < idx)
-                    .and_then(|p| terminal_key_of(&data[p.index()]).or(out[p.index()]));
+                    .and_then(|p| terminal_key_of(&data[p.index()]).or_else(|| out[p.index()]));
                 out[idx] = container;
             }
             out
@@ -1682,9 +1682,9 @@ pub fn merge_fresh_datasets(node_data: &mut [NodeData], fresh: Vec<(usize, RefAn
             nd.set_dataset(OptionRefAny::Some(current));
             continue;
         }
-        let merged = merge_callback.invoke(current, old);
-        nd.set_dataset(OptionRefAny::Some(merged.clone()));
-        repoint_orphaned_refanys(node_data, fresh_alloc, &merged);
+        let merged_state = merge_callback.invoke(current, old);
+        nd.set_dataset(OptionRefAny::Some(merged_state.clone()));
+        repoint_orphaned_refanys(node_data, fresh_alloc, &merged_state);
     }
 }
 

@@ -74,7 +74,13 @@ pub struct TimelineShell {
 impl TimelineShell {
     /// A shell of the four monitors' panes and the timeline.
     #[must_use]
-    pub fn create(media: Dom, source: Dom, program: Dom, inspector: Dom, timeline: Dom) -> Self {
+    pub const fn create(
+        media: Dom,
+        source: Dom,
+        program: Dom,
+        inspector: Dom,
+        timeline: Dom,
+    ) -> Self {
         Self {
             menu_bar: OptionDom::None,
             media,

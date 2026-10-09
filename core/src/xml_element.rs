@@ -14,6 +14,7 @@
 //! walk the markup.
 
 use alloc::{boxed::Box, string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_css::{
     dynamic_selector::CssPropertyWithConditions, props::property::CssKeyMap, AzString,
@@ -54,10 +55,11 @@ pub struct Element<'a> {
     pub font_faces: &'a [FontFace],
 }
 
-/// An `@font-face` of a stylesheet in markup: the family name it declares
-/// and its font, made from its `src` by the loader ([`FontSourceFn`]).
-/// SCOPED to the element whose stylesheet declares it (an `<svg>`): two
-/// pages' `F1`s are two fonts.
+/// An `@font-face` of a stylesheet in markup: the family name it declares and
+/// its font, made from its `src` by the loader ([`FontSourceFn`]).
+///
+/// SCOPED to the element whose stylesheet declares it (an `<svg>`): two pages'
+/// `F1`s are two fonts.
 #[derive(Debug, Clone)]
 pub struct FontFace {
     pub family: String,
@@ -97,9 +99,10 @@ impl FontScope<'_> {
 }
 
 /// The `@font-face` rules of a stylesheet's text, as `(family, src)`: the
-/// family name unquoted, `src`'s first `url(...)` (unquoted). A rule without
-/// either is skipped. Read here because the CSS parser drops at-rules it does
-/// not apply; a `data:` URL's `;` and `,` stay inside it.
+/// family name unquoted, `src`'s first `url(...)` (unquoted).
+///
+/// A rule without either is skipped. Read here because the CSS parser drops
+/// at-rules it does not apply; a `data:` URL's `;` and `,` stay inside it.
 #[must_use]
 pub fn font_face_rules(css: &str) -> Vec<(String, String)> {
     let unquote = |v: &str| String::from(v.trim().trim_matches(|c| c == '"' || c == '\''));
@@ -116,7 +119,6 @@ pub fn font_face_rules(css: &str) -> Vec<(String, String)> {
         for (i, c) in body.char_indices() {
             match (quote, c) {
                 (Some(q), c) if c == q => quote = None,
-                (Some(_), _) => {}
                 (None, '"' | '\'') => quote = Some(c),
                 (None, '(') => depth += 1,
                 (None, ')') => depth -= 1,
@@ -165,10 +167,11 @@ impl<'a> Element<'a> {
     }
 }
 
-/// How a builder lands strings and styles: the CSS key map its `style`
-/// attributes parse with (`None`: built when one is needed) and the function
-/// that makes an id / class / attribute string (a document loader shares them
-/// in an arena).
+/// How a builder lands strings and styles.
+///
+/// The CSS key map its `style` attributes parse with (`None`: built when one is
+/// needed) and the function that makes an id / class / attribute string (a
+/// document loader shares them in an arena).
 pub struct Landing<'m> {
     pub css_key_map: Option<&'m CssKeyMap>,
     pub intern: &'m mut dyn FnMut(&str) -> AzString,
@@ -213,10 +216,11 @@ pub fn child_role(children_scope: ElementScope, raw_tag: &str) -> ChildRole {
     }
 }
 
-/// The message key of a `data-l10n="key"` element (`None` without one, or
-/// with an empty one). Its translation is the element's text: every builder
-/// gives the element the key as its FIRST child, a text node marked
-/// localizable (`AzString::tr`).
+/// The message key of a `data-l10n="key"` element (`None` without one, or with
+/// an empty one).
+///
+/// Its translation is the element's text: every builder gives the element the
+/// key as its FIRST child, a text node marked localizable (`AzString::tr`).
 #[must_use]
 pub fn l10n_key<'a>(attributes: &[(&'a str, &'a str)]) -> Option<&'a str> {
     attributes
@@ -226,10 +230,12 @@ pub fn l10n_key<'a>(attributes: &[(&'a str, &'a str)]) -> Option<&'a str> {
         .filter(|key| !key.is_empty())
 }
 
-/// The tag a builder hands [`render_element`]: lowercase (HTML and SVG names
-/// are ASCII-case-insensitive: `TABLE` is a table, `linearGradient` a
-/// gradient), the `svg:` / `html:` / `xhtml:` namespace prefix dropped (their
-/// elements ARE the builtins) unless a component library has that name. Any
+/// The tag a builder hands [`render_element`]: lowercase, with an `svg:`,
+/// `html:` or `xhtml:` namespace prefix dropped.
+///
+/// HTML and SVG names are ASCII-case-insensitive: `TABLE` is a table,
+/// `linearGradient` a gradient. The namespace prefixes go because their
+/// elements ARE the builtins, unless a component library has that name. Any
 /// other prefix stays: Outlook's `<o:p>` is a foreign element, not a `<p>`.
 #[must_use]
 pub fn element_tag(map: &ComponentMap, raw_tag: &str) -> String {
@@ -245,11 +251,12 @@ pub fn element_tag(map: &ComponentMap, raw_tag: &str) -> String {
     }
 }
 
-/// THE instantiation: the node `element` is, by the component its tag names
-/// in `map` - a builtin component by its renderer ([`builtin_renderer`]). A
-/// tag no library has is a `<div>` with its attributes (HTML's unknown
-/// element), as is a library component for now: the builders do not expand
-/// user components.
+/// THE instantiation: the node `element` is, by the component its tag names in
+/// `map` - a builtin component by its renderer ([`builtin_renderer`]).
+///
+/// A tag no library has is a `<div>` with its attributes (HTML's unknown
+/// element), as is a library component for now: the builders do not expand user
+/// components.
 #[must_use]
 pub fn render_element(
     map: &ComponentMap,
@@ -527,6 +534,8 @@ fn render_svg_image(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
         .attribute("href")
         .or_else(|| element.attribute("xlink:href"))
         .unwrap_or_default();
+    // `v` is finite and positive here; `as` saturates a size past usize::MAX.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let size = |key: &str| {
         super::parse_svg_float(element.attribute(key))
             .filter(|v| v.is_finite() && *v > 0.0)
@@ -658,9 +667,9 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
     let family = element.attribute("font-family").map(str::trim);
     if let Some(family) = family.filter(|f| with_family && !f.is_empty()) {
         if family.contains(',') || family.starts_with('"') || family.starts_with('\'') {
-            css.push_str(&alloc::format!("font-family: {family};"));
+            let _ = write!(css, "font-family: {family};");
         } else {
-            css.push_str(&alloc::format!("font-family: \"{family}\";"));
+            let _ = write!(css, "font-family: \"{family}\";");
         }
     }
     for (attribute, property) in [
@@ -670,18 +679,20 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
     ] {
         if let Some(size) = super::parse_svg_float(element.attribute(attribute)) {
             if size.is_finite() {
-                css.push_str(&alloc::format!("{property}: {size}px;"));
+                let _ = write!(css, "{property}: {size}px;");
             }
         }
     }
     for property in ["font-weight", "font-style"] {
         if let Some(value) = element.attribute(property).map(str::trim).filter(|v| !v.is_empty()) {
-            css.push_str(&alloc::format!("{property}: {value};"));
+            let _ = write!(css, "{property}: {value};");
         }
     }
     match element.attribute("fill").map(str::trim) {
         Some("none") => css.push_str("color: transparent;"),
-        Some(fill) if !fill.is_empty() => css.push_str(&alloc::format!("color: {fill};")),
+        Some(fill) if !fill.is_empty() => {
+            let _ = write!(css, "color: {fill};");
+        }
         _ => {}
     }
     css
@@ -689,13 +700,15 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
 
 /// The declarations of a CSS block, with the builder's key map.
 fn declarations(css: &str, landing: &Landing<'_>) -> Vec<CssPropertyWithConditions> {
-    match landing.css_key_map {
-        Some(map) => super::attributes::style_declarations(css, map),
-        None => super::attributes::style_declarations(
-            css,
-            &azul_css::props::property::get_css_key_map(),
-        ),
-    }
+    landing.css_key_map.map_or_else(
+        || {
+            super::attributes::style_declarations(
+                css,
+                &azul_css::props::property::get_css_key_map(),
+            )
+        },
+        |map| super::attributes::style_declarations(css, map),
+    )
 }
 
 /// A text element's `font-family` as the FONT an `@font-face` in its scope

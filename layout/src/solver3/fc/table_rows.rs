@@ -495,7 +495,7 @@ pub(super) fn cell_vertical_align(styled_dom: &StyledDom, dom_id: Option<NodeId>
 /// Does this alignment put the cell on the row's baseline? (`sub`, `super`,
 /// `text-top`, `text-bottom`, lengths and percentages fall back to baseline
 /// in a table cell, CSS 2.2 17.5.3.)
-pub(super) fn is_baseline_aligned(va: StyleVerticalAlign) -> bool {
+pub(super) const fn is_baseline_aligned(va: StyleVerticalAlign) -> bool {
     !matches!(
         va,
         StyleVerticalAlign::Top | StyleVerticalAlign::Middle | StyleVerticalAlign::Bottom

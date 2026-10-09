@@ -1183,13 +1183,13 @@ impl AppConfig {
     /// dark, `None` (the default, "system") follows the desktop. See
     /// [`Self::mode`]; switch it later with `CallbackInfo::set_mode`.
     #[must_use]
-    pub fn with_mode(mut self, mode: crate::window::OptionDarkLightMode) -> Self {
+    pub const fn with_mode(mut self, mode: crate::window::OptionDarkLightMode) -> Self {
         self.set_mode(mode);
         self
     }
 
     /// In-place [`Self::with_mode`].
-    pub fn set_mode(&mut self, mode: crate::window::OptionDarkLightMode) {
+    pub const fn set_mode(&mut self, mode: crate::window::OptionDarkLightMode) {
         self.mode = mode;
     }
 
@@ -1626,10 +1626,12 @@ impl RawImageFormat {
     }
 }
 
-/// Byte layout of a tightly packed NV12 image: the `width x height` Y plane,
-/// immediately followed by `chroma_width x chroma_height` interleaved Cb,Cr
-/// pairs (two bytes each). The chroma size rounds UP, so an odd last column
-/// or row still has a chroma sample.
+/// Byte layout of a tightly packed NV12 image.
+///
+/// The `width x height` Y plane, immediately followed by
+/// `chroma_width x chroma_height` interleaved Cb,Cr pairs (two bytes each). The
+/// chroma size rounds UP, so an odd last column or row still has a chroma
+/// sample.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Nv12Layout {
     /// Luma width in pixels.
@@ -1682,10 +1684,11 @@ impl Nv12Layout {
     }
 }
 
-/// Fixed-point (16.16) YCbCr -> RGB coefficients of one NV12 format: the
-/// luma scale and offset of its range and the four chroma weights of its
-/// matrix. One table for every consumer (the CPU rasterizer, the frame
-/// scaler, JPEG and PDF export), so a frame converts the same everywhere.
+/// Fixed-point (16.16) YCbCr -> RGB coefficients of one NV12 format: the luma
+/// scale and offset of its range and the four chroma weights of its matrix.
+///
+/// One table for every consumer (the CPU rasterizer, the frame scaler, JPEG
+/// and PDF export), so a frame converts the same everywhere.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct YuvCoefficients {
     y_mul: i32,
@@ -1699,6 +1702,8 @@ pub struct YuvCoefficients {
 impl YuvCoefficients {
     /// The coefficients of `format`, `None` for a format that is not NV12.
     #[must_use]
+    // The names are the matrix entries, as the fields spell them (g_cb, g_cr).
+    #[allow(clippy::similar_names)]
     pub const fn of(format: RawImageFormat) -> Option<Self> {
         // (Kr, Kb) = (0.299, 0.114) for Rec.601, (0.2126, 0.0722) for
         // Rec.709; video range scales luma by 255/219 and chroma by
@@ -1728,10 +1733,10 @@ impl YuvCoefficients {
         let yy = (y as i32 - self.y_off) * self.y_mul + 32768;
         let u = cb as i32 - 128;
         let v = cr as i32 - 128;
-        let r = (yy + self.r_cr * v) >> 16;
-        let g = (yy - self.g_cb * u - self.g_cr * v) >> 16;
-        let b = (yy + self.b_cb * u) >> 16;
-        [clamp_u8(r), clamp_u8(g), clamp_u8(b)]
+        let red = (yy + self.r_cr * v) >> 16;
+        let green = (yy - self.g_cb * u - self.g_cr * v) >> 16;
+        let blue = (yy + self.b_cb * u) >> 16;
+        [clamp_u8(red), clamp_u8(green), clamp_u8(blue)]
     }
 
     /// Row `row` of an NV12 image as straight RGBA8 (alpha 255) into `out`
@@ -1780,11 +1785,12 @@ pub fn yuv_to_rgb(format: RawImageFormat, y: u8, cb: u8, cr: u8) -> [u8; 3] {
     YuvCoefficients::of(format).map_or([0, 0, 0], |c| c.to_rgb(y, cb, cr))
 }
 
-/// A whole tightly packed NV12 image as straight RGBA8 (alpha 255). `None`
-/// when `format` is not NV12 or `bytes` is shorter than both planes (bytes
-/// past them are ignored: some decoders pad the buffer). The
-/// fallback for consumers that need RGB pixels (JPEG / PDF export); the
-/// display path never calls it (it converts only the rows it paints).
+/// A whole tightly packed NV12 image as straight RGBA8 (alpha 255).
+///
+/// `None` when `format` is not NV12 or `bytes` is shorter than both planes
+/// (bytes past them are ignored: some decoders pad the buffer). The fallback
+/// for consumers that need RGB pixels (JPEG / PDF export); the display path
+/// never calls it (it converts only the rows it paints).
 #[must_use]
 pub fn nv12_to_rgba(
     bytes: &[u8],
@@ -1808,12 +1814,14 @@ pub fn nv12_to_rgba(
 }
 
 /// A whole tightly packed RGBA8 or BGRA8 image (`src`, alpha ignored) as
-/// tightly packed NV12 in `dst`'s matrix and range: what an H.264 encoder
-/// that takes only NV12 (Vulkan Video) is handed for a frame that is not
-/// NV12 already. Luma per pixel; each chroma pair from the average of its
-/// 2x2 block (fewer pixels at an odd last column / row). `None` when `src`
-/// is not RGBA8 / BGRA8, `dst` is not NV12, or `bytes` is shorter than the
-/// image. The inverse of [`nv12_to_rgba`] (same matrices, same ranges).
+/// tightly packed NV12 in `dst`'s matrix and range.
+///
+/// It is what an H.264 encoder that takes only NV12 (Vulkan Video) is handed
+/// for a frame that is not NV12 already. Luma per pixel; each chroma pair from
+/// the average of its 2x2 block (fewer pixels at an odd last column / row).
+/// `None` when `src` is not RGBA8 / BGRA8, `dst` is not NV12, or `bytes` is
+/// shorter than the image. The inverse of [`nv12_to_rgba`] (same matrices, same
+/// ranges).
 #[must_use]
 pub fn rgba_to_nv12(
     bytes: &[u8],
@@ -1828,7 +1836,7 @@ pub fn rgba_to_nv12(
         RawImageFormat::BGRA8 => (2, 0),
         _ => return None,
     };
-    let k = RgbToYuv::of(dst)?;
+    let coeffs = RgbToYuv::of(dst)?;
     let layout = Nv12Layout::new(width, height);
     let pixels = width.checked_mul(height)?;
     if bytes.len() < pixels.checked_mul(4)? {
@@ -1839,7 +1847,7 @@ pub fn rgba_to_nv12(
     let rgb = |px: &[u8]| (i32::from(px[r_at]), i32::from(px[1]), i32::from(px[b_at]));
     for (y, px) in y_plane.iter_mut().zip(bytes.chunks_exact(4)) {
         let (r, g, b) = rgb(px);
-        *y = k.luma(r, g, b);
+        *y = coeffs.luma(r, g, b);
     }
     for (block, pair) in uv_plane.chunks_exact_mut(2).enumerate() {
         let (bx, by) = (block % layout.chroma_width, block / layout.chroma_width);
@@ -1854,7 +1862,7 @@ pub fn rgba_to_nv12(
                 n += 1;
             }
         }
-        let (cb, cr) = k.chroma(r, g, b, n);
+        let (cb, cr) = coeffs.chroma(r, g, b, n);
         pair[0] = cb;
         pair[1] = cr;
     }
@@ -1910,7 +1918,7 @@ impl RgbToYuv {
     }
 
     /// The Y sample of one straight RGB pixel (0..=255 each).
-    fn luma(&self, r: i32, g: i32, b: i32) -> u8 {
+    const fn luma(&self, r: i32, g: i32, b: i32) -> u8 {
         let y = (self.y_off << 16) + self.y[0] * r + self.y[1] * g + self.y[2] * b + 32768;
         clamp_u8(y >> 16)
     }
@@ -3016,7 +3024,12 @@ impl RawImage {
     /// `premultiplied_alpha`: whether the colour channels are already
     /// multiplied by alpha (an opaque image is both).
     #[must_use]
-    pub fn create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) -> Self {
+    pub const fn create_rgba8(
+        width: u32,
+        height: u32,
+        pixels: U8Vec,
+        premultiplied_alpha: bool,
+    ) -> Self {
         Self {
             pixels: RawImageData::U8(pixels),
             width: width as usize,

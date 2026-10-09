@@ -530,9 +530,11 @@ pub fn invocation_ctx(callee: usize) -> crate::refany::OptionRefAny {
 }
 
 /// C-ABI: the context of the wrapper whose callback `callee` libazul is
-/// invoking on this thread right now. A binding's C-ABI trampoline calls it
-/// with its own address to find the closure it stands for, for the callback
-/// kinds whose arguments carry no context (an info type without `get_ctx`).
+/// invoking on this thread right now.
+///
+/// A binding's C-ABI trampoline calls it with its own address to find the
+/// closure it stands for, for the callback kinds whose arguments carry no
+/// context (an info type without `get_ctx`).
 #[no_mangle]
 pub extern "C" fn AzApp_getInvocationCtx(callee: *const c_void) -> crate::refany::OptionRefAny {
     invocation_ctx(callee as usize)
@@ -797,10 +799,12 @@ macro_rules! impl_managed_callback {
 
         /// Pointer-arg variant of this callback kind's typedef: the host
         /// handle, every argument by pointer in declared order, and an
-        /// out-pointer for the return value. Every managed-FFI runtime can
-        /// call this shape (no aggregate by value anywhere; LuaJIT FFI in
-        /// particular cannot return aggregates larger than 8 bytes from a
-        /// callback, so even an `Update` return goes through `out`).
+        /// out-pointer for the return value.
+        ///
+        /// Every managed-FFI runtime can call this shape (no aggregate by value
+        /// anywhere; `LuaJIT` FFI in particular cannot return aggregates larger
+        /// than 8 bytes from a callback, so even an `Update` return goes
+        /// through `out`).
         pub type $invoker_ty = extern "C" fn(
             handle: u64,
             $( $data: *const $crate::refany::RefAny, )?
@@ -930,6 +934,8 @@ macro_rules! impl_managed_callback {
             /// own fallback, for bindings whose C trampolines need the same
             /// answer.
             #[allow(unused_variables)]
+            // The body is each kind's `default_ret`; few of those are const.
+            #[allow(clippy::missing_const_for_fn)]
             pub fn fallback_return(
                 $( $data: &$data_ty, )?
                 $( $arg : &$arg_ty , )*
@@ -1115,6 +1121,13 @@ mod tests {
 #[path = "host_invoker_test.rs"]
 mod host_invoker_test;
 
+/// C-ABI: [`AzRefAny_newHostHandle`] through an out-pointer, for the bindings
+/// that take a produced struct that way (the Go binding, for one).
+///
+/// # Safety
+///
+/// `out` is null (nothing is written) or valid for writing one [`RefAny`].
+/// Whatever it held is overwritten without being dropped.
 #[no_mangle]
 pub unsafe extern "C" fn AzRefAny_newHostHandleByref(id: u64, out: *mut RefAny) { unsafe {
     if !out.is_null() {

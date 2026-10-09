@@ -131,20 +131,20 @@ impl ShortcutRecorder {
     }
 
     /// The shortcut.
-    pub fn set_hotkey(&mut self, hotkey: GlobalHotkey) {
+    pub const fn set_hotkey(&mut self, hotkey: GlobalHotkey) {
         self.hotkey = hotkey;
         self.has_hotkey = true;
     }
 
     /// [`Self::set_hotkey`] for the builder chain.
     #[must_use]
-    pub fn with_hotkey(mut self, hotkey: GlobalHotkey) -> Self {
+    pub const fn with_hotkey(mut self, hotkey: GlobalHotkey) -> Self {
         self.set_hotkey(hotkey);
         self
     }
 
     /// Removes the shortcut.
-    pub fn clear_hotkey(&mut self) {
+    pub const fn clear_hotkey(&mut self) {
         self.has_hotkey = false;
     }
 
@@ -224,7 +224,7 @@ impl ShortcutRecorder {
     /// The rule an app keeps the field with: listening starts on
     /// `StartRecording` and ends on everything else; `Recorded` sets the
     /// shortcut, `Cleared` removes it.
-    pub fn apply(&mut self, event: ShortcutRecorderEvent) {
+    pub const fn apply(&mut self, event: ShortcutRecorderEvent) {
         match event.kind {
             ShortcutRecorderEventKind::StartRecording => self.recording = true,
             ShortcutRecorderEventKind::Recorded => {

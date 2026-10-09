@@ -220,13 +220,13 @@ impl IconGridItem {
 
     /// The colour of the tile the glyph sits on while there is no
     /// thumbnail.
-    pub fn set_placeholder(&mut self, color: ColorU) {
+    pub const fn set_placeholder(&mut self, color: ColorU) {
         self.placeholder = OptionColorU::Some(color);
     }
 
     /// [`Self::set_placeholder`] for the builder chain.
     #[must_use]
-    pub fn with_placeholder(mut self, color: ColorU) -> Self {
+    pub const fn with_placeholder(mut self, color: ColorU) -> Self {
         self.set_placeholder(color);
         self
     }
@@ -374,7 +374,7 @@ impl IconGridView {
 
     /// [`Self::set_top_row`] for the builder chain.
     #[must_use]
-    pub fn with_top_row(mut self, top_row: usize) -> Self {
+    pub const fn with_top_row(mut self, top_row: usize) -> Self {
         self.set_top_row(top_row);
         self
     }
@@ -576,20 +576,20 @@ impl IconGrid {
     }
 
     /// The px the grid fills.
-    pub fn set_viewport(&mut self, width: f32, height: f32) {
+    pub const fn set_viewport(&mut self, width: f32, height: f32) {
         self.viewport_width = width.max(0.0);
         self.viewport_height = height.max(0.0);
     }
 
     /// [`Self::set_viewport`] for the builder chain.
     #[must_use]
-    pub fn with_viewport(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_viewport(mut self, width: f32, height: f32) -> Self {
         self.set_viewport(width, height);
         self
     }
 
     /// A cell's size and the icon's, px.
-    pub fn set_cell_size(&mut self, width: f32, height: f32, icon_size: f32) {
+    pub const fn set_cell_size(&mut self, width: f32, height: f32, icon_size: f32) {
         self.cell_width = width.max(1.0);
         self.cell_height = height.max(1.0);
         self.icon_size = icon_size.max(1.0);
@@ -597,7 +597,7 @@ impl IconGrid {
 
     /// [`Self::set_cell_size`] for the builder chain.
     #[must_use]
-    pub fn with_cell_size(mut self, width: f32, height: f32, icon_size: f32) -> Self {
+    pub const fn with_cell_size(mut self, width: f32, height: f32, icon_size: f32) -> Self {
         self.set_cell_size(width, height, icon_size);
         self
     }
@@ -703,6 +703,7 @@ pub(crate) struct Geometry {
 
 /// What a point in the grid is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(variant_size_differences)] // a 16-byte Copy value; boxing the index would cost more
 pub(crate) enum Hit {
     /// Item `index`.
     Item(usize),
@@ -1226,8 +1227,8 @@ fn grid_base(width: f32, height: f32) -> Vec<CssPropertyWithConditions> {
 /// (the skin colours it: transparent at rest) and clipped.
 fn item_base(x: f32, y: f32, w: f32, h: f32) -> Vec<CssPropertyWithConditions> {
     use crate::widgets::themes::decl;
-    let mut v = placed(x, y, w, h).to_vec();
-    v.extend([
+    let mut props = placed(x, y, w, h).to_vec();
+    props.extend([
         decl::display_flex(),
         decl::flex_direction(LayoutFlexDirection::Column),
         decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -1235,8 +1236,8 @@ fn item_base(x: f32, y: f32, w: f32, h: f32) -> Vec<CssPropertyWithConditions> {
         decl::overflow_x_hidden(),
         decl::overflow_y_hidden(),
     ]);
-    v.extend(decl::border(1));
-    v
+    props.extend(decl::border(1));
+    props
 }
 
 /// The thumbnail's box: `size` px square, the glyph or the picture centred

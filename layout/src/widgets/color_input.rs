@@ -3594,8 +3594,10 @@ mod autotest_generated {
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
-        let mut current_window_state = FullWindowState::default();
-        current_window_state.keyboard_state = ks;
+        let current_window_state = FullWindowState {
+            keyboard_state: ks,
+            ..Default::default()
+        };
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();

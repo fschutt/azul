@@ -334,9 +334,9 @@ fn swap(c: ColorU, map: &SpinMap) -> Option<ColorU> {
 
 /// A gradient stop's colour in the spin (a `system:` colour is the
 /// desktop's, never a ramp's).
-fn swap_stop(c: &ColorOrSystem, map: &SpinMap) -> Option<ColorOrSystem> {
+fn swap_stop(c: ColorOrSystem, map: &SpinMap) -> Option<ColorOrSystem> {
     match c {
-        ColorOrSystem::Color(c) => swap(*c, map).map(ColorOrSystem::Color),
+        ColorOrSystem::Color(c) => swap(c, map).map(ColorOrSystem::Color),
         ColorOrSystem::System(_) => None,
     }
 }
@@ -347,7 +347,7 @@ fn respin_layer(layer: &StyleBackgroundContent, map: &SpinMap) -> Option<StyleBa
         StyleBackgroundContent::Color(c) => swap(*c, map).map(StyleBackgroundContent::Color),
         StyleBackgroundContent::LinearGradient(g) => {
             let stops = respin_slice(g.stops.as_ref(), |s| {
-                swap_stop(&s.color, map).map(|color| {
+                swap_stop(s.color, map).map(|color| {
                     let mut s = *s;
                     s.color = color;
                     s
@@ -359,7 +359,7 @@ fn respin_layer(layer: &StyleBackgroundContent, map: &SpinMap) -> Option<StyleBa
         }
         StyleBackgroundContent::RadialGradient(g) => {
             let stops = respin_slice(g.stops.as_ref(), |s| {
-                swap_stop(&s.color, map).map(|color| {
+                swap_stop(s.color, map).map(|color| {
                     let mut s = *s;
                     s.color = color;
                     s
@@ -371,7 +371,7 @@ fn respin_layer(layer: &StyleBackgroundContent, map: &SpinMap) -> Option<StyleBa
         }
         StyleBackgroundContent::ConicGradient(g) => {
             let stops = respin_slice(g.stops.as_ref(), |s| {
-                swap_stop(&s.color, map).map(|color| {
+                swap_stop(s.color, map).map(|color| {
                     let mut s = *s;
                     s.color = color;
                     s

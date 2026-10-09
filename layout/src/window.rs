@@ -443,7 +443,7 @@ pub fn resolve_window_mode(
 /// [`resolve_window_mode`] with the `AZ_MODE` pin passed in rather than
 /// read from the environment - the testable core of the decision.
 #[must_use]
-pub fn resolve_window_mode_with(
+pub const fn resolve_window_mode_with(
     env: Option<DarkLightMode>,
     app: azul_core::window::OptionDarkLightMode,
     window: DarkLightMode,
@@ -1282,14 +1282,13 @@ pub enum PasteOutcome {
 impl LandedTextEdit {
     /// Whether any edit landed.
     #[must_use]
-    pub fn landed(&self) -> bool {
+    pub const fn landed(&self) -> bool {
         !self.changeset.dirty_nodes.is_empty()
     }
 
     /// The pass result the landing asks for: an incremental relayout when a
     /// landed edit changed its text's extent, a display-list rebuild when
     /// one landed without, and nothing when nothing landed.
-    #[must_use]
     pub fn event_result(&self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         if !self.landed() {
@@ -3982,8 +3981,9 @@ impl LayoutWindow {
 
     /// The node a keyboard structural edit acts on: the ELEMENT of the
     /// caret's block (`caret_block`) - the INNERMOST block container the
-    /// caret's text is in, the `<p>` of `host > blockquote > blockquote > p
-    /// > text` and the `<li>` of a list - when it lies inside `host`. That
+    /// caret's text is in, the `<p>` of
+    /// `host > blockquote > blockquote > p > text` and the `<li>` of a list -
+    /// when it lies inside `host`. That
     /// is the execCommand spec's "editable block": `insertParagraph` splits
     /// it, `delete` at its start merges it with the block before it, inside
     /// any number of containers. A flat host (the caret's block IS the host),
@@ -6671,7 +6671,7 @@ impl LayoutWindow {
     /// What a document's canvas background covers: the whole window for the
     /// ROOT document, whatever the safe area took from its layout viewport;
     /// a child DOM's own viewport (placed by its host) otherwise.
-    fn canvas_rect_for(
+    const fn canvas_rect_for(
         is_root: bool,
         viewport: LogicalRect,
         window_state: &FullWindowState,
@@ -11063,7 +11063,9 @@ impl LayoutWindow {
             .or_else(|| monitors.iter().find(|m| m.is_primary_monitor))
             .or_else(|| monitors.first());
 
-        monitor.and_then(azul_core::window::Monitor::refresh_rate_hz)
+        let rate = monitor.and_then(azul_core::window::Monitor::refresh_rate_hz);
+        drop(guard);
+        rate
     }
 
     /// THIS WINDOW'S frame interval, in ns - the one source of truth every
@@ -15206,7 +15208,6 @@ impl LayoutWindow {
     /// drifted: the debug server's and the runner's never asked about
     /// values-only ticks, so every frame of a slide they drove rebuilt the
     /// whole display list for a matrix the renderers read live anyway.
-    #[must_use]
     pub fn take_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         let relayout = self.take_transition_relayout();
@@ -15275,9 +15276,10 @@ impl LayoutWindow {
     /// too, so the keyframe tracks it samples step by the same amount.
     #[must_use]
     pub fn animation_step_at(&self, now: &Instant) -> f32 {
-        self.last_anim_tick.as_ref().map_or(self.frame_step_s(), |prev| {
-            (now.duration_since(prev).as_nanos() as f64 / 1e9) as f32
-        })
+        self.last_anim_tick.as_ref().map_or_else(
+            || self.frame_step_s(),
+            |prev| (now.duration_since(prev).as_nanos() as f64 / 1e9) as f32,
+        )
     }
 
     /// Forget a stall longer than one frame: the next animation step then
@@ -15767,11 +15769,12 @@ impl LayoutWindow {
                     } else {
                         None
                     };
+                    // Every path puts the override in through the lean channel.
+                    result.styled_dom.set_user_property_override_fast(
+                        &tr.node,
+                        core::slice::from_ref(&over),
+                    );
                     if let (true, Some((from_c, to_c, slot))) = (patchable, colors) {
-                        result.styled_dom.set_user_property_override_fast(
-                            &tr.node,
-                            core::slice::from_ref(&over),
-                        );
                         // A border colour is ALSO served from the compact
                         // cache - the display-list builder reads it there,
                         // not through the override - so its entry follows the
@@ -15801,25 +15804,17 @@ impl LayoutWindow {
                         // cascade needs: a list built for any other reason
                         // mid-fade paints the override, which is what the
                         // patch shows.
-                        result.styled_dom.set_user_property_override_fast(
-                            &tr.node,
-                            core::slice::from_ref(&over),
-                        );
                         if from_layers != to_layers {
                             layer_jobs.push((tr.node, from_layers, to_layers.clone()));
                         }
                         tr.last_layers = Some(to_layers);
                     } else {
-                        // THE RESTYLE PATH, batched: the override goes in
-                        // through the lean channel now and the cascade's
+                        // THE RESTYLE PATH, batched: the override went in
+                        // through the lean channel above and the cascade's
                         // derived tables are refreshed once after the loop.
                         // `restyle_user_property` per tween rebuilt the
                         // compact cache of the whole DOM per tween per frame
                         // (2.75 ms each in AzWidgets).
-                        result.styled_dom.set_user_property_override_fast(
-                            &tr.node,
-                            core::slice::from_ref(&over),
-                        );
                         needs_restyle = true;
                         restyle_fonts |=
                             tr.prop_type.can_trigger_relayout() || tr.prop_type.is_inheritable();
@@ -19160,6 +19155,8 @@ impl LayoutWindow {
     ///
     /// Returns whether any text changed; the caller owes the relayout
     /// (`ProcessEventResult::ShouldIncrementalRelayout`).
+    // Not const: with the `fluent` feature the body walks and re-shapes the DOMs.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn relocalize_laid_out_text(&mut self) -> bool {
         #[cfg(feature = "fluent")]
         {
@@ -19244,9 +19241,11 @@ impl LayoutWindow {
         provider: &azul_core::icon::SharedIconProvider,
         system_style: &azul_css::system::SystemStyle,
     ) -> Result<StyledDom, crate::xml::XmlError> {
-        crate::xml::styled_xml_document(xml, provider, system_style, |_dom| {
+        // `dom` is unused without the `widgets` feature (unused_variables is
+        // allowed crate-wide for exactly that).
+        crate::xml::styled_xml_document(xml, provider, system_style, |dom| {
             #[cfg(feature = "widgets")]
-            let _ = self.resolve_form_controls(_dom);
+            let _ = self.resolve_form_controls(dom);
         })
     }
 
@@ -26471,7 +26470,7 @@ pub struct ImageCallbackInputs {
 
 impl ImageCallbackInputs {
     #[must_use]
-    pub fn of(declared: &ImageRef, bounds: &HidpiAdjustedBounds) -> Self {
+    pub const fn of(declared: &ImageRef, bounds: &HidpiAdjustedBounds) -> Self {
         Self {
             declared: declared.get_hash(),
             width_bits: bounds.logical_size.width.to_bits(),
@@ -30449,7 +30448,7 @@ impl CssTransition {
 /// window's own `:backdrop`), not the DOM (`:disabled`, `:checked`): what a
 /// rebuilt node gets back from the node it replaces once the shell re-applies
 /// the runtime states.
-fn with_interaction_of(
+const fn with_interaction_of(
     mut state: azul_core::styled_dom::StyledNodeState,
     interaction: azul_core::styled_dom::StyledNodeState,
 ) -> azul_core::styled_dom::StyledNodeState {
@@ -30538,7 +30537,10 @@ fn unchanged_cascades(
         };
         let state_same = with_interaction_of(ns.styled_node_state, os.styled_node_state)
             == os.styled_node_state;
-        unchanged[ni] = state_same
+        // Old node `oi` IS new node `ni` (`old_of_new`): each side's tables are
+        // read at that side's own index, which the nursery lint takes for a typo.
+        #[allow(clippy::suspicious_operation_groupings)]
+        let same = state_same
             && core::mem::discriminant(on.get_node_type())
                 == core::mem::discriminant(nn.get_node_type())
             && on.style == nn.style
@@ -30547,6 +30549,7 @@ fn unchanged_cascades(
             && old_cache.user_overridden_properties.get(oi)
                 == new_cache.user_overridden_properties.get(ni)
             && old_cache.resolved_inline.get(&oi) == new_cache.resolved_inline.get(&ni);
+        unchanged[ni] = same;
     }
     unchanged
 }
@@ -30698,7 +30701,7 @@ fn transition_patch_layers(
 /// (`LayoutCache::overrides_only_hint`). `display`, `position`, `float`,
 /// `overflow` and the like decide which boxes exist and what kind they are,
 /// which the reconcile re-derives from the cascade; they are not on the list.
-fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
+const fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
     use azul_css::props::property::CssPropertyType as T;
     matches!(
         ty,

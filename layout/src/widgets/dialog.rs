@@ -1629,8 +1629,10 @@ mod tests {
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
-        let mut current_window_state = FullWindowState::default();
-        current_window_state.keyboard_state = keys;
+        let current_window_state = FullWindowState {
+            keyboard_state: keys,
+            ..Default::default()
+        };
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();
@@ -1670,10 +1672,11 @@ mod tests {
     }
 
     fn escape() -> KeyboardState {
-        let mut ks = KeyboardState::default();
-        ks.pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
-        ks.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
-        ks
+        KeyboardState {
+            pressed_virtual_keycodes: vec![VirtualKeyCode::Escape].into(),
+            current_virtual_keycode: Some(VirtualKeyCode::Escape).into(),
+            ..Default::default()
+        }
     }
 
     /// Index of the first node carrying `class` in `styled`.
@@ -2051,8 +2054,10 @@ mod tests {
 
         let (styled, data) = rendered(logged(Dialog::create(body()).show_modal(), &log));
         let window = index_of(&styled, DIALOG_WINDOW_CLASS);
-        let mut enter = KeyboardState::default();
-        enter.current_virtual_keycode = Some(VirtualKeyCode::Return).into();
+        let enter = KeyboardState {
+            current_virtual_keycode: Some(VirtualKeyCode::Return).into(),
+            ..Default::default()
+        };
         let (_, changes) = with_info(styled, window, enter, |_| {}, |info| {
             on_dialog_key(data.clone(), info)
         });
