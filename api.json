@@ -93838,14 +93838,12 @@
                     },
                     "RichBlockKind": {
                         "external": "azul_layout::widgets::rich_text::doc::RichBlockKind",
-                        "custom_impls": [
-                            "Default"
-                        ],
                         "derive": [
                             "Debug",
                             "Clone",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {
@@ -188558,6 +188556,82 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "Keyring": {
+                        "external": "azul_dll::unified::keyring::Keyring",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "delete_blocking": {
+                                "doc": [
+                                    "Removes the item stored under `key`, on this thread: `Deleted` (also",
+                                    "when there was none), or why not."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::delete_blocking(key)"
+                            },
+                            "get_blocking": {
+                                "doc": [
+                                    "Reads the secret stored under `key`, on this thread: `Retrieved`,",
+                                    "`NotFound`, or why not (`Denied`, `Unavailable`, `Error`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::get_blocking(key)"
+                            },
+                            "store_blocking": {
+                                "doc": [
+                                    "Stores `secret` under `key` (replacing what was there), on this",
+                                    "thread: `Stored`, or why not. `require_biometry` as in",
+                                    "`CallbackInfo::keyring_store`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "require_biometry": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringResult"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking(key, secret, require_biometry)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
