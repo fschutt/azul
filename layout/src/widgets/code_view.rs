@@ -75,6 +75,7 @@
 //! [`CodeViewSpan`], [`CodeTokenKind`], [`CodeViewEvent`], [`CodeViewEdit`].
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
@@ -1134,7 +1135,7 @@ pub(crate) fn word_at(text: &str, byte: u32) -> (u32, u32) {
 pub(crate) fn first_non_blank(text: &str) -> u32 {
     text.char_indices()
         .find(|(_, c)| !c.is_whitespace())
-        .map_or(len32(text), |(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
+        .map_or_else(|| len32(text), |(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
 }
 
 /// `text` with its tabs expanded to spaces, `text` starting at visual
@@ -1648,6 +1649,7 @@ pub(crate) fn apply_changes(
 
 /// The modifiers of a key, read the platform's way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(clippy::struct_excessive_bools)] // independent keys held at once, not a state machine
 pub(crate) struct Mods {
     /// Shift: extend the selection.
     pub shift: bool,
@@ -2249,10 +2251,10 @@ pub(crate) fn copy_text(view: &CodeViewView, lines: &dyn Lines) -> String {
         let mut taken: Vec<u32> = cursors.iter().map(|c| c.head.line).collect();
         taken.sort_unstable();
         taken.dedup();
-        return taken
-            .into_iter()
-            .map(|l| alloc::format!("{}\n", lines.text(l)))
-            .collect();
+        return taken.into_iter().fold(String::new(), |mut out, l| {
+            let _ = writeln!(out, "{}", lines.text(l));
+            out
+        });
     }
     let mut selections: Vec<&CodeViewCursor> = cursors.iter().filter(|c| !c.is_empty()).collect();
     selections.sort_by_key(|c| c.start());
@@ -2355,7 +2357,7 @@ pub(crate) fn press_event(
     hit: Hit,
     mods: Mods,
     y: f32,
-) -> Option<CodeViewEvent> {
+) -> CodeViewEvent {
     let mut view = cv.view.clone();
     let last = last_line(lines);
     let page = geo.fit_lines.saturating_sub(1).max(1);
@@ -2399,7 +2401,7 @@ pub(crate) fn press_event(
             CodeViewEventKind::Move
         }
     };
-    Some(CodeViewEvent::create(kind, view))
+    CodeViewEvent::create(kind, view)
 }
 
 /// What a move to `(x, y)` does while a drag is in progress.
@@ -3305,9 +3307,6 @@ extern "C" fn on_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let lines = lines_of(&cv);
         let hit = hit_test(&cv, &geo, &lines, x, y);
         press_event(&cv, &geo, &lines, hit, mods, y)
-    };
-    let Some(event) = event else {
-        return Update::DoNothing;
     };
     let node = info.get_hit_node();
     info.set_focus(azul_core::callbacks::FocusTarget::Id(node));
