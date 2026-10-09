@@ -33,8 +33,22 @@
 //! (name to UID, UIDNEXT, UIDVALIDITY) is kept in the bridge's state folder, so a UID never
 //! changes while the map lives; UIDVALIDITY is the time the map was made, so a lost map shows
 //! the mail programs a new UIDVALIDITY (they fetch the mailbox again) instead of wrong UIDs.
+//!
+//! The drive ([`account`]): the bridge is a device of its own (azcloud-kit's account in its
+//! state folder, signed up or joined with a code), with its own token family, credentials
+//! renewed before they run out; requests go out through ureq with rustls ([`transport`]).
+//! The password lives in the secret store ([`secrets`]: azcloud-kit's 0600 secrets file until
+//! a process without libazul can reach the OS keyring). Sending ([`sender`]) is AzMail's own
+//! path, through azul-mail-core. Running it: [`cli`].
+//!
+//! Modules: [`imap`], [`smtp`], [`dav`] (+ [`http`]) are the servers; [`store`], [`uids`],
+//! [`mime`], [`sent`] serve mail; [`net`], [`auth`], [`limits`] keep the doors; [`config`],
+//! [`dates`], [`memory`] (a drive in memory for tests and `serve --memory`).
 
+pub mod account;
 pub mod auth;
+pub mod cli;
+pub mod config;
 pub mod dates;
 pub mod dav;
 pub mod http;
@@ -48,4 +62,5 @@ pub mod sender;
 pub mod sent;
 pub mod smtp;
 pub mod store;
+pub mod transport;
 pub mod uids;
