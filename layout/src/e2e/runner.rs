@@ -7966,6 +7966,14 @@ mod tests {
 #[path = "tooling_tests.rs"]
 mod tooling_tests;
 
+// ==== WEBVIEW17: a `<webview>` sign-in flow, headless ====
+// `list_webviews` / `simulate_webview_*` and the app's navigation callback
+// catching the loopback redirect. A child of this module for
+// `run_e2e_test_keeping_runner`.
+#[cfg(test)]
+#[path = "webview_tests.rs"]
+mod webview_tests;
+
 // The close protocol (INFRA6, user ruling 2026-10-02): a close the APP asks
 // for (`close_window`, the e2e `close` op, the CSD titlebar's close button)
 // is a REQUEST - `WindowEventFilter::CloseRequested` runs first, and
