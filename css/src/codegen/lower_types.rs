@@ -7653,6 +7653,7 @@ impl Lower for crate::props::basic::color::SystemColorRef {
             Self::ControlBackground => "ControlBackground",
             Self::PlaceholderText => "PlaceholderText",
             Self::TextSelectionBackground => "TextSelectionBackground",
+            Self::Icon => "Icon",
         };
         Expr::unit("SystemColorRef", EnumShape::CLike, variant)
     }

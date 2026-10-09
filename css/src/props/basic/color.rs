@@ -1611,6 +1611,11 @@ pub enum SystemColorRef {
     /// Selected TEXT, as opposed to a selected row or item
     /// (`system:text-selection-background`)
     TextSelectionBackground,
+    // --- APPENDED 2026-10-10 (discriminant 24) ---
+    /// The ink of a monochrome (symbolic) icon: a toolbar's, a list's, a
+    /// sidebar's glyph (`system:icon`). The desktop's secondary label colour
+    /// where the platform names no icon ink; flora's `--fl-icon` under flora.
+    Icon,
 }
 
 /// The ink `system:accent-text` paints on `accent`: the platform's own
@@ -1651,7 +1656,7 @@ const SYSTEM_COLOR_TOKEN_G: u8 = 0x59;
 
 impl SystemColorRef {
     /// Every reference, in declaration (= discriminant) order.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::Text,
         Self::Background,
         Self::Accent,
@@ -1676,6 +1681,7 @@ impl SystemColorRef {
         Self::ControlBackground,
         Self::PlaceholderText,
         Self::TextSelectionBackground,
+        Self::Icon,
     ];
 
     /// The slot of `colors` this reference names - `None` when the platform
@@ -1707,6 +1713,7 @@ impl SystemColorRef {
             Self::ControlBackground => colors.control_background,
             Self::PlaceholderText => colors.placeholder_text,
             Self::TextSelectionBackground => colors.text_selection_background,
+            Self::Icon => colors.icon,
         }
     }
 
@@ -1726,13 +1733,17 @@ impl SystemColorRef {
     ///
     /// `system:accent-text` is the one keyword resolved as a PAIR: it is the
     /// ink that sits on `system:accent`, so it must read on it
-    /// ([`readable_accent_ink`]).
+    /// ([`readable_accent_ink`]). `system:icon` left empty is the palette's
+    /// own secondary label colour: no desktop names an icon ink.
     #[must_use]
     pub fn resolve_for_theme(&self, colors: &crate::system::SystemColors, dark: bool) -> ColorU {
-        let own = self
-            .get(colors)
-            .into_option()
-            .unwrap_or_else(|| self.fallback(dark));
+        let own = self.get(colors).into_option().unwrap_or_else(|| {
+            if matches!(self, Self::Icon) {
+                Self::SecondaryText.resolve_for_theme(colors, dark)
+            } else {
+                self.fallback(dark)
+            }
+        });
         match self {
             Self::AccentText => {
                 readable_accent_ink(Self::Accent.resolve_for_theme(colors, dark), own)
@@ -1769,8 +1780,8 @@ impl SystemColorRef {
             (Self::WindowBackground, true) => c(50, 50, 50, 255),
             (Self::SelectionBackground, false) => c(0, 100, 225, 255),
             (Self::SelectionBackground, true) => c(0, 88, 208, 255),
-            (Self::SecondaryText, false) => c(0, 0, 0, 128),
-            (Self::SecondaryText, true) => c(255, 255, 255, 140),
+            (Self::SecondaryText | Self::Icon, false) => c(0, 0, 0, 128),
+            (Self::SecondaryText | Self::Icon, true) => c(255, 255, 255, 140),
             (Self::TertiaryText, false) => c(0, 0, 0, 66),
             (Self::TertiaryText, true) => c(255, 255, 255, 64),
             (Self::DisabledText | Self::PlaceholderText, false) => c(0, 0, 0, 64),
@@ -1825,6 +1836,7 @@ impl SystemColorRef {
             Self::ControlBackground => "system:control-background",
             Self::PlaceholderText => "system:placeholder-text",
             Self::TextSelectionBackground => "system:text-selection-background",
+            Self::Icon => "system:icon",
         }
     }
 
@@ -1905,6 +1917,7 @@ impl SystemColorRef {
             21 => Some(Self::ControlBackground),
             22 => Some(Self::PlaceholderText),
             23 => Some(Self::TextSelectionBackground),
+            24 => Some(Self::Icon),
             _ => None,
         }
     }
@@ -2708,6 +2721,7 @@ mod tests {
             control_background: OptionColorU::None,
             placeholder_text: OptionColorU::None,
             text_selection_background: OptionColorU::None,
+            icon: OptionColorU::None,
         };
 
         // Test resolution of system colors

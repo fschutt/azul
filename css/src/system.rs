@@ -726,6 +726,11 @@ pub struct SystemColors {
     /// as opposed to `selection_background`, the selected-content (row,
     /// item) colour.
     pub text_selection_background: OptionColorU,
+    /// The ink of a monochrome (symbolic) icon - a toolbar's, a list's, a
+    /// sidebar's glyph. No desktop reports one: an empty slot resolves to
+    /// `secondary_text` (`SystemColorRef::Icon`); an app theme with its own
+    /// icon ink fills it (flora's `--fl-icon`).
+    pub icon: OptionColorU,
 }
 
 /// Common system font settings.
@@ -1941,7 +1946,8 @@ impl SystemStyle {
     "sidebar_selection": {},
     "control_background": {},
     "placeholder_text": {},
-    "text_selection_background": {}
+    "text_selection_background": {},
+    "icon": {}
   }},
   "fonts": {{
     "ui_font": {},
@@ -2049,6 +2055,7 @@ impl SystemStyle {
             opt_color(self.colors.control_background),
             opt_color(self.colors.placeholder_text),
             opt_color(self.colors.text_selection_background),
+            opt_color(self.colors.icon),
             // fonts
             opt_str(&self.fonts.ui_font),
             opt_f32(self.fonts.ui_font_size),
