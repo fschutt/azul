@@ -62,6 +62,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 /// What a callback asked the platform to do.
 #[derive(Debug, Clone, PartialEq)]
+// A post moves the app's `Notification` through the queue to the dll's
+// backend as is; boxing it would change that API for a rare, short-lived value.
+#[allow(clippy::large_enum_variant)]
 pub enum NotificationRequest {
     /// Show (or replace, if its id is live) a notification.
     Post(Notification),
@@ -96,6 +99,9 @@ pub fn push_notification_request(request: NotificationRequest) -> bool {
 /// [`push_notification_request`], handing the request BACK when the queue is
 /// full - so a post that did not fit can still be reported
 /// ([`reject_notification`]) instead of vanishing.
+// The `Err` hands the caller's own request back unchanged on the queue-full
+// path; boxing it would allocate only to return what was passed by value.
+#[allow(clippy::result_large_err)]
 pub fn try_push_notification_request(
     request: NotificationRequest,
 ) -> Result<(), NotificationRequest> {
@@ -111,6 +117,7 @@ pub fn try_push_notification_request(
         return Err(request);
     }
     q.push(request);
+    drop(q);
     Ok(())
 }
 
@@ -594,6 +601,9 @@ impl ScheduledNotifications {
     /// Hold `notification` until its `deliver_at`, replacing one held under
     /// the same id. A new id beyond [`Self::MAX_HELD`] is handed back, to be
     /// reported as `Failed`.
+    // The `Err` hands the caller's own notification back unchanged (held
+    // list full); boxing it would allocate only to return it.
+    #[allow(clippy::result_large_err)]
     pub fn schedule(&mut self, notification: Notification) -> Result<(), Notification> {
         let replaced = self.withdraw(notification.id.as_str());
         if !replaced && self.held.len() >= Self::MAX_HELD {

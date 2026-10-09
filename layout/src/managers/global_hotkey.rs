@@ -426,7 +426,8 @@ impl GlobalHotkeyBackend for SimulatedBackend {
         _description: &str,
     ) -> Result<BackendGrant, GlobalHotkeyError> {
         // One-shot: a programmed answer is consumed by the grab it answers.
-        match lock_or_recover(&self.answers).remove(hotkey) {
+        let answer = lock_or_recover(&self.answers).remove(hotkey);
+        match answer {
             None | Some(SimulatedAnswer::Grant) => Ok(BackendGrant::Active),
             Some(SimulatedAnswer::Pending) => Ok(BackendGrant::Pending),
             Some(SimulatedAnswer::Refuse(e)) => Err(e),
@@ -755,7 +756,7 @@ impl GlobalHotkeyManager {
                     continue;
                 }
                 let description = self
-                    .pick_owner(hotkey)
+                    .pick_owner(*hotkey)
                     .and_then(|owner| self.declared.get(&owner))
                     .and_then(|d| d.items.get(hotkey))
                     .map(|item| item.description.clone())
@@ -926,7 +927,7 @@ impl GlobalHotkeyManager {
                     self.status_changed = true;
                 }
             }
-            let Some(target) = self.pick_owner(&hotkey) else {
+            let Some(target) = self.pick_owner(hotkey) else {
                 continue;
             };
             let Some(item) = self
@@ -954,7 +955,7 @@ impl GlobalHotkeyManager {
 
     /// Whose declaration a press of `hotkey` runs: among the windows that
     /// declare it the most recently focused, then the oldest; else the app's.
-    fn pick_owner(&self, hotkey: &GlobalHotkey) -> Option<HotkeySource> {
+    fn pick_owner(&self, hotkey: GlobalHotkey) -> Option<HotkeySource> {
         let mut best: Option<(WindowSeq, u64)> = None;
         // Ascending sequence order, and only a strictly newer focus stamp
         // replaces: a tie keeps the older window.
@@ -962,7 +963,7 @@ impl GlobalHotkeyManager {
             let HotkeySource::Window(seq) = source else {
                 continue;
             };
-            if !declared.items.contains_key(hotkey) {
+            if !declared.items.contains_key(&hotkey) {
                 continue;
             }
             let stamp = self.focus.get(seq).copied().unwrap_or(0);
@@ -977,7 +978,7 @@ impl GlobalHotkeyManager {
         let app_declares = self
             .declared
             .get(&HotkeySource::App)
-            .is_some_and(|declared| declared.items.contains_key(hotkey));
+            .is_some_and(|declared| declared.items.contains_key(&hotkey));
         app_declares.then_some(HotkeySource::App)
     }
 
@@ -1009,7 +1010,7 @@ impl GlobalHotkeyManager {
         keys.extend(self.failures.keys().copied());
         keys.into_iter()
             .map(|hotkey| {
-                let owner = match self.pick_owner(&hotkey) {
+                let owner = match self.pick_owner(hotkey) {
                     None => GlobalHotkeyOwner::Nobody,
                     Some(HotkeySource::App) => GlobalHotkeyOwner::App,
                     Some(source) if source == viewer => GlobalHotkeyOwner::ThisWindow,
@@ -1235,7 +1236,6 @@ impl SharedGlobalHotkeys {
     }
 
     /// The manager, locked. Never call a user callback while holding it.
-    #[must_use]
     pub fn lock(&self) -> MutexGuard<'_, GlobalHotkeyManager> {
         lock_or_recover(&self.manager)
     }
