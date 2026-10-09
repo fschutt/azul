@@ -36,10 +36,11 @@ mod subpixel;
 pub(crate) mod system_style;
 mod tooltip;
 mod wcreate;
-pub mod win_event;
-
+/// `<webview>`: Microsoft Edge WebView2 through `WebView2Loader.dll`.
+pub mod webview;
 #[cfg(test)]
 mod webview_test;
+pub mod win_event;
 
 use std::{
     cell::RefCell,
@@ -652,6 +653,7 @@ impl Win32Window {
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
+        layout_window.webviews.set_platform(webview::platform());
 
         // Initialize monitor cache once at window creation
         if let Ok(mut guard) = layout_window.monitors.lock() {
