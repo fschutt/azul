@@ -9,6 +9,7 @@ mod key;
 mod keyring;
 mod local;
 mod manifest;
+mod meta;
 mod ops;
 mod s3;
 mod scoped;
