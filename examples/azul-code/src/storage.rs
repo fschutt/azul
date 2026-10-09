@@ -689,4 +689,61 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A user's folder as the workspace, with `files` written into it.
+    fn workspace_with(name: &str, files: &[(&str, &[u8])]) -> (PathBuf, Root) {
+        let dir = temp_dir(name);
+        for (key, bytes) in files {
+            let path = dir.join(key);
+            std::fs::create_dir_all(path.parent().expect("a folder")).expect("the folder");
+            std::fs::write(path, bytes).expect("the file");
+        }
+        let root = Root {
+            drive_root: dir.clone(),
+            prefix: String::new(),
+            data_tree: false,
+            name: "ws".to_string(),
+        };
+        (dir, root)
+    }
+
+    fn picked() -> SearchJob {
+        SearchJob {
+            query: "picked".to_string(),
+            how: TextMatch::default(),
+            generation: 1,
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn a_search_of_the_folder_reads_a_utf16_text_file_as_text() {
+        let mut utf16 = vec![0xFF, 0xFE];
+        for unit in "first line\nthe picked one\n".encode_utf16() {
+            utf16.extend_from_slice(&unit.to_le_bytes());
+        }
+        let (dir, root) = workspace_with("search-utf16", &[("notes.txt", &utf16[..])]);
+        let found = search_files(&drive_of(&root), &root.prefix, &picked());
+        assert_eq!(found.files.len(), 1, "{found:?}");
+        let hit = &found.files[0].hits[0];
+        assert_eq!((hit.line, hit.start, hit.preview.as_str()), (1, 4, "the picked one"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_results_list_the_files_nearest_the_folder_first_in_name_order() {
+        let (dir, root) = workspace_with(
+            "search-order",
+            &[
+                ("c.txt", &b"picked\n"[..]),
+                ("a/b/c.txt", &b"picked\n"[..]),
+                ("b.txt", &b"picked\n"[..]),
+                ("a/z.txt", &b"picked\n"[..]),
+            ],
+        );
+        let found = search_files(&drive_of(&root), &root.prefix, &picked());
+        let keys: Vec<&str> = found.files.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["b.txt", "c.txt", "a/z.txt", "a/b/c.txt"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
