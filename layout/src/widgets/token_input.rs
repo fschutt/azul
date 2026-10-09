@@ -1831,6 +1831,74 @@ mod token_input_tests {
         );
     }
 
+    /// Whether the handler vetoed the key (the text input's default and the
+    /// window's - a dialog's Escape - never see it).
+    fn swallowed(changes: &[crate::callbacks::CallbackChange]) -> bool {
+        changes
+            .iter()
+            .any(|c| matches!(c, crate::callbacks::CallbackChange::PreventDefault))
+    }
+
+    /// "al" typed, the first suggestion highlighted, the list showing.
+    fn highlighted_field(log: &Log) -> (StyledDom, NodeId, NodeId) {
+        let state = TokenInputState::create(sv(&["alice@x.org", "bob@y.org"]))
+            .with_text(s("al"))
+            .with_active(0);
+        let styled = StyledDom::create_from_dom(field(log).with_state(state).with_theme(UiTheme::Flat).dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let entry = kids(&styled, field_node)[2];
+        let list = kids(&styled, NodeId::new(0))[1];
+        assert!(has_class_at(&styled, list, LIST_CLASS));
+        (styled, entry, list)
+    }
+
+    /// Chrome's `<input list>`: Escape closes the suggestions, and Enter then
+    /// takes what is typed - never a suggestion the user can no longer see; a
+    /// second Escape is not the list's any more (a dialog's Escape gets it).
+    #[test]
+    fn after_escape_hides_the_list_enter_commits_the_typed_text_and_a_second_escape_passes() {
+        let log = log();
+        let (styled, entry, list) = highlighted_field(&log);
+        let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        assert_eq!(
+            display_writes(&changes),
+            vec![(list, CssProperty::const_display(LayoutDisplay::None))],
+            "the first Escape hides the list"
+        );
+        assert!(swallowed(&changes), "the first Escape is the list's");
+
+        let (_, changes) = rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        assert!(display_writes(&changes).is_empty(), "nothing left to hide: {changes:?}");
+        assert!(!swallowed(&changes), "the second Escape goes on to the window: {changes:?}");
+
+        rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
+        assert_eq!(
+            logged(&log),
+            vec![String::from("Add 2 al | alice@x.org,bob@y.org,al |  | None")],
+            "Enter commits what is typed, not the hidden highlight"
+        );
+    }
+
+    /// The ARIA combobox: Down on a list Escape hid shows it again, from its
+    /// first suggestion (the highlight went with the list).
+    #[test]
+    fn down_brings_a_list_escape_hid_back_from_its_first_suggestion() {
+        let log = log();
+        let (styled, entry, list) = highlighted_field(&log);
+        rv::press(&styled, id(entry), K::Escape, &[]).expect("the entry's key handler");
+        let (_, changes) = rv::press(&styled, id(entry), K::Down, &[]).expect("the entry's key handler");
+        assert_eq!(
+            logged(&log),
+            vec![String::from("Navigate 0  | alice@x.org,bob@y.org | al | Some(0)")]
+        );
+        assert!(
+            display_writes(&changes)
+                .iter()
+                .any(|(n, p)| *n == list && *p == CssProperty::initial(CssPropertyType::Display)),
+            "the list shows again: {changes:?}"
+        );
+    }
+
     // ---- the refused look ----
 
     extern "C" fn refuse_all(_: RefAny, _: CallbackInfo, _token: AzString) -> TokenInputVerdict {
