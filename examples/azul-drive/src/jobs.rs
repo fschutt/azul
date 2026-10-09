@@ -1426,6 +1426,118 @@ mod tests {
         assert_eq!(count_items(dir.path(), "gone/", false), None);
     }
 
+    /// Every result the search box's search handed over, its batches' and its answer's.
+    fn searched(outcomes: &[Outcome]) -> Vec<&crate::find::Found> {
+        outcomes
+            .iter()
+            .flat_map(|o| match o {
+                Outcome::Searched { batch, .. } => batch.iter().collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// The search box searches the open folder and every folder below it: the names first,
+    /// then the files whose contents match ("File contents" on), each a row with the drive's
+    /// key, a content match with its line; the answer says it ended.
+    #[test]
+    fn a_find_streams_the_names_below_the_folder_then_the_files_whose_contents_match() {
+        let dir = TempDir::new("azdrive-find");
+        fs::create_dir_all(dir.path().join("Docs/deep/er")).expect("folders");
+        fs::write(dir.path().join("Docs/deep/er/needle-report.txt"), b"nothing\n").expect("a file");
+        fs::write(dir.path().join("Docs/plan.md"), b"one\nthe needle line\n").expect("a file");
+        fs::write(dir.path().join("Docs/other.txt"), b"nothing\n").expect("a file");
+        let request = crate::find::local_request(
+            dir.path().join("Docs"),
+            "needle",
+            true,
+            false,
+            true,
+            false,
+        );
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find(7, &request, "Docs/", &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        let found = searched(&outcomes);
+        let keys: Vec<&str> = found.iter().map(|f| f.entry.key.as_str()).collect();
+        assert_eq!(keys, vec!["Docs/deep/er/needle-report.txt", "Docs/plan.md"], "names first");
+        let line = found[1].line.as_ref().expect("the matching line");
+        assert_eq!((line.line, &line.text[line.start..line.end]), (2, "needle"));
+        assert!(matches!(
+            outcomes.last(),
+            Some(Outcome::Searched { serial: 7, end: Some(end), .. })
+                if end.error.is_none() && !end.limited
+        ));
+    }
+
+    /// A search cancelled (a new key, Escape, another folder) hands over nothing.
+    #[test]
+    fn a_cancelled_find_hands_over_nothing() {
+        let dir = folder_with(20, 2);
+        let request = crate::find::local_request(
+            dir.path().to_path_buf(),
+            "file",
+            false,
+            false,
+            true,
+            true,
+        );
+        let cancel = AtomicBool::new(true);
+        let mut outcomes = Vec::new();
+        let last = run_find(3, &request, "", &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        assert!(searched(&outcomes).is_empty());
+    }
+
+    /// A cloud drive is searched by name over a recursive listing, page by page (here a folder
+    /// on disk seen through the Drive trait alone); a pattern that does not compile ends the
+    /// search with why.
+    #[test]
+    fn a_cloud_drive_is_searched_by_name_over_its_listing() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-remote");
+        fs::create_dir_all(dir.path().join("Docs/deep")).expect("folders");
+        fs::write(dir.path().join("Docs/deep/report.txt"), b"x").expect("a file");
+        fs::write(dir.path().join("Docs/notes.txt"), b"x").expect("a file");
+        fs::write(dir.path().join("elsewhere-report.txt"), b"x").expect("a file");
+        let drive = LocalDrive::without_manifest(dir.path().to_path_buf());
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(
+            9,
+            &drive,
+            "Docs/",
+            &Pattern::literal("report"),
+            false,
+            &cancel,
+            &mut |o| outcomes.push(o),
+        );
+        outcomes.push(last);
+        let keys: Vec<&str> = searched(&outcomes)
+            .iter()
+            .map(|f| f.entry.key.as_str())
+            .collect();
+        assert_eq!(keys, vec!["Docs/deep/report.txt"]);
+        let bad = run_find_remote(
+            10,
+            &drive,
+            "",
+            &Pattern::regex("("),
+            false,
+            &cancel,
+            &mut |_| {},
+        );
+        assert!(matches!(
+            bad,
+            Outcome::Searched {
+                end: Some(crate::find::FindEnd { error: Some(_), .. }),
+                ..
+            }
+        ));
+    }
+
     /// A tree node lists its folders (sorted without case) and counts its items with one
     /// read_dir: a folder of many files expands at once.
     #[test]

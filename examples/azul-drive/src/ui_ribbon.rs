@@ -692,14 +692,14 @@ mod tests {
     fn a_folder_shows_home_share_view_and_this_pc_shows_computer_and_view() {
         let folder = Place::folder("home", "Documents/");
         assert_eq!(
-            tabs_of(&folder),
+            tabs_of(&folder, false),
             &[RibbonTabKind::Home, RibbonTabKind::Share, RibbonTabKind::View]
         );
         assert_eq!(
-            tabs_of(&Place::ThisPc),
+            tabs_of(&Place::ThisPc, false),
             &[RibbonTabKind::Computer, RibbonTabKind::View]
         );
-        assert_eq!(tabs_of(&Place::QuickAccess)[0], RibbonTabKind::Home);
+        assert_eq!(tabs_of(&Place::QuickAccess, false)[0], RibbonTabKind::Home);
     }
 
     /// The tab chosen last stays where the place has it (View from a folder to This PC) and
@@ -707,9 +707,33 @@ mod tests {
     #[test]
     fn the_chosen_tab_stays_where_the_place_has_it() {
         let folder = Place::folder("home", "");
-        assert_eq!(active_index(&folder, RibbonTabKind::View), 2);
-        assert_eq!(active_index(&Place::ThisPc, RibbonTabKind::View), 1);
-        assert_eq!(active_index(&Place::ThisPc, RibbonTabKind::Share), 0);
-        assert_eq!(active_index(&folder, RibbonTabKind::Computer), 0);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::View), 2);
+        assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::View), 1);
+        assert_eq!(active_index(&Place::ThisPc, false, RibbonTabKind::Share), 0);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::Computer), 0);
+    }
+
+    /// While a search of a folder is open, Windows 8's Search tab (Search Tools) follows View;
+    /// it goes with the search, and the place's first tab shows again.
+    #[test]
+    fn a_search_adds_the_search_tab_after_view() {
+        let folder = Place::folder("home", "Documents/");
+        assert_eq!(
+            tabs_of(&folder, true),
+            &[
+                RibbonTabKind::Home,
+                RibbonTabKind::Share,
+                RibbonTabKind::View,
+                RibbonTabKind::Search
+            ]
+        );
+        assert_eq!(active_index(&folder, true, RibbonTabKind::Search), 3);
+        assert_eq!(active_index(&folder, false, RibbonTabKind::Search), 0);
+        assert_eq!(RibbonTabKind::Search.label(), "Search");
+        assert_eq!(
+            tabs_of(&Place::ThisPc, true),
+            &[RibbonTabKind::Computer, RibbonTabKind::View],
+            "This PC is not searched"
+        );
     }
 }

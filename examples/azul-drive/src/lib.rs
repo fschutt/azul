@@ -92,6 +92,8 @@ mod add_flow;
 pub mod args;
 pub mod browse;
 pub mod fileops;
+#[cfg(test)]
+mod find_tests;
 mod ids;
 mod jobs;
 pub mod keys;
