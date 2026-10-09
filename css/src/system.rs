@@ -243,10 +243,11 @@ pub enum DesktopEnvironment {
     Other(AzString),
 }
 
-/// Dark or light: the MODE a window or the whole desktop is drawn in
-/// (`AppConfig::set_mode` pins it, `get_mode` reads it). A mode, not a
-/// theme: the THEME is the app's look (`flat`, `flora`, ...), and every
-/// theme comes in both modes.
+/// Dark or light: the MODE a window or the whole desktop is drawn in.
+///
+/// `AppConfig::set_mode` pins it, `get_mode` reads it. A mode, not a theme: the
+/// THEME is the app's look (`flat`, `flora`, ...), and every theme comes in
+/// both modes.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum DarkLightMode {
@@ -1487,9 +1488,11 @@ pub mod windows_fonts {
 }
 
 /// The Windows UI accent colour, parsed from the registry as the `reg query`
-/// CLI prints it. Pure text parsing, so it is tested on every platform; the
-/// Windows discovery (`dll/src/desktop/shell2/windows/system_style.rs`) runs
-/// the queries and hands the output here.
+/// CLI prints it.
+///
+/// Pure text parsing, so it is tested on every platform; the Windows discovery
+/// (`dll/src/desktop/shell2/windows/system_style.rs`) runs the queries and
+/// hands the output here.
 pub mod windows_accent {
     use super::SystemStyle;
     use crate::props::basic::color::{ColorU, OptionColorU};
@@ -1535,7 +1538,8 @@ pub mod windows_accent {
             .or_else(|| accent_palette_from_reg_query(output).map(|p| p.accent))
     }
 
-    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`]:
+    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`].
+    ///
     /// `AccentPalette` is a `REG_BINARY` of eight RGBA entries, Light3 first,
     /// the base accent fourth, Dark3 seventh (the eighth is unused).
     #[must_use]

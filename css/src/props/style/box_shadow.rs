@@ -298,10 +298,12 @@ pub fn box_shadow_slots(list: &[StyleBoxShadow]) -> Option<[StyleBoxShadow; MAX_
     Some([nth(3), nth(2), nth(1), nth(0)])
 }
 
-/// Parses a `box-shadow` value: one shadow or a comma-separated list of
-/// them, such as `"0 1px 2px red, 0 0 0 1px blue"`. Split at top-level
-/// commas only (`rgba(0, 0, 0, 0.5)` stays one colour); every shadow must
-/// parse, as in CSS, where one invalid shadow invalidates the list.
+/// Parses a `box-shadow` value: one shadow or a comma-separated list of them,
+/// such as `"0 1px 2px red, 0 0 0 1px blue"`.
+///
+/// Split at top-level commas only (`rgba(0, 0, 0, 0.5)` stays one colour);
+/// every shadow must parse, as in CSS, where one invalid shadow invalidates the
+/// list.
 #[cfg(feature = "parser")]
 /// # Errors
 ///

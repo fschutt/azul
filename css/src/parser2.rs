@@ -2575,12 +2575,12 @@ fn check_if_value_is_css_env(
 /// static): the top and bottom padding read the inset, left and right are
 /// 8px. `None` when no component is an `env()` call.
 ///
-/// Which longhands a component feeds: the value expands twice more, with
-/// two different lengths in the component's place (an `env()` value is a
-/// length), and the longhands that change are its own. Such a longhand must
-/// BE the component - the cascade swaps its whole value for the live length
-/// - so an `env()` inside a compound value (a shadow's offset) refuses the
-/// declaration instead of half-applying it.
+/// Which longhands a component feeds: the value expands twice more, with two
+/// different lengths in the component's place (an `env()` value is a length),
+/// and the longhands that change are its own. Such a longhand must BE the
+/// component (the cascade swaps its whole value for the live length), so an
+/// `env()` inside a compound value (a shadow's offset) refuses the declaration
+/// instead of half-applying it.
 fn expand_env_components(
     key: CombinedCssPropertyType,
     value: &str,

@@ -6,10 +6,11 @@
 
 use crate::corety::AzString;
 
-/// Whether `byte` is CSS whitespace: space, tab and the newlines LF, CR and
-/// FF (CSS Syntax 3, section 4.2). NOT the wider Unicode `White_Space` set
-/// `str::split_whitespace` uses: a no-break space is part of a token, as in
-/// a browser.
+/// Whether `byte` is CSS whitespace: space, tab and the newlines LF, CR and FF
+/// (CSS Syntax 3, section 4.2).
+///
+/// NOT the wider Unicode `White_Space` set `str::split_whitespace` uses: a
+/// no-break space is part of a token, as in a browser.
 #[must_use]
 pub const fn is_css_whitespace(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | b'\x0C')
@@ -90,9 +91,10 @@ const fn top_level_pieces<F: Fn(u8) -> bool>(input: &str, is_separator: F) -> To
 }
 
 /// `input` cut at every top-level byte `is_separator` accepts (see
-/// [`find_top_level`]), otherwise exactly like `str::split`: N separators
-/// give N + 1 pieces, empty pieces included, an empty input is one empty
-/// piece, and the pieces are not trimmed.
+/// [`find_top_level`]), otherwise exactly like `str::split`.
+///
+/// N separators give N + 1 pieces, empty pieces included, an empty input is one
+/// empty piece, and the pieces are not trimmed.
 ///
 /// `"a, 'b, c', f(d, e)"` split at `,` is `["a", " 'b, c'", " f(d, e)"]`.
 #[must_use]
@@ -117,9 +119,10 @@ pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
 }
 
 /// Splits a value into its space-separated components at its top-level CSS
-/// whitespace (see [`split_top_level`], [`is_css_whitespace`]): never inside
-/// parentheses or a quoted string. Runs of whitespace collapse; no component
-/// is empty.
+/// whitespace (see [`split_top_level`], [`is_css_whitespace`]).
+///
+/// Never inside parentheses or a quoted string. Runs of whitespace collapse; no
+/// component is empty.
 ///
 /// E.g. `0 1px rgba(0, 0, 0, 0.5)` becomes `["0", "1px", "rgba(0, 0, 0, 0.5)"]`.
 #[must_use]

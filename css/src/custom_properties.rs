@@ -34,10 +34,11 @@ use crate::{
     props::property::{CssProperty, CssPropertyType},
 };
 
-/// Upper bound on one substituted value, in bytes. Substitution can grow a
-/// value exponentially (`--b: var(--a) var(--a)`, `--c: var(--b) var(--b)`,
-/// ...); a theme is untrusted input (design §9.1 pitfall 8), so past this a
-/// value is invalid instead of eating the process.
+/// Upper bound on one substituted value, in bytes.
+///
+/// Substitution can grow a value exponentially (`--b: var(--a) var(--a)`,
+/// `--c: var(--b) var(--b)`, ...); a theme is untrusted input (design §9.1
+/// pitfall 8), so past this a value is invalid instead of eating the process.
 pub const MAX_SUBSTITUTED_LEN: usize = 64 * 1024;
 
 /// Upper bound on nested substitution while one node's definitions are
@@ -314,11 +315,12 @@ pub fn is_custom_property_name(name: &str) -> bool {
 }
 
 /// The inside of a `var( ... )` call split into the variable name (without
-/// `--`) and the fallback text, untrimmed: `"--a, rgb(1, 2, 3)"` ->
-/// `("a", Some(" rgb(1, 2, 3)"))`, `"--a"` -> `("a", None)`. The split is at
-/// the first TOP-LEVEL comma (the crate's one scanner,
-/// [`find_top_level`](crate::props::basic::parse::find_top_level)). `None`
-/// when the name is not a custom-property name (`var(a)`, `var(--)`,
+/// `--`) and the fallback text, untrimmed.
+///
+/// `"--a, rgb(1, 2, 3)"` -> `("a", Some(" rgb(1, 2, 3)"))`, `"--a"` ->
+/// `("a", None)`. The split is at the first TOP-LEVEL comma (the crate's one
+/// scanner, [`find_top_level`](crate::props::basic::parse::find_top_level)).
+/// `None` when the name is not a custom-property name (`var(a)`, `var(--)`,
 /// `var(--a b)`).
 #[must_use]
 pub fn split_var_arguments(inner: &str) -> Option<(&str, Option<&str>)> {
@@ -331,10 +333,12 @@ pub fn split_var_arguments(inner: &str) -> Option<(&str, Option<&str>)> {
     is_custom_property_name(name).then_some((name, fallback))
 }
 
-/// Resolves `var()` consumers, remembering how each raw value parsed as
-/// each property type: one restyle reads the same few variables on many
-/// nodes (a `* { color: var(--fg) }` reads one on every element), and the
-/// property parser is the expensive part.
+/// Resolves `var()` consumers, remembering how each raw value parsed as each
+/// property type.
+///
+/// One restyle reads the same few variables on many nodes (a
+/// `* { color: var(--fg) }` reads one on every element), and the property
+/// parser is the expensive part.
 #[derive(Debug, Default)]
 pub struct VarResolver {
     parsed: BTreeMap<CssPropertyType, BTreeMap<String, Option<CssProperty>>>,

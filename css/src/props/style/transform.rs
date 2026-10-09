@@ -1140,12 +1140,13 @@ pub fn parse_style_backface_visibility(
 
 // -- Interpolation
 
-/// `from` -> `to` at `t` (0..=1, already eased), function by function - the
-/// CSS Transforms 1 (section 9) rule for two lists of the same functions:
-/// each pair tweens its own arguments, so `rotate(0) -> rotate(180deg)`
-/// TURNS through 90deg rather than decomposing a matrix (where half a turn
-/// is ambiguous). An empty list (`none`, or no value) stands for the
-/// identity of the other side's functions.
+/// `from` -> `to` at `t` (0..=1, already eased), function by function.
+///
+/// The CSS Transforms 1 (section 9) rule for two lists of the same functions:
+/// each pair tweens its own arguments, so `rotate(0) -> rotate(180deg)` TURNS
+/// through 90deg rather than decomposing a matrix (where half a turn is
+/// ambiguous). An empty list (`none`, or no value) stands for the identity of
+/// the other side's functions.
 ///
 /// `None` when the lists do not pair up (different lengths or different
 /// functions, a matrix, a 3D rotation about an axis): the caller keeps its

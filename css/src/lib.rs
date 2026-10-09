@@ -73,6 +73,9 @@
 extern crate alloc;
 extern crate core;
 
+// rustdoc joins a `pub mod`'s `///` lines here with the `//!` docs at the top
+// of its file. Where both are long, an empty `///` line ends the summary, so
+// it stays a paragraph of its own (clippy::too_long_first_doc_paragraph).
 #[macro_use]
 /// Internal macros for reducing boilerplate in property definitions.
 pub mod macros;
@@ -96,6 +99,7 @@ pub mod corety;
 pub mod css;
 /// Custom properties (`--name`) and `var()`: the per-node variable map and
 /// the resolver both cascades consult.
+///
 pub mod custom_properties;
 /// Typed default values for CSS properties (font size, font id, text color).
 pub mod defaults;
@@ -118,6 +122,7 @@ pub mod theme_chain;
 /// The end user's stylesheets ("rice"): discovery over the theme chain's
 /// directories (`~/.azul/css/<theme>/*.css`), the header meta-comment,
 /// hardening and the status listing.
+///
 #[cfg(feature = "parser")]
 pub mod rice;
 

@@ -392,18 +392,21 @@ fn wildcard_matches(pattern: &str, version: &str) -> bool {
     true
 }
 
-/// Does the running azul `running` match the `azul:` list `patterns`? An
-/// OR list; empty (the key is absent) matches everywhere. Each entry is a
-/// version with `*` as wildcard (`0.2.*`), or a plain version that matches
-/// as a prefix (`0.2` is every `0.2.x`).
+/// Does the running azul `running` match the `azul:` list `patterns`?
+///
+/// An OR list; empty (the key is absent) matches everywhere. Each entry is a
+/// version with `*` as wildcard (`0.2.*`), or a plain version that matches as a
+/// prefix (`0.2` is every `0.2.x`).
 #[must_use]
 pub fn azul_version_matches(patterns: &[String], running: &str) -> bool {
     patterns.is_empty() || patterns.iter().any(|p| wildcard_matches(p, running))
 }
 
-/// Does `version` satisfy the Cargo-style `range`? `^1.2` (and a bare
-/// `1.2`): same left-most non-zero component; `~1.2`: same major.minor;
-/// `=1.2.3`, `>=`, `>`, `<=`, `<`; `1.*` wildcards; `*` or empty: any.
+/// Does `version` satisfy the Cargo-style `range`?
+///
+/// `^1.2` (and a bare `1.2`): same left-most non-zero component; `~1.2`: same
+/// major.minor; `=1.2.3`, `>=`, `>`, `<=`, `<`; `1.*` wildcards; `*` or empty:
+/// any.
 #[must_use]
 pub fn version_satisfies(range: &str, version: &str) -> bool {
     let Some(have) = version_parts(version) else {
@@ -624,11 +627,12 @@ fn drop_remote_urls(bytes: &mut [u8], warnings: &mut Vec<String>) {
     }
 }
 
-/// Make a rice source safe to parse: comments blanked (`//` lines included,
-/// which CSS does not have), `@import` statements dropped, and every
-/// declaration with a REMOTE `url()` dropped (a rice cannot make the app
-/// fetch from the network, pitfall 8). A relative, `file:///` or `data:`
-/// url stays. One warning per drop.
+/// Make a rice source safe to parse.
+///
+/// Comments are blanked (`//` lines included, which CSS does not have),
+/// `@import` statements dropped, and every declaration with a REMOTE `url()`
+/// dropped (a rice cannot make the app fetch from the network, pitfall 8). A
+/// relative, `file:///` or `data:` url stays. One warning per drop.
 #[must_use]
 pub fn sanitize_rice_source(source: &str) -> SanitizedRice {
     let mut bytes = blank_comments(source);
@@ -677,10 +681,11 @@ fn is_palette_source(source: &str) -> bool {
 }
 
 /// The on-disk path segments of the theme `name` (`xyz:pink` is
-/// `["xyz", "pink"]`), or `None` when the name is refused: a segment must be
-/// ASCII letters, digits, `-` and `_` (so no `..`, no separator, nothing
-/// absolute), no segment may be empty, and the name may not start with a
-/// colour scheme ([`RESERVED_THEME_NAMES`]).
+/// `["xyz", "pink"]`), or `None` when the name is refused.
+///
+/// A segment must be ASCII letters, digits, `-` and `_` (so no `..`, no
+/// separator, nothing absolute), no segment may be empty, and the name may not
+/// start with a colour scheme ([`RESERVED_THEME_NAMES`]).
 #[must_use]
 pub fn theme_dir_segments(name: &str) -> Option<Vec<&str>> {
     let segments: Vec<&str> = name.split(':').collect();
@@ -698,7 +703,8 @@ pub fn theme_dir_segments(name: &str) -> Option<Vec<&str>> {
     (valid && !reserved).then_some(segments)
 }
 
-/// THE walk from a theme chain to its directories under the rice root:
+/// THE walk from a theme chain to its directories under the rice root.
+///
 /// `<root>/<kind>/<segment>/<segment>/` for every entry, in chain order,
 /// refused names ([`theme_dir_segments`]) left out. `kind` is `"css"` for
 /// the stylesheets and `"icons"` for the icon remap tables.
@@ -790,9 +796,10 @@ pub fn default_rice_root() -> Option<PathBuf> {
     home_dir().map(|home| home.join(".azul"))
 }
 
-/// The legacy per-app stylesheet of `app`: `$XDG_CONFIG_HOME` (else
-/// `~/.config`) `/azul/styles/<app>.css` on Linux and the BSDs,
-/// `~/Library/Application Support/azul/styles/<app>.css` on macOS,
+/// The legacy per-app stylesheet of `app`.
+///
+/// `$XDG_CONFIG_HOME` (else `~/.config`) `/azul/styles/<app>.css` on Linux and
+/// the BSDs, `~/Library/Application Support/azul/styles/<app>.css` on macOS,
 /// `%APPDATA%\azul\styles\<app>.css` on Windows.
 #[must_use]
 pub fn legacy_stylesheet_path(app: &str) -> Option<PathBuf> {
@@ -1194,10 +1201,11 @@ fn push_unique(out: &mut Vec<String>, items: &[String]) {
     }
 }
 
-/// The `fallback:` list of the theme `name`, from the headers of its files
-/// (its directory's, and the global files whose `theme:` names it), in file
-/// order, de-duplicated. Only files that apply to this app and this azul
-/// speak. What the theme chain's expansion asks ([`rice_chain`]).
+/// The `fallback:` list of the theme `name`, from the headers of its files (its
+/// directory's, and the global files whose `theme:` names it).
+///
+/// In file order, de-duplicated. Only files that apply to this app and this
+/// azul speak. What the theme chain's expansion asks ([`rice_chain`]).
 #[must_use]
 pub fn fallback_of(env: &RiceEnv, name: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -1223,10 +1231,12 @@ pub fn fallback_of(env: &RiceEnv, name: &str) -> Vec<String> {
     out
 }
 
-/// The theme chain the rice of `head` is loaded for: the theme chain's
-/// expansion (`crate::theme_chain::expand_chain`: `:` prefixes, `fallback:`
-/// headers transitively, `app_default` as the floor), fed by the headers
-/// this loader parses. Returns the chain and the expansion's warnings.
+/// The theme chain the rice of `head` is loaded for, and the expansion's
+/// warnings.
+///
+/// The theme chain's expansion (`crate::theme_chain::expand_chain`: `:`
+/// prefixes, `fallback:` headers transitively, `app_default` as the floor), fed
+/// by the headers this loader parses.
 #[must_use]
 pub fn rice_chain(env: &RiceEnv, head: &str, app_default: &str) -> (Vec<String>, Vec<String>) {
     let fallback = |name: &str| fallback_of(env, name);
@@ -1745,8 +1755,9 @@ pub fn generation() -> u64 {
     with_process(|p| p.as_ref().map_or(0, |p| p.generation))
 }
 
-/// `AZ_RICING=watch`: has a rice file changed since the last poll? If so the
-/// loaded rice is dropped (the next [`rice_for_theme`] reloads), the
+/// `AZ_RICING=watch`: has a rice file changed since the last poll?
+///
+/// If so the loaded rice is dropped (the next [`rice_for_theme`] reloads), the
 /// [`generation`] moves on, and [`take_reload_signal`] answers `true` once.
 /// Reads the file tree (names, sizes, modification times) - call it off the
 /// event loop, a few times a second. `false` in any other mode.
@@ -1847,9 +1858,10 @@ pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
     }
 }
 
-/// [`fallback_of`] against this process's rice root: what the theme chain
-/// of the cascade (`DynamicSelectorContext::theme_chain`) asks, so the
-/// window's chain and the rice's chain are one chain. Empty before
+/// [`fallback_of`] against this process's rice root.
+///
+/// What the theme chain of the cascade (`DynamicSelectorContext::theme_chain`)
+/// asks, so the window's chain and the rice's chain are one chain. Empty before
 /// [`install`] and under `AZ_RICING=off`.
 #[must_use]
 pub fn installed_fallback_of(name: &str) -> Vec<String> {

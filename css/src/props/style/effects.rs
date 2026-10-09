@@ -42,8 +42,9 @@ impl_percentage_value!(StyleOpacity);
 
 // -- Zoom --
 
-/// Represents a `zoom` attribute (CSS Viewport 1, as Chrome implements it):
-/// the factor the element's lengths - and, multiplied down the tree, the
+/// Represents a `zoom` attribute (CSS Viewport 1, as Chrome implements it).
+///
+/// The factor the element's lengths - and, multiplied down the tree, the
 /// lengths of its whole subtree - are scaled by. `normal` (the initial value)
 /// is 1; a `<number>` or a `<percentage>`, never negative. Not inherited: the
 /// layout multiplies the zooms of a node and its ancestors (its EFFECTIVE

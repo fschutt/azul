@@ -804,9 +804,10 @@ pub const FONT_SIZE_SMALLER: PixelValue = PixelValue::const_em_fractional(0, 83)
 /// `font-size: larger`: 1.2em, the inverse step (the UA sheet's `big`).
 pub const FONT_SIZE_LARGER: PixelValue = PixelValue::const_em_fractional(1, 2);
 
-/// The absolute-size keywords of `font-size` (CSS Fonts 4 s2.5) and the
-/// px browsers give them at the 16px default, smallest first. HTML's legacy
-/// `<font size="1".."7">` takes the entries from `x-small` on.
+/// The absolute-size keywords of `font-size` (CSS Fonts 4 s2.5) and the px
+/// browsers give them at the 16px default, smallest first.
+///
+/// HTML's legacy `<font size="1".."7">` takes the entries from `x-small` on.
 pub const FONT_SIZE_KEYWORDS_PX: [(&str, u16); 8] = [
     ("xx-small", 9),
     ("x-small", 10),

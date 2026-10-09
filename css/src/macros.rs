@@ -1106,6 +1106,8 @@ macro_rules! impl_option {
         // This arm (copy = false) deliberately does NOT derive Copy so the
         // wrapper can hold non-Copy payloads; missing_copy_implementations is a
         // false positive for the Copy-payload instantiations routed through here.
+        // The size lints: this is the C API's `repr(C)` option, boxing the
+        // payload would change its ABI.
         #[allow(missing_copy_implementations, variant_size_differences)]
         pub enum $struct_name {
             None,

@@ -1910,10 +1910,10 @@ impl SystemColorRef {
     }
 }
 
-/// `currentColor` packed into a [`ColorU`]: the element's own cascaded
-/// `color`, for a colour value the ENGINE writes that has to follow it (an
-/// icon's `flood()`, which paints monochrome artwork in the text colour).
+/// `currentColor` packed into a [`ColorU`]: the element's own cascaded `color`,
+/// for a colour value the ENGINE writes that has to follow it.
 ///
+/// An icon's `flood()`, for one, paints monochrome artwork in the text colour.
 /// Same reserved space as [`SystemColorRef::to_color_token`] (`'S' 'Y'`,
 /// alpha 0) with an index no `SystemColorRef` uses, so
 /// [`crate::dynamic_selector::resolve_system_color_token`] passes it through
@@ -2151,11 +2151,13 @@ pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParse
     parse_css_color(input).map(ColorOrSystem::Color)
 }
 
-/// [`parse_color_or_system`] for a property whose value holds a bare
-/// [`ColorU`] (`color`, `border-*-color`, `caret-color`, the shadows, ...;
-/// see [`SystemColorRef::to_color_token`]): a `system:` keyword comes back as
-/// its token, which the layout getters resolve against the theme the cascade
-/// evaluated. EVERY colour parser of such a property goes through here.
+/// [`parse_color_or_system`] for a property whose value holds a bare [`ColorU`]
+/// (`color`, `border-*-color`, `caret-color`, the shadows, ...).
+///
+/// A `system:` keyword comes back as its token (see
+/// [`SystemColorRef::to_color_token`]), which the layout getters resolve
+/// against the theme the cascade evaluated. EVERY colour parser of such a
+/// property goes through here.
 #[cfg(feature = "parser")]
 /// # Errors
 ///
