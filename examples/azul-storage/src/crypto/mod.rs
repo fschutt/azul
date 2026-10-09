@@ -26,6 +26,8 @@
 //! `*_CONTEXT` constants): one key, one purpose. Secrets wipe themselves when dropped
 //! (`zeroize`) and print as `***`; nothing here logs.
 
+pub mod codec;
+
 use std::fmt;
 
 use chacha20poly1305::{
