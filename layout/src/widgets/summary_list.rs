@@ -66,7 +66,7 @@ use azul_css::{
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::{
-        button::{Button, ButtonOnClickCallbackType, ButtonType},
+        button::{Button, ButtonOnClickCallbackType},
         list_view::{scroll_settled_hook, scroll_window_of, ListView},
         roving::{self, Step},
         segmented::{Segmented, SegmentedOnChangeCallbackType, SegmentedState},
@@ -550,6 +550,18 @@ pub(crate) static SUMMARY_LIST_SEARCH_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
+];
+
+/// The sort direction takes the rest of the sort header, never less than
+/// its label: in a narrow column the caption before it gives way, the label
+/// never wraps.
+pub(crate) static SUMMARY_LIST_SORT_DIRECTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 /// The scope buttons keep their size.
@@ -1339,16 +1351,21 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
         .with_css_props(part(SUMMARY_LIST_STRIP_BASE, &look.toolbar))
         .with_children(DomVec::from_vec(toolbar));
 
-    // The sort header: the caption, the field, the direction toggle.
+    // The sort header: the caption, the field, the direction toggle. The
+    // field and the toggle show the list's ORDER - a value the user clicks to
+    // change, as Outlook's "Arrange By: Date": links, and in flora flora's
+    // text link (the running hand, no box, no capitals) - its boxed command
+    // in capitals is wider than a list column.
     let link = |label: AzString, icon: &'static str, cb: ButtonOnClickCallbackType| {
-        let mut b = Button::with_type(label, ButtonType::Link).with_on_click(shared.clone(), cb);
-        if !icon.is_empty() {
-            b = b.with_trailing_icon(AzString::from_const_str(icon));
-        }
-        if let Some(theme) = theme {
-            b = b.with_theme(theme);
-        }
-        b.dom()
+        crate::widgets::button::data_link(
+            crate::widgets::button::DataLink {
+                label,
+                data: shared.clone(),
+                on_click: cb,
+                trailing_icon: icon,
+            },
+            theme,
+        )
     };
     // The toggle shows the order it stands for: an arrow down for newest
     // (or A) on top, up for the reverse.
@@ -1369,7 +1386,7 @@ pub(crate) fn build(list: SummaryList, look: &SummaryListLook) -> Dom {
                 .with_child(link(sort_field, "", on_sort_field)),
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SORT_DIRECTION_CLASS))
-                .with_css_props(part(SUMMARY_LIST_SEARCH_BASE, &[]))
+                .with_css_props(part(SUMMARY_LIST_SORT_DIRECTION_BASE, &[]))
                 .with_child(link(sort_direction_label, direction_icon, on_sort_direction)),
         ]));
 

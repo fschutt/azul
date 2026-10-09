@@ -805,14 +805,21 @@ pub(crate) struct DataLink {
     pub data: RefAny,
     /// Called on a click.
     pub on_click: ButtonOnClickCallbackType,
+    /// The icon after the label (a sort direction's arrow), `""` for none.
+    pub trailing_icon: &'static str,
 }
 
 impl DataLink {
     /// The link button, pinned to `theme`.
     fn button(self, theme: crate::widgets::themes::UiTheme) -> Button {
-        Button::with_type(self.label, ButtonType::Link)
+        let b = Button::with_type(self.label, ButtonType::Link)
             .with_on_click(self.data, self.on_click)
-            .with_theme(theme)
+            .with_theme(theme);
+        if self.trailing_icon.is_empty() {
+            b
+        } else {
+            b.with_trailing_icon(AzString::from_const_str(self.trailing_icon))
+        }
     }
 }
 

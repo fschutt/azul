@@ -683,6 +683,7 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
                 label,
                 data,
                 on_click: cb,
+                trailing_icon: "",
             },
             theme,
         )
