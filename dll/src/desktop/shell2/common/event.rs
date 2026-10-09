@@ -5420,6 +5420,23 @@ pub trait PlatformWindow {
         }
     }
 
+    /// This window's native web views (`common::webview`), created on first
+    /// use. `None`: this shell has none - its windows tell the engine so
+    /// (`WebViewPlatform`), and the engine fails every `<webview>` with the
+    /// reason. The shells with a backend (headless, macOS) override this.
+    fn webview_backend(&mut self) -> Option<&mut dyn super::webview::WebViewBackend> {
+        None
+    }
+
+    /// One turn of the web views (`common::webview::pump`): placements and
+    /// ops to the backend, its reports (and the debug server's simulated
+    /// ones) to the views' callbacks, the answers back. A shell with a
+    /// backend runs it once per loop turn; what it returns is what the
+    /// callbacks asked for (a rebuild is already requested).
+    fn pump_webviews(&mut self) -> ProcessEventResult {
+        super::webview::pump(self)
+    }
+
     /// `<transient-window>`, both sides, on every input transition:
     /// - a popup dismisses itself on Escape / focus loss (per its policy),
     /// - a parent dismisses its `outside`-dismissable popups on a fresh press.
