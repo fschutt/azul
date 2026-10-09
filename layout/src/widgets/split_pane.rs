@@ -374,7 +374,7 @@ pub(crate) fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec
 /// The divider's [`DIVIDER_THICKNESS`] along the drag axis: its width in a
 /// horizontal split, its height in a vertical one. Every theme's skin
 /// declares it (the drag arithmetic subtracts it).
-pub(crate) fn divider_thickness(dir: SplitDirection) -> CssProperty {
+pub(crate) const fn divider_thickness(dir: SplitDirection) -> CssProperty {
     match dir {
         SplitDirection::Horizontal => {
             CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS))

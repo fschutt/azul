@@ -1123,7 +1123,7 @@ pub struct TerminalScreen {
 impl TerminalScreen {
     /// A screen of `lines`, no scrollback, the cursor hidden.
     #[must_use]
-    pub fn create(lines: TerminalLineVec) -> Self {
+    pub const fn create(lines: TerminalLineVec) -> Self {
         Self {
             lines,
             line_below: OptionTerminalLine::None,
@@ -1285,7 +1285,7 @@ pub struct TerminalViewEvent {
 impl TerminalViewEvent {
     /// A `kind` event, nothing else set.
     #[must_use]
-    pub fn create(kind: TerminalViewEventKind) -> Self {
+    pub const fn create(kind: TerminalViewEventKind) -> Self {
         Self {
             bytes: U8Vec::from_vec(Vec::new()),
             scroll: 0,
@@ -1433,7 +1433,7 @@ impl TerminalView {
     /// A view at 13 px with the app theme's colours, no data until
     /// [`Self::with_data_source`].
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self {
             data_source: OptionTerminalViewDataSource::None,
             on_event: OptionTerminalViewOnEvent::None,
@@ -1963,7 +1963,7 @@ pub(crate) enum KeyAction {
 
 /// Whether Ctrl+Shift+`key` is the window's off macOS: a digit (Key1..Key0
 /// are 0..=9), a letter (A..Z are 10..=35), a bracket.
-fn is_window_chord_key(key: VirtualKeyCode) -> bool {
+const fn is_window_chord_key(key: VirtualKeyCode) -> bool {
     (key as u32) <= 35 || matches!(key, VirtualKeyCode::LBracket | VirtualKeyCode::RBracket)
 }
 

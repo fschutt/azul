@@ -136,7 +136,7 @@ pub struct WizardPageEvent {
 impl WizardPageEvent {
     /// An event of `kind` at `index` with the new value `checked`.
     #[must_use]
-    pub fn create(kind: WizardPageEventKind, index: usize, checked: bool) -> Self {
+    pub const fn create(kind: WizardPageEventKind, index: usize, checked: bool) -> Self {
         Self {
             text: AzString::from_const_str(""),
             index,
@@ -231,7 +231,7 @@ impl_vec_mut!(WizardComponent, WizardComponentVec);
 impl WizardComponent {
     /// A ticked top-level component `label` of `size_bytes`.
     #[must_use]
-    pub fn create(label: AzString, size_bytes: u64) -> Self {
+    pub const fn create(label: AzString, size_bytes: u64) -> Self {
         Self {
             label,
             description: AzString::from_const_str(""),
@@ -311,7 +311,7 @@ impl_vec_mut!(WizardOption, WizardOptionVec);
 impl WizardOption {
     /// An independent checkbox option.
     #[must_use]
-    pub fn create(label: AzString, checked: bool) -> Self {
+    pub const fn create(label: AzString, checked: bool) -> Self {
         Self {
             label,
             description: AzString::from_const_str(""),
@@ -675,7 +675,7 @@ pub struct WizardWelcomePage {
 impl WizardWelcomePage {
     /// A welcome page titled `title` saying `text`.
     #[must_use]
-    pub fn create(title: AzString, text: AzString) -> Self {
+    pub const fn create(title: AzString, text: AzString) -> Self {
         Self {
             logo: AzString::from_const_str(""),
             title,
@@ -1435,7 +1435,7 @@ pub struct WizardSummaryPage {
 impl WizardSummaryPage {
     /// A summary of `rows`.
     #[must_use]
-    pub fn create(rows: StringPairVec) -> Self {
+    pub const fn create(rows: StringPairVec) -> Self {
         Self {
             rows,
             intro: AzString::from_const_str(

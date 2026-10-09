@@ -170,7 +170,7 @@ impl_vec_mut!(ShellSettingsSection, ShellSettingsSectionVec);
 impl ShellSettingsSection {
     /// A section `title` over `content`.
     #[must_use]
-    pub fn create(title: AzString, content: Dom) -> Self {
+    pub const fn create(title: AzString, content: Dom) -> Self {
         Self {
             content,
             title,

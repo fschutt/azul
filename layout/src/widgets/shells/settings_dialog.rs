@@ -98,7 +98,7 @@ pub struct ShellSettingChoice {
 impl ShellSettingChoice {
     /// Option `selected` of `options`.
     #[must_use]
-    pub fn create(options: StringVec, selected: usize) -> Self {
+    pub const fn create(options: StringVec, selected: usize) -> Self {
         Self { options, selected }
     }
 }
@@ -120,7 +120,7 @@ pub struct ShellSettingNumber {
 impl ShellSettingNumber {
     /// `value` in `min..=max`, without a unit.
     #[must_use]
-    pub fn create(value: f32, min: f32, max: f32) -> Self {
+    pub const fn create(value: f32, min: f32, max: f32) -> Self {
         Self {
             unit: AzString::from_const_str(""),
             value,
@@ -485,7 +485,7 @@ pub struct ShellSettingsEvent {
 impl ShellSettingsEvent {
     /// An event of `kind` at `index`.
     #[must_use]
-    pub fn create(kind: ShellSettingsEventKind, index: usize) -> Self {
+    pub const fn create(kind: ShellSettingsEventKind, index: usize) -> Self {
         Self {
             value: ShellSettingValue::Toggle(false),
             text: AzString::from_const_str(""),

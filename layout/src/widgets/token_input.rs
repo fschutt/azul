@@ -142,13 +142,13 @@ impl TokenInputState {
     }
 
     /// The highlighted suggestion (its place among the ones shown).
-    pub fn set_active(&mut self, active: usize) {
+    pub const fn set_active(&mut self, active: usize) {
         self.active = OptionUsize::Some(active);
     }
 
     /// [`Self::set_active`] for the builder chain.
     #[must_use]
-    pub fn with_active(mut self, active: usize) -> Self {
+    pub const fn with_active(mut self, active: usize) -> Self {
         self.set_active(active);
         self
     }
@@ -738,7 +738,7 @@ pub(crate) fn look_for(theme: OptionUiTheme) -> TokenInputLook {
 // ---- the base: the widget's structure, in every theme ----
 
 /// A row or column gap, px.
-fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
+const fn gap(px: isize, column: bool) -> CssPropertyWithConditions {
     use azul_css::props::{
         layout::{LayoutColumnGap, LayoutRowGap},
         property::{LayoutColumnGapValue, LayoutRowGapValue},

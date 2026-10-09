@@ -105,7 +105,7 @@ pub struct Waveform {
 impl Waveform {
     /// A waveform of `peaks`, at `position_s` of `duration_s`.
     #[must_use]
-    pub fn create(peaks: azul_css::F32Vec, position_s: f64, duration_s: f64) -> Self {
+    pub const fn create(peaks: azul_css::F32Vec, position_s: f64, duration_s: f64) -> Self {
         Self {
             position_s,
             duration_s,

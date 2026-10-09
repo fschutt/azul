@@ -491,13 +491,13 @@ impl Toolbar {
     }
 
     /// The width the bar may take, px (0 = no limit).
-    pub fn set_available_width(&mut self, width: f32) {
+    pub const fn set_available_width(&mut self, width: f32) {
         self.available_width = if width.is_finite() { width.max(0.0) } else { 0.0 };
     }
 
     /// [`Self::set_available_width`] for the builder chain.
     #[must_use]
-    pub fn with_available_width(mut self, width: f32) -> Self {
+    pub const fn with_available_width(mut self, width: f32) -> Self {
         self.set_available_width(width);
         self
     }
@@ -731,7 +731,7 @@ pub(crate) fn look_for(theme: OptionUiTheme) -> ToolbarLook {
 // live here, so a skin cannot make an item wider than [`item_width`] says.
 
 /// The gap between a tool's parts.
-fn column_gap(px: isize) -> CssPropertyWithConditions {
+const fn column_gap(px: isize) -> CssPropertyWithConditions {
     use azul_css::props::{basic::pixel::PixelValue, layout::LayoutColumnGap, property::LayoutColumnGapValue};
     CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(LayoutColumnGap {
         inner: PixelValue::const_px(px),

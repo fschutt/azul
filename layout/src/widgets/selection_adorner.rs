@@ -404,7 +404,7 @@ pub struct SelectionAdornerEvent {
 impl SelectionAdornerEvent {
     /// A `kind` event about `indices`, nothing else set.
     #[must_use]
-    pub fn create(kind: SelectionAdornerEventKind, indices: U32Vec) -> Self {
+    pub const fn create(kind: SelectionAdornerEventKind, indices: U32Vec) -> Self {
         Self {
             frames: AdornerFrameVec::from_const_slice(&[]),
             guides: AdornerGuideVec::from_const_slice(&[]),
@@ -555,61 +555,61 @@ impl SelectionAdorner {
     }
 
     /// The marquee to draw.
-    pub fn set_marquee(&mut self, marquee: AdornerFrame) {
+    pub const fn set_marquee(&mut self, marquee: AdornerFrame) {
         self.marquee = OptionAdornerFrame::Some(marquee);
     }
 
     /// [`Self::set_marquee`] for the builder chain.
     #[must_use]
-    pub fn with_marquee(mut self, marquee: AdornerFrame) -> Self {
+    pub const fn with_marquee(mut self, marquee: AdornerFrame) -> Self {
         self.set_marquee(marquee);
         self
     }
 
     /// The object whose text is being edited.
-    pub fn set_editing(&mut self, index: usize) {
+    pub const fn set_editing(&mut self, index: usize) {
         self.editing = OptionUsize::Some(index);
     }
 
     /// [`Self::set_editing`] for the builder chain.
     #[must_use]
-    pub fn with_editing(mut self, index: usize) -> Self {
+    pub const fn with_editing(mut self, index: usize) -> Self {
         self.set_editing(index);
         self
     }
 
     /// Snapping on or off.
-    pub fn set_snap(&mut self, snap: bool) {
+    pub const fn set_snap(&mut self, snap: bool) {
         self.snap = snap;
     }
 
     /// [`Self::set_snap`] for the builder chain.
     #[must_use]
-    pub fn with_snap(mut self, snap: bool) -> Self {
+    pub const fn with_snap(mut self, snap: bool) -> Self {
         self.set_snap(snap);
         self
     }
 
     /// How close (px) an edge must come to snap.
-    pub fn set_snap_distance(&mut self, px: f32) {
+    pub const fn set_snap_distance(&mut self, px: f32) {
         self.snap_distance = px.max(0.0);
     }
 
     /// [`Self::set_snap_distance`] for the builder chain.
     #[must_use]
-    pub fn with_snap_distance(mut self, px: f32) -> Self {
+    pub const fn with_snap_distance(mut self, px: f32) -> Self {
         self.set_snap_distance(px);
         self
     }
 
     /// An arrow key's fine step (with Ctrl / Cmd), canvas units.
-    pub fn set_nudge(&mut self, units: f32) {
+    pub const fn set_nudge(&mut self, units: f32) {
         self.nudge = units.max(0.0);
     }
 
     /// [`Self::set_nudge`] for the builder chain.
     #[must_use]
-    pub fn with_nudge(mut self, units: f32) -> Self {
+    pub const fn with_nudge(mut self, units: f32) -> Self {
         self.set_nudge(units);
         self
     }

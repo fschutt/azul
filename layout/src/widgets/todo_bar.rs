@@ -105,7 +105,7 @@ pub struct ToDoTask {
 impl ToDoTask {
     /// An open task `id` titled `title`, with no date.
     #[must_use]
-    pub fn create(id: u64, title: AzString) -> Self {
+    pub const fn create(id: u64, title: AzString) -> Self {
         Self {
             id,
             title,
@@ -531,7 +531,7 @@ fn fire(hook: &OptionToDoBarOnEvent, info: CallbackInfo, event: ToDoBarEvent) ->
 }
 
 /// A `kind` event with the bar's own date.
-fn event(shared: &BarShared, kind: ToDoBarEventKind, index: usize, id: u64) -> ToDoBarEvent {
+const fn event(shared: &BarShared, kind: ToDoBarEventKind, index: usize, id: u64) -> ToDoBarEvent {
     ToDoBarEvent {
         text: AzString::from_const_str(""),
         id,
@@ -553,7 +553,7 @@ extern "C" fn on_calendar_change(mut data: RefAny, info: CallbackInfo, state: Da
 
 /// What a key in the task line asks for: Enter adds the task.
 #[must_use]
-pub(crate) fn task_key_adds(key: Option<VirtualKeyCode>) -> bool {
+pub(crate) const fn task_key_adds(key: Option<VirtualKeyCode>) -> bool {
     matches!(key, Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter))
 }
 

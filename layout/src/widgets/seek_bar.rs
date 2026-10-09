@@ -164,7 +164,7 @@ pub struct SeekBar {
 impl SeekBar {
     /// A bar at `position_s` of `duration_s`.
     #[must_use]
-    pub fn create(position_s: f64, duration_s: f64) -> Self {
+    pub const fn create(position_s: f64, duration_s: f64) -> Self {
         Self {
             position_s,
             duration_s,
@@ -178,13 +178,13 @@ impl SeekBar {
     }
 
     /// How far the media is loaded.
-    pub fn set_buffered(&mut self, buffered_s: f64) {
+    pub const fn set_buffered(&mut self, buffered_s: f64) {
         self.buffered_s = buffered_s;
     }
 
     /// [`Self::set_buffered`] for the builder chain.
     #[must_use]
-    pub fn with_buffered(mut self, buffered_s: f64) -> Self {
+    pub const fn with_buffered(mut self, buffered_s: f64) -> Self {
         self.set_buffered(buffered_s);
         self
     }
@@ -202,13 +202,13 @@ impl SeekBar {
     }
 
     /// Show (or hide) the time labels.
-    pub fn set_show_times(&mut self, show: bool) {
+    pub const fn set_show_times(&mut self, show: bool) {
         self.show_times = show;
     }
 
     /// [`Self::set_show_times`] for the builder chain.
     #[must_use]
-    pub fn with_show_times(mut self, show: bool) -> Self {
+    pub const fn with_show_times(mut self, show: bool) -> Self {
         self.set_show_times(show);
         self
     }

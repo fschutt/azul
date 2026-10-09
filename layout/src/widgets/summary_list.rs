@@ -327,7 +327,7 @@ pub struct SummaryRow {
 impl SummaryRow {
     /// A read, unflagged message `id` from `from` about `subject`.
     #[must_use]
-    pub fn create(id: u64, from: AzString, subject: AzString) -> Self {
+    pub const fn create(id: u64, from: AzString, subject: AzString) -> Self {
         Self {
             id,
             from,

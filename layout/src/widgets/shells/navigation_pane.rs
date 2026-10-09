@@ -197,7 +197,7 @@ impl_vec_mut!(ShellNavigationGroup, ShellNavigationGroupVec);
 impl ShellNavigationGroup {
     /// An open group `title` showing `tree`.
     #[must_use]
-    pub fn create(title: AzString, tree: TreeViewNode) -> Self {
+    pub const fn create(title: AzString, tree: TreeViewNode) -> Self {
         Self {
             tree,
             title,
@@ -266,7 +266,7 @@ impl_vec_mut!(ShellNavigationModule, ShellNavigationModuleVec);
 impl ShellNavigationModule {
     /// A module with `label` and `icon`, no badge.
     #[must_use]
-    pub fn create(label: AzString, icon: AzString) -> Self {
+    pub const fn create(label: AzString, icon: AzString) -> Self {
         Self {
             label,
             icon,

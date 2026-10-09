@@ -402,7 +402,7 @@ impl RichTextEditor {
     /// An editor for `state` (14 px text, Markdown shortcuts on, no
     /// toolbar).
     #[must_use]
-    pub fn create(state: RichTextEditorState) -> Self {
+    pub const fn create(state: RichTextEditorState) -> Self {
         Self {
             state,
             accessibility_name: AzString::from_const_str("Text"),
@@ -500,86 +500,86 @@ impl RichTextEditor {
     }
 
     /// The body text size in px.
-    pub fn set_font_size(&mut self, px: f32) {
+    pub const fn set_font_size(&mut self, px: f32) {
         self.font_size = px;
     }
 
     /// [`Self::set_font_size`] for the builder chain.
     #[must_use]
-    pub fn with_font_size(mut self, px: f32) -> Self {
+    pub const fn with_font_size(mut self, px: f32) -> Self {
         self.set_font_size(px);
         self
     }
 
     /// The space under a paragraph in px.
-    pub fn set_paragraph_spacing(&mut self, px: f32) {
+    pub const fn set_paragraph_spacing(&mut self, px: f32) {
         self.paragraph_spacing = px;
     }
 
     /// [`Self::set_paragraph_spacing`] for the builder chain.
     #[must_use]
-    pub fn with_paragraph_spacing(mut self, px: f32) -> Self {
+    pub const fn with_paragraph_spacing(mut self, px: f32) -> Self {
         self.set_paragraph_spacing(px);
         self
     }
 
     /// A line's height as a factor of the font size (`PowerPoint`'s single
     /// spacing is 1.15); 0 (the default) is the editor's own 1.5.
-    pub fn set_line_height(&mut self, factor: f32) {
+    pub const fn set_line_height(&mut self, factor: f32) {
         self.line_height = factor;
     }
 
     /// [`Self::set_line_height`] for the builder chain.
     #[must_use]
-    pub fn with_line_height(mut self, factor: f32) -> Self {
+    pub const fn with_line_height(mut self, factor: f32) -> Self {
         self.set_line_height(factor);
         self
     }
 
     /// Which groups the built-in toolbar shows.
-    pub fn set_toolbar(&mut self, toolbar: RichTextToolbar) {
+    pub const fn set_toolbar(&mut self, toolbar: RichTextToolbar) {
         self.toolbar = toolbar;
     }
 
     /// [`Self::set_toolbar`] for the builder chain.
     #[must_use]
-    pub fn with_toolbar(mut self, toolbar: RichTextToolbar) -> Self {
+    pub const fn with_toolbar(mut self, toolbar: RichTextToolbar) -> Self {
         self.set_toolbar(toolbar);
         self
     }
 
     /// Markdown shortcuts typed at a block's start change the block.
-    pub fn set_markdown_shortcuts(&mut self, on: bool) {
+    pub const fn set_markdown_shortcuts(&mut self, on: bool) {
         self.markdown_shortcuts = on;
     }
 
     /// [`Self::set_markdown_shortcuts`] for the builder chain.
     #[must_use]
-    pub fn with_markdown_shortcuts(mut self, on: bool) -> Self {
+    pub const fn with_markdown_shortcuts(mut self, on: bool) -> Self {
         self.set_markdown_shortcuts(on);
         self
     }
 
     /// A read-only view (a version, a print preview).
-    pub fn set_read_only(&mut self, read_only: bool) {
+    pub const fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
     }
 
     /// [`Self::set_read_only`] for the builder chain.
     #[must_use]
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
+    pub const fn with_read_only(mut self, read_only: bool) -> Self {
         self.set_read_only(read_only);
         self
     }
 
     /// Pin the widget theme of the frame and the toolbar.
-    pub fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
 
     /// [`Self::set_theme`] for the builder chain.
     #[must_use]
-    pub fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
         self.set_theme(theme);
         self
     }
@@ -1696,7 +1696,7 @@ const fn engine_format(format: RichFormat) -> Option<TextFormat> {
 /// `formats` with the bold / italic / underline / strike the ENGINE has
 /// (its edit report, its pending format at the caret); inline code stays
 /// the model's - the engine has no such format.
-fn with_engine_formats(
+const fn with_engine_formats(
     mut formats: RichFormats,
     engine: azul_core::events::TextFormatSet,
 ) -> RichFormats {

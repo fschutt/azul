@@ -224,7 +224,7 @@ pub struct TimelineClip {
 impl TimelineClip {
     /// Clip `id` named `label` from `start` for `duration` seconds.
     #[must_use]
-    pub fn create(id: u64, start: f64, duration: f64, label: AzString) -> Self {
+    pub const fn create(id: u64, start: f64, duration: f64, label: AzString) -> Self {
         Self {
             start,
             duration,
@@ -323,7 +323,7 @@ pub struct TimelineTrack {
 impl TimelineTrack {
     /// An empty track `id` named `name`.
     #[must_use]
-    pub fn create(id: u64, name: AzString, kind: TimelineTrackKind) -> Self {
+    pub const fn create(id: u64, name: AzString, kind: TimelineTrackKind) -> Self {
         Self {
             id,
             clips: TimelineClipVec::from_const_slice(&[]),
@@ -577,74 +577,74 @@ impl Timeline {
     }
 
     /// The playhead, in seconds.
-    pub fn set_playhead(&mut self, playhead: f64) {
+    pub const fn set_playhead(&mut self, playhead: f64) {
         self.playhead = playhead;
     }
 
     /// [`Self::set_playhead`] for the builder chain.
     #[must_use]
-    pub fn with_playhead(mut self, playhead: f64) -> Self {
+    pub const fn with_playhead(mut self, playhead: f64) -> Self {
         self.set_playhead(playhead);
         self
     }
 
     /// The view: the first second in view and the zoom (px per second).
-    pub fn set_view(&mut self, view_start: f64, pixels_per_second: f32) {
+    pub const fn set_view(&mut self, view_start: f64, pixels_per_second: f32) {
         self.view_start = view_start;
         self.pixels_per_second = pixels_per_second;
     }
 
     /// [`Self::set_view`] for the builder chain.
     #[must_use]
-    pub fn with_view(mut self, view_start: f64, pixels_per_second: f32) -> Self {
+    pub const fn with_view(mut self, view_start: f64, pixels_per_second: f32) -> Self {
         self.set_view(view_start, pixels_per_second);
         self
     }
 
     /// How wide the lanes are on screen, in px (an estimate is fine).
-    pub fn set_view_width(&mut self, view_width: f32) {
+    pub const fn set_view_width(&mut self, view_width: f32) {
         self.view_width = view_width;
     }
 
     /// [`Self::set_view_width`] for the builder chain.
     #[must_use]
-    pub fn with_view_width(mut self, view_width: f32) -> Self {
+    pub const fn with_view_width(mut self, view_width: f32) -> Self {
         self.set_view_width(view_width);
         self
     }
 
     /// Frames per second.
-    pub fn set_fps(&mut self, fps: f32) {
+    pub const fn set_fps(&mut self, fps: f32) {
         self.fps = fps;
     }
 
     /// [`Self::set_fps`] for the builder chain.
     #[must_use]
-    pub fn with_fps(mut self, fps: f32) -> Self {
+    pub const fn with_fps(mut self, fps: f32) -> Self {
         self.set_fps(fps);
         self
     }
 
     /// The track headers' width in px.
-    pub fn set_header_width(&mut self, header_width: f32) {
+    pub const fn set_header_width(&mut self, header_width: f32) {
         self.header_width = header_width;
     }
 
     /// [`Self::set_header_width`] for the builder chain.
     #[must_use]
-    pub fn with_header_width(mut self, header_width: f32) -> Self {
+    pub const fn with_header_width(mut self, header_width: f32) -> Self {
         self.set_header_width(header_width);
         self
     }
 
     /// Snapping on or off.
-    pub fn set_snapping(&mut self, snapping: bool) {
+    pub const fn set_snapping(&mut self, snapping: bool) {
         self.snapping = snapping;
     }
 
     /// [`Self::set_snapping`] for the builder chain.
     #[must_use]
-    pub fn with_snapping(mut self, snapping: bool) -> Self {
+    pub const fn with_snapping(mut self, snapping: bool) -> Self {
         self.set_snapping(snapping);
         self
     }

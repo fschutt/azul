@@ -476,7 +476,7 @@ const NO_REDUCED_MOTION: &[DynamicSelector] =
     &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
 
 /// A motion declaration, gated on `prefers-reduced-motion: no-preference`.
-fn motion(property: CssProperty) -> CssPropertyWithConditions {
+const fn motion(property: CssProperty) -> CssPropertyWithConditions {
     CssPropertyWithConditions::with_single_condition(property, NO_REDUCED_MOTION)
 }
 
@@ -665,7 +665,7 @@ fn opacity_property(o: f32) -> CssProperty {
     })
 }
 
-fn stop(permille: u16, props: Vec<CssProperty>) -> KeyframeStop {
+const fn stop(permille: u16, props: Vec<CssProperty>) -> KeyframeStop {
     KeyframeStop {
         permille,
         props: CssPropertyVec::from_vec(props),

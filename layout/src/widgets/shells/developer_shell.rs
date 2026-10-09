@@ -62,7 +62,7 @@ pub struct DeveloperShell {
 impl DeveloperShell {
     /// A shell of the activity bar, the side bar and the editor.
     #[must_use]
-    pub fn create(activity_bar: Dom, side_bar: Dom, editor: Dom) -> Self {
+    pub const fn create(activity_bar: Dom, side_bar: Dom, editor: Dom) -> Self {
         Self {
             activity_bar,
             side_bar,

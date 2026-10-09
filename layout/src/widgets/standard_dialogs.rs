@@ -129,7 +129,7 @@ pub struct StandardDialogEvent {
 impl StandardDialogEvent {
     /// An event of `kind` at `index`.
     #[must_use]
-    pub fn create(kind: StandardDialogEventKind, index: usize, checked: bool) -> Self {
+    pub const fn create(kind: StandardDialogEventKind, index: usize, checked: bool) -> Self {
         Self {
             text: AzString::from_const_str(""),
             index,

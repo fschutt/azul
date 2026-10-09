@@ -163,7 +163,7 @@ impl_vec_mut!(ShellPaletteCommand, ShellPaletteCommandVec);
 impl ShellPaletteCommand {
     /// A command with `label`, no shortcut, no icon, no category.
     #[must_use]
-    pub fn create(label: AzString) -> Self {
+    pub const fn create(label: AzString) -> Self {
         Self {
             label,
             shortcut: AzString::from_const_str(""),

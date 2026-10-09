@@ -3526,7 +3526,7 @@ impl Ribbon {
     /// The width the ribbon is laid out in, px (see
     /// [`Self::available_width`]); 0 or a width that is not a number: the
     /// window's.
-    pub fn set_available_width(&mut self, width: f32) {
+    pub const fn set_available_width(&mut self, width: f32) {
         self.available_width = if width.is_finite() {
             width.max(0.0)
         } else {
@@ -3536,7 +3536,7 @@ impl Ribbon {
 
     /// [`Self::set_available_width`] for the builder chain.
     #[must_use]
-    pub fn with_available_width(mut self, width: f32) -> Self {
+    pub const fn with_available_width(mut self, width: f32) -> Self {
         self.set_available_width(width);
         self
     }

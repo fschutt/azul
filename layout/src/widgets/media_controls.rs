@@ -143,7 +143,7 @@ pub struct MediaControls {
 impl MediaControls {
     /// Previous, play (or pause when `playing`), next; no volume, no toggles.
     #[must_use]
-    pub fn create(playing: bool) -> Self {
+    pub const fn create(playing: bool) -> Self {
         Self {
             on_action: OptionMediaControlsOnAction::None,
             accessibility_name: OptionString::None,
@@ -158,19 +158,19 @@ impl MediaControls {
     }
 
     /// A volume slider at `volume` (`0.0..=1.0`; negative hides it).
-    pub fn set_volume(&mut self, volume: f32) {
+    pub const fn set_volume(&mut self, volume: f32) {
         self.volume = volume;
     }
 
     /// [`Self::set_volume`] for the builder chain.
     #[must_use]
-    pub fn with_volume(mut self, volume: f32) -> Self {
+    pub const fn with_volume(mut self, volume: f32) -> Self {
         self.set_volume(volume);
         self
     }
 
     /// The shuffle and repeat toggles, in these states.
-    pub fn set_shuffle_repeat(&mut self, shuffle: bool, repeat: MediaRepeat) {
+    pub const fn set_shuffle_repeat(&mut self, shuffle: bool, repeat: MediaRepeat) {
         self.show_shuffle_repeat = true;
         self.shuffle = shuffle;
         self.repeat = repeat;
@@ -178,19 +178,19 @@ impl MediaControls {
 
     /// [`Self::set_shuffle_repeat`] for the builder chain.
     #[must_use]
-    pub fn with_shuffle_repeat(mut self, shuffle: bool, repeat: MediaRepeat) -> Self {
+    pub const fn with_shuffle_repeat(mut self, shuffle: bool, repeat: MediaRepeat) -> Self {
         self.set_shuffle_repeat(shuffle, repeat);
         self
     }
 
     /// Back 15 s / forward 30 s around play / pause (a podcast).
-    pub fn set_show_skip(&mut self, show: bool) {
+    pub const fn set_show_skip(&mut self, show: bool) {
         self.show_skip = show;
     }
 
     /// [`Self::set_show_skip`] for the builder chain.
     #[must_use]
-    pub fn with_show_skip(mut self, show: bool) -> Self {
+    pub const fn with_show_skip(mut self, show: bool) -> Self {
         self.set_show_skip(show);
         self
     }
