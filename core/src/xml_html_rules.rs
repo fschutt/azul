@@ -217,6 +217,9 @@ pub(super) static ELEMENTS: &[Element] = &[
     el("ul", SB),
     el("var", BREAKOUT),
     el("wbr", SV),
+    // azul's native web view (no element of the standard): embedded content
+    // that takes none from markup, an `embed`
+    el("webview", SV),
     text_el("xmp", S, ContentModel::RawText),
 ];
 
@@ -528,6 +531,8 @@ pub(super) static START_TAGS: &[(&[&str], &[Step])] = &[
         &["area", "br", "embed", "img", "keygen", "wbr", "input"],
         &[Reconstruct, InsertVoid],
     ),
+    // azul's `webview` (not in the standard): the rule of `embed` above
+    (&["webview"], &[Reconstruct, InsertVoid]),
     // "param, source, track"
     (&["param", "source", "track"], &[InsertVoid]),
     // "hr"

@@ -777,7 +777,7 @@ const NO_VISUAL_BUILTINS: &[&str] = &[
     // Shown only inside a <select> / as an <input list>'s suggestions.
     "option", "optgroup", "datalist",
     // They show what their source names: nothing without one.
-    "canvas", "object", "embed", "audio", "video",
+    "canvas", "object", "embed", "audio", "video", "webview",
     // Parts of another element.
     "param", "source", "track", "map", "area",
     // Not drawn by azul (yet).

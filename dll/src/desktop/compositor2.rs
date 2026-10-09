@@ -1640,6 +1640,11 @@ pub fn translate_displaylist_to_wr(
                 );
             }
 
+            // A `<webview>`'s rect: the native view is a child view the
+            // platform composites over the window (placed by the shell's
+            // web view pump), so WebRender draws nothing here.
+            DisplayListItem::WebView { .. } => {}
+
             DisplayListItem::TextLayout { .. } => {
                 // TextLayout items are handled elsewhere (via PushCachedTextRuns)
                 log_debug!(

@@ -2742,6 +2742,10 @@ macro_rules! html_tag_node_types {
                 "transient-window" => NodeType::TransientWindow(
                     crate::transient::TransientWindowConfig::closed(),
                 ),
+                // `<webview>` starts with an ephemeral store; `storage=` is
+                // applied onto the config afterwards (`element::land_common`),
+                // `src` lands as the node's attribute.
+                "webview" => NodeType::WebView(crate::webview::WebViewConfig::ephemeral()),
                 $($tag => NodeType::$variant,)*
                 // An element of a foreign vocabulary (Word's `<o:p>`,
                 // Outlook's `<st1:place>`) is HTML's unknown element: inline.
@@ -2759,6 +2763,7 @@ macro_rules! html_tag_node_types {
                 "img" | "image" => NodeTypeTag::Img,
                 "icon" => NodeTypeTag::Icon,
                 "transient-window" => NodeTypeTag::TransientWindow,
+                "webview" => NodeTypeTag::WebView,
                 $($tag => NodeTypeTag::$variant,)*
                 t if is_foreign_element(t) => NodeTypeTag::Span,
                 _ => NodeTypeTag::Div,
@@ -3767,6 +3772,28 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 "Preload hint (none, metadata, auto)"
             ),
         ],
+        // azul's native web view (`crate::webview`).
+        "webview" => alloc::vec![
+            data_field("src", String, None, "URL of the page the web view shows"),
+            data_field(
+                "storage",
+                String,
+                Some(D::String(AzString::from_const_str("ephemeral"))),
+                "Where cookies and storage live: ephemeral (in memory, the default) or persistent"
+            ),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width of the web view (300px unless set)"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Height of the web view (150px unless set)"
+            ),
+        ],
         "source" => alloc::vec![
             data_field("src", String, None, "URL of the media resource"),
             data_field(
@@ -4161,7 +4188,8 @@ pub fn data_model_with_attributes<'a>(
 /// fields are read by the element's own path - `img` `width`/`height`, the
 /// form controls, `td` `colspan` - or not yet at all; see
 /// `scripts/MAILVIEW_2026_09_30.md`).
-const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img", "ol", "li"];
+const BUILTIN_ARGUMENT_ELEMENTS: &[&str] =
+    &["a", "area", "link", "base", "img", "ol", "li", "webview"];
 
 /// The render side of a builtin element's ARGUMENTS (its component's
 /// declared fields, filled by [`data_model_with_attributes`]): what they set
@@ -4178,6 +4206,9 @@ const BUILTIN_ARGUMENT_ELEMENTS: &[&str] = &["a", "area", "link", "base", "img",
 ///   presentational hint ([`builtin_presentational_hints`]: `counter-reset`).
 /// - `li`: `value` (a number) as its `Value` attribute: the item's number in its list, which
 ///   the layout's numbering reads and the next items count on from.
+/// - `webview`: `src` as its `Src` attribute - the page the web view shows, as on an iframe
+///   (`crate::webview`; its `storage` rides in the node type, its `width` / `height` are
+///   presentational hints).
 ///
 /// An empty value sets nothing; a value already on the node is not
 /// duplicated.
@@ -4203,6 +4234,9 @@ pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &m
         "img" | "image" => {
             add.extend(value("src").map(A::Src));
             add.extend(value("alt").map(A::Alt));
+        }
+        "webview" => {
+            add.extend(value("src").map(A::Src));
         }
         "ol" => {
             if argument_bool(args, "reversed") {
@@ -5001,6 +5035,7 @@ static BUILTIN_ELEMENTS: &[BuiltinElement] = {
         el("embed", "Embed", None, NoVisual("shows the resource its src names")),
         el("audio", "Audio", None, NoVisual("plays the audio its src names")),
         el("video", "Video", None, NoVisual("plays the video its src names")),
+        el("webview", "Web View", None, NoVisual("shows the web page its src names, in a native web view")),
         el("source", "Source", None, NoVisual("a source of its <audio> / <video>")),
         el("track", "Track", None, NoVisual("a text track of its <video>")),
         el("map", "Image Map", None, NoVisual("the clickable regions of an image: no box of its own")),

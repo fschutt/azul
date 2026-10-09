@@ -551,7 +551,8 @@ fn render_svg_image(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
 /// overrides:
 ///
 /// * a `<transient-window>`'s config (it rides INSIDE the node type) and its `tearoff="zone:<sel>"`
-///   selector, kept as the `tearoff-zone` attribute the engine's drop handling reads;
+///   selector, kept as the `tearoff-zone` attribute the engine's drop handling reads; a
+///   `<webview>`'s config (`storage`) the same way;
 /// * the ONE attribute table ([`super::attributes`]: ids and classes, focus, editing, the typed
 ///   attributes, `dir`, the inline `style`);
 /// * HTML's presentational hints (`<font color>`, `<ol type>`, `<center>` ...);
@@ -583,6 +584,15 @@ fn land_common(
             ));
             node.set_attributes(all.into());
         }
+    }
+    // A `<webview>`'s `storage` rides in its node type too; its `src` lands
+    // as a component argument below, its `width` / `height` as hints.
+    if let NodeType::WebView(cfg) = node.get_node_type() {
+        let mut cfg = *cfg;
+        for (key, value) in element.pairs() {
+            let _ = cfg.apply_attr(key, value);
+        }
+        node.set_node_type(NodeType::WebView(cfg));
     }
 
     let settings = super::attributes::ordered(

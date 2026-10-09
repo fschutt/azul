@@ -1930,6 +1930,9 @@ impl A11yManager {
             NodeType::Video => Role::Video,
             NodeType::Svg => Role::SvgRoot,
             NodeType::Object | NodeType::Embed => Role::EmbeddedObject,
+            // The native view exposes the page's own tree; this node is its
+            // place in ours.
+            NodeType::WebView(_) => Role::WebView,
 
             // === Everything else: Group (visible to VoiceOver) ===
             _ => Role::Group,

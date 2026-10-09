@@ -317,6 +317,105 @@ mod tests {
 }
 
 #[cfg(test)]
+mod webview_markup_tests {
+    use super::*;
+    use crate::{
+        dom::NodeType,
+        webview::WebViewStorage,
+        window::{AzStringPair, StringPairVec},
+    };
+
+    fn element(tag: &str, attributes: &[(&str, &str)]) -> XmlNode {
+        XmlNode {
+            node_type: tag.into(),
+            attributes: XmlAttributeMap::from(StringPairVec::from_vec(
+                attributes
+                    .iter()
+                    .map(|(key, value)| AzStringPair {
+                        key: (*key).into(),
+                        value: (*value).into(),
+                    })
+                    .collect(),
+            )),
+            children: Vec::new().into(),
+        }
+    }
+
+    fn attribute(node: &crate::dom::NodeData, name: &str) -> Option<String> {
+        node.get_attribute(name).map(|v| v.as_str().to_string())
+    }
+
+    /// `<webview src width height storage>`: a web view whose `src` is its
+    /// page, whose `storage` is its config, and whose `width` / `height` are
+    /// the presentational hints HTML gives an iframe (15.4.3) - kept on the
+    /// node here, turned into `width` / `height` declarations when the DOM is
+    /// styled (`attributes::apply_presentational_hints`).
+    #[test]
+    fn a_webview_tag_becomes_a_webview_node_with_its_page_storage_and_size() {
+        let node = element(
+            "webview",
+            &[
+                ("src", "https://login.example.com/authorize?client_id=1"),
+                ("width", "640"),
+                ("height", "480"),
+                ("storage", "persistent"),
+            ],
+        );
+        let dom = xml_node_to_dom_fast(&node, &ComponentMap::default(), false, None, 0)
+            .expect("a <webview> builds");
+        match dom.root.get_node_type() {
+            NodeType::WebView(cfg) => assert_eq!(cfg.storage, WebViewStorage::Persistent),
+            other => panic!("expected a web view node, got {other:?}"),
+        }
+        assert_eq!(
+            attribute(&dom.root, "src").as_deref(),
+            Some("https://login.example.com/authorize?client_id=1")
+        );
+        assert_eq!(attribute(&dom.root, "width").as_deref(), Some("640"));
+        assert_eq!(attribute(&dom.root, "height").as_deref(), Some("480"));
+        assert!(
+            dom.children.as_ref().is_empty(),
+            "a web view takes no content from markup"
+        );
+
+        let bare = xml_node_to_dom_fast(
+            &element("webview", &[("src", "x")]),
+            &ComponentMap::default(),
+            false,
+            None,
+            0,
+        )
+        .expect("a bare <webview> builds");
+        assert!(
+            matches!(
+                bare.root.get_node_type(),
+                NodeType::WebView(cfg) if cfg.storage == WebViewStorage::Ephemeral
+            ),
+            "no `storage` keeps nothing past the app"
+        );
+    }
+
+    /// HTML maps an iframe's `width` / `height` to the dimension properties,
+    /// ignoring zero (15.4.3) - the same reading a table cell gets.
+    #[test]
+    fn a_webviews_size_attributes_are_its_dimension_properties() {
+        let css = attributes::presentational_css(
+            "webview",
+            &[("width", "640"), ("height", "50%")],
+            &[],
+        );
+        assert!(css.contains("width: 640px"), "{css}");
+        assert!(css.contains("height: 50%"), "{css}");
+        assert_eq!(
+            attributes::presentational_css("webview", &[("width", "0")], &[]),
+            "",
+            "a zero width is ignored"
+        );
+        assert_eq!(tag_to_node_type("webview").get_path(), azul_css::css::NodeTypeTag::WebView);
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::all, clippy::pedantic, clippy::nursery)]
 mod autotest_generated {
     use super::*;

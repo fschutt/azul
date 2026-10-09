@@ -73,6 +73,9 @@ pub mod thread_owner;
 pub mod tray_event;
 pub mod undo_redo;
 pub mod virtual_view;
+/// `<webview>`: which native views a window has, where they are, what the
+/// shell's backend must do and what the app is told.
+pub mod webview;
 /// Cross-thread "raise this window" requests (9h-i-a-ii).
 pub mod window_activation;
 

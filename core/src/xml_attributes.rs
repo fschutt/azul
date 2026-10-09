@@ -244,9 +244,11 @@ fn presentational(name: &str, value: &str) -> Option<NodeSetting> {
 }
 
 /// The elements each presentational attribute applies to (HTML's
-/// rendering section, "tables" and "flow content").
-const HINT_WIDTH_TAGS: &[&str] = &["table", "td", "th", "col", "colgroup"];
-const HINT_HEIGHT_TAGS: &[&str] = &["table", "td", "th", "tr"];
+/// rendering section, "tables" and "flow content"; `webview` is azul's
+/// iframe, whose `width` / `height` map to the dimension properties ignoring
+/// zero - "attributes for embedded content and images", 15.4.3).
+const HINT_WIDTH_TAGS: &[&str] = &["table", "td", "th", "col", "colgroup", "webview"];
+const HINT_HEIGHT_TAGS: &[&str] = &["table", "td", "th", "tr", "webview"];
 const HINT_BGCOLOR_TAGS: &[&str] = &["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"];
 const HINT_TABLE_TAGS: &[&str] = &["table"];
 const HINT_CELL_TAGS: &[&str] = &["td", "th"];
@@ -918,6 +920,7 @@ fn hint_tag(node_type: &crate::dom::NodeType) -> Option<&'static str> {
         N::H4 => "h4",
         N::H5 => "h5",
         N::H6 => "h6",
+        N::WebView(_) => "webview",
         _ => return None,
     })
 }

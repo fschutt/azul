@@ -1147,6 +1147,11 @@ pub fn get_ua_property(
 
         // Icon Elements - inline-block so they have width/height but flow inline
         (NT::Icon(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        // A web view is azul's iframe: an inline replaced element (HTML
+        // 15.4.1), inline-block here like `<img>` so its 300x150 (or the size
+        // CSS gives it) holds in a line. No border: an app's sign-in panel
+        // draws its own frame, if any.
+        (NT::WebView(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
 
         (NT::SelectOption, PT::Display) => Some(&DISPLAY_NONE),
         (NT::OptGroup, PT::Display) => Some(&DISPLAY_NONE),

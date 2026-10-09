@@ -3433,6 +3433,7 @@ impl X11Window {
         layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
         layout_window.routes = self.resources.config.routes.clone();
         layout_window.set_app_localization(&self.resources.config);
+        layout_window.webviews.set_platform(super::webview::platform());
         if let Ok(mut guard) = layout_window.monitors.lock() {
             *guard = crate::desktop::display::get_monitors();
         }
