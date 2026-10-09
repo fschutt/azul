@@ -811,7 +811,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .last()
+            .next_back()
     }
 
     /// The size the text `text` is set in inside `dom`: the nearest of its boxes that sets one
