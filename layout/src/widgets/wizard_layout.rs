@@ -838,12 +838,10 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         let mut side: Vec<Dom> = Vec::with_capacity(count + 1);
         side.extend(glyph(&look.side_icon));
         for (i, label) in steps.as_ref().iter().enumerate() {
-            let mark = if i < current_step {
-                "\u{2713}"
-            } else if i == current_step {
-                "\u{25CF}"
-            } else {
-                "\u{25CB}"
+            let mark = match i.cmp(&current_step) {
+                core::cmp::Ordering::Less => "\u{2713}",
+                core::cmp::Ordering::Equal => "\u{25CF}",
+                core::cmp::Ordering::Greater => "\u{25CB}",
             };
             let base = part(WIZARD_LAYOUT_SIDE_STEP_BASE, &look.side_step);
             let css = if i == current_step {

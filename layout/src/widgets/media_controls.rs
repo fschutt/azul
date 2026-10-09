@@ -294,7 +294,7 @@ struct ActionData {
 }
 
 /// Tells the app `event`.
-fn fire(mut shared: RefAny, info: &mut CallbackInfo, event: MediaControlsEvent) -> Update {
+fn fire(mut shared: RefAny, info: &CallbackInfo, event: MediaControlsEvent) -> Update {
     let Some(mut s) = shared.downcast_mut::<ControlsShared>() else {
         return Update::DoNothing;
     };
@@ -309,21 +309,21 @@ fn fire(mut shared: RefAny, info: &mut CallbackInfo, event: MediaControlsEvent) 
 
 /// A control button was clicked.
 #[must_use]
-pub extern "C" fn on_media_button(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_media_button(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some((shared, action)) = data
         .downcast_ref::<ActionData>()
         .map(|d| (d.shared.clone(), d.action))
     else {
         return Update::DoNothing;
     };
-    fire(shared, &mut info, MediaControlsEvent { value: 0.0, action })
+    fire(shared, &info, MediaControlsEvent { value: 0.0, action })
 }
 
 /// The volume slider moved.
 #[must_use]
 pub extern "C" fn on_media_volume(
     data: RefAny,
-    mut info: CallbackInfo,
+    info: CallbackInfo,
     state: crate::widgets::slider::SliderState,
 ) -> Update {
     let span = state.max - state.min;
@@ -334,7 +334,7 @@ pub extern "C" fn on_media_volume(
     };
     fire(
         data,
-        &mut info,
+        &info,
         MediaControlsEvent {
             value,
             action: MediaControlsAction::Volume,

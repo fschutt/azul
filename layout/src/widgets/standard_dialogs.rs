@@ -24,6 +24,7 @@
 //! Key types: the five dialogs, [`StandardDialogEvent`].
 
 use alloc::vec::Vec;
+use core::fmt::Write as _;
 
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
@@ -742,7 +743,7 @@ fn alert_description(text: &AzString, steps: &StringVec) -> AzString {
         if !said.is_empty() {
             said.push('\n');
         }
-        said.push_str(&alloc::format!("{}. {}", i + 1, step.as_str()));
+        let _ = write!(said, "{}. {}", i + 1, step.as_str());
     }
     AzString::from(said)
 }

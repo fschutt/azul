@@ -1115,7 +1115,7 @@ extern "C" fn on_lanes_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
                     .iter()
                     .find(|p| **p > s.playhead + 1e-6)
                     .copied()
-                    .unwrap_or(s.duration.max(0.0))
+                    .unwrap_or_else(|| s.duration.max(0.0))
             };
             TimelineEvent::create(TimelineEventKind::Seek, target)
         }

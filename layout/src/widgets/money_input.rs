@@ -43,6 +43,7 @@
 //! [`MoneyLocale`], [`MoneyInputError`].
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::{
     callbacks::Update,
@@ -785,10 +786,7 @@ pub(crate) fn format_money(
     let mut number = group_digits(&alloc::format!("{whole}"), locale.group());
     if minor > 0 {
         number.push(locale.decimal());
-        number.push_str(&alloc::format!(
-            "{fraction:0width$}",
-            width = minor as usize
-        ));
+        let _ = write!(number, "{fraction:0width$}", width = minor as usize);
     }
 
     let mut out = String::with_capacity(number.len() + 8);

@@ -100,7 +100,7 @@ pub fn media_time(seconds: f64) -> String {
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
 pub fn seek_fraction(position_s: f64, duration_s: f64) -> f32 {
-    if !(duration_s > 0.0) || !position_s.is_finite() {
+    if duration_s <= 0.0 || duration_s.is_nan() || !position_s.is_finite() {
         return 0.0;
     }
     (position_s / duration_s).clamp(0.0, 1.0) as f32
@@ -109,7 +109,12 @@ pub fn seek_fraction(position_s: f64, duration_s: f64) -> f32 {
 /// The time under the pointer `x` px into a trough `width` px wide, of `duration_s`.
 #[must_use]
 pub fn time_at(x: f32, width: f32, duration_s: f64) -> f64 {
-    if !(width > 0.0) || !(duration_s > 0.0) || !x.is_finite() {
+    if width <= 0.0
+        || width.is_nan()
+        || duration_s <= 0.0
+        || duration_s.is_nan()
+        || !x.is_finite()
+    {
         return 0.0;
     }
     f64::from((x / width).clamp(0.0, 1.0)) * duration_s
@@ -125,7 +130,7 @@ pub fn key_target(
     duration_s: f64,
 ) -> Option<f64> {
     use azul_core::window::VirtualKeyCode as K;
-    if !(duration_s > 0.0) {
+    if duration_s <= 0.0 || duration_s.is_nan() {
         return None;
     }
     let step = if primary { 30.0 } else { 5.0 };
@@ -424,7 +429,7 @@ fn show_position(
 }
 
 /// Tells the app where the bar is now.
-fn report(w: &mut SeekBarWrapper, info: &mut CallbackInfo) -> Update {
+fn report(w: &mut SeekBarWrapper, info: &CallbackInfo) -> Update {
     let state = w.inner;
     match w.on_seek.as_mut() {
         Some(SeekBarOnSeek { callback, refany }) => callback.invoke(refany.clone(), *info, state),
@@ -438,7 +443,11 @@ fn seek_to_pointer(w: &mut SeekBarWrapper, info: &mut CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let width = info.get_hit_node_rect().map_or(0.0, |r| r.size.width);
-    if !(width > 0.0) || !(w.inner.duration_s > 0.0) {
+    if width <= 0.0
+        || width.is_nan()
+        || w.inner.duration_s <= 0.0
+        || w.inner.duration_s.is_nan()
+    {
         return Update::DoNothing;
     }
     w.inner.position_s = time_at(pos.x, width, w.inner.duration_s);
@@ -471,7 +480,7 @@ pub extern "C" fn on_seek_bar_pointer_move(mut data: RefAny, mut info: CallbackI
 
 /// Pointer up: the scrub ends where it is (reported with `dragging` false: seek now).
 #[must_use]
-pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
         return Update::DoNothing;
     };
@@ -479,7 +488,7 @@ pub extern "C" fn on_seek_bar_pointer_up(mut data: RefAny, mut info: CallbackInf
         return Update::DoNothing;
     }
     w.inner.dragging = false;
-    report(&mut w, &mut info)
+    report(&mut w, &info)
 }
 
 /// Pointer leave: a scrub ends when the pointer left the TROUGH (not just its thumb - the
@@ -525,7 +534,7 @@ pub extern "C" fn on_seek_bar_key(mut data: RefAny, mut info: CallbackInfo) -> U
     w.inner.dragging = false;
     let track = info.get_hit_node();
     show_position(&mut info, track, w.inner, w.surface);
-    report(&mut w, &mut info)
+    report(&mut w, &info)
 }
 
 /// Carries a scrub across a parent rebuild (the slider's rule: while the pointer is down the

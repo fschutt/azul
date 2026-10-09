@@ -1925,7 +1925,7 @@ impl RichTextEditorState {
 
     /// The blocks a block command acts on: those of the selection, else the
     /// caret's.
-    fn command_blocks(&self, spans: &[(usize, usize, usize)], caret: usize) -> Vec<usize> {
+    fn command_blocks(spans: &[(usize, usize, usize)], caret: usize) -> Vec<usize> {
         let mut blocks: Vec<usize> = spans.iter().map(|(b, _, _)| *b).collect();
         blocks.dedup();
         if blocks.is_empty() {
@@ -2065,7 +2065,7 @@ impl RichTextEditorState {
                 }
             }
             RichTextCommand::ToggleKind(kind) => {
-                let blocks = self.command_blocks(&spans, block);
+                let blocks = Self::command_blocks(&spans, block);
                 let undo = blocks
                     .first()
                     .and_then(|b| self.doc.block(*b))
@@ -2090,7 +2090,7 @@ impl RichTextEditorState {
                 changed
             }
             RichTextCommand::ToggleQuote => {
-                let blocks = self.command_blocks(&spans, block);
+                let blocks = Self::command_blocks(&spans, block);
                 let quoted = blocks
                     .first()
                     .and_then(|b| self.doc.block(*b))
@@ -2104,14 +2104,14 @@ impl RichTextEditorState {
             RichTextCommand::Indent | RichTextCommand::Outdent => {
                 let delta = if *command == RichTextCommand::Indent { 1 } else { -1 };
                 let mut changed = false;
-                for b in self.command_blocks(&spans, block) {
+                for b in Self::command_blocks(&spans, block) {
                     changed |= self.doc.indent(b, delta);
                 }
                 changed
             }
             RichTextCommand::SetAlign(align) => {
                 let mut changed = false;
-                for b in self.command_blocks(&spans, block) {
+                for b in Self::command_blocks(&spans, block) {
                     changed |= self.doc.set_align(b, *align);
                 }
                 changed
