@@ -5075,7 +5075,10 @@ fn gallery_dom(
                             on_select: on_select.clone(),
                             auto_select,
                             in_panel,
-                            selected_style: s.resolved_gallery_cell_selected_style(),
+                            selected_style: merged_style(
+                                &cell_base,
+                                &s.resolved_gallery_cell_selected_style(),
+                            ),
                             base_style: cell_base.clone(),
                         }),
                     }]
@@ -6561,7 +6564,10 @@ struct GalleryCellClickData {
     auto_select: bool,
     /// Cells in the expansion panel also close the panel when picked.
     in_panel: bool,
+    /// A picked cell's whole style, as the gallery builds it (the base and
+    /// the picked overlay, with their dark twins and pointer states).
     selected_style: CssPropertyWithConditionsVec,
+    /// Every other cell's whole style.
     base_style: CssPropertyWithConditionsVec,
 }
 
@@ -6581,6 +6587,9 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
     // Default behavior: move the highlight to the clicked cell immediately,
     // so the gallery feels live even if the app does not re-render. The hit
     // node may be the cell's preview or label, so resolve the cell by class.
+    // Every cell takes the style it would be BUILT with (`set_node_style`):
+    // the cascade picks the mode's face and the pointer states, now and
+    // after a light / dark switch - a pinned value would outrank them.
     let cell = ancestor_with_class(&info, hit, GALLERY_CELL_CLASS).unwrap_or(hit);
     if auto_select {
         if let Some(strip) = info.get_parent(cell) {
@@ -6591,11 +6600,7 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
                 } else {
                     &base_style
                 };
-                for prop in style.as_ref() {
-                    if prop.apply_if.as_ref().is_empty() {
-                        info.set_css_property(cell_node, prop.property.clone());
-                    }
-                }
+                info.set_node_style(cell_node, style.clone().into());
                 sibling = info.get_next_sibling(cell_node);
             }
         }
