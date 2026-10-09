@@ -4854,24 +4854,16 @@ pub fn search_field(field: Dom, clear: Dom) -> Dom {
 // ==== text input kinds (invalid look) ====
 
 /// The border of a text field whose value the user edited into an INVALID
-/// state (`type=email` / `type=url` syntax, `pattern`): flora's warm brick
-/// red, which sits with its paper-and-ink palette where the flat theme's
-/// signal red would glare. Light mode.
-pub const INVALID_RING: ColorU = ColorU {
-    r: 192,
-    g: 57,
-    b: 43,
-    a: 255,
-};
+/// state (`type=email` / `type=url` syntax, `pattern`): the clay stone
+/// ([`STONE_CLAY`]) flora's error lines, danger commands and alerts are cut
+/// from - one red for "wrong", which sits with the paper-and-ink palette
+/// where the flat theme's signal red would glare (6.8:1 on the field
+/// paper). Light mode.
+pub const INVALID_RING: ColorU = STONE_CLAY.stone;
 
-/// [`INVALID_RING`] in the dark theme: a lighter coral that keeps the warmth
-/// and still reads on a dark field.
-pub const DARK_INVALID_RING: ColorU = ColorU {
-    r: 232,
-    g: 132,
-    b: 122,
-    a: 255,
-};
+/// [`INVALID_RING`] in the dark theme: the clay's glow, as every clay ink
+/// at night (5.2:1 on the night field).
+pub const DARK_INVALID_RING: ColorU = STONE_CLAY.glow;
 
 /// The four border colours of the invalid look, for the light (`dark ==
 /// false`) or the dark theme. `text_input.rs` writes them as an OVERRIDE on
