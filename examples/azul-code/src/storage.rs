@@ -6,11 +6,13 @@
 //! drive for the sample), so an `S3Drive` can stand in later.
 //!
 //! The highlighter's far walks ([`crate::highlight::HighlightJob`]) run on
-//! a Thread the same way.
+//! a Thread the same way, and so does the search over the folder's files
+//! ([`search_files`]): azul-search's engine on the folder on disk, the one
+//! AzDrive's search box runs on.
 
 use std::{
     collections::VecDeque,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -22,13 +24,14 @@ use azul::{
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
 };
 use azul_appkit::find::TextMatch;
+use azul_search::{Case, ContentHit, Event, Filters, Limits, Pattern, Request};
 use azul_storage::{key::last_segment, Drive, LocalDrive};
 
 use crate::{
     git,
     highlight::{HighlightJob, JobResult},
-    search::{find_in_text, Hit},
-    workspace::{hidden_entry, skipped_folder, Root},
+    search::{preview_of, Hit},
+    workspace::{hidden_entry, skipped_folder, Root, HIDDEN_ENTRIES, SKIPPED_FOLDERS},
 };
 
 /// The most files quick open's index holds.
@@ -222,61 +225,121 @@ pub struct SearchOutcome {
     pub error: Option<String>,
 }
 
-/// Whether `bytes` look like a binary file (a NUL in the first 8 KiB).
-fn binary(bytes: &[u8]) -> bool {
-    bytes.iter().take(8192).any(|b| *b == 0)
+/// The folders and files the search passes over, as azul-search's exclude globs (gitignore
+/// syntax): every dot folder, the [`SKIPPED_FOLDERS`] and the [`HIDDEN_ENTRIES`] - what quick
+/// open's index leaves out too.
+fn search_excludes() -> Vec<String> {
+    let mut globs = vec![String::from(".*/")];
+    globs.extend(SKIPPED_FOLDERS.iter().map(|name| format!("{name}/")));
+    globs.extend(HIDDEN_ENTRIES.iter().map(|name| (*name).to_string()));
+    globs
 }
 
-/// Every match of the job's query in the workspace's files (the files quick
-/// open lists, breadth first): binary files, files over
-/// [`SEARCH_MAX_FILE`] and the [`skipped_folder`]s are passed over; at most
-/// [`SEARCH_MAX_HITS`] matches. A raised `cancel` stops it between files.
-pub fn search_files(drive: &dyn Drive, prefix: &str, job: &SearchJob) -> SearchOutcome {
+/// A file's matches as the results list them: one per match (a line with two has two), the
+/// line counted from 0, the match in bytes of the line, the line's preview ([`preview_of`]).
+fn hits_of(file: &ContentHit) -> Vec<Hit> {
+    file.lines
+        .iter()
+        .flat_map(|line| {
+            line.ranges.iter().map(move |&(start, end)| {
+                let (preview, preview_start, preview_end) =
+                    preview_of(&line.text, start - line.text_offset, end - line.text_offset);
+                Hit {
+                    line: usize::try_from(line.line.saturating_sub(1)).unwrap_or(usize::MAX),
+                    start,
+                    end,
+                    preview,
+                    preview_start,
+                    preview_end,
+                }
+            })
+        })
+        .collect()
+}
+
+/// How deep a key is: its folders.
+fn depth(key: &str) -> usize {
+    key.matches('/').count()
+}
+
+/// Every match of the job's query in the files of the workspace's `folder` on disk, through
+/// azul-search (ripgrep's parallel walker and searcher - the engine AzDrive's search box runs
+/// on): binary files (a NUL byte), files over [`SEARCH_MAX_FILE`] and the folders quick open
+/// leaves out are passed over, a UTF-16 file with a byte-order mark is read as text; at most
+/// [`SEARCH_MAX_HITS`] matches. The files nearest the folder come first, in name order. A
+/// raised `cancel` stops it.
+pub fn search_files(folder: &Path, job: &SearchJob) -> SearchOutcome {
     let mut outcome = SearchOutcome {
         files: Vec::new(),
         searched: 0,
         complete: true,
         error: None,
     };
-    if job.query.is_empty() {
+    // A needle with a line break matches no line.
+    if job.query.is_empty() || job.query.contains('\n') {
         return outcome;
     }
-    let keys = match index_keys(drive, prefix, INDEX_MAX_FILES, Some(job.cancel.as_ref())) {
-        Ok((keys, complete)) => {
-            outcome.complete = complete;
-            keys
+    let pattern = Pattern::literal(job.query.as_str())
+        .with_case(if job.how.match_case {
+            Case::Sensitive
+        } else {
+            Case::Insensitive
+        })
+        .with_whole_word(job.how.whole_word);
+    let request = Request::new(folder)
+        .with_contents(pattern)
+        .with_filters(Filters {
+            include: Vec::new(),
+            exclude: search_excludes(),
+            // Dot files are searched (.gitignore, .env); dot folders are not (the excludes).
+            hidden: true,
+            // Every file of the folder, a .gitignore or not (as quick open lists them).
+            ignore_files: false,
+        })
+        .with_limits(Limits {
+            max_results: usize::MAX,
+            max_matches: SEARCH_MAX_HITS,
+            max_lines_per_file: SEARCH_MAX_HITS,
+            max_file_size: SEARCH_MAX_FILE as u64,
+        });
+    let mut total = 0;
+    let mut cut = false;
+    let mut files = Vec::new();
+    let searched = azul_search::search(&request, &job.cancel, &mut |event| {
+        let Event::Content(file) = event else {
+            return;
+        };
+        let mut hits = hits_of(&file);
+        // A line with several matches is several results: the cap counts results.
+        if total + hits.len() > SEARCH_MAX_HITS {
+            hits.truncate(SEARCH_MAX_HITS - total);
+            cut = true;
+        }
+        if hits.is_empty() {
+            return;
+        }
+        total += hits.len();
+        files.push(FileHits {
+            key: file.path,
+            hits,
+        });
+    });
+    match searched {
+        Ok(summary) => {
+            outcome.searched = summary.searched;
+            outcome.complete = !summary.cancelled && !summary.limited && !cut;
         }
         Err(e) => {
             outcome.complete = false;
-            outcome.error = Some(e);
-            return outcome;
-        }
-    };
-    let mut total = 0;
-    for key in keys {
-        if job.cancel.load(Ordering::Relaxed) {
-            outcome.complete = false;
-            break;
-        }
-        let Ok(bytes) = drive.get(&format!("{prefix}{key}")) else {
-            continue;
-        };
-        outcome.searched += 1;
-        if bytes.len() > SEARCH_MAX_FILE || binary(&bytes) {
-            continue;
-        }
-        let text = String::from_utf8_lossy(&bytes);
-        let hits = find_in_text(&text, &job.query, job.how, SEARCH_MAX_HITS - total);
-        if hits.is_empty() {
-            continue;
-        }
-        total += hits.len();
-        outcome.files.push(FileHits { key, hits });
-        if total >= SEARCH_MAX_HITS {
-            outcome.complete = false;
-            break;
+            outcome.error = Some(e.to_string());
         }
     }
+    files.sort_by(|a, b| {
+        depth(&a.key)
+            .cmp(&depth(&b.key))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    outcome.files = files;
     outcome
 }
 
@@ -300,8 +363,7 @@ extern "C" fn search_thread(mut init: RefAny, mut sender: ThreadSender, _receive
     else {
         return;
     };
-    let drive = drive_of(&root);
-    let outcome = search_files(&drive, &root.prefix, &job);
+    let outcome = search_files(&root.folder(), &job);
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         on_done,
         RefAny::new(SearchReply {
@@ -523,6 +585,7 @@ fn temp_dir(name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::Found;
 
     #[test]
     fn a_workspace_folder_is_listed_one_level_and_files_read_and_write_through_the_drive() {
@@ -668,7 +731,7 @@ mod tests {
             generation: 1,
             cancel: Arc::new(AtomicBool::new(false)),
         };
-        let found = search_files(&drive, &root.prefix, &job);
+        let found = search_files(&root.folder(), &job);
         let mut keys: Vec<(&str, usize)> = found.files.iter().map(|f| (f.key.as_str(), f.hits.len())).collect();
         keys.sort_unstable();
         assert_eq!(keys, vec![("Cargo.toml", 1), ("src/lib.rs", 2)]);
@@ -676,7 +739,7 @@ mod tests {
         let lib = found.files.iter().find(|f| f.key == "src/lib.rs").expect("lib.rs");
         assert_eq!((lib.hits[1].line, lib.hits[1].start), (3, 3));
         job.cancel.store(true, Ordering::Relaxed);
-        let stopped = search_files(&drive, &root.prefix, &job);
+        let stopped = search_files(&root.folder(), &job);
         assert!(stopped.files.is_empty() && !stopped.complete, "a raised cancel stops the search");
         let branch = run_jobs(&drive, &root.prefix, vec![DriveJob::Branch { folder: dir.clone() }]);
         assert_eq!(
@@ -723,10 +786,41 @@ mod tests {
             utf16.extend_from_slice(&unit.to_le_bytes());
         }
         let (dir, root) = workspace_with("search-utf16", &[("notes.txt", &utf16[..])]);
-        let found = search_files(&drive_of(&root), &root.prefix, &picked());
+        let found = search_files(&root.folder(), &picked());
         assert_eq!(found.files.len(), 1, "{found:?}");
         let hit = &found.files[0].hits[0];
         assert_eq!((hit.line, hit.start, hit.preview.as_str()), (1, 4, "the picked one"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A CRLF file's lines and a UTF-8 byte-order mark read as in the editor the match opens in:
+    /// no `\r` in a preview, no column for the mark; every match of a line is a result, case
+    /// as asked.
+    #[test]
+    fn a_search_of_the_folder_reads_crlf_lines_and_a_bom_as_the_editor_does() {
+        let text = "\u{feff}fn main() {\r\n    let picked = 7;\r\n    picked + picked\r\n}\r\n";
+        let (dir, root) = workspace_with("search-crlf", &[("main.rs", text.as_bytes())]);
+        let found = search_files(&root.folder(), &picked());
+        let hits = &found.files[0].hits;
+        assert_eq!(hits.len(), 3, "{hits:?}");
+        assert_eq!((hits[0].line, hits[0].start, hits[0].end), (1, 8, 14));
+        assert_eq!(hits[0].preview, "let picked = 7;", "the indentation and the CR left out");
+        assert_eq!(&hits[0].preview[hits[0].preview_start..hits[0].preview_end], "picked");
+        assert_eq!(hits[2].found(), Found { line: 2, start: 13, end: 19 });
+        let case = SearchJob {
+            query: "PICKED".to_string(),
+            how: TextMatch {
+                match_case: true,
+                ..TextMatch::default()
+            },
+            ..picked()
+        };
+        assert!(search_files(&root.folder(), &case).files.is_empty(), "case as asked");
+        let any = SearchJob {
+            query: "PICKED".to_string(),
+            ..picked()
+        };
+        assert_eq!(search_files(&root.folder(), &any).files[0].hits.len(), 3, "any case");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -741,7 +835,7 @@ mod tests {
                 ("a/z.txt", &b"picked\n"[..]),
             ],
         );
-        let found = search_files(&drive_of(&root), &root.prefix, &picked());
+        let found = search_files(&root.folder(), &picked());
         let keys: Vec<&str> = found.files.iter().map(|f| f.key.as_str()).collect();
         assert_eq!(keys, vec!["b.txt", "c.txt", "a/z.txt", "a/b/c.txt"]);
         let _ = std::fs::remove_dir_all(&dir);

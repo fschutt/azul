@@ -30,6 +30,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The workspace folder and the sample tree are read and written through the Drive (LocalDrive).
 azul-storage = { path = "../azul-storage" }
+# Find in files: the Azlin apps' one search engine (ripgrep's walker and searcher), AzDrive's too.
+azul-search = { path = "../azul-search" }
 # The terminal panel: a shell on a PTY and its screen, the TerminalView glue (AzTerm's, shared).
 azul-termkit = { path = "../azul-termkit" }
 serde = { version = "1", features = ["derive"] }

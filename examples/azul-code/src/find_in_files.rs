@@ -6,9 +6,10 @@
 //! VIRTUALIZED like the explorer (a `VirtualView` that builds the rows in
 //! view): a search can find 20,000 matches.
 //!
-//! The search runs on a Thread through the workspace's drive
-//! ([`crate::storage::search_files`]); the find bar (Mod+F) searches the
-//! file in front.
+//! The search runs on a Thread over the workspace's folder on disk
+//! ([`crate::storage::search_files`]: azul-search, ripgrep's walker and
+//! searcher - AzDrive's search box runs on it too); the find bar (Mod+F)
+//! searches the file in front.
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType},
