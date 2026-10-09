@@ -9290,6 +9290,96 @@ mod flora_tests {
             "a ribbon under its own title row moves nothing"
         );
     }
+
+    /// The last resting `background` of `style` by day or at night (`dark`):
+    /// unconditional or under that mode only, no pointer state.
+    fn resting_fill(style: &azul_css::css::Css, dark: bool) -> Option<ColorU> {
+        use azul_css::dynamic_selector::ModeCondition;
+        style
+            .iter_inline_properties()
+            .filter(|(p, conditions)| {
+                p.get_type() == CssPropertyType::BackgroundContent
+                    && conditions.as_ref().iter().all(|c| match c {
+                        DynamicSelector::Mode(ModeCondition::Dark) => dark,
+                        DynamicSelector::Mode(ModeCondition::Light) => !dark,
+                        _ => false,
+                    })
+            })
+            .map(|(p, _)| p.clone())
+            .last()
+            .and_then(|p| tc::bg_color(&p))
+    }
+
+    /// A click on a gallery cell restyles the strip as a rebuild would build
+    /// it - night faces and pointer states included. It used to pin each
+    /// cell's DAY values as overrides, which outrank the dark twins and the
+    /// hover: at night the picked cell kept the day's soft wash under the
+    /// night ink.
+    #[test]
+    fn a_gallery_click_restyles_its_cells_with_their_night_faces_and_hover() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::callbacks::CallbackChange;
+
+        let styled = StyledDom::create_from_dom(ribbon(UiTheme::Flora));
+        let cells: Vec<NodeId> = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| {
+                n.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(name) if name.as_str() == GALLERY_CELL_CLASS))
+            })
+            .map(|(i, _)| NodeId::new(i))
+            .collect();
+        // The strip's cells come first (the expansion panel's after them):
+        // cell 1 is the picked one, a click picks cell 0.
+        let (first, picked_before) = (cells[0], cells[1]);
+        let id = |n: NodeId| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        };
+        let (_, changes) = crate::widgets::roving::test_support::fire(
+            &styled,
+            id(first),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("a gallery cell takes clicks");
+        assert!(
+            !changes.iter().any(|c| matches!(
+                c,
+                CallbackChange::ChangeNodeCssProperties { .. }
+                    | CallbackChange::OverrideNodeCssProperties { .. }
+            )),
+            "the restyle pins no value: {changes:?}"
+        );
+        let style_of = |node: NodeId| {
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if *node_id == node => {
+                    Some(style.clone())
+                }
+                _ => None,
+            })
+        };
+        let picked = style_of(first).expect("the clicked cell is restyled");
+        assert_eq!(resting_fill(&picked, false), Some(flora::LIGHT_SOFT), "picked, by day");
+        assert_eq!(resting_fill(&picked, true), Some(flora::DARK_HT), "picked, at night");
+        let left = style_of(picked_before).expect("the cell picked before is restyled");
+        assert_eq!(resting_fill(&left, true), Some(ColorU::TRANSPARENT), "no longer picked");
+        assert!(
+            left.iter_inline_properties().any(|(_, conditions)| conditions
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))),
+            "the cell keeps its hover"
+        );
+    }
 }
 
 /// Office 2010's control kinds: two-line large labels, split buttons with
