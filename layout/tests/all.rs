@@ -660,6 +660,8 @@ mod the_named_entities_mail_uses_decode_to_their_characters;
 mod a_stylesheet_wrapped_in_comment_markers_keeps_its_rules;
 #[path = "a_webview_is_a_replaced_element_its_backend_is_told_where_it_is.rs"]
 mod a_webview_is_a_replaced_element_its_backend_is_told_where_it_is;
+#[path = "a_webview_in_a_virtual_view_follows_the_views_re_renders.rs"]
+mod a_webview_in_a_virtual_view_follows_the_views_re_renders;
 #[path = "mail_markup_gets_the_html_rendering_defaults.rs"]
 mod mail_markup_gets_the_html_rendering_defaults;
 #[path = "a_block_holding_only_a_line_break_is_one_line_tall.rs"]
