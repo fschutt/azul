@@ -39,7 +39,8 @@ enum InlineNode {
     /// out), or - `source: None` - one made up to carry a format.
     Element {
         source: Option<NodeId>,
-        data: NodeData,
+        // Boxed: a `NodeData` is hundreds of bytes, a text or break node a few.
+        data: Box<NodeData>,
         children: Vec<InlineNode>,
     },
     Text(String),
@@ -111,7 +112,7 @@ impl InlineTree {
             if !shared {
                 level.push(InlineNode::Element {
                     source: link.source,
-                    data: link.data.clone(),
+                    data: Box::new(link.data.clone()),
                     children: Vec::new(),
                 });
             }
@@ -180,7 +181,7 @@ impl InlineTree {
             NodeType::Br => InlineNode::Break,
             _ => InlineNode::Element {
                 source: None,
-                data: dom.root.clone(),
+                data: Box::new(dom.root.clone()),
                 children: dom
                     .children
                     .as_ref()
@@ -203,7 +204,7 @@ impl InlineTree {
             InlineNode::Break => Dom::create_br(),
             InlineNode::Element { data, children, .. } => {
                 let mut dom = Dom {
-                    root: data,
+                    root: *data,
                     children: Vec::new().into(),
                     css: Vec::new().into(),
                     estimated_total_children: 0,
