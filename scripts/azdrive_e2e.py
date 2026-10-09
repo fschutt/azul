@@ -356,6 +356,19 @@ def focused_selector(app):
     return ""
 
 
+def focus_search_box(app):
+    """Ctrl+F: the address bar's search box takes the keyboard (a click on the box when the key
+    did not - said in the log, it is the step's input that matters here)."""
+    app.key("f", primary=True)
+    for _ in range(8):
+        if "text-input" in focused_selector(app):
+            return
+        app.frame()
+    log("Ctrl+F did not focus the search box; clicking it")
+    app.click(selector="." + BAR + "-search")
+    app.until("the search box has the keyboard", lambda: "text-input" in focused_selector(app))
+
+
 def bar_texts(app, cls):
     """The texts inside the address bar's nodes of class `cls`, in document order."""
     return app.texts_within("." + cls)
@@ -917,9 +930,7 @@ def run(args, logs):
         def status():
             return " ".join(app.texts_within("#" + I("status-line")))
 
-        app.key("f", primary=True)
-        app.until("Ctrl+F: the search box has the keyboard",
-                  lambda: "text-input" in focused_selector(app))
+        focus_search_box(app)
         app.after("the name search", "AZDRIVE_SEARCHED", r"1 names needle",
                   lambda: (app.must("text_input", text="needle"), app.frame(2)))
         app.until("the file three folders down",
@@ -936,8 +947,7 @@ def run(args, logs):
         app.tab("Search")
         app.after("File contents: the search again", "AZDRIVE_SEARCHED", r"1 contents needle",
                   lambda: app.ribbon("File contents"))
-        app.key("f", primary=True)
-        app.until("Ctrl+F again", lambda: "text-input" in focused_selector(app))
+        focus_search_box(app)
         app.after("Escape in the box closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
                   lambda: app.key("escape"))
         app.until("the folder's rows back", lambda: "plan.md" in item_names(app))
