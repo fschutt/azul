@@ -3299,13 +3299,7 @@ fn pagination_button(
     use super::decl;
     use crate::widgets::pagination::{button_style, PageFace};
 
-    let mut v = button_style(
-        face == PageFace::Current,
-        face == PageFace::Disabled,
-        is_first,
-        is_last,
-    )
-    .into_library_owned_vec();
+    let mut v = button_style(face, is_first, is_last).into_library_owned_vec();
     if face == PageFace::Neutral {
         v.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
         v.extend(decl::active_fill(LIGHT_PT, DARK_PT));
