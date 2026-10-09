@@ -38,6 +38,8 @@ pub mod auth;
 pub mod dates;
 pub mod limits;
 pub mod memory;
+pub mod mime;
 pub mod net;
 pub mod secrets;
 pub mod store;
+pub mod uids;
