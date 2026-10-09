@@ -83,3 +83,76 @@ fn a_nested_scroll_box_reserves_the_same_gutter_it_would_with_overflow_scroll() 
         "the discovered gutter ({discovered}) is the declared one ({always})"
     );
 }
+
+/// `body > .box > (.fill, .tail)` in a `window_w` x 300 window: the filler's
+/// width and the box's scroll frame clip (its scrollport without the bars).
+fn full_width_box(window_w: f32, box_css: &str) -> (f32, LogicalSize) {
+    let mut dom = Dom::create_body().with_css("margin: 0;").with_child(
+        Dom::create_div()
+            .with_css(box_css)
+            .with_child(Dom::create_div().with_css("height: 400px;"))
+            .with_child(Dom::create_div().with_css("width: 300px; height: 150px;")),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let dom_id = styled.dom_id;
+
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(window_w, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut Some(Vec::new()),
+    )
+    .unwrap();
+
+    let fill = lw
+        .get_node_layout_rect(DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
+        })
+        .expect("the filler was laid out")
+        .size
+        .width;
+    let clip = lw
+        .layout_results
+        .get(&dom_id)
+        .expect("laid out")
+        .display_list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
+                clip_bounds,
+                ..
+            } => Some(clip_bounds.inner().size),
+            _ => None,
+        })
+        .expect("the box is a scroll frame");
+    (fill, clip)
+}
+
+/// A scroll box as wide as the window that overflows only downwards: its
+/// auto-width child is laid out again inside the vertical bar's gutter, and no
+/// horizontal bar takes height from the scrollport - as in Chrome, and as the
+/// same box does in a wider window. (Found by a `<webview>` in such a box,
+/// clipped 12px short: the box kept the child as wide as itself and reserved a
+/// horizontal bar for it.)
+#[test]
+fn a_scroll_box_as_wide_as_the_window_reserves_its_gutter_and_no_horizontal_bar() {
+    const CSS: &str = "overflow: auto; width: 400px; height: 200px;";
+    let (wide_fill, wide_clip) = full_width_box(800.0, CSS);
+    let (fill, clip) = full_width_box(400.0, CSS);
+    assert!(
+        (fill - wide_fill).abs() < 0.5 && fill < 399.0,
+        "the filler gives the gutter back in both windows: {fill} vs {wide_fill}"
+    );
+    assert!(
+        (clip.height - 200.0).abs() < 0.5,
+        "no horizontal bar under content that overflows only downwards: {clip:?} (wider \
+         window: {wide_clip:?})"
+    );
+}
