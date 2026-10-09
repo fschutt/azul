@@ -28,6 +28,11 @@
 //!   HTTP goes through the same [`Transport`] as the S3 client's.
 //! - `DatabaseDrive` (feature `sql`): a PostgreSQL, MySQL or SQLite database browsed as files:
 //!   its tables are folders, every row a JSON file, a table's rows a CSV file.
+//! - `EncryptedDrive` (feature `encryption`): any drive (a bucket) that holds only ciphertext
+//!   under random names - every file version an AZL1 object (`crypto::azl1`: 1 MiB segments,
+//!   zstd where it pays, XChaCha20-Poly1305 in the STREAM construction, a key commitment), the
+//!   names in a `NameIndex`, the drive key sealed to the members and the recovery code
+//!   (`crypto::keys`). Encryption and compression happen on this device only.
 //!
 //! Configuration ([`config`]): the list of drives the user added lives in
 //! `<config dir>/azul-storage/drives.json` WITHOUT secrets; the secrets (an S3

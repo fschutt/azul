@@ -268,6 +268,7 @@ fn overwriting_a_file_makes_a_new_object_and_deletes_the_old_one() {
     let second = drive.inner().keys();
     assert_eq!(second.len(), 1);
     assert_ne!(first, second, "a new object under a new random key");
+    assert_eq!(drive.inner().deletes(), 1, "the old object went");
     assert_eq!(drive.get("a.txt").unwrap(), b"two");
 
     // A copy keeps the old version alive while it names it.

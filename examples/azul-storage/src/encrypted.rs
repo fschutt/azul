@@ -394,7 +394,7 @@ impl Spool {
     }
 
     /// Moves what is in memory to a new temporary file, keeping the position.
-    fn to_file(&mut self) -> io::Result<()> {
+    fn move_to_file(&mut self) -> io::Result<()> {
         let mut name = [0u8; 8];
         random_bytes(&mut name)?;
         let path = std::env::temp_dir().join(format!("azul-storage-{}.azl1-spool", to_hex(&name)));
@@ -419,7 +419,7 @@ impl Spool {
 impl Write for Spool {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.file.is_none() && self.memory.position() as usize + buf.len() > SPOOL_MEMORY {
-            self.to_file()?;
+            self.move_to_file()?;
         }
         match &mut self.file {
             Some((file, _)) => file.write(buf),
