@@ -84,7 +84,7 @@ mod tests;
 
 pub use account::{Account, JoinCode};
 pub use bucket::Bucket;
-pub use bundle::DriveBundle;
+pub use bundle::{DriveBundle, PeriodTokens};
 pub use claim::{ClaimError, ClaimKey};
 pub use drive::AzlinDrive;
 pub use endpoints::TokenEndpoint;
@@ -96,7 +96,7 @@ pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
-pub use token::{Checkout, CheckoutStatus, Tier, Tiers, TokenError, TokenServer};
+pub use token::{BlindSignatures, Checkout, CheckoutStatus, Tier, Tiers, TokenError, TokenServer};
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 
 /// Now, in seconds since 1970-01-01 UTC.

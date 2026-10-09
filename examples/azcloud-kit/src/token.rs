@@ -9,6 +9,8 @@
 //! |                                       | key the sign-up is sealed to)                     |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
 //! |                                       | / declined / expired                              |
+//! | `POST /v1/tokens/issue`               | a paid checkout's blind-signed period tokens      |
+//! |                                       | (against the sealed sign-up's issue key)          |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
 //! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
@@ -227,6 +229,23 @@ pub enum CheckoutStatus {
     /// The token server no longer has the checkout (it expired, or it is unknown: a 404): why.
     Gone(String),
 }
+
+/// What `POST /v1/tokens/issue` answers: one blind signature per blinded message, by the
+/// issuer key of the tier and year.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlindSignatures {
+    /// `100GB`.
+    pub tier: String,
+    /// `<tier>/<year>`: the issuer key's name.
+    pub key_id: String,
+    /// The issuer's public key (SPKI PEM): what the finished tokens verify against.
+    pub public_key_pem: String,
+    /// Standard base64, in the order of the blinded messages.
+    pub signatures: Vec<String>,
+}
+
+/// The most blinded messages one `POST /v1/tokens/issue` takes (24 months, prepaid).
+pub const MAX_BLINDED: usize = 24;
 
 // ==== The client ====
 
@@ -529,6 +548,68 @@ impl<'a> TokenServer<'a> {
                 "the checkout is \"{other}\", neither pending, approved, declined nor expired"
             ))),
         }
+    }
+
+    /// Blind signatures of a paid checkout's period tokens (`POST /v1/tokens/issue`): one per
+    /// message of `blinded` (standard base64, at most [`MAX_BLINDED`]), up to the checkout's
+    /// months in all. Only with `issue_key`, the key its sealed sign-up carries
+    /// ([`crate::bundle::PeriodTokens`]): the checkout id alone, which the payment provider sees,
+    /// issues nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] without an issue key or messages (nothing is sent); the token
+    /// server's refusals with their codes - `issue_key_required`, `issue_key_wrong` (403, no
+    /// sign-in matter), `already_issued`, `not_paid`, `mandate_stopped`; an answer whose
+    /// signatures do not match the messages.
+    pub fn issue_period_tokens(
+        &self,
+        checkout_id: &str,
+        issue_key: &str,
+        blinded: &[String],
+    ) -> Result<BlindSignatures, TokenError> {
+        let issue_key = issue_key.trim();
+        if issue_key.is_empty() {
+            return Err(TokenError::Config(String::from(
+                "There is no issue key: a checkout's period tokens are issued only against the \
+                 key its sealed sign-up carries.",
+            )));
+        }
+        if blinded.is_empty() || blinded.len() > MAX_BLINDED {
+            return Err(TokenError::Config(format!(
+                "1 to {MAX_BLINDED} blinded messages, not {}",
+                blinded.len()
+            )));
+        }
+        let body = json!({
+            "checkout_id": checkout_id.trim(),
+            "issue_key": issue_key,
+            "blinded": blinded,
+        });
+        let value = self.call(Method::Post, "/v1/tokens/issue", None, Some(&body))?;
+        let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
+        let signatures: Vec<String> = value["blind_signatures"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if signatures.len() != blinded.len() {
+            return Err(TokenError::Protocol(format!(
+                "{} blind signatures for {} blinded messages",
+                signatures.len(),
+                blinded.len()
+            )));
+        }
+        Ok(BlindSignatures {
+            tier: text("tier"),
+            key_id: text("key_id"),
+            public_key_pem: text("public_key_pem"),
+            signatures,
+        })
     }
 
     /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the
