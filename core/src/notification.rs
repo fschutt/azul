@@ -89,6 +89,8 @@ impl_vec_partialeq!(NotificationAction, NotificationActionVec);
 /// What a notification sounds like.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C, u8)]
+// The C API's repr(C) sound: boxing the name would change its ABI.
+#[allow(variant_size_differences)]
 pub enum NotificationSound {
     /// The platform's notification sound.
     #[default]

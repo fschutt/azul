@@ -14,6 +14,7 @@
 //! walk the markup.
 
 use alloc::{boxed::Box, string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_css::{
     dynamic_selector::CssPropertyWithConditions, props::property::CssKeyMap, AzString,
@@ -118,7 +119,6 @@ pub fn font_face_rules(css: &str) -> Vec<(String, String)> {
         for (i, c) in body.char_indices() {
             match (quote, c) {
                 (Some(q), c) if c == q => quote = None,
-                (Some(_), _) => {}
                 (None, '"' | '\'') => quote = Some(c),
                 (None, '(') => depth += 1,
                 (None, ')') => depth -= 1,
@@ -534,6 +534,8 @@ fn render_svg_image(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
         .attribute("href")
         .or_else(|| element.attribute("xlink:href"))
         .unwrap_or_default();
+    // `v` is finite and positive here; `as` saturates a size past usize::MAX.
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     let size = |key: &str| {
         super::parse_svg_float(element.attribute(key))
             .filter(|v| v.is_finite() && *v > 0.0)
@@ -655,9 +657,9 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
     let family = element.attribute("font-family").map(str::trim);
     if let Some(family) = family.filter(|f| with_family && !f.is_empty()) {
         if family.contains(',') || family.starts_with('"') || family.starts_with('\'') {
-            css.push_str(&alloc::format!("font-family: {family};"));
+            let _ = write!(css, "font-family: {family};");
         } else {
-            css.push_str(&alloc::format!("font-family: \"{family}\";"));
+            let _ = write!(css, "font-family: \"{family}\";");
         }
     }
     for (attribute, property) in [
@@ -667,18 +669,20 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
     ] {
         if let Some(size) = super::parse_svg_float(element.attribute(attribute)) {
             if size.is_finite() {
-                css.push_str(&alloc::format!("{property}: {size}px;"));
+                let _ = write!(css, "{property}: {size}px;");
             }
         }
     }
     for property in ["font-weight", "font-style"] {
         if let Some(value) = element.attribute(property).map(str::trim).filter(|v| !v.is_empty()) {
-            css.push_str(&alloc::format!("{property}: {value};"));
+            let _ = write!(css, "{property}: {value};");
         }
     }
     match element.attribute("fill").map(str::trim) {
         Some("none") => css.push_str("color: transparent;"),
-        Some(fill) if !fill.is_empty() => css.push_str(&alloc::format!("color: {fill};")),
+        Some(fill) if !fill.is_empty() => {
+            let _ = write!(css, "color: {fill};");
+        }
         _ => {}
     }
     css
@@ -686,13 +690,15 @@ fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
 
 /// The declarations of a CSS block, with the builder's key map.
 fn declarations(css: &str, landing: &Landing<'_>) -> Vec<CssPropertyWithConditions> {
-    match landing.css_key_map {
-        Some(map) => super::attributes::style_declarations(css, map),
-        None => super::attributes::style_declarations(
-            css,
-            &azul_css::props::property::get_css_key_map(),
-        ),
-    }
+    landing.css_key_map.map_or_else(
+        || {
+            super::attributes::style_declarations(
+                css,
+                &azul_css::props::property::get_css_key_map(),
+            )
+        },
+        |map| super::attributes::style_declarations(css, map),
+    )
 }
 
 /// A text element's `font-family` as the FONT an `@font-face` in its scope

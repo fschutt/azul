@@ -224,12 +224,16 @@ pub mod hash {
         const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
         const ROTATE: u32 = 5;
 
-        /// FxHasher-style hasher, in every build. Not DoS-resistant: for
-        /// in-process change detection and cache keys over the app's own data
-        /// - a layout fingerprints every inline formatting context it visits,
-        /// and `SipHash` (`std`'s `DefaultHasher`) was a visible share of a
-        /// 300-contact list's layout (`AzContacts`, 2026-10-06).
-        #[derive(Default)]
+        /// FxHasher-style hasher, in every build.
+        ///
+        /// Not DoS-resistant: for in-process change detection and cache keys
+        /// over the app's own data. A layout fingerprints every inline
+        /// formatting context it visits, and `SipHash` (`std`'s
+        /// `DefaultHasher`) was a visible share of a 300-contact list's layout
+        /// (`AzContacts`, 2026-10-06).
+        // Not Copy, like std's hashers: a copy would silently fork the state.
+        #[allow(missing_copy_implementations)]
+        #[derive(Debug, Default)]
         pub struct FastHasher {
             hash: u64,
         }

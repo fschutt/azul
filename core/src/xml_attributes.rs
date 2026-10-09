@@ -18,7 +18,7 @@
 //! reading, not a setting any element can carry.
 
 use alloc::{format, string::String, vec::Vec};
-use core::fmt;
+use core::fmt::{self, Write as _};
 
 use azul_css::{
     css::{CssDeclaration, CssPropertyValue},
@@ -132,10 +132,10 @@ impl fmt::Debug for XmlAttribute {
 impl XmlAttribute {
     /// `true` if this entry takes attribute `name` (lowercase) on `tag`.
     fn takes(&self, name: &str, tag: &str) -> bool {
-        let named = match self.name.strip_suffix('*') {
-            Some(prefix) => name.starts_with(prefix),
-            None => name == self.name,
-        };
+        let named = self
+            .name
+            .strip_suffix('*')
+            .map_or_else(|| name == self.name, |prefix| name.starts_with(prefix));
         named && self.scope.admits(tag)
     }
 }
@@ -188,11 +188,15 @@ fn contenteditable(_: &str, value: &str) -> Option<NodeSetting> {
     })
 }
 
-fn autofocus(_: &str, _: &str) -> Option<NodeSetting> {
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
+const fn autofocus(_: &str, _: &str) -> Option<NodeSetting> {
     // Boolean attribute: presence is the value, as in HTML.
     Some(NodeSetting::Attribute(AttributeType::Autofocus))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn placeholder(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Placeholder(value.into())))
 }
@@ -221,10 +225,14 @@ fn dir(_: &str, value: &str) -> Option<NodeSetting> {
 /// its subtree - `hyphens: auto` picks its hyphenation resource by it (CSS
 /// Text 3 5.4), the accessibility tree reports it. Kept as written, an empty
 /// value too: `lang=""` says "unknown" and hides an ancestor's language.
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn lang(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Lang(value.trim().into())))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn style(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Style(value.into()))
 }
@@ -235,6 +243,8 @@ fn style(_: &str, value: &str) -> Option<NodeSetting> {
 /// [`apply_presentational_hints`] when the DOM is styled), so an app that
 /// builds `Dom::create_td().with_attribute(..)` gets the same result as
 /// markup, and an app reads the attribute like any other.
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn presentational(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Custom(
         AttributeNameValue {
@@ -298,6 +308,8 @@ fn form_control(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(attr))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn data(name: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Attribute(AttributeType::Data(AttributeNameValue {
         attr_name: name.into(),
@@ -305,6 +317,8 @@ fn data(name: &str, value: &str) -> Option<NodeSetting> {
     })))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn l10n(name: &str, _: &str) -> Option<NodeSetting> {
     // The builders give a `data-l10n="key"` element the key as its first,
     // translatable text child and the `data-l10n-*` arguments as its fluent
@@ -318,6 +332,8 @@ fn l10n(name: &str, _: &str) -> Option<NodeSetting> {
     )))
 }
 
+// A parser of the attribute table: `fn(&str, &str) -> Option<NodeSetting>`.
+#[allow(clippy::unnecessary_wraps)]
 fn callback(name: &str, _: &str) -> Option<NodeSetting> {
     Some(NodeSetting::NotExported(AzString::from(
         format!(
@@ -749,7 +765,7 @@ fn parse_html_legacy_color(value: &str) -> Option<String> {
     for p in &parts {
         let two: String = p.iter().take(2).collect();
         let byte = u8::from_str_radix(&two, 16).unwrap_or(0);
-        out.push_str(&format!("{byte:02x}"));
+        let _ = write!(out, "{byte:02x}");
     }
     Some(out)
 }

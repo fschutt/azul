@@ -1702,6 +1702,8 @@ pub struct YuvCoefficients {
 impl YuvCoefficients {
     /// The coefficients of `format`, `None` for a format that is not NV12.
     #[must_use]
+    // The names are the matrix entries, as the fields spell them (g_cb, g_cr).
+    #[allow(clippy::similar_names)]
     pub const fn of(format: RawImageFormat) -> Option<Self> {
         // (Kr, Kb) = (0.299, 0.114) for Rec.601, (0.2126, 0.0722) for
         // Rec.709; video range scales luma by 255/219 and chroma by
@@ -1731,10 +1733,10 @@ impl YuvCoefficients {
         let yy = (y as i32 - self.y_off) * self.y_mul + 32768;
         let u = cb as i32 - 128;
         let v = cr as i32 - 128;
-        let r = (yy + self.r_cr * v) >> 16;
-        let g = (yy - self.g_cb * u - self.g_cr * v) >> 16;
-        let b = (yy + self.b_cb * u) >> 16;
-        [clamp_u8(r), clamp_u8(g), clamp_u8(b)]
+        let red = (yy + self.r_cr * v) >> 16;
+        let green = (yy - self.g_cb * u - self.g_cr * v) >> 16;
+        let blue = (yy + self.b_cb * u) >> 16;
+        [clamp_u8(red), clamp_u8(green), clamp_u8(blue)]
     }
 
     /// Row `row` of an NV12 image as straight RGBA8 (alpha 255) into `out`
@@ -1834,7 +1836,7 @@ pub fn rgba_to_nv12(
         RawImageFormat::BGRA8 => (2, 0),
         _ => return None,
     };
-    let k = RgbToYuv::of(dst)?;
+    let coeffs = RgbToYuv::of(dst)?;
     let layout = Nv12Layout::new(width, height);
     let pixels = width.checked_mul(height)?;
     if bytes.len() < pixels.checked_mul(4)? {
@@ -1845,7 +1847,7 @@ pub fn rgba_to_nv12(
     let rgb = |px: &[u8]| (i32::from(px[r_at]), i32::from(px[1]), i32::from(px[b_at]));
     for (y, px) in y_plane.iter_mut().zip(bytes.chunks_exact(4)) {
         let (r, g, b) = rgb(px);
-        *y = k.luma(r, g, b);
+        *y = coeffs.luma(r, g, b);
     }
     for (block, pair) in uv_plane.chunks_exact_mut(2).enumerate() {
         let (bx, by) = (block % layout.chroma_width, block / layout.chroma_width);
@@ -1860,7 +1862,7 @@ pub fn rgba_to_nv12(
                 n += 1;
             }
         }
-        let (cb, cr) = k.chroma(r, g, b, n);
+        let (cb, cr) = coeffs.chroma(r, g, b, n);
         pair[0] = cb;
         pair[1] = cr;
     }
@@ -3022,7 +3024,12 @@ impl RawImage {
     /// `premultiplied_alpha`: whether the colour channels are already
     /// multiplied by alpha (an opaque image is both).
     #[must_use]
-    pub fn create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) -> Self {
+    pub const fn create_rgba8(
+        width: u32,
+        height: u32,
+        pixels: U8Vec,
+        premultiplied_alpha: bool,
+    ) -> Self {
         Self {
             pixels: RawImageData::U8(pixels),
             width: width as usize,

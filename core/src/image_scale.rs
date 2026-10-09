@@ -137,15 +137,15 @@ impl SrcImage<'_> {
         let layout = Nv12Layout::new(self.width as usize, self.height as usize);
         let x = x.clamp(0, self.width as i32 - 1) as usize;
         let y = y.clamp(0, self.height as i32 - 1) as usize;
-        let c = layout.y_len() + (y / 2) * layout.chroma_width * 2 + (x / 2) * 2;
+        let chroma = layout.y_len() + (y / 2) * layout.chroma_width * 2 + (x / 2) * 2;
         match (
             self.bytes.get(y * layout.width + x),
-            self.bytes.get(c),
-            self.bytes.get(c + 1),
+            self.bytes.get(chroma),
+            self.bytes.get(chroma + 1),
         ) {
             (Some(&luma), Some(&cb), Some(&cr)) => {
-                let [r, g, b] = coeffs.to_rgb(luma, cb, cr);
-                [r, g, b, 255]
+                let [red, green, blue] = coeffs.to_rgb(luma, cb, cr);
+                [red, green, blue, 255]
             }
             _ => [0, 0, 0, 255],
         }
@@ -210,17 +210,17 @@ pub fn cover_crop(sw: u32, sh: u32, dw: u32, dh: u32, even: bool) -> SrcRect {
     if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
         return SrcRect::full(sw, sh);
     }
-    let (sw64, sh64, dw64, dh64) = (
+    let (source_width, source_height, target_width, target_height) = (
         u64::from(sw),
         u64::from(sh),
         u64::from(dw),
         u64::from(dh),
     );
     // sw / sh > dw / dh without floats.
-    let (mut cw, mut ch) = if sw64 * dh64 > dw64 * sh64 {
-        (((sh64 * dw64 + dh64 / 2) / dh64) as u32, sh)
+    let (mut cw, mut ch) = if source_width * target_height > target_width * source_height {
+        (((source_height * target_width + target_height / 2) / target_height) as u32, sh)
     } else {
-        (sw, ((sw64 * dh64 + dw64 / 2) / dw64) as u32)
+        (sw, ((source_width * target_height + target_width / 2) / target_width) as u32)
     };
     cw = cw.clamp(1, sw);
     ch = ch.clamp(1, sh);
@@ -631,20 +631,22 @@ pub fn fan_out(
             .flatten()
             .filter(|m| m.frame.width >= c.width && m.frame.height >= c.height)
             .min_by_key(|m| u64::from(m.frame.width) * u64::from(m.frame.height));
-        let bytes = match base {
-            Some(m) => cut(
-                &SrcImage {
-                    bytes: m.frame.bytes.as_ref(),
-                    format: m.frame.format,
-                    width: m.frame.width,
-                    height: m.frame.height,
-                },
-                c.width,
-                c.height,
-                resample,
-            ),
-            None => cut(src, c.width, c.height, resample),
-        };
+        let bytes = base.map_or_else(
+            || cut(src, c.width, c.height, resample),
+            |m| {
+                cut(
+                    &SrcImage {
+                        bytes: m.frame.bytes.as_ref(),
+                        format: m.frame.format,
+                        width: m.frame.width,
+                        height: m.frame.height,
+                    },
+                    c.width,
+                    c.height,
+                    resample,
+                )
+            },
+        );
         if !bytes.is_empty() {
             made[i] = Some(ConsumerFrame::new(
                 c,

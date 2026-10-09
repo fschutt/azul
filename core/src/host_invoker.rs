@@ -934,6 +934,8 @@ macro_rules! impl_managed_callback {
             /// own fallback, for bindings whose C trampolines need the same
             /// answer.
             #[allow(unused_variables)]
+            // The body is each kind's `default_ret`; few of those are const.
+            #[allow(clippy::missing_const_for_fn)]
             pub fn fallback_return(
                 $( $data: &$data_ty, )?
                 $( $arg : &$arg_ty , )*

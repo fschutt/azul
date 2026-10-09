@@ -351,6 +351,7 @@ impl Xml {
     /// [`html`]). A fragment is a document: `<html>`, `<head>` and `<body>`
     /// are implied. The strict XML loaders stay strict.
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // C API: api.json hands the AzString over by value
     pub fn create_from_html(html: AzString) -> Self {
         Self {
             root: html::parse_html_nodes(html.as_str()).into(),
@@ -2386,6 +2387,8 @@ impl ComponentSource {
 /// struct is a component that code calls through its render function.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+// The C API's repr(C) enum: boxing the `Call` payload would change its ABI.
+#[allow(clippy::large_enum_variant, variant_size_differences)]
 pub enum ComponentCodegen {
     /// A call of the component's own render function,
     /// `render_<name>(<value fields>)`: the code export defines it once,
@@ -2446,7 +2449,12 @@ pub struct ComponentCallCodegen {
 impl ComponentCallCodegen {
     /// A constructor call with no setters.
     #[must_use]
-    pub fn create(class: AzString, constructor: AzString, args: StringVec, finish: AzString) -> Self {
+    pub const fn create(
+        class: AzString,
+        constructor: AzString,
+        args: StringVec,
+        finish: AzString,
+    ) -> Self {
         Self {
             class,
             constructor,
@@ -6184,6 +6192,68 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
     })
 }
 
+/// An ellipse as four cubic Beziers (kappa scaled by `rx` on the x axis, by
+/// `ry` on the y axis), from its top round through its right, bottom and left.
+fn svg_ellipse_path(cx: f32, cy: f32, rx: f32, ry: f32) -> crate::svg::SvgPath {
+    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
+    const KAPPA: f32 = 0.552_284_8;
+    let kx = rx * KAPPA;
+    let ky = ry * KAPPA;
+    let elements = vec![
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx, y: cy - ry },
+            ctrl_1: SvgPoint {
+                x: cx + kx,
+                y: cy - ry,
+            },
+            ctrl_2: SvgPoint {
+                x: cx + rx,
+                y: cy - ky,
+            },
+            end: SvgPoint { x: cx + rx, y: cy },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx + rx, y: cy },
+            ctrl_1: SvgPoint {
+                x: cx + rx,
+                y: cy + ky,
+            },
+            ctrl_2: SvgPoint {
+                x: cx + kx,
+                y: cy + ry,
+            },
+            end: SvgPoint { x: cx, y: cy + ry },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx, y: cy + ry },
+            ctrl_1: SvgPoint {
+                x: cx - kx,
+                y: cy + ry,
+            },
+            ctrl_2: SvgPoint {
+                x: cx - rx,
+                y: cy + ky,
+            },
+            end: SvgPoint { x: cx - rx, y: cy },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx - rx, y: cy },
+            ctrl_1: SvgPoint {
+                x: cx - rx,
+                y: cy - ky,
+            },
+            ctrl_2: SvgPoint {
+                x: cx - kx,
+                y: cy - ry,
+            },
+            end: SvgPoint { x: cx, y: cy - ry },
+        }),
+    ];
+    crate::svg::SvgPath {
+        items: crate::svg::SvgPathElementVec::from_vec(elements),
+    }
+}
+
 /// The geometry of an SVG shape element (`path`, `circle`, `rect`,
 /// `ellipse`, `line`, `polygon`, `polyline`) in its user units: what its
 /// node's `SvgNodeData::Path` clips its box to. `None` for an empty or
@@ -6231,66 +6301,8 @@ fn svg_shape_geometry(element: &element::Element<'_>) -> Option<crate::svg::SvgM
             let rx = parse_svg_float(element.attribute("rx")).unwrap_or(0.0);
             let ry = parse_svg_float(element.attribute("ry")).unwrap_or(0.0);
             if rx > 0.0 && ry > 0.0 {
-                // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for
-                // y-kappa)
-                use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
-                const KAPPA: f32 = 0.552_284_8;
-                let kx = rx * KAPPA;
-                let ky = ry * KAPPA;
-                let elements = vec![
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx, y: cy - ry },
-                        ctrl_1: SvgPoint {
-                            x: cx + kx,
-                            y: cy - ry,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx + rx,
-                            y: cy - ky,
-                        },
-                        end: SvgPoint { x: cx + rx, y: cy },
-                    }),
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx + rx, y: cy },
-                        ctrl_1: SvgPoint {
-                            x: cx + rx,
-                            y: cy + ky,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx + kx,
-                            y: cy + ry,
-                        },
-                        end: SvgPoint { x: cx, y: cy + ry },
-                    }),
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx, y: cy + ry },
-                        ctrl_1: SvgPoint {
-                            x: cx - kx,
-                            y: cy + ry,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx - rx,
-                            y: cy + ky,
-                        },
-                        end: SvgPoint { x: cx - rx, y: cy },
-                    }),
-                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                        start: SvgPoint { x: cx - rx, y: cy },
-                        ctrl_1: SvgPoint {
-                            x: cx - rx,
-                            y: cy - ky,
-                        },
-                        ctrl_2: SvgPoint {
-                            x: cx - kx,
-                            y: cy - ry,
-                        },
-                        end: SvgPoint { x: cx, y: cy - ry },
-                    }),
-                ];
                 Some(crate::svg::SvgMultiPolygon {
-                    rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                        items: crate::svg::SvgPathElementVec::from_vec(elements),
-                    }]),
+                    rings: crate::svg::SvgPathVec::from_vec(vec![svg_ellipse_path(cx, cy, rx, ry)]),
                 })
             } else {
                 None
@@ -6504,6 +6516,8 @@ fn attribute_pairs(xml_node: &XmlNode) -> Vec<(&str, &str)> {
 ///
 /// Recursion is bounded: at [`MAX_XML_NESTING_DEPTH`] the element is emitted
 /// without its children rather than overflowing the native stack.
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 fn walk_element(
     xml_node: &XmlNode,
     component_map: &ComponentMap,

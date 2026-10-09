@@ -611,10 +611,7 @@ pub fn parse_svg_transform(s: &str) -> SvgAffine {
             return SvgAffine::IDENTITY;
         };
         // Each later function applies BEFORE the ones already read.
-        result = Some(match result {
-            None => function,
-            Some(so_far) => function.then(&so_far),
-        });
+        result = Some(result.map_or(function, |so_far| function.then(&so_far)));
         rest = &rest[close + 1..];
     }
     result.unwrap_or(SvgAffine::IDENTITY)

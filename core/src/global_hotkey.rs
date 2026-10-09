@@ -219,6 +219,8 @@ impl GlobalHotkeyError {
 /// the grab is `Pending` until the desktop answers.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+// The C API's repr(C) status: boxing the error would change its ABI.
+#[allow(variant_size_differences)]
 pub enum GlobalHotkeyStatus {
     /// Nobody declares it and no failure is remembered for it.
     NotRegistered,
@@ -930,7 +932,7 @@ impl GlobalHotkey {
         self.format_with(mac, if mac { "Cmd" } else { "Super" })
     }
 
-    fn format_with(&self, mac: bool, meta_name: &str) -> String {
+    fn format_with(self, mac: bool, meta_name: &str) -> String {
         let mut out = String::new();
         let mut push = |part: &str| {
             if !out.is_empty() {

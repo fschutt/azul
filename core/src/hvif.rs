@@ -158,7 +158,7 @@ pub enum HvifLineCap {
 }
 
 /// What a shape does to its paths before painting them.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HvifTransformer {
     /// Another transform.
     Affine(HvifAffine),
