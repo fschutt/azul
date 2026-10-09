@@ -81,6 +81,23 @@ sqlx = { version = "0.8.6", default-features = false, optional = true, features 
 ] }
 # The one runtime of both (src/runtime.rs).
 tokio = { version = "1.52", default-features = false, optional = true, features = ["rt", "rt-multi-thread"] }
+# ---- feature `encryption`: client-side encryption (src/crypto/, src/encrypted.rs) ----
+# Every crate here is in Cargo.lock already (AzKeys, AzMeet, azcloud-kit, zip): no new crate.
+# XChaCha20-Poly1305; `stream` is aead's STREAM construction (StreamBE32: nonce = prefix ||
+# segment index || last-segment flag), no further crate. Zeroizes its key on drop.
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc", "stream"], optional = true }
+# X25519: the drive key sealed to a member's key (AzMeet's features; keys from getrandom bytes).
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"], optional = true }
+# BLAKE3: the plaintext hash, the key commitment and every key derived from another.
+blake3 = { version = "1.8", optional = true }
+# zstd level 3 per 1 MiB segment (the C library, as zip builds it).
+zstd = { version = "0.13.3", default-features = false, optional = true }
+# Argon2id: the key of a recovery code (AzKeys' features).
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"], optional = true }
+# The OS random source: file keys, nonces, object ids, salts.
+getrandom = { version = "0.2", optional = true }
+# Wiping keys and plaintext buffers.
+zeroize = { version = "1.8", features = ["alloc"], optional = true }
 
 [features]
 default = []
@@ -91,6 +108,16 @@ testing = []
 opendal = ["dep:opendal", "dep:http", "dep:futures", "dep:tokio"]
 # Databases browsed as files (DatabaseDrive; the catalog's database entries).
 sql = ["dep:sqlx", "dep:tokio"]
+# Client-side encryption: the AZL1 object format, the drive's keys, EncryptedDrive.
+encryption = [
+    "dep:chacha20poly1305",
+    "dep:x25519-dalek",
+    "dep:blake3",
+    "dep:zstd",
+    "dep:argon2",
+    "dep:getrandom",
+    "dep:zeroize",
+]
 
 [lib]
 name = "azul_storage"

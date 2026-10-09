@@ -1,9 +1,10 @@
 //! An S3-compatible bucket as a drive: AWS S3, Cloudflare R2, MinIO.
 //!
 //! Six calls of the S3 API, each signed with SigV4: ListObjectsV2 (with
-//! continuation tokens), GetObject (with `Range`), PutObject, CopyObject,
-//! DeleteObject and HeadObject; any other request (a conditional write, a multipart
-//! upload) is signed the same way by [`S3Drive::send_raw`]. Error answers become
+//! continuation tokens), GetObject (with `Range`), PutObject (also conditional:
+//! `If-None-Match: *`, `If-Match`), CopyObject, DeleteObject and HeadObject; any
+//! other request (a conditional read, a multipart upload) is signed the same way by
+//! [`S3Drive::send_raw`]. Error answers become
 //! [`ServiceError`]s that say what the service said. The requests are built here and sent through a
 //! [`Transport`], so the same code runs over azul's HTTP client in the apps and
 //! over a recording fake in the tests.
@@ -16,7 +17,7 @@ use crate::{
     sigv4::{self, SigningParams, EMPTY_SHA256},
     time::{amz_date, now_unix, parse_http_date},
     xml, ByteRange, Drive, DriveError, HttpCall, HttpReply, ListPage, ListRequest, Method,
-    ObjectInfo, Transport,
+    ObjectInfo, Precondition, Transport,
 };
 
 /// S3's longest key, in bytes.
@@ -254,6 +255,16 @@ fn content_type_for(key: &str) -> &'static str {
         "gif" => "image/gif",
         "svg" => "image/svg+xml",
         _ => "application/octet-stream",
+    }
+}
+
+/// An entity tag as `If-Match` sends it: in quotes (a weak one, `W/"..."`, as it is).
+fn quoted_etag(etag: &str) -> String {
+    let etag = etag.trim();
+    if etag.starts_with('"') || etag.starts_with("W/") {
+        etag.to_string()
+    } else {
+        format!("\"{etag}\"")
     }
 }
 
@@ -619,6 +630,33 @@ impl Drive for S3Drive {
         } else {
             Err(failure(&reply, Some(key)))
         }
+    }
+
+    /// One PutObject with `If-None-Match: *` or `If-Match: "<etag>"` (AWS S3, R2 and
+    /// MinIO honour both); a 412 is [`DriveError::Conflict`].
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let header = match condition {
+            Precondition::Absent => (String::from("if-none-match"), String::from("*")),
+            Precondition::Matches(etag) => (String::from("if-match"), quoted_etag(etag)),
+        };
+        let reply = self.object_call(Method::Put, key, vec![header], bytes.to_vec())?;
+        if reply.is_success() {
+            return Ok(reply
+                .header("etag")
+                .map(xml::strip_quotes)
+                .filter(|e| !e.is_empty()));
+        }
+        if reply.status == 412 {
+            return Err(DriveError::Conflict {
+                key: key.to_string(),
+            });
+        }
+        Err(failure(&reply, Some(key)))
     }
 
     fn delete(&self, key: &str) -> Result<(), DriveError> {
