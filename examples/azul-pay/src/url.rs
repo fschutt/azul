@@ -228,6 +228,15 @@ impl WebUrl {
         }
     }
 
+    /// The same page without a fragment.
+    #[must_use]
+    pub fn clear_fragment(&self) -> WebUrl {
+        WebUrl {
+            fragment: None,
+            ..self.clone()
+        }
+    }
+
     /// The same document as `other`: everything but the fragment is equal.
     #[must_use]
     pub fn same_document(&self, other: &WebUrl) -> bool {
