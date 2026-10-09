@@ -9296,6 +9296,49 @@ mod flora_tests {
         );
     }
 
+    /// A group's caption is its title - flora.css's `.fl-label`: Garamond
+    /// capitals in the label ink, on one line - and the fit walk measures the
+    /// group at least as wide as those capitals (it measured the mixed-case
+    /// caption, so a flora group whose caption is its widest part overflowed
+    /// the width it was given).
+    #[test]
+    fn a_flora_group_caption_is_floras_title_in_capitals_and_the_group_is_measured_wide_enough() {
+        use azul_css::props::style::text::StyleTextTransform;
+
+        let dom = ribbon(UiTheme::Flora);
+        let caption = node(&dom, "__azul-native-ribbon-group-label");
+        assert!(
+            matches!(
+                tc::resolve(caption, CssPropertyType::TextTransform, false, None),
+                Some(P::TextTransform(v)) if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "the caption is set in capitals"
+        );
+        assert!(
+            matches!(
+                tc::resolve(caption, CssPropertyType::FontFamily, false, None),
+                Some(P::FontFamily(f)) if f.get_property() == Some(&flora::FONT_CAPS)
+            ),
+            "in flora's capitals hand"
+        );
+        assert_eq!(tc::text_color(caption, false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(caption, true), Some(flora::DARK_SOFT1));
+
+        // A group whose caption is wider than its one small button.
+        let caption = "Arrange and organise";
+        let group = RibbonGroup::new(caption.into()).with_item(RibbonItem::SmallButton(
+            RibbonButton::new("format_bold".into(), "".into()),
+        ));
+        let capitals = text_px(&caption.to_uppercase(), CAPTION_FONT_PX)
+            + caption.chars().count() as f32 * 0.12 * CAPTION_FONT_PX;
+        assert!(
+            group_px(&group, GroupScale::FULL) >= GROUP_FRAME_PX + capitals,
+            "{} < {}",
+            group_px(&group, GroupScale::FULL),
+            GROUP_FRAME_PX + capitals
+        );
+    }
+
     /// The last resting `background` of `style` by day or at night (`dark`):
     /// unconditional or under that mode only, no pointer state.
     fn resting_fill(style: &azul_css::css::Css, dark: bool) -> Option<ColorU> {
