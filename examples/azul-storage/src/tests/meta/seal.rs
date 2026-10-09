@@ -74,3 +74,75 @@ fn a_name_hash_is_the_same_on_every_device_and_differs_between_keys() {
     assert_ne!(a, c);
     assert_ne!(a, d);
 }
+
+/// The drive key as the repository's sealer (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod drive_key {
+    use super::contains;
+    use crate::{
+        crypto::DriveKey,
+        meta::{keys, MemoryBucket, MetaError, MetaStore, Publish, RefUpdate, Sealer},
+    };
+
+    const MAIN: &str = "refs/heads/main";
+
+    #[test]
+    fn the_drive_key_seals_an_object_that_opens_only_in_its_place() {
+        let key = DriveKey::generate().unwrap();
+        let sealed = key.seal(b".azlin/meta/manifest", b"Holiday photos").unwrap();
+        assert_eq!(&sealed[..4], b"AZM1");
+        assert_eq!(&sealed[4..20], &key.id().0);
+        assert!(!contains(&sealed, b"Holiday"));
+        assert_eq!(key.open(b".azlin/meta/manifest", &sealed).unwrap(), b"Holiday photos");
+        assert!(key.open(b".azlin/meta/log/1", &sealed).is_err());
+        for at in 0..sealed.len() {
+            let mut bad = sealed.clone();
+            bad[at] ^= 1;
+            assert!(key.open(b".azlin/meta/manifest", &bad).is_err(), "byte {at}");
+        }
+        assert_ne!(sealed, key.seal(b".azlin/meta/manifest", b"Holiday photos").unwrap());
+    }
+
+    #[test]
+    fn another_drive_key_does_not_open_it_and_names_differ() {
+        let key = DriveKey::generate().unwrap();
+        let other = DriveKey::generate().unwrap();
+        let sealed = key.seal(b"ctx", b"x").unwrap();
+        assert!(other.open(b"ctx", &sealed).is_err());
+        let same = DriveKey::from_bytes(*key.as_bytes());
+        assert_eq!(same.open(b"ctx", &sealed).unwrap(), b"x");
+        assert_eq!(key.name_hash(b"pack"), same.name_hash(b"pack"));
+        assert_ne!(key.name_hash(b"pack"), other.name_hash(b"pack"));
+    }
+
+    #[test]
+    fn a_repository_sealed_with_the_drive_key_opens_on_another_device_holding_it() {
+        let key = DriveKey::generate().unwrap();
+        let bucket = MemoryBucket::new();
+        let mut laptop = MetaStore::create(bucket.clone(), key.clone(), "laptop").unwrap();
+        laptop
+            .publish(|state| {
+                Ok(Some(Publish {
+                    pack: None,
+                    updates: vec![RefUpdate {
+                        name: MAIN.to_string(),
+                        old: state.refs.get(MAIN).cloned(),
+                        new: Some("c1".to_string()),
+                    }],
+                    message: "Holiday photos".to_string(),
+                }))
+            })
+            .unwrap();
+        let phone = MetaStore::open(bucket.clone(), key, "phone").unwrap();
+        assert_eq!(phone.state(), laptop.state());
+        assert!(matches!(
+            MetaStore::open(bucket.clone(), DriveKey::generate().unwrap(), "stranger"),
+            Err(MetaError::Sealed { .. })
+        ));
+        for (name, bytes) in bucket.objects() {
+            assert!(name.starts_with(keys::ROOT));
+            assert!(!contains(&bytes, b"Holiday"));
+            assert!(!contains(&bytes, MAIN.as_bytes()));
+        }
+    }
+}

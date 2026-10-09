@@ -1,11 +1,12 @@
 //! What seals the metadata repository's objects: the drive key, behind the
 //! [`Sealer`] trait.
 //!
-//! The drive key itself (XChaCha20-Poly1305 under a BLAKE3 subkey, a random
-//! 24-byte nonce per object, BLAKE3 keyed hashes for names) is the encrypted
-//! drive's; it implements [`Sealer`]. Until it does, [`TestSealer`] stands in:
-//! a real cipher and MAC built from HMAC-SHA256, so the tests see ciphertext
-//! that hides every name, but a test double, never a drive's key.
+//! The drive key (`crate::crypto::DriveKey`, feature `encryption`) implements
+//! [`Sealer`]: XChaCha20-Poly1305 under a BLAKE3 subkey, a random 24-byte
+//! nonce per object, BLAKE3 keyed hashes for names (see the `drive_key`
+//! module below). [`TestSealer`] is the tests' stand-in without the feature: a
+//! real cipher and MAC built from HMAC-SHA256, so the tests see ciphertext that
+//! hides every name, but a test double, never a drive's key.
 
 use std::{
     fmt,
@@ -200,5 +201,93 @@ impl Sealer for TestSealer {
 
     fn name_hash(&self, data: &[u8]) -> [u8; 32] {
         hmac_parts(&self.names, &[b"name", data])
+    }
+}
+
+/// The drive key seals the metadata repository (feature `encryption`).
+///
+/// - **Keys:** `seal = BLAKE3 derive_key("Azlin 2026-10-10 drive key: metadata repository
+///   sealing", drive key)` and `names = BLAKE3 derive_key("Azlin 2026-10-10 drive key: metadata
+///   repository names", drive key)`; the drive key itself seals and hashes nothing.
+/// - **Nonce:** 24 bytes from the OS random source for every [`Sealer::seal`] (192 bits:
+///   random nonces never meet in practice), stored in the object.
+/// - **Associated data:** `"AZM1 sealed metadata v1" || key id || context`: the object's bucket
+///   key (the context) and the drive key's id are bound to the ciphertext.
+/// - **Object:** `"AZM1" | key id (16) | nonce (24) | ciphertext | tag (16)`. An object sealed
+///   under another drive key (one from before a rotation) is refused by its key id before
+///   anything is decrypted.
+/// - **Names:** `BLAKE3 keyed_hash(names, data)`.
+#[cfg(feature = "encryption")]
+mod drive_key {
+    use chacha20poly1305::{
+        aead::{Aead, Payload},
+        Key, KeyInit, XChaCha20Poly1305, XNonce,
+    };
+
+    use super::{SealError, Sealer};
+    use crate::crypto::{random_bytes, DriveKey, KEY_ID_LEN, NONCE_LEN, TAG_LEN};
+
+    const SEAL_CONTEXT: &str = "Azlin 2026-10-10 drive key: metadata repository sealing";
+    const NAME_CONTEXT: &str = "Azlin 2026-10-10 drive key: metadata repository names";
+    const MAGIC: &[u8; 4] = b"AZM1";
+    const AAD_LABEL: &[u8] = b"AZM1 sealed metadata v1";
+    /// Magic, key id, nonce.
+    const HEAD: usize = 4 + KEY_ID_LEN + NONCE_LEN;
+
+    fn aad(key_id: &[u8], context: &[u8]) -> Vec<u8> {
+        let mut aad = Vec::with_capacity(AAD_LABEL.len() + key_id.len() + context.len());
+        aad.extend_from_slice(AAD_LABEL);
+        aad.extend_from_slice(key_id);
+        aad.extend_from_slice(context);
+        aad
+    }
+
+    impl Sealer for DriveKey {
+        fn seal(&self, context: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
+            let mut nonce = [0u8; NONCE_LEN];
+            random_bytes(&mut nonce)
+                .map_err(|_| SealError::new("the system gave no random bytes"))?;
+            let id = self.id();
+            let key = self.derive(SEAL_CONTEXT);
+            let sealed = XChaCha20Poly1305::new(Key::from_slice(&key[..]))
+                .encrypt(
+                    XNonce::from_slice(&nonce),
+                    Payload {
+                        msg: plaintext,
+                        aad: &aad(&id.0, context),
+                    },
+                )
+                .map_err(|_| SealError::new("the cipher refused to seal"))?;
+            let mut out = Vec::with_capacity(HEAD + sealed.len());
+            out.extend_from_slice(MAGIC);
+            out.extend_from_slice(&id.0);
+            out.extend_from_slice(&nonce);
+            out.extend_from_slice(&sealed);
+            Ok(out)
+        }
+
+        fn open(&self, context: &[u8], sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+            if sealed.len() < HEAD + TAG_LEN || &sealed[..4] != MAGIC {
+                return Err(SealError::new("not a sealed metadata object"));
+            }
+            let id = self.id();
+            if sealed[4..4 + KEY_ID_LEN] != id.0 {
+                return Err(SealError::new("sealed under another drive key"));
+            }
+            let key = self.derive(SEAL_CONTEXT);
+            XChaCha20Poly1305::new(Key::from_slice(&key[..]))
+                .decrypt(
+                    XNonce::from_slice(&sealed[4 + KEY_ID_LEN..HEAD]),
+                    Payload {
+                        msg: &sealed[HEAD..],
+                        aad: &aad(&id.0, context),
+                    },
+                )
+                .map_err(|_| SealError::new("the object does not authenticate in this place"))
+        }
+
+        fn name_hash(&self, data: &[u8]) -> [u8; 32] {
+            *blake3::keyed_hash(&self.derive(NAME_CONTEXT), data).as_bytes()
+        }
     }
 }

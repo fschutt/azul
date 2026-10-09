@@ -71,8 +71,7 @@ pub mod wal;
 use std::fmt;
 
 pub use bucket::{
-    Bucket, ConditionalPut, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts,
-    Version,
+    Bucket, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts, Version,
 };
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
@@ -247,7 +246,11 @@ impl fmt::Display for MetaError {
 impl std::error::Error for MetaError {}
 
 impl From<DriveError> for MetaError {
+    /// A lost conditional write of the drive is the repository's [`MetaError::Conflict`].
     fn from(e: DriveError) -> Self {
-        MetaError::Drive(e)
+        match e {
+            DriveError::Conflict { key } => MetaError::Conflict { key },
+            other => MetaError::Drive(other),
+        }
     }
 }

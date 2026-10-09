@@ -6,9 +6,9 @@
 //!   swap (the tests' races).
 //! - [`FolderBucket`]: a folder on disk (a USB disk, a NAS share, the tests); the
 //!   conditional writes hold an OS file lock next to the object.
-//! - [`DriveBucket`]: any [`Drive`] whose writes can be conditional
-//!   ([`ConditionalPut`], S3's `If-None-Match: *` / `If-Match`). Its conditional read
-//!   is a HEAD, then a GET when the version moved.
+//! - [`DriveBucket`]: any [`Drive`] whose writes can be conditional ([`Drive::put_if`],
+//!   S3's `If-None-Match: *` / `If-Match`). Its conditional read is a HEAD, then a GET
+//!   when the version moved.
 
 use std::{
     collections::BTreeMap,
@@ -21,7 +21,7 @@ use std::{
 use super::MetaError;
 use crate::{
     key::check_path_key, local::write_atomically, sigv4::sha256_hex, ByteRange, Drive,
-    DriveError, ListPage, ListRequest, ObjectInfo,
+    DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 /// An object's version as the bucket names it (S3: the entity tag without its
@@ -375,51 +375,29 @@ impl Drive for MemoryBucket {
                 key: key.to_string(),
             })
     }
-}
 
-impl ConditionalPut for MemoryBucket {
-    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
-        Bucket::create(self, key, bytes)
-    }
-
-    fn put_if_version(
+    fn put_if(
         &self,
         key: &str,
         bytes: &[u8],
-        version: &str,
-    ) -> Result<Option<Version>, MetaError> {
-        Bucket::replace(self, key, bytes, version)
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let written = match condition {
+            Precondition::Absent => Bucket::create(self, key, bytes),
+            Precondition::Matches(etag) => Bucket::replace(self, key, bytes, etag),
+        };
+        written.map_err(|e| match e {
+            MetaError::Conflict { key } => DriveError::Conflict { key },
+            MetaError::Drive(e) => e,
+            other => DriveError::Protocol(other.to_string()),
+        })
     }
 }
 
-/// The conditional writes of a drive: S3's `If-None-Match: *` and `If-Match`.
-///
-/// What the metadata repository needs from [`Drive`] beyond its plain calls.
-/// The encrypted drive's work adds them to the trait as `Drive::put_if(key,
-/// bytes, &Precondition::{Absent, Matches(etag)}) -> Result<Option<String>,
-/// DriveError>` with `DriveError::Conflict`; once it is there, every drive
-/// gets this trait from it:
-///
-/// ```text
-/// impl<D: Drive + ?Sized> ConditionalPut for D {
-///     fn put_if_absent(&self, key, bytes) { self.put_if(key, bytes, &Precondition::Absent) }
-///     fn put_if_version(&self, key, bytes, v) { self.put_if(key, bytes, &Precondition::Matches(v.into())) }
-/// }   // + DriveError::Conflict { key } -> MetaError::Conflict { key }
-/// ```
-pub trait ConditionalPut {
-    /// Writes only when no object has the key; [`MetaError::Conflict`] otherwise.
-    fn put_if_absent(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError>;
-    /// Writes only when the object is still `version`; [`MetaError::Conflict`] otherwise.
-    fn put_if_version(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        version: &str,
-    ) -> Result<Option<Version>, MetaError>;
-}
-
-/// A [`Drive`] with conditional writes as a [`Bucket`]: an S3 bucket (Azlin,
-/// AWS, R2, MinIO).
+/// A [`Drive`] with conditional writes ([`Drive::put_if`]: S3's
+/// `If-None-Match: *` and `If-Match`) as a [`Bucket`]: an S3 bucket (Azlin,
+/// AWS, R2, MinIO). A drive without them (a folder on disk) answers every
+/// create and swap with its `DriveError::Unsupported`.
 ///
 /// Its versions are the drive's entity tags. A read is a HEAD, then a GET: the
 /// bytes are at least as new as the version, so a swap made with that version
@@ -458,7 +436,7 @@ impl<D: Drive> DriveBucket<D> {
     }
 }
 
-impl<D: Drive + ConditionalPut> Bucket for DriveBucket<D> {
+impl<D: Drive> Bucket for DriveBucket<D> {
     fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
         let Some(version) = self.version_of(key)? else {
             return Ok(None);
@@ -489,11 +467,15 @@ impl<D: Drive + ConditionalPut> Bucket for DriveBucket<D> {
     }
 
     fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
-        self.drive.put_if_absent(key, bytes)
+        self.drive
+            .put_if(key, bytes, &Precondition::Absent)
+            .map_err(MetaError::from)
     }
 
     fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
-        self.drive.put_if_version(key, bytes, known)
+        self.drive
+            .put_if(key, bytes, &Precondition::Matches(known.to_string()))
+            .map_err(MetaError::from)
     }
 
     fn remove(&self, key: &str) -> Result<(), MetaError> {
