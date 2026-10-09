@@ -328,6 +328,12 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// there is one. `device` names this device in what it writes.
     pub fn create(bucket: B, sealer: S, device: &str) -> Result<Self, MetaError> {
         let mut store = MetaStore::new(bucket, sealer, device);
+        store.init()?;
+        Ok(store)
+    }
+
+    /// Writes the first manifest (create-only).
+    fn init(&mut self) -> Result<(), MetaError> {
         let manifest = Manifest {
             format: FORMAT,
             object_format: OBJECT_FORMAT.to_string(),
@@ -337,19 +343,19 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             log: Vec::new(),
             packs: Vec::new(),
             retired: Vec::new(),
-            writer: store.device.clone(),
-            updated_at: store.now(),
+            writer: self.device.clone(),
+            updated_at: self.now(),
         };
-        let sealed = store.seal(keys::MANIFEST, &manifest)?;
-        let version = match store.bucket.create(keys::MANIFEST, &sealed) {
+        let sealed = self.seal(keys::MANIFEST, &manifest)?;
+        let version = match self.bucket.create(keys::MANIFEST, &sealed) {
             Ok(version) => version,
             Err(MetaError::Conflict { .. }) => return Err(MetaError::RepositoryExists),
             Err(e) => return Err(e),
         };
-        store.seen_revision = manifest.revision;
-        store.state.revision = manifest.revision;
-        store.synced = Some(Synced { manifest, version });
-        Ok(store)
+        self.seen_revision = manifest.revision;
+        self.state.revision = manifest.revision;
+        self.synced = Some(Synced { manifest, version });
+        Ok(())
     }
 
     /// Opens the repository in `bucket` and reads it up to its head;
@@ -360,20 +366,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         Ok(store)
     }
 
-    /// Opens the repository, or creates it when the bucket has none.
+    /// Opens the repository, or creates it when the bucket has none (and opens
+    /// the one another device created in the same moment).
     pub fn open_or_create(bucket: B, sealer: S, device: &str) -> Result<Self, MetaError> {
         let mut store = MetaStore::new(bucket, sealer, device);
         match store.sync() {
-            Ok(_) => Ok(store),
-            Err(MetaError::NoRepository) => {
-                let MetaStore { bucket, sealer, .. } = store;
-                match MetaStore::create(bucket, sealer, device) {
-                    Err(MetaError::RepositoryExists) => Err(MetaError::Contended { attempts: 1 }),
-                    other => other,
+            Ok(_) => {}
+            Err(MetaError::NoRepository) => match store.init() {
+                Ok(()) => {}
+                Err(MetaError::RepositoryExists) => {
+                    store.sync()?;
                 }
-            }
-            Err(e) => Err(e),
+                Err(e) => return Err(e),
+            },
+            Err(e) => return Err(e),
         }
+        Ok(store)
     }
 
     /// Sets the clock (seconds since 1970): the tests' time.
@@ -1009,6 +1017,10 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         })
     }
 
+    /// The lease is still this device's: not expired by this device's clock,
+    /// and the bucket's lease is still the one the guard took (not released,
+    /// not taken over). The lease only saves double work: every change of the
+    /// manifest is a swap anyway.
     fn check_guard(&self, guard: &LeaseGuard) -> Result<(), MetaError> {
         if guard.expires_at <= self.now() {
             return Err(MetaError::LeaseHeld {
@@ -1016,7 +1028,23 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 expires_at: guard.expires_at,
             });
         }
-        Ok(())
+        match self.bucket.read(&guard.key)? {
+            Some((bytes, _)) => {
+                let current: Lease = self.open_sealed(&guard.key, &bytes)?;
+                if current.holder == self.device && current.expires_at == guard.expires_at {
+                    Ok(())
+                } else {
+                    Err(MetaError::LeaseHeld {
+                        holder: current.holder,
+                        expires_at: current.expires_at,
+                    })
+                }
+            }
+            None => Err(MetaError::LeaseHeld {
+                holder: String::new(),
+                expires_at: 0,
+            }),
+        }
     }
 }
 

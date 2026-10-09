@@ -5,18 +5,17 @@
 //!   answered counted, and a hook to run another device's write just before a
 //!   swap (the tests' races).
 //! - [`FolderBucket`]: a folder on disk (a USB disk, a NAS share, the tests); the
-//!   conditional writes hold a lock file next to the object.
+//!   conditional writes hold an OS file lock next to the object.
 //! - [`DriveBucket`]: any [`Drive`] whose writes can be conditional
 //!   ([`ConditionalPut`], S3's `If-None-Match: *` / `If-Match`). Its conditional read
 //!   is a HEAD, then a GET when the version moved.
 
 use std::{
     collections::BTreeMap,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime},
 };
 
 use super::MetaError;
@@ -502,63 +501,43 @@ impl<D: Drive + ConditionalPut> Bucket for DriveBucket<D> {
     }
 }
 
-/// A lock file older than this belongs to a writer that died: taken over.
-const STALE_LOCK: Duration = Duration::from_secs(30);
-
-/// How long a conditional write waits for another writer's lock.
-const LOCK_WAIT: Duration = Duration::from_secs(10);
-
-/// Holds `<object>.lock`; removes it when dropped.
+/// An exclusive OS lock on `<object>.lock` (`flock` on Unix, `LockFileEx` on
+/// Windows), held while the value lives. The system lets go of the lock of a
+/// writer that dies, so there is no stale lock to judge by its age. The lock
+/// file stays: deleting it while another writer waits on it would let a third
+/// one lock a new file of the same name.
 struct FileLock {
-    path: PathBuf,
+    _file: File,
 }
 
 impl FileLock {
+    /// Waits for the lock (its holders hold it for one compare and one write).
     fn acquire(object: &Path) -> Result<FileLock, MetaError> {
         let mut name = object.file_name().unwrap_or_default().to_os_string();
         name.push(".lock");
         let path = object.with_file_name(name);
-        let started = SystemTime::now();
-        loop {
-            match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Ok(FileLock { path }),
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                    let age = fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|t| t.elapsed().ok());
-                    if age.is_some_and(|age| age > STALE_LOCK) {
-                        let _ = fs::remove_file(&path);
-                        continue;
-                    }
-                    if started.elapsed().map_or(true, |waited| waited > LOCK_WAIT) {
-                        return Err(MetaError::Drive(DriveError::Io(format!(
-                            "{} stays locked by another writer",
-                            object.display()
-                        ))));
-                    }
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-                Err(e) => return Err(MetaError::Drive(DriveError::Io(e.to_string()))),
-            }
-        }
-    }
-}
-
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        let failed =
+            |e: std::io::Error| MetaError::Drive(DriveError::Io(format!("{}: {e}", path.display())));
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(&failed)?;
+        file.lock().map_err(&failed)?;
+        Ok(FileLock { _file: file })
     }
 }
 
 /// A folder on disk as a bucket: the key `a/b` is the file `<root>/a/b`.
 ///
 /// A version is the first 128 bits of the SHA-256 of the file's bytes (sealed
-/// objects never repeat their bytes). A conditional write takes the lock file
-/// `<object>.lock` (created exclusively; one older than 30 s is a dead writer's
-/// and taken over), checks, writes through a temporary file and a rename, and
-/// lets go: correct between processes and computers that share the folder, as
-/// long as their clocks agree within the stale time.
+/// objects never repeat their bytes). A conditional write takes an exclusive
+/// OS lock on `<object>.lock`, checks, writes through a temporary file and a
+/// rename, and lets go: correct between the processes of a computer, and
+/// between computers as far as the share's file locks reach (a USB disk moved
+/// between them, a share whose server honours them).
 #[derive(Debug, Clone)]
 pub struct FolderBucket {
     root: PathBuf,

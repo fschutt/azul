@@ -525,3 +525,19 @@ fn maintenance_needs_a_lease_that_has_not_expired() {
         Err(MetaError::LeaseHeld { .. })
     ));
 }
+
+#[test]
+fn maintenance_needs_the_lease_still_to_be_this_devices_in_the_bucket() {
+    let bucket = MemoryBucket::new();
+    let (_time, now) = clock(1_000);
+    let mut laptop = MetaStore::create(bucket, sealer(), "laptop")
+        .unwrap()
+        .with_clock(now);
+    let guard = laptop.acquire_lease(MAINTENANCE, 100).unwrap();
+    assert_eq!(laptop.collect_garbage(&guard, 0).unwrap(), 0);
+    laptop.release_lease(guard.clone()).unwrap();
+    assert!(matches!(
+        laptop.compact(&guard),
+        Err(MetaError::LeaseHeld { .. })
+    ));
+}

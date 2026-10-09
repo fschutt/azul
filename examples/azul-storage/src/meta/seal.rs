@@ -94,7 +94,7 @@ impl<S: Sealer + ?Sized> Sealer for Box<S> {
 type HmacSha256 = Hmac<Sha256>;
 
 /// HMAC-SHA256 of the parts, one after the other.
-fn hmac(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+fn hmac_parts(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
     let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC takes a key of any length");
     for part in parts {
         mac.update(part);
@@ -135,9 +135,9 @@ impl TestSealer {
     #[must_use]
     pub fn new(key: [u8; 32]) -> Self {
         TestSealer {
-            enc: hmac(&key, &[b"azul-storage meta TestSealer v1: encryption"]),
-            mac: hmac(&key, &[b"azul-storage meta TestSealer v1: authentication"]),
-            names: hmac(&key, &[b"azul-storage meta TestSealer v1: names"]),
+            enc: hmac_parts(&key, &[b"azul-storage meta TestSealer v1: encryption"]),
+            mac: hmac_parts(&key, &[b"azul-storage meta TestSealer v1: authentication"]),
+            names: hmac_parts(&key, &[b"azul-storage meta TestSealer v1: names"]),
             salt: crate::ids::random_seed(),
             counter: AtomicU64::new(0),
         }
@@ -145,7 +145,7 @@ impl TestSealer {
 
     fn keystream_xor(&self, nonce: &[u8], data: &mut [u8]) {
         for (index, block) in data.chunks_mut(32).enumerate() {
-            let stream = hmac(&self.enc, &[nonce, &(index as u64).to_le_bytes()]);
+            let stream = hmac_parts(&self.enc, &[nonce, &(index as u64).to_le_bytes()]);
             for (byte, key) in block.iter_mut().zip(stream.iter()) {
                 *byte ^= key;
             }
@@ -166,7 +166,7 @@ impl TestSealer {
 impl Sealer for TestSealer {
     fn seal(&self, context: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
         let count = self.counter.fetch_add(1, Ordering::Relaxed);
-        let nonce_full = hmac(
+        let nonce_full = hmac_parts(
             &self.names,
             &[b"nonce", &self.salt.to_le_bytes(), &count.to_le_bytes()],
         );
@@ -199,6 +199,6 @@ impl Sealer for TestSealer {
     }
 
     fn name_hash(&self, data: &[u8]) -> [u8; 32] {
-        hmac(&self.names, &[b"name", data])
+        hmac_parts(&self.names, &[b"name", data])
     }
 }

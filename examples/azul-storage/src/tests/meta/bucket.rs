@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     sync::{Arc, Barrier},
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use super::{every_bucket, TempDir};
@@ -203,29 +203,47 @@ fn a_folder_bucket_refuses_a_key_that_climbs_out_of_its_folder() {
 }
 
 #[test]
-fn a_folder_bucket_takes_over_the_lock_of_a_writer_that_died() {
+fn a_lock_file_a_dead_writer_left_behind_is_no_obstacle() {
     let dir = TempDir::new("meta-folder-lock");
     let bucket = FolderBucket::new(dir.path());
     let v1 = bucket.create("m/manifest", b"base").unwrap().unwrap();
-    let lock = dir.path().join("m").join("manifest.lock");
-    let file = File::create(&lock).unwrap();
-    file.set_modified(SystemTime::now() - Duration::from_secs(120))
-        .unwrap();
-    drop(file);
+    // A lock file nobody holds a lock on: what a crash leaves.
+    File::create(dir.path().join("m").join("manifest.lock")).unwrap();
     assert!(bucket.replace("m/manifest", b"next", &v1).is_ok());
-    assert!(!lock.exists());
 }
 
 #[test]
-fn a_folder_bucket_leaves_no_lock_behind() {
-    let dir = TempDir::new("meta-folder-nolock");
+fn a_folder_bucket_waits_for_the_writer_that_holds_the_lock() {
+    let dir = TempDir::new("meta-folder-wait");
+    let bucket = FolderBucket::new(dir.path());
+    let v1 = bucket.create("m/manifest", b"base").unwrap().unwrap();
+    let held = File::options()
+        .read(true)
+        .write(true)
+        .open(dir.path().join("m").join("manifest.lock"))
+        .unwrap();
+    held.lock().unwrap();
+    let waiting = {
+        let bucket = bucket.clone();
+        std::thread::spawn(move || bucket.replace("m/manifest", b"next", &v1).is_ok())
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!waiting.is_finished());
+    drop(held);
+    assert!(waiting.join().unwrap());
+}
+
+#[test]
+fn a_folder_bucket_leaves_no_temporary_file_behind() {
+    let dir = TempDir::new("meta-folder-notemp");
     let bucket = FolderBucket::new(dir.path());
     let v1 = bucket.create("m/manifest", b"base").unwrap().unwrap();
     assert!(bucket.replace("m/manifest", b"x", "not-the-version").is_err());
     bucket.replace("m/manifest", b"next", &v1).unwrap();
-    let names: Vec<String> = std::fs::read_dir(dir.path().join("m"))
+    let mut names: Vec<String> = std::fs::read_dir(dir.path().join("m"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(names, vec!["manifest".to_string()]);
+    names.sort();
+    assert_eq!(names, ["manifest", "manifest.lock"]);
 }
