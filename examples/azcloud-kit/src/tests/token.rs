@@ -476,3 +476,83 @@ fn a_refused_drive_token_means_signing_in_again_under_any_context() {
     });
     assert!(!busy.is_sign_in());
 }
+
+#[test]
+fn only_a_401_to_a_call_with_the_drive_token_means_signing_in_again() {
+    let fake = Fake::new(|call, _| {
+        Ok(if call.url.ends_with("/credentials") {
+            json(
+                403,
+                r#"{"error": "forbidden", "message": "the pending device cannot do that"}"#,
+            )
+        } else {
+            json(
+                403,
+                r#"{"error": "issue_key_wrong", "message": "not this checkout's issue key"}"#,
+            )
+        })
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // A 403 to a call with the drive token: the token server refused this one call, the token
+    // is not gone.
+    match server.refresh("d_1", "dt_f.0.aaa") {
+        Err(TokenError::Refused { status, code, .. }) => {
+            assert_eq!(status, 403);
+            assert_eq!(code, "forbidden");
+        }
+        other => panic!("not a refusal: {other:?}"),
+    }
+    // A 403 to a call without one: its code is the answer.
+    match server.tiers() {
+        Err(TokenError::Refused { status, code, .. }) => {
+            assert_eq!(status, 403);
+            assert_eq!(code, "issue_key_wrong");
+        }
+        other => panic!("not a refusal: {other:?}"),
+    }
+}
+
+#[test]
+fn a_refresh_answered_503_is_tried_again_with_the_same_token_and_never_drops_it() {
+    let not_verified =
+        r#"{"error": "not_verified", "message": "not verified yet; try again later"}"#;
+    let try_again = r#"{"error": "try_again", "message": "the token changed meanwhile"}"#;
+    let fresh = bundle("AKID2", "2026-10-09T09:15:00Z", "dt_f.1.bbb");
+    let fake = Fake::new(move |_, n| {
+        Ok(match n {
+            0 => json(503, not_verified),
+            1 => json(503, try_again),
+            _ => json(200, &fresh),
+        })
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(std::time::Duration::ZERO);
+    let bundle = server.refresh("d_1", "dt_f.0.aaa").unwrap();
+    assert_eq!(bundle.drive_token, "dt_f.1.bbb");
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 3, "two 503s, then the answer");
+    for call in &calls {
+        assert_eq!(
+            header(call, "authorization"),
+            Some("Bearer dt_f.0.aaa"),
+            "the SAME token"
+        );
+    }
+    // A token server that keeps answering 503: a refusal after three tries - the token stays
+    // the device's (only a 401 says it is gone).
+    let busy = Fake::new(move |_, _| Ok(json(503, not_verified)));
+    let transport = Shared(busy.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(std::time::Duration::ZERO);
+    let error = server.refresh("d_1", "dt_f.0.aaa").unwrap_err();
+    assert!(
+        matches!(&error, TokenError::Refused { status: 503, code, .. } if code == "not_verified"),
+        "{error:?}"
+    );
+    assert!(!CloudError::from(error).is_sign_in());
+    assert_eq!(busy.calls().len(), 3);
+}
