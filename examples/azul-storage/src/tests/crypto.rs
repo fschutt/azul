@@ -1,14 +1,25 @@
 //! The keys of an encrypted drive: file keys wrapped by the drive key or a share key, the
-//! object ids that name the bucket's objects, ids of keys; a segment's compression policy.
+//! object ids that name the bucket's objects, ids of keys; a segment's compression policy;
+//! the drive key sealed to members and to the recovery code; a share.
 
 use std::collections::HashSet;
 
-use crate::crypto::{
-    codec::{
-        decompress, looks_compressed, worth_it, Codec, Compression, Encoded, Encoder,
-        CODEC_BROTLI,
+use super::mem_bucket::MemBucket;
+use crate::{
+    crypto::{
+        azl1::{decrypt, encrypt, OpenObject, WriteOptions},
+        codec::{
+            decompress, looks_compressed, worth_it, Codec, Compression, Encoded, Encoder,
+            CODEC_BROTLI,
+        },
+        keys::{
+            load_member_wrap, load_recovery_wrap, member_key_file, store_member_wrap,
+            store_recovery_wrap, MemberPublic, MemberSecret, MemberWrap, RecoveryCode,
+            RecoveryKdf, RecoveryWrap, RECOVERY_KEY_FILE,
+        },
+        CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey, WrappedKey, KEY_LEN,
     },
-    CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey, WrappedKey, KEY_LEN,
+    DriveError,
 };
 
 #[test]
@@ -280,4 +291,262 @@ fn codec_bytes_of_later_versions_are_named_not_guessed() {
         Codec::from_byte(200),
         Err(CryptoError::Unsupported(_))
     ));
+}
+
+// ==== The drive key sealed to members and to the recovery code (crypto::keys) ====
+
+const DRIVE: &str = "drive-7f3a";
+
+/// A tiny Argon2id cost: the tests run in debug builds too.
+fn cheap() -> RecoveryKdf {
+    RecoveryKdf::with_cost(64, 1, 1).unwrap()
+}
+
+#[test]
+fn a_member_wrap_opens_with_the_members_secret_key_only() {
+    let drive_key = DriveKey::generate().unwrap();
+    let alice = MemberSecret::generate().unwrap();
+    let bob = MemberSecret::generate().unwrap();
+    let alice_id = alice.public().id();
+    let wrap = MemberWrap::seal(&drive_key, DRIVE, &alice_id, &alice.public()).unwrap();
+    assert_eq!(wrap.drive_key_id, drive_key.id());
+    assert_eq!(wrap.open(DRIVE, &alice).unwrap(), drive_key);
+    assert_eq!(wrap.open(DRIVE, &bob), Err(CryptoError::WrongKey));
+
+    // The secret as the keyring keeps it.
+    let again = MemberSecret::from_bytes(*alice.to_bytes());
+    assert_eq!(again.public(), alice.public());
+    assert_eq!(wrap.open(DRIVE, &again).unwrap(), drive_key);
+
+    let second = MemberWrap::seal(&drive_key, DRIVE, &alice_id, &alice.public()).unwrap();
+    assert_ne!(second.ephemeral, wrap.ephemeral, "a fresh ephemeral key per wrap");
+    assert_ne!(second.sealed, wrap.sealed);
+    assert_eq!(format!("{alice:?}"), "MemberSecret(***)");
+}
+
+#[test]
+fn a_member_wrap_is_bound_to_its_drive_and_its_member() {
+    let drive_key = DriveKey::generate().unwrap();
+    let alice = MemberSecret::generate().unwrap();
+    let wrap = MemberWrap::seal(&drive_key, DRIVE, "alice-laptop", &alice.public()).unwrap();
+    assert_eq!(
+        wrap.open("another-drive", &alice),
+        Err(CryptoError::WrongKey)
+    );
+    let mut renamed = wrap.clone();
+    renamed.member = String::from("mallory");
+    assert_eq!(renamed.open(DRIVE, &alice), Err(CryptoError::WrongKey));
+    let mut relabelled = wrap.clone();
+    relabelled.drive_key_id = DriveKey::generate().unwrap().id();
+    assert_eq!(relabelled.open(DRIVE, &alice), Err(CryptoError::WrongKey));
+    // A low-order point instead of a key, either way round.
+    let mut low_order = wrap;
+    low_order.ephemeral = [0u8; 32];
+    assert!(matches!(
+        low_order.open(DRIVE, &alice),
+        Err(CryptoError::Damaged(_))
+    ));
+    assert!(matches!(
+        MemberWrap::seal(&drive_key, DRIVE, "alice", &MemberPublic([0u8; 32])),
+        Err(CryptoError::Damaged(_))
+    ));
+}
+
+#[test]
+fn member_ids_are_safe_file_names_in_the_bucket() {
+    let alice = MemberSecret::generate().unwrap();
+    let id = alice.public().id();
+    assert_eq!(id.len(), 32);
+    assert_eq!(
+        member_key_file(&id).unwrap(),
+        format!(".azlin/keys/{id}.key")
+    );
+    let long = "a".repeat(65);
+    for bad in ["", "Alice", "../x", "a/b", "recovery", long.as_str()] {
+        assert!(member_key_file(bad).is_err(), "{bad}");
+        assert!(
+            MemberWrap::seal(&DriveKey::generate().unwrap(), DRIVE, bad, &alice.public()).is_err(),
+            "{bad}"
+        );
+    }
+    assert_ne!(id, MemberSecret::generate().unwrap().public().id());
+}
+
+#[test]
+fn a_member_wrap_round_trips_through_its_key_file_in_the_bucket() {
+    let bucket = MemBucket::new();
+    let drive_key = DriveKey::generate().unwrap();
+    let alice = MemberSecret::generate().unwrap();
+    let id = alice.public().id();
+    let wrap = MemberWrap::seal(&drive_key, DRIVE, &id, &alice.public()).unwrap();
+    store_member_wrap(&bucket, &wrap).unwrap();
+    assert_eq!(bucket.keys(), vec![format!(".azlin/keys/{id}.key")]);
+    let file = String::from_utf8(bucket.object(&bucket.keys()[0]).unwrap()).unwrap();
+    assert!(file.contains("\"format\": \"azlin-drive-key\""), "{file}");
+    assert!(!file.contains(&crate::crypto::to_hex(drive_key.as_bytes())));
+    let loaded = load_member_wrap(&bucket, &id).unwrap();
+    assert_eq!(loaded, wrap);
+    assert_eq!(loaded.open(DRIVE, &alice).unwrap(), drive_key);
+
+    bucket.set(
+        &member_key_file(&id).unwrap(),
+        b"{\"format\": \"something else\"}".to_vec(),
+    );
+    assert!(matches!(
+        load_member_wrap(&bucket, &id),
+        Err(DriveError::Corrupt { .. })
+    ));
+    assert!(matches!(
+        load_member_wrap(&bucket, "nobody"),
+        Err(DriveError::NotFound { .. })
+    ));
+}
+
+#[test]
+fn the_recovery_code_opens_the_recovery_wrap_and_a_wrong_code_does_not() {
+    let drive_key = DriveKey::generate().unwrap();
+    let code = RecoveryCode::generate().unwrap();
+    let wrap = RecoveryWrap::seal(&drive_key, DRIVE, &code, cheap()).unwrap();
+    assert_eq!(wrap.drive_key_id, drive_key.id());
+    assert_eq!(wrap.open(DRIVE, &code).unwrap(), drive_key);
+    let typed = RecoveryCode::parse(&code.to_text()).unwrap();
+    assert_eq!(wrap.open(DRIVE, &typed).unwrap(), drive_key);
+    assert_eq!(
+        wrap.open(DRIVE, &RecoveryCode::generate().unwrap()),
+        Err(CryptoError::WrongKey)
+    );
+    assert_eq!(
+        wrap.open("another-drive", &code),
+        Err(CryptoError::WrongKey)
+    );
+    let mut cheaper = wrap.clone();
+    cheaper.kdf.memory_kib = 32;
+    assert_eq!(
+        cheaper.open(DRIVE, &code),
+        Err(CryptoError::WrongKey),
+        "the cost is bound into the wrap"
+    );
+    let mut greedy = wrap;
+    greedy.kdf.memory_kib = RecoveryKdf::MAX_MEMORY_KIB + 1;
+    assert!(matches!(
+        greedy.open(DRIVE, &code),
+        Err(CryptoError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn the_recovery_wrap_round_trips_through_its_key_file() {
+    let bucket = MemBucket::new();
+    let drive_key = DriveKey::generate().unwrap();
+    let code = RecoveryCode::generate().unwrap();
+    let wrap = RecoveryWrap::seal(&drive_key, DRIVE, &code, cheap()).unwrap();
+    store_recovery_wrap(&bucket, &wrap).unwrap();
+    assert_eq!(bucket.keys(), vec![RECOVERY_KEY_FILE.to_string()]);
+    let file = String::from_utf8(bucket.object(RECOVERY_KEY_FILE).unwrap()).unwrap();
+    assert!(file.contains("\"algorithm\": \"argon2id\""), "{file}");
+    assert!(!file.contains(&crate::crypto::to_hex(drive_key.as_bytes())));
+    let loaded = load_recovery_wrap(&bucket).unwrap();
+    assert_eq!(loaded, wrap);
+    assert_eq!(loaded.open(DRIVE, &code).unwrap(), drive_key);
+}
+
+#[test]
+fn a_recovery_code_is_26_base32_characters_and_reads_back_as_people_type_it() {
+    let code = RecoveryCode::from_bytes([0xA5; 16]);
+    let text = code.to_text();
+    assert_eq!(text.len(), 30, "{}", text.as_str());
+    let groups: Vec<usize> = text.split('-').map(str::len).collect();
+    assert_eq!(groups, vec![5, 5, 5, 5, 6]);
+    let alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    assert!(text.chars().all(|c| c == '-' || alphabet.contains(c)));
+    assert_eq!(
+        RecoveryCode::parse(&text).unwrap().as_bytes(),
+        code.as_bytes()
+    );
+
+    // As people type it: lower case, spaces, O for 0, L for 1.
+    let sloppy = text
+        .to_lowercase()
+        .replace('-', " ")
+        .replace('0', "o")
+        .replace('1', "l");
+    assert_eq!(
+        RecoveryCode::parse(&sloppy).unwrap().as_bytes(),
+        code.as_bytes()
+    );
+
+    let compact: String = text.chars().filter(|c| *c != '-').collect();
+    assert!(RecoveryCode::parse(&compact[..25]).is_none(), "one short");
+    assert!(RecoveryCode::parse(&format!("{compact}0")).is_none(), "one long");
+    assert!(RecoveryCode::parse(&format!("U{}", &compact[1..])).is_none(), "no U");
+    // The last character carries two zero bits; another one is a typo.
+    let last = compact.chars().last().unwrap();
+    let next = alphabet.as_bytes()[alphabet.find(last).unwrap() + 1] as char;
+    let typo = format!("{}{next}", &compact[..25]);
+    assert!(RecoveryCode::parse(&typo).is_none());
+
+    for _ in 0..100 {
+        let code = RecoveryCode::generate().unwrap();
+        let back = RecoveryCode::parse(&code.to_text()).unwrap();
+        assert_eq!(back.as_bytes(), code.as_bytes());
+    }
+}
+
+#[test]
+fn the_default_recovery_cost_is_argon2id_with_256_mib_and_3_passes() {
+    assert_eq!(
+        (
+            RecoveryKdf::DEFAULT_MEMORY_KIB,
+            RecoveryKdf::DEFAULT_ITERATIONS
+        ),
+        (262_144, 3)
+    );
+    let kdf = RecoveryKdf::fresh().unwrap();
+    assert_eq!(kdf.memory_kib, 256 * 1024);
+    assert_ne!(kdf.salt, RecoveryKdf::fresh().unwrap().salt, "a fresh salt");
+    assert!(
+        RecoveryKdf::with_cost(4, 1, 1).is_err(),
+        "Argon2 needs 8 KiB per lane"
+    );
+    assert_eq!(
+        format!("{:?}", RecoveryCode::generate().unwrap()),
+        "RecoveryCode(***)"
+    );
+}
+
+// ==== A share ====
+
+#[test]
+fn a_share_key_opens_the_file_it_covers_and_not_another() {
+    let drive = DriveKey::generate().unwrap();
+    let (a_id, b_id) = (ObjectId::generate().unwrap(), ObjectId::generate().unwrap());
+    let (a, a_summary) =
+        encrypt(b"shared report", a_id, &drive, &WriteOptions::default()).unwrap();
+    let (b, b_summary) =
+        encrypt(b"private diary", b_id, &drive, &WriteOptions::default()).unwrap();
+
+    // The owner shares A: its file key, wrapped for the share; never the drive key.
+    let share = ShareKey::generate().unwrap();
+    let a_key = drive.unwrap_file_key(&a_summary.wrapped_key, &a_id).unwrap();
+    let grant = share.wrap_file_key(&a_key, &a_id).unwrap();
+
+    // The recipient holds the share key and the grant.
+    let opened = share.unwrap_file_key(&grant, &a_id).unwrap();
+    assert_eq!(decrypt(&a, &a_id, &opened).unwrap(), b"shared report");
+
+    // B: the grant names A, B's own wrap belongs to the drive key, A's key is not B's.
+    assert!(matches!(
+        share.unwrap_file_key(&grant, &b_id),
+        Err(CryptoError::Damaged(_))
+    ));
+    assert_eq!(
+        share.unwrap_file_key(&b_summary.wrapped_key, &b_id),
+        Err(CryptoError::WrongKey)
+    );
+    assert_eq!(decrypt(&b, &b_id, &opened), Err(CryptoError::KeyMismatch));
+    let share_as_drive_key = DriveKey::from_bytes(*share.as_bytes());
+    assert_eq!(
+        OpenObject::open_with_drive_key(&b[..], &b_id, &share_as_drive_key).unwrap_err(),
+        CryptoError::WrongKey
+    );
 }

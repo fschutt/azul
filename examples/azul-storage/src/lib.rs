@@ -314,6 +314,9 @@ pub enum DriveError {
     /// A conditional write lost ([`Drive::put_if`]): the object was there already, or it
     /// changed since it was read (S3: 412 Precondition Failed). Nothing was written.
     Conflict { key: String },
+    /// The object is damaged, or was changed by someone without its key: an encrypted
+    /// drive's object or key file that does not authenticate.
+    Corrupt { key: String, reason: String },
 }
 
 impl fmt::Display for DriveError {
@@ -337,6 +340,9 @@ impl fmt::Display for DriveError {
             DriveError::InvalidConfig(message) => write!(f, "{message}"),
             DriveError::Conflict { key } => {
                 write!(f, "\"{key}\" was written by someone else in the meantime")
+            }
+            DriveError::Corrupt { key, reason } => {
+                write!(f, "\"{key}\" is damaged or was changed ({reason})")
             }
         }
     }

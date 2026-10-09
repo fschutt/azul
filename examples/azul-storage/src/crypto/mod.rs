@@ -28,6 +28,7 @@
 
 pub mod azl1;
 pub mod codec;
+pub mod keys;
 
 use std::fmt;
 
@@ -36,6 +37,8 @@ use chacha20poly1305::{
     Key, KeyInit, XChaCha20Poly1305, XNonce,
 };
 use zeroize::{Zeroize, Zeroizing};
+
+use crate::DriveError;
 
 /// Bytes of every key here (256 bits).
 pub const KEY_LEN: usize = 32;
@@ -99,6 +102,32 @@ impl fmt::Display for CryptoError {
 }
 
 impl std::error::Error for CryptoError {}
+
+impl CryptoError {
+    /// The error as a drive's error about `key`: a wrong key is a refusal, a damaged object
+    /// [`DriveError::Corrupt`], everything else what it is.
+    #[must_use]
+    pub fn for_key(self, key: &str) -> DriveError {
+        match self {
+            CryptoError::WrongKey => DriveError::Denied {
+                message: format!("this drive's key does not open \"{key}\""),
+            },
+            CryptoError::KeyMismatch => DriveError::Corrupt {
+                key: key.to_string(),
+                reason: String::from("it is not the object its key belongs to (key commitment)"),
+            },
+            CryptoError::Damaged(why) => DriveError::Corrupt {
+                key: key.to_string(),
+                reason: why,
+            },
+            CryptoError::Unsupported(why) => DriveError::Unsupported(format!("\"{key}\": {why}")),
+            CryptoError::Random => {
+                DriveError::Io(String::from("the system's random source failed"))
+            }
+            CryptoError::Io(why) => DriveError::Io(format!("{key}: {why}")),
+        }
+    }
+}
 
 impl From<std::io::Error> for CryptoError {
     /// A `CryptoError` that travelled through `io::Read` / `io::Write` comes back as itself.
