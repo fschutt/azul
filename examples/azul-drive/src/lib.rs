@@ -30,6 +30,14 @@
 //! folders among them their item counts (one `read_dir` each) and the pictures
 //! their thumbnails, nothing else.
 //!
+//! The search box searches the open folder and every folder below it (`find`, on azul-search:
+//! ripgrep's parallel walker and searcher, AzCode's find in files' engine too): the names first,
+//! then - the Search tab's "File contents" - the files whose lines hold the text. The results
+//! stream into the view as rows (Details, with their folder and the line they matched on) and
+//! the status line counts them ("Searching... 1,234 found"); every key starts the search again
+//! (the one running stops within milliseconds), Escape closes it. A cloud drive is searched by
+//! name over a recursive listing - slower, and its files are not read.
+//!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
 //! storage call goes through `azul_storage::Drive` on an azul `Thread`; no
@@ -69,9 +77,16 @@
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
 //! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
+<<<<<<< HEAD
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`. Keys, passwords, tokens and payment pages are never printed.
+=======
+//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`,
+//! `AZDRIVE_FILE_MENU <action>`, `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
+//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
+//! passwords, tokens and payment pages are never printed.
+>>>>>>> worktree-agent-a865b806512f47155
 //!
 //! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
 //! Options' Drives) is a modal dialog - a transient window over the window: Buy storage (Azlin's
@@ -100,6 +115,10 @@ mod add_flow;
 pub mod args;
 pub mod browse;
 pub mod fileops;
+/// The search box's search of the open folder and below it, as plain data.
+pub mod find;
+#[cfg(test)]
+mod find_tests;
 mod ids;
 mod jobs;
 pub mod keys;
@@ -112,6 +131,8 @@ pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
 mod ui_dialogs;
+/// The search's results in the folder view.
+mod ui_find;
 mod ui_panes;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
@@ -545,7 +566,13 @@ pub(crate) struct DriveState {
     pub selected_pin: Option<usize>,
     pub type_ahead: TypeAhead,
     pub settings: Settings,
+    /// The search box's text.
     pub search: String,
+    /// The search of the open folder and every folder below it, while the search box holds
+    /// text: its results are the rows the view shows.
+    pub find: Option<find::FindState>,
+    /// The searches started so far (a batch of an older one is dropped).
+    pub find_serial: u64,
     pub editing_path: bool,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
@@ -664,13 +691,37 @@ impl DriveState {
         }
     }
 
-    /// The rows shown: hidden items only when asked, the search's matches.
+    /// The rows shown: the search's results while a search is open (the walk left the hidden
+    /// items out unless they show), else the open folder's rows - hidden items only when asked.
     pub fn visible_entries(&self) -> Vec<&Entry> {
+        if let Some(find) = &self.find {
+            return find.rows.iter().collect();
+        }
         self.entries
             .iter()
             .filter(|e| self.settings.show_hidden || !e.is_hidden())
             .filter(|e| browse::matches_search(e, &self.search))
             .collect()
+    }
+
+    /// The layout the folder view draws: the search's results always in Details (a row each,
+    /// with its folder and the line it matched on), else the user's.
+    pub fn view_layout(&self) -> model::ViewLayout {
+        if self.find.is_some() {
+            model::ViewLayout::Details
+        } else {
+            self.settings.layout
+        }
+    }
+
+    /// The grouping the folder view draws: none for the search's results (they come in the
+    /// order they were found: names first), else the user's.
+    pub fn view_grouping(&self) -> model::GroupBy {
+        if self.find.is_some() {
+            model::GroupBy::None
+        } else {
+            self.settings.group_by
+        }
     }
 
     /// The keys of the rows shown, in order.
@@ -705,11 +756,15 @@ impl DriveState {
     /// The one selected row.
     pub fn single_selected(&self) -> Option<&Entry> {
         let key = self.selection.single()?;
-        self.entries.iter().find(|e| e.key == key)
+        self.entry(key)
     }
 
+    /// The row of `key`: a search's result while a search is open, else the open folder's.
     pub fn entry(&self, key: &str) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.key == key)
+        match &self.find {
+            Some(find) => find.entry(key),
+            None => self.entries.iter().find(|e| e.key == key),
+        }
     }
 
     /// The drives as `(id, name)`, for the typed path.
@@ -807,7 +862,7 @@ impl DriveState {
     /// The items per row of a grid layout, for the arrow keys (the content
     /// is the window minus the navigation pane and the right pane).
     pub fn grid_columns(&self) -> usize {
-        if !self.settings.layout.is_grid() {
+        if !self.view_layout().is_grid() {
             return 1;
         }
         let mut width = self.window_width;
@@ -817,7 +872,7 @@ impl DriveState {
         if self.settings.preview_pane || self.settings.details_pane {
             width *= self.pane_ratios.1;
         }
-        self.settings.layout.columns_in(width - 32.0 - LEAF_FRAME_X)
+        self.view_layout().columns_in(width - 32.0 - LEAF_FRAME_X)
     }
 
     /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
@@ -987,6 +1042,84 @@ pub(crate) fn start_listing(
     );
 }
 
+/// Stops the open search (its worker hears it within milliseconds; its batches would be dropped
+/// anyway): the folder's own rows show again. Whether one was open.
+pub(crate) fn stop_find(s: &mut DriveState) -> bool {
+    let Some(find) = s.find.take() else {
+        return false;
+    };
+    find.cancel.store(true, Ordering::SeqCst);
+    s.selection = Selection::default();
+    s.clear_preview();
+    true
+}
+
+/// The search box's text changed, or a setting of the search did: the search running stops and
+/// a new one starts for the open folder and every folder below it - the names, then the files'
+/// contents when "File contents" is on; a cloud drive's names over a recursive listing (slower,
+/// no contents). Its results stream into the view as rows. An empty box (Escape cleared it)
+/// shows the folder again. This PC and Quick access are not searched.
+pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let was_open = stop_find(s);
+    let query = s.search.trim().to_string();
+    let index = s.current_drive();
+    let (Some(index), false) = (index, query.is_empty()) else {
+        if was_open {
+            println!("AZDRIVE_SEARCH_CLOSED");
+        }
+        return;
+    };
+    let Some(drive) = open_slot(s, index) else {
+        return;
+    };
+    let prefix = s.prefix().to_string();
+    let dir = s.local_dir(index, &prefix);
+    let remote = dir.is_none();
+    let contents = s.settings.search_contents && !remote && find::searches_contents(&query);
+    s.find_serial += 1;
+    let serial = s.find_serial;
+    let cancel = Arc::new(AtomicBool::new(false));
+    s.find = Some(find::FindState::new(
+        query.clone(),
+        contents,
+        remote,
+        serial,
+        cancel.clone(),
+    ));
+    // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
+    // with every key typed into it (the user may have chosen another tab meanwhile).
+    if !was_open {
+        s.ribbon_tab = ui_ribbon::RibbonTabKind::Search;
+    }
+    s.view_scroll.0 = 0.0;
+    ui_view::scroll_view_to_top(info);
+    println!("AZDRIVE_SEARCHING {query}");
+    let job = match dir {
+        Some(dir) => Job::Find {
+            serial,
+            request: find::local_request(
+                dir,
+                &query,
+                contents,
+                s.settings.show_hidden,
+                s.settings.search_ignore_files,
+                prefix.is_empty(),
+            ),
+            prefix,
+            cancel,
+        },
+        None => Job::FindRemote {
+            serial,
+            drive,
+            prefix,
+            pattern: azul_search::Pattern::guess(query),
+            show_hidden: s.settings.show_hidden,
+            cancel,
+        },
+    };
+    spawn(info, app, s, job);
+}
+
 /// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
 /// first when it needs the keyring.
 pub(crate) fn start_tree_listing(
@@ -1120,6 +1253,13 @@ pub(crate) fn go(
     s.clear_notice();
     s.editing_path = false;
     s.renaming = None;
+    // A search ends where its folder is left (a result's folder opens without it): the box
+    // empties too - what was typed there outranks the rebuild until the app sets it.
+    let searching = stop_find(s);
+    if searching || !s.search.is_empty() {
+        println!("AZDRIVE_SEARCH_CLOSED");
+        actions::clear_search_box(info);
+    }
     s.search.clear();
     // The folder being left may still be read: that read stops here.
     cancel_listing(s);
@@ -1165,6 +1305,11 @@ pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState)
         refresh_disks(s);
         s.root_counts.clear();
         count_drive_roots(info, app, s);
+        return;
+    }
+    if s.find.is_some() {
+        // F5 on a search's results searches again.
+        start_find(info, app, s);
         return;
     }
     start_listing(info, app, s, true);
@@ -1507,6 +1652,10 @@ pub(crate) fn changed(
         // Read again behind the rows that show: they stay until the new ones are in.
         start_listing(info, app, s, true);
     }
+    if s.find.is_some() && s.current_drive_id().as_deref() == Some(drive_id) {
+        // The search's results may hold what changed (a result renamed, deleted): it runs again.
+        start_find(info, app, s);
+    }
     tree_invalidate(info, app, s, (drive_id.to_string(), prefix.to_string()));
 }
 
@@ -1605,8 +1754,12 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Progress { .. }
             | Outcome::Thumbnail { .. }
             | Outcome::Scanned { done: false, .. }
+<<<<<<< HEAD
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+=======
+            | Outcome::Searched { end: None, .. }
+>>>>>>> worktree-agent-a865b806512f47155
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
@@ -1630,7 +1783,11 @@ pub(crate) extern "C" fn on_job_done(
             if serial != s.list_serial {
                 return Update::DoNothing;
             }
-            let changed = listing::apply_stats(&mut s.entries, &stats);
+            let mut changed = listing::apply_stats(&mut s.entries, &stats);
+            if let Some(find) = s.find.as_mut() {
+                // The search's rows in view were asked for (a result's key is the drive's).
+                changed += listing::apply_stats(&mut find.rows, &stats);
+            }
             if actions::needs_all_stats(s) {
                 // A sort by Size or Date modified is a chain: every answer asks for the next
                 // rows - even one that changed no row (its rows gone since) - and the answer
@@ -1868,6 +2025,31 @@ pub(crate) extern "C" fn on_job_done(
             }
         }
         Outcome::ThumbnailsDone => {}
+        Outcome::Searched {
+            serial,
+            batch,
+            phase,
+            searched,
+            end,
+        } => {
+            let Some(find) = s.find.as_mut().filter(|f| f.serial == serial) else {
+                return Update::DoNothing; // an older search, or none open any more
+            };
+            find.merge(batch);
+            find.phase = phase;
+            find.searched = searched;
+            if let Some(end) = end {
+                println!(
+                    "AZDRIVE_SEARCHED {} {} {}",
+                    find.rows.len(),
+                    if find.contents { "contents" } else { "names" },
+                    find.query
+                );
+                find.end = Some(end);
+            }
+            // The rows that came into view get their sizes and dates.
+            actions::request_view_work(&mut info, &handle, s);
+        }
     }
     Update::RefreshDom
 }
@@ -2267,6 +2449,8 @@ pub fn start() {
         type_ahead: TypeAhead::default(),
         settings,
         search: String::new(),
+        find: None,
+        find_serial: 0,
         editing_path: false,
         renaming: None,
         column_drag: None,

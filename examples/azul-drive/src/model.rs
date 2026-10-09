@@ -741,6 +741,12 @@ pub struct Settings {
     /// Ask before a delete that cannot be undone (a cloud drive, Shift+Delete).
     pub confirm_delete: bool,
     pub start: StartPlace,
+    /// The search box reads the files' contents too, after their names (the Search tab's
+    /// "File contents"; a folder on this computer only).
+    pub search_contents: bool,
+    /// The search passes over the files .gitignore and .ignore files name (the Search tab's
+    /// "Skip ignored files").
+    pub search_ignore_files: bool,
 }
 
 impl Default for Settings {
@@ -759,6 +765,8 @@ impl Default for Settings {
             pinned: Vec::new(),
             confirm_delete: true,
             start: StartPlace::ThisPc,
+            search_contents: false,
+            search_ignore_files: true,
         }
     }
 }
