@@ -6,7 +6,7 @@
 
 use std::{
     fs::File,
-    io::{self, Read},
+    io::{self, Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -48,25 +48,48 @@ pub(crate) fn searcher(context: usize) -> Searcher {
         .build()
 }
 
-/// Searches the file at `path` (at most `max_size` bytes large) for `matcher`, keeping at most
-/// `keep` matching lines.
+/// How a file is read for a content search.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Reading {
+    /// A larger file is not read (bytes).
+    pub(crate) max_size: u64,
+    /// The most matching lines kept.
+    pub(crate) keep: usize,
+    /// A file with a UTF-16 byte-order mark is read as text; `false`: it is binary.
+    pub(crate) utf16: bool,
+}
+
+/// Whether `head` (a file's first bytes) is a UTF-16 byte-order mark.
+fn utf16_mark(head: [u8; 2]) -> bool {
+    matches!(head, [0xFF, 0xFE] | [0xFE, 0xFF])
+}
+
+/// Searches the file at `path` for `matcher` as `reading` says.
 pub(crate) fn search_file(
     path: &Path,
     matcher: &ContentMatcher,
     searcher: &mut Searcher,
-    max_size: u64,
-    keep: usize,
+    reading: Reading,
     stop: Stop<'_>,
 ) -> FileResult {
-    let Ok(file) = File::open(path) else {
+    let Ok(mut file) = File::open(path) else {
         return FileResult::Failed;
     };
     match file.metadata() {
-        Ok(meta) if meta.len() > max_size => return FileResult::TooLarge,
+        Ok(meta) if meta.len() > reading.max_size => return FileResult::TooLarge,
         Ok(_) => {}
         Err(_) => return FileResult::Failed,
     }
-    search_reader(file, matcher, searcher, keep, stop)
+    if !reading.utf16 {
+        let mut head = [0u8; 2];
+        if file.read_exact(&mut head).is_ok() && utf16_mark(head) {
+            return FileResult::Binary;
+        }
+        if file.seek(SeekFrom::Start(0)).is_err() {
+            return FileResult::Failed;
+        }
+    }
+    search_reader(file, matcher, searcher, reading.keep, stop)
 }
 
 /// Searches what `reader` reads (a file's bytes) - the part of [`search_file`] after the open.

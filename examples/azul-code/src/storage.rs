@@ -301,7 +301,9 @@ pub fn search_files(folder: &Path, job: &SearchJob) -> SearchOutcome {
             max_matches: SEARCH_MAX_HITS,
             max_lines_per_file: SEARCH_MAX_HITS,
             max_file_size: SEARCH_MAX_FILE as u64,
-        });
+        })
+        // The editor opens files as UTF-8: a UTF-16 file's match could not be shown.
+        .with_utf16(false);
     let mut total = 0;
     let mut cut = false;
     let mut files = Vec::new();
@@ -310,10 +312,12 @@ pub fn search_files(folder: &Path, job: &SearchJob) -> SearchOutcome {
             return;
         };
         let mut hits = hits_of(&file);
-        // A line with several matches is several results: the cap counts results.
+        // A line with several matches is several results: the cap counts results (the
+        // engine's, lines) - reached, the search stops here.
         if total + hits.len() > SEARCH_MAX_HITS {
             hits.truncate(SEARCH_MAX_HITS - total);
             cut = true;
+            job.cancel.store(true, Ordering::Relaxed);
         }
         if hits.is_empty() {
             return;

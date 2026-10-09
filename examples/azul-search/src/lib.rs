@@ -119,6 +119,10 @@ pub struct Request {
     pub limits: Limits,
     /// The lines kept before and after each matching line.
     pub context: usize,
+    /// A file with a UTF-16 byte-order mark is read as text (transcoded to UTF-8); `false`: it
+    /// is passed over as binary (its NUL bytes) - for an app that opens files as UTF-8 only,
+    /// whose editor could not show the match.
+    pub utf16: bool,
 }
 
 impl Request {
@@ -132,6 +136,7 @@ impl Request {
             filters: Filters::default(),
             limits: Limits::default(),
             context: 0,
+            utf16: true,
         }
     }
 
@@ -162,6 +167,12 @@ impl Request {
     #[must_use]
     pub fn with_context(mut self, lines: usize) -> Request {
         self.context = lines;
+        self
+    }
+
+    #[must_use]
+    pub fn with_utf16(mut self, yes: bool) -> Request {
+        self.utf16 = yes;
         self
     }
 }
@@ -295,6 +306,7 @@ pub fn search(
         overrides,
         limits: request.limits,
         context: request.context,
+        utf16: request.utf16,
         stop: walk::Stop {
             cancel,
             limit: &limit,
@@ -303,8 +315,10 @@ pub fn search(
     };
     let mut gate = walk::Gate::new(request.limits, shared.stop);
     if let Some(names) = &names {
-        on_event(Event::Phase(Phase::Names));
-        walk::run(&shared, walk::Look::Names(names), true, &mut gate, on_event);
+        if !shared.stop.is_set() {
+            on_event(Event::Phase(Phase::Names));
+            walk::run(&shared, walk::Look::Names(names), true, &mut gate, on_event);
+        }
     }
     if let Some(contents) = &contents {
         if !shared.stop.is_set() {

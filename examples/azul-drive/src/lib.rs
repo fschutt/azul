@@ -1046,8 +1046,11 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         serial,
         cancel.clone(),
     ));
-    // Windows 8: the Search tab (Search Tools) comes forward with a search.
-    s.ribbon_tab = ui_ribbon::RibbonTabKind::Search;
+    // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
+    // with every key typed into it (the user may have chosen another tab meanwhile).
+    if !was_open {
+        s.ribbon_tab = ui_ribbon::RibbonTabKind::Search;
+    }
     s.view_scroll.0 = 0.0;
     ui_view::scroll_view_to_top(info);
     println!("AZDRIVE_SEARCHING {query}");

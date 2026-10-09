@@ -62,6 +62,8 @@ pub(crate) struct Shared<'a> {
     pub(crate) overrides: Override,
     pub(crate) limits: Limits,
     pub(crate) context: usize,
+    /// A UTF-16 file (its byte-order mark) is read as text.
+    pub(crate) utf16: bool,
     pub(crate) stop: Stop<'a>,
     pub(crate) counters: Counters,
 }
@@ -238,8 +240,11 @@ fn content_visitor<'s>(
             entry.path(),
             matcher,
             &mut searcher,
-            limits.max_file_size,
-            limits.max_lines_per_file,
+            content::Reading {
+                max_size: limits.max_file_size,
+                keep: limits.max_lines_per_file,
+                utf16: shared.utf16,
+            },
             shared.stop,
         ) {
             FileResult::Lines(lines, more) => {
@@ -333,6 +338,10 @@ pub(crate) fn run(
     let (tx, rx) = mpsc::sync_channel::<Found>(CHANNEL_DEPTH);
     let every = Duration::from_millis(PROGRESS_MS);
     std::thread::scope(|scope| {
+        // The receiver lives in this closure: should the callback panic, it goes with the
+        // unwinding, the walkers' sends fail and they quit - the scope's join does not wait on
+        // walkers blocked on a full channel.
+        let rx = rx;
         scope.spawn(move || {
             walker(shared).build_parallel().run(|| match look {
                 Look::Names(matcher) => name_visitor(shared, matcher, count_walked, tx.clone()),
