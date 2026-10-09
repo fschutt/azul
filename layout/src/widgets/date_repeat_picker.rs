@@ -517,7 +517,7 @@ pub(crate) fn apply(rule: &mut DateRepeatRule, part: Part) {
 
 /// A typed number as a whole number from 1 to 999; `None` for no number.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 1..=999 first
-fn whole(typed: f32) -> Option<u32> {
+const fn whole(typed: f32) -> Option<u32> {
     if typed.is_nan() {
         return None;
     }
@@ -790,7 +790,7 @@ pub(crate) static RECURRENCE_FIXED_BASE: &[CssPropertyWithConditions] = &[
 ];
 
 /// "day" / "days", "week" / "weeks", ...: the unit after the interval.
-fn unit_word(frequency: DateRepeatFrequency, n: u32) -> &'static str {
+const fn unit_word(frequency: DateRepeatFrequency, n: u32) -> &'static str {
     let one = n == 1;
     match frequency {
         DateRepeatFrequency::Daily if one => "day",

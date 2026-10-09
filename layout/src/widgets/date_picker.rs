@@ -1226,14 +1226,14 @@ impl DatePicker {
     /// Light the days from `start` to `end`, both included, where the
     /// displayed month has them (see [`Self::range_start`]): a calendar's
     /// date navigator showing which days the calendar shows.
-    pub fn set_range(&mut self, start: DatePickerState, end: DatePickerState) {
+    pub const fn set_range(&mut self, start: DatePickerState, end: DatePickerState) {
         self.range_start = OptionDatePickerState::Some(start);
         self.range_end = OptionDatePickerState::Some(end);
     }
 
     /// [`Self::set_range`] for the builder chain.
     #[must_use]
-    pub fn with_range(mut self, start: DatePickerState, end: DatePickerState) -> Self {
+    pub const fn with_range(mut self, start: DatePickerState, end: DatePickerState) -> Self {
         self.set_range(start, end);
         self
     }

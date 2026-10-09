@@ -464,7 +464,7 @@ impl CodeViewView {
 
     /// How many cursors there are.
     #[must_use]
-    pub fn cursor_count(&self) -> usize {
+    pub const fn cursor_count(&self) -> usize {
         self.cursors.len()
     }
 
@@ -496,7 +496,7 @@ impl CodeViewView {
     }
 
     /// Scrolls so `line` is the first line shown.
-    pub fn scroll_to_line(&mut self, line: u32) {
+    pub const fn scroll_to_line(&mut self, line: u32) {
         self.top_line = line;
     }
 
@@ -520,7 +520,7 @@ impl CodeViewView {
     }
 
     /// The whole lines the view shows (a screenful when not measured yet).
-    pub(crate) fn fit_lines(&self) -> u32 {
+    pub(crate) const fn fit_lines(&self) -> u32 {
         if self.visible_lines > 0 {
             self.visible_lines
         } else {
@@ -609,7 +609,7 @@ pub struct CodeViewEvent {
 impl CodeViewEvent {
     /// A `kind` event leaving `view`, nothing else set.
     #[must_use]
-    pub fn create(kind: CodeViewEventKind, view: CodeViewView) -> Self {
+    pub const fn create(kind: CodeViewEventKind, view: CodeViewView) -> Self {
         Self {
             view,
             edits: CodeViewEditVec::from_const_slice(&[]),
@@ -834,38 +834,38 @@ impl CodeView {
     }
 
     /// The px the view fills.
-    pub fn set_viewport(&mut self, width: f32, height: f32) {
+    pub const fn set_viewport(&mut self, width: f32, height: f32) {
         self.viewport_width = width;
         self.viewport_height = height;
     }
 
     /// [`Self::set_viewport`] for the builder chain.
     #[must_use]
-    pub fn with_viewport(mut self, width: f32, height: f32) -> Self {
+    pub const fn with_viewport(mut self, width: f32, height: f32) -> Self {
         self.set_viewport(width, height);
         self
     }
 
     /// A line's height in px.
-    pub fn set_line_height(&mut self, px: f32) {
+    pub const fn set_line_height(&mut self, px: f32) {
         self.line_height = px;
     }
 
     /// [`Self::set_line_height`] for the builder chain.
     #[must_use]
-    pub fn with_line_height(mut self, px: f32) -> Self {
+    pub const fn with_line_height(mut self, px: f32) -> Self {
         self.set_line_height(px);
         self
     }
 
     /// The text's font size in px.
-    pub fn set_font_size(&mut self, px: f32) {
+    pub const fn set_font_size(&mut self, px: f32) {
         self.font_size = px;
     }
 
     /// [`Self::set_font_size`] for the builder chain.
     #[must_use]
-    pub fn with_font_size(mut self, px: f32) -> Self {
+    pub const fn with_font_size(mut self, px: f32) -> Self {
         self.set_font_size(px);
         self
     }
@@ -883,37 +883,37 @@ impl CodeView {
     }
 
     /// Show the line-number gutter.
-    pub fn set_show_line_numbers(&mut self, show: bool) {
+    pub const fn set_show_line_numbers(&mut self, show: bool) {
         self.show_line_numbers = show;
     }
 
     /// [`Self::set_show_line_numbers`] for the builder chain.
     #[must_use]
-    pub fn with_show_line_numbers(mut self, show: bool) -> Self {
+    pub const fn with_show_line_numbers(mut self, show: bool) -> Self {
         self.set_show_line_numbers(show);
         self
     }
 
     /// A view that is read, not edited.
-    pub fn set_read_only(&mut self, read_only: bool) {
+    pub const fn set_read_only(&mut self, read_only: bool) {
         self.read_only = read_only;
     }
 
     /// [`Self::set_read_only`] for the builder chain.
     #[must_use]
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
+    pub const fn with_read_only(mut self, read_only: bool) -> Self {
         self.set_read_only(read_only);
         self
     }
 
     /// Tint the caret's line.
-    pub fn set_highlight_current_line(&mut self, highlight: bool) {
+    pub const fn set_highlight_current_line(&mut self, highlight: bool) {
         self.highlight_current_line = highlight;
     }
 
     /// [`Self::set_highlight_current_line`] for the builder chain.
     #[must_use]
-    pub fn with_highlight_current_line(mut self, highlight: bool) -> Self {
+    pub const fn with_highlight_current_line(mut self, highlight: bool) -> Self {
         self.set_highlight_current_line(highlight);
         self
     }
@@ -1002,7 +1002,7 @@ pub(crate) fn visual_column(text: &str, byte: u32, tab: u32) -> u32 {
 }
 
 /// The visual column after `ch`, which starts at `column`.
-fn advance(column: u32, ch: char, tab: u32) -> u32 {
+const fn advance(column: u32, ch: char, tab: u32) -> u32 {
     if ch == '\t' {
         (column / tab).saturating_add(1).saturating_mul(tab)
     } else {
@@ -1256,7 +1256,7 @@ pub(crate) fn char_width_of(cv: &CodeView) -> f32 {
 }
 
 /// How many decimal digits `n` has.
-pub(crate) fn digits(mut n: u32) -> u32 {
+pub(crate) const fn digits(mut n: u32) -> u32 {
     let mut d = 1;
     while n >= 10 {
         n /= 10;
@@ -3188,7 +3188,7 @@ fn measured_char_width(_cv: &CodeView, _info: &CallbackInfo) -> Option<f32> {
 }
 
 /// The view's text, through the data callback.
-fn lines_of(cv: &CodeView) -> SourceLines<'_> {
+const fn lines_of(cv: &CodeView) -> SourceLines<'_> {
     SourceLines {
         source: &cv.data_source,
         count: cv.line_count,

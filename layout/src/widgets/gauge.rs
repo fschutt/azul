@@ -244,7 +244,7 @@ impl Default for Gauge {
 impl Gauge {
     /// A dial showing `value` between `min` and `max`.
     #[must_use]
-    pub fn create(value: f64, min: f64, max: f64) -> Self {
+    pub const fn create(value: f64, min: f64, max: f64) -> Self {
         Self {
             value,
             min,
