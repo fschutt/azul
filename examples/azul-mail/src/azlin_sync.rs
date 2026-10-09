@@ -974,6 +974,30 @@ mod tests {
     }
 
     #[test]
+    fn a_message_another_program_marked_deleted_is_hidden_here_until_the_mark_goes() {
+        let f = fixture();
+        let kept = deliver(&f, "Inbox", &mail(1, "Kept"), SEP_30);
+        let marked = deliver(&f, "Inbox", &mail(2, "Marked"), SEP_30 + 60);
+        let marked_id = azlin::message_id(&marked).unwrap().to_string();
+        // Apple Mail over the Azlin Bridge set \Deleted on it (and has not expunged yet).
+        let deleted = format!("{}{marked_id}/deleted", azlin::STATE_PREFIX);
+        f.bucket.inner.put(&deleted, &[]).unwrap();
+        run(&f);
+        let subjects: Vec<String> = index(&f.store, "inbox").into_iter().map(|e| e.subject).collect();
+        assert_eq!(subjects, ["Kept"]);
+        // Shown on this computer first, then marked: it leaves the local copy.
+        f.bucket.inner.delete(&deleted).unwrap();
+        run(&f);
+        assert_eq!(index(&f.store, "inbox").len(), 2);
+        f.bucket.inner.put(&deleted, &[]).unwrap();
+        let report = run(&f);
+        assert_eq!(report.removed(), 1);
+        let left: Vec<String> = index(&f.store, "inbox").into_iter().map(|e| e.remote).collect();
+        assert_eq!(left, [kept]);
+        assert!(!missing(&f.bucket, &marked), "hidden here, still in the drive");
+    }
+
+    #[test]
     fn mail_filed_here_first_goes_into_its_folder_of_the_drive() {
         let f = fixture();
         let flags = [String::from("\\Seen")];
