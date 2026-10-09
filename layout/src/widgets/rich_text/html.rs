@@ -26,6 +26,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use core::fmt::Write as _;
 
 use azul_core::dom::{AttributeType, Dom, NodeType};
 use azul_css::AzString;
@@ -197,12 +198,14 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
         let inner = runs_html(block.runs.as_ref());
         match &block.kind {
             RichBlockKind::Paragraph if inner.is_empty() => {
-                out.push_str(&format!("<div{align}><br></div>"));
+                let _ = write!(out, "<div{align}><br></div>");
             }
-            RichBlockKind::Paragraph => out.push_str(&format!("<div{align}>{inner}</div>")),
+            RichBlockKind::Paragraph => {
+                let _ = write!(out, "<div{align}>{inner}</div>");
+            }
             RichBlockKind::Heading(level) => {
                 let level = (*level).clamp(1, 6);
-                out.push_str(&format!("<h{level}{align}>{inner}</h{level}>"));
+                let _ = write!(out, "<h{level}{align}>{inner}</h{level}>");
             }
             RichBlockKind::Bullet(_) | RichBlockKind::Numbered(_) | RichBlockKind::Check(_) => {
                 let tag = if matches!(block.kind, RichBlockKind::Numbered(_)) {
@@ -213,18 +216,18 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
                 let level = usize::from(block.kind.indent()) + 1;
                 while lists.len() > level {
                     if let Some(open) = lists.pop() {
-                        out.push_str(&format!("</li></{open}>"));
+                        let _ = write!(out, "</li></{open}>");
                     }
                 }
                 if lists.len() == level {
                     if lists.last().copied() == Some(tag) {
                         out.push_str("</li>");
                     } else if let Some(open) = lists.pop() {
-                        out.push_str(&format!("</li></{open}>"));
+                        let _ = write!(out, "</li></{open}>");
                     }
                 }
                 while lists.len() < level {
-                    out.push_str(&format!("<{tag}>"));
+                    let _ = write!(out, "<{tag}>");
                     lists.push(tag);
                     if lists.len() < level {
                         // A skipped level: an item to hold the deeper list.
@@ -236,7 +239,7 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
                     RichBlockKind::Check(_) => "&#9744; ",
                     _ => "",
                 };
-                out.push_str(&format!("<li{align}>{mark}{inner}"));
+                let _ = write!(out, "<li{align}>{mark}{inner}");
             }
             RichBlockKind::Code(lang) => {
                 let class = if lang.as_str().is_empty() {
@@ -244,17 +247,21 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
                 } else {
                     format!(" class=\"language-{}\"", encode_attribute(lang.as_str()))
                 };
-                out.push_str(&format!(
+                let _ = write!(
+                    out,
                     "<pre><code{class}>{}</code></pre>",
                     encode_text(&block.flat())
-                ));
+                );
             }
             RichBlockKind::Rule => out.push_str("<hr>"),
-            RichBlockKind::Image(image) => out.push_str(&format!(
-                "<img src=\"{}\" alt=\"{}\">",
-                encode_attribute(image.src.as_str()),
-                encode_attribute(image.alt.as_str())
-            )),
+            RichBlockKind::Image(image) => {
+                let _ = write!(
+                    out,
+                    "<img src=\"{}\" alt=\"{}\">",
+                    encode_attribute(image.src.as_str()),
+                    encode_attribute(image.alt.as_str())
+                );
+            }
             RichBlockKind::PageBreak => {
                 out.push_str("<div style=\"break-after: page\"></div>");
             }
@@ -264,10 +271,8 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
                     let cell_tag = if table.has_header && r == 0 { "th" } else { "td" };
                     out.push_str("<tr>");
                     for cell in row.cells.as_ref() {
-                        out.push_str(&format!(
-                            "<{cell_tag}>{}</{cell_tag}>",
-                            encode_text(cell.as_str())
-                        ));
+                        let text = encode_text(cell.as_str());
+                        let _ = write!(out, "<{cell_tag}>{text}</{cell_tag}>");
                     }
                     out.push_str("</tr>");
                 }
