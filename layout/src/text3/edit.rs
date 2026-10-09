@@ -895,7 +895,7 @@ pub fn insert_formatted_text(
             items.push(mk_run(t, s));
         }
     }
-    let (caret_item, caret_in_run) = caret.unwrap_or((items.len().saturating_sub(1), 0));
+    let (caret_item, caret_in_run) = caret.unwrap_or_else(|| (items.len().saturating_sub(1), 0));
 
     let mut new_content = content.to_vec();
     new_content.splice(run_idx..=run_idx, items);
