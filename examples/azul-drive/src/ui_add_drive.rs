@@ -88,6 +88,10 @@ struct KeyRef {
     folder: bool,
 }
 
+/// The dialog kit's text size (azul's wizard pages, settings rows and standard dialogs: text and
+/// field values 13px, hints 12px): the dialog's text and its fields' values are set in it.
+const TEXT_SIZE: &str = "font-size: 13px;";
+
 fn label(text: &str) -> Dom {
     Dom::create_span_with_text(AzString::from(text))
         .with_css("font-size: 12px; opacity: 0.75; margin-top: 10px; margin-bottom: 4px;")
@@ -200,6 +204,8 @@ fn text_field(app: &RefAny, value: &str, placeholder: &str, secret: bool, target
             on_text as TextInputOnTextInputCallbackType,
         )
         .dom()
+        // The value in the dialog's text size, not the field's own (smaller) default.
+        .with_css(TEXT_SIZE)
 }
 
 // ==== The dialog ====
@@ -220,9 +226,12 @@ pub(crate) fn dialog(d: &AddDialog, development: bool, app: &RefAny) -> (String,
             (title, form(d, app))
         }
     };
+    // Text that sets no size of its own (a check box's label, a status line) takes the dialog
+    // kit's, not the dialog panel's larger one.
     let content = Dom::create_div()
         .with_id(ids::ADD_DRIVE)
         .with_css("display: flex; flex-direction: column; width: 460px; max-width: 100%;")
+        .with_css(TEXT_SIZE)
         .with_child(page);
     (title, content)
 }
