@@ -785,7 +785,7 @@ extern "C" fn on_path_mounted(_data: RefAny, mut info: CallbackInfo) -> Update {
 /// What a key in the path field asks for: Enter takes the path, Escape
 /// gives the edit up, every other key is the field's own.
 #[must_use]
-pub(crate) fn path_key_event(key: Option<VirtualKeyCode>) -> Option<AddressBarEventKind> {
+pub(crate) const fn path_key_event(key: Option<VirtualKeyCode>) -> Option<AddressBarEventKind> {
     match key {
         Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter) => {
             Some(AddressBarEventKind::PathEntered)
