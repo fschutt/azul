@@ -12,7 +12,7 @@
 //!        A development drive of the bridge's own (development token servers only).
 //!   join --code-file FILE
 //!        Joins a drive with a code from `azcloud invite` (a token family of the bridge's own).
-//!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--folder DIR | --memory]
+//!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--folder DIR | --memory] [--idle-poll SECS]
 //!        Serves IMAP, SMTP submission and WebDAV on 127.0.0.1 (port 0: any free one) and prints
 //!        `AZUL_BRIDGE_READY imap=<port> smtp=<port> dav=<port>`. `--folder` serves a folder of
 //!        this computer as the drive, `--memory` an empty drive in memory (development).
@@ -73,6 +73,8 @@ pub struct Options {
     pub dav_port: Option<u16>,
     pub folder: Option<PathBuf>,
     pub memory: bool,
+    /// Seconds between IMAP IDLE's looks at the drive (the default: 30).
+    pub idle_poll: Option<u64>,
 }
 
 /// The usage text.
@@ -80,7 +82,7 @@ pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] 
      <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
      [--smtp-port N] [--dav-port N] | password | signup [--name NAME] [--tier TIER] | \
      join --code-file FILE | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
-     [--folder DIR | --memory] | status>";
+     [--folder DIR | --memory] [--idle-poll SECS] | status>";
 
 /// Reads the arguments (without the program's name).
 ///
@@ -118,6 +120,15 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--dav-port" => options.dav_port = Some(port(value(&mut i, arg)?, arg)?),
             "--folder" => options.folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--memory" => options.memory = true,
+            "--idle-poll" => {
+                let text = value(&mut i, arg)?;
+                let secs = text
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|s| (1..=3600).contains(s))
+                    .ok_or_else(|| format!("{arg} takes seconds from 1 to 3600"))?;
+                options.idle_poll = Some(secs);
+            }
             "-h" | "--help" => return Err(String::from("help")),
             other if other.starts_with('-') => return Err(format!("unknown option {other}")),
             command => {
@@ -321,7 +332,10 @@ fn serve(
         .get(PASSWORD_ENTRY)?
         .ok_or("no password yet: azul-bridge init")?;
     let credentials = Credentials::new(&config.address, &password);
-    let limits = Limits::default();
+    let mut limits = Limits::default();
+    if let Some(secs) = options.idle_poll {
+        limits.idle_poll = Duration::from_secs(secs);
+    }
     let (drive, uids): (Arc<dyn Drive>, UidMaps) = if options.memory {
         (
             Arc::new(MemoryDrive::new()) as Arc<dyn Drive>,
