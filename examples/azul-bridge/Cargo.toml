@@ -48,6 +48,8 @@ dirs = "6"
 [dev-dependencies]
 # A temporary folder for the tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The one-connection SMTP sink the sending tests deliver to (azmail_core::testutil).
+azul-mail-core = { path = "../azul-mail-core", features = ["testing"] }
 
 [lib]
 name = "azul_bridge"
