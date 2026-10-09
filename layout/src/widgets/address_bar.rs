@@ -960,17 +960,13 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
     // ---- the field: the trail of segments, or the path field ----
     let has_icon = !icon.as_str().is_empty();
     let field_children = if editing {
+        let on_key: TextInputOnVirtualKeyDownCallbackType = on_path_key;
+        let on_focus_lost: TextInputOnFocusLostCallbackType = on_path_focus_lost;
         let input = TextInput::create()
             .with_text(path)
             .with_accessibility_name(AzString::from_const_str("Address"))
-            .with_on_virtual_key_down(
-                shared.clone(),
-                on_path_key as TextInputOnVirtualKeyDownCallbackType,
-            )
-            .with_on_focus_lost(
-                shared.clone(),
-                on_path_focus_lost as TextInputOnFocusLostCallbackType,
-            )
+            .with_on_virtual_key_down(shared.clone(), on_key)
+            .with_on_focus_lost(shared.clone(), on_focus_lost)
             .with_theme(look.theme);
         // A node of its own around the input, so its mount is the field's
         // opening (the trail's row is the same node in both modes).
@@ -1112,13 +1108,11 @@ pub(crate) fn build(bar: AddressBar, look: &AddressBarLook) -> Dom {
     }
 
     // ---- the search box ----
+    let on_search: TextInputOnTextInputCallbackType = on_search_text;
     let search_input = TextInput::create_search()
         .with_text(search)
         .with_placeholder(search_placeholder)
-        .with_on_text_input(
-            shared.clone(),
-            on_search_text as TextInputOnTextInputCallbackType,
-        )
+        .with_on_text_input(shared.clone(), on_search)
         .with_theme(look.theme);
     let search_box = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SEARCH_CLASS))
