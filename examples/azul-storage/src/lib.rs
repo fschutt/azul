@@ -40,6 +40,7 @@ pub mod ids;
 pub mod key;
 pub mod local;
 pub mod manifest;
+pub mod meta;
 pub mod ops;
 pub mod s3;
 pub mod scoped;
