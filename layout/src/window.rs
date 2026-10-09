@@ -25620,6 +25620,12 @@ impl LayoutWindow {
 
         if !updated_vviews.is_empty() {
             self.collect_embedded_fonts();
+            // A re-render in place is no layout of the window, whose tail is
+            // where the web views follow the DOMs: a web view the view's new
+            // DOM added gets its native view now, a changed `src` navigates
+            // now (the remap of the re-render already moved the kept ones).
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            self.reconcile_webviews(&now);
         }
         updated_vviews
     }
