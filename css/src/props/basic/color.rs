@@ -565,16 +565,16 @@ impl ColorU {
     /// plain mix of the channels drags it toward transparent's black). Two
     /// colours of one alpha mix exactly as [`Self::interpolate`] mixes them.
     #[must_use]
-    pub(crate) fn interpolate_premultiplied(&self, other: &Self, t: f32) -> Self {
+    pub(crate) fn interpolate_premultiplied(self, other: Self, t: f32) -> Self {
         if self.a == other.a {
-            return self.interpolate(other, t);
+            return self.interpolate(&other, t);
         }
         let (a0, a1) = (f32::from(self.a), f32::from(other.a));
         let a = a0 + (a1 - a0) * t;
         if a.is_nan() || a <= 0.0 {
             // Nothing is shown (or `t` is not a number): the end that has
             // no alpha.
-            return if t < 0.5 { *self } else { *other };
+            return if t < 0.5 { self } else { other };
         }
         let channel = |c0: u8, c1: u8| {
             let (p0, p1) = (f32::from(c0) * a0, f32::from(c1) * a1);
@@ -927,11 +927,9 @@ impl ColorU {
     /// token itself is a transparent placeholder, so its hex would print a
     /// colour that does not read back as the one the style names.
     #[must_use]
-    pub(crate) fn to_css_value(&self) -> String {
-        match SystemColorRef::from_color_token(*self) {
-            Some(system) => String::from(system.as_css_str()),
-            None => self.to_hash(),
-        }
+    pub(crate) fn to_css_value(self) -> String {
+        SystemColorRef::from_color_token(self)
+            .map_or_else(|| self.to_hash(), |system| String::from(system.as_css_str()))
     }
 
     /// The colour as CSS writes it, lower case: `#rrggbb`, or `#rrggbbaa`
@@ -1751,6 +1749,9 @@ impl SystemColorRef {
     /// with none - still reads as one coherent theme: label colours are
     /// translucent black / white, surfaces are neutral greys.
     #[must_use]
+    // A palette table, one row per role and mode: roles that share a colour
+    // today stay separate rows, so changing one does not drag the other along.
+    #[allow(clippy::match_same_arms)]
     pub const fn fallback(&self, dark: bool) -> ColorU {
         const fn c(r: u8, g: u8, b: u8, a: u8) -> ColorU {
             ColorU { r, g, b, a }

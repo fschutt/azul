@@ -1819,6 +1819,9 @@ impl CssPropertyType {
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
     #[must_use]
+    // One classification table over every property type, one arm per scope:
+    // splitting it would scatter the table, not shorten it.
+    #[allow(clippy::too_many_lines)]
     pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
         use CssPropertyType::{
             AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
@@ -4948,14 +4951,8 @@ fn tween_shadow_value(
     t: f32,
 ) -> StyleBoxShadowValue {
     let shadow = |v: &StyleBoxShadowValue| v.get_property().map(|s| **s);
-    match interpolate_shadow(
-        shadow(from).as_ref(),
-        shadow(to).as_ref(),
-        t,
-    ) {
-        Some(s) => CssPropertyValue::Exact(BoxOrStatic::heap(s)),
-        None => CssPropertyValue::None,
-    }
+    interpolate_shadow(shadow(from).as_ref(), shadow(to).as_ref(), t)
+        .map_or(CssPropertyValue::None, |s| CssPropertyValue::Exact(BoxOrStatic::heap(s)))
 }
 
 impl CssProperty {
@@ -5204,7 +5201,7 @@ impl CssProperty {
                 let col_start = col_start.get_property().copied().unwrap_or_default();
                 let col_end = col_end.get_property().copied().unwrap_or_default();
                 Self::text_color(StyleTextColor {
-                    inner: col_start.inner.interpolate_premultiplied(&col_end.inner, t),
+                    inner: col_start.inner.interpolate_premultiplied(col_end.inner, t),
                 })
             }
             (Self::FontSize(fs_start), Self::FontSize(fs_end)) => {
@@ -5373,28 +5370,28 @@ impl CssProperty {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
-                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
                 }))
             }
             (Self::BorderRightColor(start), Self::BorderRightColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
-                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
                 }))
             }
             (Self::BorderLeftColor(start), Self::BorderLeftColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
-                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
                 }))
             }
             (Self::BorderBottomColor(start), Self::BorderBottomColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
                 Self::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
-                    inner: start.inner.interpolate_premultiplied(&end.inner, t),
+                    inner: start.inner.interpolate_premultiplied(end.inner, t),
                 }))
             }
             (Self::BorderTopWidth(start), Self::BorderTopWidth(end)) => {
@@ -5495,18 +5492,12 @@ impl CssProperty {
                     Some(list) => list.as_ref(),
                     None => &[],
                 };
-                match interpolate_transform_lists(from, to, t) {
-                    Some(list) => {
+                interpolate_transform_lists(from, to, t).map_or_else(
+                    || if t > 0.5 { other.clone() } else { self.clone() },
+                    |list| {
                         Self::Transform(CssPropertyValue::Exact(StyleTransformVec::from_vec(list)))
-                    }
-                    None => {
-                        if t > 0.5 {
-                            other.clone()
-                        } else {
-                            self.clone()
-                        }
-                    }
-                }
+                    },
+                )
             }
             /*
             animate background:

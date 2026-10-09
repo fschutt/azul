@@ -325,10 +325,7 @@ pub fn is_custom_property_name(name: &str) -> bool {
 #[must_use]
 pub fn split_var_arguments(inner: &str) -> Option<(&str, Option<&str>)> {
     let comma = crate::props::basic::parse::find_top_level(inner, |byte| byte == b',');
-    let (name, fallback) = match comma {
-        Some(i) => (&inner[..i], Some(&inner[i + 1..])),
-        None => (inner, None),
-    };
+    let (name, fallback) = comma.map_or((inner, None), |i| (&inner[..i], Some(&inner[i + 1..])));
     let name = name.trim().strip_prefix("--")?;
     is_custom_property_name(name).then_some((name, fallback))
 }
@@ -363,11 +360,11 @@ impl VarResolver {
                 continue;
             };
             let by_value = self.parsed.entry(ty).or_default();
-            let parsed = if let Some(p) = by_value.get(raw) { p.clone() } else {
+            let parsed = by_value.get(raw).cloned().unwrap_or_else(|| {
                 let p = parse_value(ty, raw);
                 by_value.insert(raw.to_string(), p.clone());
                 p
-            };
+            });
             if let Some(p) = parsed {
                 return p;
             }

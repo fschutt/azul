@@ -114,7 +114,7 @@ impl StyleBoxShadow {
             blur_radius: length(self.blur_radius, other.blur_radius),
             spread_radius: length(self.spread_radius, other.spread_radius),
             clip_mode: self.clip_mode,
-            color: self.color.interpolate_premultiplied(&other.color, t),
+            color: self.color.interpolate_premultiplied(other.color, t),
         }
     }
 }
@@ -293,8 +293,8 @@ pub const MAX_BOX_SHADOWS: usize = 4;
 #[must_use]
 pub fn box_shadow_slots(list: &[StyleBoxShadow]) -> Option<[StyleBoxShadow; MAX_BOX_SHADOWS]> {
     let kept = &list[..list.len().min(MAX_BOX_SHADOWS)];
-    let last = *kept.last()?;
-    let nth = |k: usize| kept.get(k).copied().unwrap_or(last);
+    let last_kept = *kept.last()?;
+    let nth = |k: usize| kept.get(k).copied().unwrap_or(last_kept);
     Some([nth(3), nth(2), nth(1), nth(0)])
 }
 

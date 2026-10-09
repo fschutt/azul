@@ -148,10 +148,10 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 };
                 format!("{}({})", prefix, cg.print_as_css_value())
             }
-            Self::Image(id) => match id.as_str().strip_prefix(BUILTIN_IMAGE_PREFIX) {
-                Some(name) => format!("builtin({name})"),
-                None => format!("url(\"{}\")", id.as_str()),
-            },
+            Self::Image(id) => id.as_str().strip_prefix(BUILTIN_IMAGE_PREFIX).map_or_else(
+                || format!("url(\"{}\")", id.as_str()),
+                |name| format!("builtin({name})"),
+            ),
             Self::Color(c) => c.to_hash(),
             Self::SystemColor(s) => s.as_css_str().to_string(),
         }
@@ -342,7 +342,7 @@ fn interpolate_background_layer(
         return Some(from.clone());
     }
     match (from, to) {
-        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(b, t))),
+        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(*b, t))),
         (B::LinearGradient(a), B::LinearGradient(b)) => {
             interpolate_linear_gradient(a, b, t).map(B::LinearGradient)
         }
@@ -474,7 +474,7 @@ fn interpolate_stop_colour(
 ) -> Option<ColorOrSystem> {
     match (from, to) {
         (ColorOrSystem::Color(a), ColorOrSystem::Color(b)) => {
-            Some(ColorOrSystem::Color(a.interpolate_premultiplied(&b, t)))
+            Some(ColorOrSystem::Color(a.interpolate_premultiplied(b, t)))
         }
         _ => None,
     }
