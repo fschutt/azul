@@ -1139,4 +1139,28 @@ mod shared_refresh_tests {
         let why = fresh.saved.unwrap_err();
         assert!(why.contains("no keyring"), "{why}");
     }
+
+    #[test]
+    fn a_typed_drive_token_replaces_the_kept_session_under_the_lock_and_is_what_gets_spent() {
+        let dir = TempDir::new("azmail-race");
+        let keyring = Arc::new(MemoryKeyring::new());
+        // An old, revoked session in the keyring; the user types the drive token of a new token
+        // family into the account's settings.
+        keyring.set(KEY, &session_of(7).to_secret()).unwrap();
+        let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+        let typed = AzlinSession::with_token("d_42", &token_of(0));
+        super::store_shared(&shared, KEY, &typed).unwrap();
+        assert_eq!(token_kept(&keyring), token_of(0), "the typed token replaced the old one");
+        // Send / Receive spends the typed token, not the one it replaced.
+        let account = Rotating(Mutex::new(Family::default()));
+        let fresh =
+            refresh_shared(&account, &shared, KEY, &typed, None, FIRST_EXPIRES - 600).unwrap();
+        assert!(!fresh.adopted);
+        assert_eq!(fresh.session.drive_token, token_of(1));
+        assert!(!account.0.lock().unwrap().revoked);
+        assert_eq!(token_kept(&keyring), token_of(1));
+        let refused = SharedKeyring::new(Arc::new(NoKeyring), LockDir::new(dir.path()));
+        let why = super::store_shared(&refused, KEY, &typed).unwrap_err();
+        assert!(why.contains("no keyring"), "{why}");
+    }
 }
