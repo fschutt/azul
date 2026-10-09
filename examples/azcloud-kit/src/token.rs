@@ -19,7 +19,7 @@
 //!
 //! Blocking, through azul-storage's [`Transport`]: call it from an azul `Thread`.
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
@@ -290,13 +290,15 @@ pub fn check_token_url(url: &str) -> Result<(), TokenError> {
     Ok(())
 }
 
-/// The token server's error answer as a [`TokenError`]: a refused drive token is
-/// [`TokenError::SignIn`], every other refusal [`TokenError::Refused`].
-fn refusal(reply: &HttpReply) -> TokenError {
+/// The token server's error answer as a [`TokenError`]: a 401 to a call with a drive token
+/// (`with_token`) is [`TokenError::SignIn`] - the token is gone (reused, revoked, unknown) -,
+/// every other refusal [`TokenError::Refused`]: a 403 refuses the call, not the token, and a 503
+/// (`not_verified`, `try_again`) asks for the same token again later.
+fn refusal(reply: &HttpReply, with_token: bool) -> TokenError {
     let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
     let code = value["error"].as_str().unwrap_or_default().to_string();
     let message = value["message"].as_str().unwrap_or_default().to_string();
-    if matches!(reply.status, 401 | 403) {
+    if reply.status == 401 && with_token {
         let why = match (code.is_empty(), message.is_empty()) {
             (true, true) => format!("HTTP {}", reply.status),
             (false, true) => code,
@@ -312,10 +314,17 @@ fn refusal(reply: &HttpReply) -> TokenError {
     }
 }
 
+/// How often a refresh is sent with one drive token while the token server answers 503 (the
+/// token is not spent then).
+const REFRESH_TRIES: u32 = 3;
+/// The pause between two such tries.
+const REFRESH_RETRY_PAUSE: Duration = Duration::from_secs(2);
+
 /// The token server at a base address. Blocking: call it from an azul `Thread`.
 pub struct TokenServer<'a> {
     base: String,
     transport: &'a dyn Transport,
+    retry_pause: Duration,
 }
 
 impl<'a> TokenServer<'a> {
@@ -327,7 +336,16 @@ impl<'a> TokenServer<'a> {
         Ok(TokenServer {
             base: base.trim().trim_end_matches('/').to_string(),
             transport,
+            retry_pause: REFRESH_RETRY_PAUSE,
         })
+    }
+
+    /// Pauses `pause` (instead of two seconds) before a refresh the token server answered 503
+    /// is sent again.
+    #[must_use]
+    pub fn with_retry_pause(mut self, pause: Duration) -> Self {
+        self.retry_pause = pause;
+        self
     }
 
     /// The base address, without a trailing slash.
@@ -390,7 +408,7 @@ impl<'a> TokenServer<'a> {
         };
         let reply = self.transport.send(&call).map_err(TokenError::Connect)?;
         if !reply.is_success() {
-            return Err(refusal(&reply));
+            return Err(refusal(&reply, bearer.is_some()));
         }
         Ok(reply)
     }
@@ -543,7 +561,19 @@ impl<'a> TokenServer<'a> {
         }
         let token = token_of(drive_token)?;
         let path = format!("/v1/drives/{}/credentials", uri_encode(drive_id, true));
-        let value = self.call(Method::Post, &path, Some(token), Some(body))?;
+        // A 503 (`not_verified`: the token family is not adopted after an upgrade yet;
+        // `try_again`: it changed between the check and the rotation) spent nothing: the SAME
+        // token again after a pause, and never a reason to drop it.
+        let mut tries = 1;
+        let value = loop {
+            match self.call(Method::Post, &path, Some(token), Some(body)) {
+                Err(TokenError::Refused { status: 503, .. }) if tries < REFRESH_TRIES => {
+                    tries += 1;
+                    std::thread::sleep(self.retry_pause);
+                }
+                answer => break answer?,
+            }
+        };
         let bundle = DriveBundle::from_value(&value)?;
         if bundle.drive_id() != drive_id {
             return Err(TokenError::Protocol(format!(
