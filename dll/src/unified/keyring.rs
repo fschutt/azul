@@ -31,7 +31,11 @@ impl Keyring {
         KeyringResult::Unavailable
     }
     /// No keyring on wasm.
-    pub fn store_blocking(_key: AzString, _secret: AzString, _require_biometry: bool) -> KeyringResult {
+    pub fn store_blocking(
+        _key: AzString,
+        _secret: AzString,
+        _require_biometry: bool,
+    ) -> KeyringResult {
         KeyringResult::Unavailable
     }
     /// No keyring on wasm.

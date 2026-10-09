@@ -23,7 +23,8 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Claimed, Polled},
-    Checkout, ClaimKey, DriveBundle, PendingCheckout, SharedKeyring, Tiers, TokenServer,
+    Checkout, ClaimKey, CloudError, DriveBundle, PendingCheckout, SharedKeyring, Tiers,
+    TokenServer,
 };
 use azul::{
     image::{ImageRef, RawImage},
@@ -1058,11 +1059,16 @@ fn claim_pending(
                 .filter(|c| !reported.contains(&c.checkout_id))
                 .collect(),
             Err(e) => {
+                // A system without a keyring kept no checkout either: nothing to say then.
+                let no_keyring = matches!(
+                    e.root(),
+                    CloudError::Keyring(azul_storage::keyring::KeyringError::Unavailable)
+                );
                 return Outcome::ClaimsDone {
-                    problem: Some(format!(
-                        "The unfinished checkouts could not be read from the keyring: {e}"
-                    )),
-                }
+                    problem: (!no_keyring).then(|| {
+                        format!("The unfinished checkouts could not be read from the keyring: {e}")
+                    }),
+                };
             }
         };
         if open.is_empty() {

@@ -216,7 +216,11 @@ pub enum Polled {
 /// Asks `server` (the checkout's own token server) about `checkout` and acts on the answer: see
 /// [`Polled`].
 #[must_use]
-pub fn poll(server: &TokenServer<'_>, shared: &SharedKeyring, checkout: &PendingCheckout) -> Polled {
+pub fn poll(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+) -> Polled {
     let claim = match checkout.claim_key() {
         Ok(claim) => claim,
         // Its sealed sign-up can never be opened.

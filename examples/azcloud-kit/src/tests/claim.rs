@@ -93,8 +93,9 @@ fn a_signup_the_mock_token_server_sealed_opens() {
         key.public_base64(),
         "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw="
     );
-    let sealed = "VxR2nRFr92Q2rnS8eT0sMK0ZA8WaxSc4BcfiaYtBDDbJysvMzc7P0NHS09Q5pJMPjcOPL6JRCNRLDWdeMTai\
-                  u2DPk9ijRPiLqjWgxw7Y2XSnqDEhXIemDIEF3e6FkAn4yqIuEeuR3TtQIx8jGbsC4ensAW9nTDVTSJYy0hc=";
+    let sealed = "VxR2nRFr92Q2rnS8eT0sMK0ZA8WaxSc4BcfiaYtBDDbJysvMzc7P0NHS09Q5pJMPjcOP\
+                  L6JRCNRLDWdeMTaiu2DPk9ijRPiLqjWgxw7Y2XSnqDEhXIemDIEF3e6FkAn4yqIuEeuR3T\
+                  tQIx8jGbsC4ensAW9nTDVTSJYy0hc=";
     assert_eq!(
         key.open("ck_vector", sealed).unwrap(),
         r#"{"drive_token":"dt_f_vector.0.claimed","drive":{"id":"d_vector"}}"#

@@ -207,7 +207,11 @@ impl Keyring {
     /// thread: `Stored`, or why not. `require_biometry` as in
     /// `CallbackInfo::keyring_store`.
     #[must_use]
-    pub fn store_blocking(key: AzString, secret: AzString, require_biometry: bool) -> KeyringResult {
+    pub fn store_blocking(
+        key: AzString,
+        secret: AzString,
+        require_biometry: bool,
+    ) -> KeyringResult {
         request_blocking(&KeyringRequest::Store {
             key,
             secret,
