@@ -5348,10 +5348,10 @@ fn text_px(text: &str, font_px: f32) -> f32 {
 /// (`themes::flora::CAPS_TITLE`), in em.
 const CAPTION_CAPS_TRACKING_EM: f32 = 0.12;
 
-/// A group caption's width in the wider of the two looks: flora's capitals
-/// - every letter its capital's advance, tracked [`CAPTION_CAPS_TRACKING_EM`]
-/// - which are never narrower than flat's mixed case, so one measure still
-/// serves both looks.
+/// A group caption's width in the wider of the two looks, flora's capitals:
+/// every letter its capital's advance, tracked by
+/// [`CAPTION_CAPS_TRACKING_EM`]. Capitals are never narrower than flat's
+/// mixed case, so one measure still serves both looks.
 fn caption_px(caption: &str) -> f32 {
     let capitals: String = caption.chars().flat_map(char::to_uppercase).collect();
     let tracking = caption.chars().count() as f32 * CAPTION_CAPS_TRACKING_EM * CAPTION_FONT_PX;
