@@ -56,6 +56,12 @@
 //! (a leaf or clay badge), the brass, the ground and every colour of the app's
 //! own are left as they are. No spin colour is itself a key, so a DOM spun
 //! twice is spun once ([`tests::no_spin_colour_is_a_base_key`]).
+//!
+//! What it never rewrites: a subtree the app marks as its DOCUMENT's content
+//! with the class [`DOCUMENT_CONTENT_CLASS`] (`__azul-document-content`) - a
+//! slide in its deck theme, a page, a theme preview. Its colours are the
+//! document's, which may well be flora's blue (AzShow's "Stone" deck theme
+//! is): the spin is the chrome's.
 
 use alloc::vec::Vec;
 
@@ -515,7 +521,15 @@ fn respin_css(css: &mut Css, map: &SpinMap) {
     }
 }
 
+/// The class that marks a subtree as the app's DOCUMENT content (a slide, a
+/// page, a theme preview): a spin leaves its colours - the document's - as
+/// they are, all the way down (module docs).
+pub const DOCUMENT_CONTENT_CLASS: &str = "__azul-document-content";
+
 fn respin_dom_with(dom: &mut Dom, map: &SpinMap) {
+    if dom.root.has_class(DOCUMENT_CONTENT_CLASS) {
+        return;
+    }
     respin_css(&mut dom.root.style, map);
     if !dom.css.as_ref().is_empty() {
         let mut sheets = core::mem::replace(&mut dom.css, CssVec::from_vec(Vec::new()))
