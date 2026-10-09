@@ -9,7 +9,7 @@
 
 use azul_core::{
     dom::{DomId, DomNodeId, IdOrClass, NodeData, NodeId},
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
+    geom::{LogicalRect, LogicalSize},
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };

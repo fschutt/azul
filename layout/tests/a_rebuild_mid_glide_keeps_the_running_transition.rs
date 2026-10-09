@@ -179,7 +179,7 @@ fn a_rebuild_mid_glide_keeps_the_running_transition() {
 
 #[test]
 fn a_rebuild_that_moves_the_target_turns_the_glide_around() {
-    let (mut lw, knob) = clicked_switch();
+    let (mut lw, _) = clicked_switch();
     for _ in 0..3 {
         let _ = lw.tick_animations(1.0 / 60.0);
     }

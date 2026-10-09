@@ -33,7 +33,7 @@ use azul_core::{
 };
 use azul_css::props::{
     layout::{LayoutMarginLeft, LayoutWidth},
-    property::{CssProperty, CssPropertyType},
+    property::CssProperty,
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,

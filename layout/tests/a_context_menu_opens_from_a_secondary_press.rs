@@ -174,7 +174,7 @@ impl Window {
             .node_data
             .as_ref()
             .iter()
-            .position(|nd| f(nd))
+            .position(f)
             .expect("the node exists");
         NodeId::new(index)
     }
