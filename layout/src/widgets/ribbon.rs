@@ -5344,6 +5344,20 @@ fn text_px(text: &str, font_px: f32) -> f32 {
     milli as f32 / 1000.0 * font_px * TEXT_WIDTH_FACTOR
 }
 
+/// The tracking of a group caption in flora's capitals
+/// (`themes::flora::CAPS_TITLE`), in em.
+const CAPTION_CAPS_TRACKING_EM: f32 = 0.12;
+
+/// A group caption's width in the wider of the two looks: flora's capitals
+/// - every letter its capital's advance, tracked [`CAPTION_CAPS_TRACKING_EM`]
+/// - which are never narrower than flat's mixed case, so one measure still
+/// serves both looks.
+fn caption_px(caption: &str) -> f32 {
+    let capitals: String = caption.chars().flat_map(char::to_uppercase).collect();
+    let tracking = caption.chars().count() as f32 * CAPTION_CAPS_TRACKING_EM * CAPTION_FONT_PX;
+    text_px(&capitals, CAPTION_FONT_PX) + tracking
+}
+
 /// A button label's width.
 fn label_px(text: &str) -> f32 {
     text_px(text, LABEL_FONT_PX)
@@ -5608,7 +5622,7 @@ fn group_px(group: &RibbonGroup, scale: GroupScale) -> f32 {
     } else {
         0.0
     };
-    let caption = text_px(group.label.as_str(), CAPTION_FONT_PX) + launcher;
+    let caption = caption_px(group.label.as_str()) + launcher;
     let width = GROUP_FRAME_PX + items.max(caption);
     if group.fills_space {
         width.max(FILL_GROUP_MIN_PX)
@@ -9297,7 +9311,8 @@ mod flora_tests {
     }
 
     /// A group's caption is its title - flora.css's `.fl-label`: Garamond
-    /// capitals in the label ink, on one line - and the fit walk measures the
+    /// capitals in the label ink (the face is the ribbon's system UI face,
+    /// Garamond in a flora window) - and the fit walk measures the
     /// group at least as wide as those capitals (it measured the mixed-case
     /// caption, so a flora group whose caption is its widest part overflowed
     /// the width it was given).
@@ -9315,11 +9330,9 @@ mod flora_tests {
             "the caption is set in capitals"
         );
         assert!(
-            matches!(
-                tc::resolve(caption, CssPropertyType::FontFamily, false, None),
-                Some(P::FontFamily(f)) if f.get_property() == Some(&flora::FONT_CAPS)
-            ),
-            "in flora's capitals hand"
+            tc::resolve(caption, CssPropertyType::LetterSpacing, false, None).is_some()
+                && tc::resolve(caption, CssPropertyType::FontWeight, false, None).is_some(),
+            "flora's capitals are bold and tracked out"
         );
         assert_eq!(tc::text_color(caption, false), Some(flora::LIGHT_SOFT1));
         assert_eq!(tc::text_color(caption, true), Some(flora::DARK_SOFT1));
