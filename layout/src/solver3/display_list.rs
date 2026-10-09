@@ -2177,7 +2177,7 @@ pub enum DisplayListItem {
 /// line box the first character will create. Height is floored at 1 px so a
 /// zero font never produces an invisible caret.
 #[must_use]
-pub fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
+pub const fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
     let height = line_height_px.max(1.0);
     let height = if height.is_finite() { height } else { 1.0 };
     LogicalRect {

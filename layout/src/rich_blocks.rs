@@ -74,7 +74,7 @@ pub struct ChainLink {
 impl InlineTree {
     /// Nothing pushed yet.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 

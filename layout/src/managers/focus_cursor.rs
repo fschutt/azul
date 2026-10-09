@@ -2744,7 +2744,7 @@ pub struct SpatialNavigationEnv<'a> {
     pub transform: &'a dyn Fn(DomId, NodeId) -> Option<ComputedTransform3D>,
 }
 
-fn no_transform(_dom: DomId, _node: NodeId) -> Option<ComputedTransform3D> {
+const fn no_transform(_dom: DomId, _node: NodeId) -> Option<ComputedTransform3D> {
     None
 }
 

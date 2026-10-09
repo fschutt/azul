@@ -48,7 +48,7 @@ impl FormatOverrides {
     }
 
     /// Set (or with `None` drop) the override of `format`.
-    pub fn set(&mut self, format: azul_core::events::TextFormat, value: Option<bool>) {
+    pub const fn set(&mut self, format: azul_core::events::TextFormat, value: Option<bool>) {
         use azul_core::events::TextFormat;
         match format {
             TextFormat::Bold => self.bold = value,

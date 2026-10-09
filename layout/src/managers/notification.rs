@@ -625,12 +625,12 @@ impl ScheduledNotifications {
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.held.len()
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.held.is_empty()
     }
 }
@@ -1216,14 +1216,14 @@ pub mod wire {
         }
 
         /// The process was started for a response that has not arrived yet.
-        pub fn expect_first(&mut self) {
+        pub const fn expect_first(&mut self) {
             self.expecting_first = true;
         }
 
         /// iOS: the app became active. A response from now on is a tap on an
         /// app that was running - unless the launch NAMED it (macOS), which
         /// stays marked however late it arrives.
-        pub fn launch_finished(&mut self) {
+        pub const fn launch_finished(&mut self) {
             self.expecting_first = false;
         }
 
@@ -1766,7 +1766,7 @@ pub mod wire {
 
         /// Where the id comes from, for the person reading the log.
         #[must_use]
-        pub fn origin(&self) -> &'static str {
+        pub const fn origin(&self) -> &'static str {
             match self {
                 Self::AppleBundle(_) => "the app bundle's CFBundleIdentifier",
                 Self::AndroidPackage(_) => "the Android manifest package",

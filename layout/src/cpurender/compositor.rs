@@ -2125,7 +2125,7 @@ struct ScrollStack<'a> {
 }
 
 impl<'a> ScrollStack<'a> {
-    fn new(offsets: &'a ScrollOffsetMap) -> Self {
+    const fn new(offsets: &'a ScrollOffsetMap) -> Self {
         Self {
             offsets,
             open: Vec::new(),

@@ -1964,7 +1964,7 @@ pub(crate) fn line_alignment_offset(
 /// `is_first_formatted_line` is the paragraph's first line, not a fragment's:
 /// a continuation fragment of a flow starts mid-paragraph. The ONE choice of
 /// the greedy breaker, the Knuth-Plass path and the intrinsic-size scan.
-pub(crate) fn text_indent_of_line(
+pub(crate) const fn text_indent_of_line(
     constraints: &UnifiedConstraints,
     is_first_formatted_line: bool,
     is_after_forced_break: bool,

@@ -52,7 +52,7 @@ pub struct TextRasterStyle {
 impl TextRasterStyle {
     /// `font_family` at `size_px`, in `color`, the font's own line height.
     #[must_use]
-    pub fn create(font_family: AzString, size_px: f32, color: ColorU) -> Self {
+    pub const fn create(font_family: AzString, size_px: f32, color: ColorU) -> Self {
         Self {
             font_family,
             size_px,
@@ -64,20 +64,20 @@ impl TextRasterStyle {
     }
 
     #[must_use]
-    pub fn with_bold(mut self, bold: bool) -> Self {
+    pub const fn with_bold(mut self, bold: bool) -> Self {
         self.bold = bold;
         self
     }
 
     #[must_use]
-    pub fn with_italic(mut self, italic: bool) -> Self {
+    pub const fn with_italic(mut self, italic: bool) -> Self {
         self.italic = italic;
         self
     }
 
     /// Baselines `line_height` times the font's line height apart.
     #[must_use]
-    pub fn with_line_height(mut self, line_height: f32) -> Self {
+    pub const fn with_line_height(mut self, line_height: f32) -> Self {
         self.line_height = line_height;
         self
     }

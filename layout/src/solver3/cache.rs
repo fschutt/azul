@@ -1662,7 +1662,7 @@ enum TableParent {
 }
 
 impl TableParent {
-    fn of(display: LayoutDisplay) -> Option<Self> {
+    const fn of(display: LayoutDisplay) -> Option<Self> {
         match display {
             LayoutDisplay::Table | LayoutDisplay::InlineTable => Some(Self::Table),
             LayoutDisplay::TableRowGroup

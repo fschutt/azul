@@ -541,7 +541,7 @@ impl GlobalHotkeyManager {
 
     /// The app state may have changed (a callback returned `RefreshDom`):
     /// the app's hotkeys callback runs again before the next sync.
-    pub fn mark_app_dirty(&mut self) {
+    pub const fn mark_app_dirty(&mut self) {
         if let Some(app) = self.app.as_mut() {
             if app.callback.is_some() {
                 app.dirty = true;

@@ -443,7 +443,7 @@ pub fn resolve_window_mode(
 /// [`resolve_window_mode`] with the `AZ_MODE` pin passed in rather than
 /// read from the environment - the testable core of the decision.
 #[must_use]
-pub fn resolve_window_mode_with(
+pub const fn resolve_window_mode_with(
     env: Option<DarkLightMode>,
     app: azul_core::window::OptionDarkLightMode,
     window: DarkLightMode,
@@ -1279,7 +1279,7 @@ pub enum PasteOutcome {
 impl LandedTextEdit {
     /// Whether any edit landed.
     #[must_use]
-    pub fn landed(&self) -> bool {
+    pub const fn landed(&self) -> bool {
         !self.changeset.dirty_nodes.is_empty()
     }
 
@@ -6609,7 +6609,7 @@ impl LayoutWindow {
     /// What a document's canvas background covers: the whole window for the
     /// ROOT document, whatever the safe area took from its layout viewport;
     /// a child DOM's own viewport (placed by its host) otherwise.
-    fn canvas_rect_for(
+    const fn canvas_rect_for(
         is_root: bool,
         viewport: LogicalRect,
         window_state: &FullWindowState,
@@ -19098,6 +19098,8 @@ impl LayoutWindow {
     ///
     /// Returns whether any text changed; the caller owes the relayout
     /// (`ProcessEventResult::ShouldIncrementalRelayout`).
+    // Not const: with the `fluent` feature the body walks and re-shapes the DOMs.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn relocalize_laid_out_text(&mut self) -> bool {
         #[cfg(feature = "fluent")]
         {
@@ -26395,7 +26397,7 @@ pub struct ImageCallbackInputs {
 
 impl ImageCallbackInputs {
     #[must_use]
-    pub fn of(declared: &ImageRef, bounds: &HidpiAdjustedBounds) -> Self {
+    pub const fn of(declared: &ImageRef, bounds: &HidpiAdjustedBounds) -> Self {
         Self {
             declared: declared.get_hash(),
             width_bits: bounds.logical_size.width.to_bits(),
@@ -30373,7 +30375,7 @@ impl CssTransition {
 /// window's own `:backdrop`), not the DOM (`:disabled`, `:checked`): what a
 /// rebuilt node gets back from the node it replaces once the shell re-applies
 /// the runtime states.
-fn with_interaction_of(
+const fn with_interaction_of(
     mut state: azul_core::styled_dom::StyledNodeState,
     interaction: azul_core::styled_dom::StyledNodeState,
 ) -> azul_core::styled_dom::StyledNodeState {
@@ -30622,7 +30624,7 @@ fn transition_patch_layers(
 /// (`LayoutCache::overrides_only_hint`). `display`, `position`, `float`,
 /// `overflow` and the like decide which boxes exist and what kind they are,
 /// which the reconcile re-derives from the cascade; they are not on the list.
-fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
+const fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType) -> bool {
     use azul_css::props::property::CssPropertyType as T;
     matches!(
         ty,

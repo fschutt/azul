@@ -201,7 +201,7 @@ pub use crate::window::{form_scope_of_virtual_view, FORM_SCOPE_MEASURE, FORM_SCO
 
 /// `data-azul-widget="none"`, for `Dom::with_attribute`.
 #[must_use]
-pub fn opt_out_attribute() -> AttributeType {
+pub const fn opt_out_attribute() -> AttributeType {
     AttributeType::Data(AttributeNameValue {
         attr_name: AzString::from_const_str(OPT_OUT_ATTRIBUTE),
         value: AzString::from_const_str(OPT_OUT_VALUE),
@@ -1425,7 +1425,7 @@ extern "C" fn record_text_area(
 // ── A raw <form>'s own handlers ─────────────────────────────────────────────
 
 /// The engine's form events: `Submit` and `Reset` on the form node.
-fn is_form_event(event: &EventFilter) -> bool {
+const fn is_form_event(event: EventFilter) -> bool {
     matches!(
         event,
         EventFilter::Hover(HoverEventFilter::Submit | HoverEventFilter::Reset)
@@ -1875,7 +1875,7 @@ fn text_of(value: Option<&FormValue>) -> String {
     }
 }
 
-fn number_of(value: Option<&FormValue>) -> f32 {
+const fn number_of(value: Option<&FormValue>) -> f32 {
     match value {
         Some(FormValue::Number(number)) => *number,
         _ => 0.0,
@@ -2219,7 +2219,7 @@ fn graft(raw: &Dom, widget: &mut Dom, kind: FormWidget, spec: &Spec) {
             from.callbacks
                 .as_ref()
                 .iter()
-                .filter(|c| kind != FormWidget::Form || !is_form_event(&c.event))
+                .filter(|c| kind != FormWidget::Form || !is_form_event(c.event))
                 .cloned(),
         );
         widget.root.callbacks = callbacks.into();

@@ -756,7 +756,7 @@ impl A11yManager {
     /// Hand the parked update to a platform adapter. Every shell drains the
     /// slot through this. (`delivered` already describes the tree the
     /// adapter holds afterwards: [`Self::publish`] advanced it.)
-    pub fn take_pending(&mut self) -> Option<TreeUpdate> {
+    pub const fn take_pending(&mut self) -> Option<TreeUpdate> {
         self.last_tree_update.take()
     }
 
