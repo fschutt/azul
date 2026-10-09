@@ -96,7 +96,9 @@ pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
-pub use token::{Checkout, CheckoutStatus, Tier, Tiers, TokenError, TokenServer};
+pub use token::{
+    Checkout, CheckoutStatus, CheckoutVia, OptionsQuery, Tier, Tiers, TokenError, TokenServer,
+};
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 
 /// Now, in seconds since 1970-01-01 UTC.
