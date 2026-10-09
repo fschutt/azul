@@ -34,6 +34,9 @@ mod mem_bucket;
 /// The encrypted drive (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod encrypted;
+/// The keys on a device: setup, unlock, invites, recovery (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod device;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;

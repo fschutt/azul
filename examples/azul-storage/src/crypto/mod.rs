@@ -28,6 +28,7 @@
 
 pub mod azl1;
 pub mod codec;
+pub mod device;
 pub mod keys;
 
 use std::fmt;
