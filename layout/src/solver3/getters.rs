@@ -5752,7 +5752,8 @@ pub fn variable_instance(
         (meta.weight != weight && requested >= min && requested <= max).then_some(weight as u16)
     });
     let opsz = axes.opsz.and_then(|(min, default, max)| {
-        if optical_size == 0 || !(min <= max) {
+        // An inverted or NaN range would make `clamp` panic.
+        if optical_size == 0 || min > max || min.is_nan() || max.is_nan() {
             return None;
         }
         let at = f32::from(optical_size).clamp(min, max);

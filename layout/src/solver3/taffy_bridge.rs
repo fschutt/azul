@@ -2334,7 +2334,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             .known_dimensions
             .width
             .map(|kw| (kw - node_padding_width - node_border_width).max(0.0))
-            .or(match inputs.available_space.width {
+            .or_else(|| match inputs.available_space.width {
                 AvailableSpace::Definite(w) => Some(available_content_width(w)),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
                 AvailableSpace::MaxContent => None, // Use infinity for max-content

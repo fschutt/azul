@@ -2226,7 +2226,7 @@ pub(crate) fn percentage_height_computes_to_auto(
 /// resolves against the cell. Asked by `cache::prepare_layout_context` and
 /// `fc::layout_bfc`, the two places that hand a box's height to its children.
 pub(crate) fn height_is_auto_for_children(
-    formatting_context: &FormattingContext,
+    formatting_context: FormattingContext,
     height: Option<&LayoutHeight>,
     containing_block_height_is_definite: bool,
 ) -> bool {
