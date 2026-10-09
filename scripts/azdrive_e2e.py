@@ -46,7 +46,13 @@ node layout, AzDrive's stdout markers and the files on disk:
     20. F5 counts a folder's items again (Counted: 17 files, 6 written meanwhile, 23); a
         folder of 3,000 files opens at once: the listing streams in, the virtual view holds a
         few screens of rows (never the folder), the rows in view get their sizes (the stat of
-        the rows in view), End reveals the last file.
+        the rows in view), End reveals the last file;
+    21. the search box searches the open folder and every folder below it (azul-search): Ctrl+F
+        and "needle" find a file three folders down (its row with its folder, the Search tab,
+        the status line's count; a click selects it by its key), the Search tab's File contents
+        searches again with the files' contents, Escape in the box closes the search (the
+        folder's rows are back), "zebra-quartz" finds the file whose third line holds it (the
+        Match column shows the line), Escape again.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -375,6 +381,14 @@ def run(args, logs):
     for i in range(17):
         with open(os.path.join(home, "Counted", "c-%02d.txt" % i), "wb") as f:
             f.write(b"x")
+    # Step 21's search: a name three folders down, a word on the third line of another file.
+    os.makedirs(os.path.join(home, "Find", "deep", "er"))
+    with open(os.path.join(home, "Find", "deep", "er", "needle-report.txt"), "wb") as f:
+        f.write(b"nothing to see here\n")
+    with open(os.path.join(home, "Find", "plan.md"), "wb") as f:
+        f.write(b"# Plan\n\nthe zebra-quartz line\n")
+    with open(os.path.join(home, "Find", "other.txt"), "wb") as f:
+        f.write(b"nothing either\n")
     # Every setting is a switch (src/args.rs); only the engine's AZ_BACKEND / AZ_DEBUG are
     # variables (the shared driver sets them).
     switches = [
@@ -895,10 +909,57 @@ def run(args, logs):
             "the status line counted 3,000, the rows in view got their sizes, End revealed "
             "the last" % built)
 
+        # 21. The search box searches the open folder and every folder below it.
+        app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
+        app.after("Find", "AZDRIVE_LISTED", r"home Find/ \d+", lambda: open_item(app, "Find"))
+        app.until("Find's rows", lambda: "plan.md" in item_names(app))
+
+        def status():
+            return " ".join(app.texts_within("#" + I("status-line")))
+
+        app.key("f", primary=True)
+        app.until("Ctrl+F: the search box has the keyboard",
+                  lambda: "text-input" in focused_selector(app))
+        app.after("the name search", "AZDRIVE_SEARCHED", r"1 names needle",
+                  lambda: (app.must("text_input", text="needle"), app.frame(2)))
+        app.until("the file three folders down",
+                  lambda: "needle-report.txt" in item_names(app))
+        if "plan.md" in item_names(app):
+            raise Failure("the search's results still show the folder's own rows")
+        app.until("its folder", lambda: "Find/deep/er" in texts_in_view(app))
+        app.until("the status line's count", lambda: "1 item found" in status())
+        app.until("the Search tab", lambda: app.ribbon_node("Search") is not None)
+        app.screenshot(os.path.join(out, "21-search-names.png"))
+        app.after("a result selected by its key", "AZDRIVE_SELECTED",
+                  r"1 Find/deep/er/needle-report\.txt",
+                  lambda: select_item(app, "needle-report.txt"))
+        app.tab("Search")
+        app.after("File contents: the search again", "AZDRIVE_SEARCHED", r"1 contents needle",
+                  lambda: app.ribbon("File contents"))
+        app.key("f", primary=True)
+        app.until("Ctrl+F again", lambda: "text-input" in focused_selector(app))
+        app.after("Escape in the box closes the search", "AZDRIVE_SEARCH_CLOSED", r".*",
+                  lambda: app.key("escape"))
+        app.until("the folder's rows back", lambda: "plan.md" in item_names(app))
+        app.after("the contents search", "AZDRIVE_SEARCHED", r"1 contents zebra-quartz",
+                  lambda: (app.must("text_input", text="zebra-quartz"), app.frame(2)))
+        app.until("the file whose line holds it", lambda: "plan.md" in item_names(app))
+        app.until("the Match column: the line, its number",
+                  lambda: "zebra-quartz" in texts_in_view(app) and "3:" in texts_in_view(app))
+        if "other.txt" in item_names(app):
+            raise Failure("a file without the text is a result")
+        app.screenshot(os.path.join(out, "21-search-contents.png"))
+        app.after("Escape closes it", "AZDRIVE_SEARCH_CLOSED", r".*", lambda: app.key("escape"))
+        app.until("Find's rows again", lambda: "other.txt" in item_names(app))
+        log("21. the search box: \"needle\" found Find/deep/er/needle-report.txt (its folder, "
+            "the Search tab, \"1 item found\", selected by its key); File contents searched "
+            "again; Escape closed it; \"zebra-quartz\" found plan.md by its third line; Escape")
+
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "
             "showed Properties and the Options, took the editing keys, walked its source list, "
-            "its breadcrumb and its File menu, and opened 3,000 files at once")
+            "its breadcrumb and its File menu, opened 3,000 files at once, and searched a folder "
+            "and every folder below it by name and by contents")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
