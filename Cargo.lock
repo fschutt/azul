@@ -1163,6 +1163,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-bridge"
+version = "0.1.0"
+dependencies = [
+ "azcloud-kit",
+ "azul-appkit",
+ "azul-mail-core",
+ "azul-storage",
+ "base64 0.22.1",
+ "dirs",
+ "getrandom 0.2.17",
+ "roxmltree 0.21.1",
+ "rustls-rustcrypto",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "azul-core"
 version = "0.0.16"
 dependencies = [

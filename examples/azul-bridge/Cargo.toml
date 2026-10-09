@@ -1,0 +1,58 @@
+[package]
+name = "azul-bridge"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The Azlin Bridge: a background process on the user's own device that lets
+    other people's programs reach the Azlin drive - Apple Mail, Outlook and
+    Thunderbird through IMAP4rev1 and SMTP submission, Finder, Windows
+    Explorer and the Linux file managers through WebDAV - all on 127.0.0.1
+    only. The servers of Azlin speak S3 and the token API; every other
+    protocol is a translation here. Mail is the drive's mailbox as AzMail
+    keeps it (AZLIN_MAIL.md, through azul-mail-core); files are the drive
+    itself (an azul-storage Drive). Headless and blocking (one thread per
+    connection); no libazul.
+"""
+publish = false
+
+[dependencies]
+# AzMail's mail logic without azul types: the drive's mailbox layout (names, state markers,
+# the folders and their roles), modified UTF-7, and the sending path (outbox, DKIM, route).
+azul-mail-core = { path = "../azul-mail-core" }
+# The `Drive` trait WebDAV serves and the mailbox is kept in, the S3 drive, the key checks.
+azul-storage = { path = "../azul-storage" }
+# The bridge's own device account: its state folder, its token family (signup / join), the
+# credentials refreshed before they run out, the secrets file.
+azcloud-kit = { path = "../azcloud-kit" }
+# The shared Azlin config's endpoint flags (`--token-url`, `--s3-url`); plain Rust.
+azul-appkit = { path = "../azul-appkit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# PROPFIND / PROPPATCH / LOCK bodies: the read-only XML parser azul-storage already reads S3's
+# answers with (no DTD: a body with one is refused before parsing).
+roxmltree = { version = "0.21.1", default-features = false }
+# The HTTP client under the drive and the token server calls without libazul: exactly the
+# features azul-layout's `http` builds it with (rustls, the pure-Rust RustCrypto provider, the
+# Mozilla roots), so no crate enters Cargo.lock.
+ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
+rustls-rustcrypto = "0.0.2-alpha"
+# The per-install password (the OS's random source).
+getrandom = "0.2"
+# AUTH PLAIN / LOGIN and HTTP Basic credentials.
+base64 = "0.22"
+# The OS folders azcloud-kit's settings start from (the same `dirs` the azcloud CLI uses).
+dirs = "6"
+
+[dev-dependencies]
+# A temporary folder for the tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[lib]
+name = "azul_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "azul-bridge"
+path = "src/main.rs"

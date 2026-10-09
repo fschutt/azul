@@ -15,6 +15,7 @@ members = [
     "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)
     "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
     "examples/azul-mail-core", # azul-mail-core: AzMail's mail logic without azul types (accounts, folders, the store, the Azlin drive's layout, sending, DKIM), shared with the Azlin Bridge
+    "examples/azul-bridge", # azul-bridge: the Azlin Bridge, IMAP / SMTP submission / WebDAV on 127.0.0.1 over the drive (headless, no libazul)
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
     "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
     "examples/azul-icons-haiku", # azul-icons-haiku: Haiku's icons (HVIF, MIT) under Material names, the flora theme's icon pack (azul-appkit registers it)
