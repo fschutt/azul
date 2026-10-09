@@ -83,7 +83,7 @@ pub(crate) fn fill(color: ColorU) -> CssProperty {
 /// `background` built from layers, painted first to last (the base colour
 /// goes FIRST - the reverse of a CSS comma list).
 #[must_use]
-pub(crate) fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
+pub(crate) const fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
     CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(list))
 }
 

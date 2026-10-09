@@ -84,7 +84,7 @@ use super::UiTheme;
 
 /// The condition of `theme`'s block: `@theme(<name>)`.
 #[must_use]
-pub(crate) fn theme_condition(theme: UiTheme) -> DynamicSelector {
+pub(crate) const fn theme_condition(theme: UiTheme) -> DynamicSelector {
     DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str(
         theme.name(),
     )))
@@ -370,7 +370,7 @@ fn in_theme_css(css: Css, theme: UiTheme) -> Css {
 
 /// `flat` and `flora` as (the `structure` theme's, the other theme's) - and,
 /// the same swap, a (`structure`'s, other's) pair back as (flat, flora).
-fn mine_first<T>(structure: UiTheme, flat: T, flora: T) -> (T, T) {
+const fn mine_first<T>(structure: UiTheme, flat: T, flora: T) -> (T, T) {
     match structure {
         UiTheme::Flat => (flat, flora),
         UiTheme::Flora => (flora, flat),

@@ -8173,7 +8173,7 @@ pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> 
 /// A font declaration pair: the chrome size and flora's hand - Garamond
 /// (`--font-serif` / `--font-caps`, the bundled EB Garamond first), the face
 /// every flora surface writes in; what a shell's content inherits.
-fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
+const fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             px,

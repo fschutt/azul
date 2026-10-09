@@ -76,7 +76,7 @@ struct Builder {
 
 #[cfg(feature = "rich_text_markdown")]
 impl Builder {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             blocks: Vec::new(),
             sink: None,

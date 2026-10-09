@@ -5134,7 +5134,7 @@ pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> 
 // (`shells::*_BASE`).
 
 /// A font declaration pair: the chrome size and the system family.
-fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
+const fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             px,
