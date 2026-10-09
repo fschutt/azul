@@ -4889,6 +4889,31 @@ pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
     ]
 }
 
+#[cfg(test)]
+mod invalid_ring_tests {
+    use super::*;
+
+    /// flora says "wrong" in ONE colour: an invalid field's ring is the clay
+    /// its error lines, danger commands and alerts are cut from (#7E4A42),
+    /// lifted to the clay's glow at night (#B3837A) - not a brick red of its
+    /// own next to them.
+    #[test]
+    fn a_flora_fields_invalid_ring_is_the_clay_of_floras_errors() {
+        for (dark, inner) in [(false, STONE_CLAY.stone), (true, STONE_CLAY.glow)] {
+            assert_eq!(
+                text_input_invalid_ring(dark),
+                vec![
+                    CssProperty::const_border_top_color(StyleBorderTopColor { inner }),
+                    CssProperty::const_border_right_color(StyleBorderRightColor { inner }),
+                    CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner }),
+                    CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
+                ],
+                "dark {dark}"
+            );
+        }
+    }
+}
+
 // ==== datetime-local ====
 
 /// `<input type=datetime-local>`: the date part and the time part in one row,
