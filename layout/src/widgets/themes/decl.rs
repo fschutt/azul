@@ -784,6 +784,7 @@ pub(crate) fn fill_box() -> [CssPropertyWithConditions; 2] {
 
 /// Which edges [`themed_border`] draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // one flag per box edge, as CSS names them
 pub(crate) struct Edges {
     pub(crate) top: bool,
     pub(crate) right: bool,

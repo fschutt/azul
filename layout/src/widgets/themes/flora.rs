@@ -1053,14 +1053,14 @@ const LEAF_EDGE_DARK: [ColorU; 4] = [
 /// night twin. Pair it with a 1px border.
 #[must_use]
 pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
-    let [t, r, b, l] = LEAF_EDGE_LIGHT;
-    let [dt, dr, db, dl] = LEAF_EDGE_DARK;
-    let mut v = Vec::with_capacity(8);
-    v.extend(super::decl::themed_border_top_color(t, dt));
-    v.extend(super::decl::themed_border_right_color(r, dr));
-    v.extend(super::decl::themed_border_bottom_color(b, db));
-    v.extend(super::decl::themed_border_left_color(l, dl));
-    v
+    let [top, right, bottom, left] = LEAF_EDGE_LIGHT;
+    let [dark_top, dark_right, dark_bottom, dark_left] = LEAF_EDGE_DARK;
+    let mut props = Vec::with_capacity(8);
+    props.extend(super::decl::themed_border_top_color(top, dark_top));
+    props.extend(super::decl::themed_border_right_color(right, dark_right));
+    props.extend(super::decl::themed_border_bottom_color(bottom, dark_bottom));
+    props.extend(super::decl::themed_border_left_color(left, dark_left));
+    props
 }
 
 const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
@@ -10470,7 +10470,7 @@ mod flora16_look_tests {
                     })
             })
             .map(|p| p.property.clone())
-            .last()
+            .next_back()
     }
 
     fn in_capitals(props: &[CssPropertyWithConditions]) -> bool {

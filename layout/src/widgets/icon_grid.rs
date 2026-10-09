@@ -703,6 +703,7 @@ pub(crate) struct Geometry {
 
 /// What a point in the grid is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(variant_size_differences)] // a 16-byte Copy value; boxing the index would cost more
 pub(crate) enum Hit {
     /// Item `index`.
     Item(usize),
@@ -1226,8 +1227,8 @@ fn grid_base(width: f32, height: f32) -> Vec<CssPropertyWithConditions> {
 /// (the skin colours it: transparent at rest) and clipped.
 fn item_base(x: f32, y: f32, w: f32, h: f32) -> Vec<CssPropertyWithConditions> {
     use crate::widgets::themes::decl;
-    let mut v = placed(x, y, w, h).to_vec();
-    v.extend([
+    let mut props = placed(x, y, w, h).to_vec();
+    props.extend([
         decl::display_flex(),
         decl::flex_direction(LayoutFlexDirection::Column),
         decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
@@ -1235,8 +1236,8 @@ fn item_base(x: f32, y: f32, w: f32, h: f32) -> Vec<CssPropertyWithConditions> {
         decl::overflow_x_hidden(),
         decl::overflow_y_hidden(),
     ]);
-    v.extend(decl::border(1));
-    v
+    props.extend(decl::border(1));
+    props
 }
 
 /// The thumbnail's box: `size` px square, the glyph or the picture centred

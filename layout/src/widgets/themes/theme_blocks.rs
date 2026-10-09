@@ -263,12 +263,12 @@ fn interleave<T: Unit>(
             // orders cross here. The one whose twin is further ahead is the
             // one out of place.
             (Some(a), Some(b)) => {
-                let a_twin = flora[j..].iter().position(|u| u == a);
-                let b_twin = flat[i..].iter().position(|u| u == b);
+                let a_twin = flora[j..].iter().position(|unit| unit == a);
+                let b_twin = flat[i..].iter().position(|unit| unit == b);
                 let b_gives_way = match (a_twin, b_twin) {
                     (_, None) => true,
                     (None, Some(_)) => false,
-                    (Some(x), Some(y)) => y > x,
+                    (Some(a_ahead), Some(b_ahead)) => b_ahead > a_ahead,
                 };
                 return Err(types_of(if b_gives_way { b } else { a }));
             }

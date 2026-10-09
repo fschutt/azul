@@ -6481,7 +6481,9 @@ mod app_theme_tests {
     #[test]
     fn a_date_picker_declares_its_structure_once_for_every_theme() {
         use crate::widgets::themes::theme_checks::assert_structure_is_shared;
-        let pickers: [(&str, fn() -> DatePicker); 3] = [
+        /// A picker mode's name and how to build it.
+        type NamedPicker = (&'static str, fn() -> DatePicker);
+        let pickers: [NamedPicker; 3] = [
             ("date", || DatePicker::create(2024, 2, 15)),
             ("month", || DatePicker::create_month(2024, 2)),
             ("week", || DatePicker::create_week(2024, 7)),
