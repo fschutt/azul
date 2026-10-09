@@ -200,6 +200,150 @@ pub fn open_encrypted(
     Ok(EncryptedDrive::new(bucket, drive_key, index))
 }
 
+/// A drive's bucket that may hold an encrypted drive, for an app that opens drives on its UI
+/// thread and calls them on worker threads: the FIRST call (on a worker thread) decides. The
+/// drive is encrypted when this device keeps its key (sticky: a bucket that hides its key files
+/// cannot turn this device back to plaintext) or the bucket holds key files; it is then used
+/// through [`open_encrypted`] (the index from `provider`; without one it is refused - this
+/// build cannot name its files), else as the plain bucket. A failed decision is tried again on
+/// the next call. A drive encrypted by another device while this one is open stays plain here
+/// until it is opened again.
+pub struct AutoEncrypted {
+    bucket: Arc<dyn Drive>,
+    drive: String,
+    keyring: Arc<dyn KeyringStore>,
+    provider: Option<Arc<dyn IndexProvider>>,
+    opened: Mutex<Option<Arc<dyn Drive>>>,
+}
+
+impl fmt::Debug for AutoEncrypted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AutoEncrypted")
+            .field("drive", &self.drive)
+            .field("has_provider", &self.provider.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl AutoEncrypted {
+    /// The bucket of the drive `drive` (its id), the keyring its key is kept in, the provider
+    /// of encrypted drives' indexes (`None`: this build opens plain drives only). Sends nothing.
+    #[must_use]
+    pub fn new(
+        bucket: Arc<dyn Drive>,
+        drive: &str,
+        keyring: Arc<dyn KeyringStore>,
+        provider: Option<Arc<dyn IndexProvider>>,
+    ) -> AutoEncrypted {
+        AutoEncrypted {
+            bucket,
+            drive: drive.to_string(),
+            keyring,
+            provider,
+            opened: Mutex::new(None),
+        }
+    }
+
+    /// The plain bucket, below any encryption (the keys live there).
+    #[must_use]
+    pub fn bucket(&self) -> &Arc<dyn Drive> {
+        &self.bucket
+    }
+
+    /// Forgets the decision: the next call decides again (after the drive was encrypted, or
+    /// this device got its key).
+    pub fn reopen(&self) {
+        *lock(&self.opened) = None;
+    }
+
+    /// Whether the decision so far is "encrypted" (`None`: not decided yet).
+    #[must_use]
+    pub fn is_encrypted(&self) -> Option<bool> {
+        lock(&self.opened)
+            .as_ref()
+            .map(|drive| !Arc::ptr_eq(drive, &self.bucket))
+    }
+
+    /// The drive every call goes to: decided on the first call.
+    fn resolved(&self) -> Result<Arc<dyn Drive>, DriveError> {
+        let mut opened = lock(&self.opened);
+        if let Some(drive) = opened.as_ref() {
+            return Ok(Arc::clone(drive));
+        }
+        // A keyring that cannot be read (no keyring on this system, a declined prompt) leaves
+        // the bucket's word; an encrypted drive asks the keyring again for its key.
+        let kept = device::load_drive_key(self.keyring.as_ref(), &self.drive)
+            .unwrap_or(None)
+            .is_some();
+        let encrypted = kept || device::is_encrypted(self.bucket.as_ref())?;
+        let drive: Arc<dyn Drive> = if encrypted {
+            let Some(provider) = &self.provider else {
+                return Err(DriveError::Unsupported(String::from(
+                    "this drive is encrypted, and this build of the app has no drive index to \
+                     open encrypted drives with",
+                )));
+            };
+            Arc::new(open_encrypted(
+                Arc::clone(&self.bucket),
+                self.keyring.as_ref(),
+                &self.drive,
+                provider.as_ref(),
+            )?)
+        } else {
+            Arc::clone(&self.bucket)
+        };
+        *opened = Some(Arc::clone(&drive));
+        Ok(drive)
+    }
+}
+
+impl Drive for AutoEncrypted {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.resolved()?.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.resolved()?.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.resolved()?.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.resolved()?.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.resolved()?.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.resolved()?.head(key)
+    }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.resolved()?.put_from(key, body)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.resolved()?.put_if(key, bytes, condition)
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.resolved()?.copy(from, to)
+    }
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.resolved()?.create_folder(prefix)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.resolved()?.rename(from, to)
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.resolved()?.delete_folder(prefix)
+    }
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.resolved()?.metadata(key)
+    }
+}
+
 /// The mutex's value, also after a thread panicked while holding it.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
