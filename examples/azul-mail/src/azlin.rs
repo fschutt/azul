@@ -940,3 +940,203 @@ mod tests {
         assert_eq!(well_known_name(Role::All), None);
     }
 }
+
+/// Two AzMail processes on one Azlin account share its keyring entry: a refresh holds the
+/// entry's lock, re-reads it first and spends only the newest drive token (the token server
+/// revokes the device for a spent one).
+#[cfg(test)]
+mod shared_refresh_tests {
+    use std::sync::{Arc, Barrier, Mutex};
+
+    use azcloud_kit::{lock::LockDir, shared::SharedKeyring};
+    use azul_storage::{
+        keyring::{KeyringError, KeyringStore, MemoryKeyring},
+        testing::TempDir,
+    };
+
+    use super::{refresh_shared, AzlinSession, CloudAccount, TokenError};
+
+    /// The account's keyring entry.
+    const KEY: &str = "AzMail/ada@example.org/azlin";
+    /// 2026-10-08T21:15:00Z: when the first credentials run out.
+    const FIRST_EXPIRES: u64 = 1_791_494_100;
+
+    fn token_of(generation: u64) -> String {
+        format!("dt_f.{generation}.t{generation}")
+    }
+
+    /// The session of the family's `generation`: its token, credentials 12 hours past the last.
+    fn session_of(generation: u64) -> AzlinSession {
+        AzlinSession {
+            drive_id: String::from("d_42"),
+            drive_token: token_of(generation),
+            endpoint: String::from("http://127.0.0.1:9000"),
+            region: String::from("us-east-1"),
+            bucket: String::from("d-42"),
+            path_style: true,
+            access_key_id: format!("AZT{generation}"),
+            secret_access_key: String::from("sk"),
+            session_token: Some(String::from("st")),
+            expires_at: Some(FIRST_EXPIRES + generation * 12 * 3600),
+        }
+    }
+
+    /// The token server's side of one token family, as the real one keeps it: the current token
+    /// refreshes (and is spent), a spent one revokes the whole family.
+    #[derive(Default)]
+    struct Family {
+        generation: u64,
+        revoked: bool,
+        refreshes: usize,
+    }
+
+    struct Rotating(Mutex<Family>);
+
+    impl CloudAccount for Rotating {
+        fn create_drive(&self, _name: &str) -> Result<AzlinSession, TokenError> {
+            Err(TokenError::Config(String::from("no sign-ups here")))
+        }
+
+        fn refresh_session(
+            &self,
+            drive_id: &str,
+            drive_token: &str,
+        ) -> Result<AzlinSession, TokenError> {
+            let mut family = self.0.lock().unwrap();
+            if family.revoked || drive_id != "d_42" || drive_token != token_of(family.generation)
+            {
+                family.revoked = true;
+                return Err(TokenError::SignIn(String::from(
+                    "an old token was reused, token_reuse",
+                )));
+            }
+            family.generation += 1;
+            family.refreshes += 1;
+            Ok(session_of(family.generation))
+        }
+    }
+
+    fn token_kept(keyring: &MemoryKeyring) -> String {
+        AzlinSession::from_secret(&keyring.get(KEY).unwrap().unwrap(), "d_42").drive_token
+    }
+
+    #[test]
+    fn two_azmail_processes_on_one_account_race_a_refresh_and_neither_ends_with_a_spent_token() {
+        let dir = TempDir::new("azmail-race");
+        let account = Arc::new(Rotating(Mutex::new(Family::default())));
+        let keyring = Arc::new(MemoryKeyring::new());
+        keyring.set(KEY, &session_of(0).to_secret()).unwrap();
+        // Two processes: each read the session when it started.
+        let held: Vec<Arc<Mutex<AzlinSession>>> = (0..2)
+            .map(|_| Arc::new(Mutex::new(session_of(0))))
+            .collect();
+        for round in 1..=3u64 {
+            // Both Send / Receive find the credentials running out at the same moment.
+            let now = FIRST_EXPIRES + (round - 1) * 12 * 3600 - 600;
+            let start = Arc::new(Barrier::new(2));
+            let processes: Vec<_> = held
+                .iter()
+                .map(|held| {
+                    let held = held.clone();
+                    let start = start.clone();
+                    let account = account.clone();
+                    // Each its own handle of the keyring and its own locks over one folder.
+                    let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+                    std::thread::spawn(move || {
+                        let mine = held.lock().unwrap().clone();
+                        assert!(mine.needs_refresh(now));
+                        start.wait();
+                        let refreshed =
+                            refresh_shared(&*account, &shared, KEY, &mine, None, now).unwrap();
+                        assert_eq!(refreshed.saved, Ok(()));
+                        *held.lock().unwrap() = refreshed.session;
+                    })
+                })
+                .collect();
+            for process in processes {
+                process.join().unwrap();
+            }
+            {
+                let family = account.0.lock().unwrap();
+                assert!(!family.revoked, "round {round}: a spent token was sent again");
+                assert_eq!(
+                    family.refreshes,
+                    usize::try_from(round).unwrap(),
+                    "round {round}: ONE refresh for both processes"
+                );
+            }
+            for (process, session) in held.iter().enumerate() {
+                assert_eq!(
+                    session.lock().unwrap().drive_token,
+                    token_of(round),
+                    "round {round}: process {process} holds the newest token"
+                );
+            }
+            assert_eq!(token_kept(&keyring), token_of(round), "round {round}: kept");
+        }
+    }
+
+    #[test]
+    fn a_session_another_azmail_refreshed_is_read_from_the_keyring_instead_of_spending_the_token(
+    ) {
+        let dir = TempDir::new("azmail-race");
+        let account = Rotating(Mutex::new(Family {
+            generation: 1,
+            ..Family::default()
+        }));
+        let keyring = Arc::new(MemoryKeyring::new());
+        keyring.set(KEY, &session_of(1).to_secret()).unwrap();
+        let shared = SharedKeyring::new(keyring.clone(), LockDir::new(dir.path()));
+        let now = FIRST_EXPIRES - 600;
+        // Credentials running out: the other process's fresh session is taken as it is.
+        let taken = refresh_shared(&account, &shared, KEY, &session_of(0), None, now).unwrap();
+        assert!(taken.adopted);
+        assert_eq!(taken.session.drive_token, token_of(1));
+        // The drive refused this process's key: the other process's (another key) is taken.
+        let taken =
+            refresh_shared(&account, &shared, KEY, &session_of(0), Some("AZT0"), now).unwrap();
+        assert!(taken.adopted);
+        assert_eq!(account.0.lock().unwrap().refreshes, 0, "no token spent");
+        // The drive refused the keyring's key too: ITS token (the newest) is the one spent.
+        let fresh =
+            refresh_shared(&account, &shared, KEY, &session_of(0), Some("AZT1"), now).unwrap();
+        assert!(!fresh.adopted);
+        assert_eq!(fresh.session.drive_token, token_of(2));
+        assert!(!account.0.lock().unwrap().revoked);
+        assert_eq!(token_kept(&keyring), token_of(2));
+    }
+
+    /// A keyring that takes nothing (none on this system).
+    struct NoKeyring;
+
+    impl KeyringStore for NoKeyring {
+        fn get(&self, _: &str) -> Result<Option<String>, KeyringError> {
+            Err(KeyringError::Unavailable)
+        }
+        fn set(&self, _: &str, _: &str) -> Result<(), KeyringError> {
+            Err(KeyringError::Unavailable)
+        }
+        fn delete(&self, _: &str) -> Result<(), KeyringError> {
+            Err(KeyringError::Unavailable)
+        }
+    }
+
+    #[test]
+    fn a_refreshed_session_the_keyring_does_not_take_comes_back_with_why() {
+        let dir = TempDir::new("azmail-race");
+        let account = Rotating(Mutex::new(Family::default()));
+        let shared = SharedKeyring::new(Arc::new(NoKeyring), LockDir::new(dir.path()));
+        let fresh = refresh_shared(
+            &account,
+            &shared,
+            KEY,
+            &session_of(0),
+            None,
+            FIRST_EXPIRES - 600,
+        )
+        .unwrap();
+        assert_eq!(fresh.session.drive_token, token_of(1), "Send / Receive goes on with it");
+        let why = fresh.saved.unwrap_err();
+        assert!(why.contains("no keyring"), "{why}");
+    }
+}
