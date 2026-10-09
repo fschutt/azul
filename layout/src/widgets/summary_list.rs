@@ -2163,3 +2163,121 @@ mod summary_list_tests {
         );
     }
 }
+
+/// The sort header ("Arrange by: Date modified / Newest on top") in AzNotes'
+/// list column, about 300 px: flora set its two links as boxed commands in
+/// capitals, wider than the column, so the caption was cut ("Arrange b") and
+/// the direction box shrank under its label, which wrapped ("NEWEST ON /
+/// TOP"). Chrome does the same with that CSS (a `min-width: 0` box shrinks
+/// below its content, its text wraps) - the widget was wrong: the header has
+/// to fit, every part in the size it has in a roomy column.
+#[cfg(test)]
+mod a_sort_header_fits_its_column_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, widgets::themes::UiTheme, window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    /// The used sizes of the sort header's caption, field and direction in a
+    /// `width` px wide list column, AzNotes' labels, flora.
+    fn sort_parts(width: f32) -> [LogicalSize; 3] {
+        let list = SummaryList::create(SummaryRowVec::from_vec(Vec::new()))
+            .with_sort(
+                AzString::from("Arrange by:"),
+                AzString::from("Date modified"),
+                true,
+            )
+            .with_sort_direction_label(AzString::from("Newest on top"))
+            .with_theme(UiTheme::Flora);
+        let mut dom = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(&alloc::format!(
+                        "display: flex; flex-direction: column; width: {width}px; height: 380px;"
+                    ))
+                    .with_child(list.dom()),
+            );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 400.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the list lays out");
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let nodes = lr.styled_dom.node_data.as_container();
+        let with_class = |class: &str| {
+            nodes
+                .internal
+                .iter()
+                .position(|n| n.has_class(class))
+                .map(NodeId::new)
+                .unwrap_or_else(|| panic!("no node .{class}"))
+        };
+        let sort = with_class("__azul-native-summary-list-sort");
+        let caption = lr.styled_dom.node_hierarchy.as_ref()[sort.index()]
+            .first_child_id(sort)
+            .expect("the caption");
+        let size = |node: NodeId| {
+            let index = *lr
+                .layout_tree
+                .dom_to_layout
+                .get(&node)
+                .and_then(|v| v.first())
+                .expect("the node is laid out");
+            lr.layout_tree
+                .get(index)
+                .and_then(|n| n.used_size)
+                .expect("the node has a size")
+        };
+        [
+            size(caption),
+            size(with_class("__azul-native-summary-list-sort-field")),
+            size(with_class("__azul-native-summary-list-sort-direction")),
+        ]
+    }
+
+    #[test]
+    fn in_aznotes_list_column_a_flora_sort_header_keeps_its_caption_and_one_line_links() {
+        let [caption, field, direction] = sort_parts(300.0);
+        let [roomy_caption, roomy_field, roomy_direction] = sort_parts(800.0);
+        assert!(
+            (caption.width - roomy_caption.width).abs() < 0.5,
+            "the caption is not cut: {} px in the column, {} px with room",
+            caption.width,
+            roomy_caption.width
+        );
+        assert!(
+            (field.width - roomy_field.width).abs() < 0.5,
+            "the field keeps its size: {field:?} vs {roomy_field:?}"
+        );
+        for (name, got, want) in [
+            ("caption", caption, roomy_caption),
+            ("field", field, roomy_field),
+            ("direction", direction, roomy_direction),
+        ] {
+            assert!(
+                (got.height - want.height).abs() < 0.5,
+                "the {name} stays on one line: {} px high in the column, {} px with room",
+                got.height,
+                want.height
+            );
+        }
+    }
+}
