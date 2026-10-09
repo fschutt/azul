@@ -35,7 +35,30 @@
 //!
 //! A platform without a backend never reaches this module: its windows say
 //! so through `WebViewPlatform` (the default `Absent`, or a `Probe` naming
-//! the missing library), and the engine alone fails the views.
+//! the missing library), and the engine alone fails the views - the view
+//! shows the reason and the app hears `WebViewLoadFailed`.
+//!
+//! # iOS and Android (design)
+//!
+//! - iOS: `macos::webview` with `UIKit` - a clip container `UIView`
+//!   (`clipsToBounds`) holding a `WKWebView`, subviews of the render view
+//!   (flipped like azul, no y conversion), the same navigation delegate,
+//!   stores and decision-handler rules. `WebKit` is a system framework there
+//!   too; it is loaded the same lazy way.
+//! - Android: an `android.webkit.WebView` through JNI, a child of the
+//!   activity's content `FrameLayout` positioned with layout params and
+//!   clipped by a wrapping `FrameLayout` (`setClipChildren`). A Java
+//!   `WebViewClient` subclass (`shouldOverrideUrlLoading`, `onPageFinished`,
+//!   `onReceivedError`) and `WebChromeClient.onReceivedTitle` post reports to
+//!   a native queue; `shouldOverrideUrlLoading` must answer synchronously,
+//!   so the shell dispatches the report inside it on the UI thread. No
+//!   `addJavascriptInterface` (no bridge), `setAllowFileAccess(false)`;
+//!   ephemeral = clear the per-app `CookieManager` / `WebStorage` when the
+//!   last ephemeral view goes (Android has one store per app process).
+//!
+//! Both: an OAuth provider that refuses embedded views (Google, Facebook)
+//! goes through the system auth session (`ASWebAuthenticationSession`,
+//! Custom Tabs) instead - a different API, not this node.
 
 use alloc::{string::String, vec::Vec};
 
