@@ -2552,7 +2552,7 @@ mod webview_node_tests {
             .tag_ids_to_node_ids
             .as_ref()
             .iter()
-            .find(|m| m.node_id.into_crate_internal() == Some(NodeId::new(1)))
+            .find(|m| m.node_id.into_crate_internal() == Some(crate::id::NodeId::new(1)))
             .expect("the web view has a hit-test tag");
         assert_eq!(
             mapping.tab_index,
