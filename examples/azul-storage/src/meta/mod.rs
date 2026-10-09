@@ -60,9 +60,11 @@
 //! never text to merge. That is this module, with no new crate.
 
 pub mod bucket;
+pub mod merge;
 pub mod objects;
 pub mod pack;
 pub mod seal;
+pub mod tree;
 pub mod wal;
 
 use std::fmt;
@@ -71,9 +73,11 @@ pub use bucket::{
     Bucket, ConditionalPut, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts,
     Version,
 };
+pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
 pub use pack::{PackIndex, PackWriter, SealedPack};
 pub use seal::{SealError, Sealer, TestSealer};
+pub use tree::Change;
 pub use wal::{
     LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Publish, Published, RefUpdate,
     RepoState, SyncReport,

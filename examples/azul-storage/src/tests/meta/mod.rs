@@ -2,9 +2,11 @@
 //! objects and its merges.
 
 mod bucket;
+mod merge;
 mod objects;
 mod pack;
 mod seal;
+mod tree;
 mod wal;
 
 use super::TempDir;

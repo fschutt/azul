@@ -7,7 +7,12 @@
 //! them to git as they are. Tags, symbolic links and submodules are not used
 //! by a drive index and not written.
 
-use std::{cmp::Ordering, collections::HashMap, fmt, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    fmt,
+    sync::Arc,
+};
 
 use sha2::{Digest, Sha256};
 
@@ -183,6 +188,29 @@ impl Tree {
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&TreeEntry> {
         self.entries.iter().find(|e| e.name == name)
+    }
+
+    /// The tree of these entries, put in git's order; refuses an invalid or a
+    /// repeated name.
+    pub fn from_entries(mut entries: Vec<TreeEntry>) -> Result<Tree, MetaError> {
+        if let Some(bad) = entries.iter().find(|e| !is_valid_name(&e.name)) {
+            return Err(MetaError::Corrupt {
+                key: bad.name.clone(),
+                reason: "not a valid name in a folder".to_string(),
+            });
+        }
+        // A file and a folder of one name are not neighbours in git's order.
+        {
+            let mut names = HashSet::with_capacity(entries.len());
+            if let Some(twice) = entries.iter().find(|e| !names.insert(e.name.as_str())) {
+                return Err(MetaError::Corrupt {
+                    key: twice.name.clone(),
+                    reason: "two entries of one name in a folder".to_string(),
+                });
+            }
+        }
+        entries.sort_by(git_order);
+        Ok(Tree { entries })
     }
 
     /// Adds the entry, replacing one of the same name. Refuses an invalid name.
