@@ -9624,12 +9624,15 @@ pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicke
 
 // ==== data_table ====
 //
-// A flora data table is a ledger on the field paper: rows a --fl-sep
-// hairline apart with the surface tone on every other one, the column
-// titles semibold on the strip (a sorted column's title in the accent, its
-// glow at night), the filter row in the field tone with the label ink for
-// its placeholder, selected rows on the accent's soft wash (the accent
-// itself at night), the cursor's cell in the accent outline, scroll bars of
+// A flora data table is a ledger on the field paper, as flora's list view
+// is: rows a --fl-sep hairline apart with flora.css's table stripe
+// (`--fl-strip`) on every other one - the surface tone at night, where the
+// strip token sits two steps off the night paper - the column titles in
+// flora's capitals in the intro ink on the raised paper face (a sorted
+// column's title in the accent, its glow at night), the filter row in the
+// field tone with the label ink for its placeholder, selected rows flora's
+// selection (the accent's soft wash in its deep tone; the accent itself in
+// the paper ink at night), the cursor's cell in the accent outline, scroll bars of
 // the quiet ink on the surface. At night every surface and ink takes its
 // night value.
 
@@ -9644,9 +9647,12 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
     table.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     table.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
 
-    let mut header = alloc::vec![decl::semibold()];
-    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
-    header.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut header = caps(CAPS_LABEL);
+    header.extend(decl::themed_layers(
+        alloc::vec![RAISED_FACE_LIGHT],
+        alloc::vec![RAISED_FACE_DARK],
+    ));
+    header.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
     header.extend(decl::border_right(1));
     header.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
     header.extend(decl::border_bottom(1));
@@ -9663,6 +9669,9 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
     cell.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
     let mut row = decl::border_bottom(1).to_vec();
     row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut row_selected = decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec();
+    row_selected.extend(decl::themed_ink(LIGHT_DEEP, DARK_ON_ACC));
 
     let mut cursor = decl::border(2).to_vec();
     cursor.extend(decl::themed_border_color(LIGHT_ACC, DARK_GLOW));
@@ -9689,8 +9698,8 @@ pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
         filter_empty: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
         cell,
         row,
-        row_alternate: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
-        row_selected: decl::themed_fill(LIGHT_SOFT, DARK_ACC).to_vec(),
+        row_alternate: decl::themed_fill(LIGHT_STRIP, DARK_SUR).to_vec(),
+        row_selected,
         cursor,
         editor,
         caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
