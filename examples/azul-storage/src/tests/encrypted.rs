@@ -9,9 +9,15 @@ use crate::{
     crypto::{
         azl1::{WriteOptions, HEADER_LEN},
         codec::Compression,
+        device::{adopt_invite, seal_invite, setup_new_drive},
+        keys::RecoveryKdf,
         random_bytes, DriveKey, ObjectId, ShareKey,
     },
-    encrypted::{read_shared, EncryptedDrive, MemoryIndex, NameIndex, SharedFile},
+    encrypted::{
+        open_encrypted, read_shared, EncryptedDrive, IndexProvider, MemoryIndex, NameIndex,
+        SharedFile,
+    },
+    keyring::MemoryKeyring,
     ops::list_all,
     ByteRange, Drive, DriveError, ListRequest, LocalDrive, Precondition,
 };
@@ -559,4 +565,51 @@ fn folder_markers_live_in_the_index_only() {
     drive.put("music/", &[]).unwrap();
     assert!(drive.head("music/").is_ok());
     assert!(drive.inner().keys().is_empty());
+}
+
+/// The tests' index provider: one index in memory that every device shares (the metadata
+/// repository is the apps' provider).
+struct SharedIndex(Arc<MemoryIndex>);
+
+impl IndexProvider for SharedIndex {
+    fn open_index(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        Ok(self.0.clone())
+    }
+}
+
+#[test]
+fn a_device_opens_an_encrypted_drive_with_its_own_key_and_the_providers_index() {
+    let mem = Arc::new(MemBucket::new());
+    let bucket: Arc<dyn Drive> = mem.clone();
+    let first = MemoryKeyring::new();
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    let (drive_key, _) = setup_new_drive(bucket.as_ref(), &first, "d_1", kdf).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+
+    let drive = open_encrypted(bucket.clone(), &first, "d_1", &provider).unwrap();
+    assert_eq!(drive.drive_key_id(), drive_key.id());
+    drive.put("letters/a.txt", b"hello").unwrap();
+
+    // A device without a key is refused, not handed an empty drive.
+    assert!(matches!(
+        open_encrypted(bucket.clone(), &MemoryKeyring::new(), "d_1", &provider),
+        Err(DriveError::Denied { .. })
+    ));
+
+    // A second device, enrolled by an invite, reads what the first wrote.
+    let invite = seal_invite(bucket.as_ref(), "d_1", &drive_key).unwrap();
+    let second = MemoryKeyring::new();
+    adopt_invite(bucket.as_ref(), &second, "d_1", &invite).unwrap();
+    let other = open_encrypted(bucket, &second, "d_1", &provider).unwrap();
+    assert_eq!(other.get("letters/a.txt").unwrap(), b"hello");
+    assert!(
+        !mem.keys().iter().any(|key| key.contains("letters")),
+        "{:?}",
+        mem.keys()
+    );
 }

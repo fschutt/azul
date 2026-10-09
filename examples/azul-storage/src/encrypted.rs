@@ -41,9 +41,11 @@ use std::{
 use crate::{
     crypto::{
         azl1::{self, Azl1Reader, ObjectSource, ObjectSummary, OpenObject, WriteOptions},
-        random_bytes, to_hex, CryptoError, DriveKey, KeyId, ObjectId, ShareKey, WrappedKey,
+        device, random_bytes, to_hex, CryptoError, DriveKey, KeyId, ObjectId, ShareKey,
+        WrappedKey,
     },
     key::{check_path_key, check_path_prefix},
+    keyring::KeyringStore,
     ops::check_folder,
     time::now_unix,
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
@@ -159,6 +161,43 @@ pub trait NameIndex: Send + Sync {
     /// index names any more, for the drive to delete from the bucket; an index that keeps
     /// history returns none.
     fn apply(&self, changes: Vec<IndexChange>) -> Result<Vec<ObjectId>, DriveError>;
+}
+
+/// Opens the persistent [`NameIndex`] of an encrypted drive: the bucket's encrypted metadata
+/// repository implements it (the metadata repository module); an app hands its provider to
+/// [`open_encrypted`]. Nothing in the apps uses a [`MemoryIndex`]: it forgets every name when
+/// the app closes, and the objects would stay in the bucket nameless.
+pub trait IndexProvider: Send + Sync {
+    /// The index of the drive `drive` (its id) whose bucket is `bucket`, its own objects sealed
+    /// with keys derived from `drive_key`.
+    fn open_index(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError>;
+}
+
+/// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
+/// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
+/// `provider`. `Denied` when this device holds no key for the drive yet: it joins with a code
+/// from a device that does, or unlocks with the recovery code.
+pub fn open_encrypted(
+    bucket: Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+) -> Result<EncryptedDrive<Arc<dyn Drive>>, DriveError> {
+    let Some(drive_key) = device::unlock(bucket.as_ref(), keyring, drive)? else {
+        return Err(DriveError::Denied {
+            message: format!(
+                "this device has no key for \"{drive}\" yet: join it with a code from a device \
+                 that has one, or unlock it with the recovery code"
+            ),
+        });
+    };
+    let index = provider.open_index(drive, Arc::clone(&bucket), &drive_key)?;
+    Ok(EncryptedDrive::new(bucket, drive_key, index))
 }
 
 /// The mutex's value, also after a thread panicked while holding it.

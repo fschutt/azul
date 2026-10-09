@@ -91,7 +91,7 @@ pub mod crypto;
 #[cfg(feature = "encryption")]
 pub mod encrypted;
 #[cfg(feature = "encryption")]
-pub use encrypted::{EncryptedDrive, MemoryIndex, NameIndex};
+pub use encrypted::{open_encrypted, EncryptedDrive, IndexProvider, MemoryIndex, NameIndex};
 
 use std::{fmt, io::Read, path::PathBuf};
 
