@@ -5087,7 +5087,7 @@ impl LayoutWindow {
                 // Never merge across / into a page-break marker.
                 NodeType::PageBreak => return None,
                 // Replaced / embedded content has nothing to merge into.
-                NodeType::Image(_) | NodeType::VirtualView => return None,
+                NodeType::Image(_) | NodeType::VirtualView | NodeType::WebView(_) => return None,
                 _ => {}
             }
             // First real sibling found: eligible iff its computed display is
