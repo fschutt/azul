@@ -671,4 +671,44 @@ mod tests {
         let child = &dom.children.as_ref()[0];
         assert_eq!(colours(&child.css.as_ref()[0]), [FloraSpin::Red.ramp().acc]);
     }
+
+    /// AzShow's "Stone" deck theme is flora's base blue too: under
+    /// `flora:red` the slides came out red. A spin repaints the CHROME; a
+    /// subtree the app marks as its document's content (a slide, a page, a
+    /// theme preview) keeps the colours the document carries, all the way
+    /// down.
+    #[test]
+    fn a_spin_leaves_a_subtree_marked_as_document_content_alone() {
+        let ink = |dom: &Dom| -> Vec<ColorU> {
+            dom.css
+                .as_ref()
+                .iter()
+                .flat_map(|css| css.rules.as_ref().iter())
+                .flat_map(|r| r.declarations.as_ref().iter())
+                .filter_map(|d| match d {
+                    CssDeclaration::Static(CssProperty::TextColor(v)) => {
+                        v.get_property().map(|c| c.inner)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut dom = Dom::create_div().with_child(Dom::create_div().with_css("color: #2f4a85;")).with_child(
+            Dom::create_div()
+                .with_class(AzString::from_const_str("__azul-document-content"))
+                .with_css("color: #2f4a85;")
+                .with_child(Dom::create_div().with_css("color: #2f4a85;")),
+        );
+        respin_dom(&mut dom, FloraSpin::Red);
+        let [chrome, content] = dom.children.as_ref() else {
+            panic!("two children");
+        };
+        assert_eq!(ink(chrome), [FloraSpin::Red.ramp().acc], "the chrome takes the spin");
+        assert_eq!(ink(content), [BASE.acc], "the content keeps its colour");
+        assert_eq!(
+            ink(&content.children.as_ref()[0]),
+            [BASE.acc],
+            "and so does everything in it"
+        );
+    }
 }
