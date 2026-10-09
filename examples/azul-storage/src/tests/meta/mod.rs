@@ -2,6 +2,8 @@
 //! objects and its merges.
 
 mod bucket;
+mod objects;
+mod pack;
 mod seal;
 
 use super::TempDir;

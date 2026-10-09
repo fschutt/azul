@@ -60,6 +60,8 @@
 //! never text to merge. That is this module, with no new crate.
 
 pub mod bucket;
+pub mod objects;
+pub mod pack;
 pub mod seal;
 
 use std::fmt;
@@ -68,9 +70,88 @@ pub use bucket::{
     Bucket, ConditionalPut, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts,
     Version,
 };
+pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};
+pub use pack::{PackIndex, PackWriter, SealedPack};
 pub use seal::{SealError, Sealer, TestSealer};
 
 use crate::DriveError;
+
+/// The repository's keys in the bucket. Nothing in them comes from a name or
+/// a path of the drive: sequence numbers, random attempt ids, keyed hashes.
+pub mod keys {
+    /// Every key of the repository starts with this.
+    pub const ROOT: &str = ".azlin/meta/";
+    /// The manifest: replaced only by a compare-and-swap.
+    pub const MANIFEST: &str = ".azlin/meta/manifest";
+    pub const LOG_DIR: &str = ".azlin/meta/log/";
+    pub const WAL_DIR: &str = ".azlin/meta/wal/";
+    pub const CHECKPOINT_DIR: &str = ".azlin/meta/checkpoints/";
+    pub const LEASE_DIR: &str = ".azlin/meta/leases/";
+
+    /// The log entry `seq` of one publish attempt (16 hex digits sort as numbers).
+    #[must_use]
+    pub fn log(seq: u64, attempt: &str) -> String {
+        format!("{LOG_DIR}{seq:016x}-{attempt}")
+    }
+
+    /// The pack called `name` (a keyed hash).
+    #[must_use]
+    pub fn pack(name: &str) -> String {
+        format!("{WAL_DIR}{name}.pack")
+    }
+
+    /// The index of the pack called `name`.
+    #[must_use]
+    pub fn idx(name: &str) -> String {
+        format!("{WAL_DIR}{name}.idx")
+    }
+
+    /// The checkpoint at `seq` of one attempt.
+    #[must_use]
+    pub fn checkpoint(seq: u64, attempt: &str) -> String {
+        format!("{CHECKPOINT_DIR}{seq:016x}-{attempt}")
+    }
+
+    /// The lease for `purpose` (`maintenance`).
+    #[must_use]
+    pub fn lease(purpose: &str) -> String {
+        format!("{LEASE_DIR}{purpose}")
+    }
+}
+
+/// Lowercase hex digits of `bytes`.
+#[must_use]
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(char::from(DIGITS[usize::from(b >> 4)]));
+        out.push(char::from(DIGITS[usize::from(b & 0x0f)]));
+    }
+    out
+}
+
+/// The bytes of hex digits (either case); `None` for an odd count or another
+/// character.
+#[must_use]
+pub(crate) fn from_hex(text: &str) -> Option<Vec<u8>> {
+    fn digit(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            _ => None,
+        }
+    }
+    let bytes = text.as_bytes();
+    if bytes.len() % 2 != 0 {
+        return None;
+    }
+    bytes
+        .chunks(2)
+        .map(|pair| Some(digit(pair[0])? << 4 | digit(pair[1])?))
+        .collect()
+}
 
 /// Why a call of the metadata repository failed. Every variant reads as a
 /// sentence; none carries plaintext of the repository.
