@@ -58,6 +58,8 @@ pub mod wayland;
 /// X11 implementation
 pub mod x11;
 
+/// `<webview>`: WPE WebKit through dlopen (X11 and Wayland alike).
+pub mod webview;
 #[cfg(test)]
 mod webview_test;
 
