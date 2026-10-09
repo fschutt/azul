@@ -36,6 +36,8 @@
 
 pub mod auth;
 pub mod dates;
+pub mod dav;
+pub mod http;
 pub mod imap;
 pub mod limits;
 pub mod memory;
