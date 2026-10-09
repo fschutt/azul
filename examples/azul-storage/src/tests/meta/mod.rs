@@ -7,6 +7,7 @@ mod objects;
 mod pack;
 mod repo;
 mod seal;
+mod shard;
 mod tree;
 mod wal;
 

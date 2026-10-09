@@ -68,7 +68,8 @@
 //! - [`objects`], [`pack`]: git objects and sealed, range-readable packs.
 //! - [`wal`]: the log in the bucket ([`MetaStore`]): poll, publish, checkpoint, lease,
 //!   compaction, garbage collection.
-//! - [`tree`], [`merge`]: folders as trees, changes, the three-way merge (D52 conflicts).
+//! - [`tree`], [`merge`]: folders as trees, changes, the three-way merge (D52 conflicts);
+//!   [`shard`]: huge folders in hidden fan-out subtrees.
 //! - [`repo`]: one device's drive index ([`MetaRepo`]): commit, pull, merge, restore.
 
 pub mod bucket;
@@ -77,6 +78,7 @@ pub mod objects;
 pub mod pack;
 pub mod repo;
 pub mod seal;
+pub mod shard;
 pub mod tree;
 pub mod wal;
 
