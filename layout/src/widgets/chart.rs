@@ -1848,7 +1848,9 @@ pub(crate) fn bar_rects(
     let mut out: Vec<Vec<BarRect>> = series.iter().map(|_| Vec::new()).collect();
 
     if kind == ChartKind::StackedBar {
-        let bar_w = (band * 0.8).clamp(1.0, MAX_BAR_PX);
+        // min/max, not clamp: a NaN band still gets a MAX_BAR_PX bar.
+        #[allow(clippy::manual_clamp)]
+        let bar_w = (band * 0.8).min(MAX_BAR_PX).max(1.0);
         let mut pos = alloc::vec![0.0f64; bands];
         let mut neg = alloc::vec![0.0f64; bands];
         let mut last_pos: Vec<Option<(usize, usize)>> = alloc::vec![None; bands];
@@ -1915,7 +1917,11 @@ pub(crate) fn bar_rects(
     }
 
     let n = series.len().max(1) as f32;
-    let bar_w = ((band * 0.8 - (n - 1.0) * SURFACE_GAP_PX) / n).clamp(1.0, MAX_BAR_PX);
+    // min/max, not clamp: a NaN band still gets a MAX_BAR_PX bar.
+    #[allow(clippy::manual_clamp)]
+    let bar_w = ((band * 0.8 - (n - 1.0) * SURFACE_GAP_PX) / n)
+        .min(MAX_BAR_PX)
+        .max(1.0);
     let group_w = n * bar_w + (n - 1.0) * SURFACE_GAP_PX;
     for (s, ser) in series.iter().enumerate() {
         for (i, p) in ser.points.as_slice().iter().enumerate() {
