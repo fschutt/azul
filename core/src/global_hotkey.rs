@@ -489,9 +489,10 @@ pub(crate) fn record_status_read() {
 #[cfg(not(feature = "std"))]
 pub(crate) fn record_status_read() {}
 
-/// Drain what was declared since the last drain on THIS thread. Call right
-/// after a `layout()` / `AppConfig` hotkeys callback returns, on the same
-/// thread - and once right before it, to clear anything stale.
+/// Drain what was declared since the last drain on THIS thread.
+///
+/// Call right after a `layout()` / `AppConfig` hotkeys callback returns, on the
+/// same thread - and once right before it, to clear anything stale.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
@@ -508,11 +509,13 @@ pub fn take_recorded_global_hotkeys() -> RecordedGlobalHotkeys {
 // The AppConfig's derived set (apps with no window)
 // ---------------------------------------------------------------------------
 
-/// Derives the app-level global hotkeys from the app's state (the `RefAny`
-/// the `App` was created with), for an app with no `layout()` - a tray-only
-/// or background utility - or hotkeys that belong to no window. Declares
-/// through [`GlobalHotkeysCallbackInfo::add_global_hotkey`], exactly like
-/// `layout()` does through `LayoutCallbackInfo`.
+/// Derives the app-level global hotkeys from the app's state (the `RefAny` the
+/// `App` was created with).
+///
+/// It serves an app with no `layout()` - a tray-only or background utility - or
+/// hotkeys that belong to no window. Declares through
+/// [`GlobalHotkeysCallbackInfo::add_global_hotkey`], exactly like `layout()`
+/// does through `LayoutCallbackInfo`.
 ///
 /// Runs once when the app starts, again after any callback returns
 /// `Update::RefreshDom` / `RefreshDomAllWindows` (the only "the app state
@@ -1147,10 +1150,11 @@ pub fn xkb_keysym_name(key: VirtualKeyCode) -> Option<&'static str> {
         .map(|(_, _, xkb)| *xkb)
 }
 
-/// The `preferred_trigger` the xdg-desktop-portal `GlobalShortcuts`
-/// interface takes, in the XDG shortcuts format: the modifiers `CTRL`, `ALT`,
-/// `SHIFT`, `LOGO` (in that order) and the xkb keysym name, joined by `+` -
-/// `"CTRL+ALT+k"`, `"SHIFT+LOGO+k"`, `"F13"`.
+/// The `preferred_trigger` the xdg-desktop-portal `GlobalShortcuts` interface
+/// takes, in the XDG shortcuts format.
+///
+/// The modifiers `CTRL`, `ALT`, `SHIFT`, `LOGO` (in that order) and the xkb
+/// keysym name, joined by `+` - `"CTRL+ALT+k"`, `"SHIFT+LOGO+k"`, `"F13"`.
 ///
 /// `None` for a key the portal cannot name.
 #[must_use]

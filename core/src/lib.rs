@@ -85,14 +85,11 @@ extern crate alloc;
 #[macro_use]
 extern crate azul_css;
 
-// clippy reports `too_long_first_doc_paragraph` here with a span that starts
-// in the crate-level `//!` doc far above and ends on this one-line `///`,
-// measuring the two as a single paragraph. The doc below is one short line;
-// re-paragraphing the crate doc does not move it, and a crate-level allow does
-// not apply to it. A genuine instance of this lint — a doc comment cut in half
-// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
-#[allow(clippy::too_long_first_doc_paragraph)]
+// rustdoc joins a `pub mod`'s `///` lines here with the `//!` docs at the top
+// of its file. Where both are long, an empty `///` line ends the summary, so
+// it stays a paragraph of its own (clippy::too_long_first_doc_paragraph).
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
+///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
@@ -295,6 +292,7 @@ pub mod hash {
 pub mod callbacks;
 /// The app theme (`@theme(<name>)`): the app's choice, and the theme a DOM
 /// is being built for.
+///
 pub mod app_theme;
 /// Host-language callback invoker registry.
 ///
@@ -356,22 +354,17 @@ pub mod gamepad;
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
-/// System-wide ("global") hotkey POD types — `GlobalHotkey`, `HotkeyModifiers`,
-/// `GlobalHotkeyError`, the declaration vocabulary (`GlobalHotkeyCallbackData`,
-/// `GlobalHotkeyInfo`) — and the accelerator parser.
+/// System-wide ("global") hotkey POD types and the accelerator parser.
+///
+/// `GlobalHotkey`, `HotkeyModifiers`, `GlobalHotkeyError` and the declaration
+/// vocabulary (`GlobalHotkeyCallbackData`, `GlobalHotkeyInfo`).
 ///
 /// The App-owned manager that reconciles the declared set against the OS
 /// lives in `azul_layout::managers::global_hotkey`, the OS backends in
 /// `azul-dll` (`desktop/global_hotkey`).
 pub mod global_hotkey;
-// clippy reports `too_long_first_doc_paragraph` here with a span that starts
-// in the crate-level `//!` doc far above and ends on this one-line `///`,
-// measuring the two as a single paragraph. The doc below is one short line;
-// re-paragraphing the crate doc does not move it, and a crate-level allow does
-// not apply to it. A genuine instance of this lint — a doc comment cut in half
-// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
-#[allow(clippy::too_long_first_doc_paragraph)]
 /// OpenGL context wrappers, shader compilation, and texture cache.
+///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -383,18 +376,13 @@ pub mod gpu;
 pub mod haptics;
 /// Raw HID device access (game controllers, tablets, custom peripherals).
 pub mod hid;
-// clippy reports `too_long_first_doc_paragraph` here with a span that starts
-// in the crate-level `//!` doc far above and ends on this one-line `///`,
-// measuring the two as a single paragraph. The doc below is one short line;
-// re-paragraphing the crate doc does not move it, and a crate-level allow does
-// not apply to it. A genuine instance of this lint — a doc comment cut in half
-// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
-#[allow(clippy::too_long_first_doc_paragraph)]
 /// HVIF, the Haiku Vector Icon Format: tiny vector icons with per-size
 /// detail and pixel hinting (read here, drawn by azul-layout's renderer).
+///
 pub mod hvif;
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
+///
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -430,6 +418,7 @@ pub mod paged;
 /// SVG `d=""` path data parser.
 pub mod path_parser;
 /// A PDF's interactive form (AcroForm) as data: fields, values, stamps.
+///
 pub mod pdf_form;
 /// CSS property cache for efficient per-node style resolution.
 pub mod physical_key;
@@ -437,6 +426,7 @@ pub mod physical_key;
 pub mod prop_cache;
 /// Cascade-level custom properties: every node's `--name` variables and its
 /// `var()` / `env()` references, resolved under the live context.
+///
 pub mod custom_property_cascade;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;

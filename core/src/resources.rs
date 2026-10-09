@@ -1626,10 +1626,12 @@ impl RawImageFormat {
     }
 }
 
-/// Byte layout of a tightly packed NV12 image: the `width x height` Y plane,
-/// immediately followed by `chroma_width x chroma_height` interleaved Cb,Cr
-/// pairs (two bytes each). The chroma size rounds UP, so an odd last column
-/// or row still has a chroma sample.
+/// Byte layout of a tightly packed NV12 image.
+///
+/// The `width x height` Y plane, immediately followed by
+/// `chroma_width x chroma_height` interleaved Cb,Cr pairs (two bytes each). The
+/// chroma size rounds UP, so an odd last column or row still has a chroma
+/// sample.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Nv12Layout {
     /// Luma width in pixels.
@@ -1682,10 +1684,11 @@ impl Nv12Layout {
     }
 }
 
-/// Fixed-point (16.16) YCbCr -> RGB coefficients of one NV12 format: the
-/// luma scale and offset of its range and the four chroma weights of its
-/// matrix. One table for every consumer (the CPU rasterizer, the frame
-/// scaler, JPEG and PDF export), so a frame converts the same everywhere.
+/// Fixed-point (16.16) YCbCr -> RGB coefficients of one NV12 format: the luma
+/// scale and offset of its range and the four chroma weights of its matrix.
+///
+/// One table for every consumer (the CPU rasterizer, the frame scaler, JPEG
+/// and PDF export), so a frame converts the same everywhere.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct YuvCoefficients {
     y_mul: i32,
@@ -1780,11 +1783,12 @@ pub fn yuv_to_rgb(format: RawImageFormat, y: u8, cb: u8, cr: u8) -> [u8; 3] {
     YuvCoefficients::of(format).map_or([0, 0, 0], |c| c.to_rgb(y, cb, cr))
 }
 
-/// A whole tightly packed NV12 image as straight RGBA8 (alpha 255). `None`
-/// when `format` is not NV12 or `bytes` is shorter than both planes (bytes
-/// past them are ignored: some decoders pad the buffer). The
-/// fallback for consumers that need RGB pixels (JPEG / PDF export); the
-/// display path never calls it (it converts only the rows it paints).
+/// A whole tightly packed NV12 image as straight RGBA8 (alpha 255).
+///
+/// `None` when `format` is not NV12 or `bytes` is shorter than both planes
+/// (bytes past them are ignored: some decoders pad the buffer). The fallback
+/// for consumers that need RGB pixels (JPEG / PDF export); the display path
+/// never calls it (it converts only the rows it paints).
 #[must_use]
 pub fn nv12_to_rgba(
     bytes: &[u8],
@@ -1808,12 +1812,14 @@ pub fn nv12_to_rgba(
 }
 
 /// A whole tightly packed RGBA8 or BGRA8 image (`src`, alpha ignored) as
-/// tightly packed NV12 in `dst`'s matrix and range: what an H.264 encoder
-/// that takes only NV12 (Vulkan Video) is handed for a frame that is not
-/// NV12 already. Luma per pixel; each chroma pair from the average of its
-/// 2x2 block (fewer pixels at an odd last column / row). `None` when `src`
-/// is not RGBA8 / BGRA8, `dst` is not NV12, or `bytes` is shorter than the
-/// image. The inverse of [`nv12_to_rgba`] (same matrices, same ranges).
+/// tightly packed NV12 in `dst`'s matrix and range.
+///
+/// It is what an H.264 encoder that takes only NV12 (Vulkan Video) is handed
+/// for a frame that is not NV12 already. Luma per pixel; each chroma pair from
+/// the average of its 2x2 block (fewer pixels at an odd last column / row).
+/// `None` when `src` is not RGBA8 / BGRA8, `dst` is not NV12, or `bytes` is
+/// shorter than the image. The inverse of [`nv12_to_rgba`] (same matrices, same
+/// ranges).
 #[must_use]
 pub fn rgba_to_nv12(
     bytes: &[u8],

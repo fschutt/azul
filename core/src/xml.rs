@@ -2376,9 +2376,11 @@ impl ComponentSource {
 }
 
 /// How generated code builds an instance of a component: the language-NEUTRAL
-/// half of a [`ComponentDef`] that the code generator (`azul_core::codegen`,
-/// the `codegen` feature) turns into the IR every binding language's printer
-/// prints. It replaced the per-language string hook `compile_fn`.
+/// half of a [`ComponentDef`].
+///
+/// The code generator (`azul_core::codegen`, the `codegen` feature) turns it
+/// into the IR every binding language's printer prints. It replaced the
+/// per-language string hook `compile_fn`.
 ///
 /// Variant 0 is [`ComponentCodegen::RenderFunction`], so a zero-initialised C
 /// struct is a component that code calls through its render function.
@@ -2420,9 +2422,10 @@ impl ComponentCodegen {
 }
 
 /// A widget's constructor in api.json vocabulary, for
-/// [`ComponentCodegen::Call`]: `Button::create(label).dom()` is
-/// `{ class: "Button", constructor: "create", args: ["label"], setters: [],
-/// finish: "dom" }`.
+/// [`ComponentCodegen::Call`].
+///
+/// `Button::create(label).dom()` is
+/// `{ class: "Button", constructor: "create", args: ["label"], setters: [], finish: "dom" }`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ComponentCallCodegen {
@@ -4094,10 +4097,11 @@ impl ComponentMap {
     }
 }
 
-/// A component's ARGUMENTS from an element's attributes: `dm` with every
-/// field it declares set from the attribute of the same name, parsed to the
-/// field's type; every other field keeps its default, and an attribute no
-/// field declares adds nothing.
+/// A component's ARGUMENTS from an element's attributes.
+///
+/// `dm` with every field it declares set from the attribute of the same name,
+/// parsed to the field's type; every other field keeps its default, and an
+/// attribute no field declares adds nothing.
 ///
 /// THE one path from markup attributes to component arguments, for every
 /// component - builtin and user alike: the XML loaders fill a builtin
@@ -4240,11 +4244,13 @@ pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &m
 }
 
 /// For the XML loaders: a builtin element's component arguments from its
-/// attributes - its builtin data model filled by [`data_model_with_attributes`]
-/// and landed by [`apply_builtin_element_args`]. Only the elements whose
-/// arguments land on the node ([`BUILTIN_ARGUMENT_ELEMENTS`]) build a model,
-/// so the thousands of `div`s of a large document cost one slice lookup.
-/// `tag` is lowercase.
+/// attributes.
+///
+/// Its builtin data model is filled by [`data_model_with_attributes`] and
+/// landed by [`apply_builtin_element_args`]. Only the elements whose arguments
+/// land on the node ([`BUILTIN_ARGUMENT_ELEMENTS`]) build a model, so the
+/// thousands of `div`s of a large document cost one slice lookup. `tag` is
+/// lowercase.
 pub fn apply_builtin_args_from_attributes<'a>(
     tag: &str,
     attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
@@ -5054,9 +5060,11 @@ fn preview_xml(tag: &str, attrs: &[(&str, &str)], text: &str, children: &[Previe
 }
 
 /// What a builtin element's PREVIEW shows with `data` (its palette card, the
-/// Components view): the element with its `text` (the data model's, else its
-/// example's) plus the example attributes and children its entry in the
-/// `BUILTIN_ELEMENTS` table configures - which a drop does not insert.
+/// Components view).
+///
+/// The element with its `text` (the data model's, else its example's) plus the
+/// example attributes and children its entry in the `BUILTIN_ELEMENTS` table
+/// configures - which a drop does not insert.
 ///
 /// Unstyled on purpose: a raw `<input>` / `<select>` becomes its widget only
 /// where the widgets are, and azul-layout resolves them for the preview as it
@@ -7052,6 +7060,9 @@ pub mod element;
 
 /// HTML as a browser reads it (the lenient loader), and the ONE tree
 /// construction every XML loader shares.
+///
+// The empty `///` line ends this summary: rustdoc joins it with the `//!`
+// docs of `xml_html.rs` (clippy::too_long_first_doc_paragraph).
 #[path = "xml_html.rs"]
 pub mod html;
 

@@ -167,11 +167,13 @@ impl RendererOptions {
 /// The refresh rate a window paces at while its monitor reports none, in Hz.
 pub const FALLBACK_REFRESH_RATE_HZ: u32 = 60;
 
-/// THE frame interval, in ns: one refresh of the monitor the window is on
-/// (`monitor_hz`; `None` or an implausible reading falls back to
-/// [`FALLBACK_REFRESH_RATE_HZ`]), slowed to `max_frame_rate` when that is
-/// lower. The one formula every frame-paced driver uses, so a 120 Hz panel
-/// animates at 120 Hz and a cap of 30 paces at 33.3 ms everywhere.
+/// THE frame interval, in ns: one refresh of the monitor the window is on,
+/// slowed to `max_frame_rate` when that is lower.
+///
+/// `monitor_hz` is the monitor's refresh rate; `None` or an implausible reading
+/// falls back to [`FALLBACK_REFRESH_RATE_HZ`]. The one formula every
+/// frame-paced driver uses, so a 120 Hz panel animates at 120 Hz and a cap of
+/// 30 paces at 33.3 ms everywhere.
 #[must_use]
 pub fn frame_interval_nanos(monitor_hz: Option<u32>, max_frame_rate: Option<u32>) -> u64 {
     // A reading outside what any display runs at (0 from a driver that

@@ -1435,10 +1435,11 @@ pub struct PathPropagationResult {
     pub default_prevented: bool,
 }
 
-/// [`propagate_event`] along a path that may cross doms
-/// ([`get_event_path`]): capture from the path's root down to the target,
-/// the target, then bubbling back up the path - unless the event type does
-/// not bubble ([`EventType::bubbles`]) or is delivered at its target only
+/// [`propagate_event`] along a path that may cross doms ([`get_event_path`]).
+///
+/// Capture from the path's root down to the target, the target, then bubbling
+/// back up the path - unless the event type does not bubble
+/// ([`EventType::bubbles`]) or is delivered at its target only
 /// ([`SyntheticEvent::at_target_only`]).
 ///
 /// `path` runs root first and ends at the target. `filters_at(node)` is what
@@ -1495,10 +1496,11 @@ pub fn propagate_event_along<'a>(
     result
 }
 
-/// The callbacks a pointer event reaches - every `EventFilter::Hover`
-/// listener equal to `filter` on its propagation path - in the order they
-/// run: the target's, then its ancestors' bubbling up, through the doms
-/// that host the target's dom ([`get_event_path`]). Each callback once.
+/// The callbacks a pointer event reaches - every `EventFilter::Hover` listener
+/// equal to `filter` on its propagation path - in the order they run.
+///
+/// The target's, then its ancestors' bubbling up, through the doms that host
+/// the target's dom ([`get_event_path`]). Each callback once.
 ///
 /// The ONE plan of both dispatchers (the shells'
 /// `dispatch_events_propagated` and the e2e runner's), which each built a
@@ -1786,7 +1788,9 @@ pub enum DefaultAction {
 }
 
 /// A character format a rich-text editor toggles (Ctrl/Cmd+B, I, U, or a
-/// toolbar button): the inline formatting commands of the execCommand spec
+/// toolbar button).
+///
+/// The inline formatting commands of the execCommand spec
 /// (<https://w3c.github.io/editing/docs/execCommand/#inline-formatting-commands>)
 /// that the engine keeps as a typing style at a collapsed caret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1812,10 +1816,12 @@ impl TextFormat {
     ];
 }
 
-/// A set of [`TextFormat`]s: the inline formats a stretch of text carries
-/// over the style of the block it is in (`DocumentTextEdit::runs`), or the
-/// formats the text typed next at a caret takes
-/// (`CallbackInfo::get_typing_formats` - what a toolbar shows as pressed).
+/// A set of [`TextFormat`]s.
+///
+/// The inline formats a stretch of text carries over the style of the block it
+/// is in (`DocumentTextEdit::runs`), or the formats the text typed next at a
+/// caret takes (`CallbackInfo::get_typing_formats` - what a toolbar shows as
+/// pressed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 #[repr(C)]
 pub struct TextFormatSet {

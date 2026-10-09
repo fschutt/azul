@@ -574,10 +574,12 @@ impl SvgAffine {
     }
 }
 
-/// Parse an SVG `transform` attribute: a LIST of transform functions -
-/// `matrix(a b c d e f)`, `translate(tx [ty])`, `scale(sx [sy])`,
-/// `rotate(angle [cx cy])`, `skewX(angle)`, `skewY(angle)` - separated by
-/// whitespace and / or commas. The list applies RIGHT TO LEFT (SVG 1.1 7.6:
+/// Parse an SVG `transform` attribute: a LIST of transform functions, separated
+/// by whitespace and / or commas.
+///
+/// The functions are `matrix(a b c d e f)`, `translate(tx [ty])`,
+/// `scale(sx [sy])`, `rotate(angle [cx cy])`, `skewX(angle)` and
+/// `skewY(angle)`. The list applies RIGHT TO LEFT (SVG 1.1 7.6:
 /// `translate(8) scale(2)` scales first, then moves). An empty list, or one
 /// with an unknown function or junk, is no transform (identity). The result
 /// maps the element's user space into its parent's.

@@ -253,10 +253,11 @@ impl IconDesignedFor {
 }
 
 /// Alternative artwork for other modes, each an icon SPEC (the same
-/// comma-separated fallback chain `Dom::create_icon` takes). The default
-/// resolver redirects to the variant for the current mode by resolving the
-/// `<icon>` to that spec, so a variant is any registered icon: another
-/// image, a font glyph, an SVG, a DOM.
+/// comma-separated fallback chain `Dom::create_icon` takes).
+///
+/// The default resolver redirects to the variant for the current mode by
+/// resolving the `<icon>` to that spec, so a variant is any registered icon:
+/// another image, a font glyph, an SVG, a DOM.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub struct IconVariants {

@@ -46,10 +46,12 @@ pub struct CssPropertyWithOrigin {
 }
 
 /// What the root of a HOSTED DOM - a `VirtualView`'s content - inherits from
-/// the node that hosts it: the host's value of every inheritable property it
-/// has one for, sorted by type ([`CssPropertyCache::inherited_from_host`],
-/// built by [`CssPropertyCache::inherited_values_for_hosted_dom`]). Empty for
-/// a document of its own.
+/// the node that hosts it.
+///
+/// The host's value of every inheritable property it has one for, sorted by
+/// type ([`CssPropertyCache::inherited_from_host`], built by
+/// [`CssPropertyCache::inherited_values_for_hosted_dom`]). Empty for a document
+/// of its own.
 pub type InheritedFromHost = Vec<(CssPropertyType, CssPropertyWithOrigin)>;
 
 use azul_css::{

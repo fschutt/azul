@@ -195,14 +195,15 @@ impl SrcRect {
     }
 }
 
-/// The centred part of a `sw x sh` source with the aspect ratio of
-/// `dw x dh` (CSS `object-fit: cover`): the whole height of a source that is
-/// wider than asked for, the whole width of one that is taller. `even` keeps
-/// the origin, and every side the crop CUTS, on even pixels, so an NV12 crop
-/// covers whole chroma pairs; a side that spans the whole source keeps the
-/// source's own (possibly odd) extent, whose last chroma pair the source's
-/// layout holds - so a same-size cut is the whole frame, a copy. A zero
-/// size anywhere gives the whole source.
+/// The centred part of a `sw x sh` source with the aspect ratio of `dw x dh`
+/// (CSS `object-fit: cover`).
+///
+/// The whole height of a source that is wider than asked for, the whole width
+/// of one that is taller. `even` keeps the origin, and every side the crop
+/// CUTS, on even pixels, so an NV12 crop covers whole chroma pairs; a side that
+/// spans the whole source keeps the source's own (possibly odd) extent, whose
+/// last chroma pair the source's layout holds - so a same-size cut is the whole
+/// frame, a copy. A zero size anywhere gives the whole source.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // results are <= sw / sh, which are u32
 pub fn cover_crop(sw: u32, sh: u32, dw: u32, dh: u32, even: bool) -> SrcRect {
@@ -375,9 +376,10 @@ pub fn resample_rgba(src: &SrcImage<'_>, dst_w: u32, dst_h: u32) -> Vec<u8> {
     out
 }
 
-/// The byte format [`resample_frame_rect`] produces for a source format: the
-/// frame formats keep their own (a BGRA capture stays BGRA, an NV12 one stays
-/// NV12, RGBA stays RGBA), anything else becomes RGBA8.
+/// The byte format [`resample_frame_rect`] produces for a source format.
+///
+/// The frame formats keep their own (a BGRA capture stays BGRA, an NV12 one
+/// stays NV12, RGBA stays RGBA), anything else becomes RGBA8.
 #[must_use]
 pub const fn frame_output_format(format: RawImageFormat) -> RawImageFormat {
     if format.is_nv12() {
@@ -447,11 +449,13 @@ impl Plane<'_> {
 }
 
 /// Resample the `crop` of a frame to `dst_w x dst_h`, keeping its format
-/// ([`frame_output_format`]): BGRA8 / RGBA8 bytes are scaled as they are
-/// (the sampler is channel-order agnostic), an NV12 frame's Y plane and its
-/// Cb,Cr plane are each scaled on their own, anything else is sampled to
-/// straight RGBA8. A crop that already has the asked size is row copies.
-/// Empty for a zero size, an empty crop or an unsampleable source.
+/// ([`frame_output_format`]).
+///
+/// BGRA8 / RGBA8 bytes are scaled as they are (the sampler is channel-order
+/// agnostic), an NV12 frame's Y plane and its Cb,Cr plane are each scaled on
+/// their own, anything else is sampled to straight RGBA8. A crop that already
+/// has the asked size is row copies. Empty for a zero size, an empty crop or an
+/// unsampleable source.
 ///
 /// THE whole-frame scaler of the capture pipeline ([`ResampleFn`]); the
 /// dll may register a platform one with the same contract.
@@ -552,13 +556,14 @@ pub fn resample_frame(src: &SrcImage<'_>, dst_w: u32, dst_h: u32) -> Vec<u8> {
     resample_frame_rect(src, SrcRect::full(src.width, src.height), dst_w, dst_h)
 }
 
-/// A whole-frame scaler: `(source, crop, dst_w, dst_h) -> the crop at
-/// dst_w x dst_h in frame_output_format(source.format)` (empty on failure).
+/// A whole-frame scaler: `(source, crop, dst_w, dst_h)` to the crop at
+/// `dst_w x dst_h`, in `frame_output_format(source.format)` (empty on failure).
+///
 /// [`resample_frame_rect`] is the portable one; the dll may register a
 /// platform-accelerated one (Accelerate/vImage on macOS) with the same
-/// signature — see `widgets::capture_common::register_frame_resampler`.
-/// Every implementation must be a pure function of its inputs so the
-/// fan-out can run per consumer on any thread.
+/// signature — see `widgets::capture_common::register_frame_resampler`. Every
+/// implementation must be a pure function of its inputs so the fan-out can run
+/// per consumer on any thread.
 pub type ResampleFn = fn(&SrcImage<'_>, SrcRect, u32, u32) -> Vec<u8>;
 
 /// The smallest capture size that covers every requested size: the per-axis
@@ -576,11 +581,13 @@ pub fn covering_size<I: IntoIterator<Item = (u32, u32)>>(sizes: I) -> Option<(u3
         .reduce(|(aw, ah), (w, h)| (aw.max(w), ah.max(h)))
 }
 
-/// Cut `src` to `width x height` with `resample`, in
-/// [`frame_output_format`]`(src.format)`. A source of another aspect ratio
-/// gives its centre ([`cover_crop`]; even-aligned for NV12) instead of being
-/// squashed, and a crop that already has the asked size is a row copy — the
-/// common "the camera already captures at the largest consumer's size" case.
+/// Cut `src` to `width x height` with `resample`, in the
+/// [`frame_output_format`] of `src.format`.
+///
+/// A source of another aspect ratio gives its centre ([`cover_crop`];
+/// even-aligned for NV12) instead of being squashed, and a crop that already
+/// has the asked size is a row copy — the common "the camera already captures
+/// at the largest consumer's size" case.
 #[must_use]
 pub fn cut(src: &SrcImage<'_>, width: u32, height: u32, resample: ResampleFn) -> Vec<u8> {
     if width == 0 || height == 0 || !src.is_sampleable() {
@@ -598,8 +605,8 @@ pub fn cut(src: &SrcImage<'_>, width: u32, height: u32, resample: ResampleFn) ->
 /// instead of every rendition re-reading the full capture. Invalid consumers
 /// (zero size, the reserved preview id) and failed cuts are skipped, so the
 /// result may be shorter than the input; it keeps the consumers' order, and
-/// requests are matched by `ConsumerFrame::consumer.id`. Every frame is in
-/// [`frame_output_format`]`(src.format)`.
+/// requests are matched by `ConsumerFrame::consumer.id`. Every frame is in the
+/// [`frame_output_format`] of `src.format`.
 #[must_use]
 pub fn fan_out(
     src: &SrcImage<'_>,
@@ -671,9 +678,10 @@ pub fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> (u32, u32)
 }
 
 /// A copy of `image` scaled down to fit `max_w x max_h` ([`fit_within`]) as
-/// straight RGBA8 - a thumbnail, sampled by [`resample_rgba`]. `None` for a
-/// source the scaler cannot read (16-bit, float or two-channel pixels) and
-/// for an empty one.
+/// straight RGBA8 - a thumbnail, sampled by [`resample_rgba`].
+///
+/// `None` for a source the scaler cannot read (16-bit, float or two-channel
+/// pixels) and for an empty one.
 #[must_use]
 pub fn thumbnail(image: &RawImage, max_w: u32, max_h: u32) -> Option<RawImage> {
     let width = u32::try_from(image.width).ok()?;
@@ -682,12 +690,12 @@ pub fn thumbnail(image: &RawImage, max_w: u32, max_h: u32) -> Option<RawImage> {
     resized(image, w, h)
 }
 
-/// A copy of `image` resampled to exactly `width x height` - up or down,
-/// the aspect NOT kept ([`thumbnail`] keeps it) - as straight RGBA8,
-/// sampled by [`resample_rgba`] (area-averaging down, bilinear up). `None`
-/// for a source the scaler cannot read (16-bit, float or two-channel
-/// pixels, a buffer shorter than its size), for an empty one and for a
-/// zero size.
+/// A copy of `image` resampled to exactly `width x height` as straight RGBA8.
+///
+/// Up or down, the aspect NOT kept ([`thumbnail`] keeps it), sampled by
+/// [`resample_rgba`] (area-averaging down, bilinear up). `None` for a source
+/// the scaler cannot read (16-bit, float or two-channel pixels, a buffer
+/// shorter than its size), for an empty one and for a zero size.
 #[must_use]
 pub fn resized(image: &RawImage, width: u32, height: u32) -> Option<RawImage> {
     let bytes: &[u8] = match &image.pixels {

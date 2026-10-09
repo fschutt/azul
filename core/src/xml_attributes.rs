@@ -89,9 +89,10 @@ impl AttributeScope {
 
 /// The form controls: the elements whose HTML attributes (`type`, `value`,
 /// `min`, `checked`, `data-*` ...) land as the typed attributes a
-/// `Dom::create_input(..).with_attribute(..)` would carry. `<button>` is here
-/// for its `type` / `name` / `value` / `disabled`: a `type="reset"` button is
-/// recognised by its `InputType` attribute alone.
+/// `Dom::create_input(..).with_attribute(..)` would carry.
+///
+/// `<button>` is here for its `type` / `name` / `value` / `disabled`: a
+/// `type="reset"` button is recognised by its `InputType` attribute alone.
 #[must_use]
 pub fn is_form_control_tag(tag: &str) -> bool {
     [
@@ -416,9 +417,11 @@ pub fn builtin_attributes() -> &'static [XmlAttribute] {
 static REGISTERED: std::sync::RwLock<Vec<XmlAttribute>> = std::sync::RwLock::new(Vec::new());
 
 /// Add an entry to the table: every XML → DOM builder and the code generator
-/// take it from now on. It is looked up before the builtin ones (a later
-/// registration of the same name replaces an earlier one), so it may also
-/// change what a builtin attribute sets.
+/// take it from now on.
+///
+/// It is looked up before the builtin ones (a later registration of the same
+/// name replaces an earlier one), so it may also change what a builtin
+/// attribute sets.
 #[cfg(feature = "std")]
 pub fn register_xml_attribute(entry: XmlAttribute) {
     let mut r = REGISTERED
@@ -469,9 +472,10 @@ pub fn node_settings(xml_node: &XmlNode, tag: &str) -> Vec<NodeSetting> {
 }
 
 /// Land an element's `settings` ([`node_settings`] / [`setting_of`] +
-/// [`ordered`]) on `node`, the way every XML → DOM builder does: ids and
-/// classes together, the typed attributes after the node's own, a later tab
-/// index over an earlier one, and ONE inline style - `intrinsic` (the
+/// [`ordered`]) on `node`, the way every XML → DOM builder does.
+///
+/// Ids and classes together, the typed attributes after the node's own, a later
+/// tab index over an earlier one, and ONE inline style - `intrinsic` (the
 /// element's own sizing, e.g. an `<svg>`'s), then the writing direction, then
 /// the `style` attribute (the author's inline style wins). `css_key_map`: the
 /// parser's key map if the caller has one (else it is built when a `style`
@@ -788,11 +792,12 @@ fn table_border_width(table: &[(&str, &str)]) -> Option<i64> {
     hint_attr(table, "border").map(|v| parse_html_non_negative(v).unwrap_or(1))
 }
 
-/// The CSS declarations (`prop: value; ...`) HTML's rendering section maps
-/// the presentational attributes of a `tag` element to. `attributes` are the
-/// element's own, `table` the attributes of the nearest enclosing `table`
-/// (what its `cellpadding` / `border` / `bordercolor` give a `td` / `th`;
-/// empty for other elements). Empty when nothing applies.
+/// The CSS declarations (`prop: value; ...`) HTML's rendering section maps the
+/// presentational attributes of a `tag` element to.
+///
+/// `attributes` are the element's own, `table` the attributes of the nearest
+/// enclosing `table` (what its `cellpadding` / `border` / `bordercolor` give a
+/// `td` / `th`; empty for other elements). Empty when nothing applies.
 ///
 /// - `width` / `height` (table, cells, `col`): the dimension properties,
 ///   ignoring zero (a row's `height` keeps zero).
@@ -937,13 +942,14 @@ fn custom_attributes(node: &NodeData) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Land the presentational hints of every element of a DOM about to be
-/// styled: each element's [`presentational_css`] (with its nearest
-/// enclosing table's attributes for a cell) as inline declarations IN FRONT
-/// of its own inline style. `node_data` and `hierarchy` are the flat arena
-/// of the DOM (pre-order: a parent before its children). Called once per
-/// styled DOM (`StyledDom` creation); a DOM without presentational
-/// attributes costs one scan.
+/// Land the presentational hints of every element of a DOM about to be styled.
+///
+/// Each element's [`presentational_css`] (with its nearest enclosing table's
+/// attributes for a cell) goes in as inline declarations IN FRONT of its own
+/// inline style. `node_data` and `hierarchy` are the flat arena of the DOM
+/// (pre-order: a parent before its children). Called once per styled DOM
+/// (`StyledDom` creation); a DOM without presentational attributes costs one
+/// scan.
 pub fn apply_presentational_hints(
     node_data: &mut [NodeData],
     hierarchy: &[crate::styled_dom::NodeHierarchyItem],
