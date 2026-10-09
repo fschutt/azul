@@ -200,6 +200,51 @@ pub fn send_mail(
     )
 }
 
+/// A mail another program built, as it came: the envelope and the exact bytes. The Azlin
+/// Bridge's submission port takes these from a mail program (Apple Mail, Outlook,
+/// Thunderbird) and hands them to [`send_prepared`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PreparedMail {
+    /// The envelope sender (`MAIL FROM`).
+    pub from: String,
+    /// The envelope recipients (`RCPT TO`): Bcc included, which the bytes do not name.
+    pub recipients: Vec<String>,
+    /// The RFC 5322 message, unsigned: signed per attempt like AzMail's own mail.
+    pub bytes: Vec<u8>,
+}
+
+/// What became of a [`PreparedMail`]: the status, and how many recipients' servers took it,
+/// refused it for good, or are still to be tried - a submission server answers by these
+/// (some got it: the mail is not refused).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedOutcome {
+    pub status: SendStatus,
+    pub delivered: usize,
+    pub failed: usize,
+    pub pending: usize,
+}
+
+/// Stores, delivers and files a mail another program built ([`PreparedMail`]) exactly as
+/// [`send_mail`] does AzMail's own - the outbox of the account `account_id` under `root`, a
+/// signature for each attempt, the account's route, the policy list, Sent - only without
+/// building it. Blocking (DNS and SMTP).
+pub fn send_prepared(
+    root: &DriveFolder,
+    account_id: &str,
+    settings: &SendSettings,
+    mail: &PreparedMail,
+) -> PreparedOutcome {
+    let mut transport = Network { settings };
+    send_prepared_with(
+        root,
+        account_id,
+        settings,
+        mail,
+        now_secs(),
+        &mut transport,
+    )
+}
+
 /// Tries every queued outbox entry again whose time has come (all of them with `force`), and
 /// returns each entry's id with its new status. Blocking, like [`send_mail`].
 pub fn retry_outbox(
@@ -1119,6 +1164,84 @@ pub(crate) fn send_mail_with(
     );
     let sent = attempted.sent.as_deref().unwrap_or(&bytes);
     finish(root, account_id, &mut entry, sent, now, attempted.waiting)
+}
+
+pub(crate) fn send_prepared_with(
+    root: &DriveFolder,
+    account_id: &str,
+    settings: &SendSettings,
+    mail: &PreparedMail,
+    now: i64,
+    transport: &mut dyn Transport,
+) -> PreparedOutcome {
+    let refused = |reason: &str| PreparedOutcome {
+        status: SendStatus::Failed {
+            reason: reason.to_string(),
+        },
+        delivered: 0,
+        failed: mail.recipients.len(),
+        pending: 0,
+    };
+    let _lock = OUTBOX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let from = micromail::message::address_spec(&mail.from);
+    if !from.contains('@') {
+        return refused("There is no sender address.");
+    }
+    let mut recipients: Vec<RecipientState> = Vec::new();
+    for address in &mail.recipients {
+        let address = micromail::message::address_spec(address);
+        if address.is_empty()
+            || recipients
+                .iter()
+                .any(|r| r.address.eq_ignore_ascii_case(&address))
+        {
+            continue;
+        }
+        recipients.push(RecipientState {
+            address,
+            state: RecipientProgress::Pending,
+            reason: String::new(),
+            code: None,
+            server: String::new(),
+        });
+    }
+    if recipients.is_empty() {
+        return refused("There is no recipient.");
+    }
+    // The Message-ID and the subject for the outbox's list, from the bytes as they came.
+    let header = message::index_entry(0, &mail.bytes, &[], Some(now), "");
+    let mut entry = OutboxEntry {
+        format: OUTBOX_FORMAT.to_string(),
+        version: 1,
+        id: outbox_id(now, &header.message_id),
+        message_id: header.message_id,
+        from,
+        subject: header.subject,
+        created: now,
+        attempts: 0,
+        last_attempt: 0,
+        next_attempt: now,
+        state: OutboxState::Queued,
+        recipients,
+    };
+    let outbox = MailStore::new(outbox_dir(root, account_id));
+    if let Err(e) = outbox
+        .put(&format!("{}.eml", entry.id), &mail.bytes)
+        .and_then(|()| write_entry(&outbox, &entry))
+    {
+        return refused(&format!("The outbox cannot be written: {e}"));
+    }
+    let attempted = attempt(
+        root, account_id, settings, &mut entry, &mail.bytes, now, transport,
+    );
+    let sent = attempted.sent.as_deref().unwrap_or(&mail.bytes);
+    let status = finish(root, account_id, &mut entry, sent, now, attempted.waiting);
+    PreparedOutcome {
+        status,
+        delivered: entry.count(RecipientProgress::Sent),
+        failed: entry.count(RecipientProgress::Failed),
+        pending: entry.count(RecipientProgress::Pending),
+    }
 }
 
 pub(crate) fn retry_outbox_with(
@@ -3158,5 +3281,151 @@ mod tests {
         let filed =
             std::fs::read(dir.0.join(ACCOUNT).join(&index[0].path)).unwrap();
         assert_eq!(String::from_utf8(filed).unwrap(), session.message);
+    }
+
+    // ---- a mail another program built (the Azlin Bridge's submission port) ----
+
+    /// A mail program's message as it reaches the submission port: its own headers, no Bcc.
+    fn prepared(recipients: &[&str]) -> PreparedMail {
+        PreparedMail {
+            from: "ada@example.org".to_string(),
+            recipients: recipients.iter().map(|r| r.to_string()).collect(),
+            bytes: b"From: Ada Lovelace <ada@example.org>\r\n\
+                     To: ben@example.net\r\n\
+                     Subject: From Apple Mail\r\n\
+                     Message-ID: <m7@example.org>\r\n\
+                     Date: Thu, 01 Oct 2026 08:30:00 +0000\r\n\
+                     \r\n\
+                     As it came.\r\n"
+                .to_vec(),
+        }
+    }
+
+    #[test]
+    fn a_prepared_mail_goes_out_byte_for_byte_to_every_envelope_recipient_and_into_sent() {
+        let dir = TempDir::new("send");
+        let mut fake = take_all();
+        let mail = prepared(&["ben@example.net", "Hidden <secret@example.com>", "BEN@example.net"]);
+        let outcome = send_prepared_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        assert_eq!(
+            outcome.status,
+            SendStatus::Sent {
+                message_id: "m7@example.org".to_string()
+            }
+        );
+        assert_eq!((outcome.delivered, outcome.failed, outcome.pending), (2, 0, 0));
+        // One attempt per domain, the duplicate folded, the bytes untouched (no DKIM here).
+        assert_eq!(fake.calls.len(), 2);
+        assert_eq!(fake.calls[0], (None, vec!["ben@example.net".to_string()]));
+        assert_eq!(fake.calls[1], (None, vec!["secret@example.com".to_string()]));
+        assert!(fake.messages.iter().all(|m| *m == mail.bytes));
+        assert!(outbox_files(&dir.0).is_empty(), "{:?}", outbox_files(&dir.0));
+        let index = sent_index(&dir.0);
+        assert_eq!(index.len(), 1);
+        assert_eq!(index[0].message_id, "m7@example.org");
+        assert_eq!(index[0].subject, "From Apple Mail");
+        assert_eq!(sent_bytes(&dir.0), mail.bytes);
+    }
+
+    #[test]
+    fn a_prepared_mail_is_signed_for_each_attempt_like_azmails_own() {
+        let dir = TempDir::new("send");
+        let mut fake = take_all();
+        let mail = prepared(&["ben@example.net"]);
+        let outcome = send_prepared_with(
+            &dir.folder(),
+            ACCOUNT,
+            &signing(Some(TEST_KEY)),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(outcome.status, SendStatus::Sent { .. }), "{outcome:?}");
+        assert!(fake.messages[0].starts_with(b"DKIM-Signature:"));
+        assert!(fake.messages[0].ends_with(&mail.bytes));
+        // Sent keeps the message as it went out: signed.
+        assert_eq!(sent_bytes(&dir.0), fake.messages[0]);
+    }
+
+    #[test]
+    fn a_prepared_mail_some_got_counts_them_and_one_nobody_took_is_refused() {
+        fn refuse_ben(address: &str) -> RecipientStatus {
+            if address.starts_with("ben") {
+                RecipientStatus::Rejected {
+                    reply: Reply {
+                        code: 550,
+                        enhanced: Some("5.1.1".to_string()),
+                        text: "5.1.1 no such user".to_string(),
+                    },
+                    server: "mx.example.net".to_string(),
+                }
+            } else {
+                RecipientStatus::Accepted {
+                    server: "mx.example.com".to_string(),
+                }
+            }
+        }
+        let dir = TempDir::new("send");
+        let mut fake = Fake::new(refuse_ben);
+        let outcome = send_prepared_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &prepared(&["ben@example.net", "cy@example.com"]),
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(outcome.status, SendStatus::Failed { .. }), "{outcome:?}");
+        assert_eq!((outcome.delivered, outcome.failed, outcome.pending), (1, 1, 0));
+        assert_eq!(sent_index(&dir.0).len(), 1, "cy got it: it is in Sent");
+
+        let dir = TempDir::new("send");
+        let mut fake = Fake::new(refuse_ben);
+        let outcome = send_prepared_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &prepared(&["ben@example.net"]),
+            OCT_1,
+            &mut fake,
+        );
+        assert_eq!((outcome.delivered, outcome.failed, outcome.pending), (0, 1, 0));
+        assert!(sent_index(&dir.0).is_empty());
+    }
+
+    #[test]
+    fn a_prepared_mail_without_a_sender_or_a_recipient_writes_nothing() {
+        let dir = TempDir::new("send");
+        let mut fake = take_all();
+        let mut mail = prepared(&[]);
+        let outcome = send_prepared_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(outcome.status, SendStatus::Failed { .. }), "{outcome:?}");
+        mail.recipients = vec!["ben@example.net".to_string()];
+        mail.from = "nobody".to_string();
+        let outcome = send_prepared_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(outcome.status, SendStatus::Failed { .. }), "{outcome:?}");
+        assert!(fake.calls.is_empty());
+        assert!(outbox_files(&dir.0).is_empty());
     }
 }

@@ -17,14 +17,15 @@ use std::collections::{BTreeSet, HashMap};
 
 use azcloud_kit::{bundle::DriveBundle, token::DEFAULT_TIER};
 use azul_storage::{
+    ops,
     sigv4::{sha256_hex, uri_decode, uri_encode},
     time::{amz_date, parse_iso8601},
-    Credentials, DriveError, S3Config, S3Drive, Transport,
+    Credentials, Drive, DriveError, ObjectInfo, S3Config, S3Drive, Transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::folders::Role;
+use crate::folders::{self, LocalMailbox, Role, ServerMailbox};
 
 // The token server's API and its address checks are azcloud-kit's.
 pub use azcloud_kit::token::{check_token_url, url_host, TokenError, TokenServer};
@@ -552,6 +553,114 @@ pub fn endpoints_from_config(json: &str) -> Endpoints {
         token_url: pick(&CONFIG_TOKEN_KEYS),
         s3_url: pick(&CONFIG_S3_KEYS),
     }
+}
+
+// ==== The drive's folders ====
+
+/// One folder of the drive's mailbox: its path under `mail/` (`Inbox`, `Work/Projects`) and the
+/// listing's entries of its messages, in key order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFolder {
+    pub path: String,
+    pub messages: Vec<ObjectInfo>,
+}
+
+/// Every folder of the drive's mailbox, at any depth, by path: one listing per folder (pages
+/// of 1000). AzMail's bookkeeping (`.state`, `.index`) is no folder.
+pub fn list_mailbox(drive: &dyn Drive) -> Result<Vec<RemoteFolder>, DriveError> {
+    let mut found = Vec::new();
+    let mut queue: Vec<String> = vec![String::new()];
+    while let Some(path) = queue.pop() {
+        let prefix = if path.is_empty() {
+            String::from(MAIL_PREFIX)
+        } else {
+            folder_prefix(&path)
+        };
+        let level = ops::list_folder_all(drive, &prefix)?;
+        for sub in &level.folders {
+            let name = sub
+                .strip_prefix(prefix.as_str())
+                .unwrap_or_default()
+                .trim_end_matches('/');
+            if name.is_empty() || name.starts_with('.') {
+                continue;
+            }
+            queue.push(if path.is_empty() {
+                name.to_string()
+            } else {
+                format!("{path}/{name}")
+            });
+        }
+        if !path.is_empty() {
+            let messages = level
+                .objects
+                .into_iter()
+                .filter(|object| message_id(&object.key).is_some())
+                .collect();
+            found.push(RemoteFolder { path, messages });
+        }
+    }
+    found.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(found)
+}
+
+/// Every message's state, from one listing of `mail/.state/`.
+pub fn list_states(drive: &dyn Drive) -> Result<HashMap<String, MessageState>, DriveError> {
+    let markers = ops::list_all(drive, STATE_PREFIX)?;
+    Ok(states_from_keys(
+        markers.iter().map(|m| m.key.as_str()),
+    ))
+}
+
+/// The IMAP special-use attribute that gives a well-known folder its role.
+fn special_use(role: Role) -> Option<&'static str> {
+    match role {
+        Role::Sent => Some("\\Sent"),
+        Role::Drafts => Some("\\Drafts"),
+        Role::Archive => Some("\\Archive"),
+        Role::Spam => Some("\\Junk"),
+        Role::Trash => Some("\\Trash"),
+        _ => None,
+    }
+}
+
+/// A folder of the drive as `folders::local_mailboxes` reads an IMAP server's: a well-known
+/// name with its special-use attribute, `/` the hierarchy, and `&` written `&-` (the drive's
+/// names are UTF-8, a server's modified UTF-7, which the folder rules decode).
+fn as_server_mailbox(path: &str) -> ServerMailbox {
+    let attributes = WELL_KNOWN
+        .iter()
+        .find(|(_, name)| name.eq_ignore_ascii_case(path))
+        .and_then(|(role, _)| special_use(*role))
+        .map(|attribute| vec![attribute.to_string()])
+        .unwrap_or_default();
+    ServerMailbox {
+        name: path.replace('&', "&-"),
+        delimiter: Some(String::from("/")),
+        attributes,
+    }
+}
+
+/// The local folders of the drive's folders `paths` and of the well-known ones it has none
+/// for (by role): a folder's key, role and sidebar name as an IMAP server's folder gets them
+/// (`folders.rs`: `Inbox` is `inbox`, `Junk` is the spam folder when there is no `Spam`),
+/// its `server_name` its path in the drive.
+pub fn local_folders(paths: &[String]) -> Vec<LocalMailbox> {
+    let mut listed: Vec<ServerMailbox> = paths.iter().map(|path| as_server_mailbox(path)).collect();
+    let roles: Vec<Role> = folders::local_mailboxes(&listed)
+        .iter()
+        .map(|mailbox| mailbox.role)
+        .collect();
+    for (role, name) in WELL_KNOWN {
+        if !roles.contains(&role) && !paths.iter().any(|path| path.eq_ignore_ascii_case(name)) {
+            listed.push(as_server_mailbox(name));
+        }
+    }
+    let mut boxes = folders::local_mailboxes(&listed);
+    for mailbox in &mut boxes {
+        mailbox.server_name = mailbox.server_name.replace("&-", "&");
+    }
+    boxes
 }
 
 #[cfg(test)]
