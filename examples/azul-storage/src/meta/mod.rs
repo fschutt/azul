@@ -58,6 +58,18 @@
 //! dependency already), a pack whose sealed chunks can be read in ranges, and
 //! a three-way merge of trees whose conflicts are files to keep or rename,
 //! never text to merge. That is this module, with no new crate.
+//!
+//! # Modules
+//!
+//! - [`bucket`]: whole objects with versions and conditional reads and writes ([`Bucket`]),
+//!   over a [`crate::Drive`] ([`DriveBucket`]), a folder ([`FolderBucket`]) or memory
+//!   ([`MemoryBucket`]).
+//! - [`seal`]: the [`Sealer`] (the drive key with the `encryption` feature; [`TestSealer`]).
+//! - [`objects`], [`pack`]: git objects and sealed, range-readable packs.
+//! - [`wal`]: the log in the bucket ([`MetaStore`]): poll, publish, checkpoint, lease,
+//!   compaction, garbage collection.
+//! - [`tree`], [`merge`]: folders as trees, changes, the three-way merge (D52 conflicts).
+//! - [`repo`]: one device's drive index ([`MetaRepo`]): commit, pull, merge, restore.
 
 pub mod bucket;
 pub mod merge;
