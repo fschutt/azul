@@ -642,6 +642,7 @@ impl ScheduledNotifications {
 /// every host - the backends that call them each compile on one OS only.
 pub mod wire {
     use alloc::{collections::BTreeMap, string::String, vec::Vec};
+    use core::fmt::Write as _;
 
     use azul_core::notification::{
         Notification, NotificationAction, NotificationEvent, NotificationSound,
@@ -703,7 +704,7 @@ pub mod wire {
             if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
                 out.push(char::from(b));
             } else {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
             }
         }
         out
@@ -1088,7 +1089,7 @@ pub mod wire {
             if unreserved {
                 out.push(char::from(b));
             } else {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
             }
         }
         out
@@ -1395,16 +1396,18 @@ pub mod wire {
             azul_core::xml::html::encode_text(notification.title.as_str())
         );
         if !notification.body.as_str().is_empty() {
-            xml.push_str(&format!(
+            let _ = write!(
+                xml,
                 "<text>{}</text>",
                 azul_core::xml::html::encode_text(notification.body.as_str())
-            ));
+            );
         }
         if let Some(icon) = notification.icon.as_ref() {
-            xml.push_str(&format!(
+            let _ = write!(
+                xml,
                 "<image placement=\"appLogoOverride\" src=\"{}\"/>",
                 azul_core::xml::html::encode_attribute(&toast_image_src(icon.as_str()))
-            ));
+            );
         }
         xml.push_str("</binding></visual>");
         let buttons: Vec<&NotificationAction> = notification
@@ -1419,21 +1422,23 @@ pub mod wire {
         if !buttons.is_empty() {
             xml.push_str("<actions>");
             for action in buttons {
-                xml.push_str(&format!(
+                let _ = write!(
+                    xml,
                     "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
                     azul_core::xml::html::encode_attribute(action.label.as_str()),
                     azul_core::xml::html::encode_attribute(&toast_arguments(id, action.id.as_str(), payload))
-                ));
+                );
             }
             xml.push_str("</actions>");
         }
         match &notification.sound {
             NotificationSound::Silent => xml.push_str("<audio silent=\"true\"/>"),
             NotificationSound::Named(name) if name.as_str().starts_with("ms-winsoundevent:") => {
-                xml.push_str(&format!(
+                let _ = write!(
+                    xml,
                     "<audio src=\"{}\"/>",
                     azul_core::xml::html::encode_attribute(name.as_str())
-                ));
+                );
             }
             NotificationSound::Default | NotificationSound::Named(_) => {}
         }

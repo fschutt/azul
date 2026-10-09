@@ -511,15 +511,17 @@ fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileD
 /// nothing").
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn macos_folder_script(title: &str, default_path: Option<&str>) -> String {
+    use core::fmt::Write as _;
     let mut script = format!(
         "POSIX path of (choose folder with prompt \"{}\"",
         applescript_text(title)
     );
     if let Some(path) = default_path.filter(|p| !p.is_empty()) {
-        script.push_str(&format!(
+        let _ = write!(
+            script,
             " default location (POSIX file \"{}\")",
             applescript_text(path)
-        ));
+        );
     }
     script.push(')');
     script
