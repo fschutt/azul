@@ -37,7 +37,10 @@ use chacha20poly1305::{
     aead::{Aead, Payload},
     Key, KeyInit, XChaCha20Poly1305, XNonce,
 };
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
+/// The wiped-when-dropped buffer the secrets here come back in (a recovery code's text, an
+/// invite's secret): zeroize's, for apps without a dependency of their own on it.
+pub use zeroize::Zeroizing;
 
 use crate::DriveError;
 

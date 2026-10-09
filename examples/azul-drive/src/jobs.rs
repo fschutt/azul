@@ -258,6 +258,9 @@ pub(crate) enum Job {
         items: Vec<(String, Option<u64>)>,
         max_px: u32,
     },
+    /// An encrypted drive's keys, recovery or files moved into the encryption.
+    #[cfg(feature = "encryption")]
+    Encryption(crate::encryption::EncryptionJob),
 }
 
 /// What a job answers, on the UI thread.
@@ -382,6 +385,9 @@ pub(crate) enum Outcome {
     },
     /// The thumbnails job ended.
     ThumbnailsDone,
+    /// What an encryption job found.
+    #[cfg(feature = "encryption")]
+    Encryption(crate::encryption::EncryptionOutcome),
 }
 
 /// A thread's start data: the job, taken out once.
@@ -1426,6 +1432,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             }
             Outcome::ThumbnailsDone
         }
+        #[cfg(feature = "encryption")]
+        Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
     }
 }
 

@@ -478,6 +478,12 @@ enum SideAction {
     Unpin(usize),
     /// The drive's properties.
     Properties(String),
+    /// "Encrypt this drive...": the question, then keys, the recovery sheet, the move.
+    #[cfg(feature = "encryption")]
+    Encrypt(String),
+    /// "Unlock with the recovery code...".
+    #[cfg(feature = "encryption")]
+    Unlock(String),
 }
 
 /// What a row's callbacks carry.
@@ -524,6 +530,17 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
             String::from("Properties"),
             SideAction::Properties(slot.entry.id.clone()),
         ));
+        #[cfg(feature = "encryption")]
+        if slot.entry.azlin().is_some() && crate::encryption::offered() {
+            entries.push((
+                String::from("Encrypt this drive\u{2026}"),
+                SideAction::Encrypt(slot.entry.id.clone()),
+            ));
+            entries.push((
+                String::from("Unlock with the recovery code\u{2026}"),
+                SideAction::Unlock(slot.entry.id.clone()),
+            ));
+        }
         if !slot.is_built_in() {
             entries.push((
                 format!("Remove \"{}\"\u{2026}", slot.entry.name),
@@ -585,6 +602,10 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
                 actions::open_properties(info, app, s, Vec::new(), Some(index));
             }
         }
+        #[cfg(feature = "encryption")]
+        SideAction::Encrypt(drive_id) => crate::encryption::ask_encrypt(s, &drive_id),
+        #[cfg(feature = "encryption")]
+        SideAction::Unlock(drive_id) => crate::encryption::ask_unlock(s, &drive_id),
     }
 }
 

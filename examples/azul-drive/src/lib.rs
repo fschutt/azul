@@ -101,6 +101,9 @@ pub mod args;
 pub mod browse;
 pub mod fileops;
 mod ids;
+/// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
+#[cfg(feature = "encryption")]
+mod encryption;
 mod jobs;
 pub mod keys;
 /// The open folder's listing as it streams in, and the window of it the views build.
@@ -204,6 +207,10 @@ pub(crate) struct Slot {
     pub secret: Option<String>,
     /// The drive, once it could be opened; shared with the worker threads.
     pub drive: Option<Arc<dyn Drive>>,
+    /// An Azlin drive's encryption seam (the same drive as `drive`): its plain bucket for the
+    /// keys, and its decision to take again after the keys changed.
+    #[cfg(feature = "encryption")]
+    pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
 }
 
 impl Slot {
@@ -212,6 +219,8 @@ impl Slot {
             entry,
             secret: None,
             drive: None,
+            #[cfg(feature = "encryption")]
+            auto: None,
         }
     }
 
@@ -248,7 +257,7 @@ impl Slot {
             let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
                 Box::new(AzulTransport::new(USER_AGENT)) as Box<dyn azul_storage::Transport>
             });
-            Arc::new(azcloud_kit::AzlinDrive::new(
+            let azlin: Arc<dyn Drive> = Arc::new(azcloud_kit::AzlinDrive::new(
                 &self.entry,
                 session,
                 token_url.unwrap_or_default(),
@@ -265,7 +274,15 @@ impl Slot {
                         }
                     },
                 ),
-            )?)
+            )?);
+            // Plain or encrypted: the first call (a worker thread) decides.
+            #[cfg(feature = "encryption")]
+            let azlin: Arc<dyn Drive> = {
+                let auto = crate::encryption::wrap(&self.entry.id, azlin);
+                self.auto = Some(auto.clone());
+                auto
+            };
+            azlin
         } else {
             Arc::from(self.entry.open_with_secret(
                 self.secret.as_deref(),
@@ -473,6 +490,9 @@ pub(crate) enum Popup {
     /// The transfer queue, with Cancel: the running transfer as azul's ProgressDialog over the
     /// others. `auto`: it opened by itself (a long transfer) and closes when the queue is done.
     Transfers { auto: bool },
+    /// Encrypting a drive, its recovery sheet, unlocking it with the recovery code.
+    #[cfg(feature = "encryption")]
+    Encryption(encryption::Dialog),
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -1868,6 +1888,8 @@ pub(crate) extern "C" fn on_job_done(
             }
         }
         Outcome::ThumbnailsDone => {}
+        #[cfg(feature = "encryption")]
+        Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
     }
     Update::RefreshDom
 }
