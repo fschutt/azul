@@ -4,7 +4,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -17,12 +17,15 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(tag: &str) -> TempDir {
+        // Tests run in parallel: the clock alone could give two of them one folder.
+        static MADE: AtomicUsize = AtomicUsize::new(0);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
         let dir = std::env::temp_dir().join(format!(
-            "azul-search-{tag}-{}-{nanos}",
-            std::process::id()
+            "azul-search-{tag}-{}-{nanos}-{}",
+            std::process::id(),
+            MADE.fetch_add(1, Ordering::SeqCst)
         ));
         fs::create_dir_all(&dir).expect("a temporary folder");
         TempDir(dir)
