@@ -556,3 +556,91 @@ fn a_refresh_answered_503_is_tried_again_with_the_same_token_and_never_drops_it(
     assert!(!CloudError::from(error).is_sign_in());
     assert_eq!(busy.calls().len(), 3);
 }
+
+/// The issue key of a test checkout's period tokens (base64url of 32 bytes).
+const ISSUE_KEY: &str = "Zm9yIHRoZSBwZXJpb2QgdG9rZW5zIG9mIGNrXzEgb25seQ";
+
+#[test]
+fn a_paid_checkouts_signup_carries_the_issue_key_of_its_period_tokens() {
+    let signup = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa").replace(
+        r#""tier": "100GB"}"#,
+        &format!(
+            r#""tier": "100GB", "period_tokens": {{"checkout_id": "ck_1", "months": 3,
+                 "issue_key": "{ISSUE_KEY}"}}}}"#
+        ),
+    );
+    let drive = DriveBundle::parse(&signup).unwrap();
+    let period = drive.period_tokens.clone().expect("the period tokens' grant");
+    assert_eq!(period.checkout_id, "ck_1");
+    assert_eq!(period.months, 3);
+    assert_eq!(period.issue_key, ISSUE_KEY);
+    let shown = format!("{drive:?} {period:?}");
+    assert!(!shown.contains(ISSUE_KEY), "Debug shows no issue key: {shown}");
+    // A development sign-up (no payment) has none.
+    let free = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    assert_eq!(free.period_tokens, None);
+}
+
+#[test]
+fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() {
+    let fake = Fake::new(|call, n| {
+        let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+        Ok(match n {
+            0 => {
+                assert_eq!(body["checkout_id"], "ck_1");
+                assert_eq!(body["issue_key"], ISSUE_KEY);
+                assert_eq!(body["blinded"], serde_json::json!(["Ymxp", "bmQ="]));
+                json(
+                    200,
+                    r#"{"tier": "100GB", "key_id": "100GB/2026",
+                        "public_key_pem": "-----BEGIN PUBLIC KEY-----",
+                        "blind_signatures": ["c2ln", "bmVk"]}"#,
+                )
+            }
+            1 => json(
+                400,
+                r#"{"error": "issue_key_required", "message": "issue_key required"}"#,
+            ),
+            2 => json(
+                403,
+                r#"{"error": "issue_key_wrong", "message": "not this checkout's issue key"}"#,
+            ),
+            _ => json(
+                200,
+                r#"{"tier": "100GB", "key_id": "100GB/2026", "public_key_pem": "",
+                    "blind_signatures": ["c2ln"]}"#,
+            ),
+        })
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let blinded = vec![String::from("Ymxp"), String::from("bmQ=")];
+    let issued = server
+        .issue_period_tokens("ck_1", ISSUE_KEY, &blinded)
+        .unwrap();
+    assert_eq!(issued.tier, "100GB");
+    assert_eq!(issued.key_id, "100GB/2026");
+    assert_eq!(issued.signatures, vec!["c2ln", "bmVk"]);
+    let call = &fake.calls()[0];
+    assert_eq!(call.method, Method::Post);
+    assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
+    assert_eq!(header(call, "authorization"), None, "no drive token");
+    // No issue key: nothing is sent (the checkout id alone issues nothing).
+    assert!(matches!(
+        server.issue_period_tokens("ck_1", " ", &blinded),
+        Err(TokenError::Config(_))
+    ));
+    assert_eq!(fake.calls().len(), 1);
+    // The token server's two refusals, as refusals with their codes.
+    for code in ["issue_key_required", "issue_key_wrong"] {
+        match server.issue_period_tokens("ck_1", ISSUE_KEY, &blinded) {
+            Err(TokenError::Refused { code: got, .. }) => assert_eq!(got, code),
+            other => panic!("not refused with {code}: {other:?}"),
+        }
+    }
+    // One signature for two blinded messages: an answer that makes no sense.
+    assert!(matches!(
+        server.issue_period_tokens("ck_1", ISSUE_KEY, &blinded),
+        Err(TokenError::Protocol(_))
+    ));
+}
