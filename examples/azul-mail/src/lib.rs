@@ -61,26 +61,19 @@
 //! fetch), `AZMAIL_DRAFT_UPLOADED <window id> <key>` / `AZMAIL_DRAFT_UPLOAD_FAILED <window id>
 //! <why>`. The secret is never printed.
 
-pub mod account;
-pub mod args;
-pub mod auth;
-pub mod azlin;
+// The mail logic without azul types lives in azul-mail-core, so a headless process (the Azlin
+// Bridge) runs the same code; it keeps its module names here (`azmail::send`, `crate::folders`).
+pub use azmail_core::{account, args, auth, azlin, dkim, folders, message, mutf7, send, store, submit};
+
 pub mod azlin_sync;
 pub mod compose;
-pub mod dkim;
-pub mod folders;
 pub mod html;
 pub mod ids;
 pub mod imap_client;
 pub mod listing;
-pub mod message;
-pub mod mutf7;
 pub mod pictures;
 pub mod sample;
-pub mod send;
 pub mod sending;
-pub mod store;
-pub mod submit;
 pub mod sync;
 pub mod todo;
 mod ui_account;
@@ -89,8 +82,9 @@ mod ui_compose;
 mod ui_main;
 mod ui_options;
 
+// The tests' helpers (a temporary folder, the SMTP sink) are azul-mail-core's `testing` ones.
 #[cfg(test)]
-mod testutil;
+use azmail_core::testutil;
 
 use std::{collections::HashMap, path::PathBuf};
 

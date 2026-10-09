@@ -348,7 +348,7 @@ jobs.rs}, azul-code/src/storage.rs; scripts/azmail_e2e.py; Cargo.lock (csv for a
     code/storage.rs:85, mail store.rs:262 and sheets storage.rs:~120 (folder listings -> a new
     `ops::list_folder_all`). RED list_folder_all_follows_every_page. Source: DEDUP_OFFICE (S3 blockers).
 5.6 DEDUP: one TempDir for tests.
-    azul-mail/src/testutil.rs:9, azul-drive/src/fileops.rs:848, azul-reader/src/jobs.rs:357, azul-appkit/src/
+    azul-mail-core/src/testutil.rs:9, azul-drive/src/fileops.rs:848, azul-reader/src/jobs.rs:357, azul-appkit/src/
     files.rs:225 (TestDir) and azul-storage/src/tests/mod.rs:22 all twin `azul_pim::testing::TempDir`. Move it
     into azul-storage behind a `testing` feature (storage cannot depend on pim); pim re-exports it. Test code
     only. Source: PIM 2026-10-02 wave-6 list.

@@ -35,6 +35,10 @@ azul-storage = { path = "../azul-storage", features = ["azul"] }
 # The Azlin cloud client the apps share: an Azlin account's token server calls, the drive bundle
 # they answer, the address checks and the credentials' margins (azlin.rs).
 azcloud-kit = { path = "../azcloud-kit" }
+# The mail logic without azul types (accounts, folders, the store's files, the Azlin drive's
+# layout, sending, DKIM, submission), shared with the headless Azlin Bridge; lib.rs re-exports
+# its modules under their old names.
+azul-mail-core = { path = "../azul-mail-core" }
 # The same features azul-layout builds chrono with: UTC dates for the files, local dates for the list.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # A sync IMAP client over any Read + Write stream (it runs on an azul Thread). No TLS feature: the
@@ -72,6 +76,8 @@ lettre = { version = "0.11.23", default-features = false, features = ["smtp-tran
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The tests' helpers (`testutil`: the temporary folder, the SMTP sink).
+azul-mail-core = { path = "../azul-mail-core", features = ["testing"] }
 
 [lib]
 name = "azmail"

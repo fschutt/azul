@@ -138,6 +138,7 @@ dependencies = [
  "azul-appkit",
  "azul-dll",
  "azul-icons-haiku",
+ "azul-mail-core",
  "azul-pim",
  "azul-storage",
  "base64 0.22.1",
@@ -1409,6 +1410,27 @@ dependencies = [
  "xmlwriter",
  "zip 2.4.2",
  "zune-jpeg",
+]
+
+[[package]]
+name = "azul-mail-core"
+version = "0.1.0"
+dependencies = [
+ "azcloud-kit",
+ "azul-appkit",
+ "azul-pim",
+ "azul-storage",
+ "base64 0.22.1",
+ "chrono",
+ "lettre",
+ "mail-parser",
+ "microdns",
+ "micromail",
+ "rsa",
+ "rustls",
+ "rustls-rustcrypto",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

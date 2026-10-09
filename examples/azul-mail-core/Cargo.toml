@@ -1,0 +1,60 @@
+[package]
+name = "azul-mail-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzMail's mail logic without azul types, for AzMail and for headless
+    processes (the Azlin Bridge): the accounts and their files, the folder
+    rules, modified UTF-7, the mail store's files, the Azlin drive's mailbox
+    layout (AZLIN_MAIL.md: names, state markers, the drive's folders), MIME
+    index lines, sending (the outbox, direct delivery, a relay, signed-in
+    submission, DKIM) and the DKIM keys. AzMail re-exports every module under
+    the name it always had. Blocking; no libazul.
+"""
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Address lines, the shared PIM helpers (account.rs's address checks).
+azul-pim = { path = "../azul-pim" }
+# AzMail's switches and About facts (args.rs); plain Rust without the `azul` feature.
+azul-appkit = { path = "../azul-appkit" }
+# The drive every durable write goes through (LocalDrive, S3Drive) and SigV4's helpers (azlin.rs
+# names, store.rs); without the `azul` feature: no libazul.
+azul-storage = { path = "../azul-storage" }
+# The Azlin token server's API and its address checks (azlin.rs).
+azcloud-kit = { path = "../azcloud-kit" }
+# UTC dates for the files, local dates for the list (message.rs).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# MIME parsing for the index lines (message.rs).
+mail-parser = { version = "0.11", features = ["full_encoding"] }
+# Sending (send.rs): the MIME builder, DKIM signing and the SMTP client of direct delivery and the
+# relay; STARTTLS with the pure-Rust provider below.
+micromail = { version = "0.2", default-features = false, features = ["tls-rustcrypto", "dkim", "signing"] }
+# The DKIM key's public half (dkim.rs).
+rsa = { version = "0.9", features = ["pem"] }
+base64 = "0.22"
+# The TXT lookups of the DKIM / DMARC / SPF checks (dkim.rs).
+microdns = "0.1"
+# Signed-in submission (submit.rs): lettre's blocking SMTP client over rustls with the RustCrypto
+# provider and the Mozilla roots.
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
+rustls-rustcrypto = "0.0.2-alpha"
+
+[features]
+default = []
+# `testutil` (a temporary folder, a one-connection SMTP sink) for the tests of AzMail's other
+# modules (a dev-dependency turns it on).
+testing = ["azul-storage/testing"]
+
+[dev-dependencies]
+# The one temporary folder for tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[lib]
+name = "azmail_core"
+path = "src/lib.rs"

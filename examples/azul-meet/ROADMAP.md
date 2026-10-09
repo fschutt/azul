@@ -73,7 +73,7 @@ keys do not change, so AzDrive browses a meeting's folder like any other.
 
 ## 4. Mail the summary
 
-- AzMail owns sending: `examples/azul-mail/src/send.rs` (`send_mail`: micromail's MIME builder,
+- AzMail owns sending: `examples/azul-mail-core/src/send.rs` (`send_mail`: micromail's MIME builder,
   the outbox `<AzMail folder>/<account>/outbox/<id>.eml` + `<id>.json`, DKIM, the routes, filing
   in Sent).
 - AzMeet hands a message to that outbox (the file contract, as everything else between the

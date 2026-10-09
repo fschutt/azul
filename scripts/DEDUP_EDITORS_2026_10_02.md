@@ -176,18 +176,18 @@ B1. **Random record ids: three copies, and AzNotes uses the WRONG mint (data-los
 
 B2. **Atomic file write: six copies.** `examples/azul-calendar/src/event.rs:627-639`, `calendars.rs:269-280`,
 `tasks.rs:88-99`, `settings.rs:58-70` (four copies INSIDE one app: write `.x.tmp`, rename, remove on failure) +
-`examples/azul-mail/src/store.rs:75-100 write_atomic` (adds fsync/`durable`) + `examples/azul-storage/src/local.rs:58
+`examples/azul-mail-core/src/store.rs:75-100 write_atomic` (adds fsync/`durable`) + `examples/azul-storage/src/local.rs:58
 write_atomically` (the library one, used by LocalDrive). Calendar also does these writes synchronously inside
 callbacks. Proposal: AzCalendar moves onto `azul_storage::LocalDrive` + `azul_appkit::files` jobs on a Thread (as
 AzNotes / AzTasks / AzContacts do) - its own report lists this as next step. M. Benefits: Calendar, Mail.
 
-B3. **AzMail's `store::LocalFolder` is a second LocalDrive.** `examples/azul-mail/src/store.rs:38-190`
+B3. **AzMail's `store::LocalFolder` is a second LocalDrive.** `examples/azul-mail-core/src/store.rs:38-190`
 (`is_valid_key`, `put/get/delete/size_of/move_prefix/folders`, `write_atomic`) vs `examples/azul-storage/src/local.rs`
 (`put/get/delete/head/rename/list/delete_folder`, key checks in `key.rs`). Same semantics (keys, atomic put, prefix
 move); LocalFolder lacks listing pages and S3. MAIL2 report sec. 4 names the swap as MAIL1's next step. M. Benefit:
 Mail gets S3 for free (the Azlin cloud-storage split).
 
-B4. **UTC ISO-8601 formatter twice.** `examples/azul-mail/src/message.rs:9-13 rfc3339_utc(i64)` (chrono) vs
+B4. **UTC ISO-8601 formatter twice.** `examples/azul-mail-core/src/message.rs:9-13 rfc3339_utc(i64)` (chrono) vs
 `examples/azul-storage/src/time.rs:102-111 iso8601(u64)` (civil arithmetic); same output `YYYY-MM-DDTHH:MM:SSZ`;
 diverged only at the edges (Mail returns "" out of range, storage takes u64). Proposal: Mail depends on azul-storage
 (it will for B3) and drops its copy. S.
@@ -244,7 +244,7 @@ B9. **`box_str` x3 and `reborrow_info` x3 (both unnecessary).**
 
 B10. **Command-line skeleton copied per app although `azul_appkit::args` exists.** The same loop (`split_once('=')`,
 `let mut value = |what| ..`, `--size WxH` via `split_once('x')`, help-as-Err, unknown flag refused) in
-`examples/azul-mail/src/args.rs:80-160`, `azul-notes/src/args.rs:68-140`, `azul-writer/src/args.rs:54-140`,
+`examples/azul-mail-core/src/args.rs:80-160`, `azul-notes/src/args.rs:68-140`, `azul-writer/src/args.rs:54-140`,
 `azul-tasks/src/args.rs:77-155`, `azul-calendar/src/args.rs:141-210` (and sheets/show/photo/videocut/drive/meet
 outside this area). `examples/azul-appkit/src/args.rs:114-300` (`AppSpec`, `AppArgs::parse`, Theme/ModePref enums)
 does exactly this and only AzContacts uses it. Theme/Mode enums are re-declared in Mail (args.rs:24-46), Tasks
@@ -276,7 +276,7 @@ each carry a client while `scripts/azlin_e2e.py` (SMALLAPPS) is the shared drive
 scope, reported by three agents). S per script.
 
 B14. **E-mail address checks: three rules, one concept (diverged -> visible inconsistencies).**
-- `examples/azul-mail/src/account.rs:209-222 is_email`: exactly one `@`, NO dot required (accepts `x@localhost`, needed for
+- `examples/azul-mail-core/src/account.rs:209-222 is_email`: exactly one `@`, NO dot required (accepts `x@localhost`, needed for
   test servers), rejects `..`, controls.
 - `examples/azul-calendar/src/event.rs:241-257 is_email`: dot REQUIRED in the domain, rejects `< > , ; "`.
 - `examples/azul-contacts/src/contact.rs:326-331` (inline in the form check): dot required, but `split_once('@')` lets
@@ -526,7 +526,7 @@ again (the engine's `TextFormat` has no Code variant). Add `TextFormat::Code` wi
 
 ## B (continued)
 
-B31. **Test `TempDir` x7.** `examples/azul-calendar/src/test_dir.rs` (whole file), `examples/azul-mail/src/testutil.rs:9`,
+B31. **Test `TempDir` x7.** `examples/azul-calendar/src/test_dir.rs` (whole file), `examples/azul-mail-core/src/testutil.rs:9`,
 `examples/azul-tasks/src/store.rs:314`, `examples/azul-drive/src/fileops.rs:825`, `examples/azul-storage/src/tests/mod.rs:21`,
 `examples/azul-appkit/src/files.rs:140 TestDir`, plus inline temp folders in azul-notes store.rs:459 and azul-writer
 document.rs:862 (fixed name `azwriter_round_trip` - two parallel test runs collide). Proposal: azul-storage exports a

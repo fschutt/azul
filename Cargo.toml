@@ -14,6 +14,7 @@ members = [
     "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)
     "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
+    "examples/azul-mail-core", # azul-mail-core: AzMail's mail logic without azul types (accounts, folders, the store, the Azlin drive's layout, sending, DKIM), shared with the Azlin Bridge
     "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
     "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
     "examples/azul-icons-haiku", # azul-icons-haiku: Haiku's icons (HVIF, MIT) under Material names, the flora theme's icon pack (azul-appkit registers it)
