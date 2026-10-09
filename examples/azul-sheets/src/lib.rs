@@ -2070,7 +2070,7 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
         .with_active_item(s.backstage_pane)
         .with_on_nav_select(app.clone(), on_backstage_nav as BackstageOnNavSelectCallbackType)
         .with_on_back(app.clone(), on_backstage_back as ButtonOnClickCallbackType)
-        .with_title_strip(title_row(s))
+        // No title strip: the shell's title row is the screen's (as in AzWriter and AzShow).
         .with_content(pane)
         .dom()
 }
