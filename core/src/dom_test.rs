@@ -315,6 +315,7 @@ mod autotest_generated {
             NodeType::VirtualView,
             NodeType::Icon(BoxOrStatic::heap(AzString::from("home"))),
             NodeType::GeolocationProbe(crate::geolocation::GeolocationProbeConfig::default()),
+            NodeType::WebView(crate::webview::WebViewConfig::persistent()),
         ]
     }
 
