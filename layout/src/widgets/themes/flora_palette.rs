@@ -255,6 +255,21 @@ mod tests {
         assert_eq!(for_chain::<&str>(&[], true), None);
     }
 
+    /// flora.css's small icons wear their own ink (`--fl-icon`: `#56544C`
+    /// by day, `#BEBEBE` at night), not the text's and not the stone's: an
+    /// app's monochrome icon says `system:icon` and sits with the widgets'
+    /// icons, in every spin.
+    #[test]
+    fn the_icon_keyword_is_floras_small_icon_ink() {
+        let icon = R::from_css_name("icon").expect("system:icon is a keyword");
+        for (dark, want) in [(false, f::LIGHT_ICON), (true, f::DARK_ICON)] {
+            for spin in FloraSpin::ALL {
+                let p = system_colors(dark, spin.ramp());
+                assert_eq!(icon.get(&p).into_option(), Some(want), "{spin:?} dark {dark}");
+            }
+        }
+    }
+
     #[test]
     fn the_night_ground_is_neutral_grey() {
         // flora.css: "untinted gray in dark", never the warm brown.
