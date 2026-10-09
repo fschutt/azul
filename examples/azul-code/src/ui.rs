@@ -61,6 +61,13 @@ pub const RULE: &str = "rgba(128, 128, 128, 0.25)";
 /// The face of what is not in front (a tab behind, the strip after the
 /// tabs): the ground, a shade darker in light mode, lighter in dark mode.
 const RECESSED: &str = "rgba(128, 128, 128, 0.10)";
+/// A monochrome glyph of the chrome (an explorer row's chevron, a title row's
+/// action, a tab's close): under flora flora's small-icon ink, not the text's
+/// (a multicolour Haiku icon keeps its own colours whatever the ink).
+pub const FLORA_GLYPH: &str = "@theme(flora) { color: system:icon; }";
+/// A glyph beside a name (a file's, a folder's), softened from the text ink;
+/// under flora the icon ink is already the soft one.
+pub const SOFT_GLYPH: &str = "opacity: 0.8; @theme(flora) { color: system:icon; opacity: 1; }";
 
 /// Runs `f` on the app's state; the window is rebuilt afterwards.
 pub fn with_state(
@@ -256,7 +263,7 @@ fn activity_item(
         app.clone(),
         callback,
     )
-    .with_child(Dom::create_icon(icon).with_css("font-size: 24px;"))
+    .with_child(Dom::create_icon(icon).with_css(format!("font-size: 24px; {FLORA_GLYPH}")))
 }
 
 // ==== The side bar ====
@@ -286,7 +293,7 @@ pub fn icon_button(id: AzString, icon: &str, name: &str, data: RefAny, callback:
         data,
         callback,
     )
-    .with_child(Dom::create_icon(icon).with_css("font-size: 16px;"))
+    .with_child(Dom::create_icon(icon).with_css(format!("font-size: 16px; {FLORA_GLYPH}")))
 }
 
 /// Recent folder `index`: its name, the folder it is in; a click opens it.
@@ -304,7 +311,7 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
         RefAny::new(RecentRef { app: app.clone(), index }),
         on_recent_click,
     )
-    .with_child(Dom::create_icon("folder").with_css("font-size: 16px; padding-right: 6px; opacity: 0.8;"))
+    .with_child(Dom::create_icon("folder").with_css(format!("font-size: 16px; padding-right: 6px; {SOFT_GLYPH}")))
     .with_child(label(
         &name,
         // Under flora a recent folder's name is a link in flora's brass.
@@ -385,7 +392,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
         .with_accessibility_name(doc.name.as_str())
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), tab_ref(), on_tab_click)
         .with_child(
-            Dom::create_icon("description").with_css("font-size: 16px; padding-right: 6px; opacity: 0.8;"),
+            Dom::create_icon("description").with_css(format!("font-size: 16px; padding-right: 6px; {SOFT_GLYPH}")),
         )
         .with_child(label(
             &doc.name,
@@ -404,9 +411,9 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
             .with_accessibility_name("Unsaved changes")
             .with_css("width: 8px; height: 8px; border-radius: 4px; background: system:text; opacity: 0.85;")
     } else if active {
-        Dom::create_icon("close").with_css("font-size: 16px;")
+        Dom::create_icon("close").with_css(format!("font-size: 16px; {FLORA_GLYPH}"))
     } else {
-        Dom::create_icon("close").with_css("font-size: 16px; opacity: 0.5;")
+        Dom::create_icon("close").with_css(format!("font-size: 16px; opacity: 0.5; {FLORA_GLYPH}"))
     };
     let close = clickable(
         ids::tab_close(index),
