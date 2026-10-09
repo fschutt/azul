@@ -397,7 +397,7 @@ fn crumb_px(label: &str) -> f32 {
 /// box's frame and Refresh (36), the location's icon (24), the search box
 /// and its gap (228) and the bar's padding (16). 0 when nothing is known.
 fn trail_room(available_width: f32, show_recent: bool, has_icon: bool) -> f32 {
-    if !(available_width > 0.0) {
+    if available_width <= 0.0 || available_width.is_nan() {
         return 0.0;
     }
     let mut fixed = 3.0 * 28.0 + 36.0 + 228.0 + 16.0;
@@ -416,7 +416,7 @@ fn trail_room(available_width: f32, show_recent: bool, has_icon: bool) -> f32 {
 /// its segment. Explorer folds from the drive end, the same way.
 #[must_use]
 pub(crate) fn folded_crumbs(labels: &[&str], room_px: f32) -> usize {
-    if !(room_px > 0.0) || labels.len() < 2 {
+    if room_px <= 0.0 || room_px.is_nan() || labels.len() < 2 {
         return 0;
     }
     let widths: Vec<f32> = labels.iter().map(|label| crumb_px(label)).collect();

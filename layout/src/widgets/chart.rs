@@ -485,7 +485,7 @@ impl Chart {
     /// An empty `kind` chart of `width` x `height` px, with gridlines and a
     /// legend.
     #[must_use]
-    pub fn create(kind: ChartKind, width: f32, height: f32) -> Self {
+    pub const fn create(kind: ChartKind, width: f32, height: f32) -> Self {
         Self {
             series: ChartSeriesVec::from_const_slice(&[]),
             categories: StringVec::from_const_slice(&[]),
@@ -864,7 +864,7 @@ impl PlotFrame {
             return ((x + 0.5) * f64::from(self.band())) as f32;
         }
         let span = self.x_max - self.x_min;
-        if !(span.abs() > 0.0) {
+        if span == 0.0 || span.is_nan() {
             return self.width / 2.0;
         }
         ((x - self.x_min) / span * f64::from(self.width)) as f32
@@ -874,7 +874,7 @@ impl PlotFrame {
     #[must_use]
     pub(crate) fn px_y(&self, y: f64) -> f32 {
         let span = self.y_max - self.y_min;
-        if !(span.abs() > 0.0) {
+        if span == 0.0 || span.is_nan() {
             return self.height / 2.0;
         }
         (f64::from(self.height) * (1.0 - (y - self.y_min) / span)) as f32
@@ -2540,12 +2540,12 @@ pub(crate) fn over_plot() -> Vec<CssPropertyWithConditions> {
 }
 
 /// `text-align: <align>`.
-fn text_align(align: azul_css::props::style::StyleTextAlign) -> Decl {
+const fn text_align(align: azul_css::props::style::StyleTextAlign) -> Decl {
     crate::widgets::themes::decl::simple(CssProperty::const_text_align(align))
 }
 
 /// Hidden until the pointer or the keys show it.
-fn hidden() -> Decl {
+const fn hidden() -> Decl {
     crate::widgets::themes::decl::simple(CssProperty::const_opacity(StyleOpacity::const_new(0)))
 }
 
@@ -3451,7 +3451,7 @@ pub(crate) fn tooltip_place(x: f32, y: f32, text: &str, plot_width: f32) -> (f32
 }
 
 /// `opacity: 1` or `0`.
-fn opacity(shown: bool) -> CssProperty {
+const fn opacity(shown: bool) -> CssProperty {
     CssProperty::const_opacity(StyleOpacity::const_new(if shown { 100 } else { 0 }))
 }
 
