@@ -38,6 +38,9 @@ mod tooltip;
 mod wcreate;
 pub mod win_event;
 
+#[cfg(test)]
+mod webview_test;
+
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
