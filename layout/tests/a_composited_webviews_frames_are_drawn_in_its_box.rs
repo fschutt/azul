@@ -5,7 +5,9 @@
 //! hands each frame to the window, which draws it as an image at the web
 //! view's content box - so clips, scrolling, stacking and transforms are the
 //! window's own (`LayoutWindow::set_webview_frame`). A new frame replaces the
-//! last one in place: no layout, no rebuild of the list once one is drawn.
+//! last one in place: no layout, no rebuild of the list once one is drawn -
+//! what the window must do comes back as a `ContentDirtyTier`, the same
+//! answer every content change gives its shell.
 //!
 //! Every page is 400x300; the web view's content box is (12, 12) 200x100.
 //!
@@ -21,6 +23,7 @@ use azul_css::AzString;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     managers::webview::{WebViewId, WebViewPlatform},
+    overlay::ContentDirtyTier,
     solver3::display_list::DisplayListItem,
     window::LayoutWindow,
     window_state::FullWindowState,
@@ -108,9 +111,10 @@ fn a_composited_frame_fills_the_web_views_content_box() {
     let mut lw = window();
     lay_out(&mut lw, true);
     let first = frame(10);
-    assert!(
+    assert_eq!(
         lw.set_webview_frame(the_view(&lw), &first),
-        "a frame of a web view on screen is a repaint"
+        ContentDirtyTier::RebuildDisplayList,
+        "the first frame adds an image to the list: rebuilt here, sent whole to the GPU"
     );
     let images = drawn(&lw);
     assert_eq!(images.len(), 1, "one image for the web view: {images:?}");
@@ -127,7 +131,11 @@ fn the_next_frame_replaces_the_last_in_place_without_a_layout() {
     let layouts = lw.frame_report.layout_passes;
 
     let second = frame(20);
-    assert!(lw.set_webview_frame(id, &second));
+    assert_eq!(
+        lw.set_webview_frame(id, &second),
+        ContentDirtyTier::Paint,
+        "a repaint of the patched list"
+    );
     let images = drawn(&lw);
     assert_eq!(images.len(), 1, "replaced, not added: {images:?}");
     assert_eq!(images[0].1.get_hash(), second.get_hash());
@@ -152,6 +160,6 @@ fn a_frame_for_a_web_view_that_is_gone_draws_nothing() {
     lay_out(&mut lw, true);
     let id = the_view(&lw);
     lay_out(&mut lw, false);
-    assert!(!lw.set_webview_frame(id, &frame(10)));
+    assert_eq!(lw.set_webview_frame(id, &frame(10)), ContentDirtyTier::Unchanged);
     assert!(drawn(&lw).is_empty());
 }
