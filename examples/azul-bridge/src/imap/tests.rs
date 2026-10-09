@@ -346,6 +346,15 @@ fn copy_and_move_answer_with_copyuid_and_a_move_expunges_here() {
     assert!(nowhere.last().unwrap().starts_with("c3 NO [TRYCREATE]"));
     let status = client.ok("c4", "STATUS Trash (MESSAGES UNSEEN UIDNEXT)");
     assert!(has(&status, "* STATUS \"Trash\" (MESSAGES 1 UNSEEN 1 UIDNEXT 2)"), "{status:?}");
+    // A copy into the mailbox it is in is a second message, not the object onto itself.
+    let again = client.ok("c5", "COPY 1 INBOX");
+    assert!(again.last().unwrap().contains("[COPYUID 1700000000 1 3]"), "{again:?}");
+    assert!(has(&again, "* 2 EXISTS"), "{again:?}");
+    assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Inbox/")).count(), 2);
+    // A move into it changes nothing.
+    let stay = client.ok("c6", "MOVE 1 INBOX");
+    assert!(!has(&stay, "EXPUNGE"), "{stay:?}");
+    assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Inbox/")).count(), 2);
 }
 
 #[test]

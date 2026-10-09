@@ -212,7 +212,7 @@ mod tests {
         send::TlsPolicy,
         testutil::{spawn_smtp_sink, SinkScript},
     };
-    use azul_storage::testing::TempDir;
+    use azul_storage::{testing::TempDir, Drive};
 
     use super::*;
     use crate::{memory::MemoryDrive, secrets::MemorySecretStore, store::DriveMailStore};

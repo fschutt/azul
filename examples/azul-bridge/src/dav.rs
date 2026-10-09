@@ -66,7 +66,9 @@ impl Lock {
         } else {
             format!("{key}/")
         };
-        (self.infinite && self.key.ends_with('/') && key.starts_with(&self.key))
+        // The root's lock key is empty: it is above every key.
+        let folder_lock = self.key.is_empty() || self.key.ends_with('/');
+        (self.infinite && folder_lock && key.starts_with(&self.key))
             || self.key.starts_with(&folder)
     }
 }
@@ -1061,7 +1063,10 @@ impl Dav {
             .children()
             .find(|n| is_dav(n, "owner"))
             .map(|n| {
+                // The text nodes only: an element's `text()` is its first text child, which
+                // the walk meets again as a node of its own.
                 n.descendants()
+                    .filter(roxmltree::Node::is_text)
                     .filter_map(|d| d.text())
                     .collect::<String>()
                     .trim()
@@ -1072,14 +1077,16 @@ impl Dav {
             .header("Depth")
             .is_none_or(|d| d.eq_ignore_ascii_case("infinity"));
         let resource = self.resource(key, folder_syntax)?;
+        // A folder's lock key ends in `/`; the root's is empty (it is above every key).
         let lock_key = match &resource {
-            Resource::Folder => format!("{key}/"),
+            Resource::Folder if !key.is_empty() => format!("{key}/"),
             _ => key.to_string(),
         };
+        let lock_is_folder = lock_key.is_empty() || lock_key.ends_with('/');
         {
             let locks = self.locks();
             let conflict = locks.iter().any(|l| {
-                (l.covers(&lock_key) || (infinite && l.key.starts_with(&lock_key) && lock_key.ends_with('/')))
+                (l.covers(&lock_key) || (infinite && lock_is_folder && l.key.starts_with(&lock_key)))
                     && (l.exclusive || exclusive)
             });
             if conflict {

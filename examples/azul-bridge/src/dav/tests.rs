@@ -281,6 +281,28 @@ fn a_lock_keeps_others_out_until_its_token_is_shown_or_it_is_unlocked() {
 }
 
 #[test]
+fn a_lock_of_the_whole_drive_covers_every_file_and_names_its_owner_once() {
+    let dav = dav_on(drive(), 0);
+    let locked = dav.respond(&head("LOCK", "/", &[("Depth", "infinity")]), &lock_body("exclusive"));
+    assert_eq!(locked.status, Status::OK);
+    let body = text(&locked);
+    assert!(body.contains("<D:owner>Finder</D:owner>"), "{body}");
+    assert!(body.contains("<D:lockroot><D:href>/</D:href></D:lockroot>"), "{body}");
+    assert_eq!(dav.respond(&head("PUT", "/top.txt", &[]), b"x").status, Status::LOCKED);
+    assert_eq!(dav.respond(&head("PUT", "/docs/a.txt", &[]), b"x").status, Status::LOCKED);
+    let token = locked
+        .header("Lock-Token")
+        .unwrap()
+        .trim_matches(|c| c == '<' || c == '>')
+        .to_string();
+    let with_token = format!("(<{token}>)");
+    assert_eq!(
+        dav.respond(&head("PUT", "/top.txt", &[("If", &with_token)]), b"x").status,
+        Status::CREATED
+    );
+}
+
+#[test]
 fn proppatch_is_answered_as_done_for_every_property_it_names() {
     let dav = dav_on(drive(), 0);
     let body = b"<?xml version=\"1.0\"?><D:propertyupdate xmlns:D=\"DAV:\" xmlns:Z=\"urn:schemas-microsoft-com:\">\

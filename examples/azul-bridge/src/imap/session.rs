@@ -50,7 +50,6 @@ struct Selected {
     path: String,
     read_only: bool,
     validity: u32,
-    next: u32,
     msgs: Vec<Msg>,
 }
 
@@ -597,7 +596,6 @@ impl<'s, C: Conn> Session<'s, C> {
             path: info.path,
             read_only,
             validity,
-            next,
             msgs,
         });
         let code = if read_only { "[READ-ONLY]" } else { "[READ-WRITE]" };
@@ -800,7 +798,7 @@ impl<'s, C: Conn> Session<'s, C> {
         let Some(path) = self.selected().map(|s| s.path.clone()) else {
             return Vec::new();
         };
-        let Ok((validity, next, fresh)) = self.snapshot(&path) else {
+        let Ok((validity, _next, fresh)) = self.snapshot(&path) else {
             return Vec::new();
         };
         let State::Selected(selected) = &mut self.state else {
@@ -853,7 +851,6 @@ impl<'s, C: Conn> Session<'s, C> {
                 format!("* {} EXISTS\r\n* 0 RECENT\r\n", selected.msgs.len()).as_bytes(),
             );
         }
-        selected.next = next;
         out
     }
 
@@ -1227,21 +1224,50 @@ impl<'s, C: Conn> Session<'s, C> {
             .iter()
             .filter_map(|&i| self.selected().and_then(|s| s.msgs.get(i)).cloned())
             .collect();
+        // Each message's source UID and its name in the target.
+        let mut copied: Vec<(u32, String)> = Vec::new();
         for msg in &msgs {
-            let done = if moving && target.path != source {
-                self.imap.store.move_to(&source, &msg.name, &target.path)
+            let name = if target.path == source {
+                if moving {
+                    // A move into the mailbox it is in: nothing to do.
+                    msg.name.clone()
+                } else {
+                    // A copy into the same mailbox is a new message under a new name, never the
+                    // object copied onto itself (S3 refuses that, and it would add nothing).
+                    let copy = self
+                        .imap
+                        .store
+                        .read(&source, &msg.name)
+                        .and_then(|bytes| {
+                            self.imap
+                                .store
+                                .append(&source, &bytes, store::now(), msg.flags.marks())
+                        });
+                    match copy {
+                        Ok(stored) => {
+                            self.imap.marks_changed();
+                            stored.name
+                        }
+                        Err(e) => return self.store_no(tag, &e),
+                    }
+                }
             } else {
-                self.imap.store.copy(&source, &msg.name, &target.path)
+                let done = if moving {
+                    self.imap.store.move_to(&source, &msg.name, &target.path)
+                } else {
+                    self.imap.store.copy(&source, &msg.name, &target.path)
+                };
+                if let Err(e) = done {
+                    return self.store_no(tag, &e);
+                }
+                msg.name.clone()
             };
-            if let Err(e) = done {
-                return self.store_no(tag, &e);
-            }
-            self.imap
-                .set_volatile(&target.path, &msg.name, &msg.flags);
+            self.imap.set_volatile(&target.path, &name, &msg.flags);
+            copied.push((msg.uid, name));
         }
         // COPYUID: the source UIDs and the ones the messages have in the target now.
         let mut code = String::new();
-        if !msgs.is_empty() {
+        if !copied.is_empty() {
             let names: Vec<String> = match self.imap.store.messages(&target.path) {
                 Ok(listed) => listed.into_iter().map(|m| m.name).collect(),
                 Err(_) => Vec::new(),
@@ -1249,9 +1275,9 @@ impl<'s, C: Conn> Session<'s, C> {
             let numbered = self.imap.uids.number(&target.path, &names);
             let target_uid: HashMap<&str, u32> =
                 numbered.uids.iter().map(|(n, u)| (n.as_str(), *u)).collect();
-            let pairs: Vec<(u32, u32)> = msgs
+            let pairs: Vec<(u32, u32)> = copied
                 .iter()
-                .filter_map(|m| target_uid.get(m.name.as_str()).map(|t| (m.uid, *t)))
+                .filter_map(|(uid, name)| target_uid.get(name.as_str()).map(|t| (*uid, *t)))
                 .collect();
             if !pairs.is_empty() {
                 let from: Vec<String> = pairs.iter().map(|(s, _)| s.to_string()).collect();
