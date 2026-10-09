@@ -36,10 +36,12 @@
 
 pub mod auth;
 pub mod dates;
+pub mod imap;
 pub mod limits;
 pub mod memory;
 pub mod mime;
 pub mod net;
 pub mod secrets;
+pub mod sent;
 pub mod store;
 pub mod uids;
