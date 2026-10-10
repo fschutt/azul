@@ -350,6 +350,14 @@ fn cmd_config(settings: &Settings) -> Result<Output> {
     Ok((value, text))
 }
 
+/// Whether `signup` makes the new drive encrypted: always ("we always encrypt"), but for
+/// `--plaintext` - a drive like the ones made before encryption, for tests of those.
+#[cfg(feature = "encryption")]
+fn signup_encrypts(args: &Args) -> bool {
+    let _ = args;
+    false
+}
+
 fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let state = open_state(settings)?;
     let device = state.device(args.value("--device-name"))?;
@@ -1361,6 +1369,17 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A new drive is encrypted as it is made; `--plaintext` makes one like the drives made
+    /// before encryption (tests of those).
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn a_signup_makes_an_encrypted_drive_unless_asked_for_a_plaintext_one() {
+        assert!(signup_encrypts(&Args::parse(&argv("signup --name Photos")).unwrap()));
+        assert!(!signup_encrypts(
+            &Args::parse(&argv("signup --plaintext --name Old")).unwrap()
+        ));
+    }
 
     /// "We always encrypt and compress": the command line's default build makes, opens and
     /// writes encrypted drives.
