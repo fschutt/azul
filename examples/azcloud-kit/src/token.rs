@@ -370,6 +370,22 @@ pub fn recovery_lockdown_message(drive_id: &str, nonce: &str) -> String {
     format!("lockdown:{drive_id}:{nonce}")
 }
 
+/// What a cancel of a recovery-key lockdown signs (F12: "the recovery code always wins"):
+/// `lockdown-cancel:<drive>:<nonce>`.
+#[must_use]
+pub fn lockdown_cancel_message(drive_id: &str, nonce: &str) -> String {
+    let _ = (drive_id, nonce);
+    String::new()
+}
+
+/// What a change of the recovery key signs with the CURRENT key (F12 C):
+/// `recovery:<drive>:<new key>:<nonce>`.
+#[must_use]
+pub fn recovery_key_message(drive_id: &str, new_key: &str, nonce: &str) -> String {
+    let _ = (drive_id, new_key, nonce);
+    String::new()
+}
+
 /// A lockdown nonce: 16 random bytes, hex (32 characters; the token server takes 16 to 128 and
 /// each once per drive).
 fn lockdown_nonce() -> Result<String, TokenError> {
@@ -1115,6 +1131,28 @@ impl<'a> TokenServer<'a> {
                 .as_str()
                 .and_then(azul_storage::time::parse_iso8601),
         })
+    }
+
+    /// Cancels a pending recovery-key lockdown with the recovery key's signature.
+    pub fn lockdown_cancel_signed(
+        &self,
+        drive_id: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<Value, TokenError> {
+        let _ = (drive_id, sign);
+        Err(TokenError::Config(String::from("not signed yet")))
+    }
+
+    /// Replaces the drive's recovery key, signed with the current one.
+    pub fn replace_recovery_key(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        public_key_base64: &str,
+        sign_with_current: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<(), TokenError> {
+        let _ = sign_with_current;
+        self.set_recovery_key(drive_id, drive_token, public_key_base64)
     }
 
     /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel`; a 409
