@@ -9,7 +9,10 @@
 //!    304 means the drive did not change, and the cached copy is used);
 //! 3. plans every file with the three-way merge ([`merge::plan`]); a plan
 //!    that would delete most of a folder stops (an emptied or unmounted
-//!    folder, a ransomware-like burst; `--allow-mass-delete`);
+//!    folder, a ransomware-like burst; `--allow-mass-delete`); a burst of
+//!    rewrites and deletes, or files rewritten into what looks like
+//!    encrypted data, pauses the folder's uploads until the user answers
+//!    ([`guard`]; `--allow-burst`);
 //! 4. uploads the blobs the new index will name - content-addressed, so
 //!    whatever happens next nothing is lost or overwritten; each file is
 //!    hashed again as it is read, and one that changed since the scan waits
@@ -35,6 +38,7 @@
 //! Every call blocks (call it from an azul `Thread`); small blobs travel several at once on
 //! threads of the run's own, against any [`RemoteStore`].
 
+pub mod guard;
 pub mod local;
 pub mod merge;
 pub mod remote;
@@ -95,6 +99,9 @@ pub struct SyncOptions {
     pub parallel: usize,
     pub max_attempts: u32,
     pub allow_mass_delete: bool,
+    /// The user's "these changes are mine": the run sends what the burst
+    /// guard held back, and its window starts afresh ([`guard`]).
+    pub allow_burst: bool,
     /// Plan only: nothing is uploaded, written or deleted.
     pub dry_run: bool,
     pub max_file_bytes: u64,
@@ -115,6 +122,7 @@ impl SyncOptions {
             parallel: 4,
             max_attempts: MAX_ATTEMPTS,
             allow_mass_delete: false,
+            allow_burst: false,
             dry_run: false,
             max_file_bytes: MAX_FILE_BYTES,
             tombstone_days: TOMBSTONE_DAYS,
@@ -250,6 +258,10 @@ pub struct SyncReport {
     pub notes: Vec<String>,
     /// `--dry-run`: what a run would do.
     pub planned: Vec<String>,
+    /// The folder's uploads, paused by the burst guard until the user
+    /// answers ([`guard`]): nothing went up, what the drive changed came
+    /// here.
+    pub paused: Option<guard::Pause>,
 }
 
 impl SyncReport {
@@ -264,10 +276,16 @@ impl SyncReport {
                 self.planned.len()
             );
         }
+        let paused = self.paused.as_ref().map_or_else(String::new, |p| {
+            format!(
+                "; uploads paused: {} - run again with --allow-burst if the changes are yours",
+                p.describe()
+            )
+        });
         format!(
             "{} <-> {}: {} up ({} bytes in {} blobs), {} down ({} bytes), {} deleted here, {} \
              deleted on the drive, {} unchanged, {} conflicts, {} merged; index {} (generation \
-             {}, {} retries)",
+             {}, {} retries){paused}",
             self.root,
             self.prefix,
             self.files_up,
@@ -995,6 +1013,7 @@ pub fn sync_folder<S: RemoteStore + ?Sized>(
     let empty_base: BTreeMap<String, BaseEntry> = BTreeMap::new();
     let mut cached = load_cache(index_path, &index);
     let mut known: BTreeSet<String> = BTreeSet::new();
+    let mut pause = None;
     let mut attempt = 0u32;
     let (committed, actions, merged, reset, etag) = loop {
         attempt += 1;
@@ -1027,6 +1046,20 @@ pub fn sync_folder<S: RemoteStore + ?Sized>(
                 .collect();
             report.generation = remote.generation;
             return Ok(report);
+        }
+        if attempt == 1 {
+            pause = guard::check_burst(
+                &mut index.guard,
+                &actions,
+                base,
+                &root.path,
+                crate::now(),
+                opts.allow_burst,
+            );
+        }
+        if pause.is_some() {
+            // Only what the drive changed comes here; nothing goes up.
+            actions.retain(|a| !guard::sends(a));
         }
         let merged = merge_json_files(
             store,
@@ -1097,6 +1130,8 @@ pub fn sync_folder<S: RemoteStore + ?Sized>(
         &mut base,
         &mut report,
     );
+    guard::learn(&mut index.guard, &actions, &root.path, &scan);
+    report.paused = pause;
     index.files = base;
     index.generation = committed.generation;
     index.scanned_at_ns = scan.started_ns;
