@@ -22,7 +22,7 @@ use crate::{
 };
 
 /// A 2048-bit test issuer key (made for these tests with openssl; e = 65537): its modulus.
-const N1: &str = concat!(
+pub(crate) const N1: &str = concat!(
     "a9c7555148d74c3decb0475a2f078a3a1c7c2ce8b864ce41c2cae2cd0e15a7c8",
     "e599342edfa40a995d42101b9c47c0bb91b89085d8c831e55127c7a4f621f266",
     "f838a3cfc5f19d939867bed503ca2ce4a4fc0e765d4f21f9c78e2dadbfddee48",
@@ -33,7 +33,7 @@ const N1: &str = concat!(
     "2b17e0ec41cf86d4c574e7c083f9856c5a8b703393c39735055c85fd44b726b9",
 );
 /// Its private exponent: what the token server's blind signature raises a blinded message to.
-const D1: &str = concat!(
+pub(crate) const D1: &str = concat!(
     "105b5e02e8cba552c9fce9c2ec89036e39d454d74efc974a8aa3d55a002361f8",
     "def5f5ab166ccd809d15824bc6b0bb06d7313aeb4a496f55328e6c939e0b0339",
     "9c6c888bb9fc5f3c1b10d3b7de179a5fa4ed8bcf278a3a31c0621850870db0a9",
@@ -66,7 +66,7 @@ const D2: &str = concat!(
 );
 
 /// The issue key of the sealed sign-up of `ck_1`.
-const ISSUE_KEY: &str = "Zm9yIHRoZSBwZXJpb2QgdG9rZW5zIG9mIGNrXzEgb25seQ";
+pub(crate) const ISSUE_KEY: &str = "Zm9yIHRoZSBwZXJpb2QgdG9rZW5zIG9mIGNrXzEgb25seQ";
 
 fn big(hex: &str) -> BigUint {
     BigUint::parse_bytes(hex.as_bytes(), 16).unwrap()
@@ -77,13 +77,13 @@ fn public_key(n: &str) -> RsaPublicKey {
 }
 
 /// The issuer's public key as the token server hands it out: SPKI PEM.
-fn pem(n: &str) -> String {
+pub(crate) fn pem(n: &str) -> String {
     public_key(n).to_public_key_pem(LineEnding::LF).unwrap()
 }
 
 /// What the token server's `blind_sign` does: the blinded message raised to the private
 /// exponent, as many bytes as the modulus, standard base64.
-fn blind_sign(n: &str, d: &str, blinded: &str) -> String {
+pub(crate) fn blind_sign(n: &str, d: &str, blinded: &str) -> String {
     let z = BigUint::from_bytes_be(&STANDARD.decode(blinded).unwrap());
     let s = z.modpow(&big(d), &big(n)).to_bytes_be();
     let mut out = vec![0_u8; 256 - s.len()];
@@ -179,7 +179,7 @@ fn an_issuer_key_that_is_no_rsa_public_key_is_refused() {
 
 /// A token server that hands out `keys` and blind-signs every blinded message with `n`/`d`,
 /// answering `key_id` as the key it signed with.
-fn issuing_server(
+pub(crate) fn issuing_server(
     keys: String,
     n: &'static str,
     d: &'static str,
@@ -211,7 +211,7 @@ fn issuing_server(
     })
 }
 
-fn keys() -> String {
+pub(crate) fn keys() -> String {
     serde_json::json!({"keys": [
         {"tier": "1TB", "year": 2026, "key_id": "1TB/2026", "public_key_pem": pem(N2)},
         {"tier": "100GB", "year": 2026, "key_id": "100GB/2026", "public_key_pem": pem(N1)},
