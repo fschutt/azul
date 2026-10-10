@@ -59,6 +59,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
+    l10n::label,
     pieces::{block, button, column, flex_row, primary, strs, text},
     settings::AppSettings,
     shortcuts::Shortcut,
@@ -321,7 +322,8 @@ pub fn start() {
         kit::open_settings(&kit_ref, None);
     }
     let app = ContactsApp::new(kit_ref.clone(), &args);
-    let config = kit::app_config(&kit_ref);
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
     let window = kit::window_options(&kit_ref, layout, (1100.0, 720.0), (640.0, 420.0), on_window_created);
     App::create(RefAny::new(app), config).run(window);
 }
@@ -1263,11 +1265,11 @@ fn reading_pane(s: &ContactsApp, app: &RefAny) -> Dom {
 /// `id` is its DOM-id name from [`ids`] (`__azcontacts_toolbar-*`, what the E2E clicks): what
 /// [`on_toolbar`] matches.
 fn toolbar(app: &RefAny) -> Dom {
-    let tool = |id: AzString, label: &str, icon: &str| {
-        ToolbarItem::create_button(id, label, icon).with_show_label(true)
+    let tool = |id: AzString, text: &str, icon: &str| {
+        ToolbarItem::create_button(id, label(text), icon).with_show_label(true)
     };
     let items = vec![
-        tool(ids::TOOLBAR_NEW, "New", "person_add"),
+        tool(ids::TOOLBAR_NEW, "azcontacts-new", "person_add"),
         tool(ids::TOOLBAR_IMPORT, "Import", "file_upload"),
         tool(ids::TOOLBAR_EXPORT, "Export", "file_download"),
         tool(ids::TOOLBAR_DUPLICATES, "Duplicates", "merge"),
@@ -1359,8 +1361,10 @@ fn settings_sections(s: &ContactsApp, app: &RefAny) -> Vec<AppSection> {
 
 /// The window: the shell (or the settings page), the theme scope, the window keys.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode makes a light / dark switch rebuild the window.
+    // Reading the mode makes a light / dark switch rebuild the window; the layout's language
+    // says the words (a switch of it too).
     let _mode = info.get_mode();
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<ContactsApp>() else {
         return Dom::create_body();

@@ -13,6 +13,7 @@
 pub use azcontacts_core::{book, contact, csv, dupes, sample, store, vcard};
 
 pub mod ids;
+pub mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod photo;
