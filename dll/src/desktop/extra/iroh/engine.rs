@@ -299,9 +299,10 @@ impl Engine {
         let timeout = timeout.max(std::time::Duration::from_secs(1));
         runtime.block_on(async move {
             let exchanged = exchange(&endpoint, &alpn, &state, addr, &data, half_close);
-            tokio::time::timeout(timeout, exchanged)
-                .await
-                .map_err(|_| format!("no answer within {} s", timeout.as_secs()))?
+            match tokio::time::timeout(timeout, exchanged).await {
+                Ok(answered) => answered,
+                Err(_) => Err(format!("no answer within {} s", timeout.as_secs())),
+            }
         })
     }
 
