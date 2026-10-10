@@ -56,6 +56,7 @@ use crate::{
     browse::{self, Place},
     ids,
     model::ViewLayout,
+    sync_view::SyncAction,
     with_state, DriveState,
 };
 
@@ -326,6 +327,50 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
             ],
         ))
         .with_group(group(
+            "Sync",
+            vec![
+                large(button(
+                    s,
+                    app,
+                    "sync",
+                    "Sync now",
+                    Action::Sync(SyncAction::Now),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "push_pin",
+                    "Always keep on this device",
+                    Action::Sync(SyncAction::KeepOnDevice),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "cloud_queue",
+                    "Free up space",
+                    Action::Sync(SyncAction::FreeUpSpace),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "pause_circle",
+                    if sync_paused(s) {
+                        "Resume syncing"
+                    } else {
+                        "Pause syncing"
+                    },
+                    Action::Sync(SyncAction::Pause),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "drive_folder_upload",
+                    "Sync with a folder",
+                    Action::Sync(SyncAction::Pair),
+                )),
+            ],
+        ))
+        .with_group(group(
             "Share with",
             vec![large(unavailable(
                 "security",
@@ -334,6 +379,13 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                  system's sharing settings.",
             ))],
         ))
+}
+
+/// Whether the drive the sync commands are about is paused.
+fn sync_paused(s: &DriveState) -> bool {
+    crate::sync_view::target_drive(s)
+        .and_then(|id| crate::sync_view::setup_of(s, &id).map(|p| p.paused))
+        .unwrap_or(false)
 }
 
 // ==== View ====

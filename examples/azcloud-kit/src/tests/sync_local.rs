@@ -75,6 +75,7 @@ fn an_unchanged_file_keeps_its_base_hash_unless_its_time_is_racy() {
         hash: String::from("cached"),
         size: 3,
         mtime_ns: mtime_ns(&meta),
+        cloud_only: false,
     };
     let base: BTreeMap<String, BaseEntry> = [(String::from("a.txt"), entry.clone())].into();
     let long_after = entry.mtime_ns + 10 * RACY_NS;

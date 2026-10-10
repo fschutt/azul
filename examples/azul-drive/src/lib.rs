@@ -104,6 +104,25 @@
 //! (azcloud-kit's `pending`). An Azlin drive's session is written by worker threads only, under
 //! the drive's lock every AzDrive window shares: a second window never spends a drive token the
 //! first one has spent (the token server would revoke the device).
+//!
+//! A cloud drive syncs with a folder on this computer (`sync_view`, `sync_jobs`; azcloud-kit's
+//! `sync::session`): "Sync with a folder..." pairs it (by default `AzDrive/<drive name>` in
+//! Home), the folder's files carry their state (cloud only, downloading, on this device,
+//! pinned, a conflict, an error), cloud-only files are listed and come down when opened,
+//! Share > Sync has Sync now, "Always keep on this device" and "Free up space", the drive's
+//! status line ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment
+//! due)") is in the status bar and on its row in the source list, a conflict asks keep mine /
+//! take theirs / keep both, Options > Drives > Sync has each drive's settings. A timer polls
+//! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
+//! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
+//! `AZDRIVE_SYNC_DONE <drive id> up=<n> down=<n> deleted=<n> conflicts=<n> cloud_only=<n>
+//! freed=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`, `AZDRIVE_SYNC_STATUS <drive id> <status
+//! line>`, `AZDRIVE_SYNC_FILE <drive id> <state> <key>` (a file whose state changed: cloud-only,
+//! on-device, on-device-encrypted, pinned, conflict, error, gone), `AZDRIVE_SYNC_CONFLICT
+//! <drive id> <key>` (the question shows), `AZDRIVE_SYNC_RESOLVED <drive id> mine|theirs|both
+//! <key>`, `AZDRIVE_SYNC_OPENED <drive id> <key>`, `AZDRIVE_SYNC_PINNED <drive id> on|off`,
+//! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_PAUSED|RESUMED|STOPPED <drive id>`,
+//! `AZDRIVE_SYNC_SETTING <drive id> <name> <value>`.
 
 mod actions;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
@@ -119,6 +138,8 @@ pub mod fileops;
 pub mod find;
 #[cfg(test)]
 mod find_tests;
+#[cfg(test)]
+mod sync_tests;
 mod ids;
 /// The Azlin drives' paid months: when their periods are looked at, the redemptions.
 mod periods;
@@ -155,6 +176,12 @@ mod ui_ribbon;
 mod sync_lookup;
 mod ui_sidebar;
 mod ui_view;
+/// The folder sync on worker threads, and what starts it.
+mod sync_jobs;
+/// The synced drives' file states, shared by the window and the search.
+mod sync_store;
+/// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
+mod sync_view;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -248,6 +275,10 @@ pub(crate) struct Slot {
     /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked").
     #[cfg(feature = "encryption")]
     pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+    /// An Azlin drive's AZL1 objects kept on this computer, below its encryption: a synced
+    /// encrypted drive's "encrypted local copies".
+    #[cfg(feature = "encryption")]
+    pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
 }
 
 impl Slot {
@@ -260,6 +291,8 @@ impl Slot {
             auto: None,
             #[cfg(feature = "encryption")]
             azlin: None,
+            #[cfg(feature = "encryption")]
+            objects: None,
         }
     }
 
@@ -327,6 +360,19 @@ impl Slot {
                     .entry
                     .azlin()
                     .map_or_else(|| self.entry.id.clone(), |(id, _)| id.to_string());
+                // Below the encryption, the objects a sync keeps on this computer (encrypted
+                // local copies; nothing is kept until a sync asks).
+                let objects_dir = path_of(FilePath::get_cache_dir().into_option())
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("AzDrive")
+                    .join("objects")
+                    .join(&drive_id);
+                let objects = Arc::new(azcloud_kit::sync::objects::ObjectCache::new(
+                    azlin,
+                    objects_dir,
+                ));
+                self.objects = Some(objects.clone());
+                let azlin: Arc<dyn Drive> = objects;
                 let auto = crate::encryption::wrap(&drive_id, azlin);
                 self.auto = Some(auto.clone());
                 auto
@@ -550,6 +596,8 @@ pub(crate) enum Popup {
         error: String,
         busy: bool,
     },
+    /// The folder sync's dialogs: pairing a drive with a folder, a conflict (D52), stopping.
+    Sync(sync_view::SyncDialog),
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -728,6 +776,8 @@ pub(crate) struct DriveState {
     /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
     /// the bar with Cancel over the drive in view.
     pub pending_lockdowns: HashMap<String, u64>,
+    /// The synced drives' states, passes and status lines in this window.
+    pub sync_view: sync_view::SyncView,
 }
 
 impl DriveState {
@@ -2068,6 +2118,8 @@ fn scanned(
         browse::sort_entries(&mut fresh, sort);
         s.entries = fresh;
     }
+    // A synced folder lists its cloud-only files too.
+    sync_view::add_placeholders(s);
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
@@ -2132,6 +2184,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Searched { end: None, .. }
             | Outcome::IndexProgress { .. }
             | Outcome::DriveProblem { .. }
+            | Outcome::Sync(sync_jobs::SyncOutcome::Progress { .. })
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
@@ -2496,6 +2549,7 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
+        Outcome::Sync(outcome) => sync_jobs::on_outcome(&mut info, &handle, s, outcome),
     }
     Update::RefreshDom
 }
@@ -2710,6 +2764,8 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         for drive_id in s.settings.indexed_drives.clone() {
             update_index(info, app, s, &drive_id);
         }
+        // The synced drives show their kept states, and sync.
+        sync_jobs::start(info, app, s);
     })
 }
 
@@ -2993,6 +3049,7 @@ pub fn start() {
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
         pending_lockdowns: HashMap::new(),
+        sync_view: sync_view::SyncView::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

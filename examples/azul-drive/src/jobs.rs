@@ -382,6 +382,8 @@ pub(crate) enum Job {
         drive: Option<String>,
         keyring: SharedKeyring,
     },
+    /// The folder sync: a pass, a file opened through it, pins, "Free up space", an answer.
+    Sync(crate::sync_jobs::SyncJob),
 }
 
 /// A search of a cloud drive's folder, as the window asks for it.
@@ -605,6 +607,8 @@ pub(crate) enum Outcome {
         drive_id: String,
         result: Result<(u32, Option<u64>), String>,
     },
+    /// What a sync job did (a pass's progress while it runs).
+    Sync(crate::sync_jobs::SyncOutcome),
 }
 
 /// A thread's start data: the job, taken out once.
@@ -2871,6 +2875,10 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive,
             keyring,
         } => redeem_voucher(serial, &token_url, &code, &tier, drive, &keyring),
+        Job::Sync(job) => {
+            let mut emit = |outcome: Outcome| send(sender, outcome);
+            crate::sync_jobs::run(job, &mut emit)
+        }
     }
 }
 

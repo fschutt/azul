@@ -760,6 +760,9 @@ pub struct Settings {
     pub index_cloud_files: bool,
     /// The largest file "Index files in the cloud" downloads (MB).
     pub index_download_cap_mb: u64,
+    /// The drives that sync with a folder on this computer, each with its settings
+    /// (auto-download, local copies, the size cap, paused): Options > Drives > Sync.
+    pub synced: Vec<azcloud_kit::sync::session::SyncSetup>,
 }
 
 impl Default for Settings {
@@ -785,6 +788,7 @@ impl Default for Settings {
             saved_searches: Vec::new(),
             index_cloud_files: false,
             index_download_cap_mb: 25,
+            synced: Vec::new(),
         }
     }
 }

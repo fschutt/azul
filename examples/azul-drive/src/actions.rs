@@ -181,6 +181,9 @@ pub(crate) enum Action {
     RunSavedSearch(usize),
     /// The open search's saved search forgotten.
     ForgetSavedSearch,
+    /// The folder sync: pair a drive with a folder, sync now, keep on this device, free up
+    /// space, pause, stop, open the synced folder.
+    Sync(crate::sync_view::SyncAction),
 }
 
 /// A button's / menu item's click data.
@@ -416,6 +419,7 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
             Some(_) => None,
         },
+        Action::Sync(what) => crate::sync_view::why_not(s, *what),
         _ => None,
     }
 }
@@ -723,6 +727,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 save_settings(info, app, s);
             }
         }
+        Action::Sync(what) => crate::sync_jobs::run_action(info, app, s, None, what),
     }
 }
 
@@ -1659,6 +1664,11 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
     };
     if entry.is_folder {
         go(info, app, s, Place::folder(&drive_id, &entry.key), true);
+        return;
+    }
+    // A synced file in the cloud only (or an encrypted copy) comes down - and is decrypted -
+    // first, through its pairing.
+    if crate::sync_jobs::open_if_synced(info, app, s, &drive_id, &entry) {
         return;
     }
     let Some(drive) = open_current(s) else {
@@ -3283,8 +3293,25 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
         if s.find.is_some() {
             items.push(item("Open file location", Action::OpenFileLocation));
         }
+        items.push(item("Download", Action::Download));
+        // A synced folder's items: kept on this device, or freed (§13.7).
+        if crate::sync_view::selected_keys(s).is_some() {
+            let pinned = crate::sync_view::selected_keys(s).is_some_and(|(drive_id, keys)| {
+                let states = s.sync_view.store.states(&drive_id);
+                keys.iter().all(|k| states.is_pinned(k))
+            });
+            items.push(check_item(
+                app,
+                "Always keep on this device",
+                Action::Sync(crate::sync_view::SyncAction::KeepOnDevice),
+                pinned,
+            ));
+            items.push(item(
+                "Free up space",
+                Action::Sync(crate::sync_view::SyncAction::FreeUpSpace),
+            ));
+        }
         items.extend([
-            item("Download", Action::Download),
             MenuItem::Separator,
             item("Cut", Action::Cut),
             item("Copy", Action::Copy),
@@ -3326,11 +3353,16 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
             .iter()
             .map(|g| check_item(app, g.label(), Action::GroupBy(*g), s.settings.group_by == *g))
             .collect();
-        vec![
+        let mut items = vec![
             submenu("View", layouts),
             submenu("Sort by", sorts),
             submenu("Group by", groups),
             item("Refresh", Action::Refresh),
+        ];
+        if crate::sync_view::place_in_pair(s).is_some() {
+            items.push(item("Sync now", Action::Sync(crate::sync_view::SyncAction::Now)));
+        }
+        items.extend([
             MenuItem::Separator,
             item("Paste", Action::Paste),
             item("Undo", Action::Undo),
@@ -3344,7 +3376,8 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
             ),
             MenuItem::Separator,
             item("Properties", Action::Properties),
-        ]
+        ]);
+        items
     };
     Menu::create(items)
 }

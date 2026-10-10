@@ -103,6 +103,13 @@ pub fn side_eject(drive_id: &str) -> AzString {
     AzString::from(format!("__azdrive_side_eject_{}", id_part(drive_id)))
 }
 
+/// A cloud drive's state glyph by its id (a synced drive's says its status line):
+/// `__azdrive_side_sync_<id>`.
+#[must_use]
+pub fn side_sync_state(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_side_sync_{}", id_part(drive_id)))
+}
+
 // ==== The content's leaf and its foot ====
 
 /// The leaf the view lies on (the InfoBar, the view, the path bar, the status line).
@@ -220,6 +227,17 @@ pub const CONFLICT: AzString = AzString::from_const_str("__azdrive_conflict");
 pub const CONFLICT_REPLACE: AzString = AzString::from_const_str("__azdrive_conflict_replace");
 pub const CONFLICT_SKIP: AzString = AzString::from_const_str("__azdrive_conflict_skip");
 pub const CONFLICT_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_conflict_keep_both");
+/// The folder sync's dialogs: pairing a drive with a folder (the folder here, the drive's
+/// folder, Sync), a conflict (D52: keep mine, take theirs, keep both); its Options section.
+pub const SYNC_PAIR: AzString = AzString::from_const_str("__azdrive_sync_pair");
+pub const SYNC_FOLDER: AzString = AzString::from_const_str("__azdrive_sync_folder");
+pub const SYNC_PREFIX: AzString = AzString::from_const_str("__azdrive_sync_prefix");
+pub const SYNC_PAIR_OK: AzString = AzString::from_const_str("__azdrive_sync_pair_ok");
+pub const SYNC_CONFLICT: AzString = AzString::from_const_str("__azdrive_sync_conflict");
+pub const SYNC_KEEP_MINE: AzString = AzString::from_const_str("__azdrive_sync_keep_mine");
+pub const SYNC_TAKE_THEIRS: AzString = AzString::from_const_str("__azdrive_sync_take_theirs");
+pub const SYNC_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_sync_keep_both");
+pub const SYNC_OPTIONS: AzString = AzString::from_const_str("__azdrive_sync_options");
 /// The Properties dialog.
 pub const PROPERTIES: AzString = AzString::from_const_str("__azdrive_properties");
 /// The transfer queue.
@@ -277,6 +295,8 @@ pub const CRUMB_CLASS: AzString = AzString::from_const_str("__azdrive_crumb");
 pub const FIND_FOLDER_CLASS: AzString = AzString::from_const_str("__azdrive_find_folder");
 /// A search result's Match cell (the line its contents matched on).
 pub const FIND_MATCH_CLASS: AzString = AzString::from_const_str("__azdrive_find_match");
+/// The sync state icon after an item's name (its accessible name says the state).
+pub const SYNC_STATE_CLASS: AzString = AzString::from_const_str("__azdrive_sync_state");
 
 /// The folder view's class for its layout: `__azdrive_layout_<name>` (the scripts read which
 /// layout is showing from it).

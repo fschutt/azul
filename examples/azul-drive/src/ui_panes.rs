@@ -344,6 +344,10 @@ pub(crate) fn status_text(s: &DriveState) -> String {
             if let Some((_, free)) = s.disk.get(drive) {
                 parts.push(format!("{} available", browse::format_size(Some(*free))));
             }
+            // A synced folder: its drive's sync ("Up to date", "Syncing 12 files (340 MB)").
+            if let Some(sync) = crate::sync_view::status_for_place(s) {
+                parts.push(sync);
+            }
         }
     }
     if let Some(clip) = &s.clipboard {

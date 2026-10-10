@@ -329,6 +329,48 @@ class Authentication(ServerTest):
         self.assertEqual(xml_values(body, "Region"), ["us-east-1"])
 
 
+class ConditionalRequests(ServerTest):
+    """Conditional writes and reads, as S3 answers them: what a sync's compare-and-swap of its
+    index (If-Match / If-None-Match: *) and its polling (If-None-Match: <etag>) need."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed("index.json", b"{}")
+        _, headers, _ = self.client.request("HEAD", BUCKET, "index.json")
+        self.etag = headers.get("etag")
+
+    def put(self, key, body, **headers):
+        return self.client.request("PUT", BUCKET, key, body=body, headers=headers)
+
+    def test_if_none_match_star_writes_only_a_new_key(self):
+        status, _, body = self.put("index.json", b"[]", **{"If-None-Match": "*"})
+        self.assertEqual(status, 412)
+        self.assertEqual(xml_code(body), "PreconditionFailed")
+        self.assertEqual(self.get("index.json")[2], b"{}", "nothing written")
+        status, headers, _ = self.put("new.json", b"[]", **{"If-None-Match": "*"})
+        self.assertEqual(status, 200)
+        self.assertTrue(headers.get("etag", "").startswith('"'))
+
+    def test_if_match_writes_only_over_the_version_read(self):
+        status, headers, _ = self.put("index.json", b"[1]", **{"If-Match": self.etag})
+        self.assertEqual(status, 200)
+        newer = headers.get("etag")
+        self.assertNotEqual(newer, self.etag)
+        status, _, body = self.put("index.json", b"[2]", **{"If-Match": self.etag})
+        self.assertEqual(status, 412, "a stale version loses")
+        self.assertEqual(xml_code(body), "PreconditionFailed")
+        self.assertEqual(self.get("index.json")[2], b"[1]")
+        status, _, _ = self.put("missing.json", b"[3]", **{"If-Match": self.etag})
+        self.assertEqual(status, 412, "nothing to match")
+
+    def test_if_none_match_on_a_read_answers_304_for_the_same_version(self):
+        status, _, body = self.get("index.json", headers={"If-None-Match": self.etag})
+        self.assertEqual((status, body), (304, b""))
+        self.put("index.json", b"[1]")
+        status, _, body = self.get("index.json", headers={"If-None-Match": self.etag})
+        self.assertEqual((status, body), (200, b"[1]"))
+
+
 class RequestLog(ServerTest):
     def test_the_log_records_every_request_with_its_key(self):
         self.seed("mail/inbox/0001.eml", b"first")
