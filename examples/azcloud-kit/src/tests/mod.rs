@@ -9,6 +9,7 @@ mod drive;
 mod endpoints;
 mod fake_s3;
 mod lock;
+mod lockdown;
 mod pending;
 mod period;
 mod secrets;
@@ -23,6 +24,7 @@ mod sync_remote;
 mod sync_rules;
 mod token;
 mod transport;
+mod voucher;
 
 use std::sync::{Arc, Mutex};
 
