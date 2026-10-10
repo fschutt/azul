@@ -435,6 +435,91 @@ pub fn closed_text(until: Option<u64>, reason: &str) -> String {
 /// What the token server says when a ban has no reason of its own.
 const BAN_REASON: &str = "a breach of the terms of service";
 
+/// A ban's words: (message id, English, German) - [`ban_fluent_source`].
+const BAN_WORDS: [(&str, &str, &str); 5] = [
+    (
+        "azlin-ban-banner",
+        "Due to { $reason }, your account has been banned, but you have { $hours ->\n        \
+         [one] 1 hour\n       *[other] { $hours } hours\n    } to migrate your files.",
+        "Wegen { $reason } wurde dein Konto gesperrt, aber du hast noch { $hours ->\n        \
+         [one] 1 Stunde\n       *[other] { $hours } Stunden\n    }, um deine Dateien zu \
+         übertragen.",
+    ),
+    (
+        "azlin-ban-banner-no-end",
+        "Due to { $reason }, your account has been banned: copy your files to this computer now.",
+        "Wegen { $reason } wurde dein Konto gesperrt: Kopiere deine Dateien jetzt auf diesen \
+         Computer.",
+    ),
+    (
+        "azlin-ban-closed",
+        "This drive was closed on { $day } because { $reason }.",
+        "Dieses Laufwerk wurde am { $day } geschlossen, wegen { $reason }.",
+    ),
+    (
+        "azlin-ban-closed-no-day",
+        "This drive was closed because { $reason }.",
+        "Dieses Laufwerk wurde geschlossen, wegen { $reason }.",
+    ),
+    (
+        "azlin-ban-reason-terms",
+        BAN_REASON,
+        "eines Verstoßes gegen die Nutzungsbedingungen",
+    ),
+];
+
+/// A ban's words as a Fluent resource in `lang`: an app gives it to the engine with the error
+/// table and says a ban by [`Ban::banner_phrase`] / [`Ban::closed_phrase`].
+#[must_use]
+pub fn ban_fluent_source(lang: crate::user_errors::Lang) -> String {
+    let mut out = String::from("# A banned drive's words (azcloud-kit token).\n");
+    for (id, en, de) in BAN_WORDS {
+        let text = match lang {
+            crate::user_errors::Lang::En => en,
+            crate::user_errors::Lang::De => de,
+        };
+        out.push_str(&format!("{id} = {text}\n"));
+    }
+    out
+}
+
+/// A ban's reason as a phrase's argument: the default one a word of [`BAN_WORDS`] (said in the
+/// window's language), the token server's own as it is.
+fn reason_arg(reason: &str) -> azul_appkit::phrase::Arg {
+    if reason == BAN_REASON {
+        azul_appkit::phrase::Arg::word("azlin-ban-reason-terms", BAN_REASON)
+    } else {
+        azul_appkit::phrase::Arg::from(reason)
+    }
+}
+
+/// [`banner_text`] as a phrase of [`BAN_WORDS`].
+#[must_use]
+pub fn banner_phrase(reason: &str, hours: Option<u64>) -> azul_appkit::phrase::Phrase {
+    use azul_appkit::phrase::Phrase;
+    match hours {
+        Some(hours) => Phrase::new("azlin-ban-banner")
+            .arg("reason", reason_arg(reason))
+            .arg("hours", hours),
+        None => Phrase::new("azlin-ban-banner-no-end").arg("reason", reason_arg(reason)),
+    }
+}
+
+/// [`closed_text`] as a phrase of [`BAN_WORDS`].
+#[must_use]
+pub fn closed_phrase(until: Option<u64>, reason: &str) -> azul_appkit::phrase::Phrase {
+    use azul_appkit::phrase::Phrase;
+    match until {
+        Some(until) => {
+            let when = azul_storage::time::iso8601(until);
+            Phrase::new("azlin-ban-closed")
+                .arg("day", when.get(..10).unwrap_or(&when))
+                .arg("reason", reason_arg(reason))
+        }
+        None => Phrase::new("azlin-ban-closed-no-day").arg("reason", reason_arg(reason)),
+    }
+}
+
 /// A drive banned with a grace period (ban contract v1): its files can be read, listed and
 /// copied until `until`; nothing new is written; then the drive is closed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -498,6 +583,22 @@ impl Ban {
     #[must_use]
     pub fn closed_text(&self) -> String {
         closed_text(self.until, &self.reason)
+    }
+
+    /// [`Ban::banner`] as a phrase of the kit's messages (an app says it in the window's
+    /// language).
+    #[must_use]
+    pub fn banner_phrase(&self, now: u64) -> azul_appkit::phrase::Phrase {
+        if self.is_closed(now) {
+            return self.closed_phrase();
+        }
+        banner_phrase(&self.reason, self.until.map(|_| self.hours_left(now)))
+    }
+
+    /// [`Ban::closed_text`] as a phrase of the kit's messages.
+    #[must_use]
+    pub fn closed_phrase(&self) -> azul_appkit::phrase::Phrase {
+        closed_phrase(self.until, &self.reason)
     }
 
     /// The hours left at `now` to copy the files, rounded up (0 once it is closed, and when no
