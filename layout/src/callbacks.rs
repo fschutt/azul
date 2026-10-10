@@ -8240,6 +8240,58 @@ mod autotest_generated {
         }
     }
 
+    /// `translate`: a message of the app's Fluent resources (`AppConfig::fluent_locales`) in
+    /// the window's locale, with its arguments - the DOM's translation pass, for text that is
+    /// no DOM (a notification's body). Without a translation: the message id.
+    #[cfg(feature = "fluent")]
+    #[test]
+    fn translate_says_a_message_of_the_apps_resources_in_the_windows_locale() {
+        use azul_core::{
+            dom::{FluentArg, FluentArgKV, FluentArgKVVec},
+            resources::AppConfig,
+            window::{AzStringPair, StringPairVec},
+        };
+        let mut config = AppConfig::default();
+        config.fluent_locales = StringPairVec::from_vec(vec![
+            AzStringPair::create("en".into(), "greeting = Hello, { $name }!\n".into()),
+            AzStringPair::create("de".into(), "greeting = Hallo, { $name }!\n".into()),
+        ]);
+        let args = || {
+            FluentArgKVVec::from_vec(vec![FluentArgKV {
+                key: "name".into(),
+                value: FluentArg::String("Alice".into()),
+            }])
+        };
+        let window_in = |locale: &str| {
+            let mut lw =
+                LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+            lw.set_app_localization(&config);
+            let _ = lw.set_locale(locale);
+            lw
+        };
+        let german = with_info_on(window_in("de-DE"), node0(), |info| {
+            info.translate("greeting".into(), args())
+        });
+        assert_eq!(german.as_str(), "Hallo, Alice!");
+        let english = with_info_on(window_in("en-US"), node0(), |info| {
+            info.translate("greeting".into(), args())
+        });
+        assert_eq!(english.as_str(), "Hello, Alice!");
+        let unknown = with_info_on(window_in("de-DE"), node0(), |info| {
+            info.translate(
+                "nobody-translates-this".into(),
+                FluentArgKVVec::from_vec(vec![]),
+            )
+        });
+        assert_eq!(unknown.as_str(), "nobody-translates-this");
+        // An app without translations: the id as well.
+        let bare = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let id = with_info_on(bare, node0(), |info| {
+            info.translate("greeting".into(), args())
+        });
+        assert_eq!(id.as_str(), "greeting");
+    }
+
     /// `DomNodeId` whose node component is `None` (the "no concrete node" case).
     fn node_none() -> DomNodeId {
         DomNodeId {
