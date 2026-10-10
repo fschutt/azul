@@ -37,6 +37,8 @@ pub mod codec;
 pub mod commands;
 pub mod ids;
 pub mod jobs;
+#[cfg(test)]
+mod l10n_tests;
 pub mod raster;
 pub mod state;
 pub mod storage;
