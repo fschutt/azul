@@ -11,7 +11,10 @@
 //! AzDrive restores the last [`RESTORE_DAYS`] days (what a node keeps, D38).
 //!
 //! On stdout: `AZDRIVE_RESTORED <drive id> <as of> files|objects <count>`, or `... queued
-//! <request>` when the node had not done it when AzDrive stopped waiting.
+//! <request>` when the node had not done it when AzDrive stopped waiting;
+//! `AZDRIVE_RESTORE_REFUSED <drive id> <why>` when the dialog did not start it (the time typed
+//! is no time, the drive is not open) and `AZDRIVE_RESTORE_FAILED <drive id> <why>` when it
+//! failed - `<why>` its keys and arguments ([`not_restored_line`]), what the dialog says.
 
 use std::time::Duration;
 
@@ -115,6 +118,14 @@ fn utc(text: &str) -> Option<u64> {
     parse_iso8601(&full)
 }
 
+/// The stdout line of a restore of `drive_id` not done (`marker`: `AZDRIVE_RESTORE_REFUSED` or
+/// `AZDRIVE_RESTORE_FAILED`): why as its keys and arguments, on one line.
+pub(crate) fn not_restored_line(marker: &str, drive_id: &str, why: &Text) -> String {
+    let why = why.to_string();
+    let words: Vec<&str> = why.split_whitespace().collect();
+    format!("{marker} {drive_id} {}", words.join(" "))
+}
+
 /// What the window says after a restore of `drive` as of `as_of`.
 pub(crate) fn restored_text(drive: &str, as_of: u64, how: &Restored) -> Phrase {
     let said = match how {
@@ -178,6 +189,10 @@ fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     if let Some(Popup::Restore { error, busy, .. }) = s.popup.as_mut() {
         match problem {
             Some(why) => {
+                println!(
+                    "{}",
+                    not_restored_line("AZDRIVE_RESTORE_REFUSED", &drive_id, &why)
+                );
                 *error = why;
                 return;
             }
@@ -280,6 +295,10 @@ pub(crate) fn restored(
             }
         }
         Err(why) => {
+            println!(
+                "{}",
+                not_restored_line("AZDRIVE_RESTORE_FAILED", drive_id, &why)
+            );
             if open {
                 if let Some(Popup::Restore { error, busy, .. }) = s.popup.as_mut() {
                     *error = why;

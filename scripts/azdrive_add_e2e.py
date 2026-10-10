@@ -1645,14 +1645,28 @@ def run(args, logs):
         popup.until("the time field", lambda: popup.has("#__azdrive_restore_time"))
         popup.must("focus_node", selector="#__azdrive_restore_time")
         popup.frame(2)
-        popup.key("end")
-        for _ in range(len("1 hour ago")):
-            popup.key("backspace", frames=1)
+        # The time typed over what the field opens with, whatever its words: all of it selected,
+        # then replaced.
+        popup.key("a", primary=True)
+        popup.key("backspace")
         popup.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
         popup.frame(2)
-        restored = app.after("the drive restored", "AZDRIVE_RESTORED",
-                             r"%s \S+ objects \d+" % re.escape(paid),
-                             lambda: popup.click(selector="#__azdrive_restore_go")).split()
+        # An encrypted drive is restored by its drive index (`files`), never by its bucket; a
+        # restore the dialog refused or that failed says why on a line of its own.
+        pattern = r"%s \S+ files \d+" % re.escape(paid)
+        done = app.count("AZDRIVE_RESTORED", pattern)
+        not_done = [app.count(key, re.escape(paid) + r" .*")
+                    for key in ("AZDRIVE_RESTORE_REFUSED", "AZDRIVE_RESTORE_FAILED")]
+        popup.click(selector="#__azdrive_restore_go")
+
+        def restored_or_why():
+            for key, seen in zip(("AZDRIVE_RESTORE_REFUSED", "AZDRIVE_RESTORE_FAILED"), not_done):
+                lines = app.printed(key, re.escape(paid) + r" .*")
+                if len(lines) > seen:
+                    raise Failure("the restore of %s was not done: %s %s" % (paid, key, lines[-1]))
+            return app.count("AZDRIVE_RESTORED", pattern) > done
+        app.until("the drive restored", restored_or_why)
+        restored = app.printed("AZDRIVE_RESTORED", pattern)[-1].split()
         if int(restored[-1]) < 1:
             raise Failure("the restore changed %s files" % restored[-1])
         wait_closed(app)

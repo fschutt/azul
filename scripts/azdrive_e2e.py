@@ -1782,9 +1782,9 @@ def sync_step(args, logs, binary, out):
         app.until("the restore's time field", lambda: app.has("#__azdrive_restore_time"))
         app.must("focus_node", selector="#__azdrive_restore_time")
         app.frame(2)
-        app.key("end")
-        for _ in range(len("1 hour ago")):
-            app.key("backspace", frames=1)
+        # The time typed over what the field opens with, whatever its words.
+        app.key("a", primary=True)
+        app.key("backspace")
         app.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
         app.frame(2)
         held = app.count("AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q1\.txt")
