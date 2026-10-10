@@ -72,8 +72,10 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
                 keyring.clone() as Arc<dyn KeyringStore>,
                 LockDir::new(dir.path().join("locks")),
             );
+            // Four each: eight checkouts fit in one entry (MAX_PENDING_BYTES) with room left
+            // for each one's issue key after its claim.
             std::thread::spawn(move || {
-                for i in 0..10 {
+                for i in 0..4 {
                     let claim = ClaimKey::generate().unwrap();
                     pending::add(&shared, &checkout(&format!("ck_{window}_{i}"), &claim))
                         .unwrap();
@@ -84,17 +86,17 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
     for window in windows {
         window.join().unwrap();
     }
-    assert_eq!(pending::list(&shared).unwrap().len(), 20, "none lost");
+    assert_eq!(pending::list(&shared).unwrap().len(), 8, "none lost");
     let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
-    assert!(text.contains("ck_0_9") && text.contains("ck_1_0"));
+    assert!(text.contains("ck_0_3") && text.contains("ck_1_0"));
     assert!(pending::remove(&shared, "ck_0_3").unwrap());
     assert!(!pending::remove(&shared, "ck_0_3").unwrap(), "removed once");
-    assert_eq!(pending::list(&shared).unwrap().len(), 19);
+    assert_eq!(pending::list(&shared).unwrap().len(), 7);
     // One entry per checkout: adding one again replaces it.
     let claim = ClaimKey::generate().unwrap();
     pending::add(&shared, &checkout("ck_1_1", &claim)).unwrap();
     let listed = pending::list(&shared).unwrap();
-    assert_eq!(listed.len(), 19);
+    assert_eq!(listed.len(), 7);
     let again = listed.iter().find(|c| c.checkout_id == "ck_1_1").unwrap();
     assert_eq!(again.claim_secret, claim.to_base64());
 }
