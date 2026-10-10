@@ -22,7 +22,11 @@
 //! signed in at), and a code or a token only over https - plain http only to this computer
 //! ([`is_token_endpoint`]). Nothing here logs a token or puts one in `Debug` output.
 
-use std::{collections::BTreeMap, fmt, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Mutex, PoisonError},
+};
 
 use crate::{config::SecretOptions, sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 
@@ -238,8 +242,102 @@ impl OAuthError {
 /// computer (`127.0.0.1`, `localhost`, `[::1]`: a test's endpoint).
 #[must_use]
 pub fn is_token_endpoint(url: &str) -> bool {
-    let _ = url;
-    false
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("https://") {
+        return !host_of(rest).is_empty();
+    }
+    lower
+        .strip_prefix("http://")
+        .is_some_and(|rest| matches!(host_of(rest), "127.0.0.1" | "localhost" | "[::1]"))
+}
+
+/// The host of a URL's rest after `scheme://` (an IPv6 one in its brackets); empty for none or
+/// for one with user info (`user@host`).
+fn host_of(rest: &str) -> &str {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        return "";
+    }
+    if authority.starts_with('[') {
+        return authority.find(']').map_or("", |end| &authority[..=end]);
+    }
+    authority.split(':').next().unwrap_or_default()
+}
+
+/// POSTs `form` to `token_url` and reads the token response.
+fn post_form(
+    transport: &dyn Transport,
+    token_url: &str,
+    form: &[(&str, &str)],
+) -> Result<Tokens, OAuthError> {
+    if !is_token_endpoint(token_url) {
+        return Err(OAuthError::Protocol(format!(
+            "{token_url} is no token endpoint a code or a token may be sent to: it must be https"
+        )));
+    }
+    let body = form
+        .iter()
+        .map(|(name, value)| format!("{}={}", uri_encode(name, true), uri_encode(value, true)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let call = HttpCall {
+        method: Method::Post,
+        url: token_url.trim().to_string(),
+        headers: vec![(String::from("Accept"), String::from("application/json"))],
+        body: body.into_bytes(),
+        content_type: String::from("application/x-www-form-urlencoded"),
+    };
+    let reply = transport.send(&call).map_err(OAuthError::Transport)?;
+    token_response(&reply)
+}
+
+/// A token endpoint's answer (RFC 6749 sections 5.1 and 5.2).
+fn token_response(reply: &HttpReply) -> Result<Tokens, OAuthError> {
+    let json: Option<serde_json::Value> = serde_json::from_slice(&reply.body).ok();
+    let text = |name: &str| {
+        json.as_ref()
+            .and_then(|j| j.get(name))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
+    if !reply.is_success() {
+        return Err(OAuthError::Rejected {
+            status: reply.status,
+            error: text("error").unwrap_or_default(),
+            description: text("error_description").unwrap_or_default(),
+        });
+    }
+    if json.is_none() {
+        return Err(OAuthError::Protocol(String::from(
+            "the token endpoint's answer is no JSON",
+        )));
+    }
+    let access_token = text("access_token").ok_or_else(|| {
+        OAuthError::Protocol(String::from(
+            "the token endpoint's answer has no access token",
+        ))
+    })?;
+    if let Some(kind) = text("token_type").filter(|t| !t.eq_ignore_ascii_case("bearer")) {
+        return Err(OAuthError::Protocol(format!(
+            "the token endpoint hands out {kind} tokens, not bearer tokens"
+        )));
+    }
+    let expires_in = json
+        .as_ref()
+        .and_then(|j| j.get("expires_in"))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        });
+    Ok(Tokens {
+        access_token,
+        refresh_token: text("refresh_token"),
+        expires_in,
+        scope: text("scope"),
+    })
 }
 
 /// Trades the authorization `code` of a sign-in (and its PKCE `code_verifier`, and the exact
@@ -252,15 +350,17 @@ pub fn exchange_code(
     code_verifier: &str,
     redirect_uri: &str,
 ) -> Result<Tokens, OAuthError> {
-    let _ = (
-        transport,
-        token_url,
-        client,
-        code,
-        code_verifier,
-        redirect_uri,
-    );
-    Err(OAuthError::Protocol(String::from("not yet")))
+    let mut form = vec![
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", client.client_id.as_str()),
+        ("code_verifier", code_verifier),
+    ];
+    if let Some(secret) = client.client_secret.as_deref() {
+        form.push(("client_secret", secret));
+    }
+    post_form(transport, token_url, &form)
 }
 
 /// A new access token for `refresh_token` at `token_url` (and, with some providers, a new
@@ -271,8 +371,15 @@ pub fn refresh(
     client: &OAuthClient,
     refresh_token: &str,
 ) -> Result<Tokens, OAuthError> {
-    let _ = (transport, token_url, client, refresh_token);
-    Err(OAuthError::Protocol(String::from("not yet")))
+    let mut form = vec![
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", client.client_id.as_str()),
+    ];
+    if let Some(secret) = client.client_secret.as_deref() {
+        form.push(("client_secret", secret));
+    }
+    post_form(transport, token_url, &form)
 }
 
 /// The tokens [`RefreshingTransport`] holds.
@@ -341,11 +448,84 @@ impl RefreshingTransport {
         self.on_new_refresh_token = Some(Box::new(keep));
         self
     }
+
+    /// The access token to send: the one held, unless it is `stale` (the one a 401 refused) or
+    /// there is none - then a new one from the token endpoint. One refresh at a time: the
+    /// others wait for it and take its token.
+    fn access_token(&self, stale: Option<&str>) -> Result<String, String> {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(token) = held
+            .access_token
+            .as_ref()
+            .filter(|token| stale != Some(token.as_str()))
+        {
+            return Ok(token.clone());
+        }
+        let tokens = refresh(
+            &*self.inner,
+            &self.token_url,
+            &self.client,
+            &held.refresh_token,
+        )
+        .map_err(|e| {
+            if e.needs_sign_in() {
+                format!(
+                    "the sign-in to {} is no longer valid ({e}): sign in again",
+                    self.provider_name
+                )
+            } else {
+                format!("{} gave no new access token: {e}", self.provider_name)
+            }
+        })?;
+        held.access_token = Some(tokens.access_token.clone());
+        if let Some(rotated) = tokens
+            .refresh_token
+            .filter(|r| !r.is_empty() && *r != held.refresh_token)
+        {
+            held.refresh_token.clone_from(&rotated);
+            if let Some(keep) = &self.on_new_refresh_token {
+                keep(&rotated);
+            }
+        }
+        Ok(tokens.access_token)
+    }
+}
+
+/// Whether `call` carries a bearer token (the requests a signed-in service authorizes; an
+/// upload to a pre-authorized URL carries none and must get none).
+fn carries_bearer(call: &HttpCall) -> bool {
+    call.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("authorization")
+            && value
+                .get(..7)
+                .is_some_and(|scheme| scheme.eq_ignore_ascii_case("bearer "))
+    })
+}
+
+/// `call` with `token` as its bearer token.
+fn with_bearer(call: &HttpCall, token: &str) -> HttpCall {
+    let mut call = call.clone();
+    for (name, value) in &mut call.headers {
+        if name.eq_ignore_ascii_case("authorization") {
+            *value = format!("Bearer {token}");
+        }
+    }
+    call
 }
 
 impl Transport for RefreshingTransport {
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
-        self.inner.send(call)
+        if !carries_bearer(call) {
+            return self.inner.send(call);
+        }
+        let token = self.access_token(None)?;
+        let reply = self.inner.send(&with_bearer(call, &token))?;
+        if reply.status != 401 {
+            return Ok(reply);
+        }
+        // The service refused the token (it expired, or was revoked): a new one, once.
+        let fresh = self.access_token(Some(&token))?;
+        self.inner.send(&with_bearer(call, &fresh))
     }
 }
 
@@ -362,6 +542,39 @@ pub fn signed_in(
     transport: Box<dyn Transport>,
     rotated: Option<SecretSink>,
 ) -> (BTreeMap<String, String>, SecretOptions, Box<dyn Transport>) {
-    let _ = (scheme, rotated);
-    (options.clone(), secrets.clone(), transport)
+    fn non_blank(value: Option<&str>) -> Option<&str> {
+        value.map(str::trim).filter(|v| !v.is_empty())
+    }
+    let (Some(provider), Some(refresh_token), Some(client_id)) = (
+        provider(scheme),
+        non_blank(secrets.get(REFRESH_TOKEN)),
+        non_blank(options.get(CLIENT_ID).map(String::as_str)),
+    ) else {
+        return (options.clone(), secrets.clone(), transport);
+    };
+    let token_url =
+        non_blank(options.get(TOKEN_URL).map(String::as_str)).unwrap_or(provider.token_url);
+    let client = OAuthClient::public(client_id).with_secret(secrets.get(CLIENT_SECRET));
+    let mut refreshing =
+        RefreshingTransport::new(transport, provider.name, token_url, client, refresh_token);
+    if let Some(sink) = rotated {
+        let kept = secrets.clone();
+        refreshing = refreshing.on_new_refresh_token(move |new_token| {
+            let mut secrets = kept.clone();
+            secrets.insert(REFRESH_TOKEN, new_token);
+            sink(secrets.to_keyring_secret());
+        });
+    }
+    let options = options
+        .iter()
+        .filter(|(key, _)| key.as_str() != CLIENT_ID && key.as_str() != TOKEN_URL)
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let mut opendal_secrets: SecretOptions = secrets
+        .iter()
+        .filter(|(key, _)| ![REFRESH_TOKEN, CLIENT_SECRET, ACCESS_TOKEN].contains(key))
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+    opendal_secrets.insert(ACCESS_TOKEN, PLACEHOLDER_ACCESS_TOKEN);
+    (options, opendal_secrets, Box::new(refreshing))
 }
