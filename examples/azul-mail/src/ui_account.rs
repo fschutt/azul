@@ -715,10 +715,7 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
         let note = if editor.azlin_busy {
             String::from("Asking the token server for a new drive...")
         } else if editor.azlin_session.is_some() {
-            format!(
-                "The new drive {} is ready: Finish adds it as this account.",
-                f.drive_id.trim()
-            )
+            new_drive_note(f.drive_id.trim(), None)
         } else {
             String::from(
                 "A new, empty drive at this token server (a development token server's: a real \
@@ -1207,6 +1204,13 @@ extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 /// "Create a new drive" is answered: the drive's id goes into its field, and its session (the
 /// first credentials, the drive token) is the account's secret once Finish saves it.
+/// What the account page says of a drive "Create a new drive" made: that Finish adds it, and
+/// - "we always encrypt" - its recovery code, shown this once.
+pub(crate) fn new_drive_note(drive_id: &str, recovery_code: Option<&str>) -> String {
+    let _ = recovery_code;
+    format!("The new drive {drive_id} is ready: Finish adds it as this account.")
+}
+
 pub(crate) fn drive_created(s: &mut MailApp, result: Result<azlin::AzlinSession, String>) {
     let Some(editor) = s.editor.as_mut() else {
         return;
@@ -1300,4 +1304,20 @@ extern "C" fn on_settings_save(mut data: RefAny, mut info: CallbackInfo) -> Upda
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::new_drive_note;
+
+    /// "We always encrypt": a drive AzMail made is encrypted as it was made, and its page shows
+    /// the recovery code (shown once: it is stored nowhere).
+    #[test]
+    fn a_new_drives_note_shows_its_recovery_code_once() {
+        let code = "0123A-4567B-89CDE-FGHJK-MNPQRS";
+        let note = new_drive_note("d_1", Some(code));
+        assert!(note.contains(code), "{note}");
+        assert!(note.contains("encrypted"), "{note}");
+        assert!(!new_drive_note("d_1", None).contains("RECOVERY"));
+    }
 }
