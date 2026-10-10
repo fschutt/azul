@@ -1,0 +1,91 @@
+# azul-appkit's own words: the settings page every Azlin app shares, the About box.
+# One message per key the source names (`kit-...`); resources/de.ftl has the same keys.
+
+## Buttons
+kit-button-ok = OK
+kit-button-cancel = Cancel
+
+## The categories of the settings page and the line over each
+kit-category-general = General
+kit-category-data = Data
+kit-category-shortcuts = Shortcuts
+kit-category-about = About
+kit-header-app = { $category } options for working with { $app }.
+kit-header-general = General options for working with { $app }.
+kit-header-data = Where { $app } keeps your data.
+kit-header-shortcuts = The keyboard shortcuts of { $app }.
+kit-header-about = The version, the licence and the data folder of { $app }.
+
+## General: the appearance and the language
+kit-section-appearance = Appearance
+kit-general-theme = Theme
+kit-general-theme-pinned = { $app } is always set in { $theme }. The mode below is shared with every Azlin app.
+kit-general-stone = Stone
+kit-general-mode = Mode
+kit-general-language = Language
+kit-general-switch-overrides = A --theme, --mode or --language switch overrides these settings until the app restarts.
+kit-general-az-theme = AZ_THEME={ $value } overrides the theme of every app it runs.
+kit-mode-system = System
+kit-mode-light = Light
+kit-mode-dark = Dark
+kit-language-system = System
+kit-language-english = English
+kit-language-german = Deutsch
+kit-theme-flat = Flat
+kit-theme-flora = Flora
+kit-theme-flora-green = Flora, green
+kit-theme-flora-red = Flora, red
+kit-theme-flora-purple = Flora, purple
+kit-theme-flora-gold = Flora, gold
+kit-theme-flora-rose = Flora, rose
+kit-stone-blue = Blue
+kit-stone-green = Green
+kit-stone-red = Red
+kit-stone-purple = Purple
+kit-stone-gold = Gold
+kit-stone-rose = Rose
+
+## Data
+kit-section-data = Your data
+kit-data-folder = Data folder
+kit-data-note = Your data are plain files in this folder, one folder per app. An S3 drive can take the place of the folder later without changing them.
+
+## The settings file
+kit-settings-read-partly = The settings file could not be read fully ({ $problem }).
+kit-settings-unreadable = The settings file could not be read: { $detail }
+kit-settings-not-saved = The settings could not be saved: { $detail }
+
+## About
+kit-about-title = About { $app }
+kit-about-open = About { $app }…
+kit-about-version = Version
+kit-about-license = License
+kit-about-data-folder = Data folder
+kit-about-built-with = Built with
+kit-about-icons = Icons
+
+## Shortcuts: the kit's own, and the names of the keys
+kit-shortcut-group-window = Window
+kit-shortcut-settings = Open the settings
+kit-shortcut-shortcuts = Show the keyboard shortcuts
+kit-shortcut-cancel-settings = Cancel the settings (close them, the changes undone)
+kit-key-ctrl = Ctrl
+kit-key-cmd = Cmd
+kit-key-shift = Shift
+kit-key-alt = Alt
+kit-key-option = Option
+kit-key-escape = Escape
+kit-key-enter = Enter
+kit-key-space = Space
+kit-key-tab = Tab
+kit-key-delete = Delete
+kit-key-backspace = Backspace
+kit-key-insert = Insert
+kit-key-home = Home
+kit-key-end = End
+kit-key-pageup = Page Up
+kit-key-pagedown = Page Down
+kit-key-up = Up
+kit-key-down = Down
+kit-key-left = Left
+kit-key-right = Right

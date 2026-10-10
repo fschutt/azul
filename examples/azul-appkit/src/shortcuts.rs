@@ -30,9 +30,9 @@ impl Shortcut {
 
 /// The shortcuts every app built on the kit has.
 pub const KIT_SHORTCUTS: [Shortcut; 3] = [
-    Shortcut::new("Window", "Mod+,", "Open the settings"),
-    Shortcut::new("Window", "F1", "Show the keyboard shortcuts"),
-    Shortcut::new("Window", "Escape", "Cancel the settings (close them, the changes undone)"),
+    Shortcut::new("kit-shortcut-group-window", "Mod+,", "kit-shortcut-settings"),
+    Shortcut::new("kit-shortcut-group-window", "F1", "kit-shortcut-shortcuts"),
+    Shortcut::new("kit-shortcut-group-window", "Escape", "kit-shortcut-cancel-settings"),
 ];
 
 /// The keys as the user reads them on this platform: `Mod` is `Cmd` on macOS

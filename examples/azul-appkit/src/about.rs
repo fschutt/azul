@@ -28,16 +28,16 @@ pub struct AboutInfo {
 pub fn about_rows(info: &AboutInfo, data_root: &Path) -> Vec<(String, String)> {
     let (icons, icons_license) = azul_icons_haiku::CREDIT;
     vec![
-        ("Version".to_string(), info.version.to_string()),
-        ("License".to_string(), info.license.to_string()),
+        ("kit-about-version".to_string(), info.version.to_string()),
+        ("kit-about-license".to_string(), info.license.to_string()),
         (
-            "Data folder".to_string(),
+            "kit-about-data-folder".to_string(),
             crate::data::local_path(data_root, info.app_folder)
                 .display()
                 .to_string(),
         ),
-        ("Built with".to_string(), "azul (azul.rs)".to_string()),
-        ("Icons".to_string(), format!("{icons}, {icons_license}")),
+        ("kit-about-built-with".to_string(), "azul (azul.rs)".to_string()),
+        ("kit-about-icons".to_string(), format!("{icons}, {icons_license}")),
     ]
 }
 
@@ -68,7 +68,13 @@ mod tests {
         let labels: Vec<&str> = rows.iter().map(|(l, _)| l.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["Version", "License", "Data folder", "Built with", "Icons"]
+            vec![
+                "kit-about-version",
+                "kit-about-license",
+                "kit-about-data-folder",
+                "kit-about-built-with",
+                "kit-about-icons"
+            ]
         );
         // Haiku's icons are MIT: every app that ships them says so.
         assert_eq!(rows[4].1, "Haiku's icon set (Haiku, Inc.), MIT");

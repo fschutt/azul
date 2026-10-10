@@ -32,6 +32,9 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, opt
 # Haiku's icons, the flora theme's icon pack: `ui::app_config` registers them for every app
 # (the `azul` feature); the About rows credit them.
 azul-icons-haiku = { path = "../azul-icons-haiku" }
+# The localization checks every app's test runs (`l10n_check`: the resources parse). No new
+# crate: azul-layout's Fluent parser, 0.12.0 in Cargo.lock (no build.rs, no proc-macro).
+fluent-syntax = { version = "0.12", default-features = false }
 
 [features]
 default = []

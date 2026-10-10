@@ -84,6 +84,35 @@ impl Theme {
         }
     }
 
+    /// Its name on the settings page, a key of appkit's resources (`kit-theme-flora-green`).
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            Theme::Flat => "kit-theme-flat",
+            Theme::Flora => "kit-theme-flora",
+            Theme::FloraGreen => "kit-theme-flora-green",
+            Theme::FloraRed => "kit-theme-flora-red",
+            Theme::FloraPurple => "kit-theme-flora-purple",
+            Theme::FloraGold => "kit-theme-flora-gold",
+            Theme::FloraRose => "kit-theme-flora-rose",
+        }
+    }
+
+    /// The stone's name in the settings page's stone picker, a key of appkit's resources ("" for
+    /// flat, which has none).
+    #[must_use]
+    pub fn stone_key(self) -> &'static str {
+        match self {
+            Theme::Flat => "",
+            Theme::Flora => "kit-stone-blue",
+            Theme::FloraGreen => "kit-stone-green",
+            Theme::FloraRed => "kit-stone-red",
+            Theme::FloraPurple => "kit-stone-purple",
+            Theme::FloraGold => "kit-stone-gold",
+            Theme::FloraRose => "kit-stone-rose",
+        }
+    }
+
     /// The stone's own label in the settings page's stone picker ("" for
     /// flat, which has none).
     #[must_use]
@@ -164,6 +193,16 @@ impl ModePref {
         }
     }
 
+    /// Its name on the settings page, a key of appkit's resources.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            ModePref::System => "kit-mode-system",
+            ModePref::Light => "kit-mode-light",
+            ModePref::Dark => "kit-mode-dark",
+        }
+    }
+
     /// A choice by name, any case, surrounding blanks ignored.
     #[must_use]
     pub fn parse(name: &str) -> Option<ModePref> {
@@ -177,6 +216,75 @@ impl ModePref {
     #[must_use]
     pub fn index(self) -> usize {
         ModePref::ALL.iter().position(|m| *m == self).unwrap_or(0)
+    }
+}
+
+/// The language of the app's words: the system's, English or German (the settings page's
+/// Language row, `--language`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LanguagePref {
+    /// The language the engine finds on the system.
+    #[default]
+    System,
+    English,
+    German,
+}
+
+impl LanguagePref {
+    pub const ALL: [LanguagePref; 3] =
+        [LanguagePref::System, LanguagePref::English, LanguagePref::German];
+
+    /// The name in the settings file and on the command line.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            LanguagePref::System => "system",
+            LanguagePref::English => "en",
+            LanguagePref::German => "de",
+        }
+    }
+
+    /// The locale the engine is told (`CallbackInfo::set_locale`); `""` follows the system's
+    /// language.
+    #[must_use]
+    pub fn tag(self) -> &'static str {
+        match self {
+            LanguagePref::System => "",
+            LanguagePref::English => "en-US",
+            LanguagePref::German => "de-DE",
+        }
+    }
+
+    /// A choice by name (`system`, `en`, `de`) or by its own word (`English`, `Deutsch`), any
+    /// case, surrounding blanks ignored.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<LanguagePref> {
+        let name = name.trim();
+        LanguagePref::ALL.into_iter().find(|l| {
+            l.name().eq_ignore_ascii_case(name)
+                || match l {
+                    LanguagePref::System => false,
+                    LanguagePref::English => name.eq_ignore_ascii_case("english"),
+                    LanguagePref::German => name.eq_ignore_ascii_case("deutsch"),
+                }
+        })
+    }
+
+    /// The position in [`LanguagePref::ALL`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        LanguagePref::ALL.iter().position(|l| *l == self).unwrap_or(0)
+    }
+
+    /// Its name on the settings page, a key of appkit's resources (English and German in their
+    /// own words in either language).
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            LanguagePref::System => "kit-language-system",
+            LanguagePref::English => "kit-language-english",
+            LanguagePref::German => "kit-language-german",
+        }
     }
 }
 
@@ -206,6 +314,8 @@ pub struct AppArgs {
     pub theme: Option<Theme>,
     /// `--mode`.
     pub mode: Option<ModePref>,
+    /// `--language`: the run's language over the settings file's.
+    pub language: Option<LanguagePref>,
     /// `--shot`: the PNG to write before exiting.
     pub shot: Option<PathBuf>,
     /// `--shot-delay-ms`: settle time before the screenshot.
@@ -242,6 +352,7 @@ pub fn help(spec: &AppSpec) -> String {
     out.push_str("    --size <WxH>             Initial window size, e.g. --size 900x640\n");
     out.push_str("    --theme <NAME>           flat | flora | flora:green|red|purple|gold|rose (this run only)\n");
     out.push_str("    --mode <NAME>            system | light | dark (this run only)\n");
+    out.push_str("    --language <NAME>        system | en | de (this run only)\n");
     out.push_str("    --shot <PNG>             Render, write this screenshot, exit\n");
     out.push_str(&format!(
         "    --shot-delay-ms <MS>     Settle time before --shot (default {DEFAULT_SHOT_DELAY_MS})\n"
@@ -321,6 +432,12 @@ impl AppArgs {
                         Some(ModePref::parse(&v).ok_or_else(|| {
                             format!("--mode: expected system|light|dark, got {v:?}")
                         })?);
+                }
+                "--language" => {
+                    let v = value("name")?;
+                    a.language = Some(LanguagePref::parse(&v).ok_or_else(|| {
+                        format!("--language: expected system|en|de, got {v:?}")
+                    })?);
                 }
                 "--shot" => a.shot = Some(PathBuf::from(value("path")?)),
                 "--shot-delay-ms" => {

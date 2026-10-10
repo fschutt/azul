@@ -13,10 +13,13 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::args::{AppArgs, ModePref, Theme};
+use crate::args::{AppArgs, LanguagePref, ModePref, Theme};
 
 /// The settings file's name in the app's folder.
 pub const SETTINGS_FILE: &str = "settings.json";
+
+/// The value of the language of the app's words ([`AppSettings::language`]).
+pub const LANGUAGE_KEY: &str = "language";
 
 /// The file as stored.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +44,28 @@ pub struct AppSettings {
 }
 
 impl AppSettings {
+    /// The language of the app's words (`values["language"]`; the system's when absent).
+    #[must_use]
+    pub fn language(&self) -> LanguagePref {
+        self.values
+            .get(LANGUAGE_KEY)
+            .and_then(|name| LanguagePref::parse(name))
+            .unwrap_or_default()
+    }
+
+    /// Chooses the language (the system's takes the value out).
+    pub fn set_language(&mut self, language: LanguagePref) {
+        match language {
+            LanguagePref::System => {
+                self.values.remove(LANGUAGE_KEY);
+            }
+            other => {
+                self.values
+                    .insert(LANGUAGE_KEY.to_string(), other.name().to_string());
+            }
+        }
+    }
+
     /// Reads a settings file. Never fails: what cannot be read is the default,
     /// and the second value says what was wrong (for a log line), if anything.
     #[must_use]

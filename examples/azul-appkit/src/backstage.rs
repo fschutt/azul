@@ -20,7 +20,10 @@
 
 use azul::{callbacks::ButtonOnClickCallbackType, prelude::*, str::String as AzString};
 
-use crate::pieces::{column, text};
+use crate::{
+    l10n::label,
+    pieces::{column, text},
+};
 
 /// The page: its padding, and the text colour of the mode.
 const PAGE: &str = "padding: 20px 32px; color: system:text; min-width: 0px;";
@@ -44,7 +47,7 @@ const BUTTON_COLUMN: &str = "display: flex; flex-direction: column; align-items:
 #[must_use]
 pub fn page(title: &str, children: Vec<Dom>) -> Dom {
     let mut all = Vec::with_capacity(children.len() + 1);
-    all.push(text(title).with_css(TITLE));
+    all.push(text(label(title)).with_css(TITLE));
     all.extend(children);
     column(PAGE, all)
 }
@@ -70,13 +73,13 @@ pub fn columns(title: &str, left: Vec<Dom>, right: Vec<Dom>) -> Dom {
 /// A section's heading over a rule ("Support", "Printer", "About AzMail").
 #[must_use]
 pub fn section(title: &str) -> Dom {
-    text(title).with_css(SECTION)
+    text(label(title)).with_css(SECTION)
 }
 
 /// A line of secondary text.
 #[must_use]
 pub fn note(content: &str) -> Dom {
-    text(content).with_css(SECONDARY)
+    text(label(content)).with_css(SECONDARY)
 }
 
 /// A card: an icon beside a bold title and its detail lines (an account under Info, the
@@ -88,7 +91,7 @@ pub fn card(icon: &str, title: &str, details: &[&str], selected: bool) -> Dom {
     } else {
         "border: 1px solid system:separator;"
     };
-    let mut lines = vec![text(title).with_css("font-size: 14px; font-weight: bold;")];
+    let mut lines = vec![text(label(title)).with_css("font-size: 14px; font-weight: bold;")];
     for detail in details.iter().filter(|d| !d.is_empty()) {
         lines.push(note(detail));
     }
@@ -114,7 +117,7 @@ pub fn card(icon: &str, title: &str, details: &[&str], selected: bool) -> Dom {
 /// Mailbox Cleanup).
 #[must_use]
 pub fn command(button: Dom, heading: &str, description: &str) -> Dom {
-    let mut words = vec![text(heading).with_css(HEADING)];
+    let mut words = vec![text(label(heading)).with_css(HEADING)];
     if !description.is_empty() {
         words.push(note(description));
     }
@@ -130,13 +133,13 @@ pub fn command(button: Dom, heading: &str, description: &str) -> Dom {
 /// A command's button: `label` after `icon`, `id` for scripts, `cb` called with `data`.
 #[must_use]
 pub fn command_button(
-    label: &str,
+    label_text: &str,
     icon: &str,
     id: AzString,
     data: RefAny,
     cb: ButtonOnClickCallbackType,
 ) -> Dom {
-    Button::create(label)
+    Button::create(label(label_text))
         .with_icon(icon)
         .with_on_click(data, cb)
         .dom()
@@ -148,11 +151,11 @@ pub fn command_button(
 pub fn facts(rows: &[(String, String)]) -> Dom {
     let lines = rows
         .iter()
-        .map(|(label, value)| {
+        .map(|(name, value)| {
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; padding: 3px 0px;")
                 .with_child(
-                    text(label.as_str()).with_css(
+                    text(label(name.as_str())).with_css(
                         "width: 130px; flex-shrink: 0; font-size: 13px; color: \
                          system:secondary-text;",
                     ),
