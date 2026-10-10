@@ -193,6 +193,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "attention",
             "ime",
             "platform",
+            "powerstate", // PowerState (on mains, idle seconds): beside PlatformCapability
             "handle",
             "wayland",
             "x11",

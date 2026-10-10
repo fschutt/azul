@@ -41,6 +41,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
+    window::PowerState,
 };
 use azul_storage::{
     azul_keyring::AzulKeyring,
@@ -117,16 +118,10 @@ const RECOMPRESS_CHECK_MS: u64 = 60_000;
 /// One pass at a time.
 static RECOMPRESSING: AtomicBool = AtomicBool::new(false);
 
-/// The computer's power state: (on mains, seconds since the last input). `None` while azul's
-/// `PowerState` has no binding in this build (its api.json entry); the pass waits then.
-fn power_reading() -> Option<(bool, u64)> {
-    // With the binding: `let p = azul::window::PowerState::query(); Some((p.on_mains, p.idle_secs))`
-    None
-}
-
-/// Whether the pass may run: idle long enough, on mains power.
+/// Whether the pass may run: idle long enough, on mains power. A platform azul cannot read
+/// answers "on battery, just used" ([`PowerState::query`]), so the pass waits there.
 fn idle_on_mains() -> bool {
-    power_reading().is_some_and(|(on_mains, idle)| on_mains && idle >= RECOMPRESS_IDLE_SECS)
+    PowerState::query().is_idle_on_mains(RECOMPRESS_IDLE_SECS)
 }
 
 /// Starts the timer that starts the pass (from the window's start).
@@ -1080,9 +1075,11 @@ mod tests {
     }
 
     #[test]
-    fn the_recompression_pass_waits_while_the_power_state_is_unknown() {
-        assert_eq!(power_reading(), None, "no PowerState binding in this build yet");
-        assert!(!idle_on_mains());
+    fn the_recompression_pass_waits_for_mains_power_and_five_idle_minutes() {
+        let at = |on_mains, idle_secs| PowerState { on_mains, idle_secs }.is_idle_on_mains(RECOMPRESS_IDLE_SECS);
+        assert!(at(true, 300));
+        assert!(!at(true, 299), "used a moment ago");
+        assert!(!at(false, 3_600), "on battery");
     }
 
     #[test]

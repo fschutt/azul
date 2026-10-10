@@ -10395,6 +10395,64 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "PowerState": {
+                        "external": "azul_dll::unified::power::PowerState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "on_mains": {
+                                    "type": "bool"
+                                },
+                                "idle_secs": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "headless": {
+                                "doc": [
+                                    "[`PowerState::HEADLESS`]."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::power::PowerState::headless()"
+                            },
+                            "query": {
+                                "doc": [
+                                    "The power state now (see the module documentation)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::power::PowerState::query()"
+                            }
+                        },
+                        "functions": {
+                            "is_idle_on_mains": {
+                                "doc": [
+                                    "Whether heavy background work may run: on mains power and idle for at least",
+                                    "`min_idle_secs` seconds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "min_idle_secs": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_idle_on_mains(min_idle_secs)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
