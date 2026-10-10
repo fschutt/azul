@@ -192,7 +192,7 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         }
         AddEvent::RetryTiers => load_tiers(info, app, s, true),
         AddEvent::Test => test(info, app, s),
-        AddEvent::SignIn => sign_in(info, app, s),
+        AddEvent::SignIn => start_sign_in(info, app, s),
         AddEvent::Save => save(info, app, s),
         AddEvent::Cancel => close(info, app, s),
         AddEvent::CreateTestDrive => create_test_drive(info, app, s),
@@ -313,7 +313,7 @@ fn print_sign_in(scheme: &str, step: &str) {
 /// missing one is said), a fresh PKCE pair and state, the authorization request, azul's
 /// sign-in session. Its answer comes back to [`on_sign_in_redirect`]; nothing is sent from
 /// here but the browser's visit to the provider's page.
-fn sign_in(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+fn start_sign_in(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let settings = s.sign_in_settings.clone();
     let Some(d) = dialog(s) else {
         return;
