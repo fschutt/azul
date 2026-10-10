@@ -244,6 +244,58 @@ def new_claim_key():
     return secret, base64.b64encode(public_key(secret)).decode('ascii')
 
 
+# ==== The claim code (cash contract v1) ====
+#
+# What another computer picks a cash checkout's drive up with when the buyer's one is lost -
+# azcloud-kit's `cash::ClaimCode`: `AZK1-` and the RFC 4648 base32 (upper case, no padding,
+# blocks of four joined by `-`) of the checkout id's length (one byte), the id (ASCII), the 32
+# bytes of the claim secret and four bytes of SHA-256(b"AZK1" || what comes before).
+
+CLAIM_CODE_PREFIX = 'AZK1-'
+
+
+def _b32(raw):
+    return base64.b32encode(raw).decode('ascii').rstrip('=')
+
+
+def grouped(text):
+    """`text` in blocks of four joined by `-`, as codes are written on paper."""
+    return '-'.join(text[i:i + 4] for i in range(0, len(text), 4))
+
+
+def _claim_check(payload):
+    return hashlib.sha256(b'AZK1' + payload).digest()[:4]
+
+
+def claim_code(checkout_id, claim_secret):
+    """The claim code of `checkout_id` with `claim_secret` (its bytes, or standard base64)."""
+    secret = claim_secret if isinstance(claim_secret, bytes) else base64.b64decode(claim_secret)
+    ident = checkout_id.encode('ascii')
+    payload = bytes([len(ident)]) + ident + secret
+    return CLAIM_CODE_PREFIX + grouped(_b32(payload + _claim_check(payload)))
+
+
+def parse_claim_code(text):
+    """(checkout id, claim secret bytes) of a claim code as typed (any case, blanks and dashes
+    do not matter); ValueError for anything else - a mistyped code too."""
+    compact = ''.join(c for c in text if not c.isspace() and c != '-').upper()
+    if not compact.startswith('AZK1'):
+        raise ValueError('not a claim code (AZK1-...)')
+    body = compact[4:]
+    try:
+        raw = base64.b32decode(body + '=' * (-len(body) % 8))
+    except ValueError:
+        raise ValueError('not a claim code: no base32') from None
+    if _b32(raw) != body or not raw:
+        raise ValueError('not a claim code: no base32 of whole bytes')
+    size = raw[0]
+    if size == 0 or len(raw) != 1 + size + KEY_LEN + 4:
+        raise ValueError('not a claim code: its length')
+    if _claim_check(raw[:-4]) != raw[-4:]:
+        raise ValueError('not a claim code: its check value (a typo?)')
+    return raw[1:1 + size].decode('ascii'), raw[1 + size:1 + size + KEY_LEN]
+
+
 # ==== The checks ====
 
 def _hex(text):
@@ -337,8 +389,23 @@ def vector():
     }
 
 
+def claim_code_test():
+    """The claim code vector azcloud-kit's tests read (the secret 0, 1, ..., 31)."""
+    code = claim_code('ck_' + 'a' * 26, bytes(range(32)))
+    assert code == ('AZK1-DVRW-WX3B-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-MFQW-CYLB-AAAQ-'
+                    'EAYE-AUDA-OCAJ-BIFQ-YDIO-B4IB-CEQT-CQKR-MFYY-DENB-WHA5-DYP6-P3CB-LY'), code
+    assert parse_claim_code(code.lower().replace('-', ' ')) == ('ck_' + 'a' * 26, bytes(range(32)))
+    typo = code[:10] + ('A' if code[10] != 'A' else 'B') + code[11:]
+    try:
+        parse_claim_code(typo)
+        raise AssertionError('a mistyped claim code was read')
+    except ValueError:
+        pass
+
+
 if __name__ == '__main__':
     self_test()
+    claim_code_test()
     if '--vector' in sys.argv[1:]:
         print(json.dumps(vector(), indent=2))
     else:

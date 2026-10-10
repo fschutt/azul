@@ -176,6 +176,14 @@ class Bucket:
     def delete(self, key):
         self.must('DELETE', key, ok=(200, 204, 404))
 
+    def presigned_get(self, key, expires=3600):
+        """A public link of `key`: a presigned GET with the bundle's credentials."""
+        return self.client.presign('GET', self.bucket, key, expires, self.session_token or None)
+
+    def fetch(self, url):
+        """A link fetched without credentials: (status, lowercase headers, body)."""
+        return self.client.fetch(url)
+
 
 # ---- the mailbox's names (examples/azul-mail/AZLIN_MAIL.md, azlin.rs) ----
 
