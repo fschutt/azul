@@ -13,6 +13,15 @@ fn child_text(node: Node<'_, '_>, name: &str) -> Option<String> {
         .map(|c| c.text().unwrap_or("").to_string())
 }
 
+/// The text of the first element called `name` anywhere in `xml` (any namespace), trimmed;
+/// `None` when `xml` is no XML or has no such element.
+pub(crate) fn first_text(xml: &str, name: &str) -> Option<String> {
+    let doc = Document::parse(xml.trim()).ok()?;
+    doc.descendants()
+        .find(|n| n.is_element() && n.tag_name().name() == name)
+        .map(|n| n.text().unwrap_or("").trim().to_string())
+}
+
 /// An ETag without its quotes.
 pub(crate) fn strip_quotes(etag: &str) -> String {
     etag.trim().trim_matches('"').to_string()

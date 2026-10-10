@@ -2,14 +2,15 @@
 //!
 //! Six calls of the S3 API, each signed with SigV4: ListObjectsV2 (with
 //! continuation tokens), GetObject (with `Range`), PutObject (also conditional:
-//! `If-None-Match: *`, `If-Match`), CopyObject, DeleteObject and HeadObject; any
-//! other request (a conditional read, a multipart upload) is signed the same way by
-//! [`S3Drive::send_raw`]. Error answers become
+//! `If-None-Match: *`, `If-Match`; a streamed body above [`PART_SIZE`] as a multipart
+//! upload, a part at a time), CopyObject, DeleteObject and HeadObject; any other
+//! request (a conditional read) is signed the same way by [`S3Drive::send_raw`].
+//! Error answers become
 //! [`ServiceError`]s that say what the service said. The requests are built here and sent through a
 //! [`Transport`], so the same code runs over azul's HTTP client in the apps and
 //! over a recording fake in the tests.
 
-use std::fmt;
+use std::{fmt, io::Read};
 
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +23,12 @@ use crate::{
 
 /// S3's longest key, in bytes.
 const MAX_KEY_BYTES: usize = 1024;
+
+/// Bytes of one part of a multipart upload, and the most [`Drive::put_from`] sends in one
+/// PUT (S3 takes parts of 5 MiB to 5 GiB, all but the last at least 5 MiB).
+pub const PART_SIZE: usize = 8 * 1024 * 1024;
+/// The most parts of one upload (S3's limit).
+const MAX_PARTS: usize = 10_000;
 
 /// Where the bucket is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +265,20 @@ fn content_type_for(key: &str) -> &'static str {
     }
 }
 
+/// Up to `size` bytes of `body` (fewer only where it ends).
+fn read_part(body: &mut dyn Read, size: usize) -> Result<Vec<u8>, DriveError> {
+    let mut part = Vec::with_capacity(size);
+    (&mut *body).take(size as u64).read_to_end(&mut part)?;
+    Ok(part)
+}
+
+/// Text for an XML element: `&`, `<` and `>` escaped (an ETag's quotes may stay).
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// An entity tag as `If-Match` sends it: in quotes (a weak one, `W/"..."`, as it is).
 fn quoted_etag(etag: &str) -> String {
     let etag = etag.trim();
@@ -296,6 +317,8 @@ pub struct S3Drive {
     credentials: Credentials,
     transport: Box<dyn Transport>,
     clock: Box<dyn Fn() -> u64 + Send + Sync>,
+    /// The part size of a streamed upload ([`PART_SIZE`]).
+    part_size: usize,
 }
 
 impl fmt::Debug for S3Drive {
@@ -327,6 +350,7 @@ impl S3Drive {
             credentials,
             transport,
             clock: Box::new(now_unix),
+            part_size: PART_SIZE,
         })
     }
 
@@ -334,6 +358,14 @@ impl S3Drive {
     #[must_use]
     pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         self.clock = Box::new(clock);
+        self
+    }
+
+    /// Streams [`Drive::put_from`] bodies in parts of `part_size` bytes (at least one; a real
+    /// service wants 5 MiB and more) instead of [`PART_SIZE`].
+    #[must_use]
+    pub fn with_part_size(mut self, part_size: usize) -> Self {
+        self.part_size = part_size.max(1);
         self
     }
 
@@ -535,6 +567,134 @@ impl S3Drive {
         failure(reply, key)
     }
 
+    /// CreateMultipartUpload: the upload's id.
+    fn start_multipart(&self, key: &str) -> Result<String, DriveError> {
+        let reply = self.send_raw(
+            Method::Post,
+            Some(key),
+            vec![(String::from("uploads"), String::new())],
+            Vec::new(),
+            Vec::new(),
+            "",
+        )?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(key)));
+        }
+        xml::first_text(&String::from_utf8_lossy(&reply.body), "UploadId")
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                DriveError::Protocol(format!(
+                    "{key}: the service started no multipart upload (no UploadId)"
+                ))
+            })
+    }
+
+    /// UploadPart `number` (from 1): the part's ETag as the service sent it.
+    fn upload_part(
+        &self,
+        key: &str,
+        upload: &str,
+        number: usize,
+        bytes: Vec<u8>,
+    ) -> Result<String, DriveError> {
+        let query = vec![
+            (String::from("partNumber"), number.to_string()),
+            (String::from("uploadId"), upload.to_string()),
+        ];
+        let reply = self.send_raw(
+            Method::Put,
+            Some(key),
+            query,
+            Vec::new(),
+            bytes,
+            "application/octet-stream",
+        )?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(key)));
+        }
+        reply
+            .header("etag")
+            .map(str::trim)
+            .filter(|etag| !etag.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                DriveError::Protocol(format!("{key}: part {number} came back without an ETag"))
+            })
+    }
+
+    /// The parts of a multipart upload - `first`, `second`, then what `body` still reads, a part
+    /// at a time - and CompleteMultipartUpload; the bytes sent.
+    fn send_parts(
+        &self,
+        key: &str,
+        upload: &str,
+        first: Vec<u8>,
+        second: Vec<u8>,
+        body: &mut dyn Read,
+    ) -> Result<u64, DriveError> {
+        let mut etags: Vec<String> = Vec::new();
+        let mut written = 0u64;
+        let mut part = first;
+        let mut queued = Some(second);
+        loop {
+            let number = etags.len() + 1;
+            if number > MAX_PARTS {
+                return Err(DriveError::Unsupported(format!(
+                    "{key}: an upload of more than {MAX_PARTS} parts of {} bytes",
+                    self.part_size
+                )));
+            }
+            written += part.len() as u64;
+            etags.push(self.upload_part(key, upload, number, part)?);
+            part = match queued.take() {
+                Some(next) => next,
+                None => read_part(body, self.part_size)?,
+            };
+            if part.is_empty() {
+                break;
+            }
+        }
+        let mut manifest = String::from("<CompleteMultipartUpload>");
+        for (i, etag) in etags.iter().enumerate() {
+            manifest.push_str(&format!(
+                "<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>",
+                i + 1,
+                xml_escape(etag)
+            ));
+        }
+        manifest.push_str("</CompleteMultipartUpload>");
+        let reply = self.send_raw(
+            Method::Post,
+            Some(key),
+            vec![(String::from("uploadId"), upload.to_string())],
+            Vec::new(),
+            manifest.into_bytes(),
+            "application/xml",
+        )?;
+        if !reply.is_success() {
+            return Err(failure(&reply, Some(key)));
+        }
+        // A 200 can still carry an error: the service answers early and finishes later.
+        let done = String::from_utf8_lossy(&reply.body);
+        if done.contains("<Error>") {
+            return Err(DriveError::Service(xml::parse_error(500, &done)));
+        }
+        Ok(written)
+    }
+
+    /// AbortMultipartUpload: the parts sent so far are not left (and billed) behind. Best
+    /// effort: the upload failed already.
+    fn abort_multipart(&self, key: &str, upload: &str) {
+        let _ = self.send_raw(
+            Method::Delete,
+            Some(key),
+            vec![(String::from("uploadId"), upload.to_string())],
+            Vec::new(),
+            Vec::new(),
+            "",
+        );
+    }
+
     fn send(&self, call: &HttpCall) -> Result<HttpReply, DriveError> {
         self.transport.send(call).map_err(DriveError::Transport)
     }
@@ -629,6 +789,31 @@ impl Drive for S3Drive {
             Ok(())
         } else {
             Err(failure(&reply, Some(key)))
+        }
+    }
+
+    /// One PutObject for a body of one part or less ([`PART_SIZE`]); a bigger one goes up as a
+    /// multipart upload, a part at a time (one part in memory, two at the start), aborted
+    /// when a part fails.
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        check_s3_key(key)?;
+        let first = read_part(body, self.part_size)?;
+        let second = if first.len() < self.part_size {
+            Vec::new()
+        } else {
+            read_part(body, self.part_size)?
+        };
+        if second.is_empty() {
+            self.put(key, &first)?;
+            return Ok(first.len() as u64);
+        }
+        let upload = self.start_multipart(key)?;
+        match self.send_parts(key, &upload, first, second, body) {
+            Ok(written) => Ok(written),
+            Err(e) => {
+                self.abort_multipart(key, &upload);
+                Err(e)
+            }
         }
     }
 

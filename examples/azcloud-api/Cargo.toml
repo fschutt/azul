@@ -56,6 +56,11 @@ iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"], 
 default = ["iroh"]
 # Without it the CLI speaks HTTPS only and `azcloud transport` says so.
 iroh = ["dep:iroh", "azlin-client/iroh"]
+# Encrypted drives: `encryption`, `encrypt`, `unlock`, `recover`; `invite` seals the drive key
+# into the join code and `join` takes it; `up` and `sync` refuse a drive whose key this device
+# keeps (they would store plaintext). The keys live in the state folder's secrets file. Off
+# until the drive index (the encrypted metadata repository) is in.
+encryption = ["azcloud-kit/encryption", "azul-storage/encryption"]
 
 [lib]
 name = "azcloud_api"

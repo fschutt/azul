@@ -73,6 +73,13 @@ lettre = { version = "0.11.23", default-features = false, features = ["smtp-tran
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
 
+[features]
+default = []
+# An Azlin account's mail through the encryption when its drive is encrypted (mail_drive.rs:
+# azul-storage's AutoEncrypted, the drive key from the keyring AzDrive shares). Off until the
+# drive index (the encrypted metadata repository) is in.
+encryption = ["azul-storage/encryption"]
+
 [lib]
 name = "azmail"
 path = "src/lib.rs"
