@@ -1146,12 +1146,21 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
     let categories = k.categories();
     let chosen = k.category.min(categories.len().saturating_sub(1));
     let kind = Category::of(chosen, app_count);
-    let label = categories.get(chosen).cloned().unwrap_or_default();
+    // The categories as the list shows them: an app's by its own message, the kit's by appkit's.
+    let shown: Vec<String> = categories
+        .iter()
+        .enumerate()
+        .map(|(index, name)| match Category::of(index, app_count) {
+            Category::App(_) => l10n::named(k.about.name, "category", name),
+            _ => t_label(category_label(name)),
+        })
+        .collect();
+    let label = shown.get(chosen).cloned().unwrap_or_default();
 
     let mut pane = vec![look::header_line(
         "appkit-settings-header",
         kind.icon(),
-        phrase_dom(&kind.header(&t_label(&label), k.about.name)),
+        phrase_dom(&kind.header(&label, k.about.name)),
     )];
     match kind {
         Category::App(index) => {
@@ -1175,7 +1184,7 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
         .iter()
         .enumerate()
         .map(|(index, name)| CategoryItem {
-            name: category_label(name),
+            name: shown[index].as_str(),
             id: category_id(name),
             // Outlook's groups: the app's categories, General / Data / Shortcuts, About.
             rule_before: (index == app_count && app_count > 0)

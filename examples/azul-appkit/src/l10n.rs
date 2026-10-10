@@ -224,6 +224,35 @@ pub fn t_label(text: &str) -> String {
     }
 }
 
+/// An app's own word for a thing it keys by its English name (a category of its Options,
+/// `View`, which is the category's DOM id and `open_settings`' argument too): the message
+/// `<app>-<what>-<name>` of the app's resources (`azdrive-category-view`; the app's and the
+/// name's letters and digits, lower case, a hyphen for each run of others) in the language of
+/// the layout pass; the name as it is when the app has no such message.
+#[must_use]
+pub fn named(app: &str, what: &str, name: &str) -> String {
+    let key = format!("{}-{what}-{}", slug(app, false), slug(name, true));
+    let said = t(&key);
+    if said == key {
+        name.to_string()
+    } else {
+        said
+    }
+}
+
+/// `text`'s letters and digits in lower case; `hyphens`: a hyphen for each run of others.
+fn slug(text: &str, hyphens: bool) -> String {
+    let mut slug = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if hyphens && !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
+
 /// `text` in the language of the layout pass.
 #[must_use]
 pub fn t_text(text: &Text) -> String {
