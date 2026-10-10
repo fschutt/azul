@@ -343,6 +343,12 @@ pub struct DriveStatus {
     pub members: Vec<String>,
     /// The member whose token asked.
     pub you: Option<String>,
+    /// The drive's quota in bytes - of STORED bytes: what arrives at the storage nodes,
+    /// compressed and encrypted.
+    pub quota_bytes: Option<u64>,
+    /// The bytes the drive holds as the storage nodes count them (stored: compressed and
+    /// encrypted); what the quota is counted against.
+    pub used_bytes: Option<u64>,
 }
 
 /// What a voucher bought.
@@ -980,6 +986,8 @@ impl<'a> TokenServer<'a> {
             read_only: info["read_only"].as_bool().unwrap_or(false),
             members,
             you: info["you"].as_str().map(str::to_string),
+            quota_bytes: None,
+            used_bytes: None,
         })
     }
 

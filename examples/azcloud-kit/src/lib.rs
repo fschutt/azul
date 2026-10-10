@@ -103,6 +103,7 @@ pub mod store;
 pub mod sync;
 pub mod token;
 pub mod transport;
+pub mod usage;
 pub mod user_errors;
 
 #[cfg(test)]

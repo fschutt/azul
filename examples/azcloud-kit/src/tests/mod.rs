@@ -34,6 +34,7 @@ mod sync_rules;
 mod sync_session;
 mod sync_stream;
 mod token;
+mod usage;
 mod transport;
 mod user_errors;
 mod voucher;

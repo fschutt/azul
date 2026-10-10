@@ -93,6 +93,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             200,
             if n == 0 {
                 r#"{"id": "d_1", "tier": "100GB", "read_only": false, "status": "active",
+                    "quota_bytes": 100000000000, "used_bytes": 62000000000,
                     "period_until": "2026-11-07T00:00:00Z",
                     "lockdown_pending_until": "2026-10-13T09:00:00Z", "you": "owner",
                     "members": [
@@ -123,6 +124,8 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
                 String::from(RECOVERY_MEMBER),
             ],
             you: Some(String::from("owner")),
+            quota_bytes: Some(100_000_000_000),
+            used_bytes: Some(62_000_000_000),
         }
     );
     assert_eq!(
@@ -134,6 +137,8 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             read_only: true,
             members: Vec::new(),
             you: None,
+            quota_bytes: None,
+            used_bytes: None,
         }
     );
 }
