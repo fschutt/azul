@@ -211,3 +211,16 @@ fn the_choose_page_offers_to_pick_up_a_paid_drive_with_a_claim_code() {
     dialog.back();
     assert_eq!(dialog.page_line(), "choose");
 }
+
+#[test]
+fn a_long_claims_run_asks_a_cash_checkout_again_only_after_its_daily_interval() {
+    use std::time::{Duration, Instant};
+
+    use crate::jobs::cash_ask_due;
+
+    let now = Instant::now();
+    assert!(cash_ask_due(None, 86_400, now), "never asked in this run: now");
+    let asked = now.checked_sub(Duration::from_secs(10)).unwrap_or(now);
+    assert!(!cash_ask_due(Some(asked), 86_400, now), "not every round of the run");
+    assert!(cash_ask_due(Some(asked), 5, now), "a test run's short interval is over");
+}
