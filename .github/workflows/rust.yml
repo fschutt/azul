@@ -734,8 +734,11 @@ jobs:
       - name: Run azul-storage tests (and the local S3 test server's)
         run: |
           set -o pipefail
-          cargo test -p azul-storage --no-fail-fast 2>&1 | tee azul-storage-tests.txt
+          # With the encryption (AZL1, the keys, the drive index's wiring, drops, shares,
+          # rotation): what every app ships. The plain build must still compile.
+          cargo test -p azul-storage --features encryption --no-fail-fast 2>&1 | tee azul-storage-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-storage-tests.txt
+          cargo check -p azul-storage --tests
           python3 examples/azul-drive/scripts/test_s3_server.py
 
       - name: Run AzDrive tests
@@ -745,6 +748,8 @@ jobs:
           set -o pipefail
           cargo test -p AzDrive --lib --no-fail-fast 2>&1 | tee azul-drive-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-drive-tests.txt
+          # The encryption is a default feature; the build without it must still compile.
+          cargo check -p AzDrive --lib --tests --no-default-features
 
       - name: Run AzShells tests
         env:
@@ -775,8 +780,9 @@ jobs:
       - name: Run azcloud-kit tests
         run: |
           set -o pipefail
-          cargo test -p azcloud-kit --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
+          cargo test -p azcloud-kit --features encryption --no-fail-fast 2>&1 | tee azcloud-kit-tests.txt
           ./scripts/zero_test_guard.sh --strict azcloud-kit-tests.txt
+          cargo check -p azcloud-kit --tests
 
       # The fake providers of the local stacks are a feature (a build without it cannot be
       # pointed at a fake): the tests run with it, so the dev registry is tested too.
@@ -903,15 +909,18 @@ jobs:
       - name: Run azul-mail-core tests
         run: |
           set -o pipefail
-          # With the encryption: the mail drive's encrypted path and its drops (mail_drive.rs).
-          cargo test -p azul-mail-core --features encryption --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
+          # The encryption is a default feature (the mail drive's encrypted path, its drops); the
+          # build without it must still compile.
+          cargo test -p azul-mail-core --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-mail-core-tests.txt
+          cargo check -p azul-mail-core --tests --no-default-features
 
       - name: Run azul-bridge tests
         run: |
           set -o pipefail
           cargo test -p azul-bridge --no-fail-fast 2>&1 | tee azul-bridge-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-bridge-tests.txt
+          cargo check -p azul-bridge --tests --no-default-features
 
       - name: Run AzMail tests (and the local IMAP test server's)
         env:
@@ -920,6 +929,8 @@ jobs:
           set -o pipefail
           cargo test -p AzMail --lib --no-fail-fast 2>&1 | tee azul-mail-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-mail-tests.txt
+          # The encryption is a default feature; the build without it must still compile.
+          cargo check -p AzMail --lib --tests --no-default-features
           python3 examples/azul-mail/scripts/test_imap_server.py
 
       - name: Run AzDashboard tests

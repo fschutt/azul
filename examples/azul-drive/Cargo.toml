@@ -46,18 +46,19 @@ azul-storage = { path = "../azul-storage", features = ["testing"] }
 
 [features]
 # Add drive > Connect data source offers OpenDAL's services and the databases (tables as
-# folders); `--no-default-features` builds AzDrive with S3 and local folders only.
-default = ["opendal", "sql"]
+# folders); `--no-default-features` builds AzDrive with S3 and local folders only (and without
+# the encryption: a build for tests of the plain paths, never shipped).
+default = ["opendal", "sql", "encryption"]
 opendal = ["azul-storage/opendal"]
 sql = ["azul-storage/sql"]
 # The fake payment providers of the local stacks (scripts/azlin_mock_stack.py): only for test
 # builds - a build without it cannot be pointed at a fake, and even with it a fake is only taken
 # from a token server on this computer.
 fake-providers = ["azul-pay/fake-providers"]
-# Encrypted drives (src/encryption.rs): an Azlin drive opens through azul-storage's AutoEncrypted,
-# the cloud drives' menu offers "Encrypt this drive" (keys, the recovery sheet, the files moved
-# into the encryption) and "Unlock with the recovery code". Off until the drive index (the
-# encrypted metadata repository) is in: without it encrypted drives cannot be opened.
+# Encrypted drives (src/encryption.rs), on by default ("we always encrypt and compress"): an
+# Azlin drive opens through azul-storage's AutoEncrypted and the drive index; a NEW Azlin drive
+# is encrypted as it is made (its keys, the recovery sheet); an older plaintext one keeps
+# opening and its menu offers "Encrypt this drive" (the files moved into the encryption).
 encryption = ["azul-storage/encryption", "azcloud-kit/encryption"]
 
 [lib]
