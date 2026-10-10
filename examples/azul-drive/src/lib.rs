@@ -1140,10 +1140,15 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             None => {
                 remote = true;
                 options.contents = false;
-                // The drive's last complete listing is kept in the cache folder.
-                let cache = s.cache_dir.as_ref().map(|dir| {
-                    find::listing_file(&dir.join("listings"), &s.slots[index].entry.id)
-                });
+                // The drive's last complete listing is kept in the cache folder (never an
+                // encrypted drive's).
+                let cache = s
+                    .cache_dir
+                    .as_ref()
+                    .filter(|_| keeps_listing(&s.slots[index]))
+                    .map(|dir| {
+                        find::listing_file(&dir.join("listings"), &s.slots[index].entry.id)
+                    });
                 jobs.push(Job::FindRemote {
                     find: jobs::RemoteFind {
                         serial,
@@ -1198,6 +1203,22 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     for job in jobs {
         spawn(info, app, s, job);
     }
+}
+
+/// Whether a cloud drive's last listing may be kept on this computer: not an encrypted drive's,
+/// nor an Azlin drive's not known to be plain yet - its names would lie in the cache in the
+/// clear.
+#[cfg(feature = "encryption")]
+fn keeps_listing(slot: &Slot) -> bool {
+    slot.auto
+        .as_ref()
+        .is_none_or(|auto| auto.is_encrypted() == Some(false))
+}
+
+/// Without encrypted drives a listing holds the bucket's own keys: it may be kept.
+#[cfg(not(feature = "encryption"))]
+fn keeps_listing(_slot: &Slot) -> bool {
+    true
 }
 
 // ==== A drive's full-text index ====
