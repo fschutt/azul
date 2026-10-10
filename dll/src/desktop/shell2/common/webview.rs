@@ -24,41 +24,36 @@
 //!
 //! # Backends
 //!
-//! | platform | backend | state |
+//! | platform | backend | how |
 //! |---|---|---|
-//! | headless | [`HeadlessWebViews`]: the shared recorder, no browser | done |
-//! | macOS | `macos::webview` - `WKWebView`, `WebKit.framework` dlopen'd at the first view | done |
-//! | Linux (X11, Wayland) | WPE `WebKit` via dlopen (`linux::webview`), the loading layer | probe |
-//! | Windows | `WebView2` via `WebView2Loader.dll` (`windows::webview`) | probe |
-//! | iOS | `WKWebView` in a `UIView`, the macOS shape | none yet |
-//! | Android | `android.webkit.WebView` through JNI | none yet |
+//! | headless | [`HeadlessWebViews`] | the shared recorder, no browser |
+//! | macOS | `macos::webview` | `WKWebView` subviews, `WebKit.framework` dlopen'd |
+//! | iOS | `ios::webview` | the macOS shape with `UIKit` |
+//! | Linux (X11, Wayland) | `linux::webview` | WPE `WebKit` composited, on its own thread |
+//! | Windows | `windows::webview` | a `WebView2` controller on a clip child window |
+//! | Android | `android::webview` | `android.webkit.WebView` in a `PopupWindow`, via JNI |
 //!
-//! A platform without a backend never reaches this module: its windows say
-//! so through `WebViewPlatform` (the default `Absent`, or a `Probe` naming
-//! the missing library), and the engine alone fails the views - the view
-//! shows the reason and the app hears `WebViewLoadFailed`.
+//! A native view (macOS, iOS, Windows, Android) draws itself over the
+//! window: its placement is the visible part of its box (a clip view / clip
+//! window holding the page at its whole box), `transform` keeps a scaled
+//! page at its own size (Android also turns it). A composited one (Linux)
+//! is drawn by the window: its frames come back through [`pump`]
+//! (`poll_frames` -> `LayoutWindow::set_webview_frame`) and its input goes
+//! to it (`PlatformWindow::route_webview_pointer` / `route_webview_key`).
 //!
-//! # iOS and Android (design)
+//! A navigation request is answered after the app's callbacks ran: macOS
+//! and iOS hold `WebKit`'s decision handler, Linux holds the policy
+//! decision, Windows decides inside `NavigationStarting` itself
+//! ([`deliver_now`]), Android loads an allowed page only after the answer.
 //!
-//! - iOS: `macos::webview` with `UIKit` - a clip container `UIView`
-//!   (`clipsToBounds`) holding a `WKWebView`, subviews of the render view
-//!   (flipped like azul, no y conversion), the same navigation delegate,
-//!   stores and decision-handler rules. `WebKit` is a system framework there
-//!   too; it is loaded the same lazy way.
-//! - Android: an `android.webkit.WebView` through JNI, a child of the
-//!   activity's content `FrameLayout` positioned with layout params and
-//!   clipped by a wrapping `FrameLayout` (`setClipChildren`). A Java
-//!   `WebViewClient` subclass (`shouldOverrideUrlLoading`, `onPageFinished`,
-//!   `onReceivedError`) and `WebChromeClient.onReceivedTitle` post reports to
-//!   a native queue; `shouldOverrideUrlLoading` must answer synchronously,
-//!   so the shell dispatches the report inside it on the UI thread. No
-//!   `addJavascriptInterface` (no bridge), `setAllowFileAccess(false)`;
-//!   ephemeral = clear the per-app `CookieManager` / `WebStorage` when the
-//!   last ephemeral view goes (Android has one store per app process).
+//! A window without a backend says so through `WebViewPlatform` (the
+//! default `Absent`), and the engine alone fails the views - the view shows
+//! the reason and the app hears `WebViewLoadFailed`.
 //!
-//! Both: an OAuth provider that refuses embedded views (Google, Facebook)
-//! goes through the system auth session (`ASWebAuthenticationSession`,
-//! Custom Tabs) instead - a different API, not this node.
+//! An OAuth provider that refuses embedded views (Google, Facebook, Sign in
+//! with Apple on iOS) goes through the system's auth session
+//! (`ASWebAuthenticationSession`, Custom Tabs, the system browser with a
+//! loopback redirect) instead - a different API, not this node.
 
 use alloc::{string::String, vec::Vec};
 
