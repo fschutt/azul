@@ -76,8 +76,13 @@
 //! `AZDRIVE_TRANSFER <id> planned|conflict|done|failed|cancelled <n>`, `AZDRIVE_DONE <what> <key>`,
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
-//! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
+//! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>|voucher`, `AZDRIVE_TIERS <n>`,
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
+//! `AZDRIVE_PERIOD_TOKENS <checkout id> <drive id> <n>`, `AZDRIVE_PERIOD_REDEEMED <drive id> <n>
+//! <until>`, `AZDRIVE_PROBLEM <drive id> <code> <request id>`, `AZDRIVE_PROBLEM_GONE <drive
+//! id>`, `AZDRIVE_LOCKDOWN_PENDING <drive id> <until>`, `AZDRIVE_LOCKDOWN_CANCELLED <drive id>`,
+//! `AZDRIVE_VOUCHER [new] <drive id> [<days>]`, `AZDRIVE_RECOVERY_KEY <drive id>`,
+//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`,
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
 //! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
