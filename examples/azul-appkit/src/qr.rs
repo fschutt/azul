@@ -102,8 +102,8 @@ impl std::error::Error for QrError {}
 
 /// The most bytes version `version` (1 to 10) holds at level M.
 #[must_use]
-pub fn capacity(_version: u8) -> usize {
-    0
+pub fn capacity(version: u8) -> usize {
+    (data_codewords(version) * 8 - 4 - count_bits(version)) / 8
 }
 
 /// A QR symbol: its version, its mask and its modules (`true`: dark), row by row.
@@ -117,22 +117,72 @@ pub struct QrCode {
 impl QrCode {
     /// The symbol of `data` in the smallest version that holds it, with the mask of the lowest
     /// penalty.
-    pub fn encode(_data: &[u8]) -> Result<QrCode, QrError> {
-        Err(QrError::Unsupported("anything yet"))
+    pub fn encode(data: &[u8]) -> Result<QrCode, QrError> {
+        let version = (MIN_VERSION..=MAX_VERSION)
+            .find(|&v| data.len() <= capacity(v))
+            .ok_or(QrError::TooLong { bytes: data.len() })?;
+        QrCode::encode_with(data, version, None)
     }
 
-    /// The symbol of `data` in version `version`, with mask `mask` (`None`: the one of the
-    /// lowest penalty).
-    pub fn encode_with(_data: &[u8], _version: u8, _mask: Option<u8>) -> Result<QrCode, QrError> {
-        Err(QrError::Unsupported("anything yet"))
+    /// The symbol of `data` in version `version` (at least the smallest that holds it), with
+    /// mask `mask` (`None`: the one of the lowest penalty).
+    pub fn encode_with(data: &[u8], version: u8, mask: Option<u8>) -> Result<QrCode, QrError> {
+        if !(MIN_VERSION..=MAX_VERSION).contains(&version) {
+            return Err(QrError::Unsupported("versions other than 1 to 10"));
+        }
+        if data.len() > MAX_BYTES {
+            return Err(QrError::TooLong { bytes: data.len() });
+        }
+        if data.len() > capacity(version) {
+            return Err(QrError::Unsupported("a version too small for the data"));
+        }
+        let mut codewords = byte_mode_codewords(data, version);
+        let (ec_len, groups) = BLOCKS_M[usize::from(version - 1)];
+        let mut all = with_error_correction(&codewords, ec_len, &groups);
+        let symbol = QrCode::from_codewords(version, &all, mask);
+        wipe(&mut codewords);
+        wipe(&mut all);
+        symbol
     }
 
-    fn from_codewords(
-        _version: u8,
-        _codewords: &[u8],
-        _mask: Option<u8>,
-    ) -> Result<QrCode, QrError> {
-        Err(QrError::Unsupported("anything yet"))
+    /// The symbol of codewords already made (data and error correction, interleaved).
+    fn from_codewords(version: u8, codewords: &[u8], mask: Option<u8>) -> Result<QrCode, QrError> {
+        if mask.is_some_and(|m| m > 7) {
+            return Err(QrError::Unsupported("masks other than 0 to 7"));
+        }
+        let mut grid = Grid::with_function_patterns(version);
+        for (bit, (x, y)) in placement_order(&grid).into_iter().enumerate() {
+            let dark = codewords
+                .get(bit / 8)
+                .is_some_and(|byte| (byte >> (7 - bit % 8)) & 1 == 1);
+            grid.dark[y * grid.size + x] = dark;
+        }
+        let mask = match mask {
+            Some(mask) => mask,
+            None => {
+                let mut best = (u32::MAX, 0);
+                for mask in 0..8 {
+                    grid.apply_mask(mask);
+                    grid.draw_format(mask);
+                    let score = grid.penalty();
+                    if score < best.0 {
+                        best = (score, mask);
+                    }
+                    grid.apply_mask(mask);
+                }
+                best.1
+            }
+        };
+        grid.apply_mask(mask);
+        grid.draw_format(mask);
+        let size = grid.size;
+        let modules = std::mem::take(&mut grid.dark);
+        Ok(QrCode {
+            version,
+            size,
+            mask,
+            modules,
+        })
     }
 
     #[must_use]
@@ -140,29 +190,54 @@ impl QrCode {
         self.version
     }
 
+    /// Modules on a side (`17 + 4 x version`), without the quiet zone (four light modules
+    /// around it).
     #[must_use]
     pub fn size(&self) -> usize {
         self.size
     }
 
+    /// The mask pattern (0 to 7) the format information names.
     #[must_use]
     pub fn mask(&self) -> u8 {
         self.mask
     }
 
+    /// Whether the module in column `x`, row `y` is dark (outside the symbol: light).
     #[must_use]
     pub fn is_dark(&self, x: usize, y: usize) -> bool {
         x < self.size && y < self.size && self.modules[y * self.size + x]
     }
 
+    /// Row `y`'s dark runs, each as (first column, modules): what a drawing makes boxes of.
     #[must_use]
-    pub fn dark_runs(&self, _y: usize) -> Vec<(usize, usize)> {
-        Vec::new()
+    pub fn dark_runs(&self, y: usize) -> Vec<(usize, usize)> {
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for x in 0..self.size {
+            if !self.is_dark(x, y) {
+                continue;
+            }
+            match runs.last_mut() {
+                Some((start, len)) if *start + *len == x => *len += 1,
+                _ => runs.push((x, 1)),
+            }
+        }
+        runs
     }
 
+    /// The modules as text, a line per row: `dark` and `light` characters.
     #[must_use]
-    pub fn to_text(&self, _dark: char, _light: char) -> String {
-        String::new()
+    pub fn to_text(&self, dark: char, light: char) -> String {
+        let mut text = String::with_capacity(self.size * (self.size + 1));
+        for y in 0..self.size {
+            if y > 0 {
+                text.push('\n');
+            }
+            for x in 0..self.size {
+                text.push(if self.is_dark(x, y) { dark } else { light });
+            }
+        }
+        text
     }
 }
 
@@ -172,50 +247,363 @@ impl fmt::Debug for QrCode {
     }
 }
 
-fn count_bits(_version: u8) -> usize {
-    0
+impl Drop for QrCode {
+    fn drop(&mut self) {
+        wipe(&mut self.modules);
+    }
 }
 
-fn byte_mode_codewords(_data: &[u8], _version: u8) -> Vec<u8> {
-    Vec::new()
+/// Clears `values` (what a symbol of a secret leaves in memory).
+fn wipe<T: Default + Copy>(values: &mut [T]) {
+    values.fill(T::default());
+    let _ = std::hint::black_box(values);
 }
 
-fn gf_mul(_x: u8, _y: u8) -> u8 {
-    0
+fn data_codewords(version: u8) -> usize {
+    let (_, groups) = BLOCKS_M[usize::from(version - 1)];
+    groups.iter().map(|(blocks, len)| blocks * len).sum()
 }
 
-fn with_error_correction(_data: &[u8], _ec_len: usize, _groups: &[(usize, usize)]) -> Vec<u8> {
-    Vec::new()
+/// Bits of the byte count in byte mode.
+fn count_bits(version: u8) -> usize {
+    if version < 10 {
+        8
+    } else {
+        16
+    }
 }
 
-fn format_bits(_mask: u8) -> u32 {
-    0
+fn push_bits(bits: &mut Vec<bool>, value: u32, count: usize) {
+    for i in (0..count).rev() {
+        bits.push((value >> i) & 1 == 1);
+    }
 }
 
-fn version_bits(_version: u8) -> u32 {
-    0
+/// Step 1: the data codewords of `data` (at most the version's capacity) in byte mode,
+/// padded to the version's data codewords.
+fn byte_mode_codewords(data: &[u8], version: u8) -> Vec<u8> {
+    let total = data_codewords(version);
+    let mut bits: Vec<bool> = Vec::with_capacity(total * 8);
+    push_bits(&mut bits, 0b0100, 4);
+    push_bits(&mut bits, data.len() as u32, count_bits(version));
+    for &byte in data {
+        push_bits(&mut bits, u32::from(byte), 8);
+    }
+    let terminator = (total * 8 - bits.len()).min(4);
+    push_bits(&mut bits, 0, terminator);
+    let to_byte = (8 - bits.len() % 8) % 8;
+    push_bits(&mut bits, 0, to_byte);
+    let mut out: Vec<u8> = bits
+        .chunks(8)
+        .map(|byte| {
+            byte.iter()
+                .fold(0u8, |acc, &bit| (acc << 1) | u8::from(bit))
+        })
+        .collect();
+    wipe(&mut bits);
+    let mut pad = 0;
+    while out.len() < total {
+        out.push(PAD[pad % 2]);
+        pad += 1;
+    }
+    out
 }
 
-fn masked(_mask: u8, _x: usize, _y: usize) -> bool {
-    false
+/// The product of `x` and `y` in GF(256) with the polynomial `0x11D`, bit by bit (no table
+/// indexed by a secret).
+fn gf_mul(x: u8, y: u8) -> u8 {
+    let mut z: u8 = 0;
+    for i in (0..8).rev() {
+        z = (z << 1) ^ ((z >> 7) * 0x1D);
+        z ^= ((y >> i) & 1) * x;
+    }
+    z
 }
 
+/// The Reed-Solomon generator polynomial of `degree`, its leading 1 left out, highest power
+/// first: the product of `(x - 2^i)` for `i` below `degree`.
+fn rs_divisor(degree: usize) -> Vec<u8> {
+    let mut result = vec![0u8; degree];
+    result[degree - 1] = 1;
+    let mut root: u8 = 1;
+    for _ in 0..degree {
+        for j in 0..degree {
+            result[j] = gf_mul(result[j], root);
+            if j + 1 < degree {
+                result[j] ^= result[j + 1];
+            }
+        }
+        root = gf_mul(root, 0x02);
+    }
+    result
+}
+
+/// The error correction codewords of `data`: the remainder of its polynomial divided by the
+/// generator.
+fn rs_remainder(data: &[u8], divisor: &[u8]) -> Vec<u8> {
+    let mut result = vec![0u8; divisor.len()];
+    for &byte in data {
+        let factor = byte ^ result.remove(0);
+        result.push(0);
+        for (r, &coefficient) in result.iter_mut().zip(divisor) {
+            *r ^= gf_mul(coefficient, factor);
+        }
+    }
+    result
+}
+
+/// Step 2: the data codewords split into the blocks of `groups` ((blocks, codewords of each)),
+/// each block's `ec_len` error correction codewords made, then the data and the error
+/// correction codewords interleaved block by block.
+fn with_error_correction(data: &[u8], ec_len: usize, groups: &[(usize, usize)]) -> Vec<u8> {
+    let divisor = rs_divisor(ec_len);
+    let mut blocks: Vec<&[u8]> = Vec::new();
+    let mut at = 0;
+    for &(count, len) in groups {
+        for _ in 0..count {
+            blocks.push(&data[at..at + len]);
+            at += len;
+        }
+    }
+    let mut corrections: Vec<Vec<u8>> = blocks
+        .iter()
+        .map(|block| rs_remainder(block, &divisor))
+        .collect();
+    let longest = blocks.iter().map(|block| block.len()).max().unwrap_or(0);
+    let mut out = Vec::with_capacity(data.len() + ec_len * blocks.len());
+    for i in 0..longest {
+        for block in &blocks {
+            if let Some(&byte) = block.get(i) {
+                out.push(byte);
+            }
+        }
+    }
+    for i in 0..ec_len {
+        for correction in &corrections {
+            out.push(correction[i]);
+        }
+    }
+    for correction in &mut corrections {
+        wipe(correction);
+    }
+    out
+}
+
+/// The format information of level M and `mask`: 15 bits, BCH-coded and masked (Annex C).
+fn format_bits(mask: u8) -> u32 {
+    let data = (LEVEL_M << 3) | u32::from(mask);
+    let mut rem = data;
+    for _ in 0..10 {
+        rem = (rem << 1) ^ ((rem >> 9) * FORMAT_GENERATOR);
+    }
+    ((data << 10) | rem) ^ FORMAT_MASK
+}
+
+/// The version information of `version` (7 and up): 18 bits, BCH-coded (Annex D).
+fn version_bits(version: u8) -> u32 {
+    let data = u32::from(version);
+    let mut rem = data;
+    for _ in 0..12 {
+        rem = (rem << 1) ^ ((rem >> 11) * VERSION_GENERATOR);
+    }
+    (data << 12) | rem
+}
+
+/// Whether mask pattern `mask` flips the module in column `x`, row `y` (Table 10).
+fn masked(mask: u8, x: usize, y: usize) -> bool {
+    match mask {
+        0 => (x + y) % 2 == 0,
+        1 => y % 2 == 0,
+        2 => x % 3 == 0,
+        3 => (x + y) % 3 == 0,
+        4 => (x / 3 + y / 2) % 2 == 0,
+        5 => x * y % 2 + x * y % 3 == 0,
+        6 => (x * y % 2 + x * y % 3) % 2 == 0,
+        _ => ((x + y) % 2 + x * y % 3) % 2 == 0,
+    }
+}
+
+/// A symbol while it is made: the modules, and which of them are function patterns.
 struct Grid {
+    size: usize,
     dark: Vec<bool>,
+    function: Vec<bool>,
 }
 
 impl Grid {
-    fn with_function_patterns(_version: u8) -> Grid {
-        Grid { dark: Vec::new() }
+    /// A symbol of `version` with its function patterns drawn and its format information
+    /// reserved (drawn for mask 0).
+    fn with_function_patterns(version: u8) -> Grid {
+        let size = 17 + 4 * usize::from(version);
+        let mut grid = Grid {
+            size,
+            dark: vec![false; size * size],
+            function: vec![false; size * size],
+        };
+        for i in 0..size {
+            grid.set_function(6, i, i % 2 == 0);
+            grid.set_function(i, 6, i % 2 == 0);
+        }
+        let far = size as isize - 4;
+        for (cx, cy) in [(3, 3), (far, 3), (3, far)] {
+            for dy in -4isize..=4 {
+                for dx in -4isize..=4 {
+                    let (x, y) = (cx + dx, cy + dy);
+                    if (0..size as isize).contains(&x) && (0..size as isize).contains(&y) {
+                        let ring = dx.abs().max(dy.abs());
+                        grid.set_function(x as usize, y as usize, ring != 2 && ring != 4);
+                    }
+                }
+            }
+        }
+        let centres = ALIGNMENT[usize::from(version - 1)];
+        let last = centres.len().saturating_sub(1);
+        for (i, &cx) in centres.iter().enumerate() {
+            for (j, &cy) in centres.iter().enumerate() {
+                let on_a_finder =
+                    (i == 0 && j == 0) || (i == 0 && j == last) || (i == last && j == 0);
+                if on_a_finder {
+                    continue;
+                }
+                for dy in 0..5usize {
+                    for dx in 0..5usize {
+                        let ring = dx.abs_diff(2).max(dy.abs_diff(2));
+                        grid.set_function(cx + dx - 2, cy + dy - 2, ring != 1);
+                    }
+                }
+            }
+        }
+        grid.draw_format(0);
+        if version >= 7 {
+            let bits = version_bits(version);
+            for i in 0..18usize {
+                let dark = (bits >> i) & 1 == 1;
+                let (a, b) = (size - 11 + i % 3, i / 3);
+                grid.set_function(a, b, dark);
+                grid.set_function(b, a, dark);
+            }
+        }
+        grid
     }
 
+    fn set_function(&mut self, x: usize, y: usize, dark: bool) {
+        let at = y * self.size + x;
+        self.dark[at] = dark;
+        self.function[at] = true;
+    }
+
+    /// The format information of `mask`, both copies, and the dark module.
+    fn draw_format(&mut self, mask: u8) {
+        let bits = format_bits(mask);
+        let bit = |i: usize| (bits >> i) & 1 == 1;
+        let size = self.size;
+        for i in 0..6 {
+            self.set_function(8, i, bit(i));
+        }
+        self.set_function(8, 7, bit(6));
+        self.set_function(8, 8, bit(7));
+        self.set_function(7, 8, bit(8));
+        for i in 9..15 {
+            self.set_function(14 - i, 8, bit(i));
+        }
+        for i in 0..8 {
+            self.set_function(size - 1 - i, 8, bit(i));
+        }
+        for i in 8..15 {
+            self.set_function(8, size - 15 + i, bit(i));
+        }
+        self.set_function(8, size - 8, true);
+    }
+
+    /// Flips the modules `mask` covers, function patterns aside (twice: as before).
+    fn apply_mask(&mut self, mask: u8) {
+        for y in 0..self.size {
+            for x in 0..self.size {
+                let at = y * self.size + x;
+                if !self.function[at] && masked(mask, x, y) {
+                    self.dark[at] = !self.dark[at];
+                }
+            }
+        }
+    }
+
+    /// The penalty score of the modules as they are (section 7.8.3).
     fn penalty(&self) -> u32 {
-        0
+        let n = self.size;
+        let at = |x: usize, y: usize| self.dark[y * n + x];
+        let mut score: u32 = 0;
+        let mut line = vec![false; n];
+        for horizontal in [true, false] {
+            for a in 0..n {
+                for (b, module) in line.iter_mut().enumerate() {
+                    *module = if horizontal { at(b, a) } else { at(a, b) };
+                }
+                // Rule 1: five or more of a colour in a row: 3, and 1 for each more.
+                let mut run = 1;
+                for i in 1..=n {
+                    if i < n && line[i] == line[i - 1] {
+                        run += 1;
+                    } else {
+                        if run >= 5 {
+                            score += 3 + (run - 5) as u32;
+                        }
+                        run = 1;
+                    }
+                }
+                // Rule 3: a finder-like run beside four light modules: 40.
+                for i in 0..n - 10 {
+                    let window = &line[i..i + 11];
+                    if window == &FINDER_LIKE[..] || window.iter().rev().eq(FINDER_LIKE.iter()) {
+                        score += 40;
+                    }
+                }
+            }
+        }
+        // Rule 2: each 2 x 2 block of a colour: 3.
+        for y in 0..n - 1 {
+            for x in 0..n - 1 {
+                let c = at(x, y);
+                if c == at(x + 1, y) && c == at(x, y + 1) && c == at(x + 1, y + 1) {
+                    score += 3;
+                }
+            }
+        }
+        // Rule 4: 10 for each whole 5 % the dark modules are off half.
+        let dark = self.dark.iter().filter(|&&d| d).count();
+        let total = n * n;
+        let deviation = (dark * 20).abs_diff(total * 10);
+        let mut steps = 0;
+        while deviation > (steps + 1) * total {
+            steps += 1;
+        }
+        score + 10 * steps as u32
     }
 }
 
-fn placement_order(_grid: &Grid) -> Vec<(usize, usize)> {
-    Vec::new()
+/// Step 3's order: the modules the codewords' bits go to, first to last - columns in pairs
+/// from the right (the vertical timing column skipped), up and down by turns, function
+/// patterns left out.
+fn placement_order(grid: &Grid) -> Vec<(usize, usize)> {
+    let n = grid.size;
+    let mut order = Vec::new();
+    let mut right = n as isize - 1;
+    while right >= 1 {
+        if right == 6 {
+            right = 5;
+        }
+        let upward = ((right + 1) & 2) == 0;
+        for vertical in 0..n {
+            for j in 0..2 {
+                let x = (right - j) as usize;
+                let y = if upward { n - 1 - vertical } else { vertical };
+                if !grid.function[y * n + x] {
+                    order.push((x, y));
+                }
+            }
+        }
+        right -= 2;
+    }
+    order
 }
 
 #[cfg(test)]
