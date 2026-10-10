@@ -550,7 +550,7 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
         if d.cash_choice().is_some() {
             row.push(button(
                 app,
-                "Pay with cash by post\u{2026}",
+                "azdrive-add-pay-cash",
                 ButtonType::Default,
                 AddEvent::PayCash,
                 ids::ADD_PAY_CASH,

@@ -1786,3 +1786,8 @@ azdrive-kind-azlin = Azlin-Cloudlaufwerk
 azdrive-kind-s3-bucket = S3-Bucket
 azdrive-kind-database = { $engine }-Datenbank
 azdrive-add-choose-path = Auswählen…
+
+## Buy storage: cash by post beside the payment page
+
+azdrive-add-no-cash = Dieser Tokenserver nimmt kein Bargeld per Post an.
+azdrive-add-pay-cash = Mit Bargeld per Post bezahlen…

@@ -1788,3 +1788,8 @@ azdrive-kind-azlin = Azlin cloud drive
 azdrive-kind-s3-bucket = S3 bucket
 azdrive-kind-database = { $engine } database
 azdrive-add-choose-path = Choose ...
+
+## Buy storage: cash by post beside the payment page
+
+azdrive-add-no-cash = This token server takes no cash by post.
+azdrive-add-pay-cash = Pay with cash by post…
