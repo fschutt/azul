@@ -1227,10 +1227,54 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// and the bucket's lease is still the one the guard took (not released,
     /// not taken over). The lease only saves double work: every change of the
     /// manifest is a swap anyway.
-    /// One maintenance round. Not written yet.
+    /// One maintenance round under the lease - `None` when another device holds it (the work
+    /// is that device's): the orphan sweep (where the bucket can list), compaction from
+    /// `compact_at_packs` live packs on, a checkpoint from `checkpoint_at_entries` log entries
+    /// on, the garbage collection; then the lease goes back. A device runs it now and then,
+    /// idle and on mains power.
     pub fn maintain(&mut self, rules: &Maintenance) -> Result<Option<Maintained>, MetaError> {
-        let _ = rules;
-        Ok(Some(Maintained::default()))
+        let guard = match self.acquire_lease(MAINTENANCE, rules.lease_secs) {
+            Ok(guard) => guard,
+            Err(MetaError::LeaseHeld { .. }) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let done = self.maintain_under(&guard, rules);
+        let released = self.release_lease(guard);
+        let done = done?;
+        released?;
+        Ok(Some(done))
+    }
+
+    fn maintain_under(
+        &mut self,
+        guard: &LeaseGuard,
+        rules: &Maintenance,
+    ) -> Result<Maintained, MetaError> {
+        let swept = match self.sweep_orphans(guard, rules.orphan_age) {
+            Ok(swept) => swept,
+            Err(MetaError::Unsupported(_)) => 0,
+            Err(e) => return Err(e),
+        };
+        self.sync()?;
+        let compacted = if self.state.packs.len() >= rules.compact_at_packs.max(2) {
+            self.compact(guard)?.is_some()
+        } else {
+            false
+        };
+        let entries = self.synced.as_ref().map_or(0, |s| s.manifest.log.len());
+        let checkpointed = if entries >= rules.checkpoint_at_entries.max(1) {
+            self.checkpoint()?;
+            true
+        } else {
+            false
+        };
+        let collected = self.collect_garbage(guard, rules.grace)?;
+        Ok(Maintained {
+            swept,
+            compacted,
+            checkpointed,
+            collected,
+        })
     }
 
     /// Finds what no manifest names - the packs of lost swaps, the log entries
