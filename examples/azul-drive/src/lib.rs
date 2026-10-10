@@ -781,6 +781,10 @@ pub(crate) struct DriveState {
     /// An Azlin drive's space, by its Azlin id: the quota counts stored bytes
     /// ([`usage_view`]).
     pub usage: HashMap<String, usage_view::DriveUsage>,
+    /// Recovery sheets of new drives made while another dialog was open (a paid drive that
+    /// arrived in the background): each shows when no dialog is.
+    #[cfg(feature = "encryption")]
+    pub pending_sheets: Vec<encryption::Sheet>,
     pub message: Option<Message>,
     pub popup: Option<Popup>,
     pub popups_opened: u64,
@@ -2626,6 +2630,8 @@ pub(crate) extern "C" fn on_job_done(
             result,
         } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
     }
+    #[cfg(feature = "encryption")]
+    encryption::show_pending_sheet(s);
     Update::RefreshDom
 }
 
@@ -2642,6 +2648,9 @@ pub(crate) fn with_state(
         return Update::DoNothing;
     };
     f(info, &app, &mut *guard);
+    // A new drive's recovery sheet that waited for another dialog to close.
+    #[cfg(feature = "encryption")]
+    encryption::show_pending_sheet(&mut *guard);
     Update::RefreshDom
 }
 
@@ -3126,6 +3135,8 @@ pub fn start() {
         root_counts: HashMap::new(),
         disk: HashMap::new(),
         usage: HashMap::new(),
+        #[cfg(feature = "encryption")]
+        pending_sheets: Vec::new(),
         message,
         popup: None,
         popups_opened: 0,

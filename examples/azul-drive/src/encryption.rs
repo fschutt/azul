@@ -734,14 +734,18 @@ pub(crate) fn encrypt_new_drive(
         return;
     };
     println!("AZDRIVE_ENCRYPTING_NEW_DRIVE {drive_id}");
-    s.popups_opened += 1;
-    s.popup = Some(Popup::Encryption(Dialog::Busy {
-        title: String::from("Setting up the drive's encryption"),
-        text: String::from(
-            "Every file of the drive is encrypted on this computer before it leaves it. Making \
-             the drive's keys and its recovery code (a few seconds)...",
-        ),
-    }));
+    // Another dialog stays (a paid drive that arrived while the Add drive dialog is open): the
+    // sheet waits for it to close.
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Encryption(Dialog::Busy {
+            title: String::from("Setting up the drive's encryption"),
+            text: String::from(
+                "Every file of the drive is encrypted on this computer before it leaves it. \
+                 Making the drive's keys and its recovery code (a few seconds)...",
+            ),
+        }));
+    }
     spawn(
         info,
         app,
@@ -852,6 +856,21 @@ pub(crate) fn request_totals(info: &mut CallbackInfo, app: &RefAny, s: &mut Driv
             s,
             Job::Encryption(EncryptionJob::Totals { azlin_id, auto }),
         );
+    }
+}
+
+/// Whether a recovery sheet may take the window's dialog now: no dialog is open, or the
+/// encryption's own "working" page is (the sheet is what it waits for).
+pub(crate) fn sheet_shows_now(popup: Option<&Popup>) -> bool {
+    matches!(popup, None | Some(Popup::Encryption(Dialog::Busy { .. })))
+}
+
+/// Shows the first recovery sheet that waited for another dialog, once none is open.
+pub(crate) fn show_pending_sheet(s: &mut DriveState) {
+    if s.popup.is_none() && !s.pending_sheets.is_empty() {
+        let sheet = s.pending_sheets.remove(0);
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Encryption(Dialog::Sheet(sheet)));
     }
 }
 
@@ -1665,7 +1684,11 @@ pub(crate) fn on_outcome(
                 } else {
                     sheet
                 };
-                s.popup = Some(Popup::Encryption(Dialog::Sheet(sheet)));
+                if sheet_shows_now(s.popup.as_ref()) {
+                    s.popup = Some(Popup::Encryption(Dialog::Sheet(sheet)));
+                } else {
+                    s.pending_sheets.push(sheet);
+                }
             }
             Err(why) => {
                 let text = if new_drive {
@@ -2049,6 +2072,19 @@ mod tests {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         assert!(Sheet::new("d_new", code.to_text()).for_new_drive().new_drive);
         assert!(!Sheet::new("d_new", code.to_text()).new_drive);
+    }
+
+    #[test]
+    fn a_new_drives_sheet_waits_for_another_open_dialog() {
+        assert!(sheet_shows_now(None));
+        assert!(sheet_shows_now(Some(&Popup::Encryption(Dialog::Busy {
+            title: String::new(),
+            text: String::new(),
+        }))));
+        assert!(!sheet_shows_now(Some(&Popup::Encryption(Dialog::Message {
+            title: String::new(),
+            text: String::new(),
+        }))));
     }
 
     #[test]
