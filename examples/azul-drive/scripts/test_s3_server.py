@@ -388,5 +388,127 @@ class RequestLog(ServerTest):
         self.assertEqual(self.server.object_gets(), ["mail/inbox/0001.eml"])
 
 
+def complete_xml(parts):
+    """A CompleteMultipartUpload body of (number, etag) pairs."""
+    return ("<CompleteMultipartUpload>%s</CompleteMultipartUpload>" % "".join(
+        "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>" % (n, e) for n, e in parts
+    )).encode("utf-8")
+
+
+class Multipart(ServerTest):
+    """Multipart uploads as S3 answers them: started, sent in parts, listed, completed (also
+    conditionally), aborted - what a resumable upload of a big file needs."""
+
+    def start_upload(self, key):
+        status, _, body = self.client.request("POST", BUCKET, key, query={"uploads": ""})
+        self.assertEqual(status, 200, body)
+        return xml_values(body, "UploadId")[0]
+
+    def part(self, key, upload, number, data):
+        status, headers, body = self.client.request(
+            "PUT", BUCKET, key, query={"partNumber": str(number), "uploadId": upload}, body=data)
+        self.assertEqual(status, 200, body)
+        return headers["etag"]
+
+    def complete(self, key, upload, parts, **headers):
+        return self.client.request("POST", BUCKET, key, query={"uploadId": upload},
+                                   body=complete_xml(parts), headers=headers)
+
+    def test_an_upload_is_started_sent_in_parts_and_completed(self):
+        upload = self.start_upload("big.bin")
+        first = self.part("big.bin", upload, 1, b"a" * 10)
+        second = self.part("big.bin", upload, 2, b"b" * 3)
+        self.assertTrue(first.startswith('"'))
+        status, headers, body = self.complete("big.bin", upload, [(1, first), (2, second)])
+        self.assertEqual(status, 200, body)
+        self.assertTrue(xml_values(body, "ETag")[0].endswith('-2"'), body)
+        self.assertEqual(self.get("big.bin")[2], b"a" * 10 + b"b" * 3)
+        ops = [r["op"] for r in self.server.requests()]
+        self.assertEqual(ops, ["CreateMultipartUpload", "UploadPart", "UploadPart",
+                               "CompleteMultipartUpload", "GetObject"])
+
+    def test_list_parts_names_the_parts_sent_with_their_etags_and_sizes(self):
+        upload = self.start_upload("big.bin")
+        first = self.part("big.bin", upload, 1, b"a" * 10)
+        self.part("big.bin", upload, 3, b"c" * 4)
+        status, _, body = self.client.request("GET", BUCKET, "big.bin", query={"uploadId": upload})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(xml_values(body, "PartNumber"), ["1", "3"])
+        self.assertEqual(xml_values(body, "Size"), ["10", "4"])
+        self.assertEqual(xml_values(body, "ETag")[0], first)
+        self.assertEqual(xml_values(body, "IsTruncated"), ["false"])
+
+    def test_an_aborted_upload_leaves_nothing_and_cannot_be_completed(self):
+        upload = self.start_upload("big.bin")
+        first = self.part("big.bin", upload, 1, b"a" * 10)
+        status, _, _ = self.client.request("DELETE", BUCKET, "big.bin", query={"uploadId": upload})
+        self.assertEqual(status, 204)
+        status, _, body = self.complete("big.bin", upload, [(1, first)])
+        self.assertEqual((status, xml_code(body)), (404, "NoSuchUpload"))
+        status, _, body = self.client.request("GET", BUCKET, "big.bin", query={"uploadId": upload})
+        self.assertEqual((status, xml_code(body)), (404, "NoSuchUpload"))
+        self.assertEqual(self.get("big.bin")[0], 404)
+        status, _, _ = self.client.request("DELETE", BUCKET, "big.bin", query={"uploadId": upload})
+        self.assertEqual(status, 404)
+
+    def test_a_completion_with_if_none_match_loses_to_an_object_that_is_there(self):
+        self.seed("taken.bin", b"first")
+        upload = self.start_upload("taken.bin")
+        first = self.part("taken.bin", upload, 1, b"second")
+        status, _, body = self.complete("taken.bin", upload, [(1, first)], **{"If-None-Match": "*"})
+        self.assertEqual((status, xml_code(body)), (412, "PreconditionFailed"))
+        self.assertEqual(self.get("taken.bin")[2], b"first", "nothing written")
+        upload = self.start_upload("new.bin")
+        first = self.part("new.bin", upload, 1, b"new")
+        status, _, _ = self.complete("new.bin", upload, [(1, first)], **{"If-None-Match": "*"})
+        self.assertEqual(status, 200)
+
+    def test_a_completion_naming_a_part_that_was_not_sent_is_invalid_part(self):
+        upload = self.start_upload("big.bin")
+        first = self.part("big.bin", upload, 1, b"a")
+        status, _, body = self.complete("big.bin", upload, [(1, first), (2, '"nothing"')])
+        self.assertEqual((status, xml_code(body)), (400, "InvalidPart"))
+        status, _, body = self.complete("big.bin", upload, [(1, '"wrong"')])
+        self.assertEqual((status, xml_code(body)), (400, "InvalidPart"))
+
+
+class Switches(ServerTest):
+    """What an E2E holds a transfer half way with: parts or ranged GETs after a count wait
+    until released (the client is killed meanwhile, or the node)."""
+
+    def test_parts_after_the_held_count_wait_until_released(self):
+        import threading
+        status, _, body = self.client.request("POST", BUCKET, "big.bin", query={"uploads": ""})
+        upload = xml_values(body, "UploadId")[0]
+        self.server.hold_parts_after(1)
+        query = {"partNumber": "1", "uploadId": upload}
+        self.assertEqual(self.client.request("PUT", BUCKET, "big.bin", query=query, body=b"a")[0], 200)
+        answered = []
+        second = threading.Thread(target=lambda: answered.append(self.client.request(
+            "PUT", BUCKET, "big.bin", query={"partNumber": "2", "uploadId": upload}, body=b"b")[0]))
+        second.start()
+        time.sleep(0.3)
+        self.assertEqual(answered, [], "the second part waits")
+        self.assertEqual(self.server.held(), 1)
+        self.server.release()
+        second.join(timeout=5)
+        self.assertEqual(answered, [200])
+
+    def test_ranged_gets_after_the_held_count_wait_until_released(self):
+        import threading
+        self.seed("big.bin", b"0123456789")
+        self.server.hold_gets_after(1)
+        self.assertEqual(self.get("big.bin", headers={"Range": "bytes=0-4"})[2], b"01234")
+        answered = []
+        later = threading.Thread(target=lambda: answered.append(
+            self.get("big.bin", headers={"Range": "bytes=5-9"})[2]))
+        later.start()
+        time.sleep(0.3)
+        self.assertEqual(answered, [])
+        self.server.release()
+        later.join(timeout=5)
+        self.assertEqual(answered, [b"56789"])
+
+
 if __name__ == "__main__":
     unittest.main()
