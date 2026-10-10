@@ -161,8 +161,7 @@ impl Problems {
     }
 }
 
-/// A listing of the drive in view (`serial`) met `problem`: kept for the status line, said
-/// on stdout, and a notification when it asks for one.
+/// A listing of the drive in view (`serial`) met `problem`: [`drive_problem_for`] that drive.
 pub(crate) fn drive_problem(
     info: &mut CallbackInfo,
     s: &mut DriveState,
@@ -172,14 +171,25 @@ pub(crate) fn drive_problem(
     if serial != s.list_serial {
         return;
     }
-    let Some(drive_id) = s.current_drive_id() else {
-        return;
-    };
+    if let Some(drive_id) = s.current_drive_id() {
+        drive_problem_for(info, s, &drive_id, problem);
+    }
+}
+
+/// `drive_id` met `problem` (a listing, a sync pass - a newer format's `Code::NewerFormat`,
+/// D43): kept for the status line, said on stdout (`AZDRIVE_PROBLEM <drive> <code> <error
+/// id>`), and a notification when it asks for one.
+pub(crate) fn drive_problem_for(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    drive_id: &str,
+    problem: UserError,
+) {
     let id = problem.request_id.clone().unwrap_or_else(|| String::from("-"));
     println!("AZDRIVE_PROBLEM {drive_id} {} {id}", problem.code.as_str());
     let text = problem.message(lang());
-    if s.problems.record(&drive_id, problem, now_secs()) {
-        notify(info, s, &drive_id, &text);
+    if s.problems.record(drive_id, problem, now_secs()) {
+        notify(info, s, drive_id, &text);
     }
 }
 
