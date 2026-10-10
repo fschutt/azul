@@ -21,7 +21,7 @@ use azul::{
     prelude::*,
     str::String as AzString,
 };
-use azul_storage::{time::iso8601, Drive, LocalDrive};
+use azul_storage::{Drive, LocalDrive};
 
 use crate::{
     actions::{now_secs, Action},
@@ -32,39 +32,8 @@ use crate::{
 
 // ==== The words ====
 
-/// The banner: why, and how long the files can still be copied (`hours`; `None`: no end said).
-#[must_use]
-pub(crate) fn banner_text(reason: &str, hours: Option<u64>) -> String {
-    match hours {
-        Some(1) => format!(
-            "Due to {reason}, your account has been banned, but you have 1 hour to migrate \
-             your files."
-        ),
-        Some(hours) => format!(
-            "Due to {reason}, your account has been banned, but you have {hours} hours to \
-             migrate your files."
-        ),
-        None => format!(
-            "Due to {reason}, your account has been banned: copy your files to this computer \
-             now."
-        ),
-    }
-}
-
-/// What a closed drive shows: when (the ban's end) and why.
-#[must_use]
-pub(crate) fn closed_text(until: Option<u64>, reason: &str) -> String {
-    match until {
-        Some(until) => {
-            let when = iso8601(until);
-            format!(
-                "This drive was closed on {} because {reason}.",
-                when.get(..10).unwrap_or(&when)
-            )
-        }
-        None => format!("This drive was closed because {reason}."),
-    }
-}
+// The banner's and the closed drive's words are the kit's (AzMail shows the same).
+pub(crate) use azcloud_kit::token::{banner_text, closed_text};
 
 /// Why `action` cannot run on a drive under `ban` at `now`: what writes, during the grace
 /// period; what writes or reads, once it is closed.
@@ -219,7 +188,6 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
     if ban.is_closed(now) {
         return None;
     }
-    let hours = ban.until.map(|_| ban.hours_left(now));
     Some(
         Dom::create_div()
             .with_id(ids::BAN_BAR)
@@ -233,7 +201,7 @@ pub(crate) fn banner(s: &DriveState, app: &RefAny) -> Option<Dom> {
                     .with_child(
                         Dom::create_span_with_text(AzString::from(banner_text(
                             &ban.reason,
-                            hours,
+                            ban.until.map(|_| ban.hours_left(now)),
                         )))
                         .with_id(ids::BAN_TEXT),
                     ),

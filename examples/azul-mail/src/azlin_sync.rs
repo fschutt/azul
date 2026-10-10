@@ -813,6 +813,20 @@ pub fn fetch_message(
     Ok(bytes.len() as u64)
 }
 
+/// Why an Azlin account on a drive under `ban` sends nothing at `now` (ban contract v1): the
+/// banner every Azlin app shows, and that its mail waits; `None` for a drive in good standing.
+#[must_use]
+pub fn sending_refused(ban: Option<&azcloud_kit::Ban>, now: u64) -> Option<String> {
+    let ban = ban?;
+    if ban.is_closed(now) {
+        return Some(ban.closed_text());
+    }
+    Some(format!(
+        "{} AzMail sends nothing from this account: its mail waits in the Outbox.",
+        ban.banner(now)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use azul_storage::{ListPage, ListRequest, LocalDrive};

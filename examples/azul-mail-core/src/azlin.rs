@@ -563,6 +563,37 @@ pub fn refresh_shared(
     })
 }
 
+/// The drive's status as the token server keeps it (`GET /v1/drives/{id}`: a ban, a pending
+/// lockdown, the period), asked with the NEWEST drive token: under the keyring entry `key`'s
+/// lock (every AzMail of this user shares it), the entry read first - a token older than the
+/// last one rotated would be a reuse. A read: no token is spent. Blocking: from the sync
+/// thread.
+///
+/// # Errors
+///
+/// The token server's refusal or no answer; [`TokenError::Connect`] when another AzMail holds
+/// the lock longer than a refresh takes.
+pub fn status_shared(
+    server: &TokenServer<'_>,
+    keyring: &SharedKeyring,
+    key: &str,
+    held: &AzlinSession,
+) -> Result<azcloud_kit::DriveStatus, TokenError> {
+    let _lock = keyring.lock(key).map_err(|e| {
+        TokenError::Connect(format!(
+            "another AzMail is renewing this account's session ({e})"
+        ))
+    })?;
+    let mut token = held.drive_token.clone();
+    if let Ok(Some(text)) = keyring.get(key) {
+        let stored = AzlinSession::from_secret(&text, &held.drive_id);
+        if stored.drive_id == held.drive_id && !stored.drive_token.is_empty() {
+            token = stored.drive_token;
+        }
+    }
+    server.drive_status(&held.drive_id, &token)
+}
+
 // ==== Where the token server is ====
 
 /// The token server's URL in the environment.

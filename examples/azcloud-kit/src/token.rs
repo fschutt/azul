@@ -354,6 +354,41 @@ pub struct DriveStatus {
 /// (the credentials, its status) after it.
 pub const DRIVE_BANNED: &str = "drive_banned";
 
+/// The banner over a banned drive: why, and how long its files can still be copied (`hours`;
+/// `None`: no end said). AzDrive and AzMail show the same words.
+#[must_use]
+pub fn banner_text(reason: &str, hours: Option<u64>) -> String {
+    match hours {
+        Some(1) => format!(
+            "Due to {reason}, your account has been banned, but you have 1 hour to migrate \
+             your files."
+        ),
+        Some(hours) => format!(
+            "Due to {reason}, your account has been banned, but you have {hours} hours to \
+             migrate your files."
+        ),
+        None => format!(
+            "Due to {reason}, your account has been banned: copy your files to this computer \
+             now."
+        ),
+    }
+}
+
+/// What a banned drive shows past its end: when (`until`, the ban's end) and why.
+#[must_use]
+pub fn closed_text(until: Option<u64>, reason: &str) -> String {
+    match until {
+        Some(until) => {
+            let when = azul_storage::time::iso8601(until);
+            format!(
+                "This drive was closed on {} because {reason}.",
+                when.get(..10).unwrap_or(&when)
+            )
+        }
+        None => format!("This drive was closed because {reason}."),
+    }
+}
+
 /// What the token server says when a ban has no reason of its own.
 const BAN_REASON: &str = "a breach of the terms of service";
 
@@ -404,6 +439,22 @@ impl Ban {
     #[must_use]
     pub fn is_closed(&self, now: u64) -> bool {
         self.closed || self.until.is_some_and(|until| until <= now)
+    }
+
+    /// What every app shows over the banned drive at `now`: [`banner_text`] with the hours left,
+    /// then, past the end, [`closed_text`].
+    #[must_use]
+    pub fn banner(&self, now: u64) -> String {
+        if self.is_closed(now) {
+            return self.closed_text();
+        }
+        banner_text(&self.reason, self.until.map(|_| self.hours_left(now)))
+    }
+
+    /// "This drive was closed on <date> because <reason>." ([`closed_text`]).
+    #[must_use]
+    pub fn closed_text(&self) -> String {
+        closed_text(self.until, &self.reason)
     }
 
     /// The hours left at `now` to copy the files, rounded up (0 once it is closed, and when no

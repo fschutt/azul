@@ -18,6 +18,8 @@ pub const FOLDER_PANE: AzString = AzString::from_const_str("__azmail_folder_pane
 pub const MESSAGE_LIST: AzString = AzString::from_const_str("__azmail_message_list");
 /// The list's empty state while there is no account ("No account yet", Add Account...).
 pub const NO_ACCOUNT: AzString = AzString::from_const_str("__azmail_no_account");
+/// The banner over an Azlin account whose drive is banned (ban contract v1).
+pub const BAN_BAR: AzString = AzString::from_const_str("__azmail_ban_bar");
 
 // ==== File (the backstage) ====
 
