@@ -1453,7 +1453,7 @@ mod tests {
             methods: vec!["sepa".to_string()],
             withdrawal_consent: None,
         });
-        dialog(&d, false, &RefAny::new(())).1
+        dialog(&d, false, &SignInSettings::default(), &RefAny::new(())).1
     }
 
     /// The dialog kit's sizes (azul's wizard pages, settings rows and standard dialogs): text and
