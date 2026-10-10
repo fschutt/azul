@@ -24,10 +24,10 @@
 //! a minute; when the computer has been idle for five minutes on mains power and on a network
 //! that costs nothing (azul's `PowerState` and `NetworkState`: not metered, not Low Data
 //! Mode), and it is healthy (its client health 85 or more: not in Low Power Mode, not hot -
-//! `crate::health`), the first open encrypted drive's files are written again, smaller, on a worker
-//! thread, and the pass stops at the first input, when the power cord goes or when the network
-//! starts to cost. Its state sits beside the migration's, so the next idle minute continues
-//! where it stopped.
+//! `crate::health`), the first open encrypted drive's files are written again, smaller, on a
+//! worker thread, and the pass stops at the first input, when the power cord goes, when the
+//! network starts to cost or when the computer weakens. Its state sits beside the migration's,
+//! so the next idle minute continues where it stopped.
 //!
 //! The same timer keeps the drive index small. In such a minute (idle, on mains, on a free
 //! network), before the pass, an encrypted drive whose index was not maintained from this
@@ -1710,7 +1710,9 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     std::fs::write(&state_file, state.to_json())
                         .map_err(|e| azul_storage::DriveError::Io(e.to_string()))
                 };
-                let stop = || !idle_on_mains();
+                // The pass stops at the first input, when the power cord goes, when the network
+                // starts to cost, and when the computer weakens (Low Power Mode, heat).
+                let stop = || !recompress_may_run();
                 run_pass(
                     &drive,
                     &mut state,
