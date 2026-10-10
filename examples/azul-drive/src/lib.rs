@@ -616,6 +616,9 @@ pub(crate) struct DriveState {
     pub settings_drive: Option<LocalDrive>,
     pub downloads: PathBuf,
     pub open_dir: PathBuf,
+    /// AzDrive's folder in the user's cache folder (a cloud drive's last listing); `None` in a
+    /// `--shot` run (nothing kept) or on a system without one.
+    pub cache_dir: Option<PathBuf>,
     pub inline_dialogs: bool,
     /// Worker threads running.
     pub running: u32,
@@ -1098,12 +1101,19 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             None => {
                 remote = true;
                 options.contents = false;
+                // The drive's last complete listing is kept in the cache folder.
+                let cache = s.cache_dir.as_ref().map(|dir| {
+                    find::listing_file(&dir.join("listings"), &s.slots[index].entry.id)
+                });
                 jobs.push(Job::FindRemote {
-                    serial,
+                    find: jobs::RemoteFind {
+                        serial,
+                        prefix,
+                        pattern: azul_search::Pattern::guess(query.clone()),
+                        options: options.clone(),
+                        cache,
+                    },
                     drive,
-                    prefix,
-                    pattern: azul_search::Pattern::guess(query.clone()),
-                    options: options.clone(),
                     cancel: cancel.clone(),
                 });
             }
@@ -2069,14 +2079,25 @@ pub(crate) extern "C" fn on_job_done(
             find.merge(batch);
             find.phase = phase;
             find.searched = searched;
-            // The last job's end is the search's (This PC runs one per drive).
-            if end.is_some_and(|end| find.job_ended(end)) {
-                println!(
-                    "AZDRIVE_SEARCHED {} {} {}",
-                    find.rows.len(),
-                    if find.contents { "contents" } else { "names" },
-                    find.query
-                );
+            let mut removed = false;
+            if let Some(end) = end {
+                // A cloud drive's results of its last listing that the fresh one has not got.
+                removed = !end.stale.is_empty();
+                find.remove(&end.stale);
+                // The last job's end is the search's (This PC runs one per drive).
+                if find.job_ended(end) {
+                    println!(
+                        "AZDRIVE_SEARCHED {} {} {}",
+                        find.rows.len(),
+                        if find.contents { "contents" } else { "names" },
+                        find.query
+                    );
+                }
+            }
+            if removed {
+                let keys = s.visible_keys();
+                let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+                s.selection.retain(&order);
             }
             // The rows that came into view get their sizes and dates.
             actions::request_view_work(&mut info, &handle, s);
@@ -2519,6 +2540,11 @@ pub fn start() {
         settings_drive,
         downloads,
         open_dir: std::env::temp_dir().join("AzDrive-open"),
+        cache_dir: if args.kit.shot.is_some() {
+            None
+        } else {
+            path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive"))
+        },
         inline_dialogs,
         running: 0,
         trash_serial: 0,

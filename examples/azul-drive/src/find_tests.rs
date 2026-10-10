@@ -309,7 +309,7 @@ fn the_status_line_says_how_far_the_search_got() {
     assert_eq!(find.status_text(), "1,234 items found");
     find.end = Some(FindEnd {
         limited: true,
-        error: None,
+        ..FindEnd::default()
     });
     assert_eq!(find.status_text(), "1,234 items found (the first ones)");
     let cloud = state("pick", false, true);
@@ -321,8 +321,8 @@ fn the_status_line_says_how_far_the_search_got() {
     nothing.end = Some(FindEnd::default());
     assert_eq!(nothing.status_text(), "No items match your search.");
     nothing.end = Some(FindEnd {
-        limited: false,
         error: Some(String::from("\"(\" is not a regular expression")),
+        ..FindEnd::default()
     });
     assert!(nothing.status_text().starts_with("The search stopped: "));
 }
@@ -487,7 +487,7 @@ fn a_search_of_this_pc_ends_when_its_last_drive_has() {
     assert!(find.running());
     assert!(find.job_ended(FindEnd {
         limited: true,
-        error: None,
+        ..FindEnd::default()
     }));
     assert_eq!(find.end.as_ref().map(|e| e.limited), Some(true), "one job's limit is the search's");
 }

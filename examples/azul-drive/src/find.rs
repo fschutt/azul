@@ -2,22 +2,26 @@
 //! by azul-search (ripgrep's walker and searcher - AzCode's find in files runs on it too) - the
 //! names first, then, with "File contents" on, the files whose lines hold the text - or, on a
 //! cloud drive, the names of a recursive listing (slower; no contents: the files would have to
-//! be downloaded). The results stream in as rows ([`FindState`]): the folder view shows them in
-//! the Details layout with their folder and the line they matched on.
+//! be downloaded) - its folders listed side by side, its last full listing kept in the cache
+//! folder ([`CachedListing`]) and shown at once by the next search while the fresh one comes.
+//! The results stream in as rows ([`FindState`]): the folder view shows them in the Details
+//! layout with their folder and the line they matched on.
 //!
 //! The jobs (`jobs::run_find`, `jobs::run_find_remote`) make [`Found`] rows on the worker
 //! thread; everything here is tested without a window.
 
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    fs,
+    io::{self, Write as _},
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
 
 use azul_search::{
     ContentHit, Filters, Limits, NameHit, NameMatcher, Pattern, PatternKind, Refine, Request,
 };
-use azul_storage::{key, ListPage};
+use azul_storage::{key, ListPage, ObjectInfo};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
 
 use crate::{
@@ -598,6 +602,9 @@ pub enum FindPhase {
     /// Waiting for the typing to pause.
     #[default]
     Waiting,
+    /// A cloud drive's last full listing (kept in the cache folder): its names at once, while
+    /// the fresh listing comes.
+    Cached,
     /// The names.
     Names,
     /// The files' contents.
@@ -611,6 +618,9 @@ pub struct FindEnd {
     pub limited: bool,
     /// Why it stopped early (a listing that failed).
     pub error: Option<String>,
+    /// The rows a cloud drive's last listing showed that the fresh, complete one has not got
+    /// (deleted since): they go.
+    pub stale: Vec<String>,
 }
 
 /// The search open in the window: what it looks for, its results so far.
@@ -722,6 +732,7 @@ impl FindState {
             Some(before) => FindEnd {
                 limited: before.limited || end.limited,
                 error: before.error.or(end.error),
+                stale: [before.stale, end.stale].concat(),
             },
         };
         if self.pending == 0 {
@@ -754,6 +765,27 @@ impl FindState {
         self.resort();
     }
 
+    /// Rows that went (a cloud drive's last listing had them, the fresh one has not): out of the
+    /// results with their lines; the others keep their order.
+    pub fn remove(&mut self, keys: &[String]) {
+        if keys.is_empty() {
+            return;
+        }
+        let gone: HashSet<&str> = keys.iter().map(String::as_str).collect();
+        self.rows.retain(|row| !gone.contains(row.key.as_str()));
+        for key in keys {
+            self.lines.remove(key);
+            self.stats_asked.remove(key);
+        }
+        self.index = self
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (row.key.clone(), i))
+            .collect();
+        self.resort();
+    }
+
     /// The row of `key`.
     #[must_use]
     pub fn entry(&self, key: &str) -> Option<&Entry> {
@@ -766,6 +798,9 @@ impl FindState {
     pub fn status_text(&self) -> String {
         let n = listing::grouped_digits(self.rows.len());
         match &self.end {
+            None if self.remote && self.phase == FindPhase::Cached => {
+                format!("Searching the last listing, then the cloud... {n} found")
+            }
             None if self.remote => format!("Searching names in the cloud (slower)... {n} found"),
             None if self.phase == FindPhase::Contents => {
                 format!("Searching file contents... {n} found")
@@ -801,4 +836,152 @@ impl FindState {
         };
         ("No items match your search.", what.to_string())
     }
+}
+
+// ==== A cloud drive's last listing ====
+
+/// The most objects a kept listing holds (a bigger drive is listed afresh every time).
+pub const CACHE_MAX_OBJECTS: usize = 200_000;
+
+/// The first word of a kept listing's file: a file of another format is not read.
+const LISTING_FORMAT: &str = "azdrive-listing 1";
+
+/// A cloud drive's last complete recursive listing of a folder (`prefix`, `""`: the drive's
+/// root), kept in the cache folder: the next search below it shows its names at once. It holds
+/// the bucket's keys as the listing named them (an encrypted drive's names must not be kept in
+/// the clear: such a drive keeps none).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedListing {
+    pub prefix: String,
+    /// When it was listed, in seconds since 1970-01-01 UTC.
+    pub at: u64,
+    pub objects: Vec<ObjectInfo>,
+}
+
+/// The file in `dir` that keeps the drive `drive_id`'s listing: the id's letters and digits
+/// (the rest become `_`) and a hash of the whole id (two ids that read alike do not share it).
+#[must_use]
+pub fn listing_file(dir: &Path, drive_id: &str) -> PathBuf {
+    let safe: String = drive_id
+        .chars()
+        .take(48)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // FNV-1a: stable across runs and builds (std's hasher is not).
+    let hash = drive_id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    dir.join(format!("{safe}-{hash:016x}.tsv"))
+}
+
+/// A key, tag or prefix on one line of the file: `\\`, tabs and line breaks escaped.
+fn escape_field(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// [`escape_field`] undone; `None` for an escape it never writes.
+fn unescape_field(text: &str) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        out.push(match chars.next()? {
+            '\\' => '\\',
+            't' => '\t',
+            'n' => '\n',
+            'r' => '\r',
+            _ => return None,
+        });
+    }
+    Some(out)
+}
+
+/// Writes a kept listing (its folder made first), through a temporary file beside it: a
+/// reader never sees half a file. An empty tag counts as none.
+///
+/// # Errors
+/// The cache folder or the file could not be written.
+pub fn write_listing(path: &Path, listing: &CachedListing) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut temp = path.as_os_str().to_owned();
+    temp.push(".tmp");
+    let temp = PathBuf::from(temp);
+    let mut out = io::BufWriter::new(fs::File::create(&temp)?);
+    writeln!(
+        out,
+        "{LISTING_FORMAT}\t{}\t{}",
+        escape_field(&listing.prefix),
+        listing.at
+    )?;
+    for object in &listing.objects {
+        writeln!(
+            out,
+            "{}\t{}\t{}\t{}",
+            object.size,
+            object.modified.map_or_else(String::new, |m| m.to_string()),
+            object.etag.as_deref().map_or_else(String::new, escape_field),
+            escape_field(&object.key)
+        )?;
+    }
+    out.into_inner().map_err(io::IntoInnerError::into_error)?.sync_all()?;
+    fs::rename(&temp, path)
+}
+
+/// A kept listing read back; `None` when there is none, or it is of another format or damaged.
+#[must_use]
+pub fn read_listing(path: &Path) -> Option<CachedListing> {
+    let text = fs::read_to_string(path).ok()?;
+    let mut lines = text.lines();
+    let mut head = lines.next()?.split('\t');
+    if head.next()? != LISTING_FORMAT {
+        return None;
+    }
+    let prefix = unescape_field(head.next()?)?;
+    let at = head.next()?.parse().ok()?;
+    let mut objects = Vec::new();
+    for line in lines {
+        let mut fields = line.splitn(4, '\t');
+        let size = fields.next()?.parse().ok()?;
+        let modified = match fields.next()? {
+            "" => None,
+            m => Some(m.parse().ok()?),
+        };
+        let etag = match fields.next()? {
+            "" => None,
+            tag => Some(unescape_field(tag)?),
+        };
+        let key = unescape_field(fields.next()?)?;
+        objects.push(ObjectInfo {
+            key,
+            size,
+            modified,
+            etag,
+        });
+    }
+    Some(CachedListing {
+        prefix,
+        at,
+        objects,
+    })
 }
