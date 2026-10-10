@@ -22,6 +22,7 @@ mod state;
 mod sync;
 mod sync_local;
 mod sync_merge;
+mod sync_ondemand;
 mod sync_remote;
 mod sync_rules;
 mod token;
