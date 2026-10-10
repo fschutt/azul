@@ -249,6 +249,45 @@ pub struct Compacted {
     pub replaced: Vec<String>,
 }
 
+/// When a maintenance round ([`MetaStore::maintain`]) does what.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Maintenance {
+    /// How long the round may hold the lease (seconds).
+    pub lease_secs: u64,
+    /// Fold the live packs into one from this many on.
+    pub compact_at_packs: usize,
+    /// Write a checkpoint from this many log entries after the last one on.
+    pub checkpoint_at_entries: usize,
+    /// How old an object no manifest names must be before the sweep retires it (seconds).
+    pub orphan_age: u64,
+    /// How long a retired object waits before it is deleted (seconds).
+    pub grace: u64,
+}
+
+impl Default for Maintenance {
+    /// Ten minutes of lease; 16 packs; 64 log entries; a day for orphans and for the grace.
+    fn default() -> Self {
+        Maintenance {
+            lease_secs: 600,
+            compact_at_packs: 16,
+            checkpoint_at_entries: 64,
+            orphan_age: 86_400,
+            grace: 86_400,
+        }
+    }
+}
+
+/// What a maintenance round did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Maintained {
+    /// The objects no manifest named, retired.
+    pub swept: usize,
+    pub compacted: bool,
+    pub checkpointed: bool,
+    /// The retired objects deleted.
+    pub collected: usize,
+}
+
 fn sealed_error(key: &str, e: &SealError) -> MetaError {
     MetaError::Sealed {
         key: key.to_string(),
@@ -1188,6 +1227,12 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// and the bucket's lease is still the one the guard took (not released,
     /// not taken over). The lease only saves double work: every change of the
     /// manifest is a swap anyway.
+    /// One maintenance round. Not written yet.
+    pub fn maintain(&mut self, rules: &Maintenance) -> Result<Option<Maintained>, MetaError> {
+        let _ = rules;
+        Ok(Some(Maintained::default()))
+    }
+
     /// Finds what no manifest names - the packs of lost swaps, the log entries
     /// and checkpoints of writers that crashed between their write and their
     /// swap - and retires it (under `guard`): [`MetaStore::collect_garbage`]

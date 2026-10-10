@@ -7,6 +7,7 @@ mod git;
 /// The encrypted drive over the drive index (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod index;
+mod maintain;
 mod merge;
 mod objects;
 mod pack;
