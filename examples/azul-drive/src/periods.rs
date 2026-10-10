@@ -6,13 +6,17 @@
 //! its newest drive token ([`azcloud_kit::redeem_due`]). A drive without kept tokens asks the
 //! token server nothing.
 //!
+//! A look also tells the owner (D42) of every device the drive was given since the last look
+//! (`AZDRIVE_NEW_DEVICE <drive id> <member>`, a notification) and of a use of the recovery code:
+//! a lockdown that takes the drive in 48 hours unless a device of the owner cancels it.
+//!
 //! On stdout: `AZDRIVE_PERIOD_REDEEMED <drive id> <count> <until>` for a month bought.
 //! `AZDRIVE_PERIOD_CHECK_SECS` (a positive number of seconds) makes the daily look more often,
 //! for a test run.
 
 use std::collections::HashMap;
 
-use azcloud_kit::{period::REDEEM_AHEAD_SECS, Look, Redeemed};
+use azcloud_kit::{period::REDEEM_AHEAD_SECS, token::RECOVERY_MEMBER, Look, Redeemed};
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TimerCallbackInfo, TimerCallbackReturn},
     notification::Notification,
@@ -195,6 +199,14 @@ pub(crate) fn periods_redeemed(
         if let Some(status) = &look.status {
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
         }
+        for member in new_devices(&look.new_members) {
+            println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");
+            let body = new_device_text(&drive_name(s, &drive_id), member);
+            info.post_notification(
+                Notification::create(format!("azdrive-device-{drive_id}-{member}"), "AzDrive")
+                    .with_body(body),
+            );
+        }
         match look.redeemed {
             Redeemed::Extended {
                 count,
@@ -230,18 +242,57 @@ fn lockdown_seen(
         return;
     }
     println!("AZDRIVE_LOCKDOWN_PENDING {drive_id} {}", iso8601(until));
-    let name = s
-        .slot_index(drive_id)
-        .map(|index| s.slots[index].entry.name.clone())
-        .unwrap_or_else(|| drive_id.to_string());
+    let body = recovery_text(&drive_name(s, drive_id), until, now_secs());
     info.post_notification(
-        Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(
-            format!(
-                "A lockdown of \"{name}\" with the recovery code is pending. If that was not \
-                 you, cancel it in AzDrive."
-            ),
-        ),
+        Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(body),
     );
+}
+
+/// The name of `drive_id` in the source list (its id when it has none there).
+fn drive_name(s: &DriveState, drive_id: &str) -> String {
+    s.slot_index(drive_id)
+        .map(|index| s.slots[index].entry.name.clone())
+        .unwrap_or_else(|| drive_id.to_string())
+}
+
+/// Of the members a look saw first, the devices to announce: the recovery code's is announced
+/// as its lockdown ([`lockdown_seen`]).
+#[must_use]
+pub(crate) fn new_devices(new_members: &[String]) -> Vec<&str> {
+    new_members
+        .iter()
+        .map(String::as_str)
+        .filter(|member| *member != RECOVERY_MEMBER)
+        .collect()
+}
+
+/// The notice of a device the drive `drive` was given: what it is, and what to do when it was
+/// not the owner.
+#[must_use]
+pub(crate) fn new_device_text(drive: &str, member: &str) -> String {
+    format!(
+        "A new device was added to \"{drive}\" ({member}). Not you? Lock the drive down in \
+         AzDrive: the drive's menu, \"I was hacked\"."
+    )
+}
+
+/// The notice of a use of `drive`'s recovery code: the lockdown takes the drive at `until`
+/// (the 48 hours the token server waits), and how long is left at `now` to cancel it.
+#[must_use]
+pub(crate) fn recovery_text(drive: &str, until: u64, now: u64) -> String {
+    let left = until.saturating_sub(now);
+    let hours = left.div_ceil(3_600);
+    let left = match hours {
+        _ if left < 3_600 => String::from("less than an hour"),
+        1 => String::from("an hour"),
+        _ => format!("{hours} hours"),
+    };
+    format!(
+        "The recovery code of \"{drive}\" was used to lock it down. In {left} ({}) that device \
+         takes the drive and every other device loses it. If that was not you, cancel it in \
+         AzDrive now.",
+        iso8601(until)
+    )
 }
 
 /// The bar over the drive in view while a recovery-key lockdown of it is pending, with Cancel.

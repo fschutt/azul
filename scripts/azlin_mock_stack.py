@@ -468,8 +468,10 @@ class TokenState:
         """A new token family of `drive_id` for `member`: its first token. The caller holds the
         lock."""
         family = random_id('f_')
+        # a day's start only (D37), as drive_members' added_at
+        day = int(time.time()) // 86400 * 86400
         self.families[family] = {'drive': drive_id, 'member': member, 'generation': 0,
-                                 'current': '', 'used': [], 'revoked': None}
+                                 'current': '', 'used': [], 'revoked': None, 'added_at': day}
         return self.new_token(family)
 
     def checkout(self, body):
@@ -1001,15 +1003,26 @@ class TokenState:
             return {'period_until': rfc3339(drive['period_until'])}
 
     def info(self, drive_id, bearer):
-        """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too)."""
+        """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too): with every
+        member the drive was given (drive_members keeps them past a revocation) and `you`, the
+        caller's."""
         with self.lock:
-            drive = self.authenticate(drive_id, bearer, previous_ok=True)
+            drive, state = self.family_of(drive_id, bearer, previous_ok=True)
             pending = drive.get('lockdown_pending_until')
+            added = {}
+            for family in self.families.values():
+                if family['drive'] == drive_id:
+                    member = family.get('member', 'owner')
+                    added[member] = min(added.get(member, family.get('added_at', 0)),
+                                        family.get('added_at', 0))
+            members = [{'member': member, 'role': 'member', 'added_at': rfc3339(added[member])}
+                       for member in sorted(added)]
             return {'id': drive['id'], 'tier': drive['tier'],
                     'quota_bytes': drive['quota_bytes'], 'read_only': pending is not None,
                     'status': 'active', 'period_until': rfc3339(drive['period_until']),
                     'lockdown_pending_until': rfc3339(pending) if pending else None,
-                    'members': [], 'usage_bytes': None}
+                    'you': state.get('member', 'owner'), 'members': members,
+                    'usage_bytes': None}
 
     def set_recovery(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/recovery (drives.rs `set_recovery`, a grant): the drive's
