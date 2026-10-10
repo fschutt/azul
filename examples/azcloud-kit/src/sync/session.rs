@@ -42,10 +42,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "encryption")]
 use super::objects::ObjectCache;
 use super::{
-    evict_file, fetch_file,
+    evict_file, fetch_file, guard,
     local::{self, BaseEntry, LocalIndex},
-    lock, remote, sync_to, HeldConflict, LocalRoot, RunHooks, SyncEvent, SyncOptions,
-    SyncReport, Target,
+    lock, remote, sync_to, HeldConflict, LocalRoot, MassDelete, RunHooks, SyncEvent,
+    SyncOptions, SyncReport, Target,
 };
 use crate::{
     error::{fail, CloudError, CloudResult, Context},
@@ -294,6 +294,23 @@ pub struct SyncStates {
     /// The drive refused a write (unpaid, locked down): it is read-only.
     #[serde(default)]
     pub read_only: bool,
+    /// The burst guard paused this device's uploads (azcloud-kit's `guard`: a burst of changes,
+    /// files turned random-looking) until the user answers; downloads go on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burst: Option<guard::Pause>,
+    /// A pass that would delete most of the folder here or there, waiting for the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mass_delete: Option<MassDelete>,
+    /// What the drive's index uses that this version does not know (D43): nothing changes on
+    /// either side until the app is updated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub newer_format: Vec<String>,
+    /// The user's answers, for the next pass only: "these changes are mine" (the burst guard)
+    /// and "delete them on the drive too" (the mass delete).
+    #[serde(default)]
+    pub allow_burst: bool,
+    #[serde(default)]
+    pub allow_mass_delete: bool,
 }
 
 impl SyncStates {
@@ -676,7 +693,10 @@ impl SyncSession {
         fs::create_dir_all(&self.setup.folder)
             .with_context(|| format!("{}", self.setup.folder.display()))?;
         let root = self.root();
-        let opts = self.options()?;
+        let mut opts = self.options()?;
+        // The user's answers, for this pass.
+        opts.allow_burst = states.allow_burst;
+        opts.allow_mass_delete = states.allow_mass_delete;
         let index_path = self.index_path();
         let policy = self.setup.auto_download;
         let pins = states.clone();
@@ -699,6 +719,7 @@ impl SyncSession {
                     keep_both: Some(keep_both),
                     progress: Some(&hear),
                     cancel: Some(cancel),
+                    hold_mass_delete: true,
                 };
                 sync_to(target, root_ref, index_ref, opts_ref, &hooks)
             });
@@ -718,6 +739,14 @@ impl SyncSession {
             Err(_) => fail!("the sync of {} stopped unexpectedly", self.setup.folder.display()),
         };
         record(states, &report, &moved);
+        // The guards' questions, and the answers this pass used up.
+        states.burst.clone_from(&report.paused);
+        states.mass_delete.clone_from(&report.mass_delete);
+        states.newer_format.clone_from(&report.newer_format);
+        if !report.cancelled {
+            states.allow_burst = false;
+            states.allow_mass_delete = false;
+        }
         // Pinned files kept in the cloud come down now.
         let mut fetched = Vec::new();
         let pinned: Vec<(String, u64)> = report
@@ -964,6 +993,107 @@ impl SyncSession {
         }
         states.save(&self.dir)?;
         Ok(targets)
+    }
+
+    /// "These changes are mine": the next pass sends what the burst guard held back.
+    ///
+    /// # Errors
+    ///
+    /// When the states cannot be kept.
+    pub fn answer_burst(&self) -> CloudResult<()> {
+        let mut states = self.states();
+        states.allow_burst = true;
+        states.burst = None;
+        states.save(&self.dir)
+    }
+
+    /// Answers the mass delete waiting: `delete_too` deletes them with the next pass (on the
+    /// drive, or here); else they are kept - a file gone from here stays on the drive (in the
+    /// cloud only here), one the drive deleted goes back up from here.
+    ///
+    /// # Errors
+    ///
+    /// When the base or the states cannot be kept.
+    pub fn answer_mass_delete(&self, delete_too: bool) -> CloudResult<()> {
+        let mut states = self.states();
+        let Some(asked) = states.mass_delete.take() else {
+            return Ok(());
+        };
+        if delete_too {
+            states.allow_mass_delete = true;
+        } else {
+            let path = self.index_path();
+            if let Some(mut index) = LocalIndex::load(&path)? {
+                for key in &asked.keys {
+                    let Some(entry) = index.files.get_mut(key) else {
+                        continue;
+                    };
+                    // A time no file has: the next scan reads the file again.
+                    entry.mtime_ns = 0;
+                    if asked.here {
+                        // Not what the drive deleted: the copy here is a change, and goes up.
+                        entry.hash = String::from("kept");
+                        entry.cloud_only = false;
+                    } else {
+                        entry.cloud_only = true;
+                    }
+                }
+                index.save(&path)?;
+            }
+        }
+        states.save(&self.dir)
+    }
+
+    /// Renames `from` to `to` (files, or folders ending in `/`) in the synced folder - a plain
+    /// drive's own listing shows its sync index's names: files of it in the cloud only come
+    /// down first - and the next pass moves them on the drive (their bytes are there already).
+    ///
+    /// # Errors
+    ///
+    /// With encrypted local copies (the drive is renamed by its own listing), when a file
+    /// cannot come down, the name is taken, or the rename fails.
+    pub fn rename(&self, from: &str, to: &str) -> CloudResult<()> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { .. } = &self.remote {
+                fail!("an encrypted drive's files are renamed in its own listing");
+            }
+        }
+        let cloud: Vec<String> = {
+            let states = self.states();
+            states
+                .under(&[from.to_string()], false)
+                .into_iter()
+                .filter(|key| states.files.get(key).is_some_and(|r| r.cloud_only))
+                .collect()
+        };
+        for key in &cloud {
+            self.open(key)?;
+        }
+        let from_path = local::path_of(&self.setup.folder, from);
+        let to_path = local::path_of(&self.setup.folder, to);
+        if fs::symlink_metadata(&to_path).is_ok() {
+            fail!("{} is there already", to.trim_end_matches('/'));
+        }
+        if let Some(parent) = to_path.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("{}", parent.display()))?;
+        }
+        fs::rename(&from_path, &to_path).with_context(|| format!("{}", from_path.display()))?;
+        // The states follow at once (the next pass makes it so on the drive).
+        let mut states = self.states();
+        let moved: Vec<String> = states.under(&[from.to_string()], false);
+        for key in moved {
+            if let Some(record) = states.files.remove(&key) {
+                let rest = &key[from.len().min(key.len())..];
+                let new = if from.ends_with('/') {
+                    format!("{to}{rest}")
+                } else {
+                    to.to_string()
+                };
+                states.files.insert(new, record);
+            }
+        }
+        states.save(&self.dir)
     }
 
     /// Answers the conflict of `key` (D52); the next pass does it.

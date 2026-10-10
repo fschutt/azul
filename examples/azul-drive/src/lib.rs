@@ -116,7 +116,7 @@
 //! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
 //! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
 //! `AZDRIVE_SYNC_DONE <drive id> up=<n> down=<n> deleted=<n> conflicts=<n> cloud_only=<n>
-//! freed=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`, `AZDRIVE_SYNC_STATUS <drive id> <status
+//! freed=<n> paused=<bool> newer_format=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`, `AZDRIVE_SYNC_STATUS <drive id> <status
 //! line>`, `AZDRIVE_SYNC_FILE <drive id> <state> <key>` (a file whose state changed: cloud-only,
 //! on-device, on-device-encrypted, pinned, conflict, error, gone), `AZDRIVE_SYNC_CONFLICT
 //! <drive id> <key>` (the question shows), `AZDRIVE_SYNC_RESOLVED <drive id> mine|theirs|both
@@ -124,7 +124,13 @@
 //! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_DELETED <drive id>` (files deleted through
 //! the sync: kept in the cloud only, or a plain drive's - its own listing shows its sync index's
 //! files), `AZDRIVE_SYNC_PAUSED|RESUMED|STOPPED <drive id>`, `AZDRIVE_SYNC_SETTING <drive id>
-//! <name> <value>`, `AZDRIVE_PREVIEW synced <key>` (a cloud-only row's preview is a sentence).
+//! <name> <value>`, `AZDRIVE_PREVIEW synced <key>` (a cloud-only row's preview is a sentence),
+//! `AZDRIVE_SYNC_BURST <drive id> burst|encryption <changes>` (the burst guard paused the
+//! uploads), `AZDRIVE_SYNC_MASS_DELETE <drive id> here|there <count>`, `AZDRIVE_SYNC_QUESTION
+//! <drive id> burst|mass` (asked), `AZDRIVE_SYNC_ANSWERED <drive id> burst mine|mass-delete
+//! delete|mass-delete keep`, `AZDRIVE_SYNC_HACKED <drive id>`, `AZDRIVE_SYNC_RENAMED <drive id>
+//! <key>`, `AZDRIVE_SYNC_FETCHED <drive id>` (cloud-only files a copy, move or download of a
+//! plain drive's own listing waited for).
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
