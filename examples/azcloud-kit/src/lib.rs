@@ -138,6 +138,8 @@ pub use token::{
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
+/// The secrets the kit hands out (a claim code's text) wipe their memory when dropped.
+pub use zeroize::Zeroizing;
 
 /// Now, in seconds since 1970-01-01 UTC.
 #[must_use]

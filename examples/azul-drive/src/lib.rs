@@ -186,6 +186,7 @@ pub mod listing;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
+mod paper;
 pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
@@ -3053,6 +3054,9 @@ pub fn start() {
         None if args.kit.shot.is_some() => None,
         None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
     };
+    // Print's copies of a page (an emergency kit, cash by post's two) live there; a run before's
+    // go first.
+    paper::set_print_root(cache_dir.clone());
     #[cfg(feature = "encryption")]
     encryption::set_cache_dir(cache_dir.clone());
     // A big upload outlives the app: its state file in the cache, resumed by the next upload of
