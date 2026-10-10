@@ -1563,6 +1563,24 @@ mod tests {
                 items: vec![StatusItem::HighestModseq, StatusItem::Size, StatusItem::Deleted],
             }
         );
+        assert_eq!(
+            parse("B1 UID FETCH $ (BINARY.PEEK[1.2]<0.100> BINARY.SIZE[1])"),
+            CommandKind::Fetch {
+                uid: true,
+                set: SequenceSet::saved(),
+                atts: vec![
+                    FetchAtt::Uid,
+                    FetchAtt::Binary {
+                        peek: true,
+                        path: vec![1, 2],
+                        partial: Some((0, 100)),
+                    },
+                    FetchAtt::BinarySize { path: vec![1] },
+                ],
+            }
+        );
+        let list = parse_command(b"B2 LIST \"\" * RETURN (CHILDREN STATUS (MESSAGES SIZE))").unwrap();
+        assert_eq!(list.modifiers.list_status, Some(vec![StatusItem::Messages, StatusItem::Size]));
         let search = parse_command(b"A9 UID SEARCH RETURN (MIN COUNT) UNSEEN").unwrap();
         assert_eq!(search.modifiers.search_return, Some(vec![String::from("MIN"), String::from("COUNT")]));
         assert_eq!(search.kind, CommandKind::Search { uid: true, key: SearchKey::Unseen });

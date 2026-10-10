@@ -578,3 +578,42 @@ fn condstore_and_qresync_tell_only_what_changed_since_a_mod_sequence() {
     let search = other.ok("r5", &format!("UID SEARCH MODSEQ {now}"));
     assert!(has(&search, "* SEARCH 2 (MODSEQ "), "{search:?}");
 }
+
+/// IMAP4rev2 (RFC 9051) once a program enables it: SEARCH answers ESEARCH; a saved result (`$`,
+/// SEARCHRES) names messages in a later command; LIST brings each mailbox's STATUS (LIST-STATUS);
+/// mailbox names are UTF-8; SELECT says no RECENT; APPEND takes a binary literal and FETCH
+/// BINARY gives a part decoded (BINARY).
+#[test]
+fn imap4rev2_answers_as_rfc_9051_wants_once_enabled() {
+    let mut client = Client::signed_in(bridge(seeded()));
+    let caps = client.ok("v0", "CAPABILITY");
+    for cap in ["IMAP4rev2", "ESEARCH", "SEARCHRES", "LIST-STATUS", "STATUS=SIZE", "BINARY"] {
+        assert!(has(&caps, cap), "{cap}: {caps:?}");
+    }
+    assert!(has(&client.ok("v1", "ENABLE IMAP4rev2"), "* ENABLED IMAP4rev2"));
+    let list = client.ok("v2", "LIST \"\" \"*\" RETURN (STATUS (MESSAGES UNSEEN))");
+    assert!(has(&list, "\"Entwürfe\""), "UTF-8 names: {list:?}");
+    assert!(has(&list, "* STATUS \"INBOX\" (MESSAGES 2 UNSEEN 1)"), "{list:?}");
+    let selected = client.ok("v3", "SELECT INBOX");
+    assert!(!has(&selected, "RECENT"), "{selected:?}");
+    let unseen = client.ok("v4", "UID SEARCH UNSEEN");
+    assert!(has(&unseen, "* ESEARCH (TAG \"v4\") UID ALL 2"), "{unseen:?}");
+    let saved = client.ok("v5", "UID SEARCH RETURN (SAVE) SEEN");
+    assert_eq!(saved.len(), 1, "SAVE alone answers nothing: {saved:?}");
+    let fetched = client.ok("v6", "UID FETCH $ (UID)");
+    assert!(has(&fetched, "* 1 FETCH (UID 1)") && !has(&fetched, "UID 2"), "{fetched:?}");
+
+    let message = b"From: Ada <ada@example.org>\r\nSubject: Binary\r\nMIME-Version: 1.0\r\n\
+        Content-Type: multipart/mixed; boundary=\"b\"\r\n\r\n--b\r\nContent-Type: text/plain\r\n\
+        Content-Transfer-Encoding: base64\r\n\r\naGVsbG8gd29ybGQ=\r\n--b--\r\n";
+    client.send(format!("v7 APPEND INBOX ~{{{}+}}\r\n", message.len()).as_bytes());
+    client.send(message);
+    client.send(b"\r\n");
+    let appended = client.until("v7");
+    assert!(appended.last().unwrap().starts_with("v7 OK"), "{appended:?}");
+    client.ok("v8", "NOOP");
+    let binary = client.ok("v9", "UID FETCH 3 (BINARY.PEEK[1] BINARY.SIZE[1])");
+    assert!(has(&binary, "hello world") && has(&binary, "BINARY.SIZE[1] 11"), "{binary:?}");
+    let entwurf = client.ok("v10", "SELECT \"Entwürfe\"");
+    assert!(has(&entwurf, "* 1 EXISTS"), "{entwurf:?}");
+}
