@@ -32,10 +32,10 @@ use super::{
     pack::PackWriter,
     pointer,
     repo::{remote_head, unpublished, unreachable, Local, MetaRepo, RepoOptions, MAIN},
-    seal::Sealer,
+    seal::{KeyWindow, Sealer},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
-    wal::{reseal, Packs, Publish, RefUpdate},
+    wal::{reseal, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
     MetaError,
 };
 use crate::{
@@ -67,7 +67,7 @@ fn reserved(path: &str) -> bool {
 }
 
 /// The drive's error for an index error.
-fn to_drive(e: MetaError) -> DriveError {
+pub(super) fn to_drive(e: MetaError) -> DriveError {
     match e {
         MetaError::Conflict { key } => DriveError::Conflict { key },
         MetaError::Drive(e) => e,
@@ -483,19 +483,20 @@ fn page_of(found: Vec<(String, IndexEntry)>, request: &ListRequest) -> IndexPage
     page
 }
 
-/// The drive index of the bucket `inner`: opened, or created for a bucket
-/// without one (and opened when another device created it in the same moment).
-fn open_or_create<D: Drive + ?Sized + 'static>(
+/// The drive index of the bucket `inner` under `sealer` (the drive key, or a rotation's
+/// window): opened, or created for a bucket without one (and opened when another device
+/// created it in the same moment).
+fn open_or_create<D: Drive + ?Sized + 'static, S: Sealer + Clone>(
     inner: &Arc<D>,
-    drive_key: &DriveKey,
+    sealer: &S,
     device_id: &str,
     device_name: &str,
     options: &RepoOptions,
-) -> Result<MetaRepo<DriveBucket<Arc<D>>, DriveKey>, DriveError> {
+) -> Result<MetaRepo<DriveBucket<Arc<D>>, S>, DriveError> {
     let open = || {
         MetaRepo::open_with(
             DriveBucket::new(Arc::clone(inner)),
-            drive_key.clone(),
+            sealer.clone(),
             device_id,
             device_name,
             options,
@@ -505,7 +506,7 @@ fn open_or_create<D: Drive + ?Sized + 'static>(
         Ok(repo) => Ok(repo),
         Err(MetaError::NoRepository) => match MetaRepo::create_with(
             DriveBucket::new(Arc::clone(inner)),
-            drive_key.clone(),
+            sealer.clone(),
             device_id,
             device_name,
             options,
@@ -571,6 +572,14 @@ impl MetaIndexProvider {
         self
     }
 
+    /// How this device keeps its copy of the drive `drive`.
+    fn options(&self, drive: &str) -> RepoOptions {
+        RepoOptions {
+            cache_dir: self.drive_cache_dir(drive),
+            lazy: self.lazy,
+        }
+    }
+
     /// The folder of this device's copy of the drive `drive` (named by a hash of its id): the
     /// drive's own cache folder - an app keeps what it derives from the drive's plain contents
     /// there (a search index), and it goes with the copy when the drive's key is rotated.
@@ -599,6 +608,28 @@ impl MetaIndexProvider {
         let _ = crate::local::write_atomically(&file, id.as_bytes());
         id
     }
+
+    /// One maintenance round of the index in `bucket` ([`MetaStore::maintain`]). The round
+    /// runs under the bucket's maintenance lease and does four things: it sweeps orphans,
+    /// folds the live packs into one, writes a checkpoint, and deletes what was retired long
+    /// enough ago. It is meant for an app's idle time, because compaction reads every live
+    /// pack. It answers `None` when the bucket has no index yet or another device holds the
+    /// lease. It opens the store on its own, so this device's copies stay as they are, and
+    /// their next pull reads the new pack.
+    pub fn maintain(
+        &self,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        rules: &Maintenance,
+    ) -> Result<Option<Maintained>, DriveError> {
+        let bucket = DriveBucket::new(bucket);
+        let mut store = match MetaStore::open(bucket, drive_key.clone(), &self.device_id()) {
+            Ok(store) => store,
+            Err(MetaError::NoRepository) => return Ok(None),
+            Err(e) => return Err(to_drive(e)),
+        };
+        store.maintain(rules).map_err(to_drive)
+    }
 }
 
 impl IndexProvider for MetaIndexProvider {
@@ -608,11 +639,25 @@ impl IndexProvider for MetaIndexProvider {
         bucket: Arc<dyn Drive>,
         drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError> {
-        let options = RepoOptions {
-            cache_dir: self.drive_cache_dir(drive),
-            lazy: self.lazy,
-        };
+        let options = self.options(drive);
         let repo = open_or_create(&bucket, drive_key, &self.device_id(), &self.device_name, &options)?;
+        Ok(Arc::new(MetaIndex::new(repo)))
+    }
+
+    /// This device's copy, sealed before the rotation under `previous`, opens through the
+    /// rotation's window ([`KeyWindow`]), offline too. From then on the copy is sealed under
+    /// `drive_key`: its state when it is saved again, its packs as the drive's new ones
+    /// arrive (a re-sealed repository has new pack names, so the old ones leave the copy).
+    fn open_index_in_window(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        previous: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        let window = KeyWindow::new(drive_key.clone(), Some(previous.clone()));
+        let options = self.options(drive);
+        let repo = open_or_create(&bucket, &window, &self.device_id(), &self.device_name, &options)?;
         Ok(Arc::new(MetaIndex::new(repo)))
     }
 

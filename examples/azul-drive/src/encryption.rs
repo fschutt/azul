@@ -25,12 +25,20 @@
 //! `PowerState`), the first open encrypted drive's files are written again, smaller, on a
 //! worker thread, and the pass stops at the first input or when the power cord goes. Its state
 //! sits beside the migration's, so the next idle minute continues where it stopped.
+//!
+//! The same timer keeps the drive index small. In an idle minute on mains power, before the
+//! pass, an encrypted drive whose index was not maintained from this computer in the last six
+//! hours gets one maintenance round (azul-storage's `MetaIndexProvider::maintain`). The round
+//! runs under the bucket's lease, so only one computer runs it at a time. It folds the index's
+//! packs into one, writes a checkpoint and deletes what was retired a day ago. One thing runs
+//! at a time: the round or the pass.
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
 };
 
@@ -53,7 +61,8 @@ use azul_storage::{
         random_bytes, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
-    meta::MetaIndexProvider,
+    keyring::KeyringStore,
+    meta::{Maintained, Maintenance, MetaIndexProvider},
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
@@ -74,9 +83,17 @@ use crate::{
 /// between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read and
 /// browses without listing the bucket.
 pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    Some(Arc::new(
-        MetaIndexProvider::new("AzDrive").with_cache_root(drive_index_root()),
-    ))
+    Some(Arc::new(meta_provider(drive_index_root())))
+}
+
+/// The drive index's provider with this computer's copies under `cache_root`. The copies
+/// are lazy (C6): opening reads the pack indexes only, and a folder's objects arrive in
+/// ranged chunk reads when it is browsed, so a computer new to a drive browses it before
+/// every pack has downloaded.
+fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
+    MetaIndexProvider::new("AzDrive")
+        .with_cache_root(cache_root)
+        .with_lazy(true)
 }
 
 /// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
@@ -162,7 +179,8 @@ fn idle_on_mains() -> bool {
     PowerState::query().is_idle_on_mains(RECOMPRESS_IDLE_SECS)
 }
 
-/// Starts the timer that starts the pass (from the window's start).
+/// Starts the one timer that starts the pass and the drive index's maintenance rounds (from
+/// the window's start).
 pub(crate) fn start_recompression(info: &mut CallbackInfo, app: &RefAny) {
     if !offered() {
         return;
@@ -188,11 +206,38 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
-    let found = s.slots.iter().find_map(|slot| {
-        let auto = slot.auto.clone()?;
-        (auto.is_encrypted() == Some(true)).then(|| (slot.entry.id.clone(), auto))
-    });
-    let Some((drive_id, auto)) = found else {
+    let encrypted: Vec<(String, Arc<AutoEncrypted>)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| {
+            let auto = slot.auto.clone()?;
+            (auto.is_encrypted() == Some(true)).then(|| (slot.entry.id.clone(), auto))
+        })
+        .collect();
+    // The drive index's upkeep first: a short round, once every six hours per drive.
+    let now = now_unix();
+    let running = MAINTAINING.load(Ordering::SeqCst);
+    let due = encrypted
+        .iter()
+        .find(|(drive_id, _)| maintenance_due(now, maintained_at(drive_id), running));
+    if let Some((drive_id, auto)) = due.cloned() {
+        MAINTAINING.store(true, Ordering::SeqCst);
+        MAINTAINED_AT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(drive_id.clone(), now);
+        spawn(
+            &mut callback_info,
+            &app,
+            &mut *s,
+            Job::Encryption(EncryptionJob::Maintain { drive_id, auto }),
+        );
+        return TimerCallbackReturn::continue_unchanged();
+    }
+    if running {
+        return TimerCallbackReturn::continue_unchanged();
+    }
+    let Some((drive_id, auto)) = encrypted.into_iter().next() else {
         return TimerCallbackReturn::continue_unchanged();
     };
     let state_file = state_dir(&*s).join(format!("{drive_id}.recompress.json"));
@@ -208,6 +253,50 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
         }),
     );
     TimerCallbackReturn::continue_unchanged()
+}
+
+// ==== The drive index's upkeep ====
+
+/// How long after a drive's index was maintained from this computer the next round is due.
+const MAINTAIN_EVERY_SECS: u64 = 6 * 3_600;
+
+/// One round at a time (beside the recompression pass, never during it).
+static MAINTAINING: AtomicBool = AtomicBool::new(false);
+/// When a round of each drive's index last started from this computer (seconds since 1970),
+/// by drive id. Kept in memory only, so the first idle minute after a start runs one round.
+static MAINTAINED_AT: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+
+/// Whether a drive's index is due for a maintenance round at `now`: none running, and none
+/// started from this computer in the last [`MAINTAIN_EVERY_SECS`] (`last`).
+fn maintenance_due(now: u64, last: Option<u64>, running: bool) -> bool {
+    !running && last.map_or(true, |last| now.saturating_sub(last) >= MAINTAIN_EVERY_SECS)
+}
+
+/// When the round of the drive `drive_id`'s index last started from this computer.
+fn maintained_at(drive_id: &str) -> Option<u64> {
+    MAINTAINED_AT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(drive_id)
+        .copied()
+}
+
+/// One maintenance round of the drive `drive`'s index in `bucket`
+/// (`MetaIndexProvider::maintain`), with this computer's key from `keyring`. `None`: there
+/// is no index yet, or another computer's round holds the lease.
+fn run_maintenance(
+    provider: &MetaIndexProvider,
+    bucket: &Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    rules: &Maintenance,
+) -> Result<Option<Maintained>, String> {
+    let drive_key = device::unlock(bucket.as_ref(), keyring, drive)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("this computer has no key for \"{drive}\""))?;
+    provider
+        .maintain(Arc::clone(bucket), &drive_key, rules)
+        .map_err(|e| e.to_string())
 }
 
 // ==== The dialog ====
@@ -818,6 +907,11 @@ pub(crate) enum EncryptionJob {
         token_url: String,
         keyring: azcloud_kit::SharedKeyring,
     },
+    /// A maintenance round of the drive's index, in idle time on mains power.
+    Maintain {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+    },
 }
 
 /// What a rotation brings back to the UI thread.
@@ -866,6 +960,11 @@ pub(crate) enum EncryptionOutcome {
     LockedDown {
         drive_id: String,
         result: Result<Option<u64>, String>,
+    },
+    /// What the round did (`None`: no index yet, or another computer's round was running).
+    Maintained {
+        drive_id: String,
+        result: Result<Option<Maintained>, String>,
     },
 }
 
@@ -1064,6 +1163,16 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         } => {
             let result = recovery_lockdown(&drive_id, &code, &token_url, &keyring);
             EncryptionOutcome::LockedDown { drive_id, result }
+        }
+        EncryptionJob::Maintain { drive_id, auto } => {
+            let result = run_maintenance(
+                &meta_provider(drive_index_root()),
+                auto.bucket(),
+                &keyring,
+                auto.drive(),
+                &Maintenance::default(),
+            );
+            EncryptionOutcome::Maintained { drive_id, result }
         }
     }
 }
@@ -1305,6 +1414,13 @@ pub(crate) fn on_outcome(
                 },
             }));
         }
+        // Quiet, like the recompression pass: a round that stopped runs again six hours on.
+        EncryptionOutcome::Maintained { drive_id, result } => {
+            MAINTAINING.store(false, Ordering::SeqCst);
+            if let Err(why) = result {
+                eprintln!("AZDRIVE_MAINTAIN_STOPPED {drive_id}: {why}");
+            }
+        }
     }
 }
 
@@ -1447,5 +1563,81 @@ mod tests {
     #[test]
     fn with_the_drive_index_the_flows_are_offered() {
         assert!(offered());
+    }
+
+    /// C6 in AzDrive: a computer new to an encrypted drive lists a folder from the index's
+    /// pack indexes and the chunks it needs (ranged reads), before any pack is read whole.
+    #[test]
+    fn a_new_computer_lists_an_encrypted_drive_before_reading_a_whole_pack() {
+        use azul_storage::{
+            crypto::DriveKey, encrypted::EncryptedDrive, meta::MemoryBucket, ListRequest,
+        };
+        let bucket = Arc::new(MemoryBucket::new());
+        let key = DriveKey::generate().unwrap();
+        // Another computer wrote the drive: five files, five packs of the index.
+        let index = meta_provider(None)
+            .open_index("d_lazy", bucket.clone(), &key)
+            .unwrap();
+        let writer = EncryptedDrive::new(bucket.clone() as Arc<dyn Drive>, key.clone(), index);
+        for i in 0..5 {
+            writer.put(&format!("docs/{i}.txt"), b"x").unwrap();
+        }
+
+        let before = bucket.whole_reads().len();
+        let index = meta_provider(None)
+            .open_index("d_lazy", bucket.clone(), &key)
+            .unwrap();
+        let drive = EncryptedDrive::new(bucket.clone() as Arc<dyn Drive>, key, index);
+        let page = drive.list(&ListRequest::folder("docs/")).unwrap();
+        assert_eq!(page.objects.len(), 6, "the folder's marker and five files");
+        let packs_read = bucket.whole_reads()[before..]
+            .iter()
+            .filter(|key| key.ends_with(".pack"))
+            .count();
+        assert_eq!(packs_read, 0, "no pack read whole before the first listing");
+        assert!(bucket.counts().range_reads > 0);
+    }
+
+    #[test]
+    fn a_drive_index_is_maintained_once_every_six_hours_and_one_round_at_a_time() {
+        let now = 1_760_000_000;
+        assert!(maintenance_due(now, None, false), "never maintained from here");
+        assert!(!maintenance_due(now, Some(now - 60), false), "a minute ago");
+        assert!(!maintenance_due(now, Some(now - 6 * 3_600 + 1), false));
+        assert!(maintenance_due(now, Some(now - 6 * 3_600), false), "six hours ago");
+        assert!(!maintenance_due(now, None, true), "a round is running");
+    }
+
+    #[test]
+    fn an_idle_rounds_maintenance_folds_the_drive_indexs_packs_into_one() {
+        use azul_storage::{
+            crypto::DriveKey, encrypted::EncryptedDrive, keyring::MemoryKeyring,
+            meta::MemoryBucket, ListRequest,
+        };
+        let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+        let keyring = MemoryKeyring::new();
+        let key = DriveKey::generate().unwrap();
+        device::store_drive_key(&keyring, "d_upkeep", &key).unwrap();
+        let index = meta_provider(None)
+            .open_index("d_upkeep", Arc::clone(&bucket), &key)
+            .unwrap();
+        let drive = EncryptedDrive::new(Arc::clone(&bucket), key, index);
+        for i in 0..3 {
+            drive.put(&format!("docs/{i}.txt"), b"x").unwrap();
+        }
+        let rules = Maintenance {
+            compact_at_packs: 2,
+            ..Maintenance::default()
+        };
+        let done = run_maintenance(&meta_provider(None), &bucket, &keyring, "d_upkeep", &rules)
+            .unwrap()
+            .expect("no other computer holds the lease");
+        assert!(done.compacted);
+        let page = drive.list(&ListRequest::folder("docs/")).unwrap();
+        assert_eq!(page.objects.len(), 4, "the folder's marker and three files");
+
+        // A computer without the drive's key maintains nothing.
+        let stranger = MemoryKeyring::new();
+        assert!(run_maintenance(&meta_provider(None), &bucket, &stranger, "d_upkeep", &rules).is_err());
     }
 }

@@ -24,7 +24,7 @@
 //! fields in hex. They name the member by an opaque id ([`MemberPublic::id`]), never by a
 //! person's name: the bucket shows only how many members a drive has.
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use chacha20poly1305::{
     aead::{Aead, Payload},
@@ -41,6 +41,9 @@ use crate::{Drive, DriveError};
 pub const KEYS_PREFIX: &str = ".azlin/keys/";
 /// The recovery code's key file.
 pub const RECOVERY_KEY_FILE: &str = ".azlin/keys/recovery.key";
+/// The start of an invite's member id (`invite-<id>`): a one-time wrap for a join code, not a
+/// member.
+pub const INVITE_PREFIX: &str = "invite-";
 /// Bytes of a recovery code (128 random bits).
 pub const RECOVERY_CODE_LEN: usize = 16;
 /// Bytes of an Argon2id salt.
@@ -728,6 +731,35 @@ pub fn load_member_wrap(bucket: &dyn Drive, member: &str) -> Result<MemberWrap, 
     let key = member_key_file(member).map_err(|e| e.for_key(member))?;
     let bytes = bucket.get(&key)?;
     MemberWrap::parse(&bytes).map_err(|e| e.for_key(&key))
+}
+
+/// Every member's key file in `bucket` (`.azlin/keys/<member>.key`), its bytes by member id:
+/// not the recovery wrap, not a journal (`_rotation.key`), not an invite's one-time wrap. A
+/// file that holds no member wrap is left out. This is the record of a drive whose index has
+/// no policy yet (`crate::meta::policy`).
+pub fn load_member_wraps(bucket: &dyn Drive) -> Result<BTreeMap<String, Vec<u8>>, DriveError> {
+    let mut wraps = BTreeMap::new();
+    for object in crate::ops::list_all(bucket, KEYS_PREFIX)? {
+        let Some(member) = object
+            .key
+            .strip_prefix(KEYS_PREFIX)
+            .and_then(|rest| rest.strip_suffix(".key"))
+        else {
+            continue;
+        };
+        if check_member(member).is_err() || member.starts_with(INVITE_PREFIX) {
+            continue;
+        }
+        let bytes = match bucket.get(&object.key) {
+            Ok(bytes) => bytes,
+            Err(DriveError::NotFound { .. }) => continue,
+            Err(e) => return Err(e),
+        };
+        if MemberWrap::parse(&bytes).is_ok_and(|wrap| wrap.member == member) {
+            wraps.insert(member.to_string(), bytes);
+        }
+    }
+    Ok(wraps)
 }
 
 /// Puts `wrap` at `.azlin/keys/recovery.key` in `bucket`.

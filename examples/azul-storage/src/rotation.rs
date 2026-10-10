@@ -16,8 +16,10 @@
 //!    ([`reencrypt_pass`]) writes every file into a new object with a new file key, so nothing
 //!    in the bucket opens with K1 any more: recommended after a compromise.
 //! 4. This device gets a NEW member key (the old one may have leaked with K1) and its wrap is
-//!    sealed to K2 (the keyring's drive key becomes K2); every other member wrap and every open
-//!    invite leaves the bucket - the other devices come back with new join codes.
+//!    sealed to K2 (the keyring's drive key becomes K2); every other member leaves the index's
+//!    policy (the record of the members, `crate::meta::policy`), and every other member wrap
+//!    and every open invite leaves the bucket - the other devices come back with new join
+//!    codes.
 //! 5. A new recovery code, its wrap under K2 in the old one's place: the code comes back for the
 //!    recovery sheet (a resumed rotation makes a new one: the last code returned is the one).
 //! 6. Incoming mail: a new drop key (the old one kept, sealed with K2, for drops the Worker
@@ -28,7 +30,7 @@
 //! Every step can be run again: a rotation that stopped (a crash, no network) resumes from the
 //! journal on the device that started it (the one with K2), with the same call.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +43,7 @@ use crate::{
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex, Rewrite},
     keyring::KeyringStore,
+    meta::policy::{MemberChange, MemberRecord},
     ops::list_all,
     sharing::revoke_all_shares,
     Drive, DriveError, ListRequest,
@@ -214,9 +217,34 @@ pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Re
     })
 }
 
-/// Step 4: every member wrap and invite but this device's own leaves the bucket.
-fn remove_other_members(bucket: &dyn Drive, keep: &str) -> Result<usize, DriveError> {
-    let mut removed = 0;
+/// Step 4: every member but this device leaves. First the index's record (`drive_key` opens
+/// it): every member its policy names, and every wrap it holds. Then every member wrap and
+/// invite in the bucket. Returns how many members and invites were removed, from either.
+fn remove_other_members(
+    bucket: &dyn Drive,
+    drive_key: &DriveKey,
+    keep: &str,
+) -> Result<usize, DriveError> {
+    let mut removed = BTreeSet::new();
+    if let Some(mut record) = MemberRecord::open(bucket, drive_key)? {
+        let others: Vec<String> = record
+            .members()?
+            .map(|members| members.ids())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|member| member != keep)
+            .collect();
+        if !others.is_empty() {
+            let changes: Vec<MemberChange> = others
+                .iter()
+                .map(|member| MemberChange::Remove {
+                    member: member.clone(),
+                })
+                .collect();
+            record.record(&changes)?;
+        }
+        removed.extend(others);
+    }
     for object in list_all(bucket, KEYS_PREFIX)? {
         let Some(name) = object
             .key
@@ -229,11 +257,13 @@ fn remove_other_members(bucket: &dyn Drive, keep: &str) -> Result<usize, DriveEr
             continue;
         }
         match bucket.delete(&object.key) {
-            Ok(()) | Err(DriveError::NotFound { .. }) => removed += 1,
+            Ok(()) | Err(DriveError::NotFound { .. }) => {
+                removed.insert(name.to_string());
+            }
             Err(e) => return Err(e),
         }
     }
-    Ok(removed)
+    Ok(removed.len())
 }
 
 /// A key the rotation needs is not on this device.
@@ -312,7 +342,7 @@ pub fn rotate(
         // drive key.
         device::delete_key_at(keyring, &device::member_key_entry(drive))?;
         let me = device::enroll(bucket.as_ref(), keyring, drive, &new)?;
-        members_removed = remove_other_members(bucket.as_ref(), &me)?;
+        members_removed = remove_other_members(bucket.as_ref(), &new, &me)?;
         journal.phase = Phase::Members;
         save(bucket.as_ref(), &journal)?;
     }

@@ -227,7 +227,8 @@ impl Sealer for TestSealer {
 ///   key (the context) and the drive key's id are bound to the ciphertext.
 /// - **Object:** `"AZM1" | key id (16) | nonce (24) | ciphertext | tag (16)`. An object sealed
 ///   under another drive key (one from before a rotation) is refused by its key id before
-///   anything is decrypted.
+///   anything is decrypted. During a rotation's window, [`KeyWindow`] opens the objects of
+///   the key before it as well.
 /// - **Names:** `BLAKE3 keyed_hash(names, data)`.
 #[cfg(feature = "encryption")]
 mod drive_key {
@@ -302,4 +303,47 @@ mod drive_key {
             *blake3::keyed_hash(&self.derive(NAME_CONTEXT), data).as_bytes()
         }
     }
+
+    /// The drive key across a rotation (`crate::rotation`). It seals with the key after the
+    /// rotation (`current`), and names come from that key too. While the rotation's window
+    /// is open (`previous` is set) it also opens what the key before the rotation sealed,
+    /// chosen by the key id every object carries, so a device that missed the rotation still
+    /// reads its copy of the index and catches up. An object is still bound to its place
+    /// (the context). Outside the window it is `current` alone.
+    #[derive(Clone)]
+    pub struct KeyWindow {
+        current: DriveKey,
+        previous: Option<DriveKey>,
+    }
+
+    impl KeyWindow {
+        /// The window of the rotation from `previous` to `current` (`None`: closed).
+        #[must_use]
+        pub fn new(current: DriveKey, previous: Option<DriveKey>) -> KeyWindow {
+            KeyWindow { current, previous }
+        }
+    }
+
+    impl Sealer for KeyWindow {
+        fn seal(&self, context: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
+            self.current.seal(context, plaintext)
+        }
+
+        fn open(&self, context: &[u8], sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+            let sealed_by = sealed.get(4..4 + KEY_ID_LEN);
+            match &self.previous {
+                Some(previous) if sealed_by == Some(&previous.id().0[..]) => {
+                    previous.open(context, sealed)
+                }
+                _ => self.current.open(context, sealed),
+            }
+        }
+
+        fn name_hash(&self, data: &[u8]) -> [u8; 32] {
+            self.current.name_hash(data)
+        }
+    }
 }
+
+#[cfg(feature = "encryption")]
+pub use drive_key::KeyWindow;

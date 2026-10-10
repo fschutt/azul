@@ -5,7 +5,7 @@ use std::{collections::HashSet, io::Cursor};
 use sha2::{Digest, Sha256};
 
 use crate::meta::{
-    git::{adler32, git_pack, key_from_hex, reachable, serve, zlib_stored},
+    git::{adler32, git_pack, key_from_hex, reachable, serve, serve_bucket, zlib_stored},
     merge::keep_both,
     Change, Kind, MemoryBucket, MetaRepo, ObjectId, TestSealer,
 };
@@ -165,6 +165,58 @@ fn the_helper_says_ok_to_the_object_format_option_git_sends_without_a_value() {
     .unwrap();
     let text = String::from_utf8(output).unwrap();
     assert!(text.starts_with("ok\n:object-format sha256\n"), "{text}");
+}
+
+/// The helper's whole run, as `git-remote-azlin` and `azcloud git-remote` make it: the
+/// repository straight from its bucket (S3's or a folder's), packs read for a fetch only.
+#[test]
+fn the_helper_serves_a_repository_straight_from_its_bucket() {
+    let bucket = MemoryBucket::new();
+    let mut laptop =
+        Repo::create(bucket.clone(), TestSealer::new([71; 32]), "laptop", "Laptop").unwrap();
+    let id = laptop.write_blob(b"pointer\n");
+    laptop
+        .commit(
+            &[Change::Put {
+                path: "a.txt".to_string(),
+                id,
+            }],
+            "add a.txt\n",
+            &mut keep_both,
+        )
+        .unwrap();
+    let head = laptop.head().unwrap().to_hex();
+
+    let script = format!("option object-format\nlist\nfetch {head} refs/heads/main\n\n");
+    let mut output = Vec::new();
+    let mut packs = 0;
+    serve_bucket(
+        bucket.clone(),
+        TestSealer::new([71; 32]),
+        Cursor::new(script),
+        &mut output,
+        &mut |pack: &[u8]| {
+            assert_eq!(&pack[..4], b"PACK");
+            packs += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        format!("ok\n:object-format sha256\n{head} refs/heads/main\n@refs/heads/main HEAD\n\n\n")
+    );
+    assert_eq!(packs, 1);
+
+    // Another key opens nothing.
+    assert!(serve_bucket(
+        bucket,
+        TestSealer::new([72; 32]),
+        Cursor::new("list\n\n"),
+        &mut Vec::new(),
+        &mut |_: &[u8]| Ok(()),
+    )
+    .is_err());
 }
 
 #[test]

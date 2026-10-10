@@ -340,3 +340,49 @@ fn i_was_hacked_locks_the_drive_down_then_rotates_its_key() {
     assert_ne!(drive.entry("notes/plan.txt").unwrap().object_id(), before);
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 }
+
+/// `git clone azlin::drive://d_1` (azul-storage's `git-remote-azlin` hands the URL to
+/// `azcloud git-remote`): plain git reads the drive index in the account's bucket, over the
+/// account's signed S3 requests, with the drive key this device keeps.
+#[test]
+fn git_reads_the_drive_index_in_the_accounts_bucket_through_the_remote_helper() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-git");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = azul_storage::meta::MetaIndexProvider::new("Laptop");
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+
+    let mut output = Vec::new();
+    let mut packs = 0;
+    a.serve_git_remote(
+        &keys,
+        std::io::Cursor::new("option object-format\nlist\n\n"),
+        &mut output,
+        &mut |_: &[u8]| {
+            packs += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.starts_with("ok\n:object-format sha256\n"), "{text}");
+    assert!(
+        text.contains(" refs/heads/main\n@refs/heads/main HEAD\n"),
+        "{text}"
+    );
+    assert_eq!(packs, 0, "a list fetches nothing");
+
+    // A device without the drive key reads nothing.
+    assert!(a
+        .serve_git_remote(
+            &MemoryKeyring::new(),
+            std::io::Cursor::new("list\n\n"),
+            &mut Vec::new(),
+            &mut |_: &[u8]| Ok(()),
+        )
+        .is_err());
+}

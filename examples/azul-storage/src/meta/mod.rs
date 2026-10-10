@@ -110,6 +110,8 @@ pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use index::{open_encrypted_drive, MetaIndex, MetaIndexProvider};
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
+#[cfg(feature = "encryption")]
+pub use seal::KeyWindow;
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{

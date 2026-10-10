@@ -194,12 +194,35 @@ pub trait IndexProvider: Send + Sync {
             "this drive index cannot be sealed under a new drive key yet",
         )))
     }
+
+    /// [`IndexProvider::open_index`] in a key rotation's window, from `previous` (the drive
+    /// key before the rotation) to `drive_key`. Objects the index sealed under `previous`
+    /// still open, this device's copy above all, so a device that missed the rotation
+    /// catches up instead of reading its copy anew. What it seals from then on is sealed
+    /// under `drive_key`. By default `previous` is not used: an index without a sealed copy
+    /// of its own opens as usual.
+    fn open_index_in_window(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        previous: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        let _ = previous;
+        self.open_index(drive, bucket, drive_key)
+    }
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
 /// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
 /// `provider`. `Denied` when this device holds no key for the drive yet: it joins with a code
 /// from a device that does, or unlocks with the recovery code.
+///
+/// A device that missed a key rotation still holds the key from before it, and the index
+/// does not open with that key. When its member wrap holds the new key, the device catches up
+/// ([`device::catch_up`]): the new key goes into the keyring, and the index opens in the
+/// rotation's window ([`IndexProvider::open_index_in_window`]), where the device's copy
+/// sealed under the old key still opens.
 pub fn open_encrypted(
     bucket: Arc<dyn Drive>,
     keyring: &dyn KeyringStore,
@@ -214,8 +237,18 @@ pub fn open_encrypted(
             ),
         });
     };
-    let index = provider.open_index(drive, Arc::clone(&bucket), &drive_key)?;
-    Ok(EncryptedDrive::new(bucket, drive_key, index))
+    match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
+        Ok(index) => Ok(EncryptedDrive::new(bucket, drive_key, index)),
+        // The first error stands when there is nothing to catch up from.
+        Err(e) => match device::catch_up(bucket.as_ref(), keyring, drive) {
+            Ok(Some((current, previous))) => {
+                let index =
+                    provider.open_index_in_window(drive, Arc::clone(&bucket), &current, &previous)?;
+                Ok(EncryptedDrive::new(bucket, current, index))
+            }
+            Ok(None) | Err(_) => Err(e),
+        },
+    }
 }
 
 /// A drive's bucket that may hold an encrypted drive, for an app that opens drives on its UI

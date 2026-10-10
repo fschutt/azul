@@ -81,10 +81,32 @@ mod drive_key {
     use super::contains;
     use crate::{
         crypto::DriveKey,
-        meta::{keys, MemoryBucket, MetaError, MetaStore, Publish, RefUpdate, Sealer},
+        meta::{keys, KeyWindow, MemoryBucket, MetaError, MetaStore, Publish, RefUpdate, Sealer},
     };
 
     const MAIN: &str = "refs/heads/main";
+
+    #[test]
+    fn a_rotation_window_seals_with_the_new_key_and_opens_the_old_keys_objects_while_open() {
+        let old = DriveKey::generate().unwrap();
+        let new = DriveKey::generate().unwrap();
+        let before = old.seal(b"ctx", b"from before the rotation").unwrap();
+        let window = KeyWindow::new(new.clone(), Some(old.clone()));
+        assert_eq!(window.open(b"ctx", &before).unwrap(), b"from before the rotation");
+        assert!(window.open(b"other", &before).is_err(), "still bound to its place");
+
+        let after = window.seal(b"ctx", b"after").unwrap();
+        assert_eq!(&after[4..20], &new.id().0);
+        assert_eq!(new.open(b"ctx", &after).unwrap(), b"after");
+        assert!(old.open(b"ctx", &after).is_err());
+        assert_eq!(window.name_hash(b"pack"), new.name_hash(b"pack"));
+
+        // A third key's object stays shut, and the old key's once the window is closed.
+        let stranger = DriveKey::generate().unwrap().seal(b"ctx", b"x").unwrap();
+        assert!(window.open(b"ctx", &stranger).is_err());
+        let closed = KeyWindow::new(new, None);
+        assert!(closed.open(b"ctx", &before).is_err());
+    }
 
     #[test]
     fn the_drive_key_seals_an_object_that_opens_only_in_its_place() {

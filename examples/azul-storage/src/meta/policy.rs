@@ -9,6 +9,16 @@
 //! `.azlin` is the drive's own folder: the drive's listing does not show it, and the encrypted
 //! drive cannot write it (`super::index`); only these calls change it.
 //!
+//! [`MemberRecord`] is how the key flows (`crate::crypto::device`, `crate::rotation`) use the
+//! policy. A device that holds the drive key reads the members from it, and every change of
+//! the members is committed to it before the bucket's key file changes. The bucket's
+//! `.azlin/keys/<member>.key` files stay as the copy a device without the drive key opens
+//! (the repository is sealed with the drive key), and a device the policy no longer names
+//! is refused even when its key file is still in the bucket. A drive whose index has no
+//! policy yet keeps its key files as the record until its first member change, which
+//! writes the policy from them (every member key file an owner) in the same commit. A
+//! bucket without an index keeps its key files as the record.
+//!
 //! ```toml
 //! [members.d_laptop]
 //! name = "Laptop"
@@ -24,18 +34,23 @@
 //! access = "read"
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use super::{
-    bucket::Bucket,
-    merge::keep_both,
+    bucket::{Bucket, DriveBucket},
+    index::to_drive,
+    merge::{keep_both, Conflict, Resolution},
     objects::{is_valid_name, Mode},
-    repo::{CommitOutcome, MetaRepo},
+    repo::{CommitOutcome, MetaRepo, RepoOptions},
     seal::Sealer,
     tree::{entry_at, folder_at, Change},
     MetaError,
+};
+use crate::{
+    crypto::{keys::load_member_wraps, DriveKey},
+    Drive, DriveError,
 };
 
 /// Where the policy lives in the repository.
@@ -229,5 +244,222 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             format!("Member {member} removed\n")
         };
         self.commit(&[change], &message, &mut keep_both)
+    }
+}
+
+// ==== The record of the key flows ====
+
+/// The device name the key flows' commits carry.
+const RECORD_DEVICE: &str = "azul-storage keys";
+/// How often a member change is made again when another device changed the members meanwhile.
+const RECORD_ATTEMPTS: usize = 5;
+
+/// A drive's members as its policy names them, and the wraps its repository holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Members {
+    pub policy: Policy,
+    /// The members' key wraps (the bytes of their key files), by member id.
+    pub wraps: BTreeMap<String, Vec<u8>>,
+}
+
+impl Members {
+    /// Whether the policy names `member`.
+    #[must_use]
+    pub fn contains(&self, member: &str) -> bool {
+        self.policy.members.contains_key(member)
+    }
+
+    /// Every member id of the record: the policy's and the wraps', sorted.
+    #[must_use]
+    pub fn ids(&self) -> Vec<String> {
+        let mut ids: BTreeSet<String> = self.policy.members.keys().cloned().collect();
+        ids.extend(self.wraps.keys().cloned());
+        ids.into_iter().collect()
+    }
+
+    /// The members of a drive whose index has no policy yet: every member key file in the
+    /// bucket, each an owner named by its id.
+    fn from_key_files(bucket: &dyn Drive) -> Result<Members, DriveError> {
+        let wraps = load_member_wraps(bucket)?;
+        let members = wraps.keys().map(|id| (id.clone(), owner(id))).collect();
+        Ok(Members {
+            policy: Policy {
+                members,
+                grants: Vec::new(),
+            },
+            wraps,
+        })
+    }
+
+    fn apply(&mut self, change: &MemberChange) {
+        match change {
+            MemberChange::Add { member, wrap } => {
+                self.policy
+                    .members
+                    .entry(member.clone())
+                    .or_insert_with(|| owner(member));
+                self.wraps.insert(member.clone(), wrap.clone());
+            }
+            MemberChange::Remove { member } => {
+                self.policy.members.remove(member);
+                self.policy.grants.retain(|grant| grant.member != *member);
+                self.wraps.remove(member);
+            }
+        }
+    }
+
+    /// Whether `change` shows in these members.
+    fn holds(&self, change: &MemberChange) -> bool {
+        match change {
+            MemberChange::Add { member, wrap } => {
+                self.contains(member) && self.wraps.get(member) == Some(wrap)
+            }
+            MemberChange::Remove { member } => {
+                !self.contains(member) && !self.wraps.contains_key(member)
+            }
+        }
+    }
+}
+
+/// A member new to the policy: an owner, named by its id until it is renamed. Every device
+/// that holds the drive key can do everything the key flows do, so the key flows give no
+/// lesser role.
+fn owner(member: &str) -> Member {
+    Member {
+        name: member.to_string(),
+        role: Role::Owner,
+    }
+}
+
+/// A change of a drive's members ([`MemberRecord::record`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberChange {
+    /// `member` joins with `wrap` (the bytes of its key file), or keeps its place with a new
+    /// wrap. A member new to the policy joins as an owner.
+    Add { member: String, wrap: Vec<u8> },
+    /// `member` leaves: its entry, its grants and its wrap.
+    Remove { member: String },
+}
+
+/// The record of an encrypted drive's members: the policy and the member wraps of the
+/// bucket's metadata repository, opened with the drive key as a lazy copy (only `.azlin` is
+/// read; a change reads the packs, as every commit does).
+pub struct MemberRecord<'a> {
+    bucket: &'a dyn Drive,
+    repo: MetaRepo<DriveBucket<&'a dyn Drive>, DriveKey>,
+}
+
+impl<'a> MemberRecord<'a> {
+    /// The record in `bucket` (the bucket itself, below the encryption), opened with
+    /// `drive_key`. `None` for a bucket without a metadata repository, or one that cannot
+    /// hold one (no conditional writes): its key files are its record.
+    pub fn open(
+        bucket: &'a dyn Drive,
+        drive_key: &DriveKey,
+    ) -> Result<Option<MemberRecord<'a>>, DriveError> {
+        let options = RepoOptions {
+            cache_dir: None,
+            lazy: true,
+        };
+        let device = crate::ids::new_uuid();
+        let opened = MetaRepo::open_with(
+            DriveBucket::new(bucket),
+            drive_key.clone(),
+            &device,
+            RECORD_DEVICE,
+            &options,
+        );
+        match opened {
+            Ok(repo) => Ok(Some(MemberRecord { bucket, repo })),
+            Err(MetaError::NoRepository | MetaError::Unsupported(_)) => Ok(None),
+            Err(e) => Err(to_drive(e)),
+        }
+    }
+
+    /// The policy (`None` while there is none) and the wraps of the repository.
+    fn read(&mut self) -> Result<(Option<Policy>, BTreeMap<String, Vec<u8>>), MetaError> {
+        self.repo.ensure_entry(POLICY_PATH)?;
+        let policy = self.repo.policy()?;
+        self.repo.ensure_folder(KEYS_FOLDER, true)?;
+        let wraps = self.repo.member_wraps()?;
+        Ok((policy, wraps))
+    }
+
+    /// The members the policy names, `None` while the drive has no policy. Until its first
+    /// member change, such a drive's key files in the bucket are its record.
+    pub fn members(&mut self) -> Result<Option<Members>, DriveError> {
+        let (policy, wraps) = self.read().map_err(to_drive)?;
+        Ok(policy.map(|policy| Members { policy, wraps }))
+    }
+
+    /// Records `changes` in one commit and returns the members after it. A drive without a
+    /// policy gets one in the same commit, made from its key files in the bucket (the
+    /// migration). When another device changed the members meanwhile, its policy is taken
+    /// and the changes are made again on top of it.
+    pub fn record(&mut self, changes: &[MemberChange]) -> Result<Members, DriveError> {
+        for _ in 0..RECORD_ATTEMPTS {
+            let (policy, tree_wraps) = self.read().map_err(to_drive)?;
+            let mut wanted = match &policy {
+                Some(policy) => Members {
+                    policy: policy.clone(),
+                    wraps: tree_wraps.clone(),
+                },
+                None => Members::from_key_files(self.bucket)?,
+            };
+            for change in changes {
+                wanted.apply(change);
+            }
+            let mut tree = Vec::new();
+            if policy.as_ref() != Some(&wanted.policy) {
+                let text = wanted.policy.to_toml().map_err(to_drive)?;
+                tree.push(Change::Put {
+                    path: POLICY_PATH.to_string(),
+                    id: self.repo.write_blob(text.as_bytes()),
+                });
+            }
+            for (member, wrap) in &wanted.wraps {
+                if tree_wraps.get(member) != Some(wrap) {
+                    tree.push(Change::Put {
+                        path: key_path(member).map_err(to_drive)?,
+                        id: self.repo.write_blob(wrap),
+                    });
+                }
+            }
+            for member in tree_wraps.keys() {
+                if !wanted.wraps.contains_key(member) {
+                    tree.push(Change::Delete {
+                        path: key_path(member).map_err(to_drive)?,
+                    });
+                }
+            }
+            if tree.is_empty() {
+                return Ok(wanted);
+            }
+            let message = if policy.is_none() {
+                "Members: the policy, from the key files\n"
+            } else {
+                "Members changed\n"
+            };
+            // Their policy on a conflict (the changes are made again on top of it), this
+            // device's wraps.
+            let mut resolve = |conflict: &Conflict| {
+                if conflict.path == POLICY_PATH {
+                    Resolution::TakeTheirs
+                } else {
+                    Resolution::KeepMine
+                }
+            };
+            self.repo
+                .commit(&tree, message, &mut resolve)
+                .map_err(to_drive)?;
+            if let Some(after) = self.members()? {
+                if changes.iter().all(|change| after.holds(change)) {
+                    return Ok(after);
+                }
+            }
+        }
+        Err(DriveError::Conflict {
+            key: POLICY_PATH.to_string(),
+        })
     }
 }
