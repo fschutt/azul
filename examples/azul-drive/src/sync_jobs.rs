@@ -104,8 +104,10 @@ pub(crate) struct SyncWork {
     #[cfg(feature = "encryption")]
     pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
     /// Files over this many bytes wait for a pass on a free network, either way (a metered
-    /// network: [`sync_view::network_hold`]).
+    /// network, a weak computer: [`sync_view::transfer_hold`]).
     pub transfer_limit: Option<u64>,
+    /// Small files moved at once (the computer's health: [`crate::health::transfers`]).
+    pub parallel: usize,
 }
 
 impl SyncWork {
@@ -119,6 +121,7 @@ impl SyncWork {
             #[cfg(feature = "encryption")]
             objects: None,
             transfer_limit: None,
+            parallel: crate::health::transfers(100),
         }
     }
 
@@ -127,8 +130,8 @@ impl SyncWork {
     }
 
     /// The session (on the worker: an Azlin drive decides on its first call whether it is
-    /// encrypted), with the work's transfer limit.
-    fn session(&self) -> SyncSession {
+    /// encrypted), with the work's transfer limit and its transfers at once.
+    pub(crate) fn session(&self) -> SyncSession {
         self.drive_session().with_transfer_limit(self.transfer_limit)
     }
 

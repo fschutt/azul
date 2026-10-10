@@ -1334,6 +1334,21 @@ azdrive-enc-cancelling = Signing the cancel with the recovery code…
 azdrive-lockdown-needs-encryption = A lockdown with the recovery code is cancelled with the code, which this AzDrive (built without encryption) cannot read.
 azdrive-sync-metered-note = On a metered or low-data network (a phone's hotspot, a capped plan, Low Data Mode) files over { $mb } MB wait for a free one; smaller files sync as always.
 azdrive-sync-anyway = Sync anyway on this network
+# Options > Drives > Sync: this computer's state and the sync's pace by it (its client health).
+azdrive-sync-health = This computer: { $state } - { $pace }
+azdrive-sync-health-mains = on mains power
+azdrive-sync-health-battery = on battery
+azdrive-sync-health-battery-level = on battery, { $percent }%
+azdrive-sync-health-low-power = Low Power Mode
+azdrive-sync-health-hot = running hot
+azdrive-sync-health-hotspot = on a phone's hotspot
+azdrive-sync-health-metered = on a metered network
+azdrive-sync-health-low-data = Low Data Mode
+azdrive-sync-health-offline = offline
+azdrive-sync-health-full = syncing at full speed
+azdrive-sync-health-gentle = syncing gently
+azdrive-sync-health-slow = syncing slowly, big files wait
+azdrive-sync-health-waits = waiting for a network
 azdrive-paper-send-to = Send it to:
 
 ## A banned drive, a drive's space

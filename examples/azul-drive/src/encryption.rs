@@ -193,14 +193,17 @@ static RECOMPRESSING: AtomicBool = AtomicBool::new(false);
 
 /// Whether the pass may run now ([`recompress_allowed`] of the power and the network now).
 fn idle_on_mains() -> bool {
-    recompress_allowed(PowerState::query(), NetworkState::query())
+    recompress_allowed(PowerState::query(), NetworkState::query(), 100)
 }
 
-/// Whether the pass may run on `power` and `network`: idle long enough, on mains power, and on
-/// a network that costs the user nothing - the pass rewrites every file of the drive. A
-/// platform azul cannot read answers "on battery, just used" ([`PowerState::query`]), so the
-/// pass waits there; a network it cannot read counts as free ([`NetworkState::query`]).
-fn recompress_allowed(power: PowerState, network: NetworkState) -> bool {
+/// Whether the pass may run on `power` and `network` at the computer's client `health`: idle
+/// long enough, on mains power, on a network that costs the user nothing - the pass rewrites
+/// every file of the drive - and healthy ([`crate::health::recompress_allowed`]: not in Low
+/// Power Mode, not hot). A platform azul cannot read answers "on battery, just used"
+/// ([`PowerState::query`]), so the pass waits there; a network it cannot read counts as free
+/// ([`NetworkState::query`]).
+fn recompress_allowed(power: PowerState, network: NetworkState, health: u8) -> bool {
+    let _ = health;
     power.is_idle_on_mains(RECOMPRESS_IDLE_SECS) && network.allows_background_transfer()
 }
 
@@ -2666,6 +2669,7 @@ mod tests {
                     constrained,
                     hotspot: false,
                 },
+                100,
             )
         };
         assert!(on(NetworkKind::Wired, false, false));
@@ -2675,7 +2679,25 @@ mod tests {
             on_mains: true,
             idle_secs: 0,
         };
-        assert!(!recompress_allowed(busy, NetworkState::headless()), "used a moment ago");
+        assert!(!recompress_allowed(busy, NetworkState::headless(), 100), "used a moment ago");
+    }
+
+    #[test]
+    fn the_recompression_pass_waits_for_a_healthy_computer() {
+        let idle = PowerState {
+            on_mains: true,
+            idle_secs: RECOMPRESS_IDLE_SECS,
+        };
+        assert!(recompress_allowed(idle, NetworkState::headless(), 100));
+        assert!(recompress_allowed(idle, NetworkState::headless(), 85));
+        assert!(
+            !recompress_allowed(idle, NetworkState::headless(), 80),
+            "on mains in Low Power Mode"
+        );
+        assert!(
+            !recompress_allowed(idle, NetworkState::headless(), 70),
+            "a hot computer"
+        );
     }
 
     #[test]

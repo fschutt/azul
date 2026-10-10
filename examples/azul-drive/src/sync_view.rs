@@ -61,7 +61,10 @@ use azul::{
     },
 };
 
-use azul_appkit::l10n::{self, t, t_phrase, t_text, Phrase, Text};
+use azul_appkit::{
+    client_health::Device,
+    l10n::{self, t, t_phrase, t_text, Phrase, Text},
+};
 
 pub(crate) use crate::sync_store::SyncStore;
 use crate::{
@@ -115,6 +118,9 @@ pub(crate) struct SyncView {
     pub waiting_transfer: Option<sync_jobs::Transfer>,
     /// The network as the poll timer last read it (azul's `NetworkState`); `None` before.
     pub network: Option<NetworkState>,
+    /// This computer as last read (its power, battery and network: the client health's parts,
+    /// [`crate::health`]); `None` before. Kept here only, never sent anywhere.
+    pub device: Option<Device>,
 }
 
 /// The status line while a metered or low-data network holds big transfers back.
@@ -246,6 +252,30 @@ pub(crate) fn network_hold(network: Option<&NetworkState>, setup: &SyncSetup) ->
         return None;
     }
     Some(under_mb(setup).saturating_mul(MB))
+}
+
+/// Whether a pass of `setup`'s drive on a weak computer (`device`'s client health under
+/// [`crate::health::GENTLE`]) holds big transfers back, and from which size on: the files over
+/// the auto-download size wait, both ways, for a healthier pass, as on a metered network.
+/// "Sync anyway on this network" (`sync_on_metered`) leaves the network's part out of the
+/// health: the battery and the temperature still count. `None` on a healthy computer, offline
+/// and before the computer was read.
+#[must_use]
+pub(crate) fn health_hold(device: Option<&Device>, setup: &SyncSetup) -> Option<u64> {
+    let _ = (device, setup);
+    None
+}
+
+/// The limit a pass of `setup`'s drive runs with: the smaller of the network's
+/// ([`network_hold`]) and the computer's ([`health_hold`]).
+#[must_use]
+pub(crate) fn transfer_hold(
+    network: Option<&NetworkState>,
+    device: Option<&Device>,
+    setup: &SyncSetup,
+) -> Option<u64> {
+    let _ = device;
+    network_hold(network, setup)
 }
 
 /// A file state's icon (a Material name of the icon set).

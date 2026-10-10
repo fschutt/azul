@@ -1332,6 +1332,21 @@ azdrive-enc-cancelling = Der Abbruch wird mit dem Wiederherstellungscode signier
 azdrive-lockdown-needs-encryption = Eine Sperrung mit dem Wiederherstellungscode wird mit dem Code abgebrochen, den dieses AzDrive (ohne Verschlüsselung gebaut) nicht lesen kann.
 azdrive-sync-metered-note = In einem getakteten Netzwerk oder einem mit geringem Datenvolumen (der Hotspot eines Telefons, ein begrenzter Tarif, der Modus „Wenig Daten“) warten Dateien über { $mb } MB auf ein freies; kleinere Dateien werden wie immer synchronisiert.
 azdrive-sync-anyway = In diesem Netzwerk trotzdem synchronisieren
+# Optionen > Laufwerke > Synchronisieren: der Zustand dieses Computers und das Tempo der Synchronisierung danach.
+azdrive-sync-health = Dieser Computer: { $state } - { $pace }
+azdrive-sync-health-mains = am Stromnetz
+azdrive-sync-health-battery = im Akkubetrieb
+azdrive-sync-health-battery-level = im Akkubetrieb, { $percent } %
+azdrive-sync-health-low-power = Stromsparmodus
+azdrive-sync-health-hot = läuft heiß
+azdrive-sync-health-hotspot = am Hotspot eines Telefons
+azdrive-sync-health-metered = in einem getakteten Netzwerk
+azdrive-sync-health-low-data = Modus „Wenig Daten“
+azdrive-sync-health-offline = offline
+azdrive-sync-health-full = synchronisiert mit voller Geschwindigkeit
+azdrive-sync-health-gentle = synchronisiert schonend
+azdrive-sync-health-slow = synchronisiert langsam, große Dateien warten
+azdrive-sync-health-waits = wartet auf ein Netzwerk
 azdrive-paper-send-to = Senden an:
 
 ## A banned drive, a drive's space

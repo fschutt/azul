@@ -232,6 +232,8 @@ mod sync_jobs;
 mod sync_store;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
 mod sync_view;
+/// This computer's client health (power, battery, network) and the background work it scales.
+mod health;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},

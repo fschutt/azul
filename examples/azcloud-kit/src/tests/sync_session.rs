@@ -692,6 +692,37 @@ fn lists(index: &serde_json::Value, key: &str) -> bool {
     index["files"].get(key).is_some()
 }
 
+// ==== Fewer transfers at once (a weak computer) ====
+
+#[test]
+fn a_session_moves_as_many_small_files_at_once_as_the_app_says() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-gentle", &store, |_| {});
+    assert_eq!(a.session.parallel(), 4, "the run's default");
+    let gentle = |transfers: usize| {
+        let remote: Arc<dyn RemoteStore> = store.clone();
+        SyncSession::plain(
+            a.session.setup().clone(),
+            a.state.path().to_path_buf(),
+            "dev-gentle",
+            remote,
+        )
+        .with_parallel(transfers)
+    };
+    assert_eq!(gentle(1).parallel(), 1);
+    assert_eq!(gentle(2).parallel(), 2);
+    assert_eq!(gentle(0).parallel(), 1, "at least one");
+    for i in 0..5 {
+        a.write(&format!("note-{i}.txt"), b"small");
+    }
+    let pass = pass_of(&gentle(1));
+    assert_eq!(
+        pass.report.as_ref().map(|r| r.files_up),
+        Some(5),
+        "one at a time, all of them"
+    );
+}
+
 // ==== A limit for big transfers (a metered network) ====
 
 /// `p`'s pairing in a session whose passes hold transfers over `limit` bytes back.
