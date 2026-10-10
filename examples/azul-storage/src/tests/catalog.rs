@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::{
-    catalog::{self, Backend, FieldKind, FormValues, ServiceGroup},
+    catalog::{self, Backend, DriveKind, FieldKind, FormProblem, FormValues, ServiceGroup},
     config::{DatabaseEngine, DriveAuth, DriveEntry, DriveLocation, SecretOptions},
     Credentials,
 };
@@ -364,5 +364,86 @@ fn a_drive_reads_as_the_kind_of_source_it_is() {
             keyring: false,
         })),
         "SQLite database"
+    );
+}
+
+/// What a form lacks, as data: an app says it in its own language (`check` says it in English).
+#[test]
+fn what_a_form_lacks_is_data_for_an_app_that_says_it_in_its_language() {
+    let webdav = spec("webdav");
+    let endpoint = webdav.field("endpoint").unwrap();
+    assert_eq!(
+        catalog::problem(webdav, "  ", &values(&[])),
+        Some(FormProblem::NoName)
+    );
+    assert_eq!(
+        catalog::problem(webdav, "NAS", &values(&[])),
+        Some(FormProblem::Required(endpoint))
+    );
+    assert_eq!(
+        catalog::problem(webdav, "NAS", &values(&[("endpoint", "nas.local")])),
+        Some(FormProblem::NotAnAddress(endpoint))
+    );
+    assert_eq!(FormProblem::NotAnAddress(endpoint).scheme(), "https");
+    assert_eq!(
+        catalog::problem(webdav, "NAS", &values(&[("endpoint", "https://nas/dav")])),
+        None
+    );
+    let postgres = spec("postgres");
+    let bad_port = values(&[
+        ("host", "db.example"),
+        ("port", "54x"),
+        ("database", "shop"),
+        ("user", "ann"),
+    ]);
+    assert_eq!(
+        catalog::problem(postgres, "Shop", &bad_port),
+        Some(FormProblem::NotANumber(postgres.field("port").unwrap()))
+    );
+    // check's words are the problem's.
+    assert_eq!(
+        catalog::check(webdav, "NAS", &values(&[])).unwrap_err(),
+        FormProblem::Required(endpoint).to_string()
+    );
+}
+
+/// What kind of drive it is, as data; `kind_label` is its English.
+#[test]
+fn a_drives_kind_is_data_too() {
+    let entry = |location| DriveEntry {
+        id: "x".to_string(),
+        name: "X".to_string(),
+        location,
+    };
+    let local = entry(DriveLocation::Local {
+        root: "/".to_string(),
+    });
+    assert_eq!(catalog::kind_of(&local), DriveKind::LocalDisk);
+    assert_eq!(
+        catalog::kind_of(&local).to_string(),
+        catalog::kind_label(&local)
+    );
+    let opendal = |scheme: &str| {
+        entry(DriveLocation::Opendal {
+            scheme: scheme.to_string(),
+            options: BTreeMap::new(),
+            keyring: false,
+        })
+    };
+    assert_eq!(
+        catalog::kind_of(&opendal("webdav")),
+        DriveKind::Source(spec("webdav"))
+    );
+    assert_eq!(
+        catalog::kind_of(&opendal("frob")),
+        DriveKind::Scheme("frob".to_string())
+    );
+    assert_eq!(
+        catalog::kind_of(&entry(DriveLocation::Database {
+            engine: DatabaseEngine::Sqlite,
+            options: BTreeMap::new(),
+            keyring: false,
+        })),
+        DriveKind::Database(DatabaseEngine::Sqlite)
     );
 }

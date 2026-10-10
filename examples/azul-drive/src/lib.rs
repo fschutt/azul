@@ -211,6 +211,8 @@ mod paper;
 mod pay_words;
 #[cfg(test)]
 mod pay_words_tests;
+#[cfg(test)]
+mod source_words_tests;
 pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
