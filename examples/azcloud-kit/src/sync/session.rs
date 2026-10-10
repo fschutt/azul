@@ -784,15 +784,21 @@ impl SyncSession {
         let mut fetched = Vec::new();
         let mut held = report.held_back.clone();
         let mut pinned: Vec<(String, u64)> = Vec::new();
-        for key in report.cloud_only.iter().filter(|key| states.is_pinned(key)) {
-            let size = states.files.get(key).map_or(0, |r| r.size);
+        let in_the_cloud: Vec<String> = report
+            .cloud_only
+            .iter()
+            .filter(|key| states.is_pinned(key))
+            .cloned()
+            .collect();
+        for key in in_the_cloud {
+            let size = states.files.get(&key).map_or(0, |r| r.size);
             if self.over_limit(size) {
-                held.push(key.clone());
-                if let Some(record) = states.files.get_mut(key) {
+                if let Some(record) = states.files.get_mut(&key) {
                     record.held = true;
                 }
+                held.push(key);
             } else {
-                pinned.push((key.clone(), size));
+                pinned.push((key, size));
             }
         }
         for (key, size) in pinned {
