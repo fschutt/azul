@@ -93,6 +93,20 @@ fn files_of_every_size_round_trip_through_the_drive() {
     assert!(shown.contains(&(String::from("Compressed"), String::from("Yes"))));
 }
 
+/// A file's details name the BLAKE3 of its plaintext ([`crate::CONTENT_HASH_METADATA`]), as the
+/// index keeps it: a sync compares it with a file on this device without downloading.
+#[test]
+fn the_metadata_names_the_blake3_of_the_plaintext() {
+    let drive = new_drive();
+    drive.put("notes/a.txt", b"hello").unwrap();
+    let shown = drive.metadata("notes/a.txt").unwrap();
+    let want = blake3::hash(b"hello").to_hex().to_string();
+    assert!(
+        shown.contains(&(crate::CONTENT_HASH_METADATA.to_string(), want)),
+        "{shown:?}"
+    );
+}
+
 #[test]
 fn the_bucket_holds_no_plaintext_name_or_content() {
     let drive = new_drive();
