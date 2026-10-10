@@ -294,12 +294,26 @@ pub struct SyncReport {
     /// nothing went up, what the drive changed came here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<guard::Pause>,
+    /// What the drive's index uses that this version does not know (D43,
+    /// [`RemoteIndex::unknown_features`]): the run changed nothing on either side - the drive
+    /// is read-only here until the app is updated.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub newer_format: Vec<String>,
 }
 
 impl SyncReport {
     /// One line for people.
     #[must_use]
     pub fn summary(&self) -> String {
+        if !self.newer_format.is_empty() {
+            return format!(
+                "{} <-> {}: nothing synced - the drive's sync index uses what this version does \
+                 not know ({}): update it",
+                self.root,
+                self.prefix,
+                self.newer_format.join(", ")
+            );
+        }
         if self.dry_run {
             return format!(
                 "{} <-> {}: dry run, {} changes planned",
@@ -1483,6 +1497,13 @@ fn run<R: SyncRemote + ?Sized>(
     let (committed, actions, merged, reset, etag) = loop {
         attempt += 1;
         let (remote, etag) = remote_side.read(cached.as_ref())?;
+        // D43: an index this version does not read whole is left as it is (read-only here).
+        let newer = remote.unknown_features();
+        if !newer.is_empty() {
+            report.newer_format = newer;
+            report.generation = remote.generation;
+            return Ok(report);
+        }
         // The index went back (deleted, replaced): this side's base no longer
         // describes it, so nothing is deleted on either side this run.
         let reset = remote.generation < index.generation;
@@ -1762,6 +1783,14 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
 ) -> CloudResult<GcReport> {
     let prefix = normalize_prefix(prefix)?;
     let (index, _) = read_index(store, &remote::index_key(&prefix), None)?;
+    let newer = index.unknown_features();
+    if !newer.is_empty() {
+        fail!(
+            "the drive's sync index of {prefix:?} uses what this version does not know ({}): \
+             nothing was collected - update it",
+            newer.join(", ")
+        );
+    }
     let referenced = index.referenced();
     let mut report = GcReport {
         prefix: prefix.clone(),
