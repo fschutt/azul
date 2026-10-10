@@ -49,3 +49,18 @@ fn what_a_restore_did_is_said_with_the_drive_and_the_time() {
     let text = restored_text("Work", at, &Restored::Queued(String::from("r_1")));
     assert!(text.contains("r_1") && text.contains("later"), "{text}");
 }
+
+/// A while ago typed in German ("vor 2 Stunden"): the dialog's words are the window's language,
+/// and so is what the user types.
+#[test]
+fn a_while_ago_is_typed_in_german_too() {
+    assert_eq!(parse_as_of("vor 1 Stunde", NOW), Ok(NOW - 3_600));
+    assert_eq!(parse_as_of("vor 2 Stunden", NOW), Ok(NOW - 7_200));
+    assert_eq!(parse_as_of("vor 30 Minuten", NOW), Ok(NOW - 1_800));
+    assert_eq!(parse_as_of("vor 1 Minute", NOW), Ok(NOW - 60));
+    assert_eq!(parse_as_of(" Vor 3 Tagen ", NOW), Ok(NOW - 3 * 86_400));
+    assert_eq!(parse_as_of("vor 1 Tag", NOW), Ok(NOW - 86_400));
+    for wrong in ["vor 2 Wochen", "vor Stunden", "2 Stunden"] {
+        assert!(parse_as_of(wrong, NOW).is_err(), "{wrong:?}");
+    }
+}
