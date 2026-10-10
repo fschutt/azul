@@ -48,7 +48,8 @@ pub mod sample;
 pub mod state;
 pub mod store;
 pub mod views;
-pub mod vtodo;
+// To-dos as iCalendar: azul-pim's, shared with the Azlin Bridge's CalDAV task lists.
+pub use azul_pim::vtodo;
 
 use std::{path::PathBuf, sync::Arc};
 
