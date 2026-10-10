@@ -58,17 +58,25 @@ pub fn keys_in_source(text: &str, prefixes: &[&str]) -> BTreeSet<String> {
     keys
 }
 
-/// `text` up to its test module (`#[cfg(test)]` before a `mod`).
+/// `text` up to its test module (`#[cfg(test)]` before an inline `mod name {`; a declaration
+/// `mod name;` of a test file is no end).
 fn without_test_module(text: &str) -> &str {
     let mut from = 0;
     while let Some(at) = text[from..].find("#[cfg(test)]") {
         let at = from + at;
         let after = text[at + "#[cfg(test)]".len()..].trim_start();
-        if after.starts_with("mod ")
-            || after.starts_with("pub mod ")
-            || after.starts_with("pub(crate) mod ")
-        {
-            return &text[..at];
+        let after = after
+            .strip_prefix("pub(crate) ")
+            .or_else(|| after.strip_prefix("pub "))
+            .unwrap_or(after);
+        if let Some(rest) = after.strip_prefix("mod ") {
+            let rest = rest.trim_start();
+            let name_len = rest
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
+            if rest[name_len..].trim_start().starts_with('{') {
+                return &text[..at];
+            }
         }
         from = at + 1;
     }
