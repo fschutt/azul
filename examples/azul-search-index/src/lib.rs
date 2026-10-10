@@ -16,6 +16,7 @@
 //! second one is refused with a sentence.
 
 mod extract;
+mod state;
 #[cfg(test)]
 mod tests;
 
@@ -219,13 +220,44 @@ impl DriveIndex {
     ///
     /// The folder cannot be made or read, the index cannot be opened.
     pub fn open(dir: &Path) -> Result<DriveIndex, IndexError> {
-        todo!("SEARCH17: the index is the next commit")
+        fs::create_dir_all(dir)?;
+        let format = dir.join(FORMAT_FILE);
+        if fs::read_to_string(&format).ok().as_deref() != Some(FORMAT) {
+            clear(dir)?;
+            fs::write(&format, FORMAT)?;
+        }
+        let (schema, path, body) = schema();
+        let index = match open_index(dir, schema.clone()) {
+            Ok(index) => index,
+            Err(_) => {
+                // Broken, or of another schema: built again from nothing.
+                clear(dir)?;
+                fs::write(&format, FORMAT)?;
+                open_index(dir, schema)?
+            }
+        };
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(DriveIndex {
+            dir: dir.to_path_buf(),
+            index,
+            reader,
+            path,
+            body,
+        })
     }
 
     /// What the index holds.
     #[must_use]
     pub fn status(&self) -> IndexStatus {
-        todo!("SEARCH17: the index is the next commit")
+        let state = state::read(&self.dir.join(STATE_FILE));
+        IndexStatus {
+            files: state.files.len(),
+            documents: self.reader.searcher().num_docs(),
+            updated: state.updated,
+        }
     }
 
     /// Brings the index up to the drive's folder `root` as `filters` walk it: the files that
@@ -246,7 +278,92 @@ impl DriveIndex {
         cancel: &AtomicBool,
         on_progress: &mut dyn FnMut(UpdateProgress),
     ) -> Result<UpdateSummary, IndexError> {
-        todo!("SEARCH17: the index is the next commit")
+        let state_file = self.dir.join(STATE_FILE);
+        let mut state = state::read(&state_file);
+        let mut files: Vec<FileEntry> = Vec::new();
+        list_files(root, filters, cancel, &mut |file| files.push(file))?;
+        let mut summary = UpdateSummary {
+            listed: files.len(),
+            ..UpdateSummary::default()
+        };
+        if cancel.load(Ordering::SeqCst) {
+            summary.cancelled = true;
+            return Ok(summary);
+        }
+        let present: HashSet<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        let removed: Vec<String> = state
+            .files
+            .keys()
+            .filter(|path| !present.contains(path.as_str()))
+            .cloned()
+            .collect();
+        let mut changed: Vec<&FileEntry> = files
+            .iter()
+            .filter(|f| state.files.get(&f.path) != Some(&(f.size, f.modified)))
+            .collect();
+        changed.sort_by(|a, b| a.path.cmp(&b.path));
+        summary.unchanged = files.len() - changed.len();
+        summary.removed = removed.len();
+        let mut progress = UpdateProgress {
+            listed: files.len(),
+            to_read: changed.len(),
+            read: 0,
+        };
+        on_progress(progress);
+        if !removed.is_empty() || !changed.is_empty() {
+            let mut writer: IndexWriter = self.index.writer_with_num_threads(1, WRITER_MEMORY)?;
+            for path in &removed {
+                writer.delete_term(Term::from_field_text(self.path, path));
+                state.files.remove(path);
+            }
+            let mut since_commit = 0;
+            let mut last_commit = Instant::now();
+            let mut last_progress = Instant::now();
+            for file in changed {
+                if cancel.load(Ordering::Relaxed) {
+                    summary.cancelled = true;
+                    break;
+                }
+                writer.delete_term(Term::from_field_text(self.path, &file.path));
+                let name = file.path.rsplit('/').next().unwrap_or("");
+                let text = kind_of(name)
+                    .and_then(|kind| read_bytes(root, file, kind))
+                    .and_then(|bytes| extract(name, &bytes, extractors));
+                match text {
+                    Some(text) => {
+                        let mut document = TantivyDocument::default();
+                        document.add_text(self.path, &file.path);
+                        document.add_text(self.body, &text);
+                        writer.add_document(document)?;
+                        summary.indexed += 1;
+                    }
+                    None => summary.without_text += 1,
+                }
+                state
+                    .files
+                    .insert(file.path.clone(), (file.size, file.modified));
+                progress.read += 1;
+                since_commit += 1;
+                if since_commit >= COMMIT_EVERY || last_commit.elapsed() >= COMMIT_AFTER {
+                    writer.commit()?;
+                    state::write(&state_file, &state)?;
+                    since_commit = 0;
+                    last_commit = Instant::now();
+                }
+                if last_progress.elapsed() >= PROGRESS_EVERY {
+                    last_progress = Instant::now();
+                    on_progress(progress);
+                }
+            }
+            writer.commit()?;
+        }
+        if !summary.cancelled {
+            state.updated = Some(now_secs());
+        }
+        state::write(&state_file, &state)?;
+        self.reader.reload()?;
+        on_progress(progress);
+        Ok(summary)
     }
 
     /// The files below `under` (a folder's key, `docs/`; `""`: the whole drive) whose text holds
@@ -258,6 +375,38 @@ impl DriveIndex {
     ///
     /// The index cannot be read.
     pub fn query(&self, text: &str, under: &str, limit: usize) -> Result<Vec<String>, IndexError> {
-        todo!("SEARCH17: the index is the next commit")
+        let mut analyzer = self.index.tokenizer_for_field(self.body)?;
+        let mut terms = Vec::new();
+        analyzer
+            .token_stream(text)
+            .process(&mut |token| terms.push(Term::from_field_text(self.body, &token.text)));
+        if terms.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut words = PhrasePrefixQuery::new(terms);
+        words.set_max_expansions(PREFIX_EXPANSIONS);
+        let query: Box<dyn Query> = if under.is_empty() {
+            Box::new(words)
+        } else {
+            let lower = Bound::Included(Term::from_field_text(self.path, under));
+            let upper = Bound::Excluded(Term::from_field_text(
+                self.path,
+                &format!("{under}\u{10FFFF}"),
+            ));
+            Box::new(BooleanQuery::new(vec![
+                (Occur::Must, Box::new(words) as Box<dyn Query>),
+                (Occur::Must, Box::new(RangeQuery::new(lower, upper))),
+            ]))
+        };
+        let searcher = self.reader.searcher();
+        let top = searcher.search(&*query, &TopDocs::with_limit(limit).order_by_score())?;
+        let mut paths = Vec::with_capacity(top.len());
+        for (_score, address) in top {
+            let document: TantivyDocument = searcher.doc(address)?;
+            if let Some(path) = document.get_first(self.path).and_then(|v| v.as_str()) {
+                paths.push(path.to_string());
+            }
+        }
+        Ok(paths)
     }
 }

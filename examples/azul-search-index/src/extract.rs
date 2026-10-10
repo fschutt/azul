@@ -49,15 +49,33 @@ const BINARY: &[&str] = &[
 /// How a file of this name is read, `None` for a kind that holds no text.
 #[must_use]
 pub fn kind_of(name: &str) -> Option<Kind> {
-        todo!("SEARCH17: the index is the next commit")
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    match extension.as_str() {
+        "docx" | "docm" | "dotx" | "xlsx" | "xlsm" | "pptx" | "pptm" | "odt" | "ods" | "odp"
+        | "epub" => Some(Kind::Office),
+        "eml" => Some(Kind::Mail),
+        "pdf" => Some(Kind::Pdf),
+        e if BINARY.contains(&e) => None,
+        _ => Some(Kind::Text),
     }
+}
 
 /// The text of the file `name` whose bytes are `bytes` (a plain file's first
 /// [`MAX_TEXT_BYTES`] are enough), cut to [`MAX_TEXT_BYTES`]; `None` when it holds none.
 #[must_use]
 pub fn extract(name: &str, bytes: &[u8], extractors: &Extractors) -> Option<String> {
-        todo!("SEARCH17: the index is the next commit")
-    }
+    let text = match kind_of(name)? {
+        Kind::Text => plain(bytes),
+        Kind::Office => office(name, bytes),
+        Kind::Mail => mail(bytes),
+        Kind::Pdf => extractors.pdf.as_ref().and_then(|pdf| pdf(bytes)),
+    }?;
+    let text = cut(text);
+    (!text.trim().is_empty()).then_some(text)
+}
 
 /// `text` cut to [`MAX_TEXT_BYTES`] at a character's boundary.
 fn cut(mut text: String) -> String {
