@@ -6,13 +6,17 @@
 //! its newest drive token ([`azcloud_kit::redeem_due`]). A drive without kept tokens asks the
 //! token server nothing.
 //!
+//! A look also tells the owner (D42) of every device the drive was given since the last look
+//! (`AZDRIVE_NEW_DEVICE <drive id> <member>`, a notification) and of a use of the recovery code:
+//! a lockdown that takes the drive in 48 hours unless a device of the owner cancels it.
+//!
 //! On stdout: `AZDRIVE_PERIOD_REDEEMED <drive id> <count> <until>` for a month bought.
 //! `AZDRIVE_PERIOD_CHECK_SECS` (a positive number of seconds) makes the daily look more often,
 //! for a test run.
 
 use std::collections::HashMap;
 
-use azcloud_kit::{period::REDEEM_AHEAD_SECS, Look, Redeemed};
+use azcloud_kit::{period::REDEEM_AHEAD_SECS, token::RECOVERY_MEMBER, Look, Redeemed};
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TimerCallbackInfo, TimerCallbackReturn},
     notification::Notification,
@@ -26,7 +30,7 @@ use azul_storage::{
     time::iso8601,
 };
 
-use crate::{actions::now_secs, ids, jobs::Job, spawn, DriveState};
+use crate::{actions::now_secs, browse::Place, ids, jobs::Job, spawn, DriveState};
 
 /// A day: how often a drive's period is looked at while AzDrive runs.
 pub(crate) const DAY_SECS: u64 = 86_400;
@@ -197,6 +201,14 @@ pub(crate) fn periods_redeemed(
             // A synced drive's status line says "Read-only (payment due)" by this word.
             crate::sync_jobs::drive_status_seen(s, &drive_id, status.read_only);
         }
+        for member in new_devices(&look.new_members) {
+            println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");
+            let body = new_device_text(&s.drive_name(&Place::folder(&drive_id, "")), member);
+            info.post_notification(
+                Notification::create(format!("azdrive-device-{drive_id}-{member}"), "AzDrive")
+                    .with_body(body),
+            );
+        }
         match look.redeemed {
             Redeemed::Extended {
                 count,
@@ -232,18 +244,51 @@ fn lockdown_seen(
         return;
     }
     println!("AZDRIVE_LOCKDOWN_PENDING {drive_id} {}", iso8601(until));
-    let name = s
-        .slot_index(drive_id)
-        .map(|index| s.slots[index].entry.name.clone())
-        .unwrap_or_else(|| drive_id.to_string());
+    let name = s.drive_name(&Place::folder(drive_id, ""));
+    let body = recovery_text(&name, until, now_secs());
     info.post_notification(
-        Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(
-            format!(
-                "A lockdown of \"{name}\" with the recovery code is pending. If that was not \
-                 you, cancel it in AzDrive."
-            ),
-        ),
+        Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(body),
     );
+}
+
+/// Of the members a look saw first, the devices to announce: the recovery code's is announced
+/// as its lockdown ([`lockdown_seen`]).
+#[must_use]
+pub(crate) fn new_devices(new_members: &[String]) -> Vec<&str> {
+    new_members
+        .iter()
+        .map(String::as_str)
+        .filter(|member| *member != RECOVERY_MEMBER)
+        .collect()
+}
+
+/// The notice of a device the drive `drive` was given: what it is, and what to do when it was
+/// not the owner.
+#[must_use]
+pub(crate) fn new_device_text(drive: &str, member: &str) -> String {
+    format!(
+        "A new device was added to \"{drive}\" ({member}). Not you? Lock the drive down in \
+         AzDrive: the drive's menu, \"I was hacked\"."
+    )
+}
+
+/// The notice of a use of `drive`'s recovery code: the lockdown takes the drive at `until`
+/// (the 48 hours the token server waits), and how long is left at `now` to cancel it.
+#[must_use]
+pub(crate) fn recovery_text(drive: &str, until: u64, now: u64) -> String {
+    let left = until.saturating_sub(now);
+    let hours = left.div_ceil(3_600);
+    let left = match hours {
+        _ if left < 3_600 => String::from("less than an hour"),
+        1 => String::from("an hour"),
+        _ => format!("{hours} hours"),
+    };
+    format!(
+        "The recovery code of \"{drive}\" was used to lock it down. In {left} ({}) that device \
+         takes the drive and every other device loses it. If that was not you, cancel it in \
+         AzDrive now.",
+        iso8601(until)
+    )
 }
 
 /// The bar over the drive in view while a recovery-key lockdown of it is pending, with Cancel.
@@ -353,5 +398,7 @@ extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> Time
     if !s.redemptions.running {
         start_redemptions(&mut callback_info, &app, &mut *s, None);
     }
+    // A transient storage problem nobody asked about again notifies once its half hour is up.
+    crate::problems::notify_due(&mut callback_info, &mut *s);
     TimerCallbackReturn::continue_unchanged()
 }

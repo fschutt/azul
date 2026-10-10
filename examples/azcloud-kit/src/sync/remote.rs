@@ -29,6 +29,10 @@ use crate::error::{fail, CloudError, CloudResult};
 pub const INDEX_FORMAT: &str = "azcloud.sync-index";
 /// The index version this code reads and writes.
 pub const INDEX_VERSION: u32 = 1;
+/// The format features this code reads (D43): a newer writer names the features its index
+/// uses, and a device that meets one it does not know - or a newer version - leaves the drive
+/// as it is (read-only there) and asks to be updated.
+pub const KNOWN_FEATURES: &[&str] = &[];
 /// The bookkeeping folder under a prefix.
 pub const META_DIR: &str = ".azlin";
 
@@ -116,6 +120,9 @@ pub struct Tombstone {
 pub struct RemoteIndex {
     pub format: String,
     pub version: u32,
+    /// The format features its writer used beyond the version ([`KNOWN_FEATURES`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
     /// Counts the commits: one more with every write.
     pub generation: u64,
     pub updated_at: i64,
@@ -133,6 +140,7 @@ impl RemoteIndex {
         RemoteIndex {
             format: INDEX_FORMAT.to_string(),
             version: INDEX_VERSION,
+            features: Vec::new(),
             generation: 0,
             updated_at: 0,
             updated_by: String::new(),
@@ -144,10 +152,12 @@ impl RemoteIndex {
     /// Reads an index. Every path must be a key a folder can hold (no `..`,
     /// not absolute, no `.azlin/` at the root) and every hash a BLAKE3: an
     /// index that breaks the rules is refused whole, never acted on in part.
+    /// A newer version, features and fields this code does not know are read
+    /// ([`RemoteIndex::unknown_features`] names them; D43).
     ///
     /// # Errors
     ///
-    /// When the bytes are no index of this version, or break a rule.
+    /// When the bytes are no index, or break a rule.
     pub fn parse(bytes: &[u8]) -> CloudResult<RemoteIndex> {
         let index: RemoteIndex = serde_json::from_slice(bytes).map_err(|e| {
             CloudError::failed(format!("the drive's sync index cannot be read: {e}"))
@@ -158,12 +168,8 @@ impl RemoteIndex {
                 index.format
             );
         }
-        if index.version == 0 || index.version > INDEX_VERSION {
-            fail!(
-                "the drive's sync index is version {}; this azcloud reads up to {INDEX_VERSION} - \
-                 update it",
-                index.version
-            );
+        if index.version == 0 {
+            fail!("the drive's sync index has no version");
         }
         let paths = index
             .files
@@ -177,6 +183,23 @@ impl RemoteIndex {
             }
         }
         Ok(index)
+    }
+
+    /// What this code does not know of the index's format: a newer version (`version <n>`)
+    /// and the features it does not know; empty when it reads the index whole.
+    #[must_use]
+    pub fn unknown_features(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.version > INDEX_VERSION {
+            out.push(format!("version {}", self.version));
+        }
+        out.extend(
+            self.features
+                .iter()
+                .filter(|feature| !KNOWN_FEATURES.contains(&feature.as_str()))
+                .cloned(),
+        );
+        out
     }
 
     /// The index as stored: pretty JSON (keys in order) and a final newline.

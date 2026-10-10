@@ -27,7 +27,7 @@ use azul_appkit::azlin_config::MACHINE_LOCAL_KEYS;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::rules::Rules;
+use super::{guard::Guard, rules::Rules};
 use crate::{
     error::{fail, CloudResult, Context},
     state::{read_json, write_json},
@@ -76,6 +76,9 @@ pub struct LocalIndex {
     /// The base.
     #[serde(default)]
     pub files: BTreeMap<String, BaseEntry>,
+    /// The burst guard's memory, and its pause ([`super::guard`]).
+    #[serde(default)]
+    pub guard: Guard,
 }
 
 impl LocalIndex {
@@ -92,6 +95,7 @@ impl LocalIndex {
             scanned_at_ns: 0,
             remote_etag: None,
             files: BTreeMap::new(),
+            guard: Guard::default(),
         }
     }
 

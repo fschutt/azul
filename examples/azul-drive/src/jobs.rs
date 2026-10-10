@@ -395,6 +395,16 @@ pub(crate) enum Job {
     },
     /// The folder sync: a pass, a file opened through it, pins, "Free up space", an answer.
     Sync(crate::sync_jobs::SyncJob),
+    /// "Restore as of...": the Azlin drive `drive_id` put back as it was at `as_of` (seconds
+    /// since 1970) - an encrypted one by its own restore (`encrypted`), else its bucket by the
+    /// token server at `token_url` ([`crate::restore::run`]).
+    RestoreDrive {
+        drive_id: String,
+        as_of: u64,
+        token_url: String,
+        keyring: SharedKeyring,
+        encrypted: Option<crate::restore::EncryptedRestore>,
+    },
 }
 
 /// A search of a cloud drive's folder, as the window asks for it.
@@ -625,6 +635,12 @@ pub(crate) enum Outcome {
     },
     /// What a sync job did (a pass's progress while it runs).
     Sync(crate::sync_jobs::SyncOutcome),
+    /// What "Restore as of..." of `drive_id` as of `as_of` came to, or why not.
+    DriveRestored {
+        drive_id: String,
+        as_of: u64,
+        result: Result<crate::restore::Restored, String>,
+    },
 }
 
 /// A thread's start data: the job, taken out once.
@@ -2913,6 +2929,17 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             let mut emit = |outcome: Outcome| send(sender, outcome);
             crate::sync_jobs::run(job, &mut emit)
         }
+        Job::RestoreDrive {
+            drive_id,
+            as_of,
+            token_url,
+            keyring,
+            encrypted,
+        } => Outcome::DriveRestored {
+            result: crate::restore::run(&drive_id, as_of, &token_url, &keyring, encrypted),
+            drive_id,
+            as_of,
+        },
     }
 }
 

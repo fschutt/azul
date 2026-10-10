@@ -152,10 +152,14 @@ mod periods;
 mod problems;
 /// Vouchers on a drive (Options > Drives).
 mod vouchers;
+/// "Restore as of..." of an Azlin drive (Options > Drives, the drive's menu).
+mod restore;
 #[cfg(test)]
 mod periods_tests;
 #[cfg(test)]
 mod problems_tests;
+#[cfg(test)]
+mod restore_tests;
 /// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
 #[cfg(feature = "encryption")]
 mod encryption;
@@ -624,6 +628,13 @@ pub(crate) enum Popup {
     },
     /// The folder sync's dialogs: pairing a drive with a folder, a conflict (D52), stopping.
     Sync(sync_view::SyncDialog),
+    /// "Restore as of..." of an Azlin drive: the time typed, why not, a restore on its way.
+    Restore {
+        drive_id: String,
+        text: String,
+        error: String,
+        busy: bool,
+    },
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -2581,6 +2592,11 @@ pub(crate) extern "C" fn on_job_done(
             vouchers::redeemed(s, &drive_id, result);
         }
         Outcome::Sync(outcome) => sync_jobs::on_outcome(&mut info, &handle, s, outcome),
+        Outcome::DriveRestored {
+            drive_id,
+            as_of,
+            result,
+        } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
     }
     Update::RefreshDom
 }

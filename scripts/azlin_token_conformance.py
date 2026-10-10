@@ -50,6 +50,22 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
     pending lockdown; the pending family cannot cancel it (403), the owner can (200), and then
     there is none to cancel (409 `no_pending_lockdown`).
+13. Vouchers (AZLINSEC17 F29), with a development server's test codes (`AZLIN-TEST-1M`: a month,
+    `AZLIN-TEST-EUR10`: EUR 10, any case, never used up): one without a drive is 201 with a new
+    drive's sign-up; one on a drive (its drive token) is 200 with `days_added` (its value pro
+    rata, more than a month on 100GB) and a later `period_until`; an unknown code is 400
+    `voucher_invalid`. A server that takes no test code (a production one) skips the section;
+    `--skip-vouchers` skips it anyway; `--mock` never skips it.
+14. A lockdown by a drive token (§18.7): with a member family (POST /v1/drives/<id>/members, 201)
+    and an access key (POST /v1/drives/<id>/keys, 201, `AZK...`) made first - the drive's
+    members (GET /v1/drives/<id>) name the new member, `you` the caller -, the owner's lockdown
+    is 200 with a new drive token for the caller; the member's token and the caller's old one
+    are refused (401) and the new one refreshes.
+15. A restore as of a time (D38, D42): objects put, then rewritten, deleted and added after the
+    time; POST /v1/drives/<id>/restore {"prefix", "as_of": RFC 3339} with the drive token is 202
+    with a `request_id` and `queued`; GET /v1/drives/<id>/restore/<request> reaches `done` with
+    the objects it changed, and the prefix is as it was (the one added since gone, outside it
+    nothing changed); without `as_of` it is 400 `bad_request`, an unknown request 404.
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -102,7 +118,19 @@ def unix_of(text):
         return None
 
 
-def run(token_url, s3_url=None):
+def rfc3339(unix):
+    """Seconds since 1970 as RFC 3339 (`2026-11-07T09:15:00Z`)."""
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(unix))
+
+
+# A development token server's test vouchers (azlin-proto's voucher module).
+TEST_ONE_MONTH = 'AZLIN-TEST-1M'
+TEST_EUR10 = 'AZLIN-TEST-EUR10'
+
+
+def run(token_url, s3_url=None, vouchers='auto'):
+    """`vouchers`: 'auto' (section 13 unless the server takes no test code), 'required' (the
+    mock: never skipped), 'skip'."""
     suite = Suite()
     client = azlin_client.TokenClient(token_url)
     print('token server %s' % token_url, flush=True)
@@ -175,7 +203,143 @@ def run(token_url, s3_url=None):
                 status == 404 and error_code(value) == 'not_found', '(HTTP %d %r)' % (status, value))
     claim_checks(suite, client)
     recovery_checks(suite, client)
+    lockdown_checks(suite, client)
+    restore_checks(suite, client, s3_url)
+    if vouchers == 'skip':
+        print('skipped: vouchers (--skip-vouchers)', flush=True)
+    else:
+        voucher_checks(suite, client, required=vouchers == 'required')
     return suite.failures
+
+
+def lockdown_checks(suite, client):
+    """14. A lockdown by a drive token: every family at once, the caller in a new one."""
+    status, bundle, text = client.signup('azlin-conformance-lockdown')
+    if not suite.check('a drive to lock down', status == 201 and isinstance(bundle, dict),
+                       '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s' % drive_id
+    status, member, _ = client.call('POST', path + '/members', {'member': 'conformance'},
+                                    bearer=owner)
+    member_token = (member or {}).get('drive_token') or ''
+    suite.check('the owner adds a member family (201)', status == 201 and bool(member_token),
+                '(HTTP %d %r)' % (status, error_code(member)))
+    status, info, _ = client.call('GET', path, bearer=member_token)
+    names = [m.get('member') for m in (info or {}).get('members') or [] if isinstance(m, dict)]
+    suite.check("the drive's members name the new one, and `you` the caller",
+                status == 200 and 'conformance' in names and len(names) >= 2
+                and (info or {}).get('you') == 'conformance',
+                '(HTTP %d members %r you %r)' % (status, names, (info or {}).get('you')))
+    status, key, _ = client.call('POST', path + '/keys', {'perms': 'r', 'expires_days': 1},
+                                 bearer=owner)
+    suite.check('the owner makes an access key (201, AZK...)',
+                status == 201 and str((key or {}).get('access_key_id') or '').startswith('AZK'),
+                '(HTTP %d %r)' % (status, error_code(key)))
+    status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+    new_token = (locked or {}).get('drive_token') or ''
+    suite.check("the owner's lockdown is 200 with a new drive token",
+                status == 200 and bool(new_token) and new_token not in (owner, member_token),
+                '(HTTP %d %r)' % (status, error_code(locked)))
+    status, value, _ = client.refresh(drive_id, member_token)
+    suite.check("the member's token is refused after the lockdown (401)", status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.refresh(drive_id, owner)
+    suite.check("the caller's old token is refused too (401)", status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.refresh(drive_id, new_token)
+    suite.check('the new token refreshes', status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
+
+
+def restore_checks(suite, client, s3_url):
+    """15. A restore of a prefix as of a time."""
+    status, bundle, text = client.signup('azlin-conformance-restore')
+    if not suite.check('a drive to restore', status == 201 and isinstance(bundle, dict),
+                       '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s/restore' % drive_id
+    bucket = azlin_client.Bucket(bundle, endpoint=s3_url)
+    try:
+        bucket.put('restore/a.txt', b'a1')
+        bucket.put('restore/b.txt', b'b1')
+        bucket.put('kept.txt', b'k1')
+        # The object times are whole seconds at the node: the time sits between two of them.
+        time.sleep(1.2)
+        as_of = int(time.time())
+        time.sleep(1.2)
+        bucket.put('restore/a.txt', b'encrypted')
+        bucket.delete('restore/b.txt')
+        bucket.put('restore/note.txt', b'pay')
+        bucket.put('kept.txt', b'k2')
+    except (OSError, RuntimeError) as e:
+        suite.check('the objects to restore are put', False, '(%s)' % e)
+        return
+    status, value, _ = client.call('POST', path, {'prefix': 'restore/'}, bearer=owner)
+    suite.check('a restore without as_of is 400 bad_request',
+                status == 400 and error_code(value) == 'bad_request',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path, {'prefix': 'restore/', 'as_of': rfc3339(as_of)},
+                                   bearer=owner)
+    request = (value or {}).get('request_id') or ''
+    if not suite.check('a restore as of a time is 202 queued with a request id',
+                       status == 202 and bool(request) and (value or {}).get('status') == 'queued',
+                       '(HTTP %d %r)' % (status, value)):
+        return
+    deadline = time.time() + 60
+    state = {}
+    while time.time() < deadline:
+        status, state, _ = client.call('GET', '%s/%s' % (path, request), bearer=owner)
+        if status != 200 or (state or {}).get('status') not in ('queued', 'running'):
+            break
+        time.sleep(1)
+    suite.check('the restore is done, with the objects it changed',
+                status == 200 and (state or {}).get('status') == 'done'
+                and ((state or {}).get('objects') or 0) >= 3, '(HTTP %d %r)' % (status, state))
+    try:
+        back = (bucket.get('restore/a.txt'), bucket.get('restore/b.txt'),
+                bucket.keys('restore/'), bucket.get('kept.txt'))
+    except (OSError, RuntimeError) as e:
+        back = ('(%s)' % e,)
+    suite.check('the prefix is as it was, the object added since gone, outside it nothing changed',
+                back == (b'a1', b'b1', ['restore/a.txt', 'restore/b.txt'], b'k2'), '(%r)' % (back,))
+    status, value, _ = client.call('GET', '%s/r_nosuchrequest' % path, bearer=owner)
+    suite.check('an unknown restore request is 404', status == 404, '(HTTP %d)' % status)
+
+
+def voucher_checks(suite, client, required):
+    """13. Vouchers with the development server's test codes."""
+    status, bundle, text = client.call('POST', '/v1/vouchers/redeem',
+                                       {'code': TEST_ONE_MONTH.lower(), 'tier': '100GB'})
+    if not required and status == 400 and error_code(bundle) == 'voucher_invalid':
+        print('skipped: vouchers (the server takes no test voucher - a production one)',
+              flush=True)
+        return
+    drive_id = ((bundle or {}).get('drive') or {}).get('id') or ''
+    token = (bundle or {}).get('drive_token') or ''
+    if not suite.check('a test voucher without a drive is 201 with a new drive',
+                       status == 201 and drive_id.startswith('d_') and bool(token),
+                       '(HTTP %d %r %s)' % (status, error_code(bundle), text[:120])):
+        return
+    before = unix_of(bundle.get('period_until'))
+    status, value, _ = client.call('POST', '/v1/vouchers/redeem',
+                                   {'code': TEST_EUR10, 'drive_id': drive_id}, bearer=token)
+    days = (value or {}).get('days_added')
+    after = unix_of((value or {}).get('period_until'))
+    suite.check('a test voucher on the drive is 200 with the days it added (its value pro rata)',
+                status == 200 and isinstance(days, int) and days > 30
+                and (value or {}).get('months_added') == days // 30
+                and after is not None and before is not None and after > before,
+                '(HTTP %d %r, %r days)' % (status, error_code(value), days))
+    status, value, _ = client.call('POST', '/v1/vouchers/redeem',
+                                   {'code': 'AZLIN-NOT-A-CODE', 'drive_id': drive_id},
+                                   bearer=token)
+    suite.check('an unknown voucher is 400 voucher_invalid',
+                status == 400 and error_code(value) == 'voucher_invalid',
+                '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def recovery_checks(suite, client):
@@ -409,17 +573,21 @@ def main():
     parser.add_argument('--s3-url', help="reach the bucket here instead of the bundle's endpoint")
     parser.add_argument('--mock', action='store_true',
                         help='start scripts/azlin_mock_stack.py on free ports and check it')
+    parser.add_argument('--skip-vouchers', action='store_true',
+                        help='skip section 13 (vouchers with the test codes)')
     args = parser.parse_args()
     if args.mock:
         import azlin_mock_stack  # noqa: PLC0415 - only for --mock
         root = tempfile.mkdtemp(prefix='azlin-conformance-')
         stack = azlin_mock_stack.start(root)
         try:
-            failures = run(stack.token_url)
+            failures = run(stack.token_url,
+                           vouchers='skip' if args.skip_vouchers else 'required')
         finally:
             stack.stop()
     else:
-        failures = run(azlin_client.token_url_from(args.token_url), args.s3_url)
+        failures = run(azlin_client.token_url_from(args.token_url), args.s3_url,
+                       vouchers='skip' if args.skip_vouchers else 'auto')
     print('PASS' if failures == 0 else 'FAIL: %d check(s)' % failures, flush=True)
     sys.exit(min(failures, 100))
 

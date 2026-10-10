@@ -75,6 +75,9 @@ pub enum Code {
     Integrity,
     DeletePaused,
     WrongBlock,
+    /// A newer version of the app changed the drive's format (D43) - the client's own: the
+    /// drive is read-only here until the app is updated.
+    NewerFormat,
     /// Anything else (`internal`, a code this app does not know yet, an answer that makes no
     /// sense).
     Other,
@@ -82,7 +85,7 @@ pub enum Code {
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 14] = [
+    pub const ALL: [Code; 15] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -96,6 +99,7 @@ impl Code {
         Code::Integrity,
         Code::DeletePaused,
         Code::WrongBlock,
+        Code::NewerFormat,
         Code::Other,
     ];
 
@@ -116,6 +120,7 @@ impl Code {
             Code::Integrity => "integrity",
             Code::DeletePaused => "delete_paused",
             Code::WrongBlock => "wrong_block",
+            Code::NewerFormat => "newer_format",
             Code::Other => "other",
         }
     }
@@ -244,6 +249,15 @@ pub const ROWS: &[Row] = &[
         behaviour: Behaviour::FollowRedirect,
         en: "Azlin Storage moved this drive - reconnecting.",
         de: "Azlin Storage hat dieses Laufwerk verschoben - die Verbindung wird neu aufgebaut.",
+    },
+    Row {
+        code: Code::NewerFormat,
+        class: Class::ReadOnly,
+        behaviour: Behaviour::ReadsOnly,
+        en: "A newer version of the app changed this drive. Update the app to sync it - until \
+             then it stays as it is here.",
+        de: "Eine neuere Version der App hat dieses Laufwerk geändert. Aktualisiere die App, um \
+             es zu synchronisieren - bis dahin bleibt es hier, wie es ist.",
     },
     Row {
         code: Code::Other,

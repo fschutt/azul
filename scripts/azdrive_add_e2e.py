@@ -34,6 +34,10 @@ sheet of `--dialogs inline`:
        a token the mock's issuer key verifies. The first drive's period ends in two days: a
        token buys it a month at once (redeemed under the drive's lock), the second one's is a
        month away: its tokens wait.
+       Then (6c - 6h) the paid drive at the mock: its period bought by the daily look, a
+       node's error in the table's words, a pending recovery-key lockdown cancelled, vouchers,
+       a device added at the token server announced (AZDRIVE_NEW_DEVICE), and Options > Drives
+       > "Restore as of..." putting its bucket back as it was at a time (AZDRIVE_RESTORED).
 
     7. A card payment in the popover (CHECKOUT-PLAN §4.3, the mock's fake providers on): Buy
        storage shows the pills (direct debit via Fake GoCardless, card via Fake Stripe), the card
@@ -711,6 +715,50 @@ def run(args, logs):
                           % (days, before, stack.token.state.drives[paid]["period_until"]))
         log("6f. Vouchers: AZ-E2E-NEW bought %s in Add drive, AZ-E2E-DAYS added %s days to %s "
             "in Options > Drives" % (gift, days, paid))
+
+        # 6g. A new device of the paid drive (another token family at the token server, as a
+        # join from another computer makes one): AzDrive's next look announces it (D42).
+        with stack.token.state.lock:
+            stack.token.state.new_family(paid, "m_e2e-laptop")
+        app.until("the new device announced", lambda: app.printed(
+            "AZDRIVE_NEW_DEVICE", r"%s m_e2e-laptop" % re.escape(paid)))
+        log("6g. A device added to %s at the token server: AzDrive's next look announced it"
+            % paid)
+
+        # 6h. Restore as of (D42): objects of the paid drive's bucket rewritten, deleted and
+        # added after a time; Options > Drives > "Restore as of..." with that time puts the
+        # bucket back through the token server (the mock's node: the S3 store's versions).
+        store = stack.s3.store
+        bucket = stack.token.state.drives[paid]["bucket"]
+        store.write(bucket, "restore/a.txt", b"a1\n")
+        store.write(bucket, "restore/b.txt", b"b1\n")
+        time.sleep(1.2)
+        as_of = int(time.time())
+        time.sleep(1.2)
+        store.write(bucket, "restore/a.txt", b"encrypted\n")
+        store.delete(bucket, "restore/b.txt")
+        store.write(bucket, "restore/READ-ME.txt", b"pay\n")
+        app.click(selector="#__azdrive_restore_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid).lower())
+        popup = e2e.modal_window(app)
+        popup.until("the time field", lambda: popup.has("#__azdrive_restore_time"))
+        popup.must("focus_node", selector="#__azdrive_restore_time")
+        popup.frame(2)
+        popup.key("end")
+        for _ in range(len("1 hour ago")):
+            popup.key("backspace", frames=1)
+        popup.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
+        popup.frame(2)
+        restored = app.after("the drive restored", "AZDRIVE_RESTORED",
+                             r"%s \S+ objects \d+" % re.escape(paid),
+                             lambda: popup.click(selector="#__azdrive_restore_go")).split()
+        back = (store.read(bucket, "restore/a.txt") if store.info(bucket, "restore/a.txt") else None,
+                store.read(bucket, "restore/b.txt") if store.info(bucket, "restore/b.txt") else None,
+                store.info(bucket, "restore/READ-ME.txt"))
+        if int(restored[-1]) < 3 or back != (b"a1\n", b"b1\n", None):
+            raise Failure("the restore changed %s objects; the bucket has %r"
+                          % (restored[-1], back))
+        log("6h. Options > Drives > Restore as of %s: %s objects of %s came back or went"
+            % (restored[1], restored[-1], paid))
 
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))

@@ -322,6 +322,10 @@ impl fmt::Debug for RecoveryLockdown {
     }
 }
 
+/// The member a recovery-key lockdown adds while it is pending: the device that holds the
+/// recovery code, the owner's when the 48 hours are over.
+pub const RECOVERY_MEMBER: &str = "recovery-pending";
+
 /// A drive as the token server keeps it ([`TokenServer::drive_status`]).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DriveStatus {
@@ -334,6 +338,11 @@ pub struct DriveStatus {
     pub lockdown_pending_until: Option<u64>,
     /// The drive takes no writes (unpaid past its grace, a pending lockdown).
     pub read_only: bool,
+    /// Every member the drive was given (its devices; [`RECOVERY_MEMBER`] while a recovery-key
+    /// lockdown is pending), sorted.
+    pub members: Vec<String>,
+    /// The member whose token asked.
+    pub you: Option<String>,
 }
 
 /// What a voucher bought.
@@ -946,7 +955,7 @@ impl<'a> TokenServer<'a> {
     }
 
     /// [`Self::info`] as a [`DriveStatus`]: the tier, the period's end, a pending recovery-key
-    /// lockdown, whether the drive takes no writes.
+    /// lockdown, whether the drive takes no writes, its members and which one asked.
     pub fn drive_status(
         &self,
         drive_id: &str,
@@ -954,11 +963,23 @@ impl<'a> TokenServer<'a> {
     ) -> Result<DriveStatus, TokenError> {
         let info = self.info(drive_id, drive_token)?;
         let time = |key: &str| info[key].as_str().and_then(azul_storage::time::parse_iso8601);
+        let mut members: Vec<String> = info["members"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(|m| m["member"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        members.sort();
+        members.dedup();
         Ok(DriveStatus {
             tier: info["tier"].as_str().map(str::to_string),
             period_until: time("period_until"),
             lockdown_pending_until: time("lockdown_pending_until"),
             read_only: info["read_only"].as_bool().unwrap_or(false),
+            members,
+            you: info["you"].as_str().map(str::to_string),
         })
     }
 

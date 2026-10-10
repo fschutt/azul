@@ -647,12 +647,16 @@ pub struct Look {
     /// when it could not be asked.
     pub status: Option<DriveStatus>,
     pub redeemed: Redeemed,
+    /// The drive's members this device had not seen at its last look (D42: a new device, or
+    /// [`crate::token::RECOVERY_MEMBER`] for a use of the recovery code), never itself; none at
+    /// the first look, which learns them ([`PeriodTokenStore::see_members`]).
+    pub new_members: Vec<String>,
 }
 
 /// A look at `drive_id`: under the drive's lock with its newest drive token, its status
-/// (`GET /v1/drives/{id}`: the period, a pending recovery-key lockdown) whether or not tokens
-/// are kept for it, and - with kept tokens and the period due - [`redeem_due`]'s redemption
-/// in the same look.
+/// (`GET /v1/drives/{id}`: the period, a pending recovery-key lockdown, the members) whether or
+/// not tokens are kept for it, the members it had not seen, and - with kept tokens and the
+/// period due - [`redeem_due`]'s redemption in the same look.
 #[must_use]
 pub fn look_at_drive(
     server: &TokenServer<'_>,
@@ -669,6 +673,7 @@ pub fn look_at_drive(
                 return Look {
                     status: None,
                     redeemed: Redeemed::Kept(e.to_string()),
+                    new_members: Vec::new(),
                 }
             }
         };
@@ -684,14 +689,18 @@ pub fn look_at_drive(
         {
             status.period_until = Some(*until);
         }
+        // A members file that cannot be written names them again at the next look.
+        let new_members = store.see_members(drive_id, &status).unwrap_or_default();
         Look {
             status: Some(status),
             redeemed,
+            new_members,
         }
     });
     looked.unwrap_or_else(|e| Look {
         status: None,
         redeemed: Redeemed::Kept(e.to_string()),
+        new_members: Vec::new(),
     })
 }
 
@@ -964,4 +973,34 @@ impl PeriodTokenStore {
             Err(e) => Err(e).context(path.display()),
         }
     }
+
+    /// The members of `status` this device had not seen at its last look at `drive_id`, without
+    /// itself (`status.you`); none the first time, which learns them. What it saw is kept in
+    /// `<dir>/<drive id>.members.json`, so a restart remembers it.
+    pub fn see_members(&self, drive_id: &str, status: &DriveStatus) -> CloudResult<Vec<String>> {
+        let path = self
+            .dir
+            .join(format!("{}.members.json", check_id(drive_id)?));
+        let seen = read_json::<SeenMembers>(&path)?;
+        let new = seen.as_ref().map_or_else(Vec::new, |seen| {
+            status
+                .members
+                .iter()
+                .filter(|m| !seen.members.contains(m) && status.you.as_ref() != Some(*m))
+                .cloned()
+                .collect()
+        });
+        if seen.is_none_or(|seen| seen.members != status.members) {
+            create_private_dir(&self.dir).with_context(|| self.dir.display().to_string())?;
+            let members = status.members.clone();
+            write_json(&path, &SeenMembers { members }, true)?;
+        }
+        Ok(new)
+    }
+}
+
+/// The members a device saw at its last look at a drive.
+#[derive(Serialize, Deserialize)]
+struct SeenMembers {
+    members: Vec<String>,
 }

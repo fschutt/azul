@@ -9,7 +9,10 @@
 //!    304 means the drive did not change, and the cached copy is used);
 //! 3. plans every file with the three-way merge ([`merge::plan`]); a plan
 //!    that would delete most of a folder stops (an emptied or unmounted
-//!    folder, a ransomware-like burst; `--allow-mass-delete`);
+//!    folder, a ransomware-like burst; `--allow-mass-delete`); a burst of
+//!    rewrites and deletes, or files rewritten into what looks like
+//!    encrypted data, pauses the folder's uploads until the user answers
+//!    ([`guard`]; `--allow-burst`);
 //! 4. uploads the blobs the new index will name - content-addressed, so
 //!    whatever happens next nothing is lost or overwritten; each file is
 //!    hashed again as it is read, and one that changed since the scan waits
@@ -48,6 +51,7 @@
 //! [`session`] keeps an app's pairing, its settings and its files' states.
 
 pub mod drive_store;
+pub mod guard;
 pub mod local;
 pub mod merge;
 pub mod named;
@@ -111,6 +115,9 @@ pub struct SyncOptions {
     pub parallel: usize,
     pub max_attempts: u32,
     pub allow_mass_delete: bool,
+    /// The user's "these changes are mine": the run sends what the burst
+    /// guard held back, and its window starts afresh ([`guard`]).
+    pub allow_burst: bool,
     /// Plan only: nothing is uploaded, written or deleted.
     pub dry_run: bool,
     pub max_file_bytes: u64,
@@ -131,6 +138,7 @@ impl SyncOptions {
             parallel: 4,
             max_attempts: MAX_ATTEMPTS,
             allow_mass_delete: false,
+            allow_burst: false,
             dry_run: false,
             max_file_bytes: MAX_FILE_BYTES,
             tombstone_days: TOMBSTONE_DAYS,
@@ -282,12 +290,30 @@ pub struct SyncReport {
     /// The drive's files after the run (what an app shows); `None` after a dry or stopped run.
     #[serde(skip)]
     pub remote: Option<RemoteIndex>,
+    /// The folder's uploads, paused by the burst guard until the user answers ([`guard`]):
+    /// nothing went up, what the drive changed came here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused: Option<guard::Pause>,
+    /// What the drive's index uses that this version does not know (D43,
+    /// [`RemoteIndex::unknown_features`]): the run changed nothing on either side - the drive
+    /// is read-only here until the app is updated.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub newer_format: Vec<String>,
 }
 
 impl SyncReport {
     /// One line for people.
     #[must_use]
     pub fn summary(&self) -> String {
+        if !self.newer_format.is_empty() {
+            return format!(
+                "{} <-> {}: nothing synced - the drive's sync index uses what this version does \
+                 not know ({}): update it",
+                self.root,
+                self.prefix,
+                self.newer_format.join(", ")
+            );
+        }
         if self.dry_run {
             return format!(
                 "{} <-> {}: dry run, {} changes planned",
@@ -296,10 +322,16 @@ impl SyncReport {
                 self.planned.len()
             );
         }
+        let paused = self.paused.as_ref().map_or_else(String::new, |p| {
+            format!(
+                "; uploads paused: {} - run again with --allow-burst if the changes are yours",
+                p.describe()
+            )
+        });
         format!(
             "{} <-> {}: {} up ({} bytes in {} blobs), {} down ({} bytes), {} deleted here, {} \
              deleted on the drive, {} unchanged, {} conflicts, {} merged; index {} (generation \
-             {}, {} retries)",
+             {}, {} retries){paused}",
             self.root,
             self.prefix,
             self.files_up,
@@ -1460,10 +1492,18 @@ fn run<R: SyncRemote + ?Sized>(
     let date = today();
     let empty_base: BTreeMap<String, BaseEntry> = BTreeMap::new();
     let mut cached = load_cache(index_path, &index);
+    let mut pause = None;
     let mut attempt = 0u32;
     let (committed, actions, merged, reset, etag) = loop {
         attempt += 1;
         let (remote, etag) = remote_side.read(cached.as_ref())?;
+        // D43: an index this version does not read whole is left as it is (read-only here).
+        let newer = remote.unknown_features();
+        if !newer.is_empty() {
+            report.newer_format = newer;
+            report.generation = remote.generation;
+            return Ok(report);
+        }
         // The index went back (deleted, replaced): this side's base no longer
         // describes it, so nothing is deleted on either side this run.
         let reset = remote.generation < index.generation;
@@ -1498,6 +1538,20 @@ fn run<R: SyncRemote + ?Sized>(
         if hooks.cancelled() {
             report.cancelled = true;
             return Ok(report);
+        }
+        if attempt == 1 {
+            pause = guard::check_burst(
+                &mut index.guard,
+                &actions,
+                base,
+                &root.path,
+                crate::now(),
+                opts.allow_burst,
+            );
+        }
+        if pause.is_some() {
+            // Only what the drive changed comes here; nothing goes up.
+            actions.retain(|a| !guard::sends(a));
         }
         if attempt == 1 {
             hooks.tell(planned(&actions, &scan, &remote));
@@ -1570,6 +1624,8 @@ fn run<R: SyncRemote + ?Sized>(
         &mut base,
         &mut report,
     );
+    guard::learn(&mut index.guard, &actions, &root.path, &scan);
+    report.paused = pause;
     report.cancelled = hooks.cancelled();
     index.files = base;
     index.generation = committed.generation;
@@ -1727,6 +1783,14 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
 ) -> CloudResult<GcReport> {
     let prefix = normalize_prefix(prefix)?;
     let (index, _) = read_index(store, &remote::index_key(&prefix), None)?;
+    let newer = index.unknown_features();
+    if !newer.is_empty() {
+        fail!(
+            "the drive's sync index of {prefix:?} uses what this version does not know ({}): \
+             nothing was collected - update it",
+            newer.join(", ")
+        );
+    }
     let referenced = index.referenced();
     let mut report = GcReport {
         prefix: prefix.clone(),

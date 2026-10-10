@@ -75,10 +75,33 @@ fn an_index_round_trips_and_one_that_breaks_a_rule_is_refused_whole() {
     let mut damaged = index.clone();
     damaged.files.get_mut("notes/a.md").unwrap().hash = String::from("zz");
     assert!(RemoteIndex::parse(&damaged.to_bytes()).is_err());
-    let mut newer = index;
+    // D43: a newer version, a feature this code does not know, fields it does not know - the
+    // index is read and what it does not know named (the run leaves such a drive as it is and
+    // asks to be updated, `sync_format.rs`).
+    assert!(index.unknown_features().is_empty());
+    let mut newer = index.clone();
     newer.version = INDEX_VERSION + 1;
-    let err = RemoteIndex::parse(&newer.to_bytes())
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("update"), "{err}");
+    assert_eq!(
+        RemoteIndex::parse(&newer.to_bytes())
+            .unwrap()
+            .unknown_features(),
+        vec![format!("version {}", INDEX_VERSION + 1)]
+    );
+    let mut flagged = index.clone();
+    flagged.features = vec![String::from("chunked-files")];
+    assert_eq!(
+        RemoteIndex::parse(&flagged.to_bytes())
+            .unwrap()
+            .unknown_features(),
+        vec![String::from("chunked-files")]
+    );
+    let mut value = serde_json::to_value(&flagged).unwrap();
+    value["chunks"] = serde_json::json!({ "notes/a.md": ["x"] });
+    assert!(RemoteIndex::parse(value.to_string().as_bytes()).is_ok());
+    let mut zero = index;
+    zero.version = 0;
+    assert!(
+        RemoteIndex::parse(&zero.to_bytes()).is_err(),
+        "version 0 is no index"
+    );
 }

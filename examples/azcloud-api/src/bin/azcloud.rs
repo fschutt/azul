@@ -71,7 +71,8 @@ commands:
   sync <dir> [--prefix P]        syncs a folder with a drive prefix (default sync/<folder name>/)
   sync --azlin                   the Azlin tree: the data root -> azlin/data/,
                                  the .azlin folder -> azlin/config/ (config.json without endpoints)
-       [--dry-run] [--allow-mass-delete] [--exclude GLOB]... [--max-file-mb N] [--parallel N]
+       [--dry-run] [--allow-mass-delete] [--allow-burst] [--exclude GLOB]... [--max-file-mb N]
+       [--parallel N]            (--allow-burst: the paused burst of changes is yours, send it)
   share <key> [--expires S]      a presigned link (with --prefix P: the synced file <key> of P)
   lockdown --yes                 revokes every other device, key and link of the drive
   lockdown-cancel                cancels a pending recovery-key lockdown
@@ -137,6 +138,7 @@ const SWITCHES: &[&str] = &[
     "--json",
     "--dry-run",
     "--allow-mass-delete",
+    "--allow-burst",
     "--azlin",
     "--yes",
     "--help",
@@ -757,6 +759,7 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         let mut opts = SyncOptions::new(&prefix, &account.record().bucket, &device.name)?;
         opts.dry_run = args.on("--dry-run");
         opts.allow_mass_delete = args.on("--allow-mass-delete");
+        opts.allow_burst = args.on("--allow-burst");
         if let Some(mb) = args.number::<u64>("--max-file-mb")? {
             opts.max_file_bytes = mb.saturating_mul(1024 * 1024);
         }

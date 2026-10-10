@@ -35,7 +35,7 @@ use crate::{
         PeriodTokenStore, Redeemed,
     },
     shared::SharedKeyring,
-    token::{TokenError, TokenServer},
+    token::{TokenError, TokenServer, RECOVERY_MEMBER},
     AzlinSession,
 };
 
@@ -484,7 +484,7 @@ const NOW: u64 = 1_791_450_000;
 const DAY: u64 = 86_400;
 
 /// A keyring with drive `d_1`'s session (its drive token `token`), and its locks.
-fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring {
+pub(crate) fn keyring_with_session(dir: &TempDir, token: &str) -> SharedKeyring {
     let keyring = Arc::new(MemoryKeyring::new());
     let session = AzlinSession {
         drive_id: String::from("d_1"),
@@ -645,6 +645,43 @@ fn a_drive_token_call_runs_under_the_drives_lock_with_the_newest_token() {
     assert_eq!(seen, "dt_f.7.newest");
     assert!(locks.lock(&keyring_key("d_1"), Duration::ZERO).is_ok(), "released after");
     assert!(shared.with_drive_token("d_2", |_| ()).is_err(), "no session of d_2");
+}
+
+#[test]
+fn a_look_names_the_members_this_device_had_not_seen_before() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let fake = Fake::new(|_, n| {
+        let members: &[&str] = match n {
+            0 => &["owner"],
+            1 | 2 => &["owner", "m_laptop", "m_phone"],
+            _ => &["owner", "m_laptop", "m_phone", "recovery-pending"],
+        };
+        let answer = serde_json::json!({
+            "id": "d_1", "tier": "100GB", "you": "m_phone",
+            "period_until": rfc3339(NOW + 20 * DAY),
+            "members": members.iter().map(|m| serde_json::json!({
+                "member": m, "role": "member", "added_at": rfc3339(NOW),
+            })).collect::<Vec<_>>(),
+        });
+        Ok(json(200, &answer.to_string()))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    assert!(look.new_members.is_empty(), "the first look learns them");
+    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    assert_eq!(
+        look.new_members,
+        vec![String::from("m_laptop")],
+        "this device itself is no news"
+    );
+    let look = look_at_drive(&server, &shared, &store, "d_1", NOW);
+    assert!(look.new_members.is_empty(), "seen");
+    // Kept on disk: another store on the same folder (AzDrive started again) knows them.
+    let look = look_at_drive(&server, &shared, &store_in(&dir), "d_1", NOW);
+    assert_eq!(look.new_members, vec![String::from(RECOVERY_MEMBER)]);
 }
 
 #[test]
