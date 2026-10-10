@@ -193,6 +193,32 @@ impl LinuxWindow {
         }
     }
 
+    /// Run the items picked in the window-drawn menus this window opened, as
+    /// its own (`PlatformWindow::run_menu_picks`; a Wayland popup's menus
+    /// post here too). The loop calls it once per turn, after every window's
+    /// input was dispatched: the menu that posted a pick closed in that pass,
+    /// and may come after its owner in the registry. A pick asks for a frame
+    /// whatever it did - the frame is also what wakes the loop for a close it
+    /// requested (Quit), which the next turn's event pass honours.
+    pub fn run_menu_picks(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        match self {
+            LinuxWindow::X11(w) => {
+                if !w.common.menu_picks.is_empty() {
+                    let _ = PlatformWindow::run_menu_picks(w);
+                    w.request_redraw();
+                }
+            }
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => {
+                if !w.common.menu_picks.is_empty() {
+                    let _ = PlatformWindow::run_menu_picks(w);
+                    w.request_redraw();
+                }
+            }
+        }
+    }
+
     #[cfg(feature = "a11y")]
     pub fn process_accessibility_actions(&mut self) {
         match self {

@@ -194,6 +194,8 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "ime",
             "platform",
             "powerstate", // PowerState (on mains, idle seconds): beside PlatformCapability
+            "networkstate", // NetworkState (connected, metered, constrained): beside PowerState
+            "networkkind",  // NetworkKind (wired, Wi-Fi, cellular)
             "handle",
             "wayland",
             "x11",

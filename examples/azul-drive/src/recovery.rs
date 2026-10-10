@@ -444,7 +444,7 @@ pub(crate) fn kit_saved(s: &mut DriveState, path: &Path, len: usize, result: Res
 // ==== Drills ====
 
 /// What a drill makes of the code typed.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum DrillAnswer {
     /// The drive's code.
     Passed,
@@ -456,6 +456,16 @@ pub(crate) enum DrillAnswer {
     /// bucket's recovery wrap is asked.
     AskTheBucket(RecoveryCode),
 }
+
+/// Answers compare by what they say: the code an answer carries is a secret and is never
+/// compared (`RecoveryCode` has no `PartialEq` on purpose).
+impl PartialEq for DrillAnswer {
+    fn eq(&self, other: &Self) -> bool {
+        core::mem::discriminant(self) == core::mem::discriminant(other)
+    }
+}
+
+impl Eq for DrillAnswer {}
 
 /// The drill's answer to `typed` for the drive `drive_id` whose code's public recovery key is
 /// `recovery_key`: offline, without the bucket and without Argon2id's second.

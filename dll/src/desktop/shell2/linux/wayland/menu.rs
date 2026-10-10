@@ -43,6 +43,9 @@ pub(crate) struct MenuLayoutData {
     /// so every dropdown hung off its trigger's bottom-RIGHT corner, one
     /// trigger width to the right of where it belongs.
     pub edge: TransientAnchor,
+    /// The mailbox of the window that opened the menu: an item picked in the popup runs
+    /// there (`crate::desktop::menu::MenuPicks`).
+    pub picks: crate::desktop::menu::MenuPicks,
 }
 
 /// The edge a menu opens on, from what the opener knew: a real trigger rect
@@ -105,6 +108,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
         &menu_data.menu,
         &menu_data.system_style,
         menu_refany.clone(), // Pass the menu-window RefAny for item callbacks
+        &menu_data.picks,
     )
 }
 
@@ -114,7 +118,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
 /// The menu is rendered through the normal layout/rendering pipeline.
 ///
 /// # Arguments
-/// * `parent` - Parent WaylandWindow
+/// * `parent` - Parent WaylandWindow: the window the items picked in the menu run in
 /// * `menu` - Menu structure to display
 /// * `system_style` - System style for native look
 /// * `trigger_rect` - Rectangle where menu was triggered (logical coords, relative to parent)
@@ -123,7 +127,7 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
 /// # Returns
 /// * `WindowCreateOptions` - Window options for creating the popup
 pub fn create_menu_popup_options(
-    _parent: &WaylandWindow,
+    parent: &WaylandWindow,
     menu: &Menu,
     system_style: &SystemStyle,
     trigger_rect: LogicalRect,
@@ -135,6 +139,7 @@ pub fn create_menu_popup_options(
         system_style: system_style.clone(),
         trigger_rect,
         edge,
+        picks: parent.common.menu_picks.clone(),
     };
 
     let menu_data_refany = RefAny::new(menu_data);

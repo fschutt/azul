@@ -34,9 +34,11 @@
 //! pass) and "Show the changes" (the files the pass would delete or change, from its plan).
 //! Until then a tripped guard is the pass's error: "Not synced: <why>".
 //!
-//! GAP: "Paused (metered network)" - azul exposes no metered-network flag yet (nothing in the
-//! dll for NWPath / NetworkCostType / ConnectivityManager); when it does, [`status_text`] takes
-//! it like `paused` and the poll timer skips the drive.
+//! - On a METERED or low-data network (azul's `NetworkState`, read by the poll timer: a phone's
+//!   hotspot, a capped plan, Low Data Mode, Data Saver) a pass holds back the files over the
+//!   drive's auto-download size, up and down ([`network_hold`]); small files and the polls go on.
+//!   The status line and the drive's row say "Paused (metered network)"; Options > Drives > Sync
+//!   has "Sync anyway on this network" (the setup's `sync_on_metered`).
 
 use std::{
     collections::{HashMap, HashSet},
@@ -47,13 +49,16 @@ use std::{
 use azcloud_kit::sync::session::{AutoDownload, FileState, LocalCopies, SyncSetup, SyncStates};
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType,
-        TextInputOnTextInputCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
+        DropDownOnChoiceChangeCallbackType, TextInputOnTextInputCallbackType,
     },
     prelude::*,
     str::String as AzString,
     vec::StringVec,
-    widgets::{ButtonType, DropDown, OnTextInputReturn, TextInputState, TextInputValid},
+    widgets::{
+        ButtonType, CheckBoxState, DropDown, OnTextInputReturn, TextInputState, TextInputValid,
+    },
+    window::NetworkState,
 };
 
 pub(crate) use crate::sync_store::SyncStore;
@@ -106,7 +111,14 @@ pub(crate) struct SyncView {
     /// A copy, move or download of a plain synced drive's own listing, waiting for its
     /// cloud-only files to come down.
     pub waiting_transfer: Option<sync_jobs::Transfer>,
+    /// The network as the poll timer last read it (azul's `NetworkState`); `None` before.
+    pub network: Option<NetworkState>,
 }
+
+/// The status line while a metered or low-data network holds big transfers back.
+pub(crate) const METERED_STATUS: &str = "Paused (metered network)";
+
+const MB: u64 = 1024 * 1024;
 
 /// What the ribbon, the menus and the Options ask of a synced drive.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -133,7 +145,7 @@ pub(crate) enum SyncAction {
 /// conflict waiting, the last error, never synced, up to date - from its `states` and the pass
 /// `running`. An Azlin drive (`azlin`) is "Read-only (payment due)" when its token server says
 /// it takes no writes (`payment_due`, its drive status); another drive is "Read-only" when it
-/// refused a write.
+/// refused a write. `held`: the network holds its big transfers back ([`network_hold`]).
 #[must_use]
 pub(crate) fn status_text(
     setup: &SyncSetup,
@@ -141,6 +153,7 @@ pub(crate) fn status_text(
     running: Option<&Running>,
     azlin: bool,
     payment_due: bool,
+    held: bool,
 ) -> String {
     if setup.paused {
         return String::from("Paused");
@@ -172,6 +185,9 @@ pub(crate) fn status_text(
     if !azlin && states.read_only {
         return String::from("Read-only");
     }
+    if held {
+        return String::from(METERED_STATUS);
+    }
     if let Some(running) = running {
         let p = &running.progress;
         let files = p.files_total.saturating_sub(p.files_done);
@@ -199,6 +215,21 @@ pub(crate) fn status_text(
         return String::from("Not synced yet");
     }
     String::from("Up to date")
+}
+
+/// Whether a pass of `setup`'s drive on `network` holds big transfers back, and from which
+/// size on: on a metered or low-data network (a phone's hotspot, Low Data Mode, Data Saver)
+/// the files over the auto-download size ("New files under N MB"; the default's size for the
+/// other choices) wait - uploads and downloads - while small files and the polls go on. `None`
+/// on a free network, offline (the pass says why it failed), before the network was read, and
+/// when the user said "Sync anyway on this network" (`sync_on_metered`).
+#[must_use]
+pub(crate) fn network_hold(network: Option<&NetworkState>, setup: &SyncSetup) -> Option<u64> {
+    let network = network?;
+    if setup.sync_on_metered || !network.connected || network.allows_background_transfer() {
+        return None;
+    }
+    Some(under_mb(setup).saturating_mul(MB))
 }
 
 /// A file state's icon (a Material name of the icon set).
@@ -548,7 +579,8 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
     let states = s.sync_view.store.states(drive_id);
     let running = s.sync_view.drives.get(drive_id).and_then(|d| d.running.as_ref());
     let payment_due = s.sync_view.payment_due.contains(drive_id);
-    status_text(setup, &states, running, azlin, payment_due)
+    let held = network_hold(s.sync_view.network.as_ref(), setup).is_some();
+    status_text(setup, &states, running, azlin, payment_due, held)
 }
 
 /// A synced drive's state on its row of the source list: its glyph and its status line.
@@ -561,7 +593,7 @@ pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static 
         .drives
         .get(drive_id)
         .is_some_and(|d| d.running.is_some());
-    let glyph = if setup.paused {
+    let glyph = if setup.paused || text == METERED_STATUS {
         "pause_circle"
     } else if text.starts_with("Read-only") {
         "cloud_off"
@@ -1352,6 +1384,33 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                      (pinned) never are.",
                 )
                 .with_css(small),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: row; align-items: center; margin-top: 8px;",
+                    )
+                    .with_child(
+                        CheckBox::create(setup.sync_on_metered)
+                            .with_accessibility_name(AzString::from(SYNC_ANYWAY))
+                            .with_on_toggle(
+                                setting_ref(app, id),
+                                on_sync_on_metered as CheckBoxOnToggleCallbackType,
+                            )
+                            .dom()
+                            .with_id(ids::sync_on_metered(id)),
+                    )
+                    .with_child(
+                        Dom::create_span_with_text(AzString::from(SYNC_ANYWAY))
+                            .with_css("margin-left: 8px;"),
+                    ),
+            )
+            .with_child(
+                line(&format!(
+                    "On a metered or low-data network (a phone's hotspot, a capped plan, Low Data \
+                     Mode) files over {mb} MB wait for a free one; smaller files sync as always."
+                ))
+                .with_css(small),
             );
         if names_its_files(s, id) {
             let copies = [LocalCopies::Decrypted, LocalCopies::Encrypted];
@@ -1424,6 +1483,35 @@ extern "C" fn on_drive_action(mut data: RefAny, mut info: CallbackInfo) -> Updat
     };
     with_state(&mut app, &mut info, |info, app, s| {
         sync_jobs::run_action(info, app, s, Some(drive_id), what);
+    })
+}
+
+/// The Options' check box that syncs a drive on a metered network too.
+const SYNC_ANYWAY: &str = "Sync anyway on this network";
+
+/// "Sync anyway on this network" ticked or not: kept with the drive's sync settings; the status
+/// line says so at once, and a drive now free syncs its big files right away.
+extern "C" fn on_sync_on_metered(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
+    let Some((mut app, drive_id)) = setting_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        change_setup(info, app, s, &drive_id, |setup| {
+            setup.sync_on_metered = state.checked;
+        });
+        println!(
+            "AZDRIVE_SYNC_SETTING {drive_id} sync_on_metered {}",
+            state.checked
+        );
+        say_status(s, &drive_id);
+        let paused = setup_of(s, &drive_id).is_none_or(|p| p.paused);
+        if !paused {
+            sync_jobs::request_pass(info, app, s, &drive_id);
+        }
     })
 }
 

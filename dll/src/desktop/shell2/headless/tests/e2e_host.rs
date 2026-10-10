@@ -831,10 +831,7 @@ extern "C" fn start_work_from_a_menu_item(
 /// for the typing to pause, did not.
 #[test]
 fn a_thread_a_menu_items_callback_starts_writes_back_after_the_menu_closed() {
-    use azul_core::{
-        events::MouseButton,
-        menu::{Menu, MenuItem, StringMenuItem},
-    };
+    use azul_core::menu::{Menu, MenuItem, StringMenuItem};
 
     MENU_ITEM_PICKED.store(false, Ordering::SeqCst);
     MENU_WORK_WRITTEN_BACK.store(false, Ordering::SeqCst);
@@ -849,6 +846,33 @@ fn a_thread_a_menu_items_callback_starts_writes_back_after_the_menu_closed() {
     window.show_menu_from_callback(&menu, LogicalPosition::new(20.0, 10.0), None);
     window.pump_children();
     assert_eq!(window.children.len(), 1, "harness: the menu is open");
+
+    pick_the_menus_first_item(&mut window);
+    assert!(
+        MENU_ITEM_PICKED.load(Ordering::SeqCst),
+        "harness: the press picked the menu's item"
+    );
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !MENU_WORK_WRITTEN_BACK.load(Ordering::SeqCst) && std::time::Instant::now() < end {
+        window.pump_children();
+        window.pump_once(true);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        window.children.is_empty(),
+        "harness: the menu closed when its item was picked"
+    );
+    assert!(
+        MENU_WORK_WRITTEN_BACK.load(Ordering::SeqCst),
+        "the thread the menu item's callback started wrote back after the menu closed"
+    );
+}
+
+/// Picks the first item of the menu `window` has open - a press in the middle of the item, in
+/// the menu's own window, as a user's click arrives - and gives `window` its turn, which takes
+/// the closed menu down.
+fn pick_the_menus_first_item(window: &mut HeadlessWindow) {
+    use azul_core::events::MouseButton;
 
     // The middle of the first item: below the frame's line and padding, half an item down.
     let metrics =
@@ -868,23 +892,127 @@ fn a_thread_a_menu_items_callback_starts_writes_back_after_the_menu_closed() {
             button: MouseButton::Left,
         },
     );
-    assert!(
-        MENU_ITEM_PICKED.load(Ordering::SeqCst),
-        "harness: the press picked the menu's item"
-    );
-    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !MENU_WORK_WRITTEN_BACK.load(Ordering::SeqCst) && std::time::Instant::now() < end {
-        window.pump_children();
-        window.pump_once(true);
-        std::thread::sleep(std::time::Duration::from_millis(10));
+    window.pump_children();
+}
+
+/// What the search box of [`search_box_layout`] shows before a saved search fills it.
+const TYPED_QUERY: &str = "old query";
+
+/// `body > TextInput#query`: AzDrive's address-bar search box, which its Saved searches fill.
+extern "C" fn search_box_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::text_input::TextInput;
+    Dom::create_body().with_child(
+        TextInput::create()
+            .with_text(TYPED_QUERY.into())
+            .dom()
+            .with_id("query".into()),
+    )
+}
+
+/// The timer [`run_a_saved_search_from_a_menu_item`] starts.
+extern "C" fn saved_search_timer(
+    _data: RefAny,
+    _info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
+}
+
+/// A saved search run again from a menu, as AzDrive's Saved searches does: its text into the
+/// window's search box, the window's title, and a timer (AzDrive waits for the typing to pause
+/// before it searches). Everything it does is aimed at "the window": the one the user works in.
+extern "C" fn run_a_saved_search_from_a_menu_item(
+    _data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    if let Some(field) = info.get_node_id_by_id_attribute(DomId::ROOT_ID, "query") {
+        azul_layout::widgets::text_input::TextInput::set_text_in(
+            &mut info,
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(field)),
+            },
+            "invoices".into(),
+        );
     }
+    let mut state = info.get_current_window_state().clone();
+    state.title = "Search results".into();
+    info.modify_window_state(state);
+    info.add_timer(
+        azul_core::task::TimerId::unique(),
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            saved_search_timer as azul_layout::timer::TimerCallbackType,
+            azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+        ),
+    );
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// A menu item's callback acts on the window that opened the menu, as a native menu's does
+/// (macOS runs it in the owner's `handle_menu_action`): its text inputs, its title, its timers.
+/// A window-drawn menu (headless, the X11 / Wayland / Win32 fallback) ran it in the MENU's own
+/// window, which closes as the item is picked: the text went nowhere (the menu has no such
+/// field), the title was the menu's, the timer died with it. AzDrive's Saved searches left the
+/// search box as it was and the title unchanged.
+#[test]
+fn a_menu_items_callback_acts_on_the_window_that_opened_the_menu() {
+    use azul_core::menu::{Menu, MenuItem, StringMenuItem};
+
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut window = make_window_with(&state, search_box_layout);
+    window.regenerate_layout().expect("a layout pass");
+    window.regenerate_layout().expect("settle");
+    let _ = window.common.take_regeneration();
+    assert!(
+        texts_of(&window).iter().any(|t| t == TYPED_QUERY),
+        "harness: the search box shows its text: {:?}",
+        texts_of(&window)
+    );
+
+    let menu = Menu::create(
+        vec![MenuItem::String(
+            StringMenuItem::create("Saved: invoices".into()).with_callback(
+                RefAny::new(()),
+                run_a_saved_search_from_a_menu_item as usize,
+            ),
+        )]
+        .into(),
+    );
+    window.show_menu_from_callback(&menu, LogicalPosition::new(20.0, 10.0), None);
+    window.pump_children();
+    assert_eq!(window.children.len(), 1, "harness: the menu is open");
+
+    pick_the_menus_first_item(&mut window);
     assert!(
         window.children.is_empty(),
         "harness: the menu closed when its item was picked"
     );
+
+    let texts = texts_of(&window);
     assert!(
-        MENU_WORK_WRITTEN_BACK.load(Ordering::SeqCst),
-        "the thread the menu item's callback started wrote back after the menu closed"
+        texts.iter().any(|t| t == "invoices") && !texts.iter().any(|t| t == TYPED_QUERY),
+        "the search box of the window that opened the menu shows the saved search: {texts:?}"
+    );
+    assert_eq!(
+        window.common.current_window_state().title.as_str(),
+        "Search results",
+        "the title the item set is the title of the window that opened the menu"
+    );
+    let timer_runs_here = window.common.layout_window.as_ref().is_some_and(|lw| {
+        lw.timers
+            .values()
+            .any(|t| t.callback.cb as usize == saved_search_timer as usize)
+    });
+    assert!(
+        timer_runs_here,
+        "the timer the item started runs in the window that opened the menu"
     );
 }
 

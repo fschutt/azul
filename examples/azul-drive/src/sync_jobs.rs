@@ -36,6 +36,7 @@ use azul::{
     prelude::*,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
+    window::NetworkState,
 };
 use azul_storage::{key, Drive};
 
@@ -100,6 +101,9 @@ pub(crate) struct SyncWork {
     /// Its AZL1 objects kept on this computer (encrypted local copies).
     #[cfg(feature = "encryption")]
     pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
+    /// Files over this many bytes wait for a pass on a free network, either way (a metered
+    /// network: [`sync_view::network_hold`]).
+    pub transfer_limit: Option<u64>,
 }
 
 impl SyncWork {
@@ -112,6 +116,7 @@ impl SyncWork {
             auto: None,
             #[cfg(feature = "encryption")]
             objects: None,
+            transfer_limit: None,
         }
     }
 
@@ -120,8 +125,13 @@ impl SyncWork {
     }
 
     /// The session (on the worker: an Azlin drive decides on its first call whether it is
-    /// encrypted).
+    /// encrypted), with the work's transfer limit.
     fn session(&self) -> SyncSession {
+        self.drive_session().with_transfer_limit(self.transfer_limit)
+    }
+
+    /// The session of the drive's kind.
+    fn drive_session(&self) -> SyncSession {
         let device = device_name();
         #[cfg(feature = "encryption")]
         {
@@ -216,6 +226,8 @@ pub(crate) struct PassDone {
     pub paused: Option<azcloud_kit::sync::guard::Pause>,
     /// What the drive's index uses that this version does not know (D43).
     pub newer_format: Vec<String>,
+    /// Files whose transfer waited for a free network (a metered one held them back).
+    pub held: usize,
 }
 
 impl PassDone {
@@ -239,6 +251,7 @@ impl PassDone {
             done.paused.clone_from(&report.paused);
             done.newer_format.clone_from(&report.newer_format);
         }
+        done.held = pass.held.len();
         done
     }
 }
@@ -518,6 +531,7 @@ pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     // The search asks the store (its SyncLookup) from now on: no Status column while nothing
     // syncs.
     s.sync = Arc::new(s.sync_view.store.clone());
+    note_network(s, NetworkState::query());
     let Some(root) = state_root(s) else {
         return;
     };
@@ -559,6 +573,7 @@ extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
+    let changed = network_changed(&mut *s, NetworkState::query());
     let due: Vec<String> = s
         .settings
         .synced
@@ -569,7 +584,49 @@ extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
     for drive_id in due {
         request_pass(&mut callback_info, &app, &mut *s, &drive_id);
     }
-    TimerCallbackReturn::continue_unchanged()
+    if changed {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
+    }
+}
+
+/// Keeps `network` as the network now; a change prints `AZDRIVE_NETWORK <kind> connected=..
+/// metered=.. constrained=..`. Whether it changed.
+fn note_network(s: &mut DriveState, network: NetworkState) -> bool {
+    if s.sync_view.network == Some(network) {
+        return false;
+    }
+    s.sync_view.network = Some(network);
+    println!(
+        "AZDRIVE_NETWORK {:?} connected={} metered={} constrained={}",
+        network.kind, network.connected, network.metered, network.constrained
+    );
+    true
+}
+
+/// The poll's reading of the network: on a change every synced drive says its status again,
+/// and a pass that runs without the limit the new network sets stops before its next file (and
+/// runs again with it). Whether it changed.
+fn network_changed(s: &mut DriveState, network: NetworkState) -> bool {
+    let before = s.sync_view.network;
+    if !note_network(s, network) {
+        return false;
+    }
+    for setup in s.settings.synced.clone() {
+        let held = sync_view::network_hold(Some(&network), &setup);
+        let was = sync_view::network_hold(before.as_ref(), &setup);
+        if held.is_some() && held != was {
+            if let Some(sync) = s.sync_view.drives.get_mut(&setup.drive_id) {
+                if let Some(running) = &sync.running {
+                    running.cancel.store(true, Ordering::SeqCst);
+                    sync.again = true;
+                }
+            }
+        }
+        sync_view::say_status(s, &setup.drive_id);
+    }
+    true
 }
 
 /// Synced drive `drive_id` as a job takes it; `None` (with a message, or the keyring asked
@@ -609,9 +666,11 @@ pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
             return;
         }
     }
-    let Some(work) = work_of(info, s, drive_id) else {
+    let Some(mut work) = work_of(info, s, drive_id) else {
         return;
     };
+    // A metered or low-data network holds the big files back ("Paused (metered network)").
+    work.transfer_limit = sync_view::network_hold(s.sync_view.network.as_ref(), &work.setup);
     let cancel = Arc::new(AtomicBool::new(false));
     s.sync_view.drives.entry(drive_id.to_string()).or_default().running = Some(Running {
         cancel: cancel.clone(),
@@ -1219,7 +1278,7 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             match &result {
                 Ok(done) => println!(
                     "AZDRIVE_SYNC_DONE {drive_id} up={} down={} deleted={} conflicts={} \
-                     cloud_only={} freed={} paused={} newer_format={}",
+                     cloud_only={} freed={} paused={} newer_format={} held={}",
                     done.up,
                     done.down,
                     done.deleted,
@@ -1227,7 +1286,8 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                     done.cloud_only,
                     done.freed,
                     done.paused.is_some(),
-                    done.newer_format.len()
+                    done.newer_format.len(),
+                    done.held
                 ),
                 Err(e) => println!("AZDRIVE_SYNC_FAILED {drive_id} {e}"),
             }

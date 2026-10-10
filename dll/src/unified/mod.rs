@@ -18,6 +18,7 @@ pub mod capability;
 pub mod iroh;
 pub mod keyring;
 pub mod map;
+pub mod network;
 pub mod pdf;
 pub mod power;
 pub mod sqlite;

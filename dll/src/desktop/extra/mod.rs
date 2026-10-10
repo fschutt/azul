@@ -52,6 +52,10 @@ pub mod keyring;
 pub mod map;
 pub mod media_keys;
 pub mod natural_scroll;
+/// The computer's network state for background transfers (`NetworkState`: connected, metered,
+/// constrained, its kind), kept current by a platform monitor; a fixed reading (or a test's
+/// switch file) in headless runs.
+pub mod network;
 /// PDF (P5 AzulDoc). The `Pdf` handle is always present (so it codegen-exposes
 /// with no feature-gating); the `printpdf` engine behind it is opt-in via the
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
