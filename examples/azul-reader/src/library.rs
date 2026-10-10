@@ -261,12 +261,13 @@ pub enum Sort {
 impl Sort {
     pub const ALL: [Sort; 3] = [Sort::Recent, Sort::Title, Sort::Author];
 
+    /// Its words: a key of AzReader's, said in the window's language.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Sort::Recent => "Recent",
-            Sort::Title => "Title",
-            Sort::Author => "Author",
+            Sort::Recent => "azreader-sort-recent",
+            Sort::Title => "azreader-sort-title",
+            Sort::Author => "azreader-sort-author",
         }
     }
 
@@ -294,13 +295,14 @@ impl Shelf {
         Shelf::Finished,
     ];
 
+    /// Its words: a key of AzReader's, said in the window's language.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Shelf::All => "All books",
-            Shelf::Reading => "Reading",
-            Shelf::NotStarted => "Not started",
-            Shelf::Finished => "Finished",
+            Shelf::All => "azreader-shelf-all",
+            Shelf::Reading => "azreader-shelf-reading",
+            Shelf::NotStarted => "azreader-shelf-not-started",
+            Shelf::Finished => "azreader-shelf-finished",
         }
     }
 

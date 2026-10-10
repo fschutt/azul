@@ -40,13 +40,14 @@ impl Paper {
         }
     }
 
+    /// Its words: a key of AzReader's, said in the window's language.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Paper::Auto => "Auto",
-            Paper::White => "White",
-            Paper::Sepia => "Sepia",
-            Paper::Night => "Night",
+            Paper::Auto => "azreader-paper-auto",
+            Paper::White => "azreader-paper-white",
+            Paper::Sepia => "azreader-paper-sepia",
+            Paper::Night => "azreader-paper-night",
         }
     }
 
@@ -115,11 +116,12 @@ impl FontChoice {
         }
     }
 
+    /// Its words: a key of AzReader's, said in the window's language.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            FontChoice::Serif => "Serif",
-            FontChoice::Sans => "Sans serif",
+            FontChoice::Serif => "azreader-font-serif",
+            FontChoice::Sans => "azreader-font-sans",
         }
     }
 
@@ -168,12 +170,13 @@ impl PageLayout {
         }
     }
 
+    /// Its words: a key of AzReader's, said in the window's language.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            PageLayout::Auto => "Auto",
-            PageLayout::Single => "One page",
-            PageLayout::Spread => "Two pages",
+            PageLayout::Auto => "azreader-layout-auto",
+            PageLayout::Single => "azreader-layout-single",
+            PageLayout::Spread => "azreader-layout-spread",
         }
     }
 

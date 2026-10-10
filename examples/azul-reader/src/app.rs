@@ -29,9 +29,9 @@ pub enum Pane {
     Bookmarks,
 }
 
-/// The ribbon's tabs (the library's, then the reader's).
-pub const LIBRARY_TABS: [&str; 2] = ["HOME", "VIEW"];
-pub const READER_TABS: [&str; 2] = ["READ", "VIEW"];
+/// The ribbon's tabs (the library's, then the reader's): keys of AzReader's words.
+pub const LIBRARY_TABS: [&str; 2] = ["azreader-tab-home", "azreader-tab-view"];
+pub const READER_TABS: [&str; 2] = ["azreader-tab-read", "azreader-tab-view"];
 
 /// Where a chapter being laid out opens.
 #[derive(Debug, Clone, PartialEq)]

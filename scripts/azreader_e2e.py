@@ -145,7 +145,7 @@ def body(args, logs, out):
     binary = e.find_binary("AzReader", args.bin, "AZREADER_BIN")
     data = os.path.join(logs, "data")
     os.makedirs(data, exist_ok=True)
-    common = ["--data-dir", data, "--size", "1280x800"]
+    common = ["--data-dir", data, "--size", "1280x800", "--language", "en"]
     app = e.App("azreader-1", binary, common + ["--sample"], args.debug_port, logs, args.timeout)
     try:
         book_id = first_session(app, data, out)

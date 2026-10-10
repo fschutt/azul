@@ -18,6 +18,8 @@ use azul::{
     widgets::{Button, StatusBar, StatusBarSegment},
 };
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 use crate::{
     app::{command, AppState, Command, Pane},
     commands::on_command,
@@ -54,7 +56,7 @@ pub fn navigation(app: &RefAny, st: &AppState) -> Option<Dom> {
             let mut pane = Dom::create_div()
                 .with_id(ids::TOC)
                 .with_css(PANE_CSS)
-                .with_child(text("CONTENTS", PANE_TITLE_CSS));
+                .with_child(text(&t("azreader-pane-contents"), PANE_TITLE_CSS));
             for (i, entry) in open.book.toc.iter().enumerate() {
                 let on = current_entry == Some(i);
                 let mut row = Dom::create_div()
@@ -94,10 +96,10 @@ pub fn navigation(app: &RefAny, st: &AppState) -> Option<Dom> {
             let mut pane = Dom::create_div()
                 .with_id(ids::BOOKMARKS)
                 .with_css(PANE_CSS)
-                .with_child(text("BOOKMARKS", PANE_TITLE_CSS));
+                .with_child(text(&t("azreader-pane-bookmarks"), PANE_TITLE_CSS));
             if open.state.bookmarks.is_empty() {
                 pane.add_child(text(
-                    "No bookmark yet. Bookmark Page (Ctrl/Cmd+D) keeps the page you read.",
+                    &t("azreader-no-bookmark"),
                     "padding: 6px 14px; font-size: 12px; color: system:secondary-text;",
                 ));
             }
@@ -194,11 +196,11 @@ fn turn_zone(app: &RefAny, id: AzString, glyph: &str, cmd: Command) -> Dom {
              width: 36px; flex-shrink: 0; align-self: stretch; font-size: 28px; \
              color: system:tertiary-text; cursor: pointer;",
         )
-        .with_accessibility_name(if matches!(cmd, Command::PrevPage) {
-            "Previous page"
+        .with_accessibility_name(t(if matches!(cmd, Command::PrevPage) {
+            "azreader-previous-page"
         } else {
-            "Next page"
-        })
+            "azreader-next-page"
+        }))
         .with_child(Dom::create_span_with_text(glyph));
     zone.add_callback(
         EventFilter::Hover(HoverEventFilter::Click),
@@ -281,7 +283,7 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
                      width: {}px; height: {}px; padding: {}px; margin: 0px 12px; background: {}; color: {};",
                     geometry.text_width, geometry.text_height, geometry.margin, colors.background, colors.muted
                 ))
-                .with_child(Dom::create_span_with_text("Laying out the pages\u{2026}")),
+                .with_child(Dom::create_span_with_text(t("azreader-laying-out-pages"))),
         ),
     }
     row.add_child(turn_zone(
@@ -328,26 +330,32 @@ pub fn pages(app: &RefAny, st: &AppState) -> Dom {
 pub fn status_bar(st: &AppState) -> Dom {
     let mut segments = Vec::new();
     if let (Some(open), Some(c)) = (st.open.as_ref(), st.chapter.as_ref()) {
-        segments.push(StatusBarSegment::create(s(&format!(
-            "CHAPTER {} OF {}",
-            c.chapter + 1,
-            open.book.spine.len()
-        ))));
-        segments.push(StatusBarSegment::create(s(&format!(
-            "PAGE {} OF {}",
-            st.page + 1,
-            c.pages.page_count()
-        ))));
+        segments.push(StatusBarSegment::create(t_args(
+            "azreader-chapter-of",
+            &[
+                ("chapter", Arg::from(c.chapter + 1)),
+                ("count", Arg::from(open.book.spine.len())),
+            ],
+        )));
+        segments.push(StatusBarSegment::create(t_args(
+            "azreader-page-of",
+            &[
+                ("page", Arg::from(st.page + 1)),
+                ("count", Arg::from(c.pages.page_count())),
+            ],
+        )));
     }
     segments.push(
-        StatusBarSegment::create(s(&format!(
-            "{} READ",
-            position::percent_label(st.progress())
-        )))
+        StatusBarSegment::create(t_args(
+            "azreader-percent-read",
+            &[("percent", Arg::from(position::percent_label(st.progress())))],
+        ))
         .with_marker(ids::PROGRESS),
     );
     if st.pending.is_some() {
-        segments.push(StatusBarSegment::create(s("LAYING OUT")).with_icon(s("hourglass_empty")));
+        segments.push(
+            StatusBarSegment::create(t("azreader-laying-out")).with_icon(s("hourglass_empty")),
+        );
     }
     if !st.notice.is_empty() {
         segments.push(StatusBarSegment::create(s(&st.notice)));
