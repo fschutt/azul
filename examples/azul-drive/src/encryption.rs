@@ -220,14 +220,16 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
 /// How many groups of the code the sheet asks for (the plan's four, of five).
 pub(crate) const SETUP_CHECKS: usize = 4;
 
-/// The recovery sheet: the code, then one of its groups typed back.
+/// The recovery sheet: the code, then four of its groups typed back.
 pub(crate) struct Sheet {
     pub drive_id: String,
     /// The code as shown (`XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX`). A secret: never printed.
     pub code: Zeroizing<String>,
-    /// Which group (0-based) the user types back.
-    pub check: usize,
-    pub typed: Zeroizing<String>,
+    /// Which groups (0-based, in order) the user types back: [`SETUP_CHECKS`] of them, chosen
+    /// at random.
+    pub checks: Vec<usize>,
+    /// What the user typed for each of them.
+    pub typed: Vec<Zeroizing<String>>,
     pub error: String,
     /// The sheet of a key rotation's new code: re-encryption is offered next (else the
     /// migration of a newly encrypted drive starts).
@@ -250,19 +252,25 @@ fn normalized(text: &str) -> String {
 }
 
 impl Sheet {
-    /// The sheet of `code`, asking for a random group.
+    /// The sheet of `code`, asking for [`SETUP_CHECKS`] of its groups chosen at random (a
+    /// shuffle by the OS random source; the first groups when it fails).
     pub(crate) fn new(drive_id: &str, code: Zeroizing<String>) -> Sheet {
         let groups = code.split('-').count().max(1);
-        let mut pick = [0u8; 1];
-        let check = match random_bytes(&mut pick) {
-            Ok(()) => usize::from(pick[0]) % groups,
-            Err(_) => groups - 1,
-        };
+        let mut order: Vec<usize> = (0..groups).collect();
+        let mut random = [0u8; 16];
+        if random_bytes(&mut random).is_ok() {
+            for i in (1..groups).rev() {
+                order.swap(i, usize::from(random[i % random.len()]) % (i + 1));
+            }
+        }
+        let mut checks: Vec<usize> = order.into_iter().take(SETUP_CHECKS.min(groups)).collect();
+        checks.sort_unstable();
+        let typed = checks.iter().map(|_| Zeroizing::new(String::new())).collect();
         Sheet {
             drive_id: drive_id.to_string(),
             code,
-            check,
-            typed: Zeroizing::new(String::new()),
+            checks,
+            typed,
             error: String::new(),
             after_rotation: false,
             kit_note: String::new(),
@@ -278,22 +286,35 @@ impl Sheet {
 
     /// The groups (0-based) the user types back, in order.
     pub(crate) fn asked(&self) -> Vec<usize> {
-        vec![self.check]
+        self.checks.clone()
     }
 
     /// What the user typed into the box of the `slot`-th group asked for.
     pub(crate) fn set_typed(&mut self, slot: usize, text: Zeroizing<String>) {
-        if slot == 0 {
-            self.typed = text;
+        if let Some(typed) = self.typed.get_mut(slot) {
+            *typed = text;
         }
     }
 
-    /// Whether the typed group is the one asked for.
+    /// The groups asked for as people count them: `1, 3, 4 and 5`.
+    pub(crate) fn asked_words(&self) -> String {
+        let numbers: Vec<String> = self.checks.iter().map(|g| (g + 1).to_string()).collect();
+        match numbers.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            Some((last, _)) => last.clone(),
+            None => String::new(),
+        }
+    }
+
+    /// Whether every group typed is the one asked for.
     pub(crate) fn confirmed(&self) -> bool {
-        self.code
-            .split('-')
-            .nth(self.check)
-            .is_some_and(|group| normalized(group) == normalized(&self.typed))
+        let groups: Vec<&str> = self.code.split('-').collect();
+        !self.checks.is_empty()
+            && self.checks.iter().zip(&self.typed).all(|(&group, typed)| {
+                groups
+                    .get(group)
+                    .is_some_and(|code| normalized(code) == normalized(typed))
+            })
     }
 }
 
@@ -327,9 +348,10 @@ pub(crate) enum Dialog {
 }
 
 impl Dialog {
-    /// Whether its close box and Escape take it away.
+    /// Whether its close box and Escape take it away: not the recovery sheet, whose code shows
+    /// only this once - the setup finishes when its groups are typed back.
     pub(crate) fn may_close(&self) -> bool {
-        true
+        !matches!(self, Dialog::Sheet(_))
     }
 }
 
@@ -392,18 +414,33 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
             for piece in crate::recovery::kit_pieces(app, &sheet.code, &sheet.kit_note) {
                 body.add_child(piece);
             }
-            for piece in [
-                label(&format!(
-                    "To check that you have it, type group {} of the code:",
-                    sheet.check + 1
-                )),
-                TextInput::create()
-                    .with_text(AzString::from(sheet.typed.as_str()))
-                    .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
-                    .dom(),
-            ] {
-                body.add_child(piece);
+            body.add_child(label(&format!(
+                "To check that you have it, type groups {} of the code:",
+                sheet.asked_words()
+            )));
+            let mut boxes = Dom::create_div().with_css("display: flex; flex-direction: row;");
+            for (slot, (&group, typed)) in sheet.checks.iter().zip(&sheet.typed).enumerate() {
+                boxes.add_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: column; margin-right: 8px;")
+                        .with_child(label(&format!("Group {}", group + 1)))
+                        .with_child(
+                            TextInput::create()
+                                .with_text(AzString::from(typed.as_str()))
+                                .with_placeholder(AzString::from("XXXXX"))
+                                .with_on_text_input(
+                                    RefAny::new(GroupRef {
+                                        app: app.clone(),
+                                        slot,
+                                    }),
+                                    on_group_typed as TextInputOnTextInputCallbackType,
+                                )
+                                .dom()
+                                .with_id(crate::ids::sheet_group(slot)),
+                        ),
+                );
             }
+            body.add_child(boxes);
             if !sheet.error.is_empty() {
                 body.add_child(line(&sheet.error).with_css("color: #C42B1C;"));
             }
@@ -412,7 +449,8 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 ButtonType::Primary,
                 app,
                 on_sheet_done,
-            )]));
+            )
+            .with_id(crate::ids::SHEET_DONE)]));
             (String::from("Your recovery code"), body)
         }
         Dialog::Unlock {
@@ -663,10 +701,6 @@ extern "C" fn on_typed(
     };
     let text = Zeroizing::new(state.get_text().as_str().to_string());
     match s.popup.as_mut() {
-        Some(Popup::Encryption(Dialog::Sheet(sheet))) => {
-            sheet.typed = text;
-            sheet.error.clear();
-        }
         Some(Popup::Encryption(
             Dialog::Unlock { typed, error, .. } | Dialog::RecoveryLockdown { typed, error, .. },
         )) => {
@@ -674,6 +708,38 @@ extern "C" fn on_typed(
             error.clear();
         }
         _ => {}
+    }
+    keep
+}
+
+/// What a group's box on the recovery sheet carries: which of the groups asked for it is.
+struct GroupRef {
+    app: RefAny,
+    slot: usize,
+}
+
+/// A group typed on the recovery sheet.
+extern "C" fn on_group_typed(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let keep = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let Some((mut app, slot)) = data
+        .downcast_ref::<GroupRef>()
+        .map(|group| (group.app.clone(), group.slot))
+    else {
+        return keep;
+    };
+    let Some(mut s) = app.downcast_mut::<DriveState>() else {
+        return keep;
+    };
+    if let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() {
+        sheet.set_typed(slot, Zeroizing::new(state.get_text().as_str().to_string()));
+        sheet.error.clear();
     }
     keep
 }
@@ -708,8 +774,9 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         };
         if !sheet.confirmed() {
             sheet.error = format!(
-                "That is not group {} of the code. Look at what you wrote down.",
-                sheet.check + 1
+                "Groups {} are not all the code's. Look at what you wrote down: the setup \
+                 finishes when they are.",
+                sheet.asked_words()
             );
             return;
         }

@@ -3388,6 +3388,9 @@ pub(crate) fn close_popup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSt
         Some(Popup::Conflict { id, .. }) => cancel_transfer(info, app, s, id),
         // A payment shown is abandoned, one waited for is waited for in the background.
         Some(Popup::AddDrive(_)) => crate::add_flow::close(info, app, s),
+        // The recovery sheet stays until its groups are typed back: its code shows only now.
+        #[cfg(feature = "encryption")]
+        Some(Popup::Encryption(ref dialog)) if !dialog.may_close() => {}
         _ => s.popup = None,
     }
 }

@@ -324,3 +324,11 @@ pub const fn layout_class(layout: ViewLayout) -> AzString {
 pub const KIT_PRINT: AzString = AzString::from_const_str("__azdrive_kit_print");
 pub const KIT_SAVE: AzString = AzString::from_const_str("__azdrive_kit_save");
 pub const KIT_USB: AzString = AzString::from_const_str("__azdrive_kit_usb");
+/// The recovery sheet's boxes of the groups typed back: `__azdrive_sheet_group_<n>` (0-based,
+/// in the order asked).
+#[must_use]
+pub fn sheet_group(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_sheet_group_{slot}"))
+}
+/// The recovery sheet's "I have written it down".
+pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done");
