@@ -337,15 +337,15 @@ impl Failover {
         };
         if let Some((sticky, since)) = &state.sticky {
             if now.saturating_sub(*since) < STICKY_SECS {
-                push(sticky);
+                push(sticky.as_str());
             }
         }
-        push(&self.block);
+        push(self.block.as_str());
         for node in &state.nodes {
-            push(&node.url);
+            push(node.url.as_str());
         }
         for url in state.alternatives.iter().chain(&state.learned) {
-            push(url);
+            push(url.as_str());
         }
         route
     }
