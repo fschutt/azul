@@ -668,12 +668,16 @@ impl Account {
         Ok(())
     }
 
-    /// A join code for another device: a new member family of this drive.
+    /// A join code for another device: a new member family of this drive. Like every call
+    /// that grants (the lockdown and its cancel, a restore), it is sent under the refresh lock
+    /// with the newest drive token: the token server takes no other for it.
     ///
     /// # Errors
     ///
-    /// The server's refusal or no answer.
+    /// The refresh lock held too long by another azcloud, the server's refusal or no answer.
     pub fn invite(&self, member: Option<&str>) -> CloudResult<JoinCode> {
+        // A grant: the current token only - behind any refresh another azcloud runs.
+        let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         let token = self.drive_token()?;
         let answer = self.server(|server| server.add_member(&self.record.id, &token, member))?;
         let drive_token = answer["drive_token"]
@@ -732,6 +736,7 @@ impl Account {
     ///
     /// The server's refusal (none pending) or no answer.
     pub fn lockdown_cancel(&self) -> CloudResult<Value> {
+        let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         let token = self.drive_token()?;
         self.server(|server| server.lockdown_cancel(&self.record.id, &token))
     }
@@ -745,6 +750,7 @@ impl Account {
         if parse_rfc3339(as_of).is_none() {
             fail!("{as_of:?} is no RFC 3339 time (2026-10-08T09:00:00Z)");
         }
+        let _lock = self.state.lock("refresh", REFRESH_LOCK_WAIT)?;
         let token = self.drive_token()?;
         self.server(|server| server.restore(&self.record.id, &token, prefix, as_of))
     }
