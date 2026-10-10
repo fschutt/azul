@@ -8,7 +8,118 @@ use azul_core::selection::{
     CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
 };
 
-use crate::text3::cache::{BreakType, ClearType, InlineBreak, InlineContent, StyledRun};
+use crate::text3::cache::{
+    BreakType, ClearType, FontStyle, InlineBreak, InlineContent, StyleProperties, StyledRun,
+};
+
+/// The character formats an edit sets or clears over the style of the run it
+/// goes into: `Some(true)` sets, `Some(false)` clears, `None` keeps what the
+/// run has. The execCommand spec's per-command "state override"
+/// (<https://w3c.github.io/editing/docs/execCommand/#overrides>) for the
+/// four inline formats the engine toggles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct FormatOverrides {
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub underline: Option<bool>,
+    pub strikethrough: Option<bool>,
+}
+
+impl FormatOverrides {
+    /// Nothing overridden.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.bold.is_none()
+            && self.italic.is_none()
+            && self.underline.is_none()
+            && self.strikethrough.is_none()
+    }
+
+    /// The override of `format`.
+    #[must_use]
+    pub const fn get(&self, format: azul_core::events::TextFormat) -> Option<bool> {
+        use azul_core::events::TextFormat;
+        match format {
+            TextFormat::Bold => self.bold,
+            TextFormat::Italic => self.italic,
+            TextFormat::Underline => self.underline,
+            TextFormat::Strikethrough => self.strikethrough,
+        }
+    }
+
+    /// Set (or with `None` drop) the override of `format`.
+    pub const fn set(&mut self, format: azul_core::events::TextFormat, value: Option<bool>) {
+        use azul_core::events::TextFormat;
+        match format {
+            TextFormat::Bold => self.bold = value,
+            TextFormat::Italic => self.italic = value,
+            TextFormat::Underline => self.underline = value,
+            TextFormat::Strikethrough => self.strikethrough = value,
+        }
+    }
+
+    /// Whether `style` has `format`.
+    #[must_use]
+    pub fn style_has(style: &StyleProperties, format: azul_core::events::TextFormat) -> bool {
+        use azul_core::events::TextFormat;
+        match format {
+            TextFormat::Bold => style.is_bold(),
+            TextFormat::Italic => style.is_italic(),
+            TextFormat::Underline => style.text_decoration.underline,
+            TextFormat::Strikethrough => style.text_decoration.strikethrough,
+        }
+    }
+
+    /// The formats `style` carries OVER `base`: each one `style` has and
+    /// `base` - the block element's own style - does not. What a run of the
+    /// block is formatted with in an app's terms (a heading's bold is the
+    /// heading's, not a format of its text).
+    #[must_use]
+    pub fn formats_over(
+        style: &StyleProperties,
+        base: &StyleProperties,
+    ) -> azul_core::events::TextFormatSet {
+        let mut out = azul_core::events::TextFormatSet::default();
+        for format in azul_core::events::TextFormat::ALL {
+            out.set(
+                format,
+                Self::style_has(style, format) && !Self::style_has(base, format),
+            );
+        }
+        out
+    }
+
+    /// `style` with the overrides applied.
+    #[must_use]
+    pub fn apply_to(&self, style: &StyleProperties) -> StyleProperties {
+        let mut out = match self.bold {
+            Some(true) => style.with_font_weight(rust_fontconfig::FcWeight::Bold),
+            Some(false) => style.with_font_weight(rust_fontconfig::FcWeight::Normal),
+            None => style.clone(),
+        };
+        match self.italic {
+            Some(true) => out = out.with_font_style(FontStyle::Italic),
+            Some(false) => out = out.with_font_style(FontStyle::Normal),
+            None => {}
+        }
+        if let Some(underline) = self.underline {
+            out.text_decoration.underline = underline;
+        }
+        if let Some(strikethrough) = self.strikethrough {
+            out.text_decoration.strikethrough = strikethrough;
+        }
+        out
+    }
+}
+
+/// Bytes `start..end` of an inserted text, formatted by `formats` over the
+/// style of the run the text goes into ([`insert_formatted_text`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FormatSpan {
+    pub start: usize,
+    pub end: usize,
+    pub formats: FormatOverrides,
+}
 
 /// An enum representing a single text editing action.
 #[derive(Debug, Clone)]
@@ -322,6 +433,13 @@ pub fn apply_edit_to_selection(
 
     match selection {
         Selection::Range(range) => {
+            // A range of nothing is a caret: Backspace and Delete act on the
+            // grapheme beside it (deleting the empty range deleted nothing).
+            if let (TextEdit::DeleteBackward | TextEdit::DeleteForward, Some(caret)) =
+                (edit, collapsed_range_caret(content, range))
+            {
+                return apply_edit_to_selection(content, &Selection::Cursor(caret), edit);
+            }
             // Delete the range first
             let (content_after_delete, cursor_pos) = delete_range(&new_content, range);
             match edit {
@@ -366,6 +484,35 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
             }
         }
     }
+}
+
+/// The caret a zero-width range stands for (`Leading` at its byte, the edit
+/// path's convention); `None` for a range that covers something. Its ends can
+/// name ONE position with different ids: `Trailing` on a grapheme and
+/// `Leading` on the next, which a drag jittering across a glyph edge makes.
+#[must_use]
+pub fn collapsed_range_caret(
+    content: &[InlineContent],
+    range: &SelectionRange,
+) -> Option<TextCursor> {
+    if range.start == range.end {
+        return Some(range.start);
+    }
+    let run = range.start.cluster_id.source_run;
+    if run != range.end.cluster_id.source_run {
+        return None;
+    }
+    let Some(InlineContent::Text(text_run)) = content.get(run as usize) else {
+        return None;
+    };
+    let at = cursor_byte_offset_in_run(&text_run.text, &range.start);
+    (at == cursor_byte_offset_in_run(&text_run.text, &range.end)).then(|| TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: run,
+            start_byte_in_run: u32::try_from(at).unwrap_or(u32::MAX),
+        },
+        affinity: CursorAffinity::Leading,
+    })
 }
 
 /// Deletes the content within a given range.
@@ -602,95 +749,160 @@ pub fn insert_text(
 /// sits between the inserted text and the old tail exactly as a plain insert
 /// would. The style and source node of the split run are carried onto every new
 /// segment.
-#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 #[must_use]
 fn insert_text_with_line_breaks(
     content: &[InlineContent],
     cursor: &TextCursor,
     text_to_insert: &str,
 ) -> (Vec<InlineContent>, TextCursor) {
-    use unicode_segmentation::UnicodeSegmentation;
+    // One style throughout: the formatted insert with no span splits the run
+    // at its lines and nothing else.
+    insert_formatted_text(content, cursor, text_to_insert, &[])
+}
+
+/// Insert `text` at `cursor`, the bytes each of `spans` covers formatted by
+/// its overrides over the style of the run the text goes into (the typing
+/// style of a caret, the formatting of a pasted fragment). Newlines become
+/// hard [`InlineContent::LineBreak`] items (see [`insert_text`]).
+///
+/// The run under the caret is split around the text: its head, the text in
+/// one run per style (a piece in the run's own style joins the run), its
+/// tail. The caret lands after the inserted text, at the END of its last
+/// piece - so what is typed next continues the piece's formatting. Spans
+/// are taken in order; one that overlaps an earlier span, runs past the
+/// text or cuts a character is left out. A caret on a run that is not text
+/// inserts nothing.
+///
+/// With no span this is [`insert_text`]'s split at the newlines: `"a\nb"`
+/// at `"XY|Z"` gives `Text("XYa") · LineBreak · Text("bZ")`, the caret after
+/// the `b`.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
+pub fn insert_formatted_text(
+    content: &[InlineContent],
+    cursor: &TextCursor,
+    text: &str,
+    spans: &[FormatSpan],
+) -> (Vec<InlineContent>, TextCursor) {
+    use alloc::sync::Arc;
 
     let cursor = &sanitize_cursor(content, cursor);
     let run_idx = cursor.cluster_id.source_run as usize;
-    let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
-
-    // Only a Text run can be split around a caret; anything else is a no-op
-    // (mirrors `insert_text`, which silently leaves a non-text run alone).
     let Some(InlineContent::Text(run)) = content.get(run_idx) else {
         return (content.to_vec(), *cursor);
     };
-    let run = run.clone();
+    let at = cursor_byte_offset_in_run(&run.text, cursor).min(run.text.len());
+    let (head, tail) = run.text.split_at(at);
+    let base = run.style.clone();
 
-    // Same affinity → byte-offset resolution as `insert_text`.
-    let byte_offset = match cursor.affinity {
-        CursorAffinity::Leading => cluster_start_byte,
-        CursorAffinity::Trailing => {
-            if cluster_start_byte >= run.text.len() {
-                run.text.len()
-            } else {
-                run.text[cluster_start_byte..]
-                    .grapheme_indices(true)
-                    .next()
-                    .map_or(run.text.len(), |(_, g)| cluster_start_byte + g.len())
-            }
+    // The inserted text in pieces of one style each.
+    let mut pieces: Vec<(&str, Arc<StyleProperties>)> = Vec::new();
+    let mut pos = 0usize;
+    for span in spans {
+        let start = span.start.min(text.len());
+        let end = span.end.min(text.len());
+        if start < pos
+            || start >= end
+            || !text.is_char_boundary(start)
+            || !text.is_char_boundary(end)
+        {
+            continue;
         }
-    };
-    if byte_offset > run.text.len() {
-        return (content.to_vec(), *cursor);
+        if pos < start {
+            pieces.push((&text[pos..start], base.clone()));
+        }
+        let style = if span.formats.is_empty() {
+            base.clone()
+        } else {
+            Arc::new(span.formats.apply_to(&base))
+        };
+        pieces.push((&text[start..end], style));
+        pos = end;
+    }
+    if pos < text.len() {
+        pieces.push((&text[pos..], base.clone()));
     }
 
-    let head = &run.text[..byte_offset];
-    let tail = &run.text[byte_offset..];
+    // Lines of styled pieces: the head opens the first line, every '\n' of
+    // the text opens the next, the tail closes the last.
+    let mut lines: Vec<Vec<(String, Arc<StyleProperties>)>> =
+        vec![vec![(head.to_string(), base.clone())]];
+    for (piece, style) in &pieces {
+        for (i, part) in piece.split('\n').enumerate() {
+            if i > 0 {
+                lines.push(Vec::new());
+            }
+            if let Some(line) = lines.last_mut() {
+                line.push((part.to_string(), style.clone()));
+            }
+        }
+    }
+    // The caret: after the inserted text, before the tail.
+    let caret_line = lines.len() - 1;
+    let caret_byte: usize = lines[caret_line].iter().map(|(t, _)| t.len()).sum();
+    if let Some(line) = lines.last_mut() {
+        line.push((tail.to_string(), base.clone()));
+    }
 
-    // At least two segments, since the caller guaranteed a '\n'.
-    let segments: Vec<&str> = text_to_insert.split('\n').collect();
-
-    let mk_run = |text: String| {
+    let mk_run = |text: &str, style: &Arc<StyleProperties>| {
         InlineContent::Text(StyledRun {
-            text: alloc::sync::Arc::from(text.as_str()),
-            style: run.style.clone(),
+            text: Arc::from(text),
+            style: style.clone(),
             logical_start_byte: 0,
             source_node_id: run.source_node_id,
         })
     };
-    let mk_break = || {
-        InlineContent::LineBreak(InlineBreak {
-            break_type: BreakType::Hard,
-            clear: ClearType::None,
-            content_index: 0,
-        })
-    };
-
-    // head+seg0 · [break · seg]... with the original tail appended to the last
-    // segment.
-    let mut items: Vec<InlineContent> = Vec::with_capacity(segments.len() * 2);
-    let last = segments.len() - 1;
-    for (i, seg) in segments.iter().enumerate() {
+    let mut items: Vec<InlineContent> = Vec::new();
+    let mut caret: Option<(usize, usize)> = None;
+    for (i, line) in lines.iter().enumerate() {
         if i > 0 {
-            items.push(mk_break());
+            items.push(InlineContent::LineBreak(InlineBreak {
+                break_type: BreakType::Hard,
+                clear: ClearType::None,
+                content_index: 0,
+            }));
         }
-        let text = match (i, i == last) {
-            (0, true) => format!("{head}{seg}{tail}"),
-            (0, false) => format!("{head}{seg}"),
-            (_, true) => format!("{seg}{tail}"),
-            (_, false) => (*seg).to_string(),
-        };
-        items.push(mk_run(text));
+        // One run per style on the line; a line with no text keeps one
+        // empty run, so a caret after its break has a run to stand in.
+        let mut merged: Vec<(String, Arc<StyleProperties>)> = Vec::new();
+        for (t, s) in line {
+            if t.is_empty() {
+                continue;
+            }
+            match merged.last_mut() {
+                Some((prev, prev_style)) if *prev_style == *s => prev.push_str(t),
+                _ => merged.push((t.clone(), s.clone())),
+            }
+        }
+        if merged.is_empty() {
+            let style = line
+                .last()
+                .map_or_else(|| base.clone(), |(_, s)| s.clone());
+            merged.push((String::new(), style));
+        }
+        let first_item = items.len();
+        if i == caret_line {
+            let mut acc = 0usize;
+            for (k, (t, _)) in merged.iter().enumerate() {
+                if caret_byte <= acc + t.len() {
+                    caret = Some((first_item + k, caret_byte - acc));
+                    break;
+                }
+                acc += t.len();
+            }
+        }
+        for (t, s) in &merged {
+            items.push(mk_run(t, s));
+        }
     }
-
-    // The caret sits at the START of the original tail on the last new run:
-    // after the last inserted segment, before the old trailing text.
-    let last_run_new_idx = run_idx + items.len() - 1;
-    let caret_byte = segments[last].len();
+    let (caret_item, caret_in_run) = caret.unwrap_or_else(|| (items.len().saturating_sub(1), 0));
 
     let mut new_content = content.to_vec();
     new_content.splice(run_idx..=run_idx, items);
-
     let new_cursor = TextCursor {
         cluster_id: GraphemeClusterId {
-            source_run: last_run_new_idx as u32,
-            start_byte_in_run: caret_byte as u32,
+            source_run: (run_idx + caret_item) as u32,
+            start_byte_in_run: caret_in_run as u32,
         },
         affinity: CursorAffinity::Leading,
     };
@@ -1099,6 +1311,11 @@ pub fn inspect_delete(
 ) -> Option<(SelectionRange, String)> {
     match selection {
         Selection::Range(range) => {
+            // A range of nothing deletes like the caret it stands for
+            // (`apply_edit_to_selection`), so that is what it previews.
+            if let Some(caret) = collapsed_range_caret(content, range) {
+                return inspect_delete(content, &Selection::Cursor(caret), forward);
+            }
             // If there's already a selection, that's what would be deleted
             let deleted_text = extract_text_in_range(content, range);
             Some((*range, deleted_text))

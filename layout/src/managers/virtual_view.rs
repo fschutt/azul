@@ -52,6 +52,13 @@ pub struct VirtualViewManager {
     /// the host out once more with the reported size
     /// (`crate::window::LayoutWindow::relayout_dom_for_virtual_view_sizes`).
     natural_size_stale: alloc::collections::BTreeSet<(DomId, NodeId)>,
+    /// Views CARRIED over a relayout of an unchanged host: their child result
+    /// and their invocation state survived the layout funnel
+    /// ([`Self::carry_over_views`]). Their first `check_reinvoke` of the pass
+    /// that says "nothing to do" is only trusted while the child was laid out
+    /// for the box the view has now ([`Self::take_carried`]). Valid for one
+    /// pass.
+    carried: alloc::collections::BTreeSet<(DomId, NodeId)>,
 }
 
 /// Internal state for a single `VirtualView` instance
@@ -105,6 +112,11 @@ struct VirtualViewState {
     served_scroll_demand: Option<VirtualViewCallbackReason>,
     /// Unique DOM ID assigned to this `VirtualView`'s content
     nested_dom_id: DomId,
+    /// The host node the callback was last invoked for (its callback and
+    /// dataset). A relayout of a host that still carries exactly this node
+    /// keeps the view's child result instead of re-invoking the callback
+    /// (`VirtualViewManager::invoked_node`).
+    invoked_for: Option<azul_core::dom::VirtualViewNode>,
     /// The `VirtualView`'s own on-screen box (the viewport), window coords.
     /// `size` is the scrollport the other two rects are compared against.
     container: LogicalRect,
@@ -187,6 +199,36 @@ impl VirtualViewManager {
     #[must_use]
     pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
         self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
+    }
+
+    /// The child DOMs a rebuild of `dom` takes down with it: those of the
+    /// `VirtualView`s whose host node unmounted (absent from `map`), and,
+    /// transitively, those of the `VirtualView`s inside them. Ask BEFORE
+    /// [`NodeIdRemap::remap_node_ids`](crate::managers::NodeIdRemap), which
+    /// drops the unmounted hosts' state.
+    #[must_use]
+    pub fn nested_doms_dropped_by(
+        &self,
+        dom: DomId,
+        map: &crate::managers::NodeIdMap,
+    ) -> Vec<DomId> {
+        let mut dropped: Vec<DomId> = self
+            .states
+            .iter()
+            .filter(|((d, n), _)| *d == dom && map.is_unmounted(*n))
+            .map(|(_, s)| s.nested_dom_id)
+            .collect();
+        let mut i = 0;
+        while i < dropped.len() {
+            let parent = dropped[i];
+            for ((d, _), s) in &self.states {
+                if *d == parent && !dropped.contains(&s.nested_dom_id) {
+                    dropped.push(s.nested_dom_id);
+                }
+            }
+            i += 1;
+        }
+        dropped
     }
 
     /// Returns whether the `VirtualView` has ever been invoked
@@ -320,6 +362,69 @@ impl VirtualViewManager {
         Some(())
     }
 
+    /// Remember the host node `(dom_id, node_id)` was just invoked for (its
+    /// callback and dataset): what [`Self::invoked_node`] answers.
+    pub fn record_invoked_node(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        node: &azul_core::dom::VirtualViewNode,
+    ) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.invoked_for = Some(node.clone());
+        }
+    }
+
+    /// The host node `(dom_id, node_id)` was last invoked for, while its
+    /// invocation stands (`None` before the first one and after a reset).
+    #[must_use]
+    pub fn invoked_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<&azul_core::dom::VirtualViewNode> {
+        self.states
+            .get(&(dom_id, node_id))
+            .filter(|s| s.virtual_view_was_invoked)
+            .and_then(|s| s.invoked_for.as_ref())
+    }
+
+    /// A relayout of the SAME host DOM: every view in `keep` keeps its
+    /// invocation (its child result survives the layout funnel), every other
+    /// view is reset as by [`Self::reset_all_invocation_flags`]. The kept
+    /// views of the ROOT DOM are remembered as CARRIED for this pass
+    /// ([`Self::take_carried`]): the root is laid out again and checks each
+    /// of them. A view inside a kept child DOM is not: that DOM keeps its
+    /// layout whole, so the box of the view in it did not move.
+    pub fn carry_over_views(&mut self, keep: &alloc::collections::BTreeSet<(DomId, NodeId)>) {
+        for (key, state) in &mut self.states {
+            if !keep.contains(key) {
+                state.virtual_view_was_invoked = false;
+                state.invoked_for_current_expansion = false;
+                state.served_scroll_demand = None;
+                state.invoked_for = None;
+            }
+        }
+        self.carried = keep
+            .iter()
+            .filter(|(dom_id, _)| *dom_id == DomId::ROOT_ID)
+            .copied()
+            .collect();
+    }
+
+    /// Whether `(dom_id, node_id)` was carried over this pass's relayout and
+    /// has not been looked at since - asked once, at the view's first
+    /// invocation check of the pass.
+    pub fn take_carried(&mut self, dom_id: DomId, node_id: NodeId) -> bool {
+        self.carried.remove(&(dom_id, node_id))
+    }
+
+    /// Every view still CARRIED at the end of a pass - kept over the
+    /// relayout, but never reached by it (its host laid out no box for it).
+    pub fn take_all_carried(&mut self) -> Vec<(DomId, NodeId)> {
+        core::mem::take(&mut self.carried).into_iter().collect()
+    }
+
     /// Reset invocation flags for ALL tracked `VirtualViews`
     ///
     /// After `layout_results.clear()`, the child DOMs no longer exist in memory.
@@ -332,7 +437,9 @@ impl VirtualViewManager {
             state.virtual_view_was_invoked = false;
             state.invoked_for_current_expansion = false;
             state.served_scroll_demand = None;
+            state.invoked_for = None;
         }
+        self.carried.clear();
     }
 
     /// Force a `VirtualView` to be re-invoked on the next layout pass
@@ -531,6 +638,7 @@ impl VirtualViewState {
             invoked_for_current_expansion: false,
             served_scroll_demand: None,
             nested_dom_id,
+            invoked_for: None,
             container: LogicalRect::zero(),
             initial_scroll_offset: LogicalPosition::zero(),
         }
@@ -694,6 +802,8 @@ impl crate::managers::NodeIdRemap for VirtualViewManager {
     /// into it) and leak forever.
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.states, dom, map);
+        // Carried views are a within-one-pass fact about the old ids.
+        self.carried.retain(|(d, _)| *d != dom);
 
         self.reason_overrides.retain_mut(|((d, node_id), _)| {
             if *d != dom {

@@ -251,6 +251,8 @@ impl CppDialect for Cpp17Generator {
             ));
         }
 
+        code.push_str(&generate_field_accessor_decls(struct_def, ir, config, self.standard()));
+
         // Type-specific methods
         if is_vec_type(struct_def) {
             self.generate_vec_methods(code, struct_def, config);
@@ -476,6 +478,7 @@ impl CppDialect for Cpp17Generator {
             }
         }
 
+        code.push_str(&generate_field_accessor_impls(struct_def, ir, config, self.standard()));
         code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));
     }
 

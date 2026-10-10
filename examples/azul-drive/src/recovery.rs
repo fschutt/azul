@@ -1,0 +1,989 @@
+//! An encrypted drive's recovery methods in AzDrive (feature `encryption`; D51, milestone C14).
+//!
+//! The EMERGENCY KIT: the recovery code on paper - a short explanation, the drive's name (never
+//! its id or its bucket), the code in groups and as a QR code (azul-appkit's `qr`) - made as a
+//! PDF by azul's PDF writer from a DOM laid out for A4 paper (`paper`). The recovery sheet offers it
+//! three ways: Print (the PDF opens in the system's viewer from a private copy in the run's
+//! cache folder, deleted when the sheet closes and at the next start), Save as PDF (the
+//! system's save dialog) and Save to a USB stick (a folder picked, the PDF written into it).
+//! The sheet shows the QR code too, for a photo with a phone.
+//!
+//! DRILLS (the schedule is `recovery_health`'s): once a minute the recompression's timer looks
+//! whether a drive's drill is due and opens "Do you still have your recovery kit?" - the code
+//! typed from the kit, checked offline against the public recovery key kept for the drive (a
+//! drive set up before asks its bucket's recovery wrap). "Later" moves it a week; closing it
+//! waits for the next start.
+//!
+//! On stdout, for scripts (never a secret): `AZDRIVE_KIT_PRINT <bytes>` (the kit opened for
+//! printing), `AZDRIVE_KIT_SAVED <bytes>` (the save dialog took it), `AZDRIVE_KIT_WRITTEN
+//! <bytes>` (written into the folder picked), `AZDRIVE_RECOVERY_VERIFIED <drive id>` (the
+//! setup's groups typed back), `AZDRIVE_DRILL_DUE|PASSED|FAILED|LATER <drive id>`.
+
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
+
+use azul::{
+    callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
+    dialog::{FileDialog, FileOpenResult},
+    prelude::*,
+    str::String as AzString,
+    widgets::ButtonType,
+};
+use azul_appkit::{
+    l10n::{t, t_args, t_label, Arg, Phrase, Text},
+    qr::QrCode,
+};
+use azul_storage::{
+    config::DriveLocation,
+    crypto::{keys::RecoveryCode, Zeroizing},
+};
+
+// The page, its QR code, its PDF and Print's private copies are `paper`'s (cash by post prints
+// pages too); `Paper` and `forget_print_copies` keep their old paths for the recovery's callers.
+pub(crate) use crate::paper::{forget_print_copies, Paper};
+use crate::{
+    encryption::{Dialog, EncryptionJob},
+    ids,
+    jobs::Job,
+    paper::{paper_pdf, print_copy, qr_dom, write_private},
+    recovery_health::{
+        health_line, methods_list, methods_warning, state_mut, state_of, Method, MethodAction,
+        RecoveryState,
+    },
+    save_settings, spawn,
+    ui_dialogs::line,
+    with_state, DriveState, Popup,
+};
+
+// ==== The emergency kit ====
+
+/// The kit's title (the keys of its words: the kit is printed in the window's language).
+pub(crate) const KIT_TITLE: &str = "azdrive-kit-title";
+/// What a kit calls a drive whose name would show its id or its bucket.
+pub(crate) const GENERIC_NAME: &str = "azdrive-kit-generic-name";
+/// The kit's explanation, in its order.
+pub(crate) const KIT_TEXT: [&str; 4] = [
+    "azdrive-kit-only-key",
+    "azdrive-kit-keep-apart",
+    "azdrive-kit-how-to-use",
+    "azdrive-kit-whoever-has-it",
+];
+/// The label over the code, and the words beside its QR code.
+pub(crate) const KIT_CODE_LABEL: &str = "azdrive-kit-code-label";
+pub(crate) const KIT_QR_LABEL: &str = "azdrive-kit-qr-label";
+/// A module of the QR code on the sheet, in px.
+const SHEET_MODULE_PX: usize = 4;
+/// The longest drive name in a file name.
+const FILE_NAME_MAX: usize = 60;
+
+/// What the kit shows. The drive's name only: a name that is (or holds) the drive's id or its
+/// bucket shows as "your Azlin drive".
+pub(crate) struct Kit {
+    pub drive_name: String,
+    /// Whether `drive_name` is the drive's own (else [`GENERIC_NAME`]).
+    pub named: bool,
+    /// The recovery code as the sheet shows it. A secret: never printed.
+    pub code: Zeroizing<String>,
+    /// The day it was made (`2026-10-10`).
+    pub made: String,
+}
+
+impl Kit {
+    /// The kit of `code` for the drive called `drive_name`; `hidden` are the drive's id, its
+    /// Azlin id and its bucket, which no kit shows.
+    pub(crate) fn new(
+        drive_name: &str,
+        hidden: &[&str],
+        code: Zeroizing<String>,
+        made: String,
+    ) -> Kit {
+        let name = drive_name.trim();
+        let lower = name.to_lowercase();
+        let shows_hidden = hidden
+            .iter()
+            .map(|h| h.trim().to_lowercase())
+            .any(|h| !h.is_empty() && lower.contains(&h));
+        let named = !name.is_empty() && !shows_hidden;
+        Kit {
+            drive_name: if named {
+                name.to_string()
+            } else {
+                t(GENERIC_NAME)
+            },
+            named,
+            code,
+            made,
+        }
+    }
+
+    /// The kit's file name: `Azlin Emergency Kit - <name>.pdf`, the name's letters and digits
+    /// with `-` between words (`Azlin Emergency Kit.pdf` when nothing of it is left).
+    pub(crate) fn file_name(&self) -> String {
+        let mut name = String::new();
+        if self.named {
+            for c in self.drive_name.chars() {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    name.push(c);
+                } else if !name.is_empty() && !name.ends_with('-') {
+                    name.push('-');
+                }
+            }
+        }
+        let name: String = name
+            .trim_end_matches('-')
+            .chars()
+            .take(FILE_NAME_MAX)
+            .collect();
+        let name = name.trim_end_matches('-');
+        let title = t(KIT_TITLE);
+        if name.is_empty() {
+            format!("{title}.pdf")
+        } else {
+            format!("{title} - {name}.pdf")
+        }
+    }
+
+    /// Every line of the kit's text but the code, in the window's language: the title, the
+    /// drive and the day, the explanation, the code's label, the QR code's words.
+    pub(crate) fn lines(&self) -> Vec<String> {
+        let drive = t_args(
+            if self.named {
+                "azdrive-kit-for-drive"
+            } else {
+                "azdrive-kit-for-generic"
+            },
+            &[
+                ("name", Arg::from(self.drive_name.as_str())),
+                ("made", Arg::from(self.made.as_str())),
+            ],
+        );
+        let mut lines = vec![t(KIT_TITLE), drive];
+        lines.extend(KIT_TEXT.iter().map(|text| t(text)));
+        lines.push(t(KIT_CODE_LABEL));
+        lines.push(t(KIT_QR_LABEL));
+        lines
+    }
+
+    /// The text its QR code holds: the code as the sheet shows it, which "Unlock with the
+    /// recovery code" takes as it is.
+    pub(crate) fn qr_text(&self) -> Zeroizing<String> {
+        Zeroizing::new(self.code.as_str().to_string())
+    }
+}
+
+/// The kit of `code` for the drive `drive_id` (AzDrive's id of it): its name from the drives
+/// list, its ids and bucket kept off the paper.
+pub(crate) fn kit_of(s: &DriveState, drive_id: &str, code: &str) -> Kit {
+    let mut hidden: Vec<String> = vec![drive_id.to_string()];
+    let mut name = String::new();
+    if let Some(index) = s.slot_index(drive_id) {
+        let entry = &s.slots[index].entry;
+        name = entry.name.clone();
+        if let Some((azlin_id, _)) = entry.azlin() {
+            hidden.push(azlin_id.to_string());
+        }
+        if let DriveLocation::S3 { bucket, .. } = &entry.location {
+            hidden.push(bucket.clone());
+        }
+    }
+    let hidden: Vec<&str> = hidden.iter().map(String::as_str).collect();
+    let made = chrono::Local::now().format("%Y-%m-%d").to_string();
+    Kit::new(&name, &hidden, Zeroizing::new(code.to_string()), made)
+}
+
+impl Kit {
+    /// The kit as a page.
+    pub(crate) fn paper(&self) -> Paper {
+        let lines = self.lines();
+        Paper {
+            title: lines[0].clone(),
+            subtitle: lines[1].clone(),
+            address: Vec::new(),
+            text: lines[2..2 + KIT_TEXT.len()].to_vec(),
+            label: KIT_CODE_LABEL,
+            secret: self.qr_text(),
+            qr_label: KIT_QR_LABEL,
+            file_name: self.file_name(),
+        }
+    }
+}
+
+/// Which page a paper button makes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Which {
+    /// The code the dialog shows: the recovery sheet's, or the one trusted contacts gave back.
+    Shown,
+    /// A trusted contact's printed share on the "shares made" page (its row).
+    Share(usize),
+}
+
+/// What a paper button carries.
+struct PaperRef {
+    app: RefAny,
+    which: Which,
+}
+
+fn paper_ref(data: &mut RefAny) -> Option<(RefAny, Which)> {
+    data.downcast_ref::<PaperRef>()
+        .map(|paper| (paper.app.clone(), paper.which))
+}
+
+/// The page `which` of the dialog showing, if it shows one.
+fn shown_paper(s: &DriveState, which: Which) -> Option<Paper> {
+    match (s.popup.as_ref()?, which) {
+        (Popup::Encryption(Dialog::Sheet(sheet)), Which::Shown) => {
+            Some(kit_of(s, &sheet.drive_id, &sheet.code).paper())
+        }
+        (Popup::Encryption(Dialog::Contacts(page)), which) => {
+            crate::recovery_contacts::paper_of(s, page, which)
+        }
+        _ => None,
+    }
+}
+
+/// A line under the paper buttons of the dialog showing them.
+fn set_kit_note(s: &mut DriveState, note: String) {
+    match s.popup.as_mut() {
+        Some(Popup::Encryption(Dialog::Sheet(sheet))) => sheet.kit_note = note,
+        Some(Popup::Encryption(Dialog::Contacts(page))) => {
+            crate::recovery_contacts::set_note(page, note);
+        }
+        _ => {}
+    }
+}
+
+/// The three paper buttons (Print, Save as PDF, Save to a USB stick) of page `which`: the
+/// kit's ids, or a printed share's by its row.
+pub(crate) fn paper_buttons(app: &RefAny, which: Which) -> Dom {
+    let id = |kit: AzString, what: &str| match which {
+        Which::Shown => kit,
+        Which::Share(row) => ids::share_paper(row, what),
+    };
+    let button = |text: &str, id: AzString, callback: ButtonOnClickCallbackType| {
+        Button::create(azul_appkit::l10n::label(text))
+            .with_on_click(
+                RefAny::new(PaperRef {
+                    app: app.clone(),
+                    which,
+                }),
+                callback,
+            )
+            .dom()
+            .with_id(id)
+            .with_css("margin-right: 6px;")
+    };
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: row; margin-top: 8px;")
+        .with_child(button(
+            "azdrive-kit-print",
+            id(ids::KIT_PRINT, "print"),
+            on_kit_print,
+        ))
+        .with_child(button(
+            "azdrive-kit-save-pdf",
+            id(ids::KIT_SAVE, "save"),
+            on_kit_save,
+        ))
+        .with_child(button(
+            "azdrive-kit-usb",
+            id(ids::KIT_USB, "usb"),
+            on_kit_usb,
+        ))
+}
+
+/// The kit's three buttons and its QR code, for a dialog that shows a code.
+pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
+    let mut pieces = vec![paper_buttons(app, Which::Shown)];
+    if !note.is_empty() {
+        pieces.push(line(note).with_css("font-size: 12px; opacity: 0.75;"));
+    }
+    if let Ok(symbol) = QrCode::encode(code.as_bytes()) {
+        pieces.push(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; margin-top: 8px;",
+                )
+                .with_child(qr_dom(&symbol, SHEET_MODULE_PX))
+                .with_child(
+                    line("azdrive-kit-take-photo")
+                        .with_css("margin-left: 12px; font-size: 12px;"),
+                ),
+        );
+    }
+    pieces
+}
+
+// ==== Print, Save as PDF, Save to a USB stick ====
+
+/// Print: the page opens in the system's PDF viewer, which prints it.
+extern "C" fn on_kit_print(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, _app, s| {
+        let Some(paper) = shown_paper(s, which) else {
+            return;
+        };
+        let note = match paper_pdf(info, &paper).and_then(|bytes| {
+            let path = print_copy(&paper.file_name, &bytes)?;
+            println!("AZDRIVE_KIT_PRINT {}", bytes.len());
+            azul_appkit::files::open_external(&path.to_string_lossy())
+        }) {
+            Ok(()) => t("azdrive-kit-print-open"),
+            Err(why) => t_args("azdrive-kit-print-failed", &[("why", Arg::from(why))]),
+        };
+        if which != Which::Shown {
+            crate::recovery_contacts::handed(s, which);
+        }
+        set_kit_note(s, note);
+    })
+}
+
+/// Save as PDF: the system's save dialog (the app's state let go before it).
+extern "C" fn on_kit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
+    let made = {
+        let Some(s) = app.downcast_ref::<DriveState>() else {
+            return Update::DoNothing;
+        };
+        shown_paper(&s, which).map(|paper| (paper.file_name.clone(), paper_pdf(&mut info, &paper)))
+    };
+    let Some((name, bytes)) = made else {
+        return Update::DoNothing;
+    };
+    let (note, saved) = match bytes {
+        Ok(bytes) => {
+            let len = bytes.len();
+            if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes.to_vec()) {
+                println!("AZDRIVE_KIT_SAVED {len}");
+                (t_args("azdrive-kit-saved", &[("name", Arg::from(name.as_str()))]), true)
+            } else {
+                (t("azdrive-kit-not-saved"), false)
+            }
+        }
+        Err(why) => (why, false),
+    };
+    with_state(&mut app, &mut info, |_info, _app, s| {
+        if saved && which != Which::Shown {
+            crate::recovery_contacts::handed(s, which);
+        }
+        set_kit_note(s, note);
+    })
+}
+
+/// Save to a USB stick: the system's folder picker.
+extern "C" fn on_kit_usb(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
+    let _request = FileDialog::open_directory(
+        azul_appkit::l10n::label("azdrive-kit-usb-title"),
+        OptionString::None,
+        RefAny::new(PaperRef { app, which }),
+        on_kit_folder,
+    );
+    Update::DoNothing
+}
+
+/// The folder picked: the page is written into it on a worker thread.
+extern "C" fn on_kit_folder(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut app, which)) = paper_ref(&mut data) else {
+        return Update::DoNothing;
+    };
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let folder = PathBuf::from(path.inner.as_str());
+    with_state(&mut app, &mut info, |info, app, s| {
+        let Some(paper) = shown_paper(s, which) else {
+            return;
+        };
+        match paper_pdf(info, &paper) {
+            Ok(bytes) => {
+                set_kit_note(
+                    s,
+                    t_args(
+                        "azdrive-kit-writing",
+                        &[("folder", Arg::from(folder.display().to_string()))],
+                    ),
+                );
+                if which != Which::Shown {
+                    crate::recovery_contacts::handed(s, which);
+                }
+                let job = EncryptionJob::SaveKit {
+                    path: folder.join(&paper.file_name),
+                    bytes,
+                };
+                spawn(info, app, s, Job::Encryption(job));
+            }
+            Err(why) => set_kit_note(s, why),
+        }
+    })
+}
+
+/// The worker thread's part of Save to a USB stick.
+pub(crate) fn save_kit(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    write_private(path, bytes).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The page is written (or why not).
+pub(crate) fn kit_saved(s: &mut DriveState, path: &Path, len: usize, result: Result<(), String>) {
+    let note = match result {
+        Ok(()) => {
+            println!("AZDRIVE_KIT_WRITTEN {len}");
+            t_args(
+                "azdrive-kit-written",
+                &[("path", Arg::from(path.display().to_string()))],
+            )
+        }
+        Err(why) => t_args("azdrive-kit-not-written", &[("why", Arg::from(why))]),
+    };
+    set_kit_note(s, note);
+}
+
+// ==== Drills ====
+
+/// What a drill makes of the code typed.
+#[derive(Debug)]
+pub(crate) enum DrillAnswer {
+    /// The drive's code.
+    Passed,
+    /// A recovery code, but not the drive's.
+    NotTheCode,
+    /// No recovery code at all (26 letters and digits in five groups).
+    NotACode,
+    /// This computer knows no recovery key of the drive (a setup from before the drills): the
+    /// bucket's recovery wrap is asked.
+    AskTheBucket(RecoveryCode),
+}
+
+/// Answers compare by what they say: the code an answer carries is a secret and is never
+/// compared (`RecoveryCode` has no `PartialEq` on purpose).
+impl PartialEq for DrillAnswer {
+    fn eq(&self, other: &Self) -> bool {
+        core::mem::discriminant(self) == core::mem::discriminant(other)
+    }
+}
+
+impl Eq for DrillAnswer {}
+
+/// The drill's answer to `typed` for the drive `drive_id` whose code's public recovery key is
+/// `recovery_key`: offline, without the bucket and without Argon2id's second.
+pub(crate) fn drill_answer(recovery_key: Option<&str>, drive_id: &str, typed: &str) -> DrillAnswer {
+    let Some(code) = RecoveryCode::parse(typed) else {
+        return DrillAnswer::NotACode;
+    };
+    let Some(known) = recovery_key else {
+        return DrillAnswer::AskTheBucket(code);
+    };
+    if crate::encryption::recovery_key_of(&code, drive_id).public_base64() == known.trim() {
+        DrillAnswer::Passed
+    } else {
+        DrillAnswer::NotTheCode
+    }
+}
+
+/// The drives a drill was shown for in this run (closing one counts as "Later" until the next
+/// start).
+static ASKED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn now() -> u64 {
+    azul_storage::time::now_unix()
+}
+
+/// A new recovery code of `drive_id` (the setup, a rotation): kept with its public recovery
+/// key; the drills count from it and its shares are made again.
+pub(crate) fn code_made(s: &mut DriveState, drive_id: &str, code: &str) {
+    let key = RecoveryCode::parse(code)
+        .map(|code| crate::encryption::recovery_key_of(&code, drive_id).public_base64());
+    state_mut(&mut s.settings.recovery.drives, drive_id).code_made(now(), key);
+}
+
+/// The setup's groups were typed back right.
+pub(crate) fn setup_verified(s: &mut DriveState, drive_id: &str) {
+    state_mut(&mut s.settings.recovery.drives, drive_id).setup_verified(now());
+    println!("AZDRIVE_RECOVERY_VERIFIED {drive_id}");
+}
+
+/// Opens the drill of `drive_id` ("Test" in the methods list, or a due one).
+pub(crate) fn open_drill(s: &mut DriveState, drive_id: &str) {
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Encryption(Dialog::Drill {
+            drive_id: drive_id.to_string(),
+            typed: Zeroizing::new(String::new()),
+            error: String::new(),
+        }));
+    }
+}
+
+/// A drill due `now` opens, when no dialog shows and none was shown for that drive in this
+/// run (the timer's minute); whether one opened.
+pub(crate) fn drill_if_due(s: &mut DriveState, now: u64) -> bool {
+    if s.popup.is_some() {
+        return false;
+    }
+    let Ok(mut asked) = ASKED.lock() else {
+        return false;
+    };
+    let due = s
+        .settings
+        .recovery
+        .drives
+        .iter()
+        .find(|state| {
+            state.drill_due(now)
+                && s.slot_index(&state.drive_id).is_some()
+                && !asked.contains(&state.drive_id)
+        })
+        .map(|state| state.drive_id.clone());
+    let Some(drive_id) = due else {
+        return false;
+    };
+    asked.push(drive_id.clone());
+    drop(asked);
+    println!("AZDRIVE_DRILL_DUE {drive_id}");
+    open_drill(s, &drive_id);
+    true
+}
+
+/// The drill's page.
+pub(crate) fn drill_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (String, Dom) {
+    let Dialog::Drill {
+        drive_id, error, ..
+    } = dialog
+    else {
+        return (String::new(), Dom::create_div());
+    };
+    let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+    let mut body = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; min-width: 420px; max-width: 520px;")
+        .with_child(line(&t_args("azdrive-drill-what", &[("name", Arg::from(name))])))
+        .with_child(crate::ui_dialogs::label("azdrive-drill-code"))
+        .with_child(
+            TextInput::create()
+                .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
+                .with_on_text_input(
+                    app.clone(),
+                    crate::encryption::on_typed as TextInputOnTextInputCallbackType,
+                )
+                .dom()
+                .with_id(ids::DRILL_CODE),
+        );
+    if !error.is_empty() {
+        body.add_child(line(error).with_css("color: #C42B1C;"));
+    }
+    let may_stop =
+        state_of(&s.settings.recovery.drives, drive_id).is_some_and(RecoveryState::may_stop_drills);
+    let mut row =
+        vec![crate::ui_dialogs::button("azdrive-drill-later", app, on_drill_later)
+            .with_id(ids::DRILL_LATER)];
+    if may_stop {
+        row.push(crate::ui_dialogs::button(
+            "azdrive-drill-stop",
+            app,
+            on_drill_stop,
+        ));
+    }
+    row.push(
+        crate::ui_dialogs::typed_button(
+            "azdrive-drill-check",
+            ButtonType::Primary,
+            app,
+            on_drill_check,
+        )
+        .with_id(ids::DRILL_CHECK),
+    );
+    body.add_child(crate::ui_dialogs::buttons(row));
+    (t("azdrive-drill-title"), body)
+}
+
+/// The drive of the drill showing.
+fn drill_drive(s: &DriveState) -> Option<String> {
+    match s.popup.as_ref()? {
+        Popup::Encryption(Dialog::Drill { drive_id, .. }) => Some(drive_id.clone()),
+        _ => None,
+    }
+}
+
+/// The drill passed: the next one, and a word of it.
+pub(crate) fn drill_passed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    recovery_key: Option<String>,
+) {
+    let state = state_mut(&mut s.settings.recovery.drives, drive_id);
+    state.drill_passed(now());
+    if state.recovery_key.is_none() {
+        state.recovery_key = recovery_key;
+    }
+    let next = state.next_drill().map(|at| {
+        let day = azul_storage::time::iso8601(at);
+        day.get(..10).unwrap_or(&day).to_string()
+    });
+    println!("AZDRIVE_DRILL_PASSED {drive_id}");
+    let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
+    s.popup = Some(Popup::Encryption(Dialog::Message {
+        title: t("azdrive-drill-passed-title"),
+        text: match next {
+            Some(day) => t_args(
+                "azdrive-drill-passed-next",
+                &[("name", Arg::from(name)), ("day", Arg::from(day))],
+            ),
+            None => t_args("azdrive-drill-passed", &[("name", Arg::from(name))]),
+        },
+    }));
+    save_settings(info, app, s);
+}
+
+extern "C" fn on_drill_check(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(Popup::Encryption(Dialog::Drill {
+            drive_id, typed, ..
+        })) = s.popup.as_ref()
+        else {
+            return;
+        };
+        let drive_id = drive_id.clone();
+        let known = state_of(&s.settings.recovery.drives, &drive_id)
+            .and_then(|state| state.recovery_key.clone());
+        let answer = drill_answer(known.as_deref(), &drive_id, typed);
+        let error = match answer {
+            DrillAnswer::Passed => {
+                drill_passed(info, app, s, &drive_id, None);
+                return;
+            }
+            DrillAnswer::AskTheBucket(code) => {
+                crate::encryption::check_code_in_bucket(info, app, s, &drive_id, code);
+                return;
+            }
+            DrillAnswer::NotTheCode => t("azdrive-drill-not-the-code"),
+            DrillAnswer::NotACode => t("azdrive-drill-not-a-code"),
+        };
+        println!("AZDRIVE_DRILL_FAILED {drive_id}");
+        if let Some(Popup::Encryption(Dialog::Drill { error: shown, .. })) = s.popup.as_mut() {
+            *shown = error;
+        }
+    })
+}
+
+/// The bucket's recovery wrap answered a drill (`Ok(true)`: the code opens it).
+pub(crate) fn bucket_answered(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    recovery_key: String,
+    result: Result<bool, String>,
+) {
+    match result {
+        Ok(true) => drill_passed(info, app, s, drive_id, Some(recovery_key)),
+        Ok(false) => {
+            println!("AZDRIVE_DRILL_FAILED {drive_id}");
+            s.popup = None;
+            open_drill(s, drive_id);
+            if let Some(Popup::Encryption(Dialog::Drill { error, .. })) = s.popup.as_mut() {
+                *error = t("azdrive-drill-not-this-drives");
+            }
+        }
+        Err(why) => {
+            s.popup = Some(Popup::Encryption(Dialog::Message {
+                title: t("azdrive-drill-not-checked"),
+                text: t_label(&why),
+            }));
+        }
+    }
+}
+
+extern "C" fn on_drill_later(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(drive_id) = drill_drive(s) else {
+            return;
+        };
+        state_mut(&mut s.settings.recovery.drives, &drive_id).postpone(now());
+        println!("AZDRIVE_DRILL_LATER {drive_id}");
+        s.popup = None;
+        save_settings(info, app, s);
+    })
+}
+
+extern "C" fn on_drill_stop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        let Some(drive_id) = drill_drive(s) else {
+            return;
+        };
+        let stopped = state_mut(&mut s.settings.recovery.drives, &drive_id).stop_drills();
+        s.popup = None;
+        if stopped {
+            s.info(Text::key("azdrive-drill-stopped"));
+        }
+        save_settings(info, app, s);
+    })
+}
+
+// ==== Options > Drives: the methods list ====
+
+/// What a method's button carries.
+struct MethodRef {
+    app: RefAny,
+    drive_id: String,
+    method: Method,
+    action: MethodAction,
+}
+
+fn method_button(app: &RefAny, drive_id: &str, method: Method, action: MethodAction) -> Dom {
+    let text = match action {
+        MethodAction::Test => "azdrive-method-test",
+        MethodAction::Add => "azdrive-method-add",
+        MethodAction::Remove => "azdrive-method-remove",
+        MethodAction::CountAgain => "azdrive-method-count-again",
+    };
+    Button::create(azul_appkit::l10n::label(text))
+        .with_on_click(
+            RefAny::new(MethodRef {
+                app: app.clone(),
+                drive_id: drive_id.to_string(),
+                method,
+                action,
+            }),
+            on_method as ButtonOnClickCallbackType,
+        )
+        .dom()
+        .with_id(ids::method_button(drive_id, method, action))
+        .with_css("margin-left: 6px;")
+}
+
+/// Options > Drives' recovery sections: each encrypted drive's methods (with its Recovery
+/// health and the warning below two), and the shares this computer holds for others.
+pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom)> {
+    let now = now();
+    // A drive this computer never had: the kit's lookup, trusted contacts; recoveries under way.
+    let mut drives: Vec<Dom> = vec![crate::recovery_keys::recover_block(s, app)];
+    for state in &s.settings.recovery.drives {
+        if s.slot_index(&state.drive_id).is_none() {
+            continue;
+        }
+        let name = s.drive_name(&crate::browse::Place::folder(&state.drive_id, ""));
+        let health = health_line(&s.settings.recovery.drives, &state.drive_id, now)
+            .map(|health| azul_appkit::l10n::t_text(&health))
+            .unwrap_or_default();
+        let mut block = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; padding: 6px 0px;")
+            .with_child(
+                Dom::create_span_with_text(AzString::from(format!("{name} - {health}")))
+                    .with_css("margin-top: 6px; font-weight: bold;"),
+            );
+        if let Some(warning) = methods_warning(state) {
+            block.add_child(
+                line(warning)
+                    .with_css("color: #C42B1C;")
+                    .with_id(ids::method_warning(&state.drive_id)),
+            );
+        }
+        for row in methods_list(state, now) {
+            let mut item = Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; margin-top: 4px;",
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: column; flex-grow: 1;")
+                        .with_child(Dom::create_span_with_text(azul_appkit::l10n::label(
+                            row.method.name(),
+                        )))
+                        .with_child(
+                            Dom::create_span_with_text(AzString::from(azul_appkit::l10n::t_text(
+                                &row.status,
+                            )))
+                                .with_css("font-size: 12px; opacity: 0.75;"),
+                        ),
+                );
+            for action in &row.actions {
+                item.add_child(method_button(app, &state.drive_id, row.method, *action));
+            }
+            block.add_child(item);
+        }
+        // The drive's keys at the token server: listed, a second kit, one removed.
+        block.add_child(crate::recovery_keys::keys_block(state, app));
+        drives.push(block);
+    }
+    if drives.len() == 1 {
+        drives.push(
+            line("azdrive-recovery-none").with_css("font-size: 12px; opacity: 0.75;"),
+        );
+    }
+    vec![
+        (
+            String::from("azdrive-recovery-section"),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_children(DomVec::from(drives))
+                .with_id(ids::RECOVERY_METHODS),
+        ),
+        (
+            String::from("azdrive-recovery-held-section"),
+            crate::recovery_contacts::held_section(s, app),
+        ),
+    ]
+}
+
+extern "C" fn on_method(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, drive_id, method, action)) = data
+        .downcast_ref::<MethodRef>()
+        .map(|m| (m.app.clone(), m.drive_id.clone(), m.method, m.action))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| match (method, action) {
+        (Method::Code, MethodAction::Test) => open_drill(s, &drive_id),
+        (Method::Contacts, MethodAction::Add) => crate::recovery_contacts::ask_add(s, &drive_id),
+        (Method::Contacts, MethodAction::Test) => {
+            crate::recovery_contacts::ask_recover(info, app, s, &drive_id, true);
+        }
+        (Method::Contacts, MethodAction::Remove) => {
+            crate::recovery_contacts::forget(info, app, s, &drive_id);
+        }
+        (Method::OtherDevice, MethodAction::CountAgain) => {
+            crate::encryption::count_devices(info, app, s, &drive_id);
+        }
+        (Method::OtherDevice, MethodAction::Add) => {
+            if s.popup.is_none() {
+                s.popups_opened += 1;
+                s.popup = Some(Popup::Encryption(Dialog::Message {
+                    title: t("azdrive-method-device"),
+                    text: t("azdrive-method-device-how"),
+                }));
+            }
+        }
+        _ => {}
+    })
+}
+
+/// The other devices were counted.
+pub(crate) fn devices_counted(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    result: Result<u32, String>,
+) {
+    match result {
+        Ok(count) => {
+            println!("AZDRIVE_DEVICES_COUNTED {drive_id} {count}");
+            state_mut(&mut s.settings.recovery.drives, drive_id).other_devices = count;
+            save_settings(info, app, s);
+        }
+        Err(why) => s.error(Phrase::new("azdrive-devices-not-counted").arg("why", t_label(&why))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azul_appkit::qr::QrCode;
+    use azul_storage::crypto::keys::RecoveryCode;
+
+    use super::*;
+
+    fn code() -> Zeroizing<String> {
+        RecoveryCode::from_bytes([0x5A; 16]).to_text()
+    }
+
+    #[test]
+    fn the_kit_explains_names_the_drive_and_holds_the_code_as_text_and_qr() {
+        crate::l10n::in_english();
+        let kit = Kit::new(
+            "Photos",
+            &["d_7k2m", "d-7k2m"],
+            code(),
+            String::from("2026-10-10"),
+        );
+        let text = kit.lines().join("\n");
+        assert!(
+            text.contains("This is the only key to your files"),
+            "{text}"
+        );
+        assert!(text.contains("Azlin can't reset it"), "{text}");
+        assert!(text.contains("\"Photos\""), "the drive's name: {text}");
+        assert!(text.contains("2026-10-10"), "the day it was made: {text}");
+        assert!(text.contains("48 hours"), "what a recovery costs: {text}");
+        assert!(
+            !text.contains(code().as_str()),
+            "the code is not one of the lines"
+        );
+        assert_eq!(kit.qr_text().as_str(), code().as_str());
+        assert!(
+            RecoveryCode::parse(&kit.qr_text()).is_some(),
+            "the QR's text unlocks"
+        );
+        assert_eq!(
+            QrCode::encode(kit.qr_text().as_bytes()).unwrap().version(),
+            3
+        );
+        assert!(KIT_TEXT.len() >= 3);
+    }
+
+    #[test]
+    fn the_kit_never_shows_the_drives_id_or_its_bucket() {
+        crate::l10n::in_english();
+        for name in ["d_7k2m", "Photos (d-7k2m)", "  d_7k2m  ", "D_7K2M"] {
+            let kit = Kit::new(
+                name,
+                &["d_7k2m", "d-7k2m"],
+                code(),
+                String::from("2026-10-10"),
+            );
+            let text = format!("{}\n{}", kit.lines().join("\n"), kit.file_name());
+            assert!(!text.to_lowercase().contains("7k2m"), "{name}: {text}");
+            assert!(text.contains("your Azlin drive"), "{name}: {text}");
+        }
+    }
+
+    #[test]
+    fn a_drill_checks_the_code_typed_against_the_drives_recovery_key_offline() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let key = crate::encryption::recovery_key_of(&code, "d_1").public_base64();
+        let typed = code.to_text().replace('-', " ").to_lowercase();
+        assert_eq!(drill_answer(Some(&key), "d_1", &typed), DrillAnswer::Passed);
+        let other = RecoveryCode::from_bytes([0x11; 16]).to_text();
+        assert_eq!(
+            drill_answer(Some(&key), "d_1", &other),
+            DrillAnswer::NotTheCode
+        );
+        assert_eq!(
+            drill_answer(Some(&key), "d_2", &code.to_text()),
+            DrillAnswer::NotTheCode,
+            "another drive's key"
+        );
+        assert_eq!(
+            drill_answer(Some(&key), "d_1", "hello"),
+            DrillAnswer::NotACode
+        );
+        assert!(matches!(
+            drill_answer(None, "d_1", &code.to_text()),
+            DrillAnswer::AskTheBucket(_)
+        ));
+    }
+
+    #[test]
+    fn the_kits_file_name_is_a_safe_name_of_the_drive() {
+        crate::l10n::in_english();
+        let kit = Kit::new(
+            "Photos/2026: ok?",
+            &["d_1"],
+            code(),
+            String::from("2026-10-10"),
+        );
+        assert_eq!(kit.file_name(), "Azlin Emergency Kit - Photos-2026-ok.pdf");
+        let kit = Kit::new("???", &["d_1"], code(), String::from("2026-10-10"));
+        assert_eq!(kit.file_name(), "Azlin Emergency Kit.pdf");
+    }
+}

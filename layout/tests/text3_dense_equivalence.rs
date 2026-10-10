@@ -646,8 +646,10 @@ fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
 }
 
 /// (d4) The dense cursor helpers must agree with the sparse walks they
-/// replace — last-cluster cursor and IFC-wide byte-offset resolution,
-/// over the full corpus incl. wrapped + ligature cases. These pin the
+/// replace — the last-cluster cursor, over the full corpus incl. wrapped +
+/// ligature cases. (The IFC-wide byte-offset resolver it also pinned is
+/// gone: byte offsets are read in a block's content,
+/// `BlockContent::caret_at`.) These pin the
 /// helpers DIRECTLY (window-plumbing coverage is separate — the in-situ
 /// verify asserts there were silent for lack of dense-bearing fixtures,
 /// the same vacuous-NC class d3 hit).
@@ -678,62 +680,6 @@ fn dense_cursor_helpers_agree_with_the_sparse_walks() {
             sparse_last,
             "last-cluster cursor ({text:?})"
         );
-
-        // byte_offset_to_cursor vs the sparse accumulation walk, at every
-        // boundary offset the sparse walk produces.
-        let mut acc = 0u32;
-        let mut offsets = vec![0u32];
-        for it in &layout.items {
-            if let ShapedItem::Cluster(c) = &it.item {
-                acc += c.text().len() as u32;
-                offsets.push(acc);
-            }
-        }
-        offsets.push(acc + 100); // past the end
-        for off in offsets {
-            let sparse = {
-                let mut cur = 0u32;
-                let mut found = None;
-                if off == 0 {
-                    found = layout.items.iter().find_map(|it| match &it.item {
-                        ShapedItem::Cluster(c) => Some(TextCursor {
-                            cluster_id: c.source_cluster_id,
-                            affinity: CursorAffinity::Trailing,
-                        }),
-                        _ => None,
-                    });
-                } else {
-                    for it in &layout.items {
-                        if let ShapedItem::Cluster(c) = &it.item {
-                            let end = cur + c.text().len() as u32;
-                            if off >= cur && off <= end {
-                                found = Some(TextCursor {
-                                    cluster_id: c.source_cluster_id,
-                                    affinity: CursorAffinity::Trailing,
-                                });
-                                break;
-                            }
-                            cur = end;
-                        }
-                    }
-                    if found.is_none() {
-                        found = layout.items.iter().rev().find_map(|it| match &it.item {
-                            ShapedItem::Cluster(c) => Some(TextCursor {
-                                cluster_id: c.source_cluster_id,
-                                affinity: CursorAffinity::Trailing,
-                            }),
-                            _ => None,
-                        });
-                    }
-                }
-                found
-            };
-            assert_eq!(
-                dense.byte_offset_to_cursor(off),
-                sparse,
-                "byte offset {off} ({text:?})"
-            );
-        }
     }
 }
 
@@ -1061,6 +1007,7 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
             ascent: 0.0,
             descent: 0.0,
             cap_height: None,
+            browser_ascent_boost: false,
             x_height: None,
             line_gap: 0.0,
             units_per_em: 0,
@@ -1243,6 +1190,7 @@ fn ligature_cluster_records_its_full_byte_length() {
         ascent: 0.0,
         descent: 0.0,
         cap_height: None,
+        browser_ascent_boost: false,
         x_height: None,
         line_gap: 0.0,
         units_per_em: 0,

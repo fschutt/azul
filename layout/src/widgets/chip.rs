@@ -25,7 +25,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{
             color::ColorU,
@@ -238,6 +237,31 @@ pub struct Chip {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// What a theme decides about a chip; [`build`] turns it and the widget's
+/// state into the DOM. Built by `themes::flat::chip` and
+/// `themes::flora::chip`.
+pub(crate) struct ChipLook {
+    /// The pill's style for a kind, used when the chip has no
+    /// `container_style` of its own: [`CHIP_CONTAINER_BASE`] first, then the
+    /// theme's skin.
+    pub container: fn(ChipKind) -> Vec<CssPropertyWithConditions>,
+    /// The label's skin ([`build`] lays it over [`CHIP_LABEL_STYLE`], the
+    /// label's base).
+    pub label: Vec<CssPropertyWithConditions>,
+    /// Appended to the label's style when the label is a button (the chip
+    /// has an `on_click`): its focus ring.
+    pub label_focus: Vec<CssPropertyWithConditions>,
+    /// The remove button's skin ([`build`] lays it over
+    /// [`CHIP_REMOVE_BASE`]).
+    pub remove: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the pill, if it has one.
+    pub marker: Option<&'static str>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -265,24 +289,35 @@ impl Default for ChipState {
     }
 }
 
-/// Builds the pill container style for a given [`ChipKind`]. The colours are the
+// ---- the base: the chip's structure, in every theme ----
+//
+// What lays a chip out is the same whichever theme paints it, so it is the
+// widget's own: every theme's pill starts with `CHIP_CONTAINER_BASE`, and
+// [`build`] declares the label's and the remove button's base FIRST, then the
+// theme's skin. No structure declaration then sits inside a `@theme` block,
+// and it holds under a theme no widget knows (R5).
+
+/// The pill: a row, its label and "x" centred on it, hugging its content
+/// rather than stretching across a flex parent's cross axis.
+pub(crate) static CHIP_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    // Hug the content rather than stretch across a flex parent's cross axis.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// Builds the pill container style for a given [`ChipKind`]: the flat pill,
+/// [`CHIP_CONTAINER_BASE`] then the flat skin. The colours are the
 /// only kind-dependent properties, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
     let (bg, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        // Hug the content rather than stretch across a flex parent's cross axis.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut style = CHIP_CONTAINER_BASE.to_vec();
+    style.extend(alloc::vec![
         // padding: 4px 10px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(4,)
@@ -318,22 +353,40 @@ fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
-/// Label style: left-aligned, hugs its content.
-static CHIP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
+/// The dark twins of the NEUTRAL tag: the desktop's quiet neutral highlight
+/// under its label colour. A light-grey pill is a light island on a dark
+/// window; the coloured kinds are their own saturated colour in both themes
+/// and need none.
+pub(crate) static CHIP_DEFAULT_DARK_TWINS: &[CssPropertyWithConditions] = &[
+    crate::widgets::themes::system_palette::DARK_TEXT,
+    crate::widgets::themes::system_palette::DARK_SELECTION_BACKGROUND_INACTIVE,
+];
+
+/// The label's base, in every theme: left-aligned, hugs its content, never
+/// selected by a drag. [`build`] declares it before the theme's label skin.
+pub(crate) static CHIP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// "x" remove-affordance style: a small pointer-cursor box on the right.
-static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
+/// The "x" remove affordance's base, in every theme: it hugs its glyph, takes
+/// the pointer, and a drag never selects the glyph. [`build`] declares it
+/// before the theme's skin.
+pub(crate) static CHIP_REMOVE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The flat "x" skin: a small glyph, 6px off the label (its pointer and hug
+/// are [`CHIP_REMOVE_BASE`]).
+pub(crate) static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         6,
     ))),
@@ -357,13 +410,16 @@ impl Chip {
             kind,
             removable: false,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
-    /// The container CSS this chip renders with.
+    /// The container CSS this chip renders its light face with.
     ///
     /// `None` means no opinion, so the kind's default applies — the same answer
-    /// both themes give, asked in one place so they cannot drift.
+    /// both themes give, asked in one place so they cannot drift. For that
+    /// case the flat theme appends the neutral tag's dark twins
+    /// (`CHIP_DEFAULT_DARK_TWINS`); the flora theme draws its own pill.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
@@ -458,30 +514,78 @@ impl Chip {
         s
     }
 
-    /// Converts this chip into a DOM subtree with the `__azul-native-chip` class.
+    /// Pin the widget theme: the chip keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this chip into a DOM subtree with the `__azul-native-chip`
+    /// class. The look comes from the theme module (`themes::flat::chip` /
+    /// `themes::flora::chip`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::chip(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::chip(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::chip,
+                crate::widgets::themes::flora::chip,
+            ),
+        }
+    }
+}
+
+/// The chip's DOM in `look`: the pill, its label (a button when the chip has
+/// an `on_click`) and its remove button (when removable), sharing one state.
+pub(crate) fn build(chip: Chip, look: &ChipLook) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+
+    {
+        // A caller's `container_style` owns every property, dark ones
+        // included; otherwise the theme's pill for the kind.
+        let container_style = match chip.container_style.clone().into_option() {
+            Some(own) => own,
+            None => CssPropertyWithConditionsVec::from_vec((look.container)(chip.kind)),
         };
 
-        // Resolved before `self.chip_state` is moved out below.
-        let container_style = self.resolved_container_style();
-
-        let has_on_click = matches!(self.chip_state.on_click, OptionChipOnClick::Some(_));
+        let has_on_click = matches!(chip.chip_state.on_click, OptionChipOnClick::Some(_));
 
         // The remove ("x") and the label-click callbacks share the same state
         // RefAny so both handlers observe the same ChipState.
-        let state_ref = RefAny::new(self.chip_state);
+        let state_ref = RefAny::new(chip.chip_state);
 
-        let mut label = crate::widgets::widget_p_with_text(self.label)
+        // The remove button's name is built from the label before the label
+        // text moves into its `<p>`: "×" is a glyph, not a name.
+        let remove_name = AzString::from(alloc::format!("Remove {}", chip.label.as_str()));
+
+        // The label: its base first, then the theme's skin.
+        let mut label_style = crate::widgets::themes::decl::on_base(CHIP_LABEL_STYLE, &look.label);
+        if has_on_click {
+            label_style.extend(look.label_focus.iter().cloned());
+        }
+        let mut label = crate::widgets::widget_p_with_text(chip.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_LABEL_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                CHIP_LABEL_STYLE,
-            ));
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style));
 
         // The click callback is attached to the LABEL node rather than the
         // pill container: a container-level MouseUp would also fire when the
@@ -512,14 +616,18 @@ impl Chip {
 
         let mut children = alloc::vec![label];
 
-        if self.removable {
+        if chip.removable {
+            // The "x": its base first, then the theme's skin.
+            let remove_style = crate::widgets::themes::decl::on_base(CHIP_REMOVE_BASE, &look.remove);
             let remove = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_REMOVE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_REMOVE_STYLE))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(remove_style))
                 .with_tab_index(TabIndex::Auto)
-                // The remove affordance is its own button, not part of the chip's label.
+                // The remove affordance is its own button, not part of the chip's
+                // label, named after the chip it removes ("Remove Rust").
                 .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                     role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(remove_name).into(),
                     ..Default::default()
                 })
                 .with_callbacks(
@@ -536,8 +644,13 @@ impl Chip {
             children.push(remove);
         }
 
+        let mut classes: Vec<IdOrClass> = CHIP_CONTAINER_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_CONTAINER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -805,13 +918,12 @@ mod autotest_generated {
         }
     }
 
-    /// The properties of a rendered node's *inline* style, in declaration order.
+    /// The properties of a rendered node's *inline* style that apply in every
+    /// theme and state - its light face - in declaration order. (`dom()`
+    /// appends the neutral tag's dark twins after them; those are asserted on
+    /// their own, by `dom_gives_only_the_neutral_tag_dark_twins`.)
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
-            .collect()
+        crate::widgets::theme_probe::unconditional(node)
     }
 
     /// Adversarial chip labels: empty, whitespace, combining marks, ZWJ emoji,
@@ -1651,8 +1763,15 @@ mod autotest_generated {
 
     #[test]
     fn label_and_remove_static_styles_are_finite_unconditional_and_non_growing() {
-        for (name, style) in [("label", CHIP_LABEL_STYLE), ("remove", CHIP_REMOVE_STYLE)] {
-            let vec = CssPropertyWithConditionsVec::from_const_slice(style);
+        // The "x" as `build` lays it: its base, then the flat skin.
+        for (name, style) in [
+            ("label", CHIP_LABEL_STYLE.to_vec()),
+            (
+                "remove",
+                crate::widgets::themes::decl::on_base(CHIP_REMOVE_BASE, CHIP_REMOVE_STYLE),
+            ),
+        ] {
+            let vec = CssPropertyWithConditionsVec::from_vec(style);
             for p in vec.as_ref() {
                 assert!(
                     p.apply_if.as_ref().is_empty(),
@@ -1681,7 +1800,11 @@ mod autotest_generated {
 
     #[test]
     fn the_remove_affordance_is_styled_as_a_clickable_target() {
-        let remove = CssPropertyWithConditionsVec::from_const_slice(CHIP_REMOVE_STYLE);
+        // The "x" as `build` lays it: its base, then the flat skin.
+        let remove = CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(
+            CHIP_REMOVE_BASE,
+            CHIP_REMOVE_STYLE,
+        ));
         let props = properties(&remove);
         assert!(
             props.contains(&CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -2522,6 +2645,32 @@ mod autotest_generated {
     }
 
     #[test]
+    fn dom_gives_only_the_neutral_tag_dark_twins() {
+        // The light-grey tag would be a light island on a dark window; the
+        // coloured kinds are saturated and keep their colour in both themes.
+        for kind in ALL_KINDS {
+            let dark = crate::widgets::theme_probe::dark(
+                &Chip::with_kind(AzString::from("t"), kind).dom(),
+            );
+            if kind == ChipKind::Default {
+                let want: Vec<CssProperty> = CHIP_DEFAULT_DARK_TWINS
+                    .iter()
+                    .map(|p| p.property.clone())
+                    .collect();
+                assert_eq!(dark, want, "the neutral tag's dark surface and ink");
+            } else {
+                assert!(dark.is_empty(), "{kind:?}: a coloured chip needs no twin");
+            }
+        }
+        // A caller's own style owns every property, dark ones included.
+        let mut own = Chip::create(AzString::from("t"));
+        own.container_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
+        );
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own.dom()).len(), 0);
+    }
+
+    #[test]
     fn from_chip_for_dom_is_exactly_dom() {
         for kind in ALL_KINDS {
             let chip = Chip::with_kind(AzString::from_const_str("ok"), kind).with_removable(true);
@@ -2938,5 +3087,364 @@ mod autotest_generated {
             alloc::vec![false, false],
             "after the x was clicked, the label handler must see a hidden chip"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Accessibility of the remove affordance
+    // ------------------------------------------------------------------
+
+    /// The remove "×" is its own button, and its glyph is not a name: the
+    /// button is named after the chip it removes, which only the widget knows.
+    #[test]
+    fn the_remove_button_is_named_after_the_chip_it_removes() {
+        let dom = Chip::create(AzString::from("Rust"))
+            .with_removable(true)
+            .dom();
+        let kids = dom.children.as_ref();
+        assert_eq!(kids.len(), 2, "container is [label, remove]");
+        let info = kids[1]
+            .root
+            .accessibility
+            .as_ref()
+            .expect("the remove button declares accessibility");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::PushButton);
+        assert_eq!(
+            info.accessibility_name.as_ref().map(|s| s.as_str()),
+            Some("Remove Rust")
+        );
+    }
+}
+
+/// The theme option: which look a chip renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::basic::pixel::PixelValue,
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo, _: ChipState) -> Update {
+        Update::DoNothing
+    }
+
+    fn chip(kind: ChipKind, theme: UiTheme) -> Dom {
+        Chip::with_kind(AzString::from_const_str("tag"), kind)
+            .with_removable(true)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn clickable(theme: UiTheme) -> Dom {
+        Chip::create(AzString::from_const_str("tag"))
+            .with_on_click(RefAny::new(0u8), noop as ChipOnClickCallbackType)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn shadow_colour(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    /// The focus ring's colour, light and dark: the colour of a shadow or a
+    /// top border declared for `:focus`.
+    fn focus_ring(node: &Dom) -> (Option<ColorU>, Option<ColorU>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [PseudoStateType::Focus] {
+                continue;
+            }
+            let colour = shadow_colour(&d.property).or(match &d.property {
+                CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            });
+            if colour.is_none() {
+                continue;
+            }
+            if d.is_dark_twin() {
+                dark = colour;
+            } else {
+                light = colour;
+            }
+        }
+        (light, dark)
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn remove(dom: &Dom) -> &Dom {
+        dom.children
+            .as_ref()
+            .iter()
+            .find(|c| c.root.has_class("__azul-native-chip-remove"))
+            .expect("a removable chip has a remove button")
+    }
+
+    fn label(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[0]
+    }
+
+    #[test]
+    fn a_chip_without_a_theme_renders_flat() {
+        let plain = Chip::create(AzString::from_const_str("tag"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            declarations(&plain.clone().dom()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Chip::create(AzString::from_const_str("tag"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Chip::create(AzString::from_const_str("tag")).with_theme(UiTheme::Flora),
+            set
+        );
+    }
+
+    #[test]
+    fn a_flat_chips_remove_button_shows_a_focus_ring_by_day_and_night() {
+        let dom = chip(ChipKind::Default, UiTheme::Flat);
+        let (light, dark) = focus_ring(remove(&dom));
+        assert!(light.is_some(), "the x takes the keyboard and shows no ring");
+        assert!(dark.is_some(), "the ring has no dark twin");
+        assert_ne!(light, dark, "the night ring is the night accent");
+    }
+
+    #[test]
+    fn a_flat_clickable_chip_label_shows_a_focus_ring_by_day_and_night() {
+        let (light, dark) = focus_ring(label(&clickable(UiTheme::Flat)));
+        assert!(light.is_some() && dark.is_some(), "{light:?} {dark:?}");
+        let inert = Chip::create(AzString::from_const_str("tag")).dom();
+        assert_eq!(
+            focus_ring(label(&inert)),
+            (None, None),
+            "an inert label takes no focus and draws no ring"
+        );
+    }
+
+    #[test]
+    fn a_flora_chip_is_raised_paper_with_a_hairline() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(last(&rest, bg), Some(vec![flora::RAISED_FACE_LIGHT]));
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD2));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK2), "a tag is content ink");
+        assert!(
+            rest.iter().any(|p| matches!(
+                p,
+                CssProperty::BorderTopLeftRadius(r)
+                    if r.get_property().map(|r| r.inner) == Some(PixelValue::const_px(3))
+            )),
+            "the house radius, not a 12px pill"
+        );
+    }
+
+    #[test]
+    fn a_flora_chip_at_night_uses_the_dark_face() {
+        let dark = theme_probe::dark(&chip(ChipKind::Default, UiTheme::Flora));
+        assert_eq!(last(&dark, bg), Some(vec![flora::RAISED_FACE_DARK]));
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD2));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK2));
+    }
+
+    #[test]
+    fn a_flora_coloured_chip_is_a_stone_that_keeps_its_colour_at_night() {
+        let stones = [
+            (ChipKind::Primary, flora::LIGHT_ACC),
+            (ChipKind::Success, ColorU::rgb(0x44, 0x68, 0x4F)),
+            (ChipKind::Danger, ColorU::rgb(0x7E, 0x4A, 0x42)),
+            (ChipKind::Warning, ColorU::rgb(0x8A, 0x5A, 0x1E)),
+            (ChipKind::Info, ColorU::rgb(0x4A, 0x5C, 0x6B)),
+        ];
+        for (kind, stone) in stones {
+            let dom = chip(kind, UiTheme::Flora);
+            let rest = theme_probe::unconditional(&dom);
+            let face = last(&rest, bg).expect("a stone has a face");
+            assert_eq!(face.first(), Some(&StyleBackgroundContent::Color(stone)), "{kind:?}");
+            assert_eq!(last(&rest, ink), Some(flora::LIGHT_ON_ACC), "{kind:?}");
+            let dark = theme_probe::dark(&dom);
+            assert!(
+                last(&dark, bg).is_none() && last(&dark, ink).is_none(),
+                "{kind:?}: a stone is its own colour in both modes"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_chips_focus_ring_is_the_accent_lifted_to_its_glow_at_night() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        assert_eq!(
+            focus_ring(remove(&dom)),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+            "flora.css --focus-color: --fl-acc, --fl-glow at night"
+        );
+        assert_eq!(
+            focus_ring(label(&clickable(UiTheme::Flora))),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW))
+        );
+    }
+
+    #[test]
+    fn a_flora_chips_remove_button_lights_up_under_the_pointer_in_both_modes() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        let hover: Vec<CssPropertyWithConditions> = declarations(remove(&dom))
+            .into_iter()
+            .filter(|d| d.pseudo_state_conditions() == [PseudoStateType::Hover])
+            .filter(|d| matches!(d.property, CssProperty::BackgroundContent(_)))
+            .collect();
+        assert!(hover.iter().any(|d| !d.is_dark_twin()), "no hover face");
+        assert!(hover.iter().any(|d| d.is_dark_twin()), "no night hover face");
+    }
+
+    #[test]
+    fn a_flora_chip_keeps_the_remove_buttons_behaviour() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        let x = remove(&dom);
+        assert!(x.root.get_tab_index().is_some(), "keyboard-reachable");
+        assert_eq!(x.root.get_callbacks().as_ref().len(), 1, "one remove handler");
+        assert!(
+            x.root
+                .get_accessibility_info()
+                .and_then(|a| a.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+                .is_some_and(|n| n == "Remove tag"),
+            "named after the chip it removes"
+        );
+    }
+
+    #[test]
+    fn a_flora_chip_carries_the_flora_theme_marker() {
+        let dom = chip(ChipKind::Default, UiTheme::Flora);
+        assert!(dom.root.has_class("__azul-native-chip"));
+        assert!(dom.root.has_class("__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_container_style_wins_over_the_flora_look() {
+        let mut c = Chip::create(AzString::from_const_str("tag")).with_theme(UiTheme::Flora);
+        c.container_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(alloc::vec![]),
+        );
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&c.dom()).len(), 0);
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    const KINDS: [ChipKind; 6] = [
+        ChipKind::Default,
+        ChipKind::Primary,
+        ChipKind::Success,
+        ChipKind::Danger,
+        ChipKind::Warning,
+        ChipKind::Info,
+    ];
+
+    #[test]
+    fn a_chip_without_a_theme_follows_the_app_theme() {
+        for kind in KINDS {
+            for removable in [false, true] {
+                let chip = || {
+                    Chip::with_kind(azul_css::AzString::from("tag"), kind)
+                        .with_removable(removable)
+                };
+                checks::assert_follows_the_app_theme(
+                    &format!("chip {kind:?} removable={removable}"),
+                    || chip().dom(),
+                    |t: UiTheme| chip().with_theme(t).dom(),
+                );
+            }
+        }
+    }
+
+    extern "C" fn clicked(_: RefAny, _: CallbackInfo, _: ChipState) -> Update {
+        Update::DoNothing
+    }
+
+    /// R5: the pill's hugging row, the label's hug and unselectable text, the
+    /// remove button's pointer are the chip's BASE, declared once outside
+    /// every `@theme` block. Every kind; plain, removable, clickable.
+    #[test]
+    fn a_chip_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for kind in KINDS {
+                for (removable, clickable) in [(false, false), (true, false), (true, true)] {
+                    let dom = checks::under(t, || {
+                        let chip = Chip::with_kind(azul_css::AzString::from("tag"), kind)
+                            .with_removable(removable);
+                        if clickable {
+                            chip.with_on_click(RefAny::new(0u8), clicked as ChipOnClickCallbackType)
+                                .dom()
+                        } else {
+                            chip.dom()
+                        }
+                    });
+                    assert_structure_is_shared(
+                        &format!(
+                            "chip {kind:?} removable={removable} clickable={clickable} built for \
+                             {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
     }
 }

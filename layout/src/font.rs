@@ -18,17 +18,130 @@ pub mod loading {
     use std::io::Error as IoError;
 
     use azul_css::{AzString, StringVec, U8Vec};
-    use rust_fontconfig::FcFontCache;
+    use rust_fontconfig::{FcFallbackConfig, FcFontCache, GenericFamily, OperatingSystem};
 
     #[cfg(not(miri))]
     #[must_use]
     pub fn build_font_cache() -> FcFontCache {
-        FcFontCache::build()
+        let cache = FcFontCache::build();
+        use_browser_generic_families(&cache);
+        cache
     }
 
     #[cfg(miri)]
     pub fn build_font_cache() -> FcFontCache {
         FcFontCache::default()
+    }
+
+    /// The generic families as Chrome resolves them, where rust-fontconfig's
+    /// per-OS tables say otherwise (user ruling 2026-10-03: Chrome is the
+    /// reference - azul changes, the widgets' CSS keeps their look).
+    ///
+    /// - macOS / iOS: `sans-serif` is Helvetica (Blink's default font
+    ///   settings); the crate lists Helvetica Neue first. Helvetica moves to
+    ///   the front, the rest keep their order behind it.
+    ///
+    /// - every OS: `system-ui` is the font the OS draws its own UI in (user,
+    ///   SYSUI8: "the fonts in the System Settings panel"), the ONE list
+    ///   azul's `system:ui` role draws with too - `SystemFontType::Ui`'s
+    ///   chain (css/src/system.rs): "System Font" (San Francisco, SFNS.ttf)
+    ///   on macOS / iOS, Segoe UI Variable on Windows (the Windows 11
+    ///   Settings font; Chrome's `system-ui` is the older message font
+    ///   "Segoe UI"), Roboto on Android. On Linux a `system-ui` alias of the
+    ///   desktop's fontconfig stays first and the list follows it; the
+    ///   desktop's own font setting goes before both at runtime
+    ///   ([`use_system_ui_font`]).
+    ///
+    /// Everything else stays: `serif` and `monospace` already resolve to
+    /// Chrome's faces on macOS (Times, Menlo - measured), and on Linux the
+    /// desktop's fontconfig `<alias>` decides for both engines. Idempotent.
+    pub fn browser_generic_families(config: &mut FcFallbackConfig, os: OperatingSystem) {
+        if matches!(os, OperatingSystem::MacOS | OperatingSystem::IOS) {
+            let sans = config
+                .generic_families
+                .entry(GenericFamily::SansSerif)
+                .or_default();
+            sans.retain(|family| !family.eq_ignore_ascii_case("Helvetica"));
+            sans.insert(0, String::from("Helvetica"));
+        }
+        if let Some(platform) = platform_of(os) {
+            let ui = azul_css::system::SystemFontType::Ui.get_fallback_chain(&platform);
+            let system_ui = config
+                .generic_families
+                .entry(GenericFamily::SystemUi)
+                .or_default();
+            if os == OperatingSystem::Linux {
+                for family in ui {
+                    if !system_ui.iter().any(|f| f.eq_ignore_ascii_case(family)) {
+                        system_ui.push(family.to_string());
+                    }
+                }
+            } else {
+                *system_ui = ui.into_iter().map(String::from).collect();
+            }
+        }
+    }
+
+    /// The css crate's `Platform` whose system font chains describe `os`
+    /// (the Linux desktop does not change the UI font chain). `None` for
+    /// wasm: no OS UI font there.
+    const fn platform_of(os: OperatingSystem) -> Option<azul_css::system::Platform> {
+        use azul_css::system::{DesktopEnvironment, Platform};
+        Some(match os {
+            OperatingSystem::MacOS => Platform::MacOs,
+            OperatingSystem::IOS => Platform::Ios,
+            OperatingSystem::Windows => Platform::Windows,
+            OperatingSystem::Linux => Platform::Linux(DesktopEnvironment::Gnome),
+            OperatingSystem::Android => Platform::Android,
+            OperatingSystem::Wasm => return None,
+        })
+    }
+
+    /// `family` - the desktop's own UI font setting, azul's detected
+    /// `SystemStyle::fonts.ui_font` (GNOME's / KDE's font) - first in the
+    /// `system-ui` list of `config`, once; the rest keep their order. A
+    /// blank name changes nothing.
+    pub fn prefer_system_ui_font(config: &mut FcFallbackConfig, family: &str) {
+        let family = family.trim();
+        if family.is_empty() {
+            return;
+        }
+        let inherited = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+        let system_ui = config
+            .generic_families
+            .entry(GenericFamily::SystemUi)
+            .or_insert(inherited);
+        system_ui.retain(|f| !f.eq_ignore_ascii_case(family));
+        system_ui.insert(0, family.to_string());
+    }
+
+    /// [`prefer_system_ui_font`] applied to `cache` (shared state, as
+    /// [`use_browser_generic_families`]); a no-op when the font is first
+    /// already, so the memoized chains survive. The dll calls it on Linux
+    /// with the detected desktop font at the first layout.
+    pub fn use_system_ui_font(cache: &FcFontCache, family: &str) {
+        let current = cache.fallback_config();
+        let mut config = current.clone();
+        prefer_system_ui_font(&mut config, family);
+        if config != current {
+            let _ = cache.set_fallback_config(config);
+        }
+    }
+
+    /// [`browser_generic_families`] for this platform, applied to `cache`
+    /// (its state is shared: every clone and a registry's snapshots see
+    /// it). A no-op where the cache already resolves that way, so building
+    /// a window over a shared cache does not drop its memoized chains
+    /// (`set_fallback_config` clears them). THE one call: `build_font_cache`,
+    /// every `FontManager` (so every `LayoutWindow`), and the dll's font
+    /// registry (`App::create`).
+    pub fn use_browser_generic_families(cache: &FcFontCache) {
+        let current = cache.fallback_config();
+        let mut config = current.clone();
+        browser_generic_families(&mut config, OperatingSystem::current());
+        if config != current {
+            let _ = cache.set_fallback_config(config);
+        }
     }
 
     #[derive(Debug)]
@@ -171,6 +284,23 @@ pub mod parsed {
     /// shaping/decode/PDF needed.
     #[must_use]
     pub fn read_wght_axis(bytes: &[u8], index: usize) -> Option<(f32, f32, f32)> {
+        read_variation_axis(bytes, index, tag::WGHT)
+    }
+
+    /// The `wght` (weight) axis tag, for [`bake_instance`].
+    pub const WGHT_AXIS: u32 = tag::WGHT;
+    /// The `opsz` (optical size) axis tag, for [`bake_instance`].
+    pub const OPSZ_AXIS: u32 = tag::OPSZ;
+
+    /// The variation axis `axis_tag` (`tag::WGHT`, `tag::OPSZ`, ...) of the
+    /// face `index` in `bytes`: `(min, default, max)` in user units. `None`
+    /// when the face is not variable along that axis.
+    #[must_use]
+    pub fn read_variation_axis(
+        bytes: &[u8],
+        index: usize,
+        axis_tag: u32,
+    ) -> Option<(f32, f32, f32)> {
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
         let fvar_data = provider.read_table_data(tag::FVAR).ok()?;
@@ -179,7 +309,7 @@ pub mod parsed {
             .ok()?;
         // Bind before returning so the (borrowing) axes() iterator is dropped at
         // the end of this statement, not after `provider`/`fvar` at block end.
-        let axis = fvar.axes().find(|a| a.axis_tag == tag::WGHT);
+        let axis = fvar.axes().find(|a| a.axis_tag == axis_tag);
         axis.map(|a| {
             (
                 f32::from(a.min_value),
@@ -196,6 +326,21 @@ pub mod parsed {
     /// not a bakeable variable font.
     #[must_use]
     pub fn bake_weight_instance(bytes: &[u8], index: usize, wght: f32) -> Option<Vec<u8>> {
+        bake_instance(bytes, index, &[(tag::WGHT, wght)])
+    }
+
+    /// Bake a self-contained STATIC instance of a variable font with each
+    /// axis of `coordinates` (`(axis tag, user value)`, e.g. `wght` 700 and
+    /// `opsz` 17) set, every other axis at its default. Fresh TTF bytes that
+    /// parse and embed exactly like any static font, or `None` if the font is
+    /// not a bakeable variable font. THE bake: weights
+    /// ([`bake_weight_instance`]) and optical sizes go through it.
+    #[must_use]
+    pub fn bake_instance(
+        bytes: &[u8],
+        index: usize,
+        coordinates: &[(u32, f32)],
+    ) -> Option<Vec<u8>> {
         use allsorts::tables::Fixed;
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
@@ -206,16 +351,101 @@ pub mod parsed {
         let user: Vec<Fixed> = fvar
             .axes()
             .map(|a| {
-                if a.axis_tag == tag::WGHT {
-                    Fixed::from(wght)
-                } else {
-                    a.default_value
-                }
+                coordinates
+                    .iter()
+                    .find(|(axis_tag, _)| *axis_tag == a.axis_tag)
+                    .map_or(a.default_value, |(_, value)| Fixed::from(*value))
             })
             .collect();
         allsorts::variations::instance(&provider, &user)
             .ok()
             .map(|(baked, _tuple)| baked)
+    }
+
+    /// A face's AAT `trak` table, its NORMAL track (track value 0): how far
+    /// the face's designer opens or closes the spacing at each point size.
+    ///
+    /// Apple's system faces carry one (`SFNS.ttf` - San Francisco - and its
+    /// italic, SF Compact / Rounded / Hebrew / ..., New York, Apple Color
+    /// Emoji). CoreText adds the value at the font size to every glyph's
+    /// advance, and Chrome's `system-ui` measures the same: SF at 16px is -40
+    /// units per glyph, at 28px +28 (SYSUI8, "Hello world agenda" 139.15px
+    /// in both). Helvetica, Helvetica Neue, Menlo and every other face
+    /// without the table are untouched (CoreText's width = their advances).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Tracking {
+        /// `(point size, tracking in font units)`, by ascending size.
+        pub sizes: Vec<(f32, i16)>,
+    }
+
+    impl Tracking {
+        /// The normal track of a `trak` table's horizontal data. `None` when
+        /// the table has no horizontal data or no track 0, or does not parse.
+        /// (Offsets count from the start of the table: Apple's TrueType
+        /// Reference, `trak`.)
+        #[allow(clippy::cast_precision_loss)] // a 16.16 point size into f32
+        #[must_use]
+        pub fn parse(trak: &[u8]) -> Option<Self> {
+            let table = ReadScope::new(trak);
+            let mut header = table.ctxt();
+            let _version = header.read_u32be().ok()?;
+            let _format = header.read_u16be().ok()?;
+            let horiz_offset = usize::from(header.read_u16be().ok()?);
+            if horiz_offset == 0 {
+                return None;
+            }
+            let mut data = table.offset(horiz_offset).ctxt();
+            let n_tracks = data.read_u16be().ok()?;
+            let n_sizes = usize::from(data.read_u16be().ok()?);
+            let size_table_offset = usize::try_from(data.read_u32be().ok()?).ok()?;
+            if n_sizes == 0 {
+                return None;
+            }
+            let mut normal_values = None;
+            for _ in 0..n_tracks {
+                let track = data.read_i32be().ok()?;
+                let _name_index = data.read_u16be().ok()?;
+                let values_offset = usize::from(data.read_u16be().ok()?);
+                if track == 0 {
+                    normal_values = Some(values_offset);
+                }
+            }
+            let mut size_table = table.offset(size_table_offset).ctxt();
+            let mut values = table.offset(normal_values?).ctxt();
+            let mut sizes = Vec::with_capacity(n_sizes);
+            for _ in 0..n_sizes {
+                let size = size_table.read_i32be().ok()? as f32 / 65536.0;
+                let value = values.read_i16be().ok()?;
+                sizes.push((size, value));
+            }
+            sizes.sort_by(|a, b| a.0.total_cmp(&b.0));
+            Some(Self { sizes })
+        }
+
+        /// The tracking at `size` (CSS px, which are CoreText's points) in
+        /// font units: linear between the two table sizes around it, the end
+        /// value beyond the first or last size.
+        #[must_use]
+        pub fn at(&self, size: f32) -> f32 {
+            let Some(&(first_size, first)) = self.sizes.first() else {
+                return 0.0;
+            };
+            if size.is_nan() || size <= first_size {
+                return f32::from(first);
+            }
+            for pair in self.sizes.windows(2) {
+                let (s0, v0) = pair[0];
+                let (s1, v1) = pair[1];
+                if size <= s1 {
+                    if s1 <= s0 {
+                        return f32::from(v1);
+                    }
+                    let t = (size - s0) / (s1 - s0);
+                    return f32::from(v0) + t * (f32::from(v1) - f32::from(v0));
+                }
+            }
+            self.sizes.last().map_or(0.0, |&(_, v)| f32::from(v))
+        }
     }
 
     /// Monotonic-clock nanos since process start. Used to timestamp
@@ -364,6 +594,32 @@ pub mod parsed {
         }
     }
 
+    /// Whether a face of the family `family_name` (the name table's family,
+    /// ID 16 else ID 1) gets the browsers' macOS ascent boost
+    /// ([`LayoutFontMetrics::browser_ascent_boost`]).
+    ///
+    /// Chrome and Safari on Apple platforms add `floor((A + D) * 0.15 +
+    /// 0.5)` to the rounded ascent of EXACTLY the families Times, Helvetica
+    /// and Courier, "to closely match the vertical metrics of their Microsoft
+    /// counterparts that are the de facto web standard" (Blink
+    /// `FontMetrics::AscentDescentWithHacks` under `IS_APPLE`, comparing
+    /// `FontFamilyName()` with `kTimes` / `kHelvetica` / `kCourier`; `WebKit`
+    /// `SimpleFontData::platformInit`). It is a name list in both engines,
+    /// not a metrics rule standing in for one: Apple's Helvetica (hhea 1577
+    /// / -471 / 0, no `USE_TYPO_METRICS`) has a `normal` line of exactly 1em
+    /// otherwise, and a mail written for `Helvetica, Arial` lost 2px per
+    /// 16px line against Chrome. Helvetica Neue, Times New Roman and Courier
+    /// New are other families and keep their metrics; on other platforms
+    /// Chrome does not do it, and neither does azul. The boost itself is
+    /// applied to the ROUNDED pixel metrics
+    /// ([`LayoutFontMetrics::line_metrics_px`]): in font units it rounds
+    /// differently (16px Helvetica 18.4px instead of Chrome's 18px).
+    #[must_use]
+    pub fn browser_ascent_boost(family_name: Option<&str>) -> bool {
+        cfg!(any(target_os = "macos", target_os = "ios"))
+            && matches!(family_name, Some("Times" | "Helvetica" | "Courier"))
+    }
+
     /// Parsed font data with all required tables for text layout and PDF generation.
     ///
     /// This struct holds the parsed representation of a TrueType/OpenType font,
@@ -424,6 +680,10 @@ pub mod parsed {
         /// application requires the source bytes to be retained,
         /// so it only fires on the `LocaGlyfState::Deferred` path.
         pub(crate) is_variable_font: bool,
+        /// The face's `trak` normal track ([`Tracking`]), added to every
+        /// glyph's advance at the font size when shaping. `None` for the
+        /// faces without the table (all but Apple's system faces).
+        pub tracking: Option<Arc<Tracking>>,
         /// Lazy outline cache. Populated on first
         /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
         /// are wrapped in `Arc` so callers can hold them without
@@ -515,6 +775,7 @@ pub mod parsed {
                 // same face.
                 last_used: Arc::clone(&self.last_used),
                 is_variable_font: self.is_variable_font,
+                tracking: self.tracking.clone(),
                 glyph_cache: Arc::clone(&self.glyph_cache),
                 // `LocaGlyfState` is `Clone` — for `Loaded` this is an
                 // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
@@ -1036,17 +1297,31 @@ pub mod parsed {
             // encoding_rs::Decoder::decode_to_utf8). font_name is OPTIONAL metadata (NOT used
             // for layout/metrics/shaping — those are binary head/hhea/maxp/cmap/glyf), so skip
             // the NAME-string decode on the web backend to avoid encoding_rs entirely.
+            // The FAMILY name (ID 16, else ID 1) decides the browsers' macOS
+            // ascent boost (`browser_ascent_boost`); without a name table
+            // (and on the web backend) a face gets none.
             #[cfg(feature = "web_lift")]
-            let font_name: Option<String> = None;
+            let (font_name, family_name): (Option<String>, Option<String>) = (None, None);
             #[cfg(not(feature = "web_lift"))]
-            let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
-                ReadScope::new(&name_data?)
-                    .read::<allsorts::tables::NameTable<'_>>()
-                    .ok()
-                    .and_then(|name_table| {
-                        name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME)
-                    })
-            });
+            let (font_name, family_name) = provider
+                .table_data(tag::NAME)
+                .ok()
+                .flatten()
+                .and_then(|name_data| {
+                    let name_table = ReadScope::new(&name_data)
+                        .read::<allsorts::tables::NameTable<'_>>()
+                        .ok()?;
+                    Some((
+                        name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME),
+                        name_table
+                            .string_for_id(allsorts::tables::NameTable::TYPOGRAPHIC_FAMILY_NAME)
+                            .or_else(|| {
+                                name_table
+                                    .string_for_id(allsorts::tables::NameTable::FONT_FAMILY_NAME)
+                            }),
+                    ))
+                })
+                .unwrap_or((None, None));
 
             // DIAG (2026-06-02, REVERT): pinpoint the web font-parse-fails root — does HEAD
             // fail because table_data can't find/return the table (directory mis-lift) or
@@ -1211,6 +1486,27 @@ pub mod parsed {
                 .ok()
                 .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())?;
 
+            // The OS/2 x-height and cap height (`sxHeight` / `sCapHeight`,
+            // version 2 and later; 0 means "not given"): the strut's
+            // `vertical-align: middle` and `text-box-edge: ex / cap` read
+            // them, with 0.5em / 0.7em only for a face without them.
+            let (x_height, cap_height) = provider
+                .table_data(tag::OS_2)
+                .ok()
+                .flatten()
+                .and_then(|os2_data| {
+                    ReadScope::new(&os2_data)
+                        .read_dep::<allsorts::tables::os2::Os2>(os2_data.len())
+                        .ok()
+                })
+                .and_then(|os2| os2.version2to4)
+                .map_or((None, None), |v| {
+                    (
+                        (v.s_x_height > 0).then(|| f32::from(v.s_x_height)),
+                        (v.s_cap_height > 0).then(|| f32::from(v.s_cap_height)),
+                    )
+                });
+
             // Build layout-specific font metrics
             let font_metrics = LayoutFontMetrics {
                 units_per_em: if head_table.units_per_em == 0 {
@@ -1221,9 +1517,9 @@ pub mod parsed {
                 ascent: f32::from(hhea_table.ascender),
                 descent: f32::from(hhea_table.descender),
                 line_gap: f32::from(hhea_table.line_gap),
-                x_height: None, /* will be populated from OS/2 table via from_font_metrics if
-                                 * available */
-                cap_height: None,
+                x_height,
+                cap_height,
+                browser_ascent_boost: browser_ascent_boost(family_name.as_deref()),
             };
 
             // Build PDF-specific font metrics
@@ -1253,6 +1549,14 @@ pub mod parsed {
             // avoids the borrow-after-move that a later
             // `provider.has_table(tag::GVAR)` would incur.
             let has_gvar = provider.has_table(tag::GVAR);
+            // The AAT tracking table (Apple's system faces), read before
+            // `provider` moves too.
+            let tracking = provider
+                .table_data(tag::TRAK)
+                .ok()
+                .flatten()
+                .and_then(|data| Tracking::parse(&data))
+                .map(Arc::new);
             let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> =
                 if has_glyf && !defer_loca_glyf {
                     match LocaGlyf::load(&provider) {
@@ -1368,6 +1672,7 @@ pub mod parsed {
                 cmap_subtable,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: has_gvar,
+                tracking,
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -2236,6 +2541,7 @@ pub mod parsed {
                 units_per_em: self.font_metrics.units_per_em,
                 x_height: self.font_metrics.x_height,
                 cap_height: self.font_metrics.cap_height,
+                browser_ascent_boost: self.font_metrics.browser_ascent_boost,
             }
         }
 
@@ -2653,6 +2959,7 @@ pub mod parsed {
                 units_per_em: 1000,
                 x_height: None,
                 cap_height: None,
+                browser_ascent_boost: false,
             }
         }
 
@@ -2697,6 +3004,7 @@ pub mod parsed {
                 opt_kern_table: None,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: false,
+                tracking: None,
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 loca_glyf: LocaGlyfState::Loaded(None),
                 space_width: None,
@@ -3107,6 +3415,7 @@ pub mod parsed {
                 units_per_em: 0,
                 x_height: Some(f32::MAX),
                 cap_height: None,
+                browser_ascent_boost: false,
             });
             assert!(extreme.font_metrics.ascent.is_infinite());
             assert!(extreme.font_metrics.descent.is_nan());
@@ -3835,6 +4144,144 @@ pub mod parsed {
             let _cache = crate::font::loading::build_font_cache();
         }
 
+        #[test]
+        fn sans_serif_puts_helvetica_first_on_macos_and_nothing_else_moves() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            let crate_table = FcFallbackConfig::os_defaults(OperatingSystem::MacOS);
+            let mut mac = crate_table.clone();
+            browser_generic_families(&mut mac, OperatingSystem::MacOS);
+            let sans = mac.generic_candidates(GenericFamily::SansSerif);
+            assert_eq!(
+                sans.first().map(String::as_str),
+                Some("Helvetica"),
+                "{sans:?}"
+            );
+            assert_eq!(
+                sans.iter()
+                    .filter(|f| f.eq_ignore_ascii_case("Helvetica"))
+                    .count(),
+                1,
+                "Helvetica once: {sans:?}"
+            );
+            let rest: Vec<&String> = crate_table
+                .generic_candidates(GenericFamily::SansSerif)
+                .iter()
+                .filter(|f| !f.eq_ignore_ascii_case("Helvetica"))
+                .collect();
+            assert_eq!(
+                sans[1..].iter().collect::<Vec<_>>(),
+                rest,
+                "the rest keep their order"
+            );
+            for generic in [GenericFamily::Serif, GenericFamily::Monospace] {
+                assert_eq!(
+                    mac.generic_candidates(generic),
+                    crate_table.generic_candidates(generic),
+                    "{generic:?} does not move"
+                );
+            }
+
+            // Elsewhere the platform's own table stays as it is, but for
+            // `system-ui` (the OS UI font, see the next test).
+            for os in [OperatingSystem::Windows, OperatingSystem::Linux] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                browser_generic_families(&mut config, os);
+                config.generic_families.remove(&GenericFamily::SystemUi);
+                let mut table = FcFallbackConfig::os_defaults(os);
+                table.generic_families.remove(&GenericFamily::SystemUi);
+                assert_eq!(config, table, "{os:?}");
+            }
+        }
+
+        /// `system-ui` is the font the OS draws its own UI in, the ONE list
+        /// azul's `system:ui` role draws with too (`SystemFontType::Ui`'s
+        /// chain, css/src/system.rs): San Francisco ("System Font") on
+        /// macOS, Segoe UI Variable on Windows (the Windows 11 Settings
+        /// font; Chrome's system-ui is the older message font "Segoe UI"),
+        /// on Linux the desktop's fontconfig `system-ui` alias when it has
+        /// one, then the usual desktop UI faces (SYSUI8).
+        #[test]
+        fn system_ui_is_the_os_ui_font_on_every_platform() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            let first = |os: OperatingSystem, config: &mut FcFallbackConfig| {
+                browser_generic_families(config, os);
+                config
+                    .generic_candidates(GenericFamily::SystemUi)
+                    .first()
+                    .cloned()
+            };
+            for (os, expected) in [
+                (OperatingSystem::MacOS, "System Font"),
+                (OperatingSystem::IOS, "System Font"),
+                (OperatingSystem::Windows, "Segoe UI Variable Text"),
+                (OperatingSystem::Linux, "Cantarell"),
+                (OperatingSystem::Android, "Roboto"),
+            ] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                assert_eq!(first(os, &mut config).as_deref(), Some(expected), "{os:?}");
+            }
+
+            // A desktop whose fontconfig names a `system-ui` keeps it first.
+            let mut linux = FcFallbackConfig::os_defaults(OperatingSystem::Linux);
+            linux
+                .generic_families
+                .insert(GenericFamily::SystemUi, vec![String::from("Inter")]);
+            assert_eq!(
+                first(OperatingSystem::Linux, &mut linux).as_deref(),
+                Some("Inter")
+            );
+            let list = linux.generic_candidates(GenericFamily::SystemUi);
+            assert!(
+                list.iter().any(|f| f == "Cantarell"),
+                "the desktop faces follow it: {list:?}"
+            );
+
+            // Idempotent: a second pass changes nothing.
+            let mut once = FcFallbackConfig::os_defaults(OperatingSystem::MacOS);
+            browser_generic_families(&mut once, OperatingSystem::MacOS);
+            let mut twice = once.clone();
+            browser_generic_families(&mut twice, OperatingSystem::MacOS);
+            assert_eq!(once, twice);
+        }
+
+        /// The desktop's own UI font (azul's detected
+        /// `SystemStyle::fonts.ui_font`: GNOME's or KDE's font setting) goes
+        /// first in `system-ui`, once, and the rest keep their order.
+        #[test]
+        fn the_desktops_ui_font_goes_first_in_system_ui() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::{browser_generic_families, prefer_system_ui_font};
+
+            let mut config = FcFallbackConfig::os_defaults(OperatingSystem::Linux);
+            browser_generic_families(&mut config, OperatingSystem::Linux);
+            let before = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+            prefer_system_ui_font(&mut config, "Noto Sans");
+            let after = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+            assert_eq!(after.first().map(String::as_str), Some("Noto Sans"));
+            assert_eq!(
+                after.iter().filter(|f| f.as_str() == "Noto Sans").count(),
+                1,
+                "once: {after:?}"
+            );
+            let rest: Vec<&String> = before
+                .iter()
+                .filter(|f| f.as_str() != "Noto Sans")
+                .collect();
+            assert_eq!(after[1..].iter().collect::<Vec<_>>(), rest);
+
+            // Blank names change nothing.
+            let mut blank = config.clone();
+            prefer_system_ui_font(&mut blank, "  ");
+            assert_eq!(blank, config);
+        }
+
         #[cfg(feature = "cpurender")]
         #[test]
         fn build_glyph_path_needs_at_least_one_operation() {
@@ -3897,6 +4344,173 @@ pub mod parsed {
                 ..empty
             };
             assert!(build_glyph_path(&full).is_some());
+        }
+
+        // ---------------------------------------------------------------
+        // the browsers' Times / Helvetica / Courier ascent adjustment
+        // ---------------------------------------------------------------
+
+        /// Apple's Helvetica (hhea 1577 / -471 / 0 at 2048 upem) has a
+        /// `line-height: normal` of exactly 1em. Chrome and Safari on Apple
+        /// platforms grow the rounded ascent of EXACTLY the families Times,
+        /// Helvetica and Courier (Blink `FontMetrics::AscentDescentWithHacks`
+        /// compares `FontFamilyName()`, WebKit `SimpleFontData::platformInit`)
+        /// so that they line up with the Microsoft fonts the web was made
+        /// with: a 16px Helvetica line is 18px in Chrome. Matched by the name
+        /// table's FAMILY (every Apple face of the three says exactly that,
+        /// Helvetica Light included); other platforms' Chrome does not boost.
+        #[test]
+        fn exactly_times_helvetica_and_courier_get_the_browsers_ascent_boost_on_apple_platforms() {
+            let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+            for family in ["Times", "Helvetica", "Courier"] {
+                assert_eq!(
+                    browser_ascent_boost(Some(family)),
+                    apple,
+                    "{family} is boosted exactly where Chrome boosts it (Apple platforms)"
+                );
+            }
+            // Other families keep their metrics - Helvetica Neue, Times New
+            // Roman and Courier New included, and PostScript names are not
+            // family names.
+            for family in [
+                "Helvetica Neue",
+                "Times New Roman",
+                "Courier New",
+                "Arial",
+                "Nimbus Sans",
+                "helvetica",
+                "Helvetica-Bold",
+                "Times-Roman",
+            ] {
+                assert!(
+                    !browser_ascent_boost(Some(family)),
+                    "{family} is not boosted"
+                );
+            }
+            assert!(!browser_ascent_boost(None));
+        }
+
+        /// The boost reaches the metrics a parsed face lays text out with:
+        /// Apple's Helvetica, where the machine has it (macOS), keeps its own
+        /// hhea ascent and carries the flag, and its 16px / 22px `normal`
+        /// lines are Chrome's 18px / 25px (12 + 2 + 4 + 0 and 17 + 3 + 5 + 0).
+        /// Helvetica Neue does not carry it. Elsewhere there is no such face
+        /// to parse, and the test has nothing to check.
+        #[test]
+        fn apples_helvetica_parses_with_the_browsers_ascent_boost() {
+            let Ok(bytes) = std::fs::read("/System/Library/Fonts/Helvetica.ttc") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(&bytes, 0, &mut warnings)
+                .expect("the system Helvetica parses");
+            let m = font.font_metrics;
+            assert!(m.browser_ascent_boost, "Apple's Helvetica is boosted");
+            assert!(
+                (m.ascent - 1577.0).abs() < 0.01,
+                "the font-unit ascent stays the hhea one: {}",
+                m.ascent
+            );
+            for (size, chrome) in [(16.0, 18.0), (22.0, 25.0)] {
+                let got = crate::text3::cache::LineHeight::Normal.resolve_with_metrics(size, &m);
+                assert!(
+                    (got - chrome).abs() < 0.01,
+                    "Helvetica {size}px: Chrome {chrome}px, azul {got}px"
+                );
+            }
+            if let Ok(neue) = std::fs::read("/System/Library/Fonts/HelveticaNeue.ttc") {
+                let font = ParsedFont::from_bytes(&neue, 0, &mut warnings)
+                    .expect("the system Helvetica Neue parses");
+                assert!(
+                    !font.font_metrics.browser_ascent_boost,
+                    "Helvetica Neue is another family"
+                );
+            }
+        }
+
+        /// A parsed face carries its OS/2 x-height and cap height (version 2+:
+        /// `sxHeight`, `sCapHeight`), which the strut's `vertical-align:
+        /// middle` and `text-box-edge: ex / cap` read; they were always
+        /// `None`, so every face fell back to 0.5em / 0.7em (MAILENG6 item 6).
+        /// Arial: 1062 and 1467 at 2048 upem, where the machine has it.
+        #[test]
+        fn a_parsed_face_carries_its_os2_x_height_and_cap_height() {
+            let Ok(bytes) = std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let m = ParsedFont::from_bytes(&bytes, 0, &mut warnings)
+                .expect("the system Arial parses")
+                .font_metrics;
+            assert_eq!(m.x_height, Some(1062.0), "Arial's OS/2 sxHeight");
+            assert_eq!(m.cap_height, Some(1467.0), "Arial's OS/2 sCapHeight");
+        }
+
+        // ---------------------------------------------------------------
+        // Tracking (the AAT `trak` table, SYSUI8)
+        // ---------------------------------------------------------------
+
+        /// A `trak` table built by hand (Apple's TrueType Reference layout,
+        /// offsets from the table's start): sizes 10 and 20, three tracks;
+        /// only the normal one (track 0: +10 at 10pt, -10 at 20pt) is read.
+        #[test]
+        fn tracking_reads_the_normal_track_and_interpolates_between_sizes() {
+            let mut t: Vec<u8> = Vec::new();
+            // header: version 1.0, format 0, horizOffset 12, vertOffset 0, reserved
+            t.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0]);
+            // track data: nTracks 3, nSizes 2, sizeTableOffset 44
+            t.extend_from_slice(&[0, 3, 0, 2, 0, 0, 0, 44]);
+            // tracks: (-1.0, name 256, values at 52), (0.0, 257, 56), (1.0, 258, 60)
+            t.extend_from_slice(&[0xFF, 0xFF, 0, 0, 1, 0, 0, 52]);
+            t.extend_from_slice(&[0, 0, 0, 0, 1, 1, 0, 56]);
+            t.extend_from_slice(&[0, 1, 0, 0, 1, 2, 0, 60]);
+            // size table: 10.0, 20.0 (16.16)
+            t.extend_from_slice(&[0, 10, 0, 0, 0, 20, 0, 0]);
+            // values: track -1 (-30, -40), track 0 (+10, -10), track 1 (50, 60)
+            t.extend_from_slice(&(-30i16).to_be_bytes());
+            t.extend_from_slice(&(-40i16).to_be_bytes());
+            t.extend_from_slice(&10i16.to_be_bytes());
+            t.extend_from_slice(&(-10i16).to_be_bytes());
+            t.extend_from_slice(&50i16.to_be_bytes());
+            t.extend_from_slice(&60i16.to_be_bytes());
+
+            let tracking = Tracking::parse(&t).expect("the table parses");
+            assert_eq!(tracking.sizes, vec![(10.0, 10), (20.0, -10)]);
+            assert_eq!(tracking.at(10.0), 10.0);
+            assert_eq!(tracking.at(15.0), 0.0, "halfway between the two sizes");
+            assert_eq!(tracking.at(20.0), -10.0);
+            assert_eq!(tracking.at(4.0), 10.0, "below the table: its first value");
+            assert_eq!(tracking.at(200.0), -10.0, "above the table: its last value");
+            assert_eq!(tracking.at(f32::NAN), 10.0);
+
+            // No horizontal data, a truncated table, no table at all.
+            let mut vertical_only = t.clone();
+            vertical_only[6] = 0;
+            vertical_only[7] = 0;
+            assert_eq!(Tracking::parse(&vertical_only), None);
+            assert_eq!(Tracking::parse(&t[..30]), None);
+            assert_eq!(Tracking::parse(&[]), None);
+        }
+
+        /// San Francisco (`SFNS.ttf`) tracks its glyphs by the values
+        /// CoreText applies: -40 units at 16px, -50 at 18 (between 17's -52
+        /// and 20's -46), +28 at 28. Helvetica has no `trak` table.
+        #[test]
+        fn the_system_font_carries_coretexts_tracking() {
+            let Ok(sf) = std::fs::read("/System/Library/Fonts/SFNS.ttf") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(&sf, 0, &mut warnings).expect("SFNS.ttf parses");
+            let tracking = font.tracking.as_ref().expect("SF has a trak table");
+            assert_eq!(tracking.at(16.0), -40.0);
+            assert_eq!(tracking.at(18.0), -50.0);
+            assert_eq!(tracking.at(28.0), 28.0);
+            if let Ok(helvetica) = std::fs::read("/System/Library/Fonts/Helvetica.ttc") {
+                let font =
+                    ParsedFont::from_bytes(&helvetica, 0, &mut warnings).expect("Helvetica parses");
+                assert!(font.tracking.is_none(), "Helvetica is not tracked");
+            }
         }
     }
 }

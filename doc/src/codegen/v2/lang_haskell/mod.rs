@@ -74,6 +74,8 @@ use super::config::CodegenConfig;
 use super::generator::CodeBuilder;
 use super::ir::CodegenIR;
 use super::module_plan::ModulePlan;
+// `lower_first` is reached by types.rs / wrappers.rs as `super::lower_first`.
+use super::{lower_first, upper_first};
 
 pub mod cshim;
 
@@ -910,23 +912,29 @@ fn narrow_facade_imports(files: &mut [HsFile], facades: &[(&str, Vec<String>)]) 
             .collect();
         // A facade a module re-exports (`module Azul.Internal.Handles` in
         // `Azul`'s export list) must stay imported whole.
-        let reexported = |facade: &str| {
-            file.src.lines().any(|l| {
-                let l = l.trim_start().trim_start_matches(['(', ',']).trim();
-                l == format!("module {facade}")
-            })
-        };
+        let mut facade_reexported = Vec::with_capacity(facades.len());
+        let mut facade_import_strs = Vec::with_capacity(facades.len());
+        let mut facade_import_qualified_strs = Vec::with_capacity(facades.len());
+        for (facade, _) in facades.iter() {
+            let mod_facade = format!("module {facade}");
+            let is_reexported = file.src.lines().any(|l| {
+                l.trim_start().trim_start_matches(['(', ',']).trim() == mod_facade
+            });
+            facade_reexported.push(is_reexported);
+            facade_import_strs.push(format!("import {facade}"));
+            facade_import_qualified_strs.push(format!("import qualified {facade} as "));
+        }
         let mut out = String::with_capacity(file.src.len());
         for line in file.src.lines() {
-            let rewritten = facades.iter().find_map(|(facade, members)| {
-                if reexported(facade) {
+            let rewritten = facades.iter().enumerate().find_map(|(i, (_facade, members))| {
+                if facade_reexported[i] {
                     return None;
                 }
                 let t = line.trim();
-                let qualifier = if t == format!("import {facade}") {
+                let qualifier = if t == facade_import_strs[i] {
                     None
                 } else if let Some(q) = t
-                    .strip_prefix(&format!("import qualified {facade} as "))
+                    .strip_prefix(&facade_import_qualified_strs[i])
                     .filter(|q| !q.contains(' '))
                 {
                     Some(q)
@@ -1185,19 +1193,6 @@ fn is_haskell_reserved(s: &str) -> bool {
     )
 }
 
-fn lower_first(s: &str) -> String {
-    if s.is_empty() {
-        return String::new();
-    }
-    let mut out = String::with_capacity(s.len());
-    let first = s.chars().next().unwrap();
-    for c in first.to_lowercase() {
-        out.push(c);
-    }
-    out.push_str(&s[first.len_utf8()..]);
-    out
-}
-
 fn lower_first_word(s: &str) -> String {
     // Treat input as either snake_case or PascalCase; produce
     // camelCase suitable for value identifiers.
@@ -1225,19 +1220,6 @@ fn upper_camel_first_word(s: &str) -> String {
     } else {
         upper_first(s)
     }
-}
-
-fn upper_first(s: &str) -> String {
-    if s.is_empty() {
-        return String::new();
-    }
-    let first = s.chars().next().unwrap();
-    let mut out = String::with_capacity(s.len());
-    for c in first.to_uppercase() {
-        out.push(c);
-    }
-    out.push_str(&s[first.len_utf8()..]);
-    out
 }
 
 /// Sanitize a doc-comment line so a stray `-}` doesn't terminate the
@@ -1614,5 +1596,96 @@ mod split_tests {
                 assert!(!src.contains("SKIPPED"), "{} has a placeholder:\n{}", path, src);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+    use std::collections::BTreeMap;
+
+    /// The real api.json, generated once: path -> file body.
+    fn files() -> &'static BTreeMap<String, String> {
+        static FILES: std::sync::OnceLock<BTreeMap<String, String>> = std::sync::OnceLock::new();
+        FILES.get_or_init(|| {
+            let out = generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("haskell codegen");
+            let mut files = BTreeMap::new();
+            let mut cur: Option<String> = None;
+            for line in out.lines() {
+                if let Some(rest) = line.strip_prefix(FILE_MARKER) {
+                    cur = Some(rest.trim_end_matches(END_MARKER).trim().to_string());
+                    files.insert(cur.clone().unwrap(), String::new());
+                } else if let Some(p) = &cur {
+                    let f = files.get_mut(p).unwrap();
+                    f.push_str(line);
+                    f.push('\n');
+                }
+            }
+            files
+        })
+    }
+
+    /// The definition of `name` in any internal API module: its lines up
+    /// to the next blank line.
+    fn definition(name: &str) -> String {
+        let head = format!("{} ::", name);
+        for body in files().values() {
+            if let Some(i) = body.find(&format!("\n{}", head)) {
+                let rest = &body[i + 1..];
+                let end = rest.find("\n\n").unwrap_or(rest.len());
+                return rest[..end].to_string();
+            }
+        }
+        panic!("{} is not generated", name);
+    }
+
+    #[test]
+    fn a_window_title_can_be_set_and_the_old_title_is_released() {
+        let set = definition("fullWindowStateSetTitle");
+        assert!(set.contains("String -> FullWindowState -> IO ()"), "{}", set);
+        assert!(set.contains("FFI.c_AzString_delete __fp"), "{}", set);
+        let get = definition("fullWindowStateGetTitle");
+        assert!(get.contains("T.azStringToString"), "a getter decodes, never takes:\n{}", get);
+        assert!(!get.contains("azulTakeString"), "{}", get);
+    }
+
+    #[test]
+    fn a_nested_heap_owning_field_is_deep_copied_out_and_moved_in() {
+        let get = definition("windowCreateOptionsGetWindowState");
+        assert!(get.contains("FFI.c_AzFullWindowState_clone"), "{}", get);
+        let set = definition("windowCreateOptionsSetWindowState");
+        assert!(set.contains("moveFullWindowState v"), "{}", set);
+        assert!(set.contains("FFI.c_AzFullWindowState_delete __fp"), "{}", set);
+        let size = definition("windowSizeWithDimensions");
+        assert!(size.contains("LogicalSize -> WindowSize -> IO WindowSize"), "{}", size);
+    }
+
+    #[test]
+    fn a_bool_field_of_a_wrapped_struct_reads_as_bool() {
+        let get = definition("checkBoxStateGetChecked");
+        assert!(get.contains("CheckBoxState -> IO Bool"), "{}", get);
+        let module = &files()["src/Azul/CheckBoxState.hs"];
+        assert!(module.contains(", getChecked"), "{}", module);
+        assert!(module.contains(", withChecked"), "{}", module);
+    }
+
+    #[test]
+    fn a_field_whose_getter_name_is_an_api_method_is_still_settable() {
+        // `TextInputState.get_text` is an api.json method; the field
+        // getter yields to it, the setter does not.
+        let module = &files()["src/Azul/TextInputState.hs"];
+        assert!(module.contains("getText = I.textInputStateGetText"), "{}", module);
+        assert!(module.contains(", setText"), "{}", module);
+    }
+
+    #[test]
+    fn a_borrowed_callback_info_can_be_passed_to_a_by_value_parameter() {
+        // `CallbackInfo` owns nothing, so a by-value parameter copies it;
+        // moving it threw AzulBorrowedMove for the callback's own argument.
+        let f = definition("textInputSetTextIn");
+        assert!(f.contains("withCallbackInfo self") || f.contains("withCallbackInfo a"), "{}", f);
+        assert!(!f.contains("moveCallbackInfo"), "{}", f);
     }
 }

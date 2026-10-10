@@ -12,7 +12,7 @@
 //! Soft-keyboard / IME support (Phase 5) needs a ~50-line Java JNI bridge that
 //! is compiled with plain `javac` + `d8` — still no Gradle.
 
-use std::{cell::RefCell, ffi::c_void, sync::Arc, time::Duration};
+use std::{cell::RefCell, ffi::c_void, sync::Arc};
 
 use azul_core::{
     callbacks::RelayoutReason,
@@ -46,6 +46,9 @@ use crate::{
 
 pub mod accessibility;
 pub mod clipboard;
+/// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
+#[cfg(feature = "jni")]
+mod webview;
 
 #[cfg(feature = "android-activity")]
 use android_activity::{
@@ -185,6 +188,10 @@ pub struct AndroidWindow {
     /// that remains. `touch_pan_last` is re-seeded on a transfer so the
     /// hand-over is not read as a jump.
     pan_pointer_id: Option<i32>,
+    /// The window's `<webview>`s (`webview::AndroidWebViews`, through the
+    /// `AzulWebView` bridge), made at the first one.
+    #[cfg(feature = "jni")]
+    webviews: Option<webview::AndroidWebViews>,
 }
 
 impl AndroidWindow {
@@ -215,6 +222,13 @@ impl AndroidWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
+        // `<webview>`s are `android.webkit.WebView`s (`webview`); without
+        // the Java bridge a window says it has none (the default).
+        #[cfg(feature = "jni")]
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
         // THE ENGINE DRAWS THE SELECTION HANDLES HERE (U2-a). Android has no
         // handle API for a custom view: `TextView`'s `Editor` draws the
         // teardrops for itself and for nobody else, and `NativeTextBridge`
@@ -267,6 +281,8 @@ impl AndroidWindow {
             touch_pan_last: None,
             primary_pointer_id: None,
             pan_pointer_id: None,
+            #[cfg(feature = "jni")]
+            webviews: None,
         })
     }
 
@@ -313,6 +329,16 @@ impl AndroidWindow {
         let Some(lw) = self.common.layout_window.as_ref() else {
             return;
         };
+        // The layout tail's accessibility pass (`LayoutWindow::update_a11y_tree`)
+        // diffs the tree against what was published and publishes NOTHING
+        // when nothing a screen reader can see changed: then the element
+        // list built from the last snapshot is still right, and rebuilding
+        // the whole snapshot after every regenerate was a full walk for
+        // nothing (A11YPATCH8 left 3). The first pass publishes the whole
+        // tree; an explicit `a11y_dirty` still rebuilds.
+        if !lw.a11y_manager.last_pass.published && !self.common.a11y_dirty {
+            return;
+        }
         let snapshot = lw.build_a11y_snapshot();
         // Android wants physical pixels. `android_main` derives the framework
         // dpi as `density * 96 / 160`, so the android scale (`density / 160`)
@@ -454,7 +480,7 @@ impl AndroidWindow {
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -545,6 +571,26 @@ impl PlatformWindow for AndroidWindow {
     /// by the application.
     fn handle_begin_interactive_move(&mut self) {}
 
+    /// `android.webkit.WebView`s (`webview::AndroidWebViews`), made at the
+    /// first call.
+    #[cfg(feature = "jni")]
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let views = self
+            .webviews
+            .get_or_insert_with(|| webview::AndroidWebViews::new(scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
     fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
         let dispatched = set_pointer_capture(locked);
         locked && dispatched
@@ -623,7 +669,7 @@ impl PlatformWindow for AndroidWindow {
     ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
-                lw.threads.remove(id);
+                drop(lw.remove_thread(id));
             }
         }
     }
@@ -755,6 +801,10 @@ pub fn android_main(app: AndroidApp) {
     // (and future native-call paths — permission, soft keyboard) can
     // reach into Java without re-receiving them per call.
     publish_jni_context(&app);
+    // And a waker for the Java threads that hand the loop work while it may
+    // be parked with no timeout (in the background): a notification's
+    // dismiss receiver runs exactly then.
+    let _ = LOOP_WAKER.set(app.create_waker());
 
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {
@@ -764,14 +814,14 @@ pub fn android_main(app: AndroidApp) {
             #[cfg(feature = "ndk")]
             {
                 if window.native_window.is_some() {
-                    Some(Duration::from_millis(16))
+                    Some(window.common.frame_interval())
                 } else {
                     None
                 }
             }
             #[cfg(not(feature = "ndk"))]
             {
-                Some(Duration::from_millis(16))
+                Some(window.common.frame_interval())
             }
         };
 
@@ -795,6 +845,33 @@ pub fn android_main(app: AndroidApp) {
         // scroll the physics timer fires at 16 ms, so this alone re-ran the
         // app's layout() ~60x/second for the whole gesture.
         if window.process_timers_and_threads() {
+            window.needs_rerender = true;
+        }
+
+        // Native notifications: queued posts out to the NotificationManager
+        // (through AzulNotifications.java), and the taps, buttons and
+        // dismissals the Java side forwarded - the launch intent, onNewIntent,
+        // the dismiss receiver - routed to their callbacks, or to the
+        // app-level handler when the process did not post the notification
+        // (the cold start a tap causes), and run against this window. The
+        // 16 ms poll above is Android's per-frame slot, so it is the pump.
+        let deliveries = crate::desktop::notifications::pump_notifications();
+        if !deliveries.is_empty()
+            && crate::desktop::notifications::invoke_deliveries(&mut window, deliveries)
+        {
+            window.needs_rerender = true;
+        }
+
+        // `<webview>`s: what the Java WebViews reported (their callbacks wake
+        // this loop) runs the views' callbacks; the ops of the last frames go
+        // to the bridge. Only while a web view exists or is owed something.
+        let webviews_busy = window.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if webviews_busy
+            && PlatformWindow::pump_webviews(&mut window)
+                != azul_core::events::ProcessEventResult::DoNothing
+        {
             window.needs_rerender = true;
         }
 
@@ -1055,6 +1132,8 @@ pub fn android_main(app: AndroidApp) {
         // has nothing new to post.
         if frame_dirty {
             let _ = render_frame(&mut window);
+            // Where this frame put the `<webview>`s.
+            let _ = crate::desktop::shell2::common::webview::sync(&mut window);
         }
     }
 
@@ -1082,19 +1161,22 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
     let raw = window
         .pending_theme
         .swap(0, std::sync::atomic::Ordering::AcqRel);
-    let theme = match raw {
-        1 => azul_core::window::WindowTheme::LightMode,
-        2 => azul_core::window::WindowTheme::DarkMode,
+    let desktop = match raw {
+        1 => azul_core::window::DarkLightMode::Light,
+        2 => azul_core::window::DarkLightMode::Dark,
         _ => return,
     };
-    if window.common.current_window_state().theme == theme {
+    // The DEVICE's night mode: the window takes it only while the app follows
+    // it (`AppConfig::mode` / `CallbackInfo::set_mode` pin it otherwise);
+    // either way the device's is remembered.
+    let Some(theme) = window.common.adopt_desktop_theme(desktop) else {
         return;
-    }
+    };
     window.snapshot_window_state_baseline("android.drain_pending_theme");
-    window.common.update_unsynced_state(|ws| ws.theme = theme);
+    window.common.write_shown_mode(theme);
     window
         .common
-        .request_regeneration(RelayoutReason::ThemeChange);
+        .request_regeneration(RelayoutReason::ModeChange);
     let _ = window.process_window_events(0);
 }
 
@@ -1967,6 +2049,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // #17 wires real injection.
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
     }
 }
 
@@ -2298,6 +2381,25 @@ pub fn java_vm_ptr() -> *mut core::ffi::c_void {
 pub fn activity_ptr() -> *mut core::ffi::c_void {
     core::ptr::null_mut()
 }
+
+/// Wakes `android_main`'s `poll_events`, which blocks without a timeout while
+/// the activity has no surface. Set once `android_main` runs.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+static LOOP_WAKER: std::sync::OnceLock<android_activity::AndroidAppWaker> =
+    std::sync::OnceLock::new();
+
+/// Wake the event loop from any thread (a JNI callback that queued work for
+/// it). A no-op before `android_main` ran.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+pub fn wake_event_loop() {
+    if let Some(waker) = LOOP_WAKER.get() {
+        waker.wake();
+    }
+}
+
+/// No loop to wake without the NativeActivity glue.
+#[cfg(not(all(target_os = "android", feature = "android-activity")))]
+pub fn wake_event_loop() {}
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn publish_jni_context(app: &AndroidApp) {
@@ -3296,8 +3398,8 @@ mod jni_bridge {
         // window state that the next loop iteration reads, exactly as the
         // gesture bridge does.
         let theme = match night_mode {
-            1 => azul_core::window::WindowTheme::LightMode,
-            2 => azul_core::window::WindowTheme::DarkMode,
+            1 => azul_core::window::DarkLightMode::Light,
+            2 => azul_core::window::DarkLightMode::Dark,
             // Undefined: the device is not expressing a preference, so keep
             // whatever the window already carries.
             _ => return,
@@ -3373,6 +3475,9 @@ mod jni_bridge {
         initial_distance: f32,
         current_distance: f32,
         duration_ms: i64,
+        // jboolean: the first update of the gesture (NativeGestureBridge's
+        // onScaleBegin), whose scale the bridge multiplies up from 1.0.
+        began: u8,
     ) {
         with_window(native_ptr, |w| {
             inject(
@@ -3386,6 +3491,7 @@ mod jni_bridge {
                     initial_distance,
                     current_distance,
                     duration_ms: duration_ms as u64,
+                    began: began != 0,
                 }),
             );
         });

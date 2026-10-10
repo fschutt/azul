@@ -2297,7 +2297,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // Self-contained release binaries of the demo "goal apps" (Rust apps built
     // statically against azul). The build_demos CI job stages them as
     // <crate>-<os>[.exe] and the deploy lays them into release/{version}/demos/.
-    // Each demo has up to three OS variants (linux/macos/windows). We link them
+    // Each demo has up to four desktop variants (linux, macos = Apple Silicon, macos-intel =
+    // x86_64, windows). We link them
     // unconditionally (like the exotic-arch/package links) since the skeleton
     // build doesn't placeholder these — a not-yet-built one 404s rather than
     // vanishing. (crate, friendly name, one-line description.)
@@ -2332,12 +2333,21 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "AzWriter",
             "a document editor - a full application",
         ),
+        // The visual GUI builder. Desktop only: it drives its window from a
+        // browser tab on the same machine (and ships no Dockerfile).
+        (
+            "AzBuilder",
+            "AzBuilder",
+            "the drag-and-drop GUI builder - opens its editor in your browser",
+        ),
     ];
+    const DESKTOP_ONLY: &[&str] = &["AzBuilder"];
     // OS suffix → label + filename extension, matching the build_demos staging
-    // names (AzMaps-linux, AzMaps-macos, AzMaps-windows.exe).
+    // names (AzMaps-linux, AzMaps-macos, AzMaps-macos-intel, AzMaps-windows.exe).
     const DEMO_OSES: &[(&str, &str, &str)] = &[
         ("linux", "Linux", ""),
-        ("macos", "macOS", ""),
+        ("macos", "macOS (M1+)", ""),
+        ("macos-intel", "macOS (Intel)", ""),
         ("windows", "Windows", ".exe"),
     ];
     // Grouped by OS: each OS is a heading with a sub-list of "Name: what it is",
@@ -2348,18 +2358,25 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // mobile = mobile-apps/<crate>-{ios.app.zip,android.apk} (Pages-hosted).
     let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
         ("Linux", "demos/{c}-linux", |_| true),
-        ("macOS", "demos/{c}-macos", |_| true),
+        // Apple Silicon and Intel apart: an arm64 binary on an Intel Mac only says "bad CPU
+        // type in executable". The Intel ones run on macOS 10.12 (Sierra) and later.
+        ("macOS (M1+)", "demos/{c}-macos", |_| true),
+        ("macOS (Intel, 10.12+)", "demos/{c}-macos-intel", |_| true),
         ("Windows", "demos/{c}-windows.exe", |_| true),
         (
             "iOS device (.ipa, signed)",
             "mobile-apps/{c}-ios.ipa",
-            |_| true,
+            |c| !DESKTOP_ONLY.contains(&c),
         ),
-        ("iOS device (.app)", "mobile-apps/{c}-ios.app.zip", |_| true),
+        (
+            "iOS device (.app)",
+            "mobile-apps/{c}-ios.app.zip",
+            |c| !DESKTOP_ONLY.contains(&c),
+        ),
         (
             "iOS Simulator (.app)",
             "mobile-apps/{c}-ios-sim.app.zip",
-            |_| true,
+            |c| !DESKTOP_ONLY.contains(&c),
         ),
         (
             "Android (.apk, sideload)",
@@ -2397,6 +2414,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // separate web build, no recompile. The label is the ready-to-run command.
     let web_items: String = DEMO_APPS
         .iter()
+        .filter(|(crate_name, _, _)| !DESKTOP_ONLY.contains(crate_name))
         .map(|(crate_name, friendly, _desc)| {
             let url = asset_url(version, &format!("{crate_name}.Dockerfile"));
             // The image tag is the app's own name, lowercased - so the command
@@ -2460,6 +2478,14 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </nav>
 
               <h2 id='demos'>Demos</h2>
+              <div class='release-builder'>
+                <img src='{HTML_ROOT}/guide/images/debugger-initial.png' alt='AzBuilder in the browser: the DOM explorer with the component palette, the inspector and the terminal' loading='lazy'>
+                <div>
+                  <h3>AzBuilder - the visual GUI builder</h3>
+                  <p>Download AzBuilder for your OS below and run it: it opens a native window and, in your browser, a drag-and-drop editor for it - a palette of components with live native previews, a document tree with undo, convert-to-component, a project folder with a file tree and an editor, and export to code.</p>
+                  <p><a href='{HTML_ROOT}/guide/architecture/gui-builder'>GUI builder guide</a></p>
+                </div>
+              </div>
               <ul class='release-demos' id='demo-list'>
                 {demo_links}
               </ul>

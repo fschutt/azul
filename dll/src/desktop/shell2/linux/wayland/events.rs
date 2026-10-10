@@ -502,6 +502,13 @@ pub(super) extern "C" fn registry_global_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let interface_str = unsafe { CStr::from_ptr(interface).to_str().unwrap_or_default() };
 
+    // NOTICED, never bound: `zwlr_data_control_manager_v1` /
+    // `ext_data_control_manager_v1` are what a clipboard MANAGER watches the
+    // selection through, and Wayland's answer to "must a copy outlive the
+    // app" is "run one". Binding it would make this toolkit a second manager;
+    // knowing it is there is what lets the app tell the truth at shutdown.
+    super::clipboard::note_global(interface_str);
+
     match interface_str {
         "wl_compositor" => {
             window.compositor = unsafe {
@@ -954,6 +961,28 @@ pub(super) extern "C" fn registry_global_handler(
                 );
             }
         }
+        "xdg_activation_v1" => {
+            // xdg-activation-v1 (staging): lets the app raise its window with
+            // a token another party minted - the one a notification server
+            // sends with a click (`WaylandWindow::activate_with_token`). A
+            // click on a notification carries no input serial, so this is the
+            // ONLY legitimate way to take focus for it.
+            let activation = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    super::defines::get_xdg_activation_v1_interface(),
+                    version.min(1),
+                ) as *mut super::defines::xdg_activation_v1
+            };
+            if !activation.is_null() {
+                window.xdg_activation = Some(activation);
+                crate::log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Bound xdg_activation_v1 - notification clicks can raise the window"
+                );
+            }
+        }
         "zxdg_decoration_manager_v1" => {
             // xdg-decoration-unstable-v1: lets the client request server-side
             // decorations (compositor-drawn titlebar). Unstable protocol, not
@@ -998,10 +1027,10 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
         return;
     }
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    const CLIENT_SIDE: u32 = 1;
-    let refuses_ssd = mode == CLIENT_SIDE
-        && window.common.current_window_state().flags.decorations
-            != azul_core::window::WindowDecorations::None;
+    let refuses_ssd = {
+        let flags = &window.common.current_window_state().flags;
+        super::compositor_refused_server_side(flags.has_decorations, flags.decorations, mode)
+    };
     if refuses_ssd {
         window.common.update_window_state(
             crate::desktop::shell2::common::event::WindowStateSource::Os,
@@ -3950,7 +3979,7 @@ extern "C" fn keyboard_enter_handler(
     data: *mut c_void,
     keyboard: *mut wl_keyboard,
     _serial: u32,
-    _surface: *mut wl_surface,
+    surface: *mut wl_surface,
     keys: *mut c_void,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -3960,6 +3989,21 @@ extern "C" fn keyboard_enter_handler(
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
         window.handle_seat_keyboard_enter(seat_id, &held);
         return;
+    }
+    // P1-9: the keyboard entering the POPUP's surface (its `xdg_popup` grab)
+    // is not the parent coming back: the parent stays inactive - its leave
+    // already ran - while the popup holds the keyboard, as on macOS / Win32.
+    // The keys still arrive here and `handle_key` forwards them to the popup.
+    {
+        use crate::desktop::shell2::common::transient::{
+            keyboard_focus_surface, KeyboardFocusSurface,
+        };
+        let popup_surface = window.active_popup.as_ref().map(|p| p.surface as usize);
+        if keyboard_focus_surface(surface as usize, window.surface as usize, popup_surface)
+            == KeyboardFocusSurface::Popup
+        {
+            return;
+        }
     }
     window.handle_keyboard_enter(&held);
 }
@@ -3991,13 +4035,31 @@ extern "C" fn keyboard_leave_handler(
     data: *mut c_void,
     keyboard: *mut wl_keyboard,
     _serial: u32,
-    _surface: *mut wl_surface,
+    surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
         window.handle_seat_keyboard_leave(seat_id);
         return;
+    }
+    // P1-9: the keyboard leaving the POPUP's surface is the popup's focus
+    // loss (the user went to another app while it was open), not the
+    // parent's - the parent went inactive when the popup took the keyboard.
+    {
+        use crate::desktop::shell2::common::transient::{
+            keyboard_focus_surface, KeyboardFocusSurface,
+        };
+        let popup_surface = window.active_popup.as_ref().map(|p| p.surface as usize);
+        if keyboard_focus_surface(surface as usize, window.surface as usize, popup_surface)
+            == KeyboardFocusSurface::Popup
+        {
+            if let Some(popup) = window.active_popup.as_mut() {
+                popup.keyboard_left();
+            }
+            window.drive_active_popup();
+            return;
+        }
     }
     window.handle_keyboard_leave();
 }
@@ -5134,6 +5196,7 @@ extern "C" fn gesture_pinch_begin(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.pinch_accumulated_rotation = 0.0;
+    window.pinch_began = true;
 }
 
 extern "C" fn gesture_pinch_update(
@@ -5167,6 +5230,9 @@ extern "C" fn gesture_pinch_update(
     // both because two fingers can do both at once — so both are injected and
     // the app decides which it cares about.
     if (scale_f - 1.0).abs() > f32::EPSILON {
+        // `scale` is the protocol's scale since the begin: cumulative, as
+        // `DetectedPinch` is defined; the first update reported begins it.
+        let began = core::mem::replace(&mut window.pinch_began, false);
         lw.gesture_drag_manager.inject_native_gesture(
             azul_layout::managers::gesture::NativeGestureEvent::Pinch(
                 azul_layout::managers::gesture::DetectedPinch {
@@ -5175,6 +5241,7 @@ extern "C" fn gesture_pinch_update(
                     initial_distance: PINCH_NOMINAL_DISTANCE,
                     current_distance: PINCH_NOMINAL_DISTANCE * scale_f,
                     duration_ms: 0,
+                    began,
                 },
             ),
         );

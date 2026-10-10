@@ -1,0 +1,67 @@
+# Known failures of the WPT reftest suite (layout/tests/wpt/reftest.rs).
+# Format: STATUS[@os] id gap [# note]. Any non-PASS status matches any non-pass
+# outcome; the gap ids are the table in scripts/REFCI_2026_09_30.md.
+#
+# SEEDED from a sweep through the 2026-09-30 release dylib's debug server
+# (`mount` op, 800x600, macOS fonts), NOT from this runner: the author could not
+# compile. The notes are that sweep's measurements (maxdiff = largest per-channel
+# difference, pixels = differing pixels). Bless once with the real runner:
+#   AZ_WPT_BLESS=1 cargo test --release -p azul-layout --features wpt_tests --test wpt -- reftest
+FAIL css/CSS2/linebox/anonymous-inline-inherit-001.html E-INLINE # match anonymous-inline-inherit-001-ref.html: maxdiff 23 pixels 112
+FAIL css/CSS2/linebox/empty-inline-003.xht E-INLINE # match empty-inline-003-ref.xht: maxdiff 255 pixels 2518
+FAIL css/CSS2/linebox/inline-box-001.xht E-INLINE # match inline-box-001-ref.xht: maxdiff 255 pixels 5930
+FAIL css/CSS2/linebox/inline-formatting-context-001.xht E-INLINE # match inline-formatting-context-001-ref.xht: maxdiff 23 pixels 1377
+FAIL css/CSS2/linebox/inline-formatting-context-002.xht E-INLINE # match inline-formatting-context-002-ref.xht: maxdiff 255 pixels 2635
+FAIL css/CSS2/linebox/inline-formatting-context-004.xht E-INLINE # match inline-formatting-context-002-ref.xht: maxdiff 255 pixels 4707
+FAIL css/CSS2/linebox/inline-formatting-context-006.xht E-INLINE # match inline-formatting-context-002-ref.xht: maxdiff 255 pixels 2635
+FAIL css/CSS2/linebox/line-height-bleed-001.xht E-INLINE # match line-height-bleed-001-ref.xht: maxdiff 255 pixels 5409
+FAIL css/CSS2/linebox/split-inline-borders.html E-INLINE # match split-inline-borders-ref.html: maxdiff 255 pixels 14179
+FAIL css/CSS2/linebox/vertical-align-baseline-003.xht E-INLINE # match vertical-align-baseline-003-ref.xht: maxdiff 255 pixels 8030
+FAIL css/CSS2/linebox/vertical-align-baseline-010.xht E-INLINE # match vertical-align-baseline-007-ref.xht: maxdiff 23 pixels 3064
+FAIL css/CSS2/linebox/vertical-align-nested-top-001.html E-INLINE # match vertical-align-nested-top-001-ref.html: maxdiff 3 pixels 2
+FAIL css/CSS2/linebox/vertical-align-sub-001.xht E-INLINE # match vertical-align-sub-001-ref.xht: maxdiff 48 pixels 6
+FAIL css/CSS2/linebox/vertical-align-super-001.xht E-INLINE # match vertical-align-sub-001-ref.xht: maxdiff 48 pixels 6
+FAIL css/CSS2/lists/counter-increment-055.xht E-OL # match counter-increment-055-ref.html: maxdiff 250 pixels 4154
+FAIL css/CSS2/lists/counter-reset-055.xht E-OL # match pass-if-number-0-30px.xht: maxdiff 201 pixels 4347
+FAIL css/CSS2/lists/increment-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
+FAIL css/CSS2/lists/reset-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
+FAIL css/CSS2/tables/border-collapse-empty-row.html E-TABLE-BC # needs :not() - the reference thickens its cells with `tr:not(:last-child) td` (the inline-table painting is fixed); gate 2026-10-06: maxdiff 127 pixels 4000
+FAIL css/CSS2/tables/border-collapse-offset-002.xht E-TABLE-BC # the caption is laid out INSIDE the table box: a collapsed table's half border (2px) offsets it, Chrome's wrapper box keeps it outside; gate 2026-10-06: maxdiff 255 pixels 1051
+FAIL css/CSS2/tables/separated-border-model-004a.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 27816
+FAIL css/CSS2/tables/separated-border-model-004b.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 28116
+FAIL css/CSS2/tables/separated-border-model-007.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
+FAIL css/CSS2/tables/separated-border-model-008.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
+FAIL css/CSS2/visudet/height-percentage-004.xht E-INLINE # match height-percentage-004-ref.xht: maxdiff 255 pixels 437662
+FAIL css/CSS2/visudet/inline-block-baseline-001.xht E-INLINE # match inline-block-baseline-001-ref.xht: maxdiff 233 pixels 3295
+FAIL css/CSS2/visudet/inline-block-baseline-002.xht E-INLINE # match inline-block-baseline-001-ref.xht: maxdiff 233 pixels 2055
+FAIL css/CSS2/visudet/inline-block-baseline-005.xht E-INLINE # match inline-block-baseline-001-ref.xht: maxdiff 233 pixels 2209
+FAIL css/css-backgrounds/background-color-body-propagation-002.html E-BG # match background-color-body-propagation-ref.html: maxdiff 255 pixels 480000
+FAIL css/css-backgrounds/background-color-clip.html E-BG # match background-color-clip.html: maxdiff 255 pixels 9922
+FAIL css/css-backgrounds/background-margin-root.html E-BG # match background-margin-root-ref.html: maxdiff 255 pixels 402224
+FAIL css/css-color-adjust/rendering/dark-color-scheme/color-scheme-rule-cache.html E-MODE # match color-scheme-rule-cache-ref.html: maxdiff 255 pixels 8339
+FAIL css/css-images/color-stop-currentcolor.html E-GRAD # match color-stop-currentcolor-ref.html: maxdiff 205 pixels 468864
+FAIL css/css-images/gradients-with-border.html E-GRAD # match gradients-with-border-ref.html: maxdiff 255 pixels 8006
+FAIL css/css-images/gradients-with-transparent.html E-GRAD # match gradients-with-transparent-ref.html: maxdiff 64 pixels 31914
+FAIL css/css-images/normalization-linear-degenerate.html E-GRAD # match 100x100-blue.html: maxdiff 255 pixels 5000
+FAIL css/css-images/tiled-gradients.html E-GRAD # match tiled-gradients-ref.html: maxdiff 255 pixels 30000
+FAIL css/css-lists/counter-list-item.html E-OL # match counter-list-item-ref.html: maxdiff 23 pixels 9350
+FAIL css/css-lists/implicit-and-explicit-list-item-counters.html E-OL # match implicit-and-explicit-list-item-counters-ref.html: maxdiff 23 pixels 3654
+FAIL css/css-lists/inline-block-list.html E-OL # needs `display: inline flow-root list-item` (does not parse; the test renders block list items); gate 2026-10-06: maxdiff 255 pixels 33924
+FAIL css/css-lists/inline-list.html E-OL # match inline-list-ref.html: maxdiff 255 pixels 34561
+FAIL css/css-lists/li-list-item-counter-001.html E-OL # match li-list-item-counter-001-ref.html: maxdiff 233 pixels 942
+FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-counter-002-ref.html: maxdiff 255 pixels 786
+FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
+FAIL css/css-lists/list-style-type-string-001a.html E-OL # needs list-style-type: <string> (test) and ::before generated content (reference); gate 2026-10-06: maxdiff 233 pixels 3563
+FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
+FAIL css/css-tables/table_grid_size_col_colspan.html E-TABLE # match table_grid_size_col_colspan-ref.html: maxdiff 255 pixels 29500
+FAIL css/css-tables/th-text-align.html E-TABLE # needs HTML's th rule: centred only under a parent whose text-align is the initial value, and an author `text-align: inherit` to beat the UA centre; gate 2026-10-06: maxdiff 233 pixels 283
+FAIL css/css-text-decor/text-decoration-color.html E-DECOR # match text-decoration-color-ref.html: maxdiff 210 pixels 11946
+FAIL css/css-text-decor/text-decoration-subelements-003.html E-DECOR # match text-decoration-subelements-003-ref.html: maxdiff 232 pixels 808
+FAIL html/rendering/non-replaced-elements/tables/table-cell-width-s.html E-LEGACY # the reference's `.row { clear: both } .row div { float: left }` rows overlap: clearance does not see the floats of a previous sibling block (:first-child is fixed); gate 2026-10-06: maxdiff 255 pixels 4034
+FAIL html/rendering/non-replaced-elements/the-hr-element-0/color.html E-LEGACY # match color-ref.html: maxdiff 165 pixels 3136
+FAIL html/rendering/non-replaced-elements/the-hr-element-0/size-with-color-or-noshade.html E-LEGACY # match size-with-color-or-noshade-ref.html: maxdiff 165 pixels 76832
+FAIL html/rendering/non-replaced-elements/the-hr-element-0/size.html E-LEGACY # match size-ref.html: maxdiff 165 pixels 1568
+FAIL html/rendering/non-replaced-elements/the-hr-element-0/width.html E-LEGACY # match width-ref.html: maxdiff 165 pixels 8624
+FAIL local/color-scheme/a-dark-subtree-paints-a-dark-canvas.html E-MODE # mismatch a-dark-subtree-paints-a-dark-canvas-ref.html: maxdiff 0 pixels 0
+FAIL local/color-scheme/a-dark-subtree-writes-light-canvastext.html E-MODE # mismatch a-dark-subtree-writes-light-canvastext-ref.html: maxdiff 0 pixels 0
+FAIL local/ua/nested-lists-mark-disc-circle-square.html E-OL # match nested-lists-mark-disc-circle-square-ref.html: maxdiff 23 pixels 1220

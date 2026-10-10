@@ -50,10 +50,19 @@ pub enum ButtonType {
     Danger,
     /// Warning button - yellow with BLACK text
     Warning,
-    /// Informational button - teal/cyan with white text
+    /// Informational button - teal/cyan with BLACK text (white on #0dcaf0 reads
+    /// at 1.96:1, which is why Bootstrap and azul's `Badge` put dark text on it)
     Info,
-    /// Link-style button - appears as a hyperlink, no background
+    /// Link-style button - appears as a hyperlink, no background. Flora
+    /// draws it as its QUIET command (`.btn-quiet`): brass ink, underlined,
+    /// on the faintest paper - a note in the margin, not a control.
     Link,
+    /// The rare, emphasised command: paper set in a metal edge. Flora draws
+    /// it as `.btn-hero-primary` - the raised paper face inside a gold leaf
+    /// border, whose metal comes up on hover - and keeps it for the one
+    /// thing a view celebrates (Illuminate, Publish); flat as the standard
+    /// button in a brass edge. Appended last: the variants' C values stay.
+    Illuminated,
 }
 
 /// What a button type's face IS, which decides what a theme may do to it
@@ -78,7 +87,7 @@ impl ButtonType {
     #[must_use]
     pub const fn surface(self) -> ButtonSurface {
         match self {
-            Self::Default => ButtonSurface::Neutral,
+            Self::Default | Self::Illuminated => ButtonSurface::Neutral,
             Self::Link => ButtonSurface::NoSurface,
             Self::Primary
             | Self::Secondary
@@ -101,6 +110,7 @@ impl ButtonType {
             Self::Warning => "__azul-btn-warning",
             Self::Info => "__azul-btn-info",
             Self::Link => "__azul-btn-link",
+            Self::Illuminated => "__azul-btn-illuminated",
         }
     }
 }
@@ -129,8 +139,10 @@ pub struct Button {
     /// Optional trailing icon name (e.g. "`arrow_drop_down`" for menu/split
     /// buttons). An empty string means "no trailing icon".
     pub trailing_icon: AzString,
-    /// The semantic type of this button (Primary, Success, Danger, etc.)
-    pub button_type: ButtonType,
+    /// HTML `alt`: the name of a button that shows only an image
+    /// (`<input type=image>`, see [`Button::create_image`]). Announced as the
+    /// button's accessible name; empty for every other button.
+    pub alt: AzString,
     /// Style for this button container, or `None` for "no opinion" — in which
     /// case the style is derived from `button_type` at render time.
     ///
@@ -148,7 +160,38 @@ pub struct Button {
     pub trailing_icon_style: OptionCssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
+    /// Why the command cannot run now ("Select a file to delete"); empty =
+    /// enabled. A disabled button keeps its place and its keyboard stop, is
+    /// dimmed without hover / pressed paint, never runs `on_click` (nor its
+    /// form action), is announced unavailable with this reason as its
+    /// description, and shows the reason as a tooltip on hover and on click.
+    pub disabled_reason: AzString,
+    /// The semantic type of this button (Primary, Success, Danger, etc.)
+    /// With the other 4-byte fields at the end: no padding.
+    pub button_type: ButtonType,
     pub theme: crate::widgets::themes::OptionUiTheme,
+    /// What the button does to the [`crate::widgets::form::Form`] it sits in:
+    /// nothing, submit it or reset it (HTML `type=button|submit|reset`). It
+    /// runs in addition to [`Self::on_click`].
+    pub form_action: ButtonFormAction,
+    /// `Some`: a toggle button (Bold, a mode key), announced pressed or not
+    /// pressed (`aria-pressed`); `Some(true)` rests on the theme's pressed
+    /// face. `None`: an ordinary button.
+    pub toggled: OptionBool,
+}
+
+/// What a button does to the form it sits in - HTML's `<button type>`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum ButtonFormAction {
+    /// `type=button`: nothing; only `on_click` runs.
+    #[default]
+    None,
+    /// `type=submit` (`type=image` when the button shows an image): hand the
+    /// form's values to its `on_submit`.
+    Submit,
+    /// `type=reset`: put the form's fields back to their initial values.
+    Reset,
 }
 
 pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -220,14 +263,22 @@ pub(crate) const fn get_button_colors(button_type: ButtonType) -> (ColorU, Color
             ColorU::TRANSPARENT,
             ColorU::TRANSPARENT,
         ),
+        // Paper, a shade warmer than the Default's grey: the field inside
+        // the metal edge.
+        ButtonType::Illuminated => (
+            ColorU::rgb(251, 248, 238),
+            ColorU::rgb(244, 239, 223),
+            ColorU::rgb(234, 226, 204),
+        ),
     }
 }
 
 /// Get the text color for a button type
 const fn get_button_text_color(button_type: ButtonType) -> ColorU {
     match button_type {
-        ButtonType::Default => ColorU::rgb(33, 37, 41), // Dark text
+        ButtonType::Default | ButtonType::Illuminated => ColorU::rgb(33, 37, 41), // Dark text
         ButtonType::Warning => ColorU::BLACK,           // Black text on yellow
+        ButtonType::Info => ColorU::BLACK,              // Black text on cyan (white: 1.96:1)
         ButtonType::Link => ColorU::bootstrap_link(),   // Blue link color
         _ => ColorU::WHITE,                             // White text on colored buttons
     }
@@ -341,11 +392,13 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
             ])),
         ));
 
-        // Border (subtle for Default, transparent for others to maintain size)
-        let border_color = if button_type == ButtonType::Default {
-            ColorU::rgb(206, 212, 218)
-        } else {
-            bg_normal
+        // Border (subtle for Default, the brass edge for Illuminated -
+        // flora.css's `--fl-metal-turn` - and the face colour for the others,
+        // to keep their size)
+        let border_color = match button_type {
+            ButtonType::Default => ColorU::rgb(206, 212, 218),
+            ButtonType::Illuminated => ColorU::rgb(198, 178, 121),
+            _ => bg_normal,
         };
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1)),
@@ -444,6 +497,43 @@ impl Button {
     }
 
     /// Create a button with a specific type (Primary, Success, Danger, etc.)
+    /// `<input type=submit>` / `<button type=submit>`: a primary button that
+    /// submits the [`crate::widgets::form::Form`] it sits in.
+    #[must_use]
+    pub fn create_submit(label: AzString) -> Self {
+        Self::with_type(label, ButtonType::Primary).with_form_action(ButtonFormAction::Submit)
+    }
+
+    /// `<input type=reset>` / `<button type=reset>`: puts the fields of the
+    /// form it sits in back to their initial values.
+    #[must_use]
+    pub fn create_reset(label: AzString) -> Self {
+        Self::with_type(label, ButtonType::Default).with_form_action(ButtonFormAction::Reset)
+    }
+
+    /// `<input type=image>`: a submit button that shows only `image`, named
+    /// `alt` for assistive technology.
+    #[must_use]
+    pub fn create_image(image: ImageRef, alt: AzString) -> Self {
+        let mut button = Self::with_type(AzString::from_const_str(""), ButtonType::Default)
+            .with_form_action(ButtonFormAction::Submit);
+        button.set_image(image);
+        button.alt = alt;
+        button
+    }
+
+    /// What the button does to its form (see [`ButtonFormAction`]).
+    pub const fn set_form_action(&mut self, action: ButtonFormAction) {
+        self.form_action = action;
+    }
+
+    /// [`Self::set_form_action`] for the builder chain.
+    #[must_use]
+    pub const fn with_form_action(mut self, action: ButtonFormAction) -> Self {
+        self.set_form_action(action);
+        self
+    }
+
     #[inline]
     #[must_use]
     pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
@@ -453,17 +543,51 @@ impl Button {
             icon: AzString::from_const_str(""),
             icon_dom: None.into(),
             trailing_icon: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
             button_type,
+            form_action: ButtonFormAction::None,
             on_click: None.into(),
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             image_style: OptionCssPropertyWithConditionsVec::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No pin: the button follows the app theme, like every widget.
+            theme: crate::widgets::themes::OptionUiTheme::None,
             icon_style: OptionCssPropertyWithConditionsVec::None,
             trailing_icon_style: OptionCssPropertyWithConditionsVec::None,
+            disabled_reason: AzString::from_const_str(""),
+            toggled: OptionBool::None,
         }
+    }
+
+    /// Disables the button: `reason` says why the command cannot run now
+    /// (an empty reason enables it again). See [`Self::disabled_reason`].
+    pub fn set_disabled(&mut self, reason: AzString) {
+        self.disabled_reason = reason;
+    }
+
+    /// Builder method: disables the button with `reason`.
+    #[must_use]
+    pub fn with_disabled(mut self, reason: AzString) -> Self {
+        self.set_disabled(reason);
+        self
+    }
+
+    /// Whether the button is disabled (it has a reason).
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        !self.disabled_reason.as_str().is_empty()
+    }
+
+    /// Makes this a toggle button, on or off (see [`Self::toggled`]).
+    pub const fn set_toggled(&mut self, toggled: bool) {
+        self.toggled = OptionBool::Some(toggled);
+    }
+
+    /// Builder method: makes this a toggle button, on or off.
+    #[must_use]
+    pub const fn with_toggled(mut self, toggled: bool) -> Self {
+        self.set_toggled(toggled);
+        self
     }
 
     /// The container CSS this button renders with.
@@ -550,8 +674,8 @@ impl Button {
         m
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pin the widget theme: the widget keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -598,11 +722,7 @@ impl Button {
 
     #[inline]
     pub fn set_on_click<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
-        self.on_click = Some(ButtonOnClick {
-            refany: data,
-            callback: on_click.into(),
-        })
-        .into();
+        self.on_click = Some(ButtonOnClick::create(data, on_click)).into();
     }
 
     #[inline]
@@ -618,23 +738,313 @@ impl Button {
 
     #[inline]
     #[must_use]
-    pub fn dom(self) -> Dom {
+    pub fn dom(mut self) -> Dom {
         // Rendering lives in the theme modules, where the palette is in scope:
         // the dark-mode colours, the interactive states and (for flora) the
         // raised face are all appended there. This used to build its own copy of
         // the tree and never reach `flat::button` / `flora::button`, which left
         // both functions dead and the product's buttons without any of that.
         //
-        // `UiTheme::default()` is Flat, and so is every other widget's fallback.
-        match self.theme.into_option() {
+        // A pinned theme (`with_theme`) is that look; no theme follows the
+        // app theme (flat unless the app chose another), like every widget.
+        // A disabled button runs nothing: not the app's click, not its form
+        // action. The themes drop its hover / pressed paint and dim it;
+        // `mark_disabled` below names it unavailable and says why.
+        let disabled_reason = self.is_disabled().then(|| self.disabled_reason.clone());
+        if disabled_reason.is_some() {
+            self.on_click = OptionButtonOnClick::None;
+            self.form_action = ButtonFormAction::None;
+        }
+        let toggled = self.toggled;
+        let form_action = self.form_action;
+        let has_image = self.image.is_some();
+        let alt = self.alt.clone();
+        let dom = match self.theme.into_option() {
             Some(crate::widgets::themes::UiTheme::Flora) => {
                 crate::widgets::themes::flora::button(self)
             }
-            Some(crate::widgets::themes::UiTheme::Flat) | None => {
+            Some(crate::widgets::themes::UiTheme::Flat) => {
                 crate::widgets::themes::flat::button(self)
             }
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::button,
+                crate::widgets::themes::flora::button,
+            ),
+        };
+        let mut dom = with_form_semantics(dom, form_action, has_image, alt);
+        if let Some(on) = toggled.into_option() {
+            add_accessibility_state(
+                &mut dom,
+                if on {
+                    azul_core::a11y::AccessibilityState::CheckedTrue
+                } else {
+                    azul_core::a11y::AccessibilityState::CheckedFalse
+                },
+            );
+        }
+        if let Some(reason) = disabled_reason {
+            mark_disabled(&mut dom, reason);
+        }
+        dom
+    }
+}
+
+/// A piece of DATA a user can open - a task's title, an appointment, a
+/// message's sender - drawn as a link button: flat's link button, and in
+/// flora flora.css's text link (`a`: brass ink, underlined, in the running
+/// hand) rather than flora's quiet COMMAND (`.btn-quiet`), whose box and
+/// capitals belong to commands ([`crate::widgets::themes::flora::as_text_link`]).
+#[derive(Clone)]
+pub(crate) struct DataLink {
+    /// What the link reads.
+    pub label: AzString,
+    /// What its click hands `on_click`.
+    pub data: RefAny,
+    /// Called on a click.
+    pub on_click: ButtonOnClickCallbackType,
+    /// The icon after the label (a sort direction's arrow), `""` for none.
+    pub trailing_icon: &'static str,
+}
+
+impl DataLink {
+    /// The link button, pinned to `theme`.
+    fn button(self, theme: crate::widgets::themes::UiTheme) -> Button {
+        let b = Button::with_type(self.label, ButtonType::Link)
+            .with_on_click(self.data, self.on_click)
+            .with_theme(theme);
+        if self.trailing_icon.is_empty() {
+            b
+        } else {
+            b.with_trailing_icon(AzString::from_const_str(self.trailing_icon))
         }
     }
+}
+
+fn flat_data_link(link: DataLink) -> Dom {
+    link.button(crate::widgets::themes::UiTheme::Flat).dom()
+}
+
+fn flora_data_link(link: DataLink) -> Dom {
+    crate::widgets::themes::flora::as_text_link(link.button(crate::widgets::themes::UiTheme::Flora))
+        .dom()
+}
+
+/// `link` in the widget theme `theme` (`None`: following the app theme,
+/// both looks in one DOM, as an unpinned [`Button`] would).
+pub(crate) fn data_link(link: DataLink, theme: Option<crate::widgets::themes::UiTheme>) -> Dom {
+    use crate::widgets::themes::UiTheme;
+    match theme {
+        Some(UiTheme::Flat) => flat_data_link(link),
+        Some(UiTheme::Flora) => flora_data_link(link),
+        None => crate::widgets::themes::theme_blocks::follow_app_theme(
+            link,
+            flat_data_link,
+            flora_data_link,
+        ),
+    }
+}
+
+/// Added to a disabled button ([`Button::disabled_reason`]).
+pub const BUTTON_DISABLED_CLASS: &str = "__azul-native-button-disabled";
+
+/// What a disabled button's callbacks carry: why it cannot run.
+#[derive(Debug, Clone)]
+pub(crate) struct DisabledReason(pub(crate) AzString);
+
+/// The pointer rests on a disabled button, or it was clicked: say why.
+/// (Any text in a [`DisabledReason`]: the toolbar shows an icon-only tool's
+/// name through it too.)
+pub(crate) extern "C" fn show_disabled_reason(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
+    if let Some(reason) = reason {
+        info.show_tooltip(reason);
+    }
+    Update::DoNothing
+}
+
+/// A disabled button took the keyboard focus: say why, under the button (a
+/// keyboard user's pointer may be anywhere, so the reason does not follow
+/// it).
+pub(crate) extern "C" fn show_disabled_reason_on_focus(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
+    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
+    if let Some(reason) = reason {
+        match info.get_hit_node_rect() {
+            Some(rect) => info.show_tooltip_at(
+                reason,
+                azul_core::geom::LogicalPosition::new(
+                    rect.origin.x,
+                    rect.origin.y + rect.size.height,
+                ),
+            ),
+            None => info.show_tooltip(reason),
+        }
+    }
+    Update::DoNothing
+}
+
+/// The pointer (or the keyboard focus) left a disabled button.
+pub(crate) extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.hide_tooltip();
+    Update::DoNothing
+}
+
+/// A disabled button's face: `container` without its hover / pressed
+/// paint, dimmed. The focus ring stays: a disabled command keeps its
+/// keyboard stop. Both themes apply it to the container they build, the
+/// caller's (a ribbon button's) included.
+pub(crate) fn disabled_style(container: &[CssPropertyWithConditions]) -> Vec<CssPropertyWithConditions> {
+    use azul_css::dynamic_selector::PseudoStateType;
+    let mut out: Vec<CssPropertyWithConditions> = container
+        .iter()
+        .filter(|c| {
+            let states = c.pseudo_state_conditions();
+            !states.contains(&PseudoStateType::Hover) && !states.contains(&PseudoStateType::Active)
+        })
+        .cloned()
+        .collect();
+    out.push(CssPropertyWithConditions::simple(CssProperty::const_opacity(
+        StyleOpacity {
+            inner: PercentageValue::const_new(40),
+        },
+    )));
+    out
+}
+
+/// Adds `state` to the accessibility states of `dom`'s root.
+fn add_accessibility_state(dom: &mut Dom, state: azul_core::a11y::AccessibilityState) {
+    use azul_core::a11y::{AccessibilityInfo, AccessibilityStateVec};
+    let mut a11y: AccessibilityInfo = dom.root.get_accessibility_info().cloned().unwrap_or_default();
+    let mut states = a11y.states.clone().into_library_owned_vec();
+    if !states.contains(&state) {
+        states.push(state);
+    }
+    a11y.states = AccessibilityStateVec::from_vec(states);
+    dom.root.set_accessibility_info(a11y);
+}
+
+/// Marks a built button disabled: [`BUTTON_DISABLED_CLASS`], the
+/// unavailable state with `reason` as its description, and the callbacks
+/// that show the reason on hover, on click and on keyboard focus (it keeps
+/// its Tab stop, and a keyboard user never hovers).
+pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{EventFilter, HoverEventFilter},
+        events::FocusEventFilter,
+        refany::OptionRefAny,
+    };
+    dom.root.add_class(AzString::from_const_str(BUTTON_DISABLED_CLASS));
+    add_accessibility_state(dom, azul_core::a11y::AccessibilityState::Unavailable);
+    if let Some(mut a11y) = dom.root.get_accessibility_info().cloned() {
+        a11y.description = OptionString::Some(reason.clone());
+        dom.root.set_accessibility_info(a11y);
+    }
+    let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
+    for (event, cb) in [
+        (EventFilter::Hover(HoverEventFilter::MouseEnter), show_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::Click), show_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::MouseLeave), hide_disabled_reason as usize),
+        (
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            show_disabled_reason_on_focus as usize,
+        ),
+        (EventFilter::Focus(FocusEventFilter::FocusLost), hide_disabled_reason as usize),
+    ] {
+        callbacks.push(CoreCallbackData {
+            event,
+            callback: CoreCallback {
+                cb,
+                ctx: OptionRefAny::None,
+            },
+            refany: RefAny::new(DisabledReason(reason.clone())),
+        });
+    }
+    dom.root.set_callbacks(callbacks.into());
+}
+
+/// What a submit / reset / image button adds on top of the themed button, in
+/// one place for both themes: the HTML `type` (which the engine reads - Enter
+/// on a `type=reset` control resets its form), the `alt` name, and the click
+/// handler that acts on the enclosing form. A plain button is left untouched.
+fn with_form_semantics(
+    mut dom: Dom,
+    action: ButtonFormAction,
+    has_image: bool,
+    alt: AzString,
+) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{AttributeType, EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+
+    if !alt.as_str().is_empty() {
+        if let Some(mut a11y) = dom.root.get_accessibility_info().cloned() {
+            a11y.accessibility_name = Some(alt.clone()).into();
+            dom.root.set_accessibility_info(a11y);
+        }
+        dom = dom.with_attribute(AttributeType::Alt(alt));
+    }
+
+    let html_type = match action {
+        ButtonFormAction::None => return dom,
+        ButtonFormAction::Submit if has_image => "image",
+        ButtonFormAction::Submit => "submit",
+        ButtonFormAction::Reset => "reset",
+    };
+    dom.with_attribute(AttributeType::InputType(AzString::from_const_str(html_type)))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(action),
+            CoreCallback {
+                cb: crate::widgets::form::default_on_form_button_click as usize,
+                ctx: OptionRefAny::None,
+            },
+        )
+}
+
+/// A [`Button`] dressed in a composite widget's look - the ribbon's and the
+/// toolbar's tool buttons (one builder; they were twins, WIDGETS9A s10):
+/// the label, the leading and trailing icon glyphs, the four part styles the
+/// composite decides, its click hook, its disabled reason (the Button drops a
+/// disabled command's click, dims it and says why) and its name (`alt`, for
+/// an icon-only button; empty = the label names it). Built in `theme`
+/// (`None`: it follows the app theme) - a composite pinned to a theme builds
+/// its buttons in that theme. The caller adds what is its own (a toggle, its
+/// classes, its keys) before and after `dom()`.
+pub(crate) fn styled_button(
+    icon: AzString,
+    label: AzString,
+    trailing_icon: AzString,
+    container_style: CssPropertyWithConditionsVec,
+    icon_style: CssPropertyWithConditionsVec,
+    label_style: CssPropertyWithConditionsVec,
+    trailing_icon_style: CssPropertyWithConditionsVec,
+    on_click: OptionButtonOnClick,
+    disabled_reason: AzString,
+    alt: AzString,
+    theme: crate::widgets::themes::OptionUiTheme,
+) -> Button {
+    let mut b = Button::create(label);
+    b.alt = alt;
+    b.icon = icon;
+    b.trailing_icon = trailing_icon;
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
+    b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
+    b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
+    b.on_click = on_click;
+    b.disabled_reason = disabled_reason;
+    if let Some(t) = theme.into_option() {
+        b.set_theme(t);
+    }
+    b
 }
 
 #[cfg(test)]
@@ -656,7 +1066,7 @@ mod autotest_generated {
 
     /// Every variant of `ButtonType` - the complete input domain of `class_name`,
     /// `get_button_colors`, `get_button_text_color` and `build_button_container_style`.
-    const ALL_TYPES: [ButtonType; 8] = [
+    const ALL_TYPES: [ButtonType; 9] = [
         ButtonType::Default,
         ButtonType::Primary,
         ButtonType::Secondary,
@@ -665,6 +1075,7 @@ mod autotest_generated {
         ButtonType::Warning,
         ButtonType::Info,
         ButtonType::Link,
+        ButtonType::Illuminated,
     ];
 
     const WHITE: ColorU = ColorU {
@@ -761,9 +1172,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -844,6 +1253,7 @@ mod autotest_generated {
             (ButtonType::Warning, "__azul-btn-warning"),
             (ButtonType::Info, "__azul-btn-info"),
             (ButtonType::Link, "__azul-btn-link"),
+            (ButtonType::Illuminated, "__azul-btn-illuminated"),
         ];
         for (ty, class) in expected {
             assert_eq!(ty.class_name(), class, "{ty:?}: wrong CSS class");
@@ -968,6 +1378,12 @@ mod autotest_generated {
                 ColorU::rgb(61, 213, 243),
             ),
             (ButtonType::Link, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+            (
+                ButtonType::Illuminated,
+                ColorU::rgb(251, 248, 238),
+                ColorU::rgb(244, 239, 223),
+                ColorU::rgb(234, 226, 204),
+            ),
         ];
         for (ty, normal, hover, active) in expected {
             assert_eq!(
@@ -1061,18 +1477,23 @@ mod autotest_generated {
             (ButtonType::Success, WHITE),
             (ButtonType::Danger, WHITE),
             (ButtonType::Warning, BLACK), // doc: "Warning button - yellow with BLACK text"
-            (ButtonType::Info, WHITE),
+            (ButtonType::Info, BLACK),    // doc: "... with BLACK text" (white reads 1.96:1)
             (ButtonType::Link, ColorU::rgb(13, 110, 253)),
+            (ButtonType::Illuminated, DARK),
         ];
         for (ty, text) in expected {
             assert_eq!(get_button_text_color(ty), text, "{ty:?}: wrong text colour");
         }
-        // The `_ => WHITE` catch-all is easy to widen by accident: only these three
+        // The `_ => WHITE` catch-all is easy to widen by accident: only these four
         // variants may deviate from white.
         for ty in ALL_TYPES {
             let is_special = matches!(
                 ty,
-                ButtonType::Default | ButtonType::Warning | ButtonType::Link
+                ButtonType::Default
+                    | ButtonType::Warning
+                    | ButtonType::Info
+                    | ButtonType::Link
+                    | ButtonType::Illuminated
             );
             assert_eq!(
                 get_button_text_color(ty) != WHITE,
@@ -1101,10 +1522,9 @@ mod autotest_generated {
     #[test]
     fn get_button_text_color_stays_readable_on_its_own_background() {
         // The one real invariant of the pair: label must be legible on the fill.
-        // NOTE: `Info` (white on #0dcaf0) is by far the weakest pairing at ~90 luma
-        // of separation — Bootstrap and azul's own `Badge` widget both put *dark*
-        // text on Info. The bound below is the current floor, not an endorsement;
-        // moving Info to dark text raises its separation to ~128 and still passes.
+        // `Info` used to be the exception (white on #0dcaf0, 1.96:1); it now
+        // carries black text like Bootstrap's and azul's own `Badge`, so every
+        // type picks the more readable of the two candidates.
         for ty in ALL_TYPES {
             if ty == ButtonType::Link {
                 continue; // no fill: a link is drawn on the page background
@@ -1120,12 +1540,10 @@ mod autotest_generated {
             // ... and the *more* readable of the two candidates was chosen.
             let alt = if text == WHITE { DARK } else { WHITE };
             let alt_separation = (luma(bg) - luma(alt)).abs();
-            if ty != ButtonType::Info {
-                assert!(
-                    separation >= alt_separation,
-                    "{ty:?}: {alt:?} would be more readable than {text:?} on {bg:?}"
-                );
-            }
+            assert!(
+                separation >= alt_separation,
+                "{ty:?}: {alt:?} would be more readable than {text:?} on {bg:?}"
+            );
         }
     }
 
@@ -1217,10 +1635,7 @@ mod autotest_generated {
             // appended its states.
             let rendered = Button::with_type(AzString::from_const_str("x"), ty).dom();
             assert!(
-                rendered
-                    .root
-                    .style
-                    .iter_inline_properties()
+                crate::widgets::themes::theme_blocks::checks::live_inline(&rendered).iter()
                     .any(|(_, conds)| !conds.as_ref().is_empty()),
                 "{ty:?}: the rendered button has no conditional properties at all, so it gives no \
                  feedback on hover, press or focus",
@@ -1658,6 +2073,23 @@ mod autotest_generated {
         );
     }
 
+    /// `ButtonOnClick::create` builds the hook `with_on_click` stores, so an
+    /// app that hands a widget a ready hook (a status bar's zoom buttons)
+    /// writes no struct literal (DEDUP_WIDGETS_API F15, DEDUP_OFFICE D28).
+    #[test]
+    fn a_hook_made_with_create_is_the_one_with_on_click_stores() {
+        let made = ButtonOnClick::create(RefAny::new(7u32), test_click as ButtonOnClickCallbackType);
+        let stored = btn("Zoom", ButtonType::Primary)
+            .with_on_click(RefAny::new(7u32), test_click as ButtonOnClickCallbackType)
+            .on_click
+            .into_option()
+            .expect("with_on_click stores a hook");
+        assert_eq!(made.callback, stored.callback);
+        assert!(matches!(made.callback.ctx, azul_core::refany::OptionRefAny::None));
+        let mut data = made.refany.clone();
+        assert_eq!(data.downcast_ref::<u32>().map(|v| *v), Some(7));
+    }
+
     #[test]
     fn with_on_click_round_trips_the_function_pointer_and_the_payload_into_the_dom() {
         let cb: ButtonOnClickCallbackType = test_click;
@@ -1774,17 +2206,16 @@ mod autotest_generated {
         // and a coloured command legitimately has those (in its own colour).
         let dark_backgrounds = |ty: ButtonType| {
             use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
-            btn("OK", ty)
-                .dom()
-                .root
-                .style
-                .iter_inline_properties()
+            // Read as the app theme the test builds for sees it: a button
+            // with no theme carries every theme's `@theme(<name>)` block.
+            crate::widgets::themes::theme_blocks::checks::live_inline(&btn("OK", ty).dom())
+                .iter()
                 .filter(|(p, c)| {
                     p.get_type() == CssPropertyType::BackgroundContent
                         && !c.as_ref().is_empty()
                         && c.as_ref()
                             .iter()
-                            .all(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                            .all(|s| matches!(s, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                 })
                 .count()
         };
@@ -1821,11 +2252,28 @@ mod autotest_generated {
 
             // Only the RESTING declarations: the theme appends hover, pressed
             // and focus rules on top of the container style, and those are not
-            // part of what the widget declared.
+            // part of what the widget declared. Two resting declarations ARE
+            // the theme's, after the style the button owns (a caller's own
+            // style gets neither): the neutral face's Office 2010 raised
+            // gradient (white over silver), and the face's pointer fade
+            // (`decl::state_fade`, its unconditional half, d5cebf5a7) - a link
+            // only underlines and has none.
+            let mut expected = container;
+            {
+                use crate::widgets::themes::{decl, flat};
+                if ty.surface() == ButtonSurface::Neutral {
+                    expected.push(decl::layers(vec![decl::face(flat::LIGHT_RT, flat::LIGHT_RB)]));
+                }
+                if ty != ButtonType::Link {
+                    let [fade, _pressed] =
+                        decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS);
+                    expected.push(fade.property);
+                }
+            }
             assert_eq!(
                 theme_probe::unconditional(&dom),
-                container,
-                "{ty:?}: the root inline style is not the container style"
+                expected,
+                "{ty:?}: the root inline style is not the container style (+ the theme's fade)"
             );
 
             let children = dom.children.as_ref();
@@ -1978,6 +2426,294 @@ mod autotest_generated {
                 b.children.as_ref().len(),
                 "{ty:?}: child count differs"
             );
+        }
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod link_focus_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_checks::has_focus_ring, UiTheme};
+
+    /// A link button is a keyboard stop like every button, so it shows
+    /// focus in both themes and both modes (an icon-only link - a timeline
+    /// track's mute toggle - had no visible focus at all).
+    #[test]
+    fn a_link_button_shows_where_the_keyboard_focus_is() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for label in ["", "Open"] {
+                let dom = Button::with_type(AzString::from(label), ButtonType::Link)
+                    .with_icon(AzString::from("volume_up"))
+                    .with_theme(theme)
+                    .dom();
+                assert!(has_focus_ring(&dom, false), "{theme:?} {label:?}: no light focus ring");
+                assert!(has_focus_ring(&dom, true), "{theme:?} {label:?}: no dark focus ring");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    const TYPES: [ButtonType; 8] = [
+        ButtonType::Default,
+        ButtonType::Primary,
+        ButtonType::Secondary,
+        ButtonType::Success,
+        ButtonType::Danger,
+        ButtonType::Warning,
+        ButtonType::Info,
+        ButtonType::Link,
+    ];
+
+    #[test]
+    fn a_button_without_a_theme_follows_the_app_theme() {
+        for ty in TYPES {
+            let button = || Button::create(azul_css::AzString::from("OK")).with_button_type(ty);
+            checks::assert_follows_the_app_theme(
+                &format!("button {ty:?}"),
+                || button().dom(),
+                |t: UiTheme| button().with_theme(t).dom(),
+            );
+        }
+    }
+
+    /// R5: the button's centred inline row, its pointer, the label's and the
+    /// icons' unselectable text are the button's BASE, declared once outside
+    /// every `@theme` block. Every type; plain, with a leading icon and with a
+    /// trailing one; a submit button.
+    #[test]
+    fn a_button_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for ty in TYPES {
+                let plain = || Button::create(azul_css::AzString::from("OK")).with_button_type(ty);
+                let variants = [
+                    ("plain", plain()),
+                    ("with an icon", plain().with_icon(azul_css::AzString::from("add"))),
+                    (
+                        "with a trailing icon",
+                        plain().with_trailing_icon(azul_css::AzString::from("arrow_drop_down")),
+                    ),
+                ];
+                for (what, button) in variants {
+                    let dom = checks::under(t, || button.dom());
+                    assert_structure_is_shared(
+                        &format!("button {ty:?} {what} built for {}", t.name()),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+            let submit = checks::under(t, || {
+                Button::create_submit(azul_css::AzString::from("Send")).dom()
+            });
+            assert_structure_is_shared(
+                &format!("submit button built for {}", t.name()),
+                &submit,
+                &[],
+            );
+        }
+    }
+
+    #[test]
+    fn a_submit_button_without_a_theme_follows_the_app_theme() {
+        let button = || Button::create_submit(azul_css::AzString::from("Send"));
+        checks::assert_follows_the_app_theme(
+            "submit button",
+            || button().dom(),
+            |t: UiTheme| button().with_theme(t).dom(),
+        );
+    }
+}
+
+#[cfg(test)]
+mod disabled_and_toggled_tests {
+    use azul_core::{
+        a11y::AccessibilityState,
+        dom::{EventFilter, HoverEventFilter, TabIndex},
+    };
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType},
+        props::property::CssProperty,
+    };
+
+    use super::*;
+    use crate::widgets::themes::UiTheme;
+
+    extern "C" fn app_click(_: RefAny, _: CallbackInfo) -> Update {
+        Update::RefreshDom
+    }
+
+    fn has_class(dom: &Dom, class: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+    }
+
+    fn states(dom: &Dom) -> Vec<AccessibilityState> {
+        dom.root
+            .get_accessibility_info()
+            .map(|a| a.states.as_ref().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// A command that cannot run now (Calculator's dimmed key, a dialog's
+    /// greyed OK) is a DISABLED button, not a dimmed div: it keeps its place
+    /// and its keyboard stop, never runs its click, drops the hover / pressed
+    /// paint, is dimmed, is announced unavailable with the reason as its
+    /// description and shows the reason on hover and click - in both themes,
+    /// as RibbonButton's disabled state does (DEDUP_OFFICE A11).
+    #[test]
+    fn a_disabled_button_is_dimmed_inert_and_says_why_in_both_themes() {
+        let reason = "Select a file to delete";
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let button = Button::with_type(AzString::from("Delete"), ButtonType::Danger)
+                .with_on_click(RefAny::new(7u32), app_click as ButtonOnClickCallbackType)
+                .with_disabled(AzString::from(reason));
+            assert!(button.is_disabled());
+            let dom = button.with_theme(theme).dom();
+
+            assert!(has_class(&dom, BUTTON_DISABLED_CLASS), "{theme:?}");
+            assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto), "{theme:?}: still a stop");
+            assert!(states(&dom).contains(&AccessibilityState::Unavailable), "{theme:?}");
+            assert_eq!(
+                dom.root
+                    .get_accessibility_info()
+                    .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string())),
+                Some(String::from(reason)),
+                "{theme:?}: the reason is the description"
+            );
+
+            let mut dimmed = false;
+            for (prop, conditions) in dom.root.style.iter_inline_properties() {
+                let pressed = conditions.as_ref().iter().any(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Hover | PseudoStateType::Active)
+                    )
+                });
+                assert!(!pressed, "{theme:?}: a disabled button has no hover / pressed paint: {prop:?}");
+                // Dimmed: faded as a whole (the shared rule, flat), or set
+                // on flora's disabled paper - its faded ink and rule, the
+                // specimen's DISABLED button (no opacity: the paper stays
+                // paper).
+                if let CssProperty::Opacity(o) = prop {
+                    if o.get_property().is_some_and(|o| o.inner.normalized() < 0.75) {
+                        dimmed = true;
+                    }
+                }
+                if let CssProperty::TextColor(c) = prop {
+                    let paper_ink = crate::widgets::themes::flora::LIGHT_DISTX;
+                    if conditions.as_ref().is_empty()
+                        && c.get_property().is_some_and(|c| c.inner == paper_ink)
+                    {
+                        dimmed = true;
+                    }
+                }
+            }
+            assert!(dimmed, "{theme:?}: a disabled button is dimmed");
+
+            let callbacks = dom.root.get_callbacks().as_ref();
+            for cb in callbacks {
+                let mut data = cb.refany.clone();
+                assert!(data.downcast_ref::<u32>().is_none(), "{theme:?}: the app's click is gone");
+            }
+            let events: Vec<EventFilter> = callbacks.iter().map(|cb| cb.event).collect();
+            for wanted in [
+                EventFilter::Hover(HoverEventFilter::MouseEnter),
+                EventFilter::Hover(HoverEventFilter::MouseLeave),
+                EventFilter::Hover(HoverEventFilter::Click),
+            ] {
+                assert!(events.contains(&wanted), "{theme:?}: {wanted:?} shows the reason");
+            }
+        }
+        let enabled = Button::create(AzString::from("Delete")).with_disabled(AzString::from(""));
+        assert!(!enabled.is_disabled(), "an empty reason enables it");
+    }
+
+    /// A keyboard user never hovers: a disabled button that takes the
+    /// focus (it keeps its Tab stop) shows its reason as the pointer's
+    /// hover does, and hides it when the focus leaves (user decision D1,
+    /// 2026-10-05: the reason on hover AND on keyboard focus).
+    #[test]
+    fn a_disabled_button_shows_its_reason_on_keyboard_focus_too() {
+        use azul_core::{
+            dom::{DomId, DomNodeId, NodeId},
+            events::FocusEventFilter,
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+        let reason = "Select a file to delete";
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = Button::create(AzString::from("Delete"))
+                .with_disabled(AzString::from(reason))
+                .with_theme(theme)
+                .dom();
+            let events: Vec<EventFilter> =
+                dom.root.get_callbacks().as_ref().iter().map(|cb| cb.event).collect();
+            for wanted in [
+                EventFilter::Focus(FocusEventFilter::FocusReceived),
+                EventFilter::Focus(FocusEventFilter::FocusLost),
+            ] {
+                assert!(events.contains(&wanted), "{theme:?}: {wanted:?} on a disabled button");
+            }
+            let styled = StyledDom::create_from_dom(dom);
+            let root = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+            };
+            let (_, focused) = rv::fire(&styled, root, EventFilter::Focus(FocusEventFilter::FocusReceived))
+                .expect("the focus reaches a disabled button");
+            assert!(
+                focused
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::ShowTooltip { text, .. } if text.as_str() == reason)),
+                "{theme:?}: the focus shows the reason: {focused:?}"
+            );
+            let (_, left) = rv::fire(&styled, root, EventFilter::Focus(FocusEventFilter::FocusLost))
+                .expect("the focus leaves a disabled button");
+            assert!(
+                left.iter().any(|c| matches!(c, CallbackChange::HideTooltip)),
+                "{theme:?}: the reason goes with the focus: {left:?}"
+            );
+        }
+    }
+
+    /// A toggle button (Bold, a calculator mode key) is announced pressed or
+    /// not pressed (`aria-pressed`) and shows the pressed face while on - in
+    /// both themes; switched off it looks like a plain button
+    /// (DEDUP_OFFICE A11).
+    #[test]
+    fn a_toggled_button_is_announced_pressed_and_shows_the_pressed_face_in_both_themes() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for ty in [ButtonType::Default, ButtonType::Primary] {
+                let make = || Button::with_type(AzString::from("Bold"), ty).with_theme(theme);
+                let on = make().with_toggled(true).dom();
+                let off = make().with_toggled(false).dom();
+                let plain = make().dom();
+                assert!(states(&on).contains(&AccessibilityState::CheckedTrue), "{theme:?} {ty:?}");
+                assert!(states(&off).contains(&AccessibilityState::CheckedFalse), "{theme:?} {ty:?}");
+                assert!(
+                    !states(&plain)
+                        .iter()
+                        .any(|s| matches!(s, AccessibilityState::CheckedTrue | AccessibilityState::CheckedFalse)),
+                    "{theme:?} {ty:?}: a plain button is no toggle"
+                );
+                assert_ne!(on.root.get_style(), off.root.get_style(), "{theme:?} {ty:?}: on is pressed in");
+                assert_eq!(off.root.get_style(), plain.root.get_style(), "{theme:?} {ty:?}: off is the plain face");
+            }
         }
     }
 }

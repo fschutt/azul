@@ -165,6 +165,11 @@ impl GnomeMenuManager {
 
         debug_log("All DBus interfaces registered successfully");
 
+        // GNOME Shell's Start / Activate calls arrive on this socket: put it
+        // in the run loops' wait set. Without it the exporter was served only
+        // when some window event happened to wake the loop.
+        crate::desktop::loop_waker::watch_dbus_connection(&dbus_lib, connection);
+
         Ok(Self {
             app_name: app_name.to_string(),
             bus_name,
@@ -316,8 +321,9 @@ impl GnomeMenuManager {
     /// method calls from GNOME Shell.
     pub fn process_messages(&self) {
         unsafe {
-            // Non-blocking message processing
-            (self.dbus_lib.dbus_connection_read_write_dispatch)(self.connection, 0);
+            // Non-blocking: read once, dispatch until the queue is empty
+            // (`read_write_dispatch` handled one message per call).
+            crate::desktop::shell2::linux::dbus::drain_connection(&self.dbus_lib, self.connection);
         }
     }
 }

@@ -1,8 +1,9 @@
 //! Android permission backend.
 //!
-//! Subscribe path (`handle_event`) → `Activity.requestPermissions(
-//! String[]{perm}, requestCode)` (framework API 23+, no androidx) via the
-//! JNI bridge, fired only when `probe_status` reports `NotDetermined`.
+//! Subscribe path (`handle_event`) → `AzulPermissions.request(activity,
+//! String[]{perm}, requestCode)`, which runs `Activity.requestPermissions`
+//! (framework API 23+, no androidx) on the UI thread, fired only when
+//! `probe_status` reports `NotDetermined`.
 //! The async grant/deny lands in `AzulActivity.onRequestPermissionsResult`
 //! (Java glue, pending) which forwards to the `nativeOnPermissionResult`
 //! symbol below; that maps the request code back to its `Capability` and
@@ -57,15 +58,24 @@ pub fn handle_event(event: &PermissionDiffEvent) {
         PermissionDiffEvent::Subscribe { capability, .. } => *capability,
         PermissionDiffEvent::Release { .. } | PermissionDiffEvent::Reconfigure { .. } => return,
     };
+    let _ = request(capability);
+}
+
+/// Show the runtime-permission dialog for `capability` if - and only if - it
+/// was never answered. Returns whether a dialog was requested; its answer
+/// arrives through `nativeOnPermissionResult`. Also the entry point of
+/// `CallbackInfo::request_notification_permission` (POST_NOTIFICATIONS).
+#[cfg(target_os = "android")]
+pub fn request(capability: Capability) -> bool {
     let perm = match capability_to_permission(capability) {
         Some(p) => p,
-        None => return,
+        None => return false,
     };
     // Only NotDetermined needs the OS dialog. Already-Granted/Denied is
     // surfaced by probe_status; a None (JNI unavailable) also means
     // "nothing to do".
     if probe_permission(perm) != Some(PermissionState::NotDetermined) {
-        return;
+        return false;
     }
 
     let request_code = next_request_code();
@@ -77,7 +87,9 @@ pub fn handle_event(event: &PermissionDiffEvent) {
         if let Ok(mut pending) = PENDING_REQUESTS.lock() {
             pending.remove(&request_code);
         }
+        return false;
     }
+    true
 }
 
 #[cfg(not(target_os = "android"))]
@@ -205,26 +217,43 @@ fn probe_permission(perm: &str) -> Option<PermissionState> {
     })
 }
 
-/// `Activity.requestPermissions(String[]{perm}, requestCode)`.
+/// `AzulPermissions.request(activity, String[]{perm}, requestCode)`: the
+/// helper runs `Activity.requestPermissions` on the UI thread
+/// (`runOnUiThread`). This runs on `android_main`'s thread, and the framework
+/// starts the permission dialog's activity from the UI thread only.
 ///
-/// NOTE: must run on the UI thread; a hardened backend posts to the main
-/// `Looper`. Called direct here (works in theory) — threading hardening is
-/// a follow-up.
+/// The helper is an APK class, which a native-attached thread resolves only
+/// through the ACTIVITY's class loader (`find_app_class`). It is the same
+/// class that forwards the answer (`nativeOnPermissionResult`), so an APK
+/// without it could never report one - there is nothing to fall back to.
 #[cfg(target_os = "android")]
 fn request_permission(perm: &str, request_code: i32) -> Option<()> {
     use jni::objects::JValue;
 
     attach(|env, activity| {
+        let helper = crate::desktop::extra::find_app_class(
+            env,
+            &activity,
+            "com/azul/permission/AzulPermissions",
+        )?;
         let str_cls = env.find_class("java/lang/String").ok()?;
         let perm_jstr = env.new_string(perm).ok()?;
         let arr = env.new_object_array(1, &str_cls, &perm_jstr).ok()?;
-        env.call_method(
-            &activity,
-            "requestPermissions",
-            "([Ljava/lang/String;I)V",
-            &[JValue::Object(&arr), JValue::Int(request_code)],
-        )
-        .ok()?;
+        let called = env.call_static_method(
+            &helper,
+            "request",
+            "(Landroid/app/Activity;[Ljava/lang/String;I)V",
+            &[
+                JValue::Object(&activity),
+                JValue::Object(&arr),
+                JValue::Int(request_code),
+            ],
+        );
+        if called.is_err() {
+            // A pending exception aborts the process at the next JNI call.
+            let _ = env.exception_clear();
+            return None;
+        }
         Some(())
     })
 }

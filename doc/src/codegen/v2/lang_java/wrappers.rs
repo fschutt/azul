@@ -205,6 +205,30 @@ fn emit_wrapper_class(
         class_name, class_name, class_name
     ));
     builder.blank();
+    // A field getter hands out a VIEW: a borrowed wrapper over the field's
+    // bytes inside another wrapper. `parentOpen` is that wrapper's
+    // `__isOpen` - capturing it keeps the parent reachable (its finalizer
+    // cannot free the memory under the view), and once the parent is
+    // closed or moved the view refuses every call instead of reading
+    // freed memory.
+    builder.line("/** Internal: for a view, whether the object it lives in is still open. */");
+    builder.line("private java.util.function.BooleanSupplier __parentOpen;");
+    builder.line(&format!(
+        "/** Internal: a live view of a field inside another wrapper (see the field getters). */"
+    ));
+    builder.line(&format!(
+        "static {} __view(Pointer ptr, java.util.function.BooleanSupplier parentOpen) {{ {} w = \
+         new {}(ptr); w.owned = false; w.__parentOpen = parentOpen; return w; }}",
+        class_name, class_name, class_name
+    ));
+    builder.line(
+        "/** Internal: usable - not closed or moved, and (for a view) its parent neither. */",
+    );
+    builder.line(
+        "boolean __isOpen() { return !closed && ptr != null && (__parentOpen == null || \
+         __parentOpen.getAsBoolean()); }",
+    );
+    builder.blank();
 
     builder.line("/** Internal: raw pointer for use by sibling wrappers. */");
     builder.line("public Pointer rawPointer() { return ptr; }");
@@ -398,6 +422,10 @@ fn emit_wrapper_class(
         };
         emit_wrapper_method(builder, &class_name, func, ir, splice_arg_idx);
     }
+
+    // Typed get/set/edit accessors for the struct's public fields, so user
+    // code never needs `rawPointer()` to change e.g. a window's title.
+    emit_field_accessors(builder, s, &class_name, ir, config);
 
     // Phase I.2: route Object.equals(Object) + hashCode() through the
     // codegen-emitted `_partialEq` / `_hash` C-ABI helpers when
@@ -828,6 +856,515 @@ fn emit_app_factory(
     }
 }
 
+// ============================================================================
+// Field accessors
+// ============================================================================
+
+/// How one public field of a wrapped struct is read and written. Shared
+/// with `lang_kotlin` (same JNA field layout, same rules).
+pub(crate) enum FieldShape {
+    /// A JNA primitive field (`jt` is its Java type); C `bool` is a JNA
+    /// `byte` and surfaces as `boolean`.
+    Prim { jt: String, is_bool: bool },
+    /// A unit enum: an `int` JNA field, surfaced as the user enum `name`.
+    Enum { name: String },
+    /// The engine's UTF-8 string: read as a host string (decoded, never
+    /// freed), written as a fresh `Az<String>` after the old one is
+    /// released with `delete`.
+    Str { ffi: String, native: String, delete: String },
+    /// A type with a wrapper class (IR name `ty`): read as a fresh wrapper
+    /// (a deep copy through `clone` when the type owns heap memory), written
+    /// by moving a wrapper in (consumed).
+    Wrapper {
+        ty: String,
+        ffi: String,
+        native: String,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+    /// Any other JNA struct / tagged union: read as a `Az<T>.ByValue` copy
+    /// (deep when the type owns heap memory), written by moving its bytes in.
+    /// `is_struct`: a plain JNA `Structure` (a tagged union is a JNA `Union`,
+    /// whose Java fields only round-trip for the active variant).
+    Value {
+        is_struct: bool,
+        ffi: String,
+        native: String,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+}
+
+impl FieldShape {
+    /// The type owns heap memory, but has no deep copy: a getter would have
+    /// to alias the field (double free), so there is none.
+    /// A wrapper field's getter is a view (no copy needed); a heap-owning
+    /// plain value is deep-copied out, so it needs a `_clone`.
+    pub(crate) fn has_getter(&self) -> bool {
+        !matches!(self, FieldShape::Value { delete: Some(_), clone: None, .. })
+    }
+
+    /// An in-place `edit<Field>(...)` view: wrappers (their own setters keep
+    /// the release/consume rules) and plain-data structs (nothing to leak).
+    pub(crate) fn has_edit(&self) -> bool {
+        matches!(
+            self,
+            FieldShape::Wrapper { .. }
+                | FieldShape::Value {
+                    delete: None,
+                    is_struct: true,
+                    ..
+                }
+        )
+    }
+}
+
+/// Does a wrapper class for `s` get field accessors at all? Not the
+/// container types whose fields are their internals (a Vec's
+/// `ptr`/`len`/`cap`, a String's bytes, a RefAny's handle, a boxed
+/// pointer) and not callback wrappers (callback + context are wired by
+/// the host invoker).
+pub(crate) fn struct_has_field_accessors(s: &StructDef, ir: &CodegenIR) -> bool {
+    !matches!(
+        s.category,
+        TypeCategory::String
+            | TypeCategory::Vec
+            | TypeCategory::VecRef
+            | TypeCategory::RefAny
+            | TypeCategory::Boxed
+            | TypeCategory::CallbackDataPair
+            | TypeCategory::Recursive
+    ) && !super::super::managed_host_invoker::is_callback_wrapper(ir, &s.name)
+}
+
+/// The accessor shape of field `f`, or `None` when it gets no accessor
+/// (private, a reference/pointer, generic, an array, a callback / callback
+/// wrapper / RefAny).
+pub(crate) fn field_shape(
+    f: &super::super::ir::FieldDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<FieldShape> {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.contains('<') || t.starts_with('[') {
+        return None;
+    }
+    if super::super::managed_host_invoker::is_callback_wrapper(ir, t)
+        || is_refany_type(t, ir)
+        || ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    {
+        return None;
+    }
+    let jt = super::map_jvm_type(t, ir);
+    if matches!(jt.as_str(), "byte" | "short" | "int" | "long" | "float" | "double") {
+        if t == "bool" {
+            return Some(FieldShape::Prim { jt, is_bool: true });
+        }
+        if let Some(e) = ir.find_enum(t) {
+            if !e.is_union && config.should_include_type(t) {
+                return Some(FieldShape::Enum {
+                    name: super::user_enum_type_name(t),
+                });
+            }
+        }
+        return Some(FieldShape::Prim { jt, is_bool: false });
+    }
+    if !jt.starts_with("Az") || !config.should_include_type(t) {
+        return None;
+    }
+    let ffi = ffi_type_name(t);
+    let native = super::functions::native_class_for_class(t, ir);
+    let delete = trait_c_name(t, FunctionKind::Delete, ir);
+    let clone = trait_c_name(t, FunctionKind::DeepCopy, ir);
+    if ir
+        .find_struct(t)
+        .is_some_and(|st| matches!(st.category, TypeCategory::String))
+    {
+        return Some(FieldShape::Str {
+            ffi,
+            native,
+            delete: delete?,
+        });
+    }
+    if has_wrapper_class(t, ir) {
+        return Some(FieldShape::Wrapper {
+            ty: t.to_string(),
+            ffi,
+            native,
+            delete,
+            clone,
+        });
+    }
+    Some(FieldShape::Value {
+        is_struct: ir.find_struct(t).is_some(),
+        ffi,
+        native,
+        delete,
+        clone,
+    })
+}
+
+/// `foo_bar` -> `FooBar`: the part after `get` / `set` / `edit`.
+pub(crate) fn field_pascal(name: &str) -> String {
+    let camel = snake_to_lower_camel(name);
+    let mut c = camel.chars();
+    match c.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+/// `get<Field>` / `set<Field>` / `edit<Field>` for every public field of a
+/// wrapped struct (the field-access contract, see [`FieldShape`]):
+///
+/// - a getter of a wrapped class's field returns a live VIEW of it, so
+///   `opts.getWindowState().setTitle("x")` changes `opts`; the view keeps
+///   `opts` reachable and refuses calls once `opts` is closed. Every other
+///   getter returns an independent value: primitives and enums by value, the
+///   string decoded without freeing the field, a heap-owning JNA value as a
+///   deep copy (`_clone`), plain data as a byte copy;
+/// - a setter releases the field's old value (`_delete`, when the type has
+///   one), then stores the new one - an owned wrapper argument is moved in
+///   (consumed), a view is deep-copied first;
+/// - `edit<Field>(f)` hands `f` a VIEW of the field (no copy) and returns
+///   `this`, so nested writes reach this object:
+///   `opts.editWindowState(ws -> ws.setTitle("Hello"))`. The view is
+///   invalidated when `f` returns.
+///
+/// An api.json method of the same name wins; the other accessors of that
+/// field are still emitted (e.g. `TextInputState.getText()` is the api
+/// method, `setText(U32Vec)` the field setter).
+fn emit_field_accessors(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    if !struct_has_field_accessors(s, ir) {
+        return;
+    }
+    let mut taken: std::collections::HashSet<String> = ir
+        .functions_for_class(&s.name)
+        .map(|f| idiomatic_method_name(&f.method_name))
+        .collect();
+    for func in ir.functions_for_class(&s.name) {
+        if let Some((smart, _)) = smart_callback_setter_info(func) {
+            taken.insert(snake_to_lower_camel(&smart));
+        }
+    }
+    // `Object.getClass()` is final: a field named `class` gets no getter.
+    taken.insert("getClass".to_string());
+    let ov_ty = ffi_type_name(&s.name);
+    // The JNA view of this wrapper's struct; its nested struct fields share
+    // the wrapper's memory, so `__ov.<field>.getPointer()` is the field's
+    // address.
+    let overlay = format!(
+        "{} __ov = Structure.newInstance({}.class, this.ptr); __ov.read();",
+        ov_ty, ov_ty
+    );
+    let closed_check = "if (!__isOpen()) throw new IllegalStateException(\"closed\");";
+
+    for f in &s.fields {
+        let Some(shape) = field_shape(f, ir, config) else {
+            continue;
+        };
+        let jf = sanitize_identifier(&f.name);
+        let pascal = field_pascal(&f.name);
+        let field_doc: Vec<String> = f
+            .doc
+            .iter()
+            .map(|d| format!(" * {}", javadoc_escape(d)))
+            .collect();
+        let fp = format!("__ov.{}.getPointer()", jf);
+
+        let user_ty = match &shape {
+            FieldShape::Prim { is_bool: true, .. } => "boolean".to_string(),
+            FieldShape::Prim { jt, .. } => jt.clone(),
+            FieldShape::Enum { name } => name.clone(),
+            FieldShape::Str { .. } => "java.lang.String".to_string(),
+            FieldShape::Wrapper { ty, .. } => wrapper_class_name(ty),
+            FieldShape::Value { ffi, .. } => format!("{}.ByValue", ffi),
+        };
+        // Setter parameter: any `Az<T>` (a `.ByValue` is one) for values.
+        let param_ty = match &shape {
+            FieldShape::Value { ffi, .. } => ffi.clone(),
+            _ => user_ty.clone(),
+        };
+
+        // ---- getter --------------------------------------------------------
+        let getter = format!("get{}", pascal);
+        if shape.has_getter() && taken.insert(getter.clone()) {
+            builder.line("/**");
+            builder.line(&format!(" * The {} field.", javadoc_escape(&f.name)));
+            for l in &field_doc {
+                builder.line(l);
+            }
+            if let FieldShape::Wrapper { .. } = &shape {
+                builder.line(" * <p>Returns a live VIEW of the field, not a copy: its setters write into");
+                builder.line(&format!(
+                    " * this object ({{@code o.get{}().setX(..)}} changes {{@code o}}). It is valid",
+                    pascal
+                ));
+                builder.line(" * while this object is open; storing it with a setter stores a deep copy.");
+            } else if !matches!(shape, FieldShape::Prim { .. } | FieldShape::Enum { .. }) {
+                builder.line(" * <p>Returns a COPY: changing it does not change this object. Write");
+                builder.line(&format!(
+                    " * it back with {{@code set{}(...)}}{}.",
+                    pascal,
+                    if shape.has_edit() {
+                        format!(", or change it in place with {{@code edit{}(...)}}", pascal)
+                    } else {
+                        String::new()
+                    }
+                ));
+            }
+            builder.line(" */");
+            builder.line(&format!("public {} {}() {{", user_ty, getter));
+            builder.indent();
+            builder.line(closed_check);
+            builder.line(&overlay);
+            match &shape {
+                FieldShape::Prim { is_bool: true, .. } => {
+                    builder.line(&format!("return __ov.{} != 0;", jf));
+                }
+                FieldShape::Prim { .. } => {
+                    builder.line(&format!("return __ov.{};", jf));
+                }
+                FieldShape::Enum { name } => {
+                    builder.line(&format!("return {}.fromInt(__ov.{});", name, jf));
+                }
+                FieldShape::Str { .. } => {
+                    builder.line(&format!("Pointer __fp = {};", fp));
+                    builder.line("Pointer __buf = __fp.getPointer(0);");
+                    builder.line("long __len = __fp.getLong(8);");
+                    builder.line("if (__buf == null || __len <= 0) return \"\";");
+                    builder.line(
+                        "return new java.lang.String(__buf.getByteArray(0, (int) __len), \
+                         java.nio.charset.StandardCharsets.UTF_8);",
+                    );
+                }
+                FieldShape::Wrapper { ty, .. } => {
+                    builder.line(&format!(
+                        "return {}.__view({}, this::__isOpen);",
+                        wrapper_class_name(ty),
+                        fp
+                    ));
+                }
+                FieldShape::Value {
+                    ffi,
+                    native,
+                    clone,
+                    delete,
+                    ..
+                } => {
+                    match (delete, clone) {
+                        (Some(_), Some(c)) => {
+                            builder.line(&format!(
+                                "{}.ByValue __copy = {}.INSTANCE.{}({});",
+                                ffi, native, c, fp
+                            ));
+                        }
+                        _ => {
+                            emit_java_byte_copy(builder, ffi, &fp);
+                            builder.line("__copy.read();");
+                        }
+                    }
+                    builder.line("return __copy;");
+                }
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // ---- setter --------------------------------------------------------
+        let setter = format!("set{}", pascal);
+        if taken.insert(setter.clone()) {
+            builder.line("/**");
+            builder.line(&format!(
+                " * Replaces the {} field{}.",
+                javadoc_escape(&f.name),
+                match &shape {
+                    FieldShape::Prim { .. } | FieldShape::Enum { .. } => "",
+                    FieldShape::Str { .. } => " (the old string is released)",
+                    FieldShape::Wrapper { .. } => {
+                        " (the old value is released; an owned {@code v} is MOVED in and closed, \
+                         a view - another object's field - is deep-copied)"
+                    }
+                    FieldShape::Value { .. } => {
+                        " (the old value is released; the native bytes of {@code v} are MOVED \
+                         in - do not pass {@code v} anywhere else afterwards)"
+                    }
+                }
+            ));
+            for l in &field_doc {
+                builder.line(l);
+            }
+            builder.line(" */");
+            builder.line(&format!("public void {}({} v) {{", setter, param_ty));
+            builder.indent();
+            builder.line(closed_check);
+            if !matches!(shape, FieldShape::Prim { .. }) {
+                builder.line("if (v == null) throw new NullPointerException(\"v\");");
+            }
+            match &shape {
+                FieldShape::Prim { is_bool: true, .. } => {
+                    builder.line(&overlay);
+                    builder.line(&format!("__ov.{} = (byte) (v ? 1 : 0);", jf));
+                    builder.line(&format!("__ov.writeField(\"{}\");", jf));
+                }
+                FieldShape::Prim { .. } => {
+                    builder.line(&overlay);
+                    builder.line(&format!("__ov.{} = v;", jf));
+                    builder.line(&format!("__ov.writeField(\"{}\");", jf));
+                }
+                FieldShape::Enum { .. } => {
+                    builder.line(&overlay);
+                    builder.line(&format!("__ov.{} = v.value;", jf));
+                    builder.line(&format!("__ov.writeField(\"{}\");", jf));
+                }
+                FieldShape::Str { ffi, native, delete } => {
+                    builder.line(
+                        "byte[] __bytes = v.getBytes(java.nio.charset.StandardCharsets.UTF_8);",
+                    );
+                    builder.line(
+                        "com.sun.jna.Memory __mem = new com.sun.jna.Memory(Math.max(1, \
+                         __bytes.length));",
+                    );
+                    builder.line("__mem.write(0, __bytes, 0, __bytes.length);");
+                    builder.line(&format!(
+                        "{ffi}.ByValue __new = {native}.INSTANCE.{ffi}_fromUtf8(__mem, \
+                         __bytes.length);"
+                    ));
+                    builder.line("byte[] __nb = __new.getPointer().getByteArray(0, __new.size());");
+                    builder.line(&overlay);
+                    builder.line(&format!("Pointer __fp = {};", fp));
+                    builder.line(&format!("{}.INSTANCE.{}(__fp);", native, delete));
+                    builder.line("__fp.write(0, __nb, 0, __nb.length);");
+                }
+                FieldShape::Wrapper {
+                    ty,
+                    ffi,
+                    native,
+                    delete,
+                    clone,
+                } => {
+                    builder.line(
+                        "if (!v.__isOpen()) throw new IllegalStateException(\"argument is \
+                         closed or already moved\");",
+                    );
+                    builder.line(&format!("int __n = new {}().size();", ffi));
+                    // An owned wrapper is moved in; a view (or an engine-owned
+                    // borrow) is stored as a deep copy - before the old value
+                    // is released, so `o.setX(o.getX())` stays sound.
+                    builder.line("boolean __move = v.__isMovable();");
+                    builder.line("byte[] __nb;");
+                    builder.line("if (__move) {");
+                    builder.indent();
+                    builder.line("__nb = v.rawPointer().getByteArray(0, __n);");
+                    builder.dedent();
+                    builder.line("} else {");
+                    builder.indent();
+                    match (delete, clone) {
+                        (None, _) => builder.line("__nb = v.rawPointer().getByteArray(0, __n);"),
+                        (Some(_), Some(c)) => {
+                            builder.line(&format!(
+                                "{}.ByValue __c = {}.INSTANCE.{}(v.rawPointer());",
+                                ffi, native, c
+                            ));
+                            builder.line("__nb = __c.getPointer().getByteArray(0, __n);");
+                        }
+                        (Some(_), None) => builder.line(&format!(
+                            "throw new IllegalStateException(\"a borrowed {} has no deep copy - \
+                             pass an owned value\");",
+                            wrapper_class_name(ty)
+                        )),
+                    }
+                    builder.dedent();
+                    builder.line("}");
+                    builder.line(&overlay);
+                    builder.line(&format!("Pointer __fp = {};", fp));
+                    if let Some(d) = delete {
+                        builder.line(&format!("{}.INSTANCE.{}(__fp);", native, d));
+                    }
+                    builder.line("__fp.write(0, __nb, 0, __n);");
+                    builder.line("if (__move) v.__consume();");
+                }
+                FieldShape::Value { native, delete, .. } => {
+                    builder.line("v.write();");
+                    builder.line("byte[] __nb = v.getPointer().getByteArray(0, v.size());");
+                    builder.line(&overlay);
+                    builder.line(&format!("Pointer __fp = {};", fp));
+                    if let Some(d) = delete {
+                        builder.line(&format!("{}.INSTANCE.{}(__fp);", native, d));
+                    }
+                    builder.line("__fp.write(0, __nb, 0, __nb.length);");
+                }
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // ---- in-place edit -------------------------------------------------
+        let edit = format!("edit{}", pascal);
+        if shape.has_edit() && taken.insert(edit.clone()) {
+            let view_ty = match &shape {
+                FieldShape::Wrapper { ty, .. } => wrapper_class_name(ty),
+                FieldShape::Value { ffi, .. } => ffi.clone(),
+                _ => unreachable!("has_edit"),
+            };
+            builder.line("/**");
+            builder.line(&format!(
+                " * Changes the {} field IN PLACE: {{@code f}} receives a view of the",
+                javadoc_escape(&f.name)
+            ));
+            builder.line(" * field (not a copy), so its writes reach this object. The view is");
+            builder.line(" * only valid inside {@code f}. Returns {@code this} for chaining.");
+            builder.line(" */");
+            builder.line(&format!(
+                "public {} {}(java.util.function.Consumer<{}> f) {{",
+                class_name, edit, view_ty
+            ));
+            builder.indent();
+            builder.line(closed_check);
+            builder.line(&overlay);
+            if let FieldShape::Wrapper { .. } = &shape {
+                builder.line(&format!("{} __view = {}.__borrow({});", view_ty, view_ty, fp));
+                builder.line("try { f.accept(__view); } finally { __view.close(); }");
+            } else {
+                // A JNA struct over the field's own memory; its Java fields are
+                // written back after `f` ran.
+                builder.line(&format!(
+                    "{} __view = Structure.newInstance({}.class, {}); __view.read();",
+                    view_ty, view_ty, fp
+                ));
+                builder.line("f.accept(__view);");
+                builder.line("__view.write();");
+            }
+            builder.line("return this;");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+}
+
+/// `<ffi>.ByValue __copy` = a fresh byte copy of the plain-data value at
+/// `src` (an expression yielding a `Pointer`).
+fn emit_java_byte_copy(builder: &mut CodeBuilder, ffi: &str, src: &str) {
+    builder.line(&format!("{}.ByValue __copy = new {}.ByValue();", ffi, ffi));
+    builder.line(&format!(
+        "byte[] __bytes = {}.getByteArray(0, __copy.size());",
+        src
+    ));
+    builder.line("__copy.getPointer().write(0, __bytes, 0, __bytes.length);");
+}
+
 /// Phase I.2 (Java): override Object.equals(Object) + hashCode() to
 /// route through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash`
 /// C exports. Pure type-driven from `TypeTraits.is_partial_eq` /
@@ -955,7 +1492,7 @@ fn emit_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &Co
 /// Ruby I.1.6 pattern: struct fields exactly [ptr, len, cap, destructor]
 /// with ptr being a `*mut|*const T` typedef. Returns the element type T.
 fn detect_vec_elem_type_jvm(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {
@@ -1189,6 +1726,16 @@ fn emit_close_method(
     builder.line("closed = true;");
     builder.dedent();
     builder.line("}");
+    builder.blank();
+    // Field setters move a wrapper argument in; a closed or already-moved
+    // one must be refused, not have its stale bytes moved a second time -
+    // and so must a borrowed view of a heap-owning value (its bytes belong
+    // to the engine or to the enclosing object).
+    builder.line(
+        "/** Internal: its bytes may be moved out (not closed, not consumed, not a borrowed \
+         view). */",
+    );
+    builder.line("boolean __isMovable() { return !closed && ptr != null && owned; }");
     builder.blank();
 
     if has_delete {
@@ -1627,7 +2174,7 @@ fn emit_wrapper_method(
     builder.indent();
 
     if !is_static {
-        builder.line("if (closed) throw new IllegalStateException(\"closed\");");
+        builder.line("if (!__isOpen()) throw new IllegalStateException(\"closed\");");
     }
 
     for stmt in &pre_call_lines {
@@ -2115,5 +2662,137 @@ pub(super) fn idiomatic_method_name(method_name: &str) -> String {
         format!("{}_", camel)
     } else {
         camel
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wrapper classes `emit_wrapper_class` produces for `names`, built
+    /// from the real api.json (the field accessors are per-field, so a
+    /// fixture would only re-state the generator).
+    fn wrapper_source(name: &str) -> String {
+        wrapper_sources(&[name]).remove(0)
+    }
+
+    fn wrapper_sources(names: &[&str]) -> Vec<String> {
+        let api = crate::api::ApiData::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
+        )
+        .unwrap();
+        let ir = super::super::super::build_ir_from_api(&api).unwrap();
+        let config = CodegenConfig::c_header();
+        let app = app_factory_info(&ir);
+        names
+            .iter()
+            .map(|n| {
+                let s = ir.find_struct(n).unwrap_or_else(|| panic!("{} in api.json", n));
+                let mut b = CodeBuilder::new(&config.indent);
+                emit_wrapper_class(&mut b, s, &ir, &config, app.as_ref());
+                b.finish()
+            })
+            .collect()
+    }
+
+    /// The text of the method whose declaration line contains `sig`, up to
+    /// its closing brace.
+    fn method<'a>(src: &'a str, sig: &str) -> &'a str {
+        let start = src.find(sig).unwrap_or_else(|| panic!("no `{}` in:\n{}", sig, src));
+        let end = src[start..].find("\n    }\n").expect("method end") + start;
+        &src[start..end]
+    }
+
+    fn before(body: &str, first: &str, second: &str) -> bool {
+        match (body.find(first), body.find(second)) {
+            (Some(a), Some(b)) => a < b,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn the_title_getter_decodes_the_string_without_freeing_it_and_the_setter_releases_the_old_one() {
+        let src = &wrapper_source("FullWindowState");
+        let get = method(src, "public java.lang.String getTitle()");
+        assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
+        assert!(get.contains("StandardCharsets.UTF_8"), "{}", get);
+        let set = method(src, "public void setTitle(java.lang.String v)");
+        assert!(set.contains("AzString_fromUtf8"), "{}", set);
+        assert!(
+            before(set, "AzString_delete(", "__fp.write(0,"),
+            "the old title is released before the new one is written:\n{}",
+            set
+        );
+    }
+
+    #[test]
+    fn a_nested_write_through_the_window_state_getter_reaches_the_options() {
+        // `opts.getWindowState().setTitle("x")` must change `opts`: the
+        // getter is a live view over the field, tied to `opts` being open.
+        let src = &wrapper_source("WindowCreateOptions");
+        let get = method(src, "public FullWindowState getWindowState()");
+        assert!(get.contains("FullWindowState.__view("), "{}", get);
+        assert!(get.contains("this::__isOpen"), "{}", get);
+        assert!(!get.contains("_clone("), "a view, not a copy:\n{}", get);
+    }
+
+    #[test]
+    fn storing_a_view_deep_copies_it_and_storing_an_owned_state_moves_it_in() {
+        let src = &wrapper_source("WindowCreateOptions");
+        let set = method(src, "public void setWindowState(FullWindowState v)");
+        assert!(set.contains("boolean __move = v.__isMovable();"), "{}", set);
+        assert!(
+            before(set, "AzFullWindowState_clone(v.rawPointer())", "AzFullWindowState_delete("),
+            "a view is copied before the old state is released:\n{}",
+            set
+        );
+        assert!(before(set, "AzFullWindowState_delete(", "__fp.write(0,"), "{}", set);
+        assert!(set.contains("if (__move) v.__consume();"), "{}", set);
+    }
+
+    #[test]
+    fn a_view_refuses_calls_once_the_object_it_lives_in_is_closed() {
+        let src = &wrapper_source("FullWindowState");
+        assert!(src.contains("__parentOpen.getAsBoolean()"), "{}", src);
+        let set = method(src, "public void setTitle(java.lang.String v)");
+        assert!(set.contains("if (!__isOpen()) throw"), "{}", set);
+        assert!(!src.contains("if (closed) throw"), "every check goes through __isOpen");
+    }
+
+    #[test]
+    fn a_bool_field_reads_and_writes_as_a_java_boolean() {
+        let src = &wrapper_source("WindowCreateOptions");
+        let get = method(src, "public boolean getSizeToContent()");
+        assert!(get.contains("!= 0"), "{}", get);
+        let set = method(src, "public void setSizeToContent(boolean v)");
+        assert!(set.contains("writeField(\"size_to_content\")"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_can_be_edited_in_place_so_nested_writes_reach_the_options() {
+        let src = &wrapper_source("WindowCreateOptions");
+        let edit = method(
+            src,
+            "public WindowCreateOptions editWindowState(java.util.function.Consumer<FullWindowState> f)",
+        );
+        assert!(edit.contains("FullWindowState.__borrow("), "{}", edit);
+        assert!(edit.contains("finally"), "the view is invalidated after the edit:\n{}", edit);
+        let fws = &wrapper_source("FullWindowState");
+        method(fws, "public AzWindowSize.ByValue getSize()");
+        method(fws, "public void setSize(AzWindowSize v)");
+        let edit_size = method(
+            fws,
+            "public FullWindowState editSize(java.util.function.Consumer<AzWindowSize> f)",
+        );
+        assert!(edit_size.contains(".write()"), "{}", edit_size);
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_although_the_api_method_get_text_takes_the_getter_name() {
+        let src = &wrapper_source("TextInputState");
+        assert_eq!(src.matches(" getText()").count(), 1, "only the api.json getText:\n{}", src);
+        let set = method(src, "public void setText(U32Vec v)");
+        assert!(before(set, "AzU32Vec_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume();"), "{}", set);
     }
 }

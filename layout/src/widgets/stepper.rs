@@ -5,7 +5,8 @@
 //!
 //! This is a blend of [`crate::widgets::segmented::Segmented`] (a horizontal row
 //! of clickable items whose clicked index is derived from sibling position and
-//! whose active item is live-restyled via `set_css_property`) and the filled-track
+//! whose parts are live-restyled with the style a build in the new state gives
+//! them - `CallbackInfo::set_node_style`) and the filled-track
 //! look of [`crate::widgets::progressbar::ProgressBar`] (the accent connector).
 //!
 //! Steps are CLICKABLE (free navigation, like a segmented control): clicking
@@ -25,19 +26,19 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, PixelValue, StyleFontSize},
         layout::{
-            LayoutAlignItems, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop, LayoutWidth,
+            LayoutAlignItems, LayoutBoxSizing, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection,
+            LayoutFlexGrow, LayoutHeight, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop,
+            LayoutWidth,
         },
         property::{CssProperty, LayoutFlexBasisValue, LayoutWidthValue},
         style::{
@@ -49,11 +50,17 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{
+    callbacks::CallbackInfo,
+    widgets::themes::{style_kit, system_palette, OptionUiTheme, UiTheme},
+};
 
 static STEPPER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-stepper"))];
+/// A step cell's class - what the key handler and the Tab-stop rewrite find
+/// the steps by (an inner node that reached a handler is not one).
+const STEPPER_STEP_CLASS_NAME: &str = "__azul-native-stepper-step";
 static STEPPER_STEP_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-stepper-step",
+    STEPPER_STEP_CLASS_NAME,
 ))];
 static STEPPER_ROW_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-stepper-row"))];
@@ -105,6 +112,11 @@ pub struct Stepper {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
+    /// theme is a DOM-level choice: it picks the skin the steps are built from
+    /// (and the colours a click restyles them with), so switching it rebuilds
+    /// the stepper.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -193,13 +205,14 @@ const TRANSPARENT_BG_ITEMS: &[StyleBackgroundContent] =
 const TRANSPARENT_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(TRANSPARENT_BG_ITEMS);
 
-const CIRCLE_SIZE: isize = 28;
-const CIRCLE_RADIUS: isize = 14;
-const CONNECTOR_HEIGHT: isize = 2;
+// Every theme's step has this geometry.
+pub(crate) const CIRCLE_SIZE: isize = 28;
+pub(crate) const CIRCLE_RADIUS: isize = 14;
+pub(crate) const CONNECTOR_HEIGHT: isize = 2;
 
 /// Connector fill state for one half-segment.
-#[derive(Copy, Clone)]
-enum ConnFill {
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ConnFill {
     /// Reached (accent).
     Accent,
     /// Not reached (muted grey).
@@ -228,7 +241,7 @@ static STEPPER_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 
 /// One step cell: a vertical flex column (indicator row over label) that grows to
 /// an equal share of the row (`flex-grow: 1; flex-basis: 0`).
-static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -238,6 +251,42 @@ static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::FlexBasis(LayoutFlexBasisValue::Exact(
         LayoutFlexBasis::Exact(PixelValue::const_px(0)),
     ))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+// ---- R5: the parts' BASE - the structure every theme's step shares ----
+//
+// A theme's circle, connector and label are the base below, THEN its skin
+// (paint and metrics): `circle_style` & co. for flat, `themes::flora`'s
+// `stepper_*` for flora. The base comes first in every theme, so an unpinned
+// stepper (`follow_skin`) declares it once, outside every `@theme` block.
+
+/// A step circle's structure: a flex box that centres its number and keeps
+/// its size, any hairline a theme draws inside the box (`border-box`: the
+/// circle is the same 28px in every theme), and a clickable number - the
+/// pointer, never a text selection.
+pub(crate) static CIRCLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+/// A connector half-line's structure: it grows into what the row leaves.
+pub(crate) static CONNECTOR_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// A step label's structure: clickable text - the pointer, never a text
+/// selection.
+pub(crate) static LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
@@ -257,26 +306,16 @@ fn row_style() -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// Builds the style for one numbered circle. Background + number colour are the
-/// only reached-dependent properties.
-fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
+/// Builds the style for one numbered circle: [`CIRCLE_BASE`], then flat's skin.
+/// Background + number colour are the only reached-dependent properties.
+pub(crate) fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
     let (bg, text) = if reached {
         (ACCENT_BG, WHITE)
     } else {
         (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
     };
-    CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut v = CIRCLE_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             CIRCLE_SIZE,
         ))),
@@ -302,49 +341,94 @@ fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
             13,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// Builds the style for one connector half-line (left or right of a circle).
-fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            1,
-        ))),
+/// Builds the style for one connector half-line (left or right of a circle):
+/// [`CONNECTOR_BASE`], then flat's skin.
+pub(crate) fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
+    let mut v = CONNECTOR_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
             CONNECTOR_HEIGHT,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(fill.bg())),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
-/// Builds the style for one step label.
-fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
+/// Builds the style for one step label: [`LABEL_BASE`], then flat's skin.
+pub(crate) fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
     let text = if reached {
         DARK_TEXT_COLOR
     } else {
         MUTED_TEXT_COLOR
     };
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = LABEL_BASE.to_vec();
+    v.extend([
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             12,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(6),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// A style vec with the dark twins appended after its (unconditional) light
+/// face. The builders above stay the light face alone; `dom()` renders with
+/// this.
+pub(crate) fn with_dark_twins(
+    light: CssPropertyWithConditionsVec,
+    twins: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    let mut v = light.into_library_owned_vec();
+    v.extend_from_slice(twins);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Dark twins of [`circle_style`]: a reached circle is the accent in both
+/// themes; an upcoming one takes the desktop's quiet neutral highlight
+/// (#e9ecef on a dark window is a light island) and its secondary label
+/// colour.
+pub(crate) fn circle_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
+    if reached {
+        Vec::new()
+    } else {
+        vec![
+            system_palette::DARK_SELECTION_BACKGROUND_INACTIVE,
+            system_palette::DARK_SECONDARY_TEXT,
+        ]
+    }
+}
+
+/// Dark twins of [`connector_style`]: only the muted line changes.
+pub(crate) fn connector_dark_twins(fill: ConnFill) -> Vec<CssPropertyWithConditions> {
+    match fill {
+        ConnFill::Muted => vec![system_palette::DARK_SELECTION_BACKGROUND_INACTIVE],
+        ConnFill::Accent | ConnFill::Hidden => Vec::new(),
+    }
+}
+
+/// Dark twins of [`label_style`]: the desktop's label colour for a reached
+/// step (#212529 on a dark window is dark-on-dark), its secondary one for
+/// an upcoming step.
+pub(crate) fn label_dark_twins(reached: bool) -> Vec<CssPropertyWithConditions> {
+    vec![if reached {
+        system_palette::DARK_TEXT
+    } else {
+        system_palette::DARK_SECONDARY_TEXT
+    }]
 }
 
 /// Connector fill for the left half-line of step `i` (the gap entering circle `i`).
@@ -369,6 +453,75 @@ const fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
     }
 }
 
+/// What a theme supplies for a stepper: the style of every part. Built by
+/// `themes::flat::stepper_skin` / `themes::flora::stepper_skin`. A click
+/// restyles each part with the same functions
+/// (`CallbackInfo::set_node_style`), so a clicked stepper is the
+/// stepper built on its new step - in every mode.
+#[derive(Clone, Copy)]
+pub(crate) struct StepperSkin {
+    pub theme: UiTheme,
+    /// A step cell - the focusable part, so it owes the focus ring.
+    pub cell: fn() -> CssPropertyWithConditionsVec,
+    /// A step's numbered circle, reached or upcoming.
+    pub circle: fn(bool) -> CssPropertyWithConditionsVec,
+    /// One connector half-line.
+    pub connector: fn(ConnFill) -> CssPropertyWithConditionsVec,
+    /// A step's label, reached or upcoming.
+    pub label: fn(bool) -> CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws steppers with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> StepperSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::stepper_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::stepper_skin(),
+    }
+}
+
+/// `part` of both themes' skins in BOTH themes' blocks
+/// (`themes::theme_blocks::follow_props`).
+fn follow_part(
+    part: impl Fn(StepperSkin) -> CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::theme_blocks::follow_props(
+        part(skin_for(UiTheme::Flat)).as_slice(),
+        part(skin_for(UiTheme::Flora)).as_slice(),
+    )
+}
+
+fn follow_cell() -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.cell)())
+}
+
+fn follow_circle(reached: bool) -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.circle)(reached))
+}
+
+fn follow_connector(fill: ConnFill) -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.connector)(fill))
+}
+
+fn follow_label(reached: bool) -> CssPropertyWithConditionsVec {
+    follow_part(|s| (s.label)(reached))
+}
+
+/// The skin an UNPINNED stepper is built with, so it follows the app theme:
+/// `structure`'s theme (its marker goes on the stepper, so the click restyle
+/// writes that theme's parts - a theme switch rebuilds the DOM) and every
+/// part in BOTH themes' blocks.
+#[must_use]
+pub(crate) const fn follow_skin(structure: UiTheme) -> StepperSkin {
+    StepperSkin {
+        theme: structure,
+        cell: follow_cell,
+        circle: follow_circle,
+        connector: follow_connector,
+        label: follow_label,
+    }
+}
+
 impl Stepper {
     /// Creates a stepper from the given step labels, with the first step current.
     #[must_use]
@@ -384,7 +537,23 @@ impl Stepper {
             },
             labels,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the stepper follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this stepper renders with.
@@ -452,8 +621,24 @@ impl Stepper {
         self
     }
 
+    /// Renders the stepper. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the stepper follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::stepper(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::stepper(self),
+            None => self.build(follow_skin(UiTheme::current())),
+        }
+    }
+
+    /// Renders the stepper with `skin` styling its parts - what
+    /// `themes::flat::stepper` / `themes::flora::stepper` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: StepperSkin) -> Dom {
         // Read before the state is moved into the callbacks below.
         let step_now = self.stepper_state.inner.current_step;
         // Resolved before `the state` is moved out below.
@@ -462,13 +647,16 @@ impl Stepper {
 
         use azul_core::{
             callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
+            dom::{EventFilter, FocusEventFilter, HoverEventFilter},
             refany::OptionRefAny,
         };
 
         let current = self.stepper_state.inner.current_step;
         let count = self.labels.as_ref().len();
         let last = count.saturating_sub(1);
+        // A spin button is ONE Tab stop: the current step (or the first, for
+        // an out-of-range step); the rest are focusable by click and code.
+        let tab_stop = crate::widgets::roving::stop_index(Some(current), count);
 
         // One shared RefAny across every step's callback (RefAny::clone shares the
         // underlying state — same pattern as segmented/pagination/map).
@@ -488,48 +676,51 @@ impl Stepper {
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
                             ))
-                            .with_css_props(connector_style(conn_left_fill(i, current))),
+                            .with_css_props((skin.connector)(conn_left_fill(i, current))),
                         crate::widgets::widget_p_with_text(AzString::from(
                             format!("{}", i + 1).as_str(),
                         ))
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CIRCLE_CLASS))
-                        .with_css_props(circle_style(reached)),
+                        .with_css_props((skin.circle)(reached)),
                         Dom::create_div()
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
                             ))
-                            .with_css_props(connector_style(conn_right_fill(i, last, current))),
+                            .with_css_props((skin.connector)(conn_right_fill(i, last, current))),
                     ]
                     .into(),
                 );
 
             let cell = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_STEP_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    STEPPER_STEP_STYLE,
-                ))
+                .with_css_props((skin.cell)())
                 .with_callbacks(
-                    vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::Click),
-                        callback: CoreCallback {
-                            cb: on_step_click as usize,
-                            ctx: OptionRefAny::None,
+                    vec![
+                        CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::Click),
+                            callback: CoreCallback {
+                                cb: on_step_click as usize,
+                                ctx: OptionRefAny::None,
+                            },
+                            refany: state.clone(),
                         },
-                        refany: state.clone(),
-                    }]
+                        CoreCallbackData {
+                            event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                            callback: CoreCallback {
+                                cb: on_step_key as usize,
+                                ctx: OptionRefAny::None,
+                            },
+                            refany: state.clone(),
+                        },
+                    ]
                     .into(),
                 )
-                .with_tab_index(TabIndex::Auto)
+                .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
                 // A stepper is a spin button: the VALUE is which step you are
                 // on, and "step 2 of 5" is the entire content of the control.
                 .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                     role: azul_core::a11y::AccessibilityRole::SpinButton,
-                    accessibility_value: Some(AzString::from(alloc::format!(
-                        "step {} of {}",
-                        step_now.saturating_add(1),
-                        steps_total
-                    )))
-                    .into(),
+                    accessibility_value: Some(step_value(step_now, steps_total)).into(),
                     ..Default::default()
                 })
                 .with_children(
@@ -539,7 +730,7 @@ impl Stepper {
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_LABEL_CLASS,
                             ))
-                            .with_css_props(label_style(reached)),
+                            .with_css_props((skin.label)(reached)),
                     ]
                     .into(),
                 );
@@ -547,8 +738,12 @@ impl Stepper {
             children.push(cell);
         }
 
+        // The stepper carries the theme's marker: the click restyle reads it
+        // back to write the colours of the theme it was built in.
+        let mut classes: Vec<IdOrClass> = STEPPER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -560,14 +755,82 @@ impl Default for Stepper {
     }
 }
 
-/// Click handler shared by all step cells. Resolves the clicked cell from its
-/// sibling position (= the zero-based step index), and — only if the step
-/// actually changed — updates the state, invokes the user callback, and
+/// Click handler shared by all step cells: steps to the clicked cell, see
+/// [`go_to_step_cell`].
+extern "C" fn on_step_click(data: RefAny, info: CallbackInfo) -> Update {
+    let clicked = info.get_hit_node();
+    go_to_step_cell(data, info, clicked)
+}
+
+/// The stepper is a SPIN BUTTON (its value is the current step, WAI-ARIA APG
+/// spinbutton): ONE Tab stop, and the arrow keys change the value - Up and
+/// Right to the next step, Down and Left to the previous one, Home / End to
+/// the first / last - holding at the ends. Focus and the Tab stop follow the
+/// value, and the change is a click's in every other way (the state,
+/// `on_step_change`, the live restyle, the announced value). A handled key's
+/// default (spatial navigation) is cancelled, also at an end, so the arrows
+/// never walk out of the stepper. Every other key, and every key held with
+/// Alt, Ctrl, Cmd or Shift, keeps its default.
+extern "C" fn on_step_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::{callbacks::FocusTarget, window::VirtualKeyCode as K};
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up | K::Right) => Step::Next,
+        Some(K::Down | K::Left) => Step::Previous,
+        Some(K::Home) => Step::First,
+        Some(K::End) => Step::Last,
+        _ => return Update::DoNothing,
+    };
+    let focused = info.get_hit_node();
+    let Some(parent) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let cells = roving::items_of(&info, parent, STEPPER_STEP_CLASS_NAME);
+    let Some(current) = cells.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, cells.len(), step, false) else {
+        return Update::DoNothing;
+    };
+    // Not our state (or already borrowed): leave the key alone rather than
+    // move focus onto a step the value could not follow.
+    if data.downcast_ref::<StepperStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    if target == current {
+        return Update::DoNothing;
+    }
+    // Focus moves BEFORE the user callback runs, so a focus it asks for wins.
+    info.set_focus(FocusTarget::Id(cells[target]));
+    go_to_step_cell(data, info, cells[target])
+}
+
+/// The value a stepper announces: "step N of M", 1-based.
+fn step_value(current_step: usize, total_steps: usize) -> AzString {
+    AzString::from(alloc::format!(
+        "step {} of {}",
+        current_step.saturating_add(1),
+        total_steps
+    ))
+}
+
+/// Steps to `clicked`, one of the step cells. Resolves the cell from its
+/// sibling position (= the zero-based step index), and - only if the step
+/// actually changed - updates the state, invokes the user callback, and
 /// live-restyles every circle / connector / label (the segmented pattern).
-extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// The new step becomes the spin button's one Tab stop and every step
+/// announces the new value.
+fn go_to_step_cell(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    clicked: azul_core::dom::DomNodeId,
+) -> Update {
     use azul_core::dom::DomNodeId;
 
-    let clicked = info.get_hit_node();
     let Some(parent) = info.get_parent(clicked) else {
         return Update::DoNothing;
     };
@@ -616,7 +879,13 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
     };
 
     // Live-restyle every cell: circle (reached → accent fill + white number),
-    // its two connector half-lines, and its label colour.
+    // its two connector half-lines, and its label - each the style the
+    // stepper BUILT on the new step gives it (light face, dark twins), in the
+    // theme it was built in (its marker class). The cascade, not this
+    // handler, picks the mode's colours - now and after a light / dark switch.
+    let skin = skin_for(style_kit::theme_of_classes(
+        info.get_node_classes(parent).as_ref(),
+    ));
     for (i, cell) in cells.iter().enumerate() {
         let reached = i <= clicked_idx;
 
@@ -629,39 +898,35 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let label = info.get_next_sibling(row);
 
         if let Some(circle) = circle {
-            let (bg, text) = if reached {
-                (ACCENT_BG, WHITE)
-            } else {
-                (MUTED_CIRCLE_BG, MUTED_TEXT_COLOR)
-            };
-            info.set_css_property(circle, CssProperty::const_background_content(bg));
-            info.set_css_property(
-                circle,
-                CssProperty::const_text_color(StyleTextColor { inner: text }),
-            );
+            info.set_node_style(circle, (skin.circle)(reached).into());
         }
         if let Some(cl) = conn_left {
-            info.set_css_property(
-                cl,
-                CssProperty::const_background_content(conn_left_fill(i, clicked_idx).bg()),
-            );
+            info.set_node_style(cl, (skin.connector)(conn_left_fill(i, clicked_idx)).into());
         }
         if let Some(cr) = conn_right {
-            info.set_css_property(
+            info.set_node_style(
                 cr,
-                CssProperty::const_background_content(conn_right_fill(i, last, clicked_idx).bg()),
+                (skin.connector)(conn_right_fill(i, last, clicked_idx)).into(),
             );
         }
         if let Some(label) = label {
-            let text = if reached {
-                DARK_TEXT_COLOR
-            } else {
-                MUTED_TEXT_COLOR
-            };
-            info.set_css_property(
-                label,
-                CssProperty::const_text_color(StyleTextColor { inner: text }),
-            );
+            info.set_node_style(label, (skin.label)(reached).into());
+        }
+    }
+
+    // The new step is the spin button's one Tab stop, and every step
+    // announces the new value - no rebuild follows to do either. Only real
+    // step cells take part: an inner node that reached this handler has none
+    // among its siblings.
+    let items = crate::widgets::roving::items_of(&info, parent, STEPPER_STEP_CLASS_NAME);
+    if let Some(stop) = items.iter().position(|n| *n == clicked) {
+        crate::widgets::roving::set_stop(&mut info, &items, stop);
+        let total = data
+            .downcast_ref::<StepperStateWrapper>()
+            .map_or(items.len(), |st| st.inner.total_steps);
+        let value = step_value(clicked_idx, total);
+        for item in &items {
+            info.set_accessibility_value(*item, value.clone());
         }
     }
 
@@ -692,6 +957,7 @@ mod autotest_generated {
         window::{MonitorVec, RawWindowHandle},
     };
     use azul_css::{
+        css::Css,
         props::basic::{length::SizeMetric, pixel::PixelValue},
         system::SystemStyle,
     };
@@ -986,13 +1252,48 @@ mod autotest_generated {
         }
     }
 
-    /// The properties of a rendered node's *inline* style, in declaration order.
+    /// The UNCONDITIONAL properties of a rendered node's *inline* style - its
+    /// light face - in declaration order. The dark twins `dom()` appends after
+    /// them are pinned by `dom_appends_the_dark_twins_after_the_light_face`.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
         node.root
             .style
             .iter_inline_properties()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
+    }
+
+    /// Every inline declaration of a rendered node, conditions included.
+    fn inline_declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dom_appends_the_dark_twins_after_the_light_face() {
+        let dom = Stepper::create(n_labels(3)).with_current_step(1).with_theme(UiTheme::Flat).dom();
+        for (i, cell) in dom.children.as_ref().iter().enumerate() {
+            let reached = i <= 1;
+            let circle = inline_declarations(circle_of(row_of(cell)));
+            let label = inline_declarations(label_of(cell));
+            assert_eq!(
+                &circle[circle_style(reached).as_ref().len()..],
+                circle_dark_twins(reached).as_slice(),
+                "circle {i}"
+            );
+            assert_eq!(
+                &label[label_style(reached).as_ref().len()..],
+                label_dark_twins(reached).as_slice(),
+                "label {i}"
+            );
+        }
     }
 
     /// The true recursive descendant count of a `Dom` — what
@@ -1258,37 +1559,62 @@ mod autotest_generated {
 
     /// Every colour the live restyle wrote, as `(flattened node index, "bg" |
     /// "text", colour)` in emission order. Panics on any property other than the
-    /// two the handler is documented to write.
+    /// two the handler is documented to write. The roving Tab stop and the
+    /// announced value a step change also writes are not colours and are
+    /// skipped (the spin-button tests below check them).
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
+        use azul_css::props::property::CssPropertyType;
         let mut out = Vec::new();
-        for change in changes {
-            let CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } = change
-            else {
-                panic!("the restyle must only emit ChangeNodeCssProperties, got {change:?}");
+        for (node, style) in inline_writes(changes) {
+            // The LIGHT resting face: the last unconditional declaration of
+            // each colour (the dark twins travel in the same style).
+            let resting = |ty: CssPropertyType| {
+                style
+                    .iter_inline_properties()
+                    .filter(|(p, c)| c.as_ref().is_empty() && p.get_type() == ty)
+                    .last()
+                    .map(|(p, _)| p.clone())
             };
-            for p in properties.as_ref() {
-                match p {
-                    CssProperty::BackgroundContent(v) => {
-                        let layers = v
-                            .get_property()
-                            .expect("the restyle must write an exact background");
-                        out.push((node_id.index(), "bg", only_color(layers)));
-                    }
-                    CssProperty::TextColor(v) => {
-                        let c = v
-                            .get_property()
-                            .expect("the restyle must write an exact text colour");
-                        out.push((node_id.index(), "text", c.inner));
-                    }
-                    other => panic!("unexpected restyle property: {other:?}"),
-                }
+            if let Some(CssProperty::BackgroundContent(v)) =
+                resting(CssPropertyType::BackgroundContent)
+            {
+                let layers = v
+                    .get_property()
+                    .expect("the restyle must write an exact background");
+                out.push((node, "bg", only_color(layers)));
+            }
+            if let Some(CssProperty::TextColor(v)) = resting(CssPropertyType::TextColor) {
+                let c = v
+                    .get_property()
+                    .expect("the restyle must write an exact text colour");
+                out.push((node, "text", c.inner));
             }
         }
         out
+    }
+
+    /// Every part style the live restyle wrote (`set_node_style`), as
+    /// `(node index, style)` in emission order. The restyle pins no value: any
+    /// other change is a bug (a `ChangeNodeCssProperties` would outlive a light
+    /// / dark switch).
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, Css)> {
+        changes
+            .iter()
+            .filter_map(|change| match change {
+                CallbackChange::SetNodeStyle { node_id, style, .. } => {
+                    Some((node_id.index(), style.clone()))
+                }
+                // The restyle must never go back to BAKED overrides: they
+                // outrank the cascade and go stale on a mode switch (V1).
+                baked @ CallbackChange::ChangeNodeCssProperties { .. } => {
+                    panic!("the restyle must only replace inline styles, got {baked:?}")
+                }
+                // Everything else a step emits is not a style write: the one
+                // tab stop and the focus moving with the step, the live
+                // "step N of M" value, the handled key (S2).
+                _ => None,
+            })
+            .collect()
     }
 
     /// What a correct restyle of an `n`-step stepper landing on `clicked` looks
@@ -1458,12 +1784,14 @@ mod autotest_generated {
         let reached = circle_style(true);
         let unreached = circle_style(false);
 
+        // Nineteen: the eight of `CIRCLE_BASE` (R5 made `box-sizing:
+        // border-box` part of it), then flat's eleven.
         assert_eq!(
             reached.as_ref().len(),
-            18,
-            "the circle declares eighteen properties"
+            19,
+            "the circle declares nineteen properties"
         );
-        assert_eq!(unreached.as_ref().len(), 18);
+        assert_eq!(unreached.as_ref().len(), 19);
         assert_eq!(
             property_kinds(&reached),
             property_kinds(&unreached),
@@ -2660,6 +2988,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let reached = i <= current;
@@ -2685,6 +3014,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let row = row_of(cell);
@@ -2709,6 +3039,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 let children = dom.children.as_ref();
 
@@ -2731,7 +3062,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_single_step_hides_both_of_its_connectors() {
-        let dom = stepper(&["only"]).dom();
+        let dom = stepper(&["only"]).with_theme(UiTheme::Flat).dom();
         let row = row_of(step_cell(&dom, 0));
         assert_eq!(
             background_color(&inline_properties(conn_left_of(row))),
@@ -2756,6 +3087,7 @@ mod autotest_generated {
             for current in 0..n {
                 let dom = Stepper::create(n_labels(n))
                     .with_current_step(current)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 let accent: Vec<usize> = dom
                     .children
@@ -2785,7 +3117,7 @@ mod autotest_generated {
         for current in [3usize, 4, 1_000, usize::MAX - 1, usize::MAX] {
             let mut s = Stepper::create(n_labels(3));
             s.stepper_state.inner.current_step = current;
-            let dom = s.dom();
+            let dom = s.with_theme(UiTheme::Flat).dom();
 
             assert_eq!(
                 dom.children.as_ref().len(),
@@ -2820,7 +3152,7 @@ mod autotest_generated {
         // emit phantom cells or truncate real ones.
         let mut s = stepper(&["a", "b", "c"]);
         s.stepper_state.inner.total_steps = 99;
-        let dom = s.dom();
+        let dom = s.with_theme(UiTheme::Flat).dom();
         assert_eq!(dom.children.as_ref().len(), 3);
         assert_eq!(
             background_color(&inline_properties(conn_right_of(row_of(step_cell(
@@ -2831,13 +3163,16 @@ mod autotest_generated {
         );
     }
 
+    /// Every step is clickable and carries the spin button's key handler, but
+    /// only the CURRENT step is a Tab stop: a spin button is one stop (WAI-ARIA
+    /// APG), the others stay focusable by click and from code.
     #[test]
-    fn dom_makes_every_step_clickable_and_keyboard_reachable() {
+    fn dom_makes_every_step_clickable_and_the_current_step_the_one_tab_stop() {
         let n = 3;
-        let dom = Stepper::create(n_labels(n)).dom();
+        let dom = Stepper::create(n_labels(n)).with_current_step(1).dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             let cbs = cell.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "step {i}: exactly one handler");
+            assert_eq!(cbs.as_ref().len(), 2, "step {i}: a click and a key handler");
             assert_eq!(
                 cbs.as_ref()[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -2845,9 +3180,17 @@ mod autotest_generated {
             assert_eq!(cbs.as_ref()[0].callback.cb, on_step_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));
             assert_eq!(
+                cbs.as_ref()[1].event,
+                EventFilter::Focus(azul_core::dom::FocusEventFilter::VirtualKeyDown)
+            );
+            assert_eq!(
                 cell.root.get_tab_index(),
-                Some(TabIndex::Auto),
-                "step {i} must be tab-reachable"
+                Some(if i == 1 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "step {i}: only the current step is a Tab stop"
             );
 
             // Only the cell is clickable — a handler on an inner node would
@@ -3069,6 +3412,7 @@ mod autotest_generated {
         // Position, not caption, decides reached-ness.
         let dom = stepper(&["same", "same", "same"])
             .with_current_step(1)
+            .with_theme(UiTheme::Flat)
             .dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             assert_eq!(text_of(label_of(cell)), Some("same"));
@@ -3088,7 +3432,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_gives_every_cell_the_shared_equal_share_style() {
-        let dom = Stepper::create(n_labels(3)).dom();
+        let dom = Stepper::create(n_labels(3)).with_theme(UiTheme::Flat).dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             let props = inline_properties(cell);
             assert_eq!(
@@ -3161,6 +3505,7 @@ mod autotest_generated {
 
             let rebuilt = Stepper::create(n_labels(n))
                 .with_current_step(clicked)
+                .with_theme(UiTheme::Flat)
                 .dom();
             for i in 0..n {
                 let cell = step_cell(&rebuilt, i);
@@ -3589,5 +3934,466 @@ mod autotest_generated {
             },
             "a click must move the current step and nothing else"
         );
+    }
+
+    /// The click restyle writes the parts of the theme the stepper was BUILT
+    /// in (read back from its marker class): a flora stepper must not be
+    /// repainted in flat's blue and grey on the first click. Each part takes
+    /// the whole style a flora build on the new step gives it.
+    #[test]
+    fn a_click_on_a_flora_stepper_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
+
+        let (styled, state) = flatten(Stepper::create(n_labels(3)).with_theme(UiTheme::Flora));
+        let (_, changes) = run_click(Some(styled), node(cell_node(1)), state);
+        let written = inline_writes(&changes);
+        let skin = flora::stepper_skin();
+        let style_of = |n: usize| {
+            written
+                .iter()
+                .find(|(i, _)| *i == n)
+                .map(|(_, s)| s.clone())
+                .unwrap_or_else(|| panic!("node {n} is restyled"))
+        };
+        assert_eq!(style_of(circle_node(1)), Css::from((skin.circle)(true)), "a reached circle");
+        assert_eq!(style_of(circle_node(2)), Css::from((skin.circle)(false)), "an upcoming circle");
+        assert_eq!(style_of(label_node(2)), Css::from((skin.label)(false)), "an upcoming label");
+        assert_eq!(
+            style_of(conn_right_node(0)),
+            Css::from((skin.connector)(conn_right_fill(0, 2, 1))),
+            "the walked line"
+        );
+
+        // ...which is the accent stone, flora paper and soft ink, by night too.
+        let node_of = |n: usize| Dom::create_div().with_style(style_of(n));
+        assert_eq!(tc::text_color(&node_of(circle_node(1)), false), Some(flora::LIGHT_ON_ACC));
+        for dark in [false, true] {
+            let upcoming = tc::background(&node_of(circle_node(2)), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                upcoming,
+                Some(vec![if dark {
+                    flora::RAISED_FACE_DARK
+                } else {
+                    flora::RAISED_FACE_LIGHT
+                }]),
+                "dark={dark}: an upcoming step is flora paper"
+            );
+            assert_eq!(
+                tc::text_color(&node_of(label_node(2)), dark),
+                Some(if dark { flora::DARK_SOFT1 } else { flora::LIGHT_SOFT1 }),
+                "dark={dark}: an upcoming label is soft ink"
+            );
+        }
+    }
+
+    /// An UNPINNED stepper follows the app theme, and so does its click
+    /// restyle: built for flora, it repaints in flora's parts.
+    #[test]
+    fn a_click_on_an_unpinned_stepper_built_for_flora_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc};
+
+        let (styled, state) = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            flatten(Stepper::create(n_labels(3)))
+        };
+        let (_, changes) = run_click(Some(styled), node(cell_node(1)), state);
+        let circle = inline_writes(&changes)
+            .into_iter()
+            .find(|(n, _)| *n == circle_node(1))
+            .map(|(_, style)| style)
+            .expect("circle 1 is restyled");
+        assert_eq!(
+            tc::text_color(&Dom::create_div().with_style(circle), false),
+            Some(flora::LIGHT_ON_ACC),
+            "a reached step wears flora's stone ink"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // A spin button is ONE Tab stop (WAI-ARIA APG spinbutton): the stepper
+    // declares itself one (every step's role is `SpinButton`, its value
+    // "step N of M"), so Tab lands on the current step and leaves the
+    // stepper with the next Tab, and the arrow keys change the value.
+    // ------------------------------------------------------------------
+
+    use azul_core::{dom::TabIndex, window::VirtualKeyCode};
+
+    use crate::widgets::roving::test_support as rv;
+
+    /// A plain tab stop, the stepper, another plain tab stop. Flattened:
+    /// root 0, before 1, stepper 2, step `i` at `3 + 8 * i`, after at
+    /// `3 + 8 * n`. Also hands back the stepper's shared state.
+    fn page(s: Stepper) -> (StyledDom, RefAny) {
+        let dom = s.dom();
+        let state = step_state(&dom, 0);
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), dom, stop()].into());
+        (StyledDom::create_from_dom(page), state)
+    }
+
+    fn page_before() -> DomNodeId {
+        node(1)
+    }
+
+    fn page_step(i: usize) -> DomNodeId {
+        node(3 + NODES_PER_STEP * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        node(3 + NODES_PER_STEP * n)
+    }
+
+    /// Presses `key` on step `i` of `page`; panics when the step has no key
+    /// handler - every step before the spin-button model.
+    fn press_step(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_step(i), key, held)
+            .expect("every step must carry the spin button's key handler")
+    }
+
+    /// The values the change announced, per flattened node index, in
+    /// emission order (`rv::announced_values`, by index).
+    fn announced(changes: &[CallbackChange]) -> Vec<(usize, String)> {
+        rv::announced_values(changes)
+            .into_iter()
+            .filter_map(|(node_id, value)| node_id.node.into_crate_internal().map(|n| (n.index(), value)))
+            .collect()
+    }
+
+    #[test]
+    fn tab_lands_on_the_current_step_and_the_next_tab_leaves_the_stepper() {
+        let (styled, _) = page(Stepper::create(n_labels(3)).with_current_step(1));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_step(1), page_after(3)],
+            "the stepper is ONE tab stop: the current step, then out",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_step(1), page_before()],
+        );
+    }
+
+    #[test]
+    fn the_arrow_keys_step_like_a_spin_button_and_hold_at_the_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            (1, K::Right, 2),
+            (1, K::Up, 2),
+            (1, K::Left, 0),
+            (1, K::Down, 0),
+            (1, K::Home, 0),
+            (1, K::End, 2),
+            (0, K::Left, 0),
+            (0, K::Down, 0),
+            (2, K::Right, 2),
+            (2, K::Up, 2),
+        ] {
+            let (styled, state) = page(Stepper::create(n_labels(3)).with_current_step(from));
+            let mut probe = state.clone();
+            let (_, changes) = press_step(&styled, from, key, &[]);
+            assert_eq!(
+                current_step_of(&mut probe),
+                to,
+                "{key:?} on step {from} must land on step {to}",
+            );
+            assert!(rv::prevented(&changes), "{key:?} on step {from} is the stepper's");
+            assert_eq!(
+                rv::focus_request(&changes),
+                (to != from).then(|| page_step(to)),
+                "{key:?} on step {from}: focus follows the value",
+            );
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_current_step_is_the_only_tab_stop() {
+        let (mut styled, _) = page(Stepper::create(n_labels(3)));
+        let (_, changes) = press_step(&styled, 0, VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_step(2), page_after(3)],
+        );
+    }
+
+    /// An arrow is a click in every other way: the user hears it, and the
+    /// row repaints for the new step.
+    #[test]
+    fn a_step_taken_with_the_arrow_keys_is_heard_and_repainted_like_a_click() {
+        let mut log = RefAny::new(StepLog { seen: Vec::new() });
+        let (styled, _) = page(
+            Stepper::create(n_labels(3)).with_on_step_change(log.clone(), cb(record_step)),
+        );
+        let (update, changes) = press_step(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(
+            logged(&mut log),
+            vec![StepperState {
+                current_step: 1,
+                total_steps: 3
+            }]
+        );
+        assert_eq!(update, Update::RefreshDom, "the user callback's update");
+        assert_eq!(
+            restyle_writes(&changes).len(),
+            5 * 3,
+            "every step's circle, connectors and label are repainted"
+        );
+    }
+
+    /// The spin button's value is live: every step announces the new one,
+    /// by arrow and by click alike, without waiting for a rebuild.
+    #[test]
+    fn a_step_change_announces_the_new_value_on_every_step() {
+        let expected: Vec<(usize, String)> = (0..3)
+            .map(|i| {
+                let step = page_step(i).node.into_crate_internal().unwrap();
+                (step.index(), "step 3 of 3".to_string())
+            })
+            .collect();
+
+        let (styled, _) = page(Stepper::create(n_labels(3)));
+        let (_, changes) = press_step(&styled, 0, VirtualKeyCode::End, &[]);
+        assert_eq!(announced(&changes), expected, "by arrow");
+
+        let (styled, state) = flatten(Stepper::create(n_labels(3)));
+        let (_, changes) = run_click(Some(styled), node(cell_node(2)), state);
+        let by_click: Vec<(usize, String)> = (0..3)
+            .map(|i| (cell_node(i), "step 3 of 3".to_string()))
+            .collect();
+        assert_eq!(announced(&changes), by_click, "by click");
+    }
+
+    #[test]
+    fn clicking_a_step_makes_it_the_tab_stop() {
+        let (mut styled, state) = flatten(Stepper::create(n_labels(3)));
+        let (_, changes) = run_click(Some(styled.clone()), node(cell_node(2)), state);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let stop = node(cell_node(2));
+        assert_eq!(rv::tab_walk(&styled, None, true, 2), vec![stop, stop]);
+    }
+
+    #[test]
+    fn a_modified_or_unused_key_on_a_step_is_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Right, Some(K::LAlt)),
+            (K::Right, Some(K::RControl)),
+            (K::Left, Some(K::LWin)),
+            (K::Left, Some(K::LShift)),
+            (K::Tab, None),
+            (K::Escape, None),
+            (K::Space, None),
+        ] {
+            let (styled, state) = page(Stepper::create(n_labels(3)).with_current_step(1));
+            let mut probe = state.clone();
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_step(&styled, 1, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(current_step_of(&mut probe), 1, "{held:?}+{key:?}");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The stepper's theme is a DOM-level choice: cells, circles, connectors
+    //! and labels are built from the skin of the theme the stepper carries,
+    //! flat by default, and the click restyle writes that theme's colours.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+        style::StyleBackgroundContent,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, system_palette, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// Three steps, the second current: step 0 and 1 reached, 2 upcoming.
+    fn steps(theme: Option<UiTheme>) -> Dom {
+        let s = Stepper::create(StringVec::from_vec(vec![
+            AzString::from("Start"),
+            AzString::from("Details"),
+            AzString::from("Done"),
+        ]))
+        .with_current_step(1);
+        match theme {
+            Some(t) => s.with_theme(t).dom(),
+            None => s.dom(),
+        }
+    }
+
+    fn cell(dom: &Dom, i: usize) -> &Dom {
+        &dom.children.as_ref()[i]
+    }
+    fn circle(dom: &Dom, i: usize) -> &Dom {
+        &cell(dom, i).children.as_ref()[0].children.as_ref()[1]
+    }
+    fn connector(dom: &Dom, i: usize, right: bool) -> &Dom {
+        &cell(dom, i).children.as_ref()[0].children.as_ref()[if right { 2 } else { 0 }]
+    }
+    fn label(dom: &Dom, i: usize) -> &Dom {
+        &cell(dom, i).children.as_ref()[1]
+    }
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_stepper_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let s = Stepper::create(StringVec::from_const_slice(&[]));
+        assert_eq!(s.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&steps(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            steps(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Stepper::create(StringVec::from_const_slice(&[]));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            Stepper::create(StringVec::from_const_slice(&[])).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_stepper_keeps_its_look_and_takes_the_desktop_palette_in_the_dark() {
+        let dom = steps(Some(UiTheme::Flat));
+        assert_eq!(bg(circle(&dom, 1), false), Some(ColorU::rgb(13, 110, 253)));
+        assert_eq!(bg(circle(&dom, 2), false), Some(ColorU::rgb(233, 236, 239)));
+        assert_eq!(
+            layers(circle(&dom, 2), true),
+            system_palette::SELECTION_BACKGROUND_INACTIVE.as_ref().to_vec()
+        );
+    }
+
+    #[test]
+    fn a_flora_stepper_marks_the_way_in_accent_stones_on_flora_paper() {
+        let dom = steps(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        for dark in [false, true] {
+            // Reached: the accent stone, its own colour by day and by night.
+            let stone = layers(circle(&dom, 1), dark);
+            assert_eq!(
+                stone.first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "dark={dark}: {stone:?}"
+            );
+            assert!(stone.len() > 1, "dark={dark}: the stone carries its rig");
+            assert_eq!(tc::text_color(circle(&dom, 1), dark), Some(flora::LIGHT_ON_ACC));
+            // The line walked so far is the accent.
+            assert_eq!(bg(connector(&dom, 1, false), dark), Some(flora::LIGHT_ACC));
+        }
+        // Upcoming: raised paper, soft ink, a BD line ahead.
+        assert_eq!(layers(circle(&dom, 2), false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(layers(circle(&dom, 2), true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(circle(&dom, 2), false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(circle(&dom, 2), true), Some(flora::DARK_SOFT1));
+        assert_eq!(bg(connector(&dom, 1, true), false), Some(flora::LIGHT_BD));
+        assert_eq!(bg(connector(&dom, 1, true), true), Some(flora::DARK_BD));
+        // Labels: ink for the way walked, soft ink for the way ahead.
+        assert_eq!(tc::text_color(label(&dom, 0), false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(label(&dom, 0), true), Some(flora::DARK_INK));
+        assert_eq!(tc::text_color(label(&dom, 2), false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(label(&dom, 2), true), Some(flora::DARK_SOFT1));
+    }
+
+    #[test]
+    fn a_step_circle_keeps_its_size_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = steps(Some(theme));
+            assert_eq!(
+                tc::resolve(circle(&dom, 0), CssPropertyType::Width, false, None),
+                Some(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_step_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = steps(Some(theme));
+            // ONE stop for the whole stepper, stepped with the arrow keys
+            // (the spinbutton pattern, S2) - no longer one stop per step.
+            assert_eq!(tc::focusable(&dom).len(), 1, "{theme:?}: one stop");
+            tc::assert_theme_invariants(&format!("stepper {theme:?}"), &dom);
+        }
+        let dom = steps(Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(cell(&dom, 0), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(cell(&dom, 0), true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = steps(Some(UiTheme::Flat));
+        let flora_dom = steps(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 3);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+}
+
+/// R5: a stepper's STRUCTURE (display, flex, box-sizing, cursor,
+/// user-select, ...) is its base - declared once, outside every
+/// `@theme(<name>)` block, so it holds under flat, flora and any theme to
+/// come. What a theme owns is its skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::{AzString, StringVec};
+
+    use super::Stepper;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_stepper_declares_its_structure_once_for_every_theme() {
+        let labels = || {
+            StringVec::from_vec(vec![
+                AzString::from("Cart"),
+                AzString::from("Address"),
+                AzString::from("Pay"),
+            ])
+        };
+        for t in BOTH {
+            // Each step current in turn: reached and upcoming circles and
+            // labels; accent, muted and hidden connectors.
+            for current in 0..3 {
+                let dom = under(t, || Stepper::create(labels()).with_current_step(current).dom());
+                assert_structure_is_shared(
+                    &format!("stepper at step {current}, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

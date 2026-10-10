@@ -29,7 +29,7 @@ azul-css = { path = "../css", version = "0.0.16", default-features = false, opti
 # feature unification handed the full default set to every crate in the
 # graph. Scoping webrender (2026-08-05) exposed the under-declaration -
 # the dll stopped compiling until this line named what it actually uses.
-azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater", "auth_session"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -73,6 +73,10 @@ serde_json = { version = "1.0", optional = true }
 # the HTML head, wasm client deserializes at AzStartup_init.
 postcard = { version = "1.0", features = ["use-std"], optional = true }
 base64 = { version = "0.22", optional = true }
+# The OS's random source for a sign-in's PKCE verifier and state (`AuthPkce::create`,
+# desktop/extra/auth_session). getrandom 0.2.17 is in Cargo.lock already (this crate's wasm
+# section, azul-storage, the rustls crypto stack); no build script.
+getrandom = "0.2"
 
 # Accessibility
 accesskit = { version = "0.24", default-features = false, optional = true }
@@ -84,6 +88,30 @@ png = { version = "0.18", default-features = false, optional = true }
 # gpu-video needs; gpu-video itself does NOT demux). Pure Rust, behind
 # `video-native`. See dll/src/desktop/extra/video_codec/demux.rs.
 mp4 = { version = "0.14", default-features = false, optional = true }
+
+# Audio FILE decoding for AudioFileDecoder / AudioPlayer (audio/decode.rs):
+# MP3, AAC, ALAC, FLAC, Vorbis, PCM / ADPCM in WAV, AIFF, MP4 / M4A, Ogg, MKV /
+# WebM and CAF, with ID3v1 / ID3v2 / APE tags and cover art. Pure Rust
+# (MPL-2.0), behind `audio-decode`. No `opt-simd` (it would pull rustfft).
+# Opus in those containers is decoded by azul's own AudioDecoder.
+symphonia = { version = "0.6.1", default-features = false, optional = true, features = [
+    "mp3",
+    "aac",
+    "alac",
+    "flac",
+    "vorbis",
+    "pcm",
+    "adpcm",
+    "wav",
+    "aiff",
+    "isomp4",
+    "ogg",
+    "mkv",
+    "caf",
+    "id3v1",
+    "id3v2",
+    "ape",
+] }
 
 # Windows-only: libm for math functions
 libm = { version = "0.2.2", default-features = false, optional = true }
@@ -465,6 +493,15 @@ windows = { version = "0.62", optional = true, features = [
     # platform that can take album art as a URI rather than as decoded pixels.
     "Media",
     "Storage_Streams",
+    # Native notifications as WinRT toasts (desktop/notifications/windows.rs):
+    # ToastNotificationManager / ToastNotification and the XmlDocument their
+    # content is loaded from. The AUMID they need is registered under HKCU
+    # through a dlopen'd advapi32, so no registry feature is needed.
+    "UI_Notifications",
+    "Data_Xml_Dom",
+    # The toast activator (INotificationActivationCallback): a click on an
+    # Action Center entry after the app exited reaches it through COM.
+    "Win32_UI_Notifications",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
@@ -476,6 +513,10 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
+    # The network state for background transfers (extra/sensors/network/windows.rs): the internet
+    # connection profile, its cost (metered, data limit, roaming, Data Saver) and
+    # NetworkStatusChanged. A feature of the windows crate already here, no new crate.
+    "Networking_Connectivity",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54
@@ -653,6 +694,7 @@ default = [
     "link-static",
     "logging",
     "a11y",
+    "debug-server",
     "all_img_formats",
     "web-e2e-runner",
 ]
@@ -699,10 +741,12 @@ build-dll = [
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
+    "debug-server",
     # Full functional surface for a complete libazul dylib — P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
     # (db-sqlite, biometric, …) MUST be added here as they land.
     "a11y",
+    "debug-server",
     "icons",
     "svg",
     "xml",
@@ -717,6 +761,8 @@ build-dll = [
     # (linux/windows) `gpu-video`, so libazul.so gives the C video player real
     # frames instead of the stub. No-op decoder on platforms without a backend.
     "video-native",
+    # Audio files (MP3 / AAC / FLAC / ...) for AudioFileDecoder and AudioPlayer.
+    "audio-decode",
     # OTLP telemetry compiled into the shipped dylib so any app (and the
     # link-dynamic demos) can opt in at RUNTIME via AZ_TELEMETRY=... without a
     # special build. Consent stays dual-keyed: linking this in sends NOTHING
@@ -726,6 +772,7 @@ build-dll = [
     # reporter dialog's Send when a deployment has no OTLP endpoint; armed by
     # `AppConfig.report_problem`. Pulls rustls for STARTTLS.
     "crash-mail",
+    "debug-server",
     # Probe spans feed the app_phase_seconds{phase} + RSS-checkpoint panels.
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.
@@ -739,6 +786,9 @@ build-dll = [
     # this an app built the normal way silently ignored AZ_E2E - which is
     # exactly what "the app did nothing" looked like (2026-09-01).
     "e2e-scripting",
+    # The X11 backend in the macOS dylib, so `AZ_BACKEND=x11` works out of
+    # the box against XQuartz. No dependency, a no-op off macOS - see below.
+    "x11-macos",
 ]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
@@ -912,7 +962,11 @@ crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 # (which implies `e2e-server`); `common/debug_server` only re-exports it and
 # adds the TCP listener + `register_debug_timer`. It used to be a second, drifted
 # copy of the same 12k lines.
-debug-server = ["json", "azul-layout/e2e-server-http", "spmc"]
+# `azul-css?/codegen`: `POST /debug/compile?lang=` (common/debug_server/platform.rs)
+# runs `azul_css::codegen::backend_for`. `azul-layout/codegen` (the DOM half,
+# `azul_core::codegen`: AzBuilder's code export) comes with `e2e-server`; it is
+# named here so the gate is visible.
+debug-server = ["json", "azul-layout/e2e-server-http", "azul-layout/codegen", "spmc", "azul-css?/codegen"]
 # E2E SCRIPTING WITHOUT THE HTTP SERVER.
 #
 # `debug-server` above pulls `e2e-server-http`, which opens a listening
@@ -924,7 +978,7 @@ debug-server = ["json", "azul-layout/e2e-server-http", "spmc"]
 #
 # So this enables `e2e-server` (the op dispatch, despite the name) WITHOUT
 # `-http` and without `spmc`, which exists only for the HTTP transport.
-e2e-scripting = ["json", "azul-layout/e2e-server"]
+e2e-scripting = ["json", "azul-layout/e2e-server", "azul-layout/codegen", "azul-css?/codegen"]
 
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal
@@ -984,6 +1038,25 @@ web-transpiler = ["web", "dep:goblin", "dep:pdb", "dep:iced-x86", "azul-layout?/
 web-transpiler-static = ["web-transpiler", "dep:cc"]
 
 # -----------------------------------------------------------------------------
+# Windowing backends
+# -----------------------------------------------------------------------------
+
+# The X11 backend in the macOS build, to reproduce X11 bugs on a Mac. Part of
+# build-dll, so every macOS dylib has it; a link-static app opts in with
+# `--features x11-macos`. `AZ_BACKEND=x11` (or `AZ_WINDOW=x11`) runs the Linux
+# X11 backend - the same `X11Window`, the same window loop - against XQuartz
+# instead of opening AppKit windows; without the variable nothing changes at
+# run time.
+#
+# No dependency of its own: the X libraries are dlopen'ed from /opt/X11/lib
+# at run time (shell2/common/x11_host.rs), and build.rs turns this feature
+# into the `az_x11` cfg the backend is gated on. It deliberately does NOT
+# bring x11-clipboard to macOS - see shell2/linux/x11/clipboard_xquartz.rs.
+# A no-op on every other target (Linux always has the X11 backend).
+# How-to: "Reproducing X11 bugs on macOS" in doc/guide/en/debugging.md.
+x11-macos = []
+
+# -----------------------------------------------------------------------------
 # Accessibility
 # -----------------------------------------------------------------------------
 
@@ -1029,6 +1102,10 @@ camera-native = ["dep:nokhwa"]
 # a no-op on Apple/Android — those use VideoToolbox/MediaCodec or the stub). OFF
 # by default so the stub (video_codec/mod.rs) keeps cross-compile builds lean.
 video-native = ["dep:mp4", "dep:gpu-video"]
+# Audio file decoding (Symphonia): AudioFileDecoder and AudioPlayer decode MP3,
+# AAC, ALAC, FLAC, Vorbis, WAV, AIFF in their containers. Without it both
+# handles open closed and say why.
+audio-decode = ["dep:symphonia"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
@@ -1132,13 +1209,13 @@ e2e-test = ["serde_json", "azul-layout?/probe"]
 #
 # WHY THESE ENTRIES EXIST (2026-08-20). azul-dll's `default` is
 # std + link-static + logging + a11y + all_img_formats — no `build-dll`, no
-# `e2e-test`, no `xml`. Both files below are ENTIRELY inside a cfg that those
-# defaults do not satisfy, so the ubuntu `cd dll && cargo test` job compiled
-# each of them into an EMPTY test harness and printed a green `running 0 tests`.
-# With `required-features`, cargo SKIPS the target instead of faking a pass —
-# and the jobs that DO name them (`ffi_safety_tests` for leak_regression,
-# `export_code_e2e` for the xml codegen tests) now fail loudly if the feature is
-# ever renamed, rather than silently testing nothing.
+# `e2e-test`. The file below is ENTIRELY inside a cfg that those defaults do
+# not satisfy, so the ubuntu `cd dll && cargo test` job compiled it into an
+# EMPTY test harness and printed a green `running 0 tests`. With
+# `required-features`, cargo SKIPS the target instead of faking a pass — and
+# the job that DOES name it (`ffi_safety_tests`) now fails loudly if the
+# feature is ever renamed, rather than silently testing nothing. (The HTML ->
+# code tests moved to azul-core: `--features codegen --test export_page_codegen`.)
 #
 # The `target_os` half of leak_regression's `#![cfg]` (macOS, or linux-gnu)
 # cannot be expressed as a required-feature; ffi_safety_tests runs it on macOS
@@ -1148,11 +1225,6 @@ e2e-test = ["serde_json", "azul-layout?/probe"]
 name = "leak_regression"
 path = "tests/leak_regression.rs"
 required-features = ["build-dll", "e2e-test"]
-
-[[test]]
-name = "xml_to_rust_compilation"
-path = "tests/xml_to_rust_compilation.rs"
-required-features = ["xml"]
 
 # -----------------------------------------------------------------------------
 # Examples

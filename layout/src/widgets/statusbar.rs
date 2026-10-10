@@ -57,9 +57,9 @@ use azul_css::{
 };
 
 use super::{
-    button::{Button, OptionButtonOnClick},
-    slider::{OptionSliderOnValueChange, Slider},
-    themes::flat,
+    button::{Button, ButtonOnClick, ButtonOnClickCallback, OptionButtonOnClick},
+    slider::{OptionSliderOnValueChange, Slider, SliderOnValueChange, SliderOnValueChangeCallback},
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::CallbackInfo;
 
@@ -146,6 +146,64 @@ const W13_THUMB_BORDER: ColorU = ColorU {
     a: 255,
 };
 
+// -- the Office 2010 palette (seeds StatusBarTheme::office_2010) --
+//
+// Outlook 2010's status bar (Silver): a silver strip under a hairline, dark
+// text, the warm yellow hover and orange press of every Office 2010 control.
+// Unlike the 2013 accent strip it is page-neutral chrome, so it goes dark
+// with the window (Office 2010 Black).
+
+/// The bar (#DDE2E8): the palette value of the strip, which is drawn as a
+/// face from [`O10_BAR_TOP`] to [`O10_BAR_BOTTOM`].
+const O10_BAR: ColorU = ColorU {
+    r: 221,
+    g: 226,
+    b: 232,
+    a: 255,
+};
+/// The top of the bar's face (#E9EDF1).
+const O10_BAR_TOP: ColorU = ColorU {
+    r: 233,
+    g: 237,
+    b: 241,
+    a: 255,
+};
+/// The foot of the bar's face (#CDD3DA).
+const O10_BAR_BOTTOM: ColorU = ColorU {
+    r: 205,
+    g: 211,
+    b: 218,
+    a: 255,
+};
+/// The bar's text (#3C4048).
+const O10_TEXT: ColorU = ColorU {
+    r: 60,
+    g: 64,
+    b: 72,
+    a: 255,
+};
+/// The zoom rail on the silver bar (#9AA3AF).
+const O10_RAIL: ColorU = ColorU {
+    r: 154,
+    g: 163,
+    b: 175,
+    a: 255,
+};
+/// A sync error's glyph on the silver bar (#C42B1C).
+const O10_SYNC_ERROR: ColorU = ColorU {
+    r: 196,
+    g: 43,
+    b: 28,
+    a: 255,
+};
+/// A sync error's glyph on the dark bar (#FF8A80).
+const O10_SYNC_ERROR_DARK: ColorU = ColorU {
+    r: 255,
+    g: 138,
+    b: 128,
+    a: 255,
+};
+
 // -- Metrics (the Office-2013-era look, logical px) --
 
 /// Bar height.
@@ -167,6 +225,103 @@ const ZOOM_THUMB_H: isize = 11;
 const ZOOM_LABEL_W: isize = 42;
 
 // -- Theme --
+
+// -- Sync status --
+
+/// How the account's mailbox (or any synced store) is doing right now - what
+/// Outlook's status bar shows at its right edge: "Connected", "Send/Receive
+/// error", "Sending/Receiving...", "Working Offline".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StatusBarSyncKind {
+    /// Up to date and connected.
+    #[default]
+    Connected,
+    /// A sync is running.
+    Syncing,
+    /// The last sync failed; the label says what (a click opens the error).
+    Error,
+    /// Working offline: nothing is synced.
+    Offline,
+}
+
+impl StatusBarSyncKind {
+    /// The glyph for this state (a `Dom::create_icon` name).
+    #[must_use]
+    pub const fn icon(self) -> &'static str {
+        match self {
+            Self::Connected => "cloud_done",
+            Self::Syncing => "sync",
+            Self::Error => "error",
+            Self::Offline => "cloud_off",
+        }
+    }
+}
+
+/// The sync-status indicator: a glyph for the state beside its label, a
+/// click to open the details (the send/receive errors, the offline toggle).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct StatusBarSync {
+    /// What the indicator says ("Connected", "Send/Receive error").
+    pub label: AzString,
+    /// Opens the details; without it the indicator is inert text.
+    pub on_click: OptionButtonOnClick,
+    /// The state, which picks the glyph and its colour.
+    pub kind: StatusBarSyncKind,
+}
+
+impl StatusBarSync {
+    /// An indicator saying `label` in state `kind`, with no click.
+    #[must_use]
+    pub fn create(label: AzString, kind: StatusBarSyncKind) -> Self {
+        Self {
+            label,
+            on_click: None.into(),
+            kind,
+        }
+    }
+
+    /// The click that opens the details.
+    pub fn set_on_click<C: Into<ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_click: C,
+    ) {
+        self.on_click = Some(ButtonOnClick {
+            refany: data,
+            callback: on_click.into(),
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_click`] for the builder chain.
+    #[must_use]
+    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
+        self.set_on_click(data, on_click);
+        self
+    }
+}
+
+impl_option!(
+    StatusBarSync,
+    OptionStatusBarSync,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+/// The Office bar's glyph for a sync error: a warm red that reads on the
+/// accent blue (the white glyphs around it are the bar's text).
+const W13_SYNC_ERROR: ColorU = ColorU {
+    r: 255,
+    g: 180,
+    b: 169,
+    a: 255,
+};
 
 /// Color palette from which a full [`StatusBarStyle`] is derived via
 /// [`StatusBarStyle::from_theme`]. All fields are plain colors, so themes
@@ -191,6 +346,9 @@ pub struct StatusBarTheme {
     pub thumb: ColorU,
     /// Zoom slider thumb border.
     pub thumb_border: ColorU,
+    /// The sync indicator's glyph when the last sync failed
+    /// ([`StatusBarSyncKind::Error`]); every other state's glyph is `text`.
+    pub sync_error: ColorU,
 }
 
 impl StatusBarTheme {
@@ -206,7 +364,39 @@ impl StatusBarTheme {
             rail: W13_RAIL,
             thumb: WHITE,
             thumb_border: W13_THUMB_BORDER,
+            sync_error: W13_SYNC_ERROR,
         }
+    }
+
+    /// The Office 2010 palette (Silver), the flat theme's bar and the
+    /// default: a silver strip under a hairline, dark text, the yellow
+    /// hover, the orange press, the toggled-on yellow for the active view.
+    /// This palette's bar is page-neutral chrome: it goes dark with the
+    /// window, its states are Office 2010's faces (`is_office_2010`).
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self {
+            bar_bg: O10_BAR,
+            text: O10_TEXT,
+            hover_bg: flat::LIGHT_HB,
+            pressed_bg: flat::LIGHT_PT,
+            view_active_bg: flat::LIGHT_CHECKED_BOTTOM,
+            rail: O10_RAIL,
+            thumb: WHITE,
+            thumb_border: flat::LIGHT_BD3,
+            sync_error: O10_SYNC_ERROR,
+        }
+    }
+
+    /// Whether this is Office 2010's silver bar (its strip colour): drawn as
+    /// page-neutral chrome with Office 2010's faces, each colour with its
+    /// dark twin. Any other palette is an accent strip in its own colours.
+    #[must_use]
+    pub(crate) const fn is_office_2010(&self) -> bool {
+        self.bar_bg.r == O10_BAR.r
+            && self.bar_bg.g == O10_BAR.g
+            && self.bar_bg.b == O10_BAR.b
+            && self.bar_bg.a == O10_BAR.a
     }
 
     /// Extracts a bar palette from the OS theme.
@@ -236,13 +426,15 @@ impl StatusBarTheme {
             rail: separator.unwrap_or(d.rail),
             thumb: on_accent.unwrap_or(d.thumb),
             thumb_border: separator.unwrap_or(d.thumb_border),
+            // No platform reports an "error on accent" colour: the Office one.
+            sync_error: d.sync_error,
         }
     }
 }
 
 impl Default for StatusBarTheme {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -269,7 +461,8 @@ const fn cond_border_box() -> Cond {
     Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
 }
 
-fn push_row_center(v: &mut Vec<Cond>) {
+/// A row, its content centred on the bar's axis, that the bar never grows.
+fn push_row(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_display(LayoutDisplay::Flex)));
     v.push(Cond::simple(P::const_flex_direction(
         LayoutFlexDirection::Row,
@@ -278,9 +471,27 @@ fn push_row_center(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
         0,
     ))));
+}
+
+/// [`push_row`] at its own width: the bar's controls - the zoom, the view
+/// switcher, their buttons - never shrink.
+fn push_row_center(v: &mut Vec<Cond>) {
+    push_row(v);
     v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
         inner: FloatValue::const_new(0),
     })));
+}
+
+/// [`push_row`] for a part that says something - a segment, the sync line:
+/// where the bar is too narrow for every part, the texts give way (down to
+/// nothing, below their longest word) and the controls at the right end keep
+/// their size and their place in the bar. Outlook's bar.
+fn push_text_row(v: &mut Vec<Cond>) {
+    push_row(v);
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(1),
+    })));
+    v.push(Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))));
 }
 
 /// Transparent, hover-highlighted flat button chassis shared by every
@@ -304,8 +515,40 @@ fn push_flat_button(v: &mut Vec<Cond>, t: &StatusBarTheme) {
     // would be worse than today's light-only rule; see
     // `themes::flat::hover_bg_both` for the rule, and `flat::button_states`
     // for the same call on a Primary button.
+    //
+    // Office 2010's silver bar is page-neutral instead: its controls take the
+    // theme's yellow and orange faces in a gold rim, amber by night.
+    if t.is_office_2010() {
+        v.extend(flat::hover_face_both());
+        v.extend(flat::hover_border_both(
+            flat::LIGHT_HOVER_BORDER,
+            flat::DARK_HOVER_BORDER,
+        ));
+        v.extend(flat::active_face_both());
+        return;
+    }
     v.extend(flat::hover_bg_both(t.hover_bg, t.hover_bg));
     v.extend(flat::active_bg_both(t.pressed_bg, t.pressed_bg));
+}
+
+/// A text or glyph colour on the bar: the palette's own on the accent strip
+/// (no twin - the strip keeps its colour), and on Office 2010's silver bar
+/// with the theme's dark ink after it.
+fn push_ink(v: &mut Vec<Cond>, t: &StatusBarTheme, light: ColorU, dark: ColorU) {
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_ink(light, dark));
+    } else {
+        v.push(cond_text_color(light));
+    }
+}
+
+/// A fill on the bar, as [`push_ink`].
+fn push_fill(v: &mut Vec<Cond>, t: &StatusBarTheme, light: ColorU, dark: ColorU) {
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_fill(light, dark));
+    } else {
+        v.push(cond_bg(light));
+    }
 }
 
 /// 1px solid border on all four sides in the given color.
@@ -367,8 +610,23 @@ fn theme_bar(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
         TEXT_PX,
     ))));
-    v.push(cond_bg(t.bar_bg));
-    v.push(cond_text_color(t.text));
+    if t.is_office_2010() {
+        // The silver strip under its hairline (an inset line: no height).
+        v.extend(super::themes::decl::themed_layers(
+            vec![super::themes::decl::face(O10_BAR_TOP, O10_BAR_BOTTOM)],
+            vec![super::themes::decl::face(flat::DARK_STRIP, flat::DARK_SUR)],
+        ));
+        v.extend(super::themes::decl::themed_ink(t.text, flat::DARK_INK));
+        v.extend(super::themes::decl::themed_inset_shadow(
+            1,
+            0,
+            flat::LIGHT_BD,
+            flat::DARK_BD,
+        ));
+    } else {
+        v.push(cond_bg(t.bar_bg));
+        v.push(cond_text_color(t.text));
+    }
     v.push(Cond::simple(P::const_padding_left(
         LayoutPaddingLeft::const_px(6),
     )));
@@ -380,7 +638,7 @@ fn theme_bar(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_segment(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
-    push_row_center(&mut v);
+    push_text_row(&mut v);
     push_flat_button(&mut v, t);
     v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
         BAR_HEIGHT,
@@ -395,17 +653,36 @@ fn theme_segment(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_segment_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX - 1))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX - 1,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// A segment's text: one line, cut off with an ellipsis where its segment
+/// gives way ([`push_text_row`]).
 fn theme_segment_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_font_size(StyleFontSize::const_px(TEXT_PX))),
-        cond_text_color(t.text),
-    ])
+        Cond::simple(P::WhiteSpace(StyleWhiteSpace::Nowrap.into())),
+        Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)),
+        Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
+        Cond::simple(P::TextOverflow(StyleTextOverflow::Ellipsis.into())),
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))),
+    ];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The sync indicator's glyph when the sync failed: the segment glyph in the
+/// palette's error colour.
+fn theme_sync_icon_error(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX - 1,
+    )))];
+    push_ink(&mut v, t, t.sync_error, O10_SYNC_ERROR_DARK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_filler(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
@@ -446,14 +723,27 @@ fn theme_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 /// constructor, and `scripts/check_widget_theme_migration.py` counts such
 /// calls in this file.
 fn theme_active_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
+    if t.is_office_2010() {
+        // Office 2010's toggled-on yellow in its rim, the states after it so
+        // the face does not shadow them.
+        let mut v = flat::checked_face_both().to_vec();
+        v.extend(super::themes::decl::themed_border_color(
+            flat::LIGHT_CHECKED_BORDER,
+            flat::DARK_CHECKED_BORDER,
+        ));
+        v.extend(flat::hover_face_both());
+        v.extend(flat::active_face_both());
+        return CssPropertyWithConditionsVec::from_vec(v);
+    }
     CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.view_active_bg)])
 }
 
 fn theme_view_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_zoom(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
@@ -479,10 +769,11 @@ fn theme_zoom_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_zoom_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX - 2))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX - 2,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Positioning context for the rail line, the center tick and the slider.
@@ -501,26 +792,28 @@ fn theme_zoom_track_host(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 
 /// The 1px horizontal rail line behind the slider.
 fn theme_zoom_rail(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
         Cond::simple(P::const_left(LayoutLeft::const_px(0))),
         Cond::simple(P::const_top(LayoutTop::const_px(BAR_HEIGHT / 2))),
         Cond::simple(P::const_width(LayoutWidth::const_px(ZOOM_TRACK_W))),
         Cond::simple(P::const_height(LayoutHeight::const_px(1))),
-        cond_bg(t.rail),
-    ])
+    ];
+    push_fill(&mut v, t, t.rail, flat::DARK_BD3);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The small vertical tick marking the 100% center of the rail.
 fn theme_zoom_tick(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
         Cond::simple(P::const_left(LayoutLeft::const_px(ZOOM_TRACK_W / 2))),
         Cond::simple(P::const_top(LayoutTop::const_px(BAR_HEIGHT / 2 - 3))),
         Cond::simple(P::const_width(LayoutWidth::const_px(1))),
         Cond::simple(P::const_height(LayoutHeight::const_px(7))),
-        cond_bg(t.rail),
-    ])
+    ];
+    push_fill(&mut v, t, t.rail, flat::DARK_BD3);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Injected into the embedded [`Slider`]'s `track_style`: a transparent
@@ -548,8 +841,8 @@ fn theme_slider_thumb(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_width(LayoutWidth::const_px(ZOOM_THUMB_W))),
         Cond::simple(P::const_height(LayoutHeight::const_px(ZOOM_THUMB_H))),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        cond_bg(t.thumb),
     ];
+    push_fill(&mut v, t, t.thumb, flat::DARK_RT);
     v.push(Cond::simple(P::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )));
@@ -582,6 +875,13 @@ fn theme_slider_thumb(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
             inner: BorderStyle::Solid,
         },
     )));
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_border_color(
+            t.thumb_border,
+            flat::DARK_BD3,
+        ));
+        return CssPropertyWithConditionsVec::from_vec(v);
+    }
     v.push(Cond::simple(P::const_border_top_color(
         StyleBorderTopColor {
             inner: t.thumb_border,
@@ -624,7 +924,7 @@ fn theme_zoom_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
         TEXT_PX,
     ))));
-    v.push(cond_text_color(t.text));
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -766,13 +1066,27 @@ pub struct StatusBarStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub zoom_label_style: OptionCssPropertyWithConditionsVec,
+    /// The sync indicator's glyph in the ERROR state (its other states take
+    /// `segment_icon_style`; the indicator itself is a segment).
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer, "no properties at all".
+    pub sync_icon_error_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl StatusBarStyle {
-    /// The the Office-2013-era look look (#2B579A bar, white text) - the default.
+    /// The the Office-2013-era look look (#2B579A bar, white text).
     #[must_use]
     pub const fn office_2013() -> Self {
         Self::from_theme(StatusBarTheme::office_2013())
+    }
+
+    /// The Office 2010 look (the silver bar, see
+    /// [`StatusBarTheme::office_2010`]) - the default, the flat theme's bar.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self::from_theme(StatusBarTheme::office_2010())
     }
 
     /// Every part style, derived from the OS theme - see
@@ -806,6 +1120,7 @@ impl StatusBarStyle {
             slider_track_style: OptionCssPropertyWithConditionsVec::None,
             slider_thumb_style: OptionCssPropertyWithConditionsVec::None,
             zoom_label_style: OptionCssPropertyWithConditionsVec::None,
+            sync_icon_error_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -988,11 +1303,21 @@ impl StatusBarStyle {
             .into_option()
             .unwrap_or_else(|| theme_zoom_label(&self.theme))
     }
+
+    /// The `sync_icon_error_style` this bundle renders with: the caller's
+    /// override if there is one, else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_sync_icon_error_style(&self) -> CssPropertyWithConditionsVec {
+        self.sync_icon_error_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_sync_icon_error(&self.theme))
+    }
 }
 
 impl Default for StatusBarStyle {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -1052,12 +1377,12 @@ impl StatusBarSegment {
     }
 
     /// Sets the click callback.
-    pub fn set_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+    pub fn set_on_click<C: Into<ButtonOnClickCallback>>(
         &mut self,
         data: RefAny,
         on_click: C,
     ) {
-        self.on_click = Some(super::button::ButtonOnClick {
+        self.on_click = Some(ButtonOnClick {
             refany: data,
             callback: on_click.into(),
         })
@@ -1066,7 +1391,7 @@ impl StatusBarSegment {
 
     /// Builder method: sets the click callback and returns `self`.
     #[must_use]
-    pub fn with_on_click<C: Into<super::button::ButtonOnClickCallback>>(
+    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(
         mut self,
         data: RefAny,
         on_click: C,
@@ -1256,10 +1581,97 @@ impl StatusBarZoom {
         }
     }
 
+    /// A zoom cluster at `percent` over the slider window `[min, max]`
+    /// (see [`Self::set_range`]), label shown, no hooks yet.
+    #[must_use]
+    pub fn create(percent: f32, min: f32, max: f32) -> Self {
+        Self::office_2013().with_range(min, max).with_percent(percent)
+    }
+
     /// Builder method: sets the zoom percent.
     #[must_use]
     pub const fn with_percent(mut self, percent: f32) -> Self {
         self.percent = percent;
+        self
+    }
+
+    /// Sets the zoom percent.
+    pub const fn set_percent(&mut self, percent: f32) {
+        self.percent = percent;
+    }
+
+    /// Sets the slider's window: `min` is the thumb at the far left, `max`
+    /// at the far right (a reversed pair is the same window). Give it the
+    /// range the app's zoom buttons reach - a percent outside the window
+    /// pins the thumb to its end, and the first drag moves the zoom back
+    /// inside it. `office_2013()`'s window is `[10, 190]`.
+    pub fn set_range(&mut self, min: f32, max: f32) {
+        let (min, max) = if min <= max { (min, max) } else { (max, min) };
+        self.min = min;
+        self.max = max;
+    }
+
+    /// Builder method: sets the slider's window (see [`Self::set_range`]).
+    #[must_use]
+    pub fn with_range(mut self, min: f32, max: f32) -> Self {
+        self.set_range(min, max);
+        self
+    }
+
+    /// Sets the - (zoom out) button's callback.
+    pub fn set_on_zoom_out<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_zoom_out = Some(ButtonOnClick::create(data, callback)).into();
+    }
+
+    /// Builder method: sets the - (zoom out) button's callback.
+    #[must_use]
+    pub fn with_on_zoom_out<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_zoom_out(data, callback);
+        self
+    }
+
+    /// Sets the + button's callback.
+    pub fn set_on_zoom_in<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_zoom_in = Some(ButtonOnClick::create(data, callback)).into();
+    }
+
+    /// Builder method: sets the + button's callback.
+    #[must_use]
+    pub fn with_on_zoom_in<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, callback: C) -> Self {
+        self.set_on_zoom_in(data, callback);
+        self
+    }
+
+    /// Sets the slider's callback: it reports the raw slider value, inside
+    /// the window [`Self::set_range`] gave.
+    pub fn set_on_slider_change<C: Into<SliderOnValueChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.on_slider_change = Some(SliderOnValueChange::create(data, callback)).into();
+    }
+
+    /// Builder method: sets the slider's callback.
+    #[must_use]
+    pub fn with_on_slider_change<C: Into<SliderOnValueChangeCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_slider_change(data, callback);
+        self
+    }
+
+    /// Shows or hides the "100%" label after the + button.
+    pub const fn set_show_label(&mut self, show_label: bool) {
+        self.show_label = show_label;
+    }
+
+    /// Builder method: shows or hides the percent label.
+    #[must_use]
+    pub const fn with_show_label(mut self, show_label: bool) -> Self {
+        self.show_label = show_label;
         self
     }
 }
@@ -1290,6 +1702,14 @@ pub struct StatusBar {
     pub zoom: OptionStatusBarZoom,
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: StatusBarStyle,
+    /// Optional sync-status indicator, right of the filler and left of the
+    /// view switcher (Outlook's "Connected" / "Send/Receive error").
+    pub sync: OptionStatusBarSync,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's toolbar strip and paper keys on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 // -- CSS classes --
@@ -1319,20 +1739,40 @@ static CLS_ZOOM_TICK: &[IdOrClass] = &[Class(AzString::from_const_str(
 static CLS_ZOOM_LABEL: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-statusbar-zoom-label",
 ))];
+static CLS_SYNC: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-sync",
+))];
 
 // -- Constructors / builders --
 
 impl StatusBar {
     /// Creates a status bar with the given left segments, no view switcher
-    /// and no zoom cluster, in the the Office-2013-era look style.
+    /// and no zoom cluster, in the Office 2010 style.
     #[must_use]
     pub fn new(segments: StatusBarSegmentVec) -> Self {
         Self {
             segments,
             views: None.into(),
             zoom: None.into(),
-            style: StatusBarStyle::office_2013(),
+            style: StatusBarStyle::office_2010(),
+            sync: None.into(),
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme: the status bar, its buttons and its zoom
+    /// slider keep this look whatever the app theme is. Unset (`None`), the
+    /// status bar follows the app theme (`AppConfig::with_theme`, flat by
+    /// default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the view-switcher cluster.
@@ -1356,6 +1796,18 @@ impl StatusBar {
     #[must_use]
     pub fn with_zoom(mut self, zoom: StatusBarZoom) -> Self {
         self.set_zoom(zoom);
+        self
+    }
+
+    /// Sets the sync-status indicator.
+    pub fn set_sync(&mut self, sync: StatusBarSync) {
+        self.sync = Some(sync).into();
+    }
+
+    /// Builder method: sets the sync-status indicator and returns `self`.
+    #[must_use]
+    pub fn with_sync(mut self, sync: StatusBarSync) -> Self {
+        self.set_sync(sync);
         self
     }
 
@@ -1411,19 +1863,55 @@ impl StatusBar {
         true
     }
 
-    /// Renders the status bar.
+    /// Renders the status bar in its theme: a pinned theme is that look; no
+    /// theme follows the app theme (both looks in one tree, each inside its
+    /// `@theme(<name>)` block, in the structure of the theme the DOM is built
+    /// for).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(theme) => self.build_in(theme),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                Self::flat_look,
+                Self::flora_look,
+            ),
+        }
+    }
+
+    /// The bar in the flat look (a `follow_app_theme` builder).
+    fn flat_look(self) -> Dom {
+        self.build_in(UiTheme::Flat)
+    }
+
+    /// The bar in the flora look (a `follow_app_theme` builder).
+    fn flora_look(self) -> Dom {
+        self.build_in(UiTheme::Flora)
+    }
+
+    /// The bar in exactly `theme`'s look: flat is the palette's own parts;
+    /// flora fills every part the caller left `None` with flora's paint on
+    /// the same geometry (`themes::flora::statusbar_style`). Its buttons and
+    /// its zoom slider are built in that look too, and the root carries the
+    /// theme marker.
+    fn build_in(mut self, theme: UiTheme) -> Dom {
+        if theme == UiTheme::Flora {
+            self.style = crate::widgets::themes::flora::statusbar_style(self.style);
+        }
         let Self {
             segments,
             views,
             zoom,
             style,
+            sync,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `dom`.
+            theme: _,
         } = self;
-        let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 3);
+        let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 4);
 
         for seg in segments.into_library_owned_vec() {
-            children.push(segment_dom(seg, &style));
+            children.push(segment_dom(seg, &style, theme));
         }
 
         children.push(
@@ -1432,16 +1920,23 @@ impl StatusBar {
                 .with_css_props(style.resolved_filler_style()),
         );
 
+        if let Some(sync) = sync.into_option() {
+            children.push(sync_dom(sync, &style, theme));
+        }
+
         if let Some(switcher) = views.into_option() {
-            children.push(views_dom(switcher, &style));
+            children.push(views_dom(switcher, &style, theme));
         }
 
         if let Some(zoom) = zoom.into_option() {
-            children.push(zoom_dom(zoom, &style));
+            children.push(zoom_dom(zoom, &style, theme));
         }
 
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_STATUSBAR))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_STATUSBAR[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(style.resolved_bar_style())
             .with_children(DomVec::from_vec(children))
     }
@@ -1462,18 +1957,21 @@ impl From<StatusBar> for Dom {
 // -- DOM builders --
 
 /// Expands widget config to the existing [`Button`] widget with the
-/// status-bar part styles injected (the ribbon's composition rule).
+/// status-bar part styles injected (the ribbon's composition rule), built in
+/// the bar's theme: the button is part of the bar's look.
 fn styled_button(
     icon: AzString,
     container_style: CssPropertyWithConditionsVec,
     icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
     b.on_click = on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
@@ -1481,15 +1979,10 @@ fn merged_style(
     base: &CssPropertyWithConditionsVec,
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    if extra.as_ref().is_empty() {
-        return base.clone();
-    }
-    let mut v: Vec<Cond> = base.as_ref().to_vec();
-    v.extend_from_slice(extra.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    crate::widgets::themes::theme_blocks::stack_parts(base, extra)
 }
 
-fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
+fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle, theme: UiTheme) -> Dom {
     let StatusBarSegment {
         icon,
         label,
@@ -1497,7 +1990,8 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         marker,
     } = seg;
     if !icon.as_str().is_empty() || on_click.is_some() {
-        // Icon and/or clickable: expand to a Button (flat chassis).
+        // Icon and/or clickable: expand to a Button (the bar's chassis), in
+        // the bar's theme.
         let mut b = Button::create(label);
         b.icon = icon;
         b.container_style =
@@ -1507,6 +2001,7 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         b.label_style =
             OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_label_style());
         b.on_click = on_click;
+        b.set_theme(theme);
         return b
             .dom()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEGMENT));
@@ -1618,7 +2113,33 @@ extern "C" fn statusbar_label_render_virtual_view(
     VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
-fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
+/// The sync indicator: a segment (a [`Button`] with the state's glyph and the
+/// label, named by the label) whose glyph turns the palette's error colour
+/// when the sync failed.
+fn sync_dom(sync: StatusBarSync, style: &StatusBarStyle, theme: UiTheme) -> Dom {
+    let StatusBarSync {
+        label,
+        on_click,
+        kind,
+    } = sync;
+    let mut b = Button::create(label.clone());
+    b.icon = AzString::from_const_str(kind.icon());
+    // The name: the label says the state ("Connected"), the glyph does not.
+    b.alt = label;
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_style());
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(if kind == StatusBarSyncKind::Error {
+        style.resolved_sync_icon_error_style()
+    } else {
+        style.resolved_segment_icon_style()
+    });
+    b.label_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_segment_label_style());
+    b.on_click = on_click;
+    b.set_theme(theme);
+    b.dom()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SYNC))
+}
+
+fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle, theme: UiTheme) -> Dom {
     let StatusBarViewSwitcher {
         views,
         active_view,
@@ -1635,12 +2156,12 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
             style.resolved_view_button_style()
         };
         let on_click: OptionButtonOnClick = match on_select.as_ref() {
-            Some(cb) => Some(super::button::ButtonOnClick {
+            Some(cb) => Some(ButtonOnClick {
                 refany: RefAny::new(ViewClickData {
                     view_idx: idx,
                     on_select: cb.clone(),
                 }),
-                callback: super::button::ButtonOnClickCallback {
+                callback: ButtonOnClickCallback {
                     cb: on_status_bar_view_click,
                     ctx: azul_core::refany::OptionRefAny::None,
                 },
@@ -1653,6 +2174,7 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
             container,
             style.resolved_view_icon_style(),
             on_click,
+            theme,
         ));
     }
     Dom::create_div()
@@ -1663,7 +2185,7 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout numeric
                                                                         // cast
-fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
+fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle, theme: UiTheme) -> Dom {
     let StatusBarZoom {
         percent,
         min,
@@ -1681,6 +2203,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         style.resolved_zoom_button_style(),
         style.resolved_zoom_icon_style(),
         on_zoom_out,
+        theme,
     ));
 
     // Rail + tick + embedded Slider, layered inside the positioning host.
@@ -1696,11 +2219,16 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
             LayoutMarginLeft::const_px(margin),
         ))]),
     );
-    let mut slider = Slider::create(percent, min, max);
+    // The bar's own slider: the bar names it (a screen reader said "slider"
+    // and nothing else).
+    let mut slider =
+        Slider::create(percent, min, max).with_accessibility_name(AzString::from_const_str("Zoom"));
     slider.track_style =
         OptionCssPropertyWithConditionsVec::Some(style.resolved_slider_track_style());
     slider.thumb_style = OptionCssPropertyWithConditionsVec::Some(thumb_style);
     slider.slider_state.on_value_change = on_slider_change;
+    // The slider is part of the bar's look, so it is built in the bar's theme.
+    slider.set_theme(theme);
 
     children.push(
         Dom::create_div()
@@ -1722,6 +2250,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
         style.resolved_zoom_button_style(),
         style.resolved_zoom_icon_style(),
         on_zoom_in,
+        theme,
     ));
 
     if show_label {
@@ -1839,19 +2368,19 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_new_defaults_to_office_2013_with_no_clusters() {
+    fn status_bar_new_defaults_to_office_2010_with_no_clusters() {
         for count in [0usize, 1, 3] {
             let s = StatusBar::new(segs(count));
             assert_eq!(s.segments.len(), count);
             assert!(s.views.is_none());
             assert!(s.zoom.is_none());
-            assert_eq!(s.style, StatusBarStyle::office_2013());
+            assert_eq!(s.style, StatusBarStyle::office_2010());
         }
     }
 
     #[test]
-    fn status_bar_style_default_is_office_2013() {
-        assert_eq!(StatusBarStyle::default(), StatusBarStyle::office_2013());
+    fn status_bar_style_default_is_office_2010() {
+        assert_eq!(StatusBarStyle::default(), StatusBarStyle::office_2010());
     }
 
     #[test]
@@ -1903,6 +2432,57 @@ mod tests {
         assert_eq!(zoom_dom.children.as_ref().len(), 3);
     }
 
+    /// The state of the first slider in `dom` (the zoom cluster's).
+    fn slider_state(dom: &Dom) -> Option<crate::widgets::slider::SliderState> {
+        for cb in dom.root.callbacks.as_ref() {
+            let mut data = cb.refany.clone();
+            if let Some(w) = data.downcast_ref::<crate::widgets::slider::SliderStateWrapper>() {
+                return Some(w.inner);
+            };
+        }
+        dom.children.as_ref().iter().find_map(slider_state)
+    }
+
+    /// Seen in the wave-6 look at AzSheets / AzShow: the zoom cluster's
+    /// slider was unnamed (an a11y-widget warning every frame; a screen
+    /// reader said "slider" and nothing else). It is the bar's own slider,
+    /// so the bar names it: "Zoom".
+    #[test]
+    fn the_zoom_slider_is_named_zoom() {
+        let dom = StatusBar::new(segs(0))
+            .with_zoom(StatusBarZoom::create(100.0, 10.0, 400.0))
+            .dom();
+        assert!(super::sync_tests::named(&dom, "Zoom"), "the zoom slider names itself");
+    }
+
+    /// AzShow and AzSheets zoom to 400 %, but the cluster's slider window was
+    /// fixed at 10..190: the thumb sat pinned at the end and the first drag
+    /// snapped the zoom back below 190 % (DEDUP_OFFICE D28). The app gives
+    /// the window, and the slider spans it.
+    #[test]
+    fn the_zoom_slider_spans_the_range_the_app_gives() {
+        let zoom = StatusBarZoom::create(300.0, 10.0, 400.0);
+        assert_eq!((zoom.percent, zoom.min, zoom.max), (300.0, 10.0, 400.0));
+        let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
+        let state = slider_state(&dom).expect("the zoom cluster holds a slider");
+        assert_eq!((state.min, state.max), (10.0, 400.0));
+        assert!((state.value - 300.0).abs() < 1e-3, "{state:?}");
+
+        let zoom = StatusBarZoom::office_2013()
+            .with_range(10.0, 400.0)
+            .with_percent(400.0);
+        let dom = StatusBar::new(segs(0)).with_zoom(zoom).dom();
+        let state = slider_state(&dom).expect("a slider");
+        assert!(
+            (state.value - 400.0).abs() < 1e-3,
+            "400 % rests at the end of a 10..400 window, not past a 190 one: {state:?}"
+        );
+
+        // A reversed range is the same window.
+        let zoom = StatusBarZoom::office_2013().with_range(400.0, 10.0);
+        assert_eq!((zoom.min, zoom.max), (10.0, 400.0));
+    }
+
     #[test]
     fn zoom_track_host_layers_rail_tick_and_slider() {
         let dom = StatusBar::new(segs(0))
@@ -1941,7 +2521,7 @@ mod tests {
             let Some(state) = state else { continue };
             let is_dark = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if is_dark {
                 dark.push((p.get_type(), state));
             } else {
@@ -1966,7 +2546,12 @@ mod tests {
         // An inert text segment is a plain <div> carrying the flat chassis, so
         // the state rules on it are this widget's alone (a clickable segment
         // expands to a Button, which appends its own on top).
-        let dom = StatusBar::new(segs(1)).dom();
+        // The 2013 palette's accent strip (Office 2010's silver bar is
+        // page-neutral: its states take the theme's faces).
+        let dom = StatusBar::new(segs(1))
+            .with_style(StatusBarStyle::office_2013())
+            .with_theme(UiTheme::Flat)
+            .dom();
         let segment = &dom.children.as_ref()[0];
         assert_every_state_rule_has_a_dark_twin(
             "segment",
@@ -1987,7 +2572,7 @@ mod tests {
                         .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
                     let is_dark = conds
                         .iter()
-                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                        .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
                     matches!(p, CssProperty::BackgroundContent(_))
                         && gated_on_state
                         && is_dark == want_dark
@@ -2042,6 +2627,402 @@ mod tests {
         let views = &dom.children.as_ref()[1];
         for btn in views.children.as_ref() {
             assert_eq!(btn.root.callbacks.as_ref().len(), 1);
+        }
+    }
+}
+
+/// The status bar's flora look (W5a): flora's toolbar strip closed by a
+/// hairline along its top, status text in soft ink, controls that are bare
+/// paper until the pointer lifts them, the active view pushed in - on exactly
+/// the flat bar's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    /// A bar with every part a look paints: an inert and an icon segment,
+    /// the view switcher (the middle view active) and the zoom cluster.
+    fn fixture() -> StatusBar {
+        StatusBar::new(StatusBarSegmentVec::from_vec(vec![
+            StatusBarSegment::new(AzString::from("PAGE 1 OF 1")),
+            StatusBarSegment::new(AzString::from("ENGLISH"))
+                .with_icon(AzString::from("spellcheck")),
+        ]))
+        .with_views(StatusBarViewSwitcher::office_2013())
+        .with_zoom(StatusBarZoom::office_2013())
+    }
+
+    fn bar(theme: UiTheme) -> Dom {
+        fixture().with_theme(theme).dom()
+    }
+
+    fn node<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        tc::find(dom, class).unwrap_or_else(|| panic!("the status bar renders a {class}"))
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    #[test]
+    fn a_flora_status_bar_is_flora_s_toolbar_strip_under_a_hairline_in_both_modes() {
+        let dom = bar(UiTheme::Flora);
+        for (dark, strip, ink, rule) in [
+            (false, flora::LIGHT_STRIP, flora::LIGHT_SOFT1, flora::LIGHT_BD),
+            (true, flora::DARK_STRIP, flora::DARK_SOFT1, flora::DARK_BD),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(strip), "the strip (dark: {dark})");
+            assert_eq!(tc::text_color(&dom, dark), Some(ink), "status ink (dark: {dark})");
+            let hairline = tc::resolve(&dom, CssPropertyType::BoxShadowTop, dark, None)
+                .and_then(|p| tc::shadow_color_and_reach(&p))
+                .map(|(color, _)| color);
+            assert_eq!(hairline, Some(rule), "a hairline closes the strip (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn a_flora_segment_writes_in_soft_ink_and_lifts_under_the_pointer() {
+        let dom = bar(UiTheme::Flora);
+        let segment = node(&dom, "__azul-native-statusbar-segment");
+        let label = &segment.children.as_ref()[0];
+        for (dark, ink, hover) in [
+            (false, flora::LIGHT_SOFT1, flora::HOVER_FACE_LIGHT),
+            (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
+        ] {
+            assert_eq!(tc::text_color(label, dark), Some(ink), "segment text (dark: {dark})");
+            assert_eq!(face(segment, dark, None), fill(ColorU::TRANSPARENT));
+            assert_eq!(face(segment, dark, Some(PseudoStateType::Hover)), vec![hover]);
+        }
+    }
+
+    #[test]
+    fn the_active_flora_view_is_pushed_in_paper_and_every_view_rings_on_focus() {
+        let dom = bar(UiTheme::Flora);
+        let views = node(&dom, "__azul-native-statusbar-views").children.as_ref();
+        assert_eq!(views.len(), 3);
+        for (dark, pressed) in [
+            (false, flora::PRESSED_FACE_LIGHT),
+            (true, flora::PRESSED_FACE_DARK),
+        ] {
+            assert_eq!(face(&views[1], dark, None), vec![pressed], "the active view (dark: {dark})");
+            for view in [&views[0], &views[2]] {
+                assert_eq!(face(view, dark, None), fill(ColorU::TRANSPARENT));
+            }
+            for view in views {
+                assert!(tc::has_focus_ring(view, dark), "a view is ringed (dark: {dark})");
+            }
+        }
+    }
+
+    #[test]
+    fn the_flora_zoom_slider_runs_on_a_hairline_rail_under_a_paper_thumb() {
+        let dom = bar(UiTheme::Flora);
+        let rail = node(&dom, "__azul-native-statusbar-zoom-rail");
+        let tick = node(&dom, "__azul-native-statusbar-zoom-tick");
+        for (dark, rule) in [(false, flora::LIGHT_BD3), (true, flora::DARK_BD3)] {
+            assert_eq!(face(rail, dark, None), fill(rule), "the rail (dark: {dark})");
+            assert_eq!(face(tick, dark, None), fill(rule), "the 100% tick (dark: {dark})");
+        }
+        let thumb = node(&dom, "__azul-native-slider-thumb");
+        assert_eq!(
+            face(thumb, false, None).first(),
+            Some(&flora::RAISED_FACE_LIGHT),
+            "the thumb is raised paper"
+        );
+    }
+
+    #[test]
+    fn the_flora_status_bar_keeps_every_theme_invariant() {
+        tc::assert_theme_invariants("flora status bar", &bar(UiTheme::Flora));
+    }
+
+    /// Flora repaints the bar; it does not re-measure it (the zoom thumb's
+    /// travel and the 23px row are the flat bar's numbers).
+    #[test]
+    fn a_flora_status_bar_keeps_every_metric_of_the_flat_one() {
+        let moved = flora::chrome_metric_findings(&bar(UiTheme::Flat), &bar(UiTheme::Flora));
+        assert!(moved.is_empty(), "the flora status bar moves:\n  {}", moved.join("\n  "));
+    }
+
+    #[test]
+    fn a_pinned_status_bar_builds_its_buttons_and_its_slider_in_its_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let marker = match theme {
+                UiTheme::Flat => style_kit::FLAT_CLASS,
+                UiTheme::Flora => style_kit::FLORA_CLASS,
+            };
+            let dom = bar(theme);
+            assert!(tc::has_class(&dom, marker), "the root carries its theme marker");
+            let views = node(&dom, "__azul-native-statusbar-views").children.as_ref();
+            for view in views {
+                assert!(tc::has_class(view, marker), "a view button is built in the bar's theme");
+            }
+            // An unpinned button or slider would carry every theme's
+            // `@theme(<name>)` block: a pinned bar carries none anywhere.
+            let mut blocks = Vec::new();
+            for (path, n) in tc::nodes(&dom) {
+                for (_, conds) in n.root.style.iter_inline_properties() {
+                    let in_block = conds
+                        .as_ref()
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))));
+                    if in_block {
+                        blocks.push(path.clone());
+                    }
+                }
+            }
+            assert!(blocks.is_empty(), "{theme:?}: theme blocks at {blocks:?}");
+        }
+    }
+
+    /// R5: the bar's STRUCTURE (display, flex, box-sizing, position,
+    /// overflow, cursor, user-select, white-space) is its base - declared
+    /// once, outside every `@theme(<name>)` block, so it holds under flat,
+    /// flora and any theme to come. What a theme owns is its paint.
+    #[test]
+    fn a_status_bar_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        // Every part: an inert, a live (marked) and an icon segment, the
+        // view switcher with each view active in turn, the zoom cluster with
+        // and without its label.
+        let bar = |active_view: usize, show_label: bool| {
+            let mut zoom = StatusBarZoom::office_2013();
+            zoom.show_label = show_label;
+            StatusBar::new(StatusBarSegmentVec::from_vec(vec![
+                StatusBarSegment::new(AzString::from("PAGE 1 OF 1")),
+                StatusBarSegment::new(AzString::from("0 WORDS"))
+                    .with_marker(AzString::from("words")),
+                StatusBarSegment::new(AzString::from("ENGLISH"))
+                    .with_icon(AzString::from("spellcheck")),
+            ]))
+            .with_views(StatusBarViewSwitcher::office_2013().with_active_view(active_view))
+            .with_zoom(zoom)
+        };
+        for t in BOTH {
+            for active_view in 0..3 {
+                for show_label in [true, false] {
+                    let dom = under(t, || bar(active_view, show_label).dom());
+                    assert_structure_is_shared(
+                        &format!(
+                            "status bar (view {active_view} active, zoom label: {show_label}), \
+                             built for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod sync_tests {
+    //! The sync-status indicator: Outlook's "Connected" / "Send/Receive
+    //! error" at the right edge of the bar.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        button::ButtonOnClickCallbackType,
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, theme_checks},
+    };
+
+    fn segs() -> StatusBarSegmentVec {
+        StatusBarSegmentVec::from_vec(vec![StatusBarSegment::new(AzString::from(
+            "Filter applied",
+        ))])
+    }
+
+    fn bar(kind: StatusBarSyncKind) -> StatusBar {
+        StatusBar::new(segs()).with_sync(StatusBarSync::create(
+            AzString::from("Send/Receive error"),
+            kind,
+        ))
+    }
+
+    /// The first icon node of the tree, printed.
+    fn glyph(dom: &Dom) -> String {
+        theme_checks::nodes(dom)
+            .into_iter()
+            .find_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Icon(_) => Some(format!("{:?}", n.root.get_node_type())),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// The first icon node's style, printed.
+    fn glyph_style(dom: &Dom) -> String {
+        theme_checks::nodes(dom)
+            .into_iter()
+            .find_map(|(_, n)| match n.root.get_node_type() {
+                NodeType::Icon(_) => Some(format!("{:?}", n.root.get_style())),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether any node of the tree is named `name` for assistive technology.
+    pub(super) fn named(dom: &Dom, name: &str) -> bool {
+        theme_checks::nodes(dom).into_iter().any(|(_, n)| {
+            n.root
+                .get_accessibility_info()
+                .and_then(|i| i.accessibility_name.as_ref().map(|s| s.as_str() == name))
+                .unwrap_or(false)
+        })
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    /// The bar's third part (segment, filler, sync) in `styled`.
+    fn sync_node(styled: &StyledDom) -> NodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let segment = hierarchy[0]
+            .first_child_id(NodeId::new(0))
+            .expect("the segment");
+        let filler = hierarchy[segment.index()]
+            .next_sibling_id()
+            .expect("the filler");
+        hierarchy[filler.index()]
+            .next_sibling_id()
+            .expect("the sync indicator")
+    }
+
+    #[test]
+    fn the_sync_indicator_sits_between_the_filler_and_the_views() {
+        let dom = bar(StatusBarSyncKind::Connected)
+            .with_views(StatusBarViewSwitcher::office_2013())
+            .with_zoom(StatusBarZoom::office_2013())
+            .dom();
+        let parts = dom.children.as_ref();
+        assert_eq!(parts.len(), 5, "segment, filler, sync, views, zoom");
+        assert!(theme_checks::has_class(
+            &parts[1],
+            "__azul-native-statusbar-filler"
+        ));
+        assert!(theme_checks::has_class(
+            &parts[2],
+            "__azul-native-statusbar-sync"
+        ));
+        assert!(theme_checks::has_class(
+            &parts[3],
+            "__azul-native-statusbar-views"
+        ));
+        assert!(
+            named(&parts[2], "Send/Receive error"),
+            "the indicator is named by its label"
+        );
+    }
+
+    #[test]
+    fn every_sync_state_has_its_own_glyph_and_the_error_its_own_colour() {
+        let kinds = [
+            StatusBarSyncKind::Connected,
+            StatusBarSyncKind::Syncing,
+            StatusBarSyncKind::Error,
+            StatusBarSyncKind::Offline,
+        ];
+        let glyphs: Vec<String> = kinds.iter().map(|k| glyph(&bar(*k).dom())).collect();
+        for (i, a) in glyphs.iter().enumerate() {
+            assert!(!a.is_empty(), "{:?} shows a glyph", kinds[i]);
+            for b in &glyphs[i + 1..] {
+                assert_ne!(a, b, "two states share a glyph: {glyphs:?}");
+            }
+        }
+        assert_ne!(
+            glyph_style(&bar(StatusBarSyncKind::Error).dom()),
+            glyph_style(&bar(StatusBarSyncKind::Connected).dom()),
+            "the error glyph is not painted in the bar's text colour"
+        );
+        assert_eq!(
+            glyph_style(&bar(StatusBarSyncKind::Syncing).dom()),
+            glyph_style(&bar(StatusBarSyncKind::Connected).dom()),
+            "every other state's glyph is the bar's text colour"
+        );
+    }
+
+    type Log = Arc<Mutex<usize>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            *log.lock().expect("log") += 1;
+        }
+        Update::RefreshDom
+    }
+
+    #[test]
+    fn a_sync_indicator_reports_its_click_and_is_inert_without_one() {
+        let log: Log = Arc::new(Mutex::new(0));
+        let sync = StatusBarSync::create(
+            AzString::from("Send/Receive error"),
+            StatusBarSyncKind::Error,
+        )
+        .with_on_click(RefAny::new(log.clone()), record as ButtonOnClickCallbackType);
+        let styled = StyledDom::create_from_dom(StatusBar::new(segs()).with_sync(sync).dom());
+        let (update, _) = rv::fire(
+            &styled,
+            id(sync_node(&styled)),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("the indicator takes the click");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(*log.lock().expect("log"), 1);
+
+        let inert = StyledDom::create_from_dom(bar(StatusBarSyncKind::Connected).dom());
+        assert!(
+            rv::fire(
+                &inert,
+                id(sync_node(&inert)),
+                EventFilter::Hover(HoverEventFilter::Click)
+            )
+            .is_none(),
+            "no click hook, no click"
+        );
+    }
+
+    #[test]
+    fn a_bar_with_a_sync_indicator_follows_the_app_theme_and_declares_its_structure_once() {
+        checks::assert_follows_the_app_theme(
+            "statusbar (sync)",
+            || bar(StatusBarSyncKind::Error).dom(),
+            |t: UiTheme| bar(StatusBarSyncKind::Error).with_theme(t).dom(),
+        );
+        for t in checks::BOTH {
+            let dom = checks::under(t, || bar(StatusBarSyncKind::Error).dom());
+            theme_checks::assert_structure_is_shared(
+                &format!("statusbar (sync) built for {}", t.name()),
+                &dom,
+                &[],
+            );
         }
     }
 }

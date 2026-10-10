@@ -29,7 +29,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize, StyleFontWeight},
         layout::{
@@ -42,7 +41,10 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette,
+};
 
 static BREADCRUMB_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-breadcrumb"))];
@@ -57,7 +59,7 @@ static BREADCRUMB_SEPARATOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_s
 ))];
 
 /// Separator glyph rendered between crumbs.
-const SEPARATOR_GLYPH: AzString = AzString::from_const_str("/");
+pub(crate) const SEPARATOR_GLYPH: AzString = AzString::from_const_str("/");
 
 /// Callback function type invoked when a (non-current) crumb is clicked.
 pub type BreadcrumbOnNavigateCallbackType =
@@ -97,6 +99,29 @@ pub struct Breadcrumb {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// What a theme decides about a breadcrumb: each crumb's SKIN (its paint and
+/// metrics); [`build`] lays it over the crumb's base (the structure, the same
+/// in every theme: `BREADCRUMB_ITEM_BASE`, `BREADCRUMB_LABEL_BASE`) and turns
+/// it and the widget's state into the DOM. Built by
+/// `themes::flat::breadcrumb` and `themes::flora::breadcrumb`.
+pub(crate) struct BreadcrumbLook {
+    /// A clickable crumb (a link that takes the keyboard): its focus ring
+    /// included.
+    pub item: Vec<CssPropertyWithConditions>,
+    /// The current (last) crumb.
+    pub current: Vec<CssPropertyWithConditions>,
+    /// The separator between crumbs.
+    pub separator: Vec<CssPropertyWithConditions>,
+    /// The separator's glyph.
+    pub separator_glyph: AzString,
+    /// The theme's marker class on the row, if it has one.
+    pub marker: Option<&'static str>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -106,6 +131,11 @@ pub struct BreadcrumbStateWrapper {
     pub inner: BreadcrumbState,
     /// Optional: function to call when a crumb is clicked.
     pub on_navigate: OptionBreadcrumbOnNavigate,
+    /// Optional: with it every crumb - the current page too - is followed
+    /// by a CHEVRON that is a button, reporting the crumb's index in
+    /// `selected_index`: a file manager opens that folder's entries beside
+    /// it (`CallbackInfo::open_menu_for_hit_node`).
+    pub on_segment_menu: OptionBreadcrumbOnNavigate,
 }
 
 /// State of a [`Breadcrumb`]: the index of the most recently clicked crumb.
@@ -149,32 +179,55 @@ static BREADCRUMB_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
 ];
 
-/// Clickable crumb-link style (blue, pointer cursor). A hover underline is
-/// omitted to keep the style a const slice (`TextDecoration::Underline.into()`
-/// is not const); the link colour + pointer already read clearly as a link.
-static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
+// ---- the base: a crumb's structure, in every theme ----
+//
+// What lays a crumb out is the same whichever theme paints it, so it is the
+// widget's own: [`build`] declares a crumb's base FIRST, then the theme's skin
+// (`BreadcrumbLook`). No structure declaration then sits inside a `@theme`
+// block, and it holds under a theme no widget knows (R5).
+
+/// A clickable crumb: it hugs its label, takes the pointer, and a drag across
+/// the trail never selects its text.
+pub(crate) static BREADCRUMB_ITEM_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The current page and a separator: they hug their text, which a drag
+/// never selects - and, not clickable, they advertise no pointer.
+pub(crate) static BREADCRUMB_LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+// ---- the flat skin ----
+
+/// The flat crumb link's skin (blue; the pointer is the base's). A hover
+/// underline is omitted to keep the skin a const slice
+/// (`TextDecoration::Underline.into()` is not const); `themes::flat` adds it.
+pub(crate) static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LINK_COLOR,
     })),
+    // Dark theme: the desktop's link colour (the Bootstrap blue is 3:1 on a
+    // dark window and matches nothing around it).
+    system_palette::DARK_LINK,
 ];
 
-/// Current (last) crumb style: muted dark, bold, not clickable.
-static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+/// The flat current (last) crumb's skin: muted dark, bold.
+pub(crate) static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: CURRENT_COLOR,
     })),
+    // Dark theme: the label colour - #495057 on a dark window is dark-on-dark.
+    system_palette::DARK_TEXT,
 ];
 
-/// Separator-glyph style: grey, with a small horizontal gap on each side.
-static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+/// The flat separator glyph's skin: grey, with a small horizontal gap on each
+/// side.
+pub(crate) static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         8,
     ))),
@@ -184,6 +237,7 @@ static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: SEPARATOR_COLOR,
     })),
+    system_palette::DARK_SECONDARY_TEXT,
 ];
 
 impl Breadcrumb {
@@ -194,7 +248,23 @@ impl Breadcrumb {
             breadcrumb_state: BreadcrumbStateWrapper::default(),
             labels,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the breadcrumb keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this breadcrumb renders with.
@@ -243,24 +313,119 @@ impl Breadcrumb {
         self
     }
 
+    /// The segment menus: every crumb, the current page too, is followed by
+    /// a chevron that reports the crumb's index (see
+    /// [`BreadcrumbStateWrapper::on_segment_menu`]).
+    #[inline]
+    pub fn set_on_segment_menu<C: Into<BreadcrumbOnNavigateCallback>>(
+        &mut self,
+        data: RefAny,
+        on_segment_menu: C,
+    ) {
+        self.breadcrumb_state.on_segment_menu = Some(BreadcrumbOnNavigate {
+            callback: on_segment_menu.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// [`Self::set_on_segment_menu`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub fn with_on_segment_menu<C: Into<BreadcrumbOnNavigateCallback>>(
+        mut self,
+        data: RefAny,
+        on_segment_menu: C,
+    ) -> Self {
+        self.set_on_segment_menu(data, on_segment_menu);
+        self
+    }
+
+    /// Converts this breadcrumb into its DOM (classed
+    /// `__azul-native-breadcrumb`). The look comes from the theme module
+    /// (`themes::flat::breadcrumb` / `themes::flora::breadcrumb`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
-        };
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::breadcrumb(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::breadcrumb(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::breadcrumb,
+                crate::widgets::themes::flora::breadcrumb,
+            ),
+        }
+    }
+}
 
-        let count = self.labels.as_ref().len();
-        // Resolved before `self.breadcrumb_state` is moved out below.
-        let container_style = self.resolved_container_style();
+/// The breadcrumb's DOM in `look`: crumb, separator, crumb, ..., current -
+/// the alternation `on_crumb_click` derives the clicked index from.
+pub(crate) fn build(bc: Breadcrumb, look: &BreadcrumbLook) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+
+    // A crumb's declarations: its base first, then the theme's skin.
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+    };
+    {
+        let count = bc.labels.as_ref().len();
+        // Resolved before `bc.breadcrumb_state` is moved out below.
+        let container_style = bc.resolved_container_style();
+
+        // With segment menus every crumb - the current page too - is
+        // followed by a chevron that is a button (`on_segment_menu_click`).
+        let with_menus = bc.breadcrumb_state.on_segment_menu.is_some();
 
         // One shared RefAny across every crumb callback (RefAny::clone shares the
         // underlying state — same pattern as segmented/tabs/map).
-        let state = RefAny::new(self.breadcrumb_state);
+        let state = RefAny::new(bc.breadcrumb_state);
+
+        // The plain separator between two crumbs.
+        let separator = || {
+            crate::widgets::widget_p_with_text(look.separator_glyph.clone())
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_SEPARATOR_CLASS))
+                .with_css_props(part(BREADCRUMB_LABEL_BASE, look.separator.as_slice()))
+        };
+        // A crumb's chevron: the separator's glyph and skin on a crumb's base
+        // (it takes the pointer), a keyboard stop and a button named after
+        // the crumb, reporting it through `on_segment_menu`.
+        let chevron = |label: &AzString| {
+            crate::widgets::widget_p_with_text(look.separator_glyph.clone())
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_SEPARATOR_CLASS))
+                .with_css_props(part(BREADCRUMB_ITEM_BASE, look.separator.as_slice()))
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::Click),
+                        callback: CoreCallback {
+                            cb: on_segment_menu_click as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: state.clone(),
+                    }]
+                    .into(),
+                )
+                .with_tab_index(TabIndex::Auto)
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(AzString::from(alloc::format!(
+                        "{} menu",
+                        label.as_str()
+                    )))
+                    .into(),
+                    ..Default::default()
+                })
+        };
 
         let mut children: Vec<Dom> = Vec::with_capacity(count.saturating_mul(2));
-        for (i, label) in self.labels.as_ref().iter().enumerate() {
+        for (i, label) in bc.labels.as_ref().iter().enumerate() {
             let is_last = i + 1 == count;
 
             if is_last {
@@ -270,18 +435,17 @@ impl Breadcrumb {
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_CURRENT_CLASS,
                         ))
-                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                            BREADCRUMB_CURRENT_STYLE,
-                        )),
+                        .with_css_props(part(BREADCRUMB_LABEL_BASE, look.current.as_slice())),
                 );
+                if with_menus {
+                    children.push(chevron(label));
+                }
             } else {
                 // A clickable crumb link.
                 children.push(
                     crate::widgets::widget_p_with_text(label.clone())
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_ITEM_CLASS))
-                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                            BREADCRUMB_ITEM_STYLE,
-                        ))
+                        .with_css_props(part(BREADCRUMB_ITEM_BASE, look.item.as_slice()))
                         .with_callbacks(
                             vec![CoreCallbackData {
                                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -302,21 +466,22 @@ impl Breadcrumb {
                 ..Default::default()
             }),
                 );
-                // Separator after every non-last crumb.
-                children.push(
-                    crate::widgets::widget_p_with_text(SEPARATOR_GLYPH)
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                            BREADCRUMB_SEPARATOR_CLASS,
-                        ))
-                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                            BREADCRUMB_SEPARATOR_STYLE,
-                        )),
-                );
+                // Separator (or the crumb's chevron) after every non-last crumb.
+                children.push(if with_menus {
+                    chevron(label)
+                } else {
+                    separator()
+                });
             }
         }
 
+        let mut classes: Vec<IdOrClass> = BREADCRUMB_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -333,28 +498,11 @@ impl Default for Breadcrumb {
 /// children alternate crumb/separator), updates the state, and invokes the user
 /// `on_navigate` callback. No live restyle — navigating is expected to rebuild
 /// the page.
-extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul_core::dom::DomNodeId;
-
-    let clicked = info.get_hit_node();
-    let Some(parent) = info.get_parent(clicked) else {
-        return Update::DoNothing;
-    };
-
-    // Collect the children in document order, then find the clicked crumb's slot.
-    let mut siblings: Vec<DomNodeId> = Vec::new();
-    let mut cur = info.get_first_child(parent);
-    while let Some(node) = cur {
-        siblings.push(node);
-        cur = info.get_next_sibling(node);
-    }
-
-    let Some(pos) = siblings.iter().position(|n| *n == clicked) else {
-        return Update::DoNothing;
-    };
+extern "C" fn on_crumb_click(mut data: RefAny, info: CallbackInfo) -> Update {
     // Crumbs sit at even positions (crumb, separator, crumb, separator, …).
-    let index = pos / 2;
-
+    let Some(index) = hit_slot(&info).map(|pos| pos / 2) else {
+        return Update::DoNothing;
+    };
     let Some(mut bc) = data.downcast_mut::<BreadcrumbStateWrapper>() else {
         return Update::DoNothing;
     };
@@ -367,6 +515,43 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
         }
         None => Update::DoNothing,
     }
+}
+
+/// Click handler of a crumb's chevron (segment menus): the chevron sits right
+/// after its crumb, at an odd position, so `index = position / 2` names the
+/// crumb; the state records it and `on_segment_menu` hears it.
+extern "C" fn on_segment_menu_click(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(index) = hit_slot(&info).map(|pos| pos / 2) else {
+        return Update::DoNothing;
+    };
+    let Some(mut bc) = data.downcast_mut::<BreadcrumbStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    bc.inner.selected_index = index;
+    let inner = bc.inner;
+    let bc = &mut *bc;
+    match bc.on_segment_menu.as_mut() {
+        Some(BreadcrumbOnNavigate { callback, refany }) => {
+            callback.invoke(refany.clone(), info, inner)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The hit node's position among its siblings, in document order.
+fn hit_slot(info: &CallbackInfo) -> Option<usize> {
+    let clicked = info.get_hit_node();
+    let parent = info.get_parent(clicked)?;
+    let mut pos = 0;
+    let mut cur = info.get_first_child(parent);
+    while let Some(node) = cur {
+        if node == clicked {
+            return Some(pos);
+        }
+        pos += 1;
+        cur = info.get_next_sibling(node);
+    }
+    None
 }
 
 impl From<Breadcrumb> for Dom {
@@ -1067,17 +1252,26 @@ mod autotest_generated {
     #[test]
     fn only_the_clickable_crumb_style_declares_a_pointer_cursor() {
         assert!(has_property(
-            BREADCRUMB_ITEM_STYLE,
+            &flat_crumb(BREADCRUMB_ITEM_BASE, BREADCRUMB_ITEM_STYLE),
             &CssProperty::const_cursor(StyleCursor::Pointer)
         ));
         assert!(
-            !has_cursor(BREADCRUMB_CURRENT_STYLE),
+            !has_cursor(&flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_CURRENT_STYLE)),
             "the current page is not clickable, so it must not advertise a pointer"
         );
         assert!(
-            !has_cursor(BREADCRUMB_SEPARATOR_STYLE),
+            !has_cursor(&flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_SEPARATOR_STYLE)),
             "separators are not clickable"
         );
+    }
+
+    /// A flat crumb's declarations as `build` lays them: its base (the
+    /// structure, the same in every theme), then the flat skin.
+    fn flat_crumb(
+        base: &[CssPropertyWithConditions],
+        skin: &[CssPropertyWithConditions],
+    ) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::decl::on_base(base, skin)
     }
 
     #[test]
@@ -1095,17 +1289,17 @@ mod autotest_generated {
     #[test]
     fn every_crumb_style_disables_text_selection_and_flex_growth() {
         for (name, style) in [
-            ("item", BREADCRUMB_ITEM_STYLE),
-            ("current", BREADCRUMB_CURRENT_STYLE),
-            ("separator", BREADCRUMB_SEPARATOR_STYLE),
+            ("item", flat_crumb(BREADCRUMB_ITEM_BASE, BREADCRUMB_ITEM_STYLE)),
+            ("current", flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_CURRENT_STYLE)),
+            ("separator", flat_crumb(BREADCRUMB_LABEL_BASE, BREADCRUMB_SEPARATOR_STYLE)),
         ] {
             assert!(
-                has_property(style, &CssProperty::user_select(StyleUserSelect::None)),
+                has_property(&style, &CssProperty::user_select(StyleUserSelect::None)),
                 "{name}: dragging across a breadcrumb must not select its text"
             );
             assert!(
                 has_property(
-                    style,
+                    &style,
                     &CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))
                 ),
                 "{name}: crumbs must hug their content"
@@ -1298,6 +1492,440 @@ mod autotest_generated {
         assert!(
             idx < n,
             "the reported index must always address a real label"
+        );
+    }
+}
+
+/// The theme option: which look a breadcrumb renders in, and what each look
+/// is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, props::style::StyleTextDecoration};
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn trail(theme: UiTheme) -> Dom {
+        Breadcrumb::create(StringVec::from_vec(vec![
+            AzString::from_const_str("Home"),
+            AzString::from_const_str("Docs"),
+            AzString::from_const_str("Page"),
+        ]))
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn shadow_colour(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    /// The `(light, dark)` value of the declarations `pick` finds in `state`.
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [state] {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// The `(light, dark)` value `pick` finds among the RESTING declarations
+    /// (no pseudo-state). `theme_probe::dark` would also return the
+    /// `:hover` / `:focus` dark twins, declared after the resting pair.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if !d.pseudo_state_conditions().is_empty() {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn underline(p: &CssProperty) -> Option<StyleTextDecoration> {
+        match p {
+            CssProperty::TextDecoration(v) => v.get_property().copied(),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn with_class<'a>(dom: &'a Dom, name: &str) -> Vec<&'a Dom> {
+        dom.children
+            .as_ref()
+            .iter()
+            .filter(|c| {
+                c.root
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|k| matches!(k, Class(s) if s.as_str() == name))
+            })
+            .collect()
+    }
+
+    fn text_of(node: &Dom) -> Option<String> {
+        node.children.as_ref().iter().find_map(|c| match c.root.get_node_type() {
+            azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_breadcrumb_without_a_theme_renders_flat() {
+        let plain = Breadcrumb::create(StringVec::from_vec(vec![AzString::from_const_str("A")]));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            theme_probe::unconditional(&plain.clone().dom()),
+            theme_probe::unconditional(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let labels = || StringVec::from_vec(vec![AzString::from_const_str("A")]);
+        let mut set = Breadcrumb::create(labels());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Breadcrumb::create(labels()).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_crumb_shows_a_focus_ring_and_underlines_under_the_pointer() {
+        let dom = trail(UiTheme::Flat);
+        for crumb in with_class(&dom, "__azul-native-breadcrumb-item") {
+            let (light, dark) = in_state(crumb, PseudoStateType::Focus, shadow_colour);
+            assert!(light.is_some() && dark.is_some(), "a keyboard stop with no ring");
+            assert_eq!(
+                in_state(crumb, PseudoStateType::Hover, underline),
+                (
+                    Some(StyleTextDecoration::Underline),
+                    Some(StyleTextDecoration::Underline)
+                ),
+                "a link underlines under the pointer, by day and by night"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_crumb_is_written_in_brass_ink() {
+        let dom = trail(UiTheme::Flora);
+        let crumbs = with_class(&dom, "__azul-native-breadcrumb-item");
+        assert_eq!(crumbs.len(), 2);
+        for crumb in crumbs {
+            assert_eq!(
+                at_rest(crumb, ink),
+                (Some(flora::LIGHT_QT), Some(flora::DARK_QT)),
+                "flora.css: links are written in brass ink (--fl-qt, #C4B58E at night)"
+            );
+            assert_eq!(
+                in_state(crumb, PseudoStateType::Hover, ink),
+                (Some(flora::LIGHT_QT2), Some(flora::DARK_QT2)),
+                "--color-accent-hover"
+            );
+            assert_eq!(
+                in_state(crumb, PseudoStateType::Focus, shadow_colour),
+                (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+                "flora's focus colour"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_trail_ends_on_the_page_in_ink_and_is_divided_by_a_quiet_chevron() {
+        let dom = trail(UiTheme::Flora);
+        let current = with_class(&dom, "__azul-native-breadcrumb-current");
+        assert_eq!(current.len(), 1);
+        assert_eq!(
+            last(&theme_probe::unconditional(current[0]), ink),
+            Some(flora::LIGHT_INK)
+        );
+        assert_eq!(last(&theme_probe::dark(current[0]), ink), Some(flora::DARK_INK));
+        for sep in with_class(&dom, "__azul-native-breadcrumb-separator") {
+            assert_eq!(text_of(sep).as_deref(), Some("\u{203A}"), "a chevron, not a slash");
+            assert_eq!(
+                last(&theme_probe::unconditional(sep), ink),
+                Some(flora::LIGHT_SOFT2)
+            );
+            assert_eq!(last(&theme_probe::dark(sep), ink), Some(flora::DARK_SOFT2));
+        }
+    }
+
+    #[test]
+    fn a_flora_trail_keeps_the_crumb_separator_alternation_the_click_handler_reads() {
+        let dom = trail(UiTheme::Flora);
+        let kinds: Vec<&str> = dom
+            .children
+            .as_ref()
+            .iter()
+            .map(|c| {
+                if c.root.get_callbacks().as_ref().is_empty() {
+                    "inert"
+                } else {
+                    "crumb"
+                }
+            })
+            .collect();
+        assert_eq!(kinds, ["crumb", "inert", "crumb", "inert", "inert"]);
+    }
+
+    #[test]
+    fn a_flora_breadcrumb_carries_the_flora_theme_marker() {
+        let dom = trail(UiTheme::Flora);
+        let classes = dom.root.get_ids_and_classes();
+        assert!(classes
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-theme-flora")));
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn trail() -> Breadcrumb {
+        Breadcrumb::create(azul_css::StringVec::from_vec(alloc::vec![
+            azul_css::AzString::from("Home"),
+            azul_css::AzString::from("Docs"),
+            azul_css::AzString::from("Page"),
+        ]))
+    }
+
+    #[test]
+    fn a_breadcrumb_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "breadcrumb",
+            || trail().dom(),
+            |t: UiTheme| trail().with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the trail's row, every crumb's hug and unselectable text, and the
+    /// clickable crumb's pointer are the breadcrumb's BASE, declared once
+    /// outside every `@theme` block. A trail of links, separators and the
+    /// current page, and a trail of the current page alone.
+    #[test]
+    fn a_breadcrumb_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let alone = || {
+            Breadcrumb::create(azul_css::StringVec::from_vec(alloc::vec![
+                azul_css::AzString::from("Home"),
+            ]))
+        };
+        for t in checks::BOTH {
+            let dom = checks::under(t, || trail().dom());
+            assert_structure_is_shared(&format!("breadcrumb built for {}", t.name()), &dom, &[]);
+            let dom = checks::under(t, || alone().dom());
+            assert_structure_is_shared(
+                &format!("one-crumb breadcrumb built for {}", t.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
+
+    #[test]
+    fn a_followed_trail_writes_the_app_themes_separator() {
+        // Structure follows the app theme: flat's "/" and flora's chevron are
+        // the text of the separator node, not a declaration.
+        let flat = checks::under(UiTheme::Flat, || trail().dom());
+        let flora = checks::under(UiTheme::Flora, || trail().dom());
+        let pinned_flat = trail().with_theme(UiTheme::Flat).dom();
+        let pinned_flora = trail().with_theme(UiTheme::Flora).dom();
+        let texts = |dom: &Dom| -> Vec<String> {
+            crate::widgets::themes::theme_checks::nodes(dom)
+                .into_iter()
+                .filter_map(|(_, n)| match n.root.get_node_type() {
+                    azul_core::dom::NodeType::Text(t) => Some(t.as_ref().as_str().to_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(texts(&flat), texts(&pinned_flat));
+        assert_eq!(texts(&flora), texts(&pinned_flora));
+    }
+}
+
+/// Segment menus: with `on_segment_menu` every crumb - the current page too
+/// - is followed by a chevron that is a button reporting the crumb's index,
+/// so a file manager can open that folder's entries beside it.
+#[cfg(test)]
+mod segment_menu_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        callbacks::Update,
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        roving::test_support as rv,
+        themes::{theme_blocks::checks, UiTheme},
+    };
+
+    type Log = Arc<Mutex<Vec<usize>>>;
+
+    extern "C" fn record(mut data: RefAny, _info: CallbackInfo, state: BreadcrumbState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.selected_index);
+        }
+        Update::DoNothing
+    }
+
+    fn labels(items: &[&str]) -> StringVec {
+        StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    }
+
+    fn trail(log: &Log) -> Breadcrumb {
+        Breadcrumb::create(labels(&["This PC", "Home", "Docs"])).with_on_segment_menu(
+            RefAny::new(log.clone()),
+            record as BreadcrumbOnNavigateCallbackType,
+        )
+    }
+
+    fn children(styled: &StyledDom, parent: NodeId) -> Vec<NodeId> {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let mut out = Vec::new();
+        let mut cur = hierarchy[parent.index()].first_child_id(parent);
+        while let Some(n) = cur {
+            out.push(n);
+            cur = hierarchy[n.index()].next_sibling_id();
+        }
+        out
+    }
+
+    fn id(n: NodeId) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        }
+    }
+
+    #[test]
+    fn with_a_menu_hook_every_crumb_and_the_current_page_are_followed_by_a_chevron_that_reports_them(
+    ) {
+        for theme in checks::BOTH {
+            let log: Log = Arc::new(Mutex::new(Vec::new()));
+            let dom = trail(&log).with_theme(theme).dom();
+            let parts = dom.children.as_ref();
+            assert_eq!(
+                parts.len(),
+                6,
+                "{}: crumb, chevron, crumb, chevron, current, chevron",
+                theme.name()
+            );
+            for i in [1, 3, 5] {
+                let chevron = &parts[i];
+                assert!(
+                    chevron.root.get_tab_index().is_some(),
+                    "{}: chevron {i} is a keyboard stop",
+                    theme.name()
+                );
+                assert_eq!(
+                    chevron.root.get_accessibility_info().map(|a| a.role),
+                    Some(azul_core::a11y::AccessibilityRole::PushButton),
+                    "{}: chevron {i} is a button",
+                    theme.name()
+                );
+            }
+            let styled = StyledDom::create_from_dom(dom);
+            let kids = children(&styled, NodeId::new(0));
+            for i in [1, 3, 5] {
+                rv::fire(
+                    &styled,
+                    id(kids[i]),
+                    EventFilter::Hover(HoverEventFilter::Click),
+                )
+                .unwrap_or_else(|| panic!("{}: chevron {i} takes the click", theme.name()));
+            }
+            assert_eq!(
+                *log.lock().expect("log"),
+                vec![0, 1, 2],
+                "{}: each chevron names its crumb",
+                theme.name()
+            );
+        }
+    }
+
+    #[test]
+    fn without_the_hook_the_trail_ends_in_the_current_page_and_its_separators_are_inert() {
+        let dom = Breadcrumb::create(labels(&["This PC", "Home", "Docs"]))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let parts = dom.children.as_ref();
+        assert_eq!(parts.len(), 5, "crumb, separator, crumb, separator, current");
+        for i in [1, 3] {
+            assert!(parts[i].root.get_callbacks().as_ref().is_empty());
+            assert!(parts[i].root.get_tab_index().is_none());
+        }
+    }
+
+    #[test]
+    fn a_trail_with_menus_follows_the_app_theme() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        checks::assert_follows_the_app_theme(
+            "breadcrumb (segment menus)",
+            || trail(&log).dom(),
+            |t: UiTheme| trail(&log).with_theme(t).dom(),
         );
     }
 }

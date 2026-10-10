@@ -1,0 +1,20 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Baseline alignment with a block element parent</title>
+<meta name="assert" content="The baseline of a block element is aligned with the baseline of its child inline element when 'vertical-align: baseline' is specified on the child."/>
+<style>
+span
+            {
+                font-size: 2em;
+                vertical-align: baseline;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if the bottoms of all the 'X's are aligned.</p>
+        <div>
+            XXXXX<span>XXXXX</span>
+        </div>
+    
+</body>
+</html>

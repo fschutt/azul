@@ -181,7 +181,7 @@ pub fn request(req: &KeyringRequest) {
     });
 }
 
-fn handle(req: &KeyringRequest) -> KeyringResult {
+pub(super) fn handle(req: &KeyringRequest) -> KeyringResult {
     let lib = match lib() {
         Some(l) => l,
         None => return KeyringResult::Unavailable, // no libsecret / Secret Service

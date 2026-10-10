@@ -89,14 +89,14 @@ fn scroll_box_to(lw: &mut LayoutWindow, y: f32) {
 /// the anchor unchanged no matter what the drag did.
 fn focus_end(lw: &LayoutWindow) -> Option<(NodeId, u32)> {
     if let Some(cross) = lw.text_edit_manager.cross_block.as_ref() {
-        // The far end of the cross-block range: the node with the highest id
-        // carrying a range, and that range's end.
-        let (node, ranges) = cross.affected_nodes.iter().next_back()?;
+        // The far end of the cross-block range: the last block in document
+        // order carrying a range, and that range's end.
+        let (block, ranges) = cross.affected_blocks.iter().next_back()?;
         let last = ranges.last()?;
-        return Some((*node, last.end.cluster_id.start_byte_in_run));
+        return Some((block.first_node(), last.end.cluster_id.start_byte_in_run));
     }
     let mc = lw.text_edit_manager.multi_cursor.as_ref()?;
-    let node = mc.node_id.node.into_crate_internal()?;
+    let node = mc.block.first_node();
     let cursor = match &mc.get_primary()?.selection {
         Selection::Cursor(c) => *c,
         Selection::Range(r) => r.end,

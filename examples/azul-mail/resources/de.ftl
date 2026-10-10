@@ -1,0 +1,509 @@
+# AzMail's words in German (azul's Fluent; the keys are `azmail-<area>-<what>`).
+# Every key the source names is here and in the other language's file (l10n_tests.rs).
+
+azmail-tab-home = Start
+
+## The main window: the ribbon, its menus and notices
+
+azmail-tab-send-receive = Senden/Empfangen
+azmail-tab-folder = Ordner
+azmail-tab-view = Ansicht
+azmail-tab-file = Datei
+azmail-group-new = Neu
+azmail-group-delete = Löschen
+azmail-group-respond = Antworten
+azmail-group-quick-steps = QuickSteps
+azmail-group-move = Verschieben
+azmail-group-tags = Kategorien
+azmail-group-find = Suchen
+azmail-group-send-receive = Senden und Empfangen
+azmail-group-download = Herunterladen
+azmail-group-server = Server
+azmail-group-actions = Aktionen
+azmail-group-clean-up = Aufräumen
+azmail-group-properties = Eigenschaften
+azmail-group-arrangement = Anordnung
+azmail-group-layout = Layout
+azmail-group-message = Nachricht
+azmail-cmd-new-mail = Neue E-Mail
+azmail-cmd-new-items = Neue Elemente
+azmail-cmd-ignore = Ignorieren
+azmail-cmd-clean-up = Aufräumen
+azmail-cmd-junk = Junk-E-Mail
+azmail-cmd-delete = Löschen
+azmail-cmd-archive = Archivieren
+azmail-cmd-reply = Antworten
+azmail-cmd-reply-all = Allen antworten
+azmail-cmd-forward = Weiterleiten
+azmail-cmd-meeting = Besprechung
+azmail-cmd-more = Weitere
+azmail-cmd-move = Verschieben
+azmail-cmd-rules = Regeln
+azmail-cmd-unread-read = Ungelesen/ Gelesen
+azmail-cmd-categorize = Kategorisieren
+azmail-cmd-follow-up = Zur Nachverfolgung
+azmail-cmd-address-book = Adressbuch
+azmail-cmd-filter = E-Mail filtern
+azmail-cmd-cancel-all = Alle abbrechen
+azmail-cmd-send-receive-all = Alle Ordner senden/empfangen
+azmail-cmd-update-folder = Ordner aktualisieren
+azmail-cmd-send-all = Alle senden
+azmail-cmd-send-receive-groups = Senden-Empfangen-Gruppen
+azmail-cmd-show-progress = Status anzeigen
+azmail-cmd-download-headers = Kopfzeilen herunterladen
+azmail-cmd-mark-download = Zum Herunterladen markieren
+azmail-cmd-unmark-download = Markierung zum Herunterladen aufheben
+azmail-cmd-process-headers = Markierte Kopfzeilen verarbeiten
+azmail-cmd-new-folder = Neuer Ordner
+azmail-cmd-new-search-folder = Neuer Suchordner
+azmail-cmd-rename-folder = Ordner umbenennen
+azmail-cmd-copy-folder = Ordner kopieren
+azmail-cmd-move-folder = Ordner verschieben
+azmail-cmd-delete-folder = Ordner löschen
+azmail-cmd-mark-all-read = Alle als gelesen markieren
+azmail-cmd-run-rules = Regeln jetzt ausführen
+azmail-cmd-clean-up-folder = Ordner aufräumen
+azmail-cmd-delete-all = Alle löschen
+azmail-cmd-folder-properties = Ordnereigenschaften
+azmail-cmd-date = Datum
+azmail-cmd-reverse-sort = Sortierung umkehren
+azmail-cmd-unread-only = Nur ungelesene
+azmail-cmd-navigation-pane = Navigationsbereich
+azmail-cmd-reading-pane = Lesebereich
+azmail-cmd-todo-bar = Aufgabenleiste
+azmail-cmd-plain-text = Nur-Text
+azmail-quick-move-to = Verschieben nach: ?
+azmail-quick-team = Team-E-Mail
+azmail-quick-reply-delete = Antworten und löschen
+azmail-quick-to-manager = An Vorgesetzte(n)
+azmail-quick-done = Erledigt
+azmail-quick-create-new = Neu erstellen
+azmail-menu-mail-message = E-Mail-Nachricht
+azmail-menu-appointment = Termin
+azmail-menu-meeting = Besprechung
+azmail-menu-contact = Kontakt
+azmail-menu-task = Aufgabe
+azmail-menu-forward-attachment = Als Anlage weiterleiten
+azmail-menu-reply-meeting = Mit Besprechung antworten
+azmail-menu-flag = Kennzeichnung setzen/löschen
+azmail-menu-all-mail = Alle E-Mails
+azmail-menu-unread = Ungelesen
+azmail-menu-all-accounts = Alle Konten
+azmail-menu-normal = Normal
+azmail-menu-minimized = Minimiert
+azmail-menu-right = Rechts
+azmail-menu-off = Aus
+azmail-find-contact = Kontakt suchen
+azmail-notice-read-only = AzMail lässt die Ordner des Servers, wie sie sind (es empfängt nur lesend); Löschen, Verschieben und Ablegen kommen mit der Synchronisierung in beide Richtungen.
+azmail-notice-quick-steps = Die QuickSteps von AzMail stehen fest: Verschieben nach, Team-E-Mail, Antworten und löschen, An Vorgesetzte(n), Erledigt.
+azmail-notice-whole-messages = AzMail lädt ganze Nachrichten herunter: Es gibt keine Kopfzeilen zum Markieren.
+azmail-notice-meetings = Besprechungen gehören zu AzCalendar: Plane dort eine.
+azmail-notice-categories = Kategorien kommen mit der Synchronisierung in beide Richtungen.
+azmail-notice-by-date = Die Nachrichten sind nach Datum angeordnet.
+azmail-nothing-running = Es wird nichts gesendet oder empfangen.
+
+## The main window: the list, the reading pane, the status bar, the To-Do bar, the panes
+
+azmail-message-list = Nachrichtenliste
+azmail-about-summary = Deine E-Mails als einfache Dateien: Jeder Ordner deines IMAP-Kontos wird mit diesem Computer synchronisiert, im Layout von Outlook 2010 gelesen, im Rich-Text-Editor von azul geschrieben und direkt oder über einen SMTP-Server gesendet. Teil der Azlin-Apps, gebaut mit azul.
+azmail-about-credits = Gebaut mit
+azmail-category-mail = E-Mail
+azmail-newest-on-top = Neueste oben
+azmail-option-plain-text = Als Nur-Text lesen
+azmail-option-note = Die Schalter der Registerkarte „Ansicht“; AzMail merkt sie sich. Die Konten stehen unter Datei > Informationen.
+azmail-notice-outbox-first = Die E-Mails im Postausgang sind noch nicht im Laufwerk: Sie werden zuerst gesendet.
+azmail-notice-already-there = Die Nachrichten sind bereits in diesem Ordner.
+azmail-notice-select-first = Wähle zuerst eine Nachricht aus.
+azmail-error-download = Diese Nachricht konnte nicht heruntergeladen werden: { $why }
+azmail-notice-marks-wait = Die Lese- und Kennzeichnungsmarkierungen warten auf das nächste Senden/Empfangen: { $why }
+azmail-notice-moved = { $count ->
+    [one] 1 Nachricht nach „{ $folder }“ verschoben.
+   *[other] { $count } Nachrichten nach „{ $folder }“ verschoben.
+ }
+azmail-notice-not-moved = Konnte nicht nach „{ $folder }“ verschieben: { $why }
+azmail-notice-deleted = { $count ->
+    [one] 1 Nachricht endgültig gelöscht.
+   *[other] { $count } Nachrichten endgültig gelöscht.
+ }
+azmail-notice-not-deleted = Konnte nicht löschen: { $why }
+azmail-progress = Senden/Empfangen: { $status } ({ $percent } %).
+azmail-progress-last = Letztes Senden/Empfangen: { $text }
+azmail-no-folder = Kein Ordner
+azmail-folder-facts = { $folder }: { $items } Elemente, { $unread } ungelesen.
+azmail-filter-applied = Filter angewendet
+azmail-status-items = Elemente: { $count }
+azmail-status-unread = Ungelesen: { $count }
+azmail-status-syncing = { $status } ({ $percent } %)
+azmail-no-account = Kein Konto
+azmail-up-to-date-azlin = Alle Ordner sind auf dem neuesten Stand.   Verbunden mit dem Azlin-Laufwerk { $drive }
+azmail-up-to-date-server = Alle Ordner sind auf dem neuesten Stand.   Verbunden mit { $server }
+azmail-up-to-date = Alle Ordner sind auf dem neuesten Stand.
+azmail-todo-no-appointments = Keine bevorstehenden Termine.
+azmail-todo-new-task = Neue Aufgabe eingeben
+azmail-task-not-saved = Die Aufgabe konnte nicht gespeichert werden: { $why }
+azmail-module-mail = E-Mail
+azmail-module-calendar = Kalender
+azmail-module-contacts = Kontakte
+azmail-module-tasks = Aufgaben
+azmail-favorites-hint = Favoritenordner hierher ziehen
+azmail-no-account-yet = Noch kein Konto
+azmail-no-account-detail = Füge ein E-Mail-Konto hinzu, um E-Mails zu empfangen. AzMail bewahrt eine Kopie jedes Ordners als Dateien auf diesem Computer auf. Zum Schreiben brauchst du kein Konto: Eine neue Nachricht wird von diesem Computer gesendet, und die lokalen Ordner behalten, was du schreibst.
+azmail-add-account = Konto hinzufügen…
+azmail-list-to = An: { $name }
+azmail-no-sender = (kein Absender)
+azmail-no-subject = (kein Betreff)
+azmail-search-folder = { $folder } durchsuchen
+azmail-arrange-by = Anordnen nach:
+azmail-oldest-on-top = Älteste oben
+azmail-module-calendar-detail = Termine stehen in AzCalendar.
+azmail-module-contacts-detail = Das Adressbuch gehört noch nicht zu AzMail.
+azmail-module-tasks-detail = Die Aufgaben dieses Laufs stehen in der Aufgabenleiste.
+azmail-select-item = Wähle ein Element zum Lesen aus
+azmail-select-item-detail = Klicke auf eine Nachricht in der Liste, um sie hier zu sehen.
+azmail-field-sent = Gesendet
+azmail-field-to = An
+azmail-field-cc = Cc
+azmail-see-more-about = Mehr über: { $name }.
+azmail-some-pictures = einige Bilder
+azmail-pictures-held = Klicke hier, um Bilder herunterzuladen. Zum Schutz deiner Privatsphäre hat AzMail das automatische Herunterladen von { $held } in dieser Nachricht verhindert.
+azmail-download-pictures = Bilder herunterladen
+azmail-more-lines = ({ $count } weitere Zeilen)
+azmail-html-not-shown = Der HTML-Teil konnte nicht angezeigt werden: { $why }
+azmail-attachment-later = { $name } ist in der Nachrichtendatei; das Speichern von Anlagen kommt als Nächstes.
+
+## The folders
+
+azmail-folder-inbox = Posteingang
+azmail-folder-drafts = Entwürfe
+azmail-folder-sent = Gesendete Elemente
+azmail-folder-trash = Gelöschte Elemente
+azmail-folder-junk = Junk-E-Mail
+azmail-folder-archive = Archiv
+azmail-folder-all = Alle E-Mails
+azmail-folder-flagged = Gekennzeichnet
+azmail-folder-outbox = Postausgang
+azmail-local-folders = Lokale Ordner
+
+## Send/Receive, the keyring, the Outbox, writing files
+
+azmail-error-no-account = kein Konto
+azmail-error-not-mail = Diese Datei ist keine E-Mail-Nachricht.
+azmail-downloading = Diese Nachricht ({ $size }) wird aus dem Azlin-Laufwerk heruntergeladen…
+azmail-error-read = { $path } konnte nicht gelesen werden: { $why }
+azmail-keyring-stored = gespeichert
+azmail-keyring-retrieved = gelesen
+azmail-keyring-deleted = gelöscht
+azmail-keyring-not-found = nicht gefunden
+azmail-keyring-denied = verweigert
+azmail-keyring-unavailable = nicht verfügbar
+azmail-keyring-error = Fehler
+azmail-keyring-password-saved = Das Kennwort ist im Schlüsselbund des Systems gespeichert.
+azmail-keyring-password-not-saved = Das Kennwort konnte nicht im Schlüsselbund des Systems gespeichert werden ({ $outcome }): AzMail behält es nur, bis es geschlossen wird.
+azmail-keyring-enter-token = Gib das Laufwerkstoken erneut ein: Der Schlüsselbund des Systems hat keines für dieses Konto ({ $outcome }).
+azmail-keyring-enter-password = Gib das Kennwort erneut ein: Der Schlüsselbund des Systems hat keines für dieses Konto ({ $outcome }).
+azmail-keyring-dkim-saved = Der DKIM-Schlüssel ist im Schlüsselbund des Systems gespeichert.
+azmail-keyring-dkim-not-saved = Der DKIM-Schlüssel konnte nicht im Schlüsselbund des Systems gespeichert werden ({ $outcome }): AzMail behält ihn nur, bis es geschlossen wird – erstelle dann einen neuen Schlüssel.
+azmail-keyring-no-dkim = Der Schlüsselbund des Systems hat keinen DKIM-Schlüssel für dieses Konto ({ $outcome }): Signierte E-Mails warten im Postausgang, bis du unter Kontoeinstellungen, Senden einen neuen Schlüssel erstellst.
+azmail-reading-token = Das Laufwerkstoken wird aus dem Schlüsselbund des Systems gelesen…
+azmail-reading-password = Das Kennwort wird aus dem Schlüsselbund des Systems gelesen…
+azmail-reading-dkim = Der DKIM-Schlüssel wird aus dem Schlüsselbund des Systems gelesen…
+azmail-connecting-azlin = Verbindung mit dem Azlin-Laufwerk wird hergestellt…
+azmail-connecting = Verbindung mit { $server } wird hergestellt…
+azmail-token-not-saved = Das neue Token des Azlin-Laufwerks konnte nicht im Schlüsselbund des Systems gespeichert werden ({ $why }): AzMail behält es nur, bis es geschlossen wird, und fragt dann erneut nach einem Laufwerkstoken.
+azmail-receiving-folder = { $folder } wird empfangen (Ordner { $index } von { $count })
+azmail-receiving-messages = { $folder } wird empfangen: { $done } von { $total } Nachrichten
+azmail-new-messages = { $count ->
+    [one] 1 neue Nachricht.
+   *[other] { $count } neue Nachrichten.
+ }
+azmail-sign-in-failed = Anmeldung fehlgeschlagen: { $why }
+azmail-send-receive-error = Fehler beim Senden/Empfangen: { $why }
+azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu empfangen, füge ein Konto hinzu: Datei > Informationen > Konto hinzufügen.
+azmail-outbox-empty-local = Im Postausgang der lokalen Ordner wartet nichts.
+azmail-sending-outbox = Der Postausgang wird gesendet…
+azmail-outbox-counts = Postausgang: { $sent } gesendet, { $queued } wartend, { $failed } fehlgeschlagen.
+azmail-error-azlin-sign-in-old = die Anmeldung des Azlin-Laufwerks ist veraltet: Senden/Empfangen (F9) meldet erneut an
+azmail-notice-send-receive-first = Zuerst Senden/Empfangen (F9): AzMail meldet sich dann beim Azlin-Laufwerk an.
+azmail-error-azlin-only = Diese Nachricht ist nur im Azlin-Laufwerk: Senden/Empfangen (F9) meldet an, dann öffnet sie sich.
+azmail-error-write-sending = Die Sendeeinstellungen konnten nicht geschrieben werden: { $why }
+azmail-error-write-account = Die Kontodatei konnte nicht geschrieben werden: { $why }
+azmail-error-save-marks = Die Lesemarkierungen konnten nicht gespeichert werden: { $why }
+azmail-error-write = { $key } konnte nicht geschrieben werden: { $why }
+azmail-bridge-no-password = Der Schlüsselbund des Systems hat kein Kennwort der Brücke ({ $outcome }): azul-bridge password erstellt ein neues.
+
+## Account Settings: Other programs (the Azlin Bridge)
+
+azmail-bridge-copy = Kopieren
+azmail-bridge-not-set-up = Die Azlin-Brücke lässt Apple Mail, Thunderbird oder Outlook, den Finder oder Explorer und Kalender- und Kontaktprogramme auf diesem Computer auf dein Azlin-Laufwerk zugreifen. Sie ist hier nicht eingerichtet: Führe azul-bridge init --address <deine Adresse> aus, dann azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung).
+azmail-bridge-running = Die Azlin-Brücke läuft auf diesem Computer. Richte das andere Programm mit diesen Einstellungen und dem Kennwort der Brücke ein:
+azmail-bridge-not-running = Die Azlin-Brücke ist eingerichtet, läuft aber nicht: Starte sie mit azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung). Die anderen Programme verwenden diese Einstellungen und das Kennwort der Brücke:
+azmail-bridge-mail = E-Mail (Apple Mail, Thunderbird, Outlook)
+azmail-bridge-files = Dateien (Finder, Explorer, die Dateimanager)
+azmail-bridge-calendars = Kalender und Kontakte
+azmail-bridge-copy-all = Alle Einstellungen kopieren
+azmail-bridge-every-setting = alle Einstellungen
+azmail-bridge-copy-password = Kennwort kopieren
+azmail-bridge-copied = Kopiert: { $what }.
+azmail-bridge-no-file-password = Die Geheimnisdatei der Brücke hat kein Kennwort: azul-bridge password erstellt ein neues.
+azmail-bridge-asking-keyring = Der Schlüsselbund des Systems wird nach dem Kennwort der Brücke gefragt …
+azmail-bridge-password-copied = Das Kennwort der Brücke wurde kopiert: Füge es dort ein, wo das andere Programm nach dem Kennwort fragt.
+
+## The account wizard and Account Settings
+
+azmail-acct-step-account = Dein Konto
+azmail-acct-step-incoming = Posteingang
+azmail-acct-step-sending = Senden
+azmail-acct-step-finish = Fertig stellen
+azmail-acct-category-account = Konto
+azmail-acct-category-other = Andere Programme
+azmail-acct-kind-imap = IMAP-Server
+azmail-acct-kind-azlin = Azlin-Laufwerk
+azmail-acct-azlin-note = AzMail bewahrt deine E-Mails als Dateien in deinem Azlin-Laufwerk auf (eine Datei pro Nachricht, unter mail/) und eine Kopie auf diesem Computer. Das Laufwerkstoken bleibt im Schlüsselbund des Systems.
+azmail-acct-azlin-sending-note = Dein Azlin-Laufwerk speichert deine E-Mails; es sendet sie nicht. AzMail sendet von diesem Computer, wie hier gewählt, und das nächste Senden/Empfangen legt die Kopie aus „Gesendete Elemente“ ins Laufwerk.
+azmail-acct-saved = Die Kontoeinstellungen sind gespeichert.
+azmail-acct-added = { $address } wurde hinzugefügt.
+azmail-acct-enter-address = Gib deine E-Mail-Adresse ein.
+azmail-acct-enter-token = Gib das Laufwerkstoken ein oder erstelle ein neues Laufwerk.
+azmail-acct-paste-token = Füge dein OAuth-Zugriffstoken ein.
+azmail-acct-enter-password = Gib dein Kennwort oder App-Kennwort ein.
+azmail-form-bad-email = Gib deine E-Mail-Adresse ein (name@example.org).
+azmail-form-no-imap-host = Gib den IMAP-Server ein.
+azmail-form-bad-port = Der { $field }-Port „{ $value }“ ist kein Port (1 – 65535).
+azmail-form-plain-not-local = Eine unverschlüsselte Verbindung ist nur zu einem Testserver auf diesem Computer erlaubt, nicht zu { $host }: Dein Kennwort ginge im Klartext durchs Netz.
+azmail-form-no-token-server = Gib den Azlin-Tokenserver ein (https://...) oder nenne ihn in den Endpunkten von ~/.azlin/config.json, in AZLIN_TOKEN_URL oder mit --azlin-token-url.
+azmail-form-no-drive = Gib die Laufwerks-ID ein (d_...) oder erstelle ein neues Laufwerk.
+azmail-acct-saving = Das Konto wird gespeichert und verbunden…
+azmail-acct-add-title = Konto hinzufügen
+azmail-acct-back = < Zurück
+azmail-acct-next = Weiter >
+azmail-acct-save = Speichern
+azmail-acct-oauth-token = OAuth-Zugriffstoken (XOAUTH2):
+azmail-acct-password = Kennwort:
+azmail-acct-keep-saved = Leer lassen, um das gespeicherte zu behalten
+azmail-acct-type = Kontotyp:
+azmail-acct-imap-note = AzMail meldet sich über IMAP an und bewahrt eine Kopie jedes Ordners auf diesem Computer auf. Das Kennwort bleibt im Schlüsselbund des Systems.
+azmail-acct-your-name = Dein Name:
+azmail-acct-name-example = Beispiel: Ada Lovelace
+azmail-acct-address = E-Mail-Adresse:
+azmail-acct-address-example = Beispiel: ada@example.org
+azmail-acct-app-password-note = Gmail und iCloud brauchen ein App-Kennwort, nicht dein normales Kennwort.
+azmail-provider-gmail = Gmail braucht ein App-Kennwort, nicht dein Google-Kennwort: Schalte die Bestätigung in zwei Schritten ein und erstelle dann eines unter myaccount.google.com/apppasswords.
+azmail-provider-outlook = Outlook.com und Microsoft 365 nehmen bei den meisten Konten keine Kennwörter über IMAP mehr an: Setze das Häkchen bei „OAuth-Zugriffstoken“ und füge ein Zugriffstoken ein.
+azmail-provider-icloud = iCloud braucht ein app-spezifisches Kennwort: Erstelle eines unter account.apple.com bei „Anmeldung und Sicherheit“, „App-spezifische Passwörter“.
+azmail-provider-fastmail = Fastmail braucht ein App-Kennwort: Einstellungen, Datenschutz & Sicherheit, App-Kennwörter verwalten.
+azmail-acct-use-oauth = Mit einem OAuth-Zugriffstoken (XOAUTH2) statt eines Kennworts anmelden
+azmail-acct-token-server-example = https://... (der Tokenserver deines Azlin-Anbieters)
+azmail-acct-keep-token = Leer lassen, um das zu behalten, das AzMail hat
+azmail-acct-token-server = Azlin-Tokenserver:
+azmail-acct-drive-id = Laufwerks-ID:
+azmail-acct-drive-token = Laufwerkstoken:
+azmail-acct-drive-token-note = Ein Laufwerkstoken für diesen Computer, von deinem Azlin-Anbieter oder aus den Geräten von AzDrive. Jede Anmeldung ersetzt es durch ein neues: Gib AzMail ein eigenes Token, nicht eines, das AzDrive verwendet.
+azmail-acct-create-drive = Neues Laufwerk erstellen
+azmail-acct-asking-drive = Der Tokenserver wird nach einem neuen Laufwerk gefragt…
+azmail-acct-new-drive-what = Ein neues, leeres Laufwerk bei diesem Tokenserver (dem eines Entwicklungs-Tokenservers: ein echtes kommt von deinem Azlin-Anbieter).
+azmail-acct-local-folder = Lokaler E-Mail-Ordner:
+azmail-acct-imap-server = Posteingangsserver (IMAP) und Port:
+azmail-acct-user-name = Benutzername:
+azmail-acct-unencrypted = Unverschlüsselte Verbindung (nur für einen Testserver auf diesem Computer)
+azmail-acct-send-mail = E-Mails senden:
+azmail-acct-smtp-server = Postausgangsserver (SMTP) und Port:
+azmail-acct-tls-implicit = verschlüsselt ab dem ersten Byte
+azmail-acct-tls-starttls = vor der Anmeldung mit STARTTLS verschlüsselt
+azmail-acct-submission-note = AzMail meldet sich bei { $host } Port { $port } an (dem Postausgangsserver der Seite „Server“), mit dem Kennwort oder Token dieses Kontos, { $protection }, und übergibt ihm jede E-Mail. Gmail, iCloud und Fastmail wollen ein App-Kennwort. Für eine Verbindung, die nicht direkt zustellen kann; DKIM unten signiert trotzdem als deine eigene Domain.
+azmail-acct-direct-note = AzMail übergibt jede E-Mail den eigenen Mailservern der Empfänger. Manche Anbieter nehmen E-Mails nur von einem vertrauenswürdigen Server an; AzMail merkt sich diese und behält solche E-Mails im Postausgang.
+azmail-acct-starttls = STARTTLS verwenden, wenn der Server es anbietet
+azmail-acct-dkim = Meine E-Mails mit DKIM signieren (braucht eine eigene Domain, deren DNS du bearbeiten kannst)
+azmail-acct-domain-selector = Domain und Selektor:
+azmail-acct-create-key = Schlüssel erstellen
+azmail-acct-create-new-key = Neuen Schlüssel erstellen
+azmail-acct-check-dns = DNS prüfen
+azmail-acct-working = In Arbeit…
+azmail-acct-dkim-what = AzMail erstellt den Schlüssel auf diesem Computer und bewahrt seine private Hälfte im Schlüsselbund des Systems auf; du veröffentlichst die öffentliche Hälfte im DNS deiner Domain.
+azmail-acct-publish-txt = Veröffentliche diesen TXT-Eintrag im DNS deiner Domain:
+azmail-acct-zone-line = Als Zeile einer Zonendatei:
+azmail-acct-new-key-note = Ein neuer Schlüssel: „Speichern“ legt ihn in den Schlüsselbund des Systems. Bis sein Eintrag veröffentlicht ist, können Empfänger die Signatur nicht prüfen.
+azmail-dkim-note-dmarc = DMARC: Veröffentliche einen TXT-Eintrag { $name } mit „{ $value }“. DMARC besteht allein mit DKIM, weil die Signatur { $domain } nennt, die eigene Domain der Absenderadresse. Empfänger schicken ihre Berichte an { $address }; sobald sie sauber aussehen, bittet p=quarantine sie, durchfallende E-Mails als Spam abzulegen.
+azmail-dkim-note-spf = SPF listet die Computer, die für { $domain } senden dürfen. Die Adresse eines Heimanschlusses gehört deinem Internetanbieter und ändert sich, deshalb kann SPF sie nicht aufführen: Lass den SPF-Eintrag der Domain auf ~all enden, nicht auf -all (oder veröffentliche „v=spf1 ~all“, wenn sie keinen hat). DKIM bringt die E-Mail durch DMARC; ein hartes -all lässt Empfänger, die nur SPF prüfen, sie ablehnen.
+azmail-dkim-note-ptr = Reverse DNS (PTR): Empfänger schlagen den Namen der Adresse nach, von der eine E-Mail kommt. Ein Heimanschluss hat den allgemeinen Namen des Anbieters, und manche Empfänger lehnen solche Adressen ab (Gmail: 5.7.25 ohne PTR; Outlook und andere: Listen von Heimadressen wie Spamhaus PBL, 5.7.1). AzMail merkt sich jede Domain, die ablehnt, und behält diese E-Mails im Postausgang für ein Relay.
+azmail-dkim-note-port = Die direkte Zustellung spricht mit dem Mailserver jedes Empfängers über Port 25. Viele Internetanbieter für Privatkunden sperren ausgehenden Port 25; wenn gar kein Mailserver erreichbar ist, prüft AzMail den Port und sagt es.
+azmail-dkim-published = DKIM-Eintrag: veröffentlicht, mit diesem Schlüssel.
+azmail-dkim-revoked = DKIM-Eintrag: Der Schlüssel unter diesem Namen ist widerrufen (p= ist leer): Veröffentliche den Eintrag oben.
+azmail-dkim-other-key = DKIM-Eintrag: Unter diesem Namen ist ein anderer Schlüssel veröffentlicht (p={ $key }): Veröffentliche stattdessen den Eintrag oben.
+azmail-dkim-missing = DKIM-Eintrag: noch nicht gefunden (ein neuer Eintrag kann bis zu einer Stunde brauchen, bis er sichtbar ist).
+azmail-dkim-unknown = DKIM-Eintrag: DNS konnte nicht gefragt werden ({ $why }).
+azmail-dkim-dmarc = DMARC: { $record }
+azmail-dkim-no-dmarc = DMARC: noch kein Eintrag (siehe den Hinweis unten).
+azmail-dkim-spf-hard = SPF: { $record } – endet auf -all, deshalb lehnen Empfänger, die nur SPF prüfen, E-Mails von diesem Computer ab; ~all ist sicherer.
+azmail-dkim-spf = SPF: { $record }
+azmail-dkim-no-spf = SPF: kein Eintrag (siehe den Hinweis unten).
+azmail-acct-azlin-drive-at = das Azlin-Laufwerk { $drive } bei { $server }
+azmail-acct-finish-what = „Fertig stellen“ fügt das Konto hinzu und empfängt seine E-Mails.
+azmail-acct-summary-account = Konto: { $address }
+azmail-acct-summary-incoming = Eingehend: { $server }
+azmail-acct-summary-sending = Senden: { $how }
+azmail-acct-new-drive-encrypted = Das neue Laufwerk { $drive } ist bereit und verschlüsselt: „Fertig stellen“ fügt es als dieses Konto hinzu. Sein WIEDERHERSTELLUNGSCODE, nur dieses eine Mal angezeigt und nirgends gespeichert – schreib ihn auf und bewahre ihn getrennt von diesem Computer auf (Azlin kann ihn nicht zurücksetzen): { $code }
+azmail-acct-new-drive = Das neue Laufwerk { $drive } ist bereit: „Fertig stellen“ fügt es als dieses Konto hinzu.
+azmail-acct-no-drive = Es wurde kein Laufwerk erstellt: { $why }
+azmail-route-direct = Direkt
+azmail-route-smtp = Über einen SMTP-Server
+azmail-route-provider-sign-in = Über den Server meines Anbieters (anmelden)
+azmail-route-direct-delivery = Direkte Zustellung
+azmail-route-provider-signed-in = Über den Server meines Anbieters, angemeldet
+azmail-route-tls-starttls = { ", " }STARTTLS
+azmail-route-tls-required = { ", " }STARTTLS erforderlich
+azmail-route-dkim-signed = { $route }, DKIM-signiert ({ $domain })
+azmail-dkim-bad-selector = Der Selektor „{ $selector }“ kann kein DNS-Name sein: Buchstaben, Ziffern und -, höchstens 63.
+azmail-dkim-create-key-first = Erstelle zuerst einen Schlüssel: AzMail signiert mit einem eigenen Schlüssel, dessen öffentliche Hälfte ins DNS deiner Domain kommt.
+azmail-smtp-enter-server = Gib den Namen des SMTP-Servers ein, z. B. smtp.example.org.
+azmail-smtp-bad-port = Der Port ist eine Zahl von 1 bis 65535.
+
+## File: Info, Help, Print
+
+azmail-file-info = Informationen
+azmail-file-print = Drucken
+azmail-file-help = Hilfe
+azmail-file-options = Optionen
+azmail-file-exit = Beenden
+azmail-info-no-account = Füge ein E-Mail-Konto hinzu, um E-Mails zu empfangen und zu senden. AzMail bewahrt eine Kopie jedes Ordners als Dateien auf diesem Computer auf.
+azmail-info-azlin = Azlin-Laufwerk { $drive } ({ $server }) – { $folders } Ordner, { $unread } ungelesen
+azmail-info-run-server = der Tokenserver dieses Laufs
+azmail-info-imap = IMAP { $server } – { $folders } Ordner, { $unread } ungelesen
+azmail-info-add-account = Konto hinzufügen
+azmail-info-new-mail = Schreibe eine Nachricht ohne Konto: AzMail sendet sie von diesem Computer direkt an die Mailserver der Empfänger, und die lokalen Ordner behalten sie (Senden/Empfangen sendet, was in ihrem Postausgang wartet).
+azmail-info-account-settings = Kontoeinstellungen
+azmail-info-account-settings-what = Ändere die Einstellungen dieses Kontos: deinen Namen und dein Kennwort, den Posteingangsserver, wie E-Mails gesendet und signiert werden.
+azmail-info-now = Jetzt: { $status } ({ $percent } %).
+azmail-info-last-time = Letztes Mal: { $text }
+azmail-info-send-receive = Senden/Empfangen
+azmail-info-send-receive-what = Empfange jeden Ordner dieses Kontos und sende, was im Postausgang wartet (F9). { $status }
+azmail-info-mail-will-be-kept = E-Mails werden als einfache Dateien aufbewahrt, eine pro Nachricht, in { $folder }.
+azmail-info-mail-is-kept = E-Mails werden als einfache Dateien aufbewahrt, eine pro Nachricht, in { $folder }.
+azmail-info-mailbox = Postfach
+azmail-info-title = Kontoinformationen
+azmail-help-support = Support
+azmail-help-shortcuts = Tastenkombinationen
+azmail-help-shortcuts-what = Jede Taste, die AzMail kennt, auf einer Seite (F1).
+azmail-help-tools = Tools für die Arbeit mit { $app }
+azmail-help-options-what = Der Lesebereich, die Aufgabenleiste, das Design, der Modus und die anderen Programmeinstellungen.
+azmail-help-mail-folder = E-Mail-Ordner
+azmail-help-accounts = Konten
+azmail-print-from = Von:
+azmail-print-sent = Gesendet:
+azmail-print-to = An:
+azmail-print-cc = Cc:
+azmail-print-subject = Betreff:
+azmail-print-attachments = Anlagen:
+azmail-print-no-pdf = Der PDF-Writer von azul hat keine Datei erstellt (ein Build ohne sein Feature `pdf`?).
+azmail-print-select-first = Wähle zuerst eine Nachricht zum Drucken aus.
+azmail-printed-to = Gedruckt nach { $path }
+azmail-print-not-drawn = Die erste Seite konnte nicht gezeichnet werden.
+azmail-print-into = Nach { $folder }
+azmail-print-what = Druckt die geöffnete Nachricht in eine PDF-Datei: A4, Memoformat.
+azmail-print-printer = Drucker
+azmail-print-pdf-file = PDF-Datei
+azmail-print-settings = Einstellungen
+azmail-print-memo = Memoformat
+azmail-print-memo-what = Dein Name über den Kopfzeilen der Nachricht, dann ihr Text.
+azmail-print-preview = Vorschau
+azmail-print-nothing-open = Keine Nachricht ist geöffnet: Wähle eine in der Nachrichtenliste aus und komm dann zu Datei > Drucken zurück.
+azmail-print-pages = { $pages ->
+    [one] 1 Seite
+   *[other] Seite 1 von { $pages }
+ }
+azmail-print-drawing = Die Vorschau wird gezeichnet…
+azmail-print-not-read = Die PDF-Datei konnte nicht zurückgelesen werden: { $why }
+
+## The message window
+
+azmail-compose-untitled = Unbenannt - Nachricht (HTML)
+azmail-compose-title = { $subject } - Nachricht (HTML)
+azmail-forward-separator = ---------- Weitergeleitete Nachricht ----------
+azmail-forward-from = Von: { $value }
+azmail-forward-date = Datum: { $value }
+azmail-forward-subject = Betreff: { $value }
+azmail-forward-to = An: { $value }
+azmail-forward-cc = Cc: { $value }
+azmail-quote-wrote = { $from } schrieb:
+azmail-quote-on-wrote = Am { $date } schrieb { $from }:
+azmail-quote-date = { $weekday }., { $day }. { $month } { $year } um { $time }
+azmail-compose-no-recipient = Füge mindestens einen Empfänger hinzu.
+azmail-compose-bad-address = „{ $address }“ ist keine E-Mail-Adresse.
+azmail-compose-no-sender = Gib deine E-Mail-Adresse bei „Von“ ein: Die Nachricht wird von ihr gesendet.
+azmail-compose-from-placeholder = Dein Name <du@example.org>
+azmail-compose-closed = Diese Nachricht wurde geschlossen.
+azmail-compose-tab-message = Nachricht
+azmail-compose-group-basic-text = Basistext
+azmail-compose-bold = Fett
+azmail-compose-italic = Kursiv
+azmail-compose-underline = Unterstrichen
+azmail-compose-bullets = Aufzählungszeichen
+azmail-compose-numbering = Nummerierung
+azmail-compose-group-include = Einfügen
+azmail-compose-attach = Datei anfügen
+azmail-compose-link = Link
+azmail-compose-group-save = Speichern
+azmail-compose-save-draft = Entwurf speichern
+azmail-compose-discard = Verwerfen
+azmail-compose-local-queued = Im Postausgang der lokalen Ordner. { $reason } AzMail versucht es bei jedem Senden/Empfangen (F9) erneut; mit einem Konto (Datei > Informationen > Konto hinzufügen) kann es stattdessen über deinen Anbieter senden.
+azmail-compose-local-note = Kein Konto: AzMail sendet diese Nachricht von diesem Computer direkt an die Mailserver der Empfänger. Die lokalen Ordner behalten ihren Entwurf und die gesendete E-Mail.
+azmail-compose-azlin-queued = Im Postausgang. { $reason } AzMail versucht es bei jedem Senden/Empfangen (F9) erneut.
+azmail-compose-azlin-note = Azlin-Konto: Das Laufwerk behält den Entwurf dieser Nachricht und nach dem nächsten Senden/Empfangen ihre Kopie in „Gesendete Elemente“. Die E-Mail selbst verlässt diesen Computer, wie es Kontoeinstellungen, Senden sagt.
+azmail-compose-sending = Wird gesendet…
+azmail-compose-queued = Wartet
+azmail-compose-send = Senden
+azmail-compose-from = Von
+azmail-compose-to = An...
+azmail-compose-cc = Cc...
+azmail-compose-bcc = Bcc...
+azmail-compose-subject = Betreff:
+azmail-compose-link-address = Adresse:
+azmail-compose-insert-link = Link einfügen
+azmail-compose-save-question = Möchtest du die Änderungen an dieser Nachricht speichern?
+azmail-compose-save-question-detail = Eine gespeicherte Nachricht wird in „Entwürfe“ aufbewahrt.
+azmail-compose-dont-save = Nicht speichern
+azmail-compose-attached = Angefügt:
+azmail-compose-remove = Entfernen
+azmail-compose-body = Nachrichtentext
+azmail-compose-draft = Entwurf
+azmail-compose-new = Neue Nachricht
+azmail-compose-saving = Der Entwurf wird gespeichert…
+azmail-compose-saved = Entwurf um { $time } gespeichert.
+azmail-compose-status-queued = Im Postausgang, wird beim nächsten Senden/Empfangen gesendet: { $reason }
+azmail-compose-not-sent = Nicht gesendet: { $reason }
+azmail-compose-attachments = { $count ->
+    [one] 1 Anlage
+   *[other] { $count } Anlagen
+ }
+azmail-compose-link-first = Gib zuerst die Adresse des Links ein.
+azmail-compose-account-gone = Das Konto gibt es nicht mehr.
+azmail-compose-draft-not-saved = Der Entwurf konnte nicht gespeichert werden: { $why }
+azmail-compose-in-outbox = Im Postausgang: { $subject }
+azmail-compose-draft-later = Der Entwurf ist hier gespeichert; das nächste Senden/Empfangen legt ihn ins Azlin-Laufwerk ({ $why }).
+azmail-ban-sends-nothing = AzMail sendet nichts von diesem Konto: Seine E-Mails warten im Postausgang.
+
+## Options, a mail's web content, the shortcuts
+
+azmail-options-title = AzMail-Optionen
+azmail-remote-pictures = { $count ->
+    [one] 1 Bild
+   *[other] { $count } Bildern
+ }
+azmail-remote-fonts = { $count ->
+    [one] 1 Schriftart
+   *[other] { $count } Schriftarten
+ }
+azmail-remote-style-sheets = { $count ->
+    [one] 1 Stylesheet
+   *[other] { $count } Stylesheets
+ }
+azmail-remote-and = { $first } und { $last }
+azmail-shortcut-leave-file = Die Registerkarte „Datei“ verlassen
+azmail-shortcut-save-draft = Den Entwurf speichern
+
+## Send/Receive's errors
+
+azmail-sync-connect = keine Verbindung möglich: { $detail }
+azmail-sync-auth = der Server hat die Anmeldung abgelehnt: { $detail }
+azmail-sync-protocol = der Server hat unerwartet geantwortet: { $detail }
+azmail-sync-storage = der E-Mail-Ordner konnte nicht geschrieben werden: { $detail }
+azmail-sync-stopped = angehalten

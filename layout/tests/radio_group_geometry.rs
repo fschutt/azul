@@ -12,7 +12,7 @@
 //! stays 16x16 and the dot is centered in it on BOTH axes.
 
 use azul_core::{
-    dom::{Dom, DomId, NodeId},
+    dom::{Dom, DomId, NodeId, TabIndex},
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
@@ -111,6 +111,197 @@ fn the_radio_circle_stays_round_and_its_dot_stays_centered_across_passes() {
                 "pass {pass}: dot at ({dx},{dy}) but the circle centre wants \
                  ({expect_dx},{expect_dy}) — align-items:center was lost (the device \
                  dot-at-the-top)"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The two ways the device got its pills (2026-09-28: indicators TALLER than
+// wide, the dot off-centre)
+// ---------------------------------------------------------------------------
+
+/// Lays `dom` out in `lw` - reconciled against whatever `lw` laid out
+/// before, exactly like a `RefreshDom` pass.
+fn lay_out(lw: &mut LayoutWindow, mut dom: Dom) {
+    let (css, _) = azul_css::parser2::new_from_str("");
+    let styled = StyledDom::create(&mut dom, css);
+    let ws = lw.current_window_state.clone();
+    let mut dbg = None;
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut dbg,
+    )
+    .unwrap();
+}
+
+/// Re-runs layout over the window's OWN styled DOM - the incremental
+/// relayout every animation frame and every restyle runs.
+fn relayout_in_place(lw: &mut LayoutWindow) {
+    let result = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("harness: laid out");
+    let ws = lw.current_window_state.clone();
+    let mut dbg = None;
+    lw.layout_and_generate_display_list(
+        result.styled_dom,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut dbg,
+    )
+    .unwrap();
+}
+
+fn window(width: f32, height: f32) -> LayoutWindow {
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(width, height);
+    lw.current_window_state = window_state;
+    lw
+}
+
+fn group(selected: usize) -> Dom {
+    let options: Vec<azul_css::AzString> = vec![
+        azul_css::AzString::from("Option A"),
+        azul_css::AzString::from("Option B"),
+        azul_css::AzString::from("Option C"),
+    ];
+    let mut rg = RadioGroup::create(options.into());
+    rg.radio_group_state.inner.selected_index = selected;
+    rg.dom()
+}
+
+/// The circles' rects, in document order.
+fn circle_rects(lw: &LayoutWindow) -> Vec<(f32, f32, f32, f32)> {
+    nodes_with_class(lw, "__azul-native-radio-group-circle")
+        .into_iter()
+        .map(|c| node_rect(lw, c).expect("circle rect"))
+        .collect()
+}
+
+/// Every circle is `CIRCLE_SIZE` round with its dot in the middle.
+fn assert_round(lw: &LayoutWindow, when: &str) {
+    let circles = nodes_with_class(lw, "__azul-native-radio-group-circle");
+    let dots = nodes_with_class(lw, "__azul-native-radio-group-dot");
+    assert_eq!(circles.len(), 3, "{when}: three circles");
+    assert_eq!(dots.len(), 3, "{when}: three dots");
+    for (circle, dot) in circles.iter().zip(dots.iter()) {
+        let (cx, cy, cw, ch) = node_rect(lw, *circle).expect("circle rect");
+        let (dx, dy, dw, dh) = node_rect(lw, *dot).expect("dot rect");
+        assert!(
+            (cw - CIRCLE_SIZE).abs() < 0.6 && (ch - CIRCLE_SIZE).abs() < 0.6,
+            "{when}: the circle must stay {CIRCLE_SIZE}px round, got {cw}x{ch} (the device pill)"
+        );
+        assert!(
+            (dw - DOT_SIZE).abs() < 0.6 && (dh - DOT_SIZE).abs() < 0.6,
+            "{when}: the dot must stay {DOT_SIZE}px, got {dw}x{dh}"
+        );
+        assert!(
+            (dx - (cx + (cw - dw) / 2.0)).abs() < 1.0 && (dy - (cy + (ch - dh) / 2.0)).abs() < 1.0,
+            "{when}: the dot at ({dx},{dy}) is off the centre of the circle at ({cx},{cy}) \
+             {cw}x{ch}"
+        );
+    }
+}
+
+/// A row narrower than its label: the label wraps or overflows, the
+/// indicator keeps its size. A flex item shrinks by default, down to its
+/// content's minimum - for the circle that is its 8px dot plus the 1px
+/// borders - so the 18x18 ring became a 10x18 pill. A native radio button's
+/// indicator never gives way to its text.
+#[test]
+fn the_radio_circle_stays_round_in_a_row_too_narrow_for_its_label() {
+    let mut lw = window(400.0, 300.0);
+    lay_out(
+        &mut lw,
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(Dom::create_div().with_css("width: 40px;").with_child(group(0))),
+    );
+    assert_round(&lw, "a 40px wide group");
+}
+
+/// The widgets demo's shape: the group sits, `align-self: start`, in a
+/// labelled flex column inside a padded card inside the scrolling page
+/// column of a full-height flex body.
+fn demo_page(selected: usize) -> Dom {
+    let labelled = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
+        .with_child(
+            Dom::create_span_with_text("RadioGroup")
+                .with_css("font-size: 12px; font-weight: bold; margin-bottom: 6px;"),
+        )
+        .with_child(group(selected));
+    let card = Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; border-radius: 10px; padding: 18px; \
+             margin-bottom: 20px;",
+        )
+        .with_child(labelled);
+    let page = Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: column; overflow-y: auto; flex-grow: 1; \
+             min-height: 0; padding: 24px;",
+        )
+        .with_child(card);
+    Dom::create_body()
+        .with_css("margin: 0; display: flex; flex-direction: column; height: 100%;")
+        .with_child(page)
+}
+
+/// What the widget's click and arrow handlers write into the LIVE DOM on
+/// top of the rebuild: the group's one Tab stop moves to row `stop`
+/// (`roving::set_stop` through `CallbackInfo::set_tab_index`, which the
+/// shell applies in place).
+fn move_the_tab_stop_in_place(lw: &mut LayoutWindow, stop: usize) {
+    let rows = nodes_with_class(lw, "__azul-native-radio-group-row");
+    let result = lw
+        .layout_results
+        .get_mut(&DomId::ROOT_ID)
+        .expect("harness: laid out");
+    let mut node_data = result.styled_dom.node_data.as_container_mut();
+    for (i, row) in rows.iter().enumerate() {
+        node_data[*row].set_tab_index(if i == stop {
+            TabIndex::Auto
+        } else {
+            TabIndex::NoKeyboardFocus
+        });
+    }
+}
+
+/// Clicking (or arrowing) through the group in the demo's page: every click
+/// rebuilds the DOM with the check - and the roving Tab stop - on another
+/// row, the handler moves the stop in the live DOM as well, and the next
+/// frame relays that DOM out in place. The indicators keep their size and
+/// their place through all of it ("lay out twice in one window and diff the
+/// node rects").
+#[test]
+fn the_radio_circles_keep_their_rects_while_clicks_move_the_check_in_the_demo_page() {
+    let mut lw = window(420.0, 640.0);
+    lay_out(&mut lw, demo_page(0));
+    assert_round(&lw, "the first layout");
+    let first = circle_rects(&lw);
+
+    for (pass, selected) in [1usize, 2, 0, 1, 2].into_iter().enumerate() {
+        lay_out(&mut lw, demo_page(selected));
+        assert_round(&lw, &format!("pass {pass}: the rebuild checking {selected}"));
+        move_the_tab_stop_in_place(&mut lw, selected);
+        relayout_in_place(&mut lw);
+        assert_round(&lw, &format!("pass {pass}: the in-place relayout after it"));
+        let now = circle_rects(&lw);
+        assert_eq!(now.len(), first.len(), "pass {pass}: three circles");
+        for (i, (a, b)) in first.iter().zip(now.iter()).enumerate() {
+            assert!(
+                (a.0 - b.0).abs() < 0.6
+                    && (a.1 - b.1).abs() < 0.6
+                    && (a.2 - b.2).abs() < 0.6
+                    && (a.3 - b.3).abs() < 0.6,
+                "pass {pass}: circle {i} moved or resized from {a:?} to {b:?}"
             );
         }
     }

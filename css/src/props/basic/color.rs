@@ -558,6 +558,36 @@ impl ColorU {
         }
     }
 
+    /// `self` on its way to `other` at `t` the way CSS mixes two colours of
+    /// different alpha (CSS Color 4 s12.3): in premultiplied space, each
+    /// colour weighed by its own alpha. A colour fading in from `transparent`
+    /// keeps its hue all the way instead of passing through a darker grey (a
+    /// plain mix of the channels drags it toward transparent's black). Two
+    /// colours of one alpha mix exactly as [`Self::interpolate`] mixes them.
+    #[must_use]
+    pub(crate) fn interpolate_premultiplied(self, other: Self, t: f32) -> Self {
+        if self.a == other.a {
+            return self.interpolate(&other, t);
+        }
+        let (a0, a1) = (f32::from(self.a), f32::from(other.a));
+        let a = a0 + (a1 - a0) * t;
+        if a.is_nan() || a <= 0.0 {
+            // Nothing is shown (or `t` is not a number): the end that has
+            // no alpha.
+            return if t < 0.5 { self } else { other };
+        }
+        let channel = |c0: u8, c1: u8| {
+            let (p0, p1) = (f32::from(c0) * a0, f32::from(c1) * a1);
+            channel_to_u8(libm::roundf((p0 + (p1 - p0) * t) / a))
+        };
+        Self {
+            r: channel(self.r, other.r),
+            g: channel(self.g, other.g),
+            b: channel(self.b, other.b),
+            a: channel_to_u8(libm::roundf(a)),
+        }
+    }
+
     /// Lighten a color by a percentage (0.0 to 1.0).
     /// Returns a new color blended towards white, preserving the original alpha.
     #[must_use]
@@ -885,9 +915,77 @@ impl ColorU {
     }
 
     /// Format the color as an 8-digit lowercase hex string (e.g. `#ff0000ff`).
+    /// [`Self::to_hex`] writes the shortest exact form.
     #[must_use]
     pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+    }
+
+    /// The colour as a CSS VALUE, what the property printers write:
+    /// [`Self::to_hash`], or the `system:<name>` keyword when the colour is a
+    /// [`SystemColorRef`] token ([`SystemColorRef::to_color_token`]) - the
+    /// token itself is a transparent placeholder, so its hex would print a
+    /// colour that does not read back as the one the style names.
+    #[must_use]
+    pub(crate) fn to_css_value(self) -> String {
+        SystemColorRef::from_color_token(self)
+            .map_or_else(|| self.to_hash(), |system| String::from(system.as_css_str()))
+    }
+
+    /// The colour as CSS writes it, lower case: `#rrggbb`, or `#rrggbbaa`
+    /// when it is not fully opaque. [`Self::parse_hex`] reads it back.
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        if self.a == Self::ALPHA_OPAQUE {
+            format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+        } else {
+            format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
+        }
+    }
+
+    /// Reads a hex colour: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` - the
+    /// `#` optional, any case, surrounding whitespace ignored; a missing
+    /// alpha is opaque. `None` for any other text.
+    #[must_use]
+    #[allow(clippy::many_single_char_names)] // r, g, b, a: the channels
+    pub fn parse_hex(text: &str) -> Option<Self> {
+        let t = text.trim();
+        let t = t.strip_prefix('#').unwrap_or(t);
+        let bytes = t.as_bytes();
+        let nib = |ch: u8| -> Option<u8> {
+            char::from(ch)
+                .to_digit(16)
+                .and_then(|d| u8::try_from(d).ok())
+        };
+        let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
+        let (r, g, b, a) = match bytes.len() {
+            3 => (
+                nib(bytes[0])? * 17,
+                nib(bytes[1])? * 17,
+                nib(bytes[2])? * 17,
+                Self::ALPHA_OPAQUE,
+            ),
+            4 => (
+                nib(bytes[0])? * 17,
+                nib(bytes[1])? * 17,
+                nib(bytes[2])? * 17,
+                nib(bytes[3])? * 17,
+            ),
+            6 => (pair(0)?, pair(2)?, pair(4)?, Self::ALPHA_OPAQUE),
+            8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
+            _ => return None,
+        };
+        Some(Self { r, g, b, a })
+    }
+
+    /// Reads any CSS colour value - a keyword (`red`), a hex colour
+    /// (`#f53`), `rgb(..)`, `hsl(..)`, ... `None` when the text is no
+    /// colour; api.json's `ColorU::from_str` answers black instead, so a
+    /// caller cannot tell `"black"` from a typo.
+    #[cfg(feature = "parser")]
+    #[must_use]
+    pub fn parse_css(text: &str) -> Option<Self> {
+        parse_css_color(text).ok()
     }
 
     // ============================================================
@@ -1446,6 +1544,15 @@ impl ColorOrSystem {
 
 /// Reference to a specific system color.
 /// These are resolved at runtime based on the user's system preferences.
+///
+/// Every variant names one slot of [`crate::system::SystemColors`]; the CSS
+/// spelling is `system:` plus the slot's name in kebab-case
+/// (`window_background` -> `system:window-background`).
+///
+/// A reference always resolves to SOME colour: a slot the platform did not
+/// fill answers the reference's own per-theme default
+/// ([`SystemColorRef::fallback`]), so `system:` colours stay coherent with
+/// the theme even on a desktop whose detection reported nothing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum SystemColorRef {
@@ -1467,34 +1574,238 @@ pub enum SystemColorRef {
     SelectionBackground,
     /// Text color when selected
     SelectionText,
+    // --- APPENDED 2026-09-26 (discriminants 9..): one keyword per remaining
+    // `SystemColors` slot, so the existing discriminants stay put. ---
+    /// Less prominent text: captions, field labels (`system:secondary-text`)
+    SecondaryText,
+    /// Least prominent text (`system:tertiary-text`)
+    TertiaryText,
+    /// Text of a disabled control (`system:disabled-text`)
+    DisabledText,
+    /// The canvas behind documents and pages (`system:under-page-background`)
+    UnderPageBackground,
+    /// Selected content while the window is not focused
+    /// (`system:selection-background-inactive`)
+    SelectionBackgroundInactive,
+    /// Text on [`Self::SelectionBackgroundInactive`] (`system:selection-text-inactive`)
+    SelectionTextInactive,
+    /// Hyperlinks (`system:link`)
+    Link,
+    /// Separators and dividers (`system:separator`)
+    Separator,
+    /// Table and grid lines (`system:grid`)
+    Grid,
+    /// Find-in-page highlight (`system:find-highlight`)
+    FindHighlight,
+    /// Sidebar surface (`system:sidebar-background`)
+    SidebarBackground,
+    /// Selected row in a sidebar (`system:sidebar-selection`)
+    SidebarSelection,
+    /// Editable controls and content lists: a text field, a list view
+    /// (`system:control-background`)
+    ControlBackground,
+    /// The prompt in an empty field (`system:placeholder-text`)
+    PlaceholderText,
+    /// Selected TEXT, as opposed to a selected row or item
+    /// (`system:text-selection-background`)
+    TextSelectionBackground,
+    // --- APPENDED 2026-10-10 (discriminant 24) ---
+    /// The ink of a monochrome (symbolic) icon: a toolbar's, a list's, a
+    /// sidebar's glyph (`system:icon`). The desktop's secondary label colour
+    /// where the platform names no icon ink; flora's `--fl-icon` under flora.
+    Icon,
 }
 
+/// The ink `system:accent-text` paints on `accent`: the platform's own
+/// (`ink`) when it reads, else black or white, whichever reads better.
+///
+/// The accent is the USER's free choice (any hue, any lightness: macOS
+/// Graphite is a neutral grey, yellow and green are light), while the ink a
+/// platform reports for it is fixed - `AppKit`'s
+/// `alternateSelectedControlTextColor` is white whatever the accent. So the
+/// pair could fail: white on Graphite read 3.4:1, on yellow 1.4:1 (the
+/// `AzWidgets` mode bar's selected "Dark" segment, white text on a light-grey
+/// face). "Reads" is WCAG 2.1 AA: 4.5:1 on a NEUTRAL accent (chroma under
+/// 0.25: no hue to carry the text), 3:1 - the large-text / UI-component bar -
+/// on a coloured one, where white stays on the blues, reds and purples it
+/// reads on.
+#[must_use]
+pub fn readable_accent_ink(accent: ColorU, ink: ColorU) -> ColorU {
+    let max = accent.r.max(accent.g).max(accent.b);
+    let min = accent.r.min(accent.g).min(accent.b);
+    let chroma = f32::from(max - min) / 255.0;
+    let floor = if chroma < 0.25 { 4.5 } else { 3.0 };
+    let own = ink.contrast_ratio(&accent);
+    if own >= floor {
+        return ink;
+    }
+    let best = accent.best_contrast_text();
+    if best.contrast_ratio(&accent) > own {
+        best
+    } else {
+        ink
+    }
+}
+
+/// Red channel of a system-colour token (`'S'`), see [`SystemColorRef::to_color_token`].
+const SYSTEM_COLOR_TOKEN_R: u8 = 0x53;
+/// Green channel of a system-colour token (`'Y'`), see [`SystemColorRef::to_color_token`].
+const SYSTEM_COLOR_TOKEN_G: u8 = 0x59;
+
 impl SystemColorRef {
+    /// Every reference, in declaration (= discriminant) order.
+    pub const ALL: [Self; 25] = [
+        Self::Text,
+        Self::Background,
+        Self::Accent,
+        Self::AccentText,
+        Self::ButtonFace,
+        Self::ButtonText,
+        Self::WindowBackground,
+        Self::SelectionBackground,
+        Self::SelectionText,
+        Self::SecondaryText,
+        Self::TertiaryText,
+        Self::DisabledText,
+        Self::UnderPageBackground,
+        Self::SelectionBackgroundInactive,
+        Self::SelectionTextInactive,
+        Self::Link,
+        Self::Separator,
+        Self::Grid,
+        Self::FindHighlight,
+        Self::SidebarBackground,
+        Self::SidebarSelection,
+        Self::ControlBackground,
+        Self::PlaceholderText,
+        Self::TextSelectionBackground,
+        Self::Icon,
+    ];
+
+    /// The slot of `colors` this reference names - `None` when the platform
+    /// did not fill it.
+    #[must_use]
+    pub const fn get(&self, colors: &crate::system::SystemColors) -> OptionColorU {
+        match self {
+            Self::Text => colors.text,
+            Self::Background => colors.background,
+            Self::Accent => colors.accent,
+            Self::AccentText => colors.accent_text,
+            Self::ButtonFace => colors.button_face,
+            Self::ButtonText => colors.button_text,
+            Self::WindowBackground => colors.window_background,
+            Self::SelectionBackground => colors.selection_background,
+            Self::SelectionText => colors.selection_text,
+            Self::SecondaryText => colors.secondary_text,
+            Self::TertiaryText => colors.tertiary_text,
+            Self::DisabledText => colors.disabled_text,
+            Self::UnderPageBackground => colors.under_page_background,
+            Self::SelectionBackgroundInactive => colors.selection_background_inactive,
+            Self::SelectionTextInactive => colors.selection_text_inactive,
+            Self::Link => colors.link,
+            Self::Separator => colors.separator,
+            Self::Grid => colors.grid,
+            Self::FindHighlight => colors.find_highlight,
+            Self::SidebarBackground => colors.sidebar_background,
+            Self::SidebarSelection => colors.sidebar_selection,
+            Self::ControlBackground => colors.control_background,
+            Self::PlaceholderText => colors.placeholder_text,
+            Self::TextSelectionBackground => colors.text_selection_background,
+            Self::Icon => colors.icon,
+        }
+    }
+
     /// Resolve this system color reference against actual system colors.
     #[must_use]
     pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+        self.get(colors).into_option().unwrap_or(fallback)
+    }
+
+    /// Resolve against `colors`, falling back to this reference's own default
+    /// for the theme (`dark`) when the platform left the slot empty.
+    ///
+    /// THE resolution the engine paints with: the cascade's context carries
+    /// the palette of the theme it evaluates (`DynamicSelectorContext::
+    /// system_colors`), and this is how a `system:` keyword turns into the
+    /// colour that theme wants.
+    ///
+    /// `system:accent-text` is the one keyword resolved as a PAIR: it is the
+    /// ink that sits on `system:accent`, so it must read on it
+    /// ([`readable_accent_ink`]). `system:icon` left empty is the palette's
+    /// own secondary label colour: no desktop names an icon ink.
+    #[must_use]
+    pub fn resolve_for_theme(&self, colors: &crate::system::SystemColors, dark: bool) -> ColorU {
+        let own = self.get(colors).into_option().unwrap_or_else(|| {
+            if matches!(self, Self::Icon) {
+                Self::SecondaryText.resolve_for_theme(colors, dark)
+            } else {
+                self.fallback(dark)
+            }
+        });
         match self {
-            Self::Text => colors.text.as_option().copied().unwrap_or(fallback),
-            Self::Background => colors.background.as_option().copied().unwrap_or(fallback),
-            Self::Accent => colors.accent.as_option().copied().unwrap_or(fallback),
-            Self::AccentText => colors.accent_text.as_option().copied().unwrap_or(fallback),
-            Self::ButtonFace => colors.button_face.as_option().copied().unwrap_or(fallback),
-            Self::ButtonText => colors.button_text.as_option().copied().unwrap_or(fallback),
-            Self::WindowBackground => colors
-                .window_background
-                .as_option()
-                .copied()
-                .unwrap_or(fallback),
-            Self::SelectionBackground => colors
-                .selection_background
-                .as_option()
-                .copied()
-                .unwrap_or(fallback),
-            Self::SelectionText => colors
-                .selection_text
-                .as_option()
-                .copied()
-                .unwrap_or(fallback),
+            Self::AccentText => {
+                readable_accent_ink(Self::Accent.resolve_for_theme(colors, dark), own)
+            }
+            _ => own,
+        }
+    }
+
+    /// The colour this reference stands for when no platform palette says
+    /// otherwise, for a light (`dark == false`) or a dark window.
+    ///
+    /// The ONLY hard-coded colours of the `system:` machinery, and
+    /// deliberately platform-neutral: what a desktop really uses is read by
+    /// its probe (`SystemStyle` discovery in the shell). These exist so a
+    /// palette with holes - a desktop that reports three colours, a test
+    /// with none - still reads as one coherent theme: label colours are
+    /// translucent black / white, surfaces are neutral greys.
+    #[must_use]
+    // A palette table, one row per role and mode: roles that share a colour
+    // today stay separate rows, so changing one does not drag the other along.
+    #[allow(clippy::match_same_arms)]
+    pub const fn fallback(&self, dark: bool) -> ColorU {
+        const fn c(r: u8, g: u8, b: u8, a: u8) -> ColorU {
+            ColorU { r, g, b, a }
+        }
+        match (self, dark) {
+            (Self::Text | Self::ButtonText, false) => c(0, 0, 0, 217),
+            (Self::Text | Self::ButtonText, true) => c(255, 255, 255, 217),
+            (Self::Background, false) => c(255, 255, 255, 255),
+            (Self::Background, true) => c(30, 30, 30, 255),
+            (Self::Accent, false) => c(0, 122, 255, 255),
+            (Self::Accent, true) => c(10, 132, 255, 255),
+            (Self::AccentText | Self::SelectionText, _) => c(255, 255, 255, 255),
+            (Self::ButtonFace, false) => c(255, 255, 255, 255),
+            (Self::ButtonFace, true) => c(72, 72, 74, 255),
+            (Self::WindowBackground, false) => c(236, 236, 236, 255),
+            (Self::WindowBackground, true) => c(50, 50, 50, 255),
+            (Self::SelectionBackground, false) => c(0, 100, 225, 255),
+            (Self::SelectionBackground, true) => c(0, 88, 208, 255),
+            (Self::SecondaryText | Self::Icon, false) => c(0, 0, 0, 128),
+            (Self::SecondaryText | Self::Icon, true) => c(255, 255, 255, 140),
+            (Self::TertiaryText, false) => c(0, 0, 0, 66),
+            (Self::TertiaryText, true) => c(255, 255, 255, 64),
+            (Self::DisabledText | Self::PlaceholderText, false) => c(0, 0, 0, 64),
+            (Self::DisabledText | Self::PlaceholderText, true) => c(255, 255, 255, 64),
+            (Self::UnderPageBackground, false) => c(225, 225, 225, 255),
+            (Self::UnderPageBackground, true) => c(40, 40, 40, 255),
+            (Self::SelectionBackgroundInactive, false) => c(220, 220, 220, 255),
+            (Self::SelectionBackgroundInactive, true) => c(70, 70, 70, 255),
+            (Self::SelectionTextInactive, false) => c(0, 0, 0, 255),
+            (Self::SelectionTextInactive, true) => c(255, 255, 255, 255),
+            (Self::Link, false) => c(0, 104, 218, 255),
+            (Self::Link, true) => c(65, 156, 255, 255),
+            (Self::Separator | Self::SidebarSelection, false) => c(0, 0, 0, 26),
+            (Self::Separator | Self::SidebarSelection, true) => c(255, 255, 255, 26),
+            (Self::Grid, false) => c(230, 230, 230, 255),
+            (Self::Grid, true) => c(26, 26, 26, 255),
+            (Self::FindHighlight, _) => c(255, 255, 0, 255),
+            (Self::SidebarBackground, false) => c(232, 232, 232, 255),
+            (Self::SidebarBackground, true) => c(40, 40, 40, 255),
+            (Self::ControlBackground, false) => c(255, 255, 255, 255),
+            (Self::ControlBackground, true) => c(30, 30, 30, 255),
+            (Self::TextSelectionBackground, false) => c(179, 215, 255, 255),
+            (Self::TextSelectionBackground, true) => c(63, 99, 139, 255),
         }
     }
 
@@ -1511,8 +1822,132 @@ impl SystemColorRef {
             Self::WindowBackground => "system:window-background",
             Self::SelectionBackground => "system:selection-background",
             Self::SelectionText => "system:selection-text",
+            Self::SecondaryText => "system:secondary-text",
+            Self::TertiaryText => "system:tertiary-text",
+            Self::DisabledText => "system:disabled-text",
+            Self::UnderPageBackground => "system:under-page-background",
+            Self::SelectionBackgroundInactive => "system:selection-background-inactive",
+            Self::SelectionTextInactive => "system:selection-text-inactive",
+            Self::Link => "system:link",
+            Self::Separator => "system:separator",
+            Self::Grid => "system:grid",
+            Self::FindHighlight => "system:find-highlight",
+            Self::SidebarBackground => "system:sidebar-background",
+            Self::SidebarSelection => "system:sidebar-selection",
+            Self::ControlBackground => "system:control-background",
+            Self::PlaceholderText => "system:placeholder-text",
+            Self::TextSelectionBackground => "system:text-selection-background",
+            Self::Icon => "system:icon",
         }
     }
+
+    /// The reference a `system:` keyword names, given the part AFTER
+    /// `system:` (`"window-background"`). Case-sensitive, like the rest of
+    /// the `system:` syntax.
+    #[must_use]
+    pub fn from_css_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|r| r.as_css_str().strip_prefix("system:") == Some(name))
+    }
+
+    /// This reference packed into a [`ColorU`], for the colour properties
+    /// whose value type holds a bare `ColorU`: `color`, `border-*-color`,
+    /// `caret-color`, the `-azul-selection-*` colours, `scrollbar-color`,
+    /// `box-shadow` / `text-shadow` / `drop-shadow()`, `flood()` and
+    /// `column-rule-color`.
+    ///
+    /// Those value types are `repr(C)` types around `ColorU` that the
+    /// whole engine and the C API read, so they cannot hold a
+    /// `SystemColorRef`. A `system:` keyword therefore travels through the
+    /// cascade (and inheritance) as this reserved colour and is resolved
+    /// where the COMPUTED colour is read - the layout getters resolve every
+    /// colour-valued property through
+    /// [`crate::dynamic_selector::ResolveSystemColors`] against the
+    /// cascade's own context, so the keyword follows the theme the cascade
+    /// evaluated.
+    ///
+    /// The token is fully transparent: a reader that never resolves it
+    /// paints nothing rather than a wrong colour, and no VISIBLE colour a
+    /// stylesheet can name is ever mistaken for a keyword.
+    #[must_use]
+    pub const fn to_color_token(self) -> ColorU {
+        ColorU {
+            r: SYSTEM_COLOR_TOKEN_R,
+            g: SYSTEM_COLOR_TOKEN_G,
+            b: self as u8,
+            a: 0,
+        }
+    }
+
+    /// The reference a colour token stands for, or `None` for an ordinary
+    /// colour. The inverse of [`Self::to_color_token`].
+    #[must_use]
+    pub const fn from_color_token(color: ColorU) -> Option<Self> {
+        if color.a != 0 || color.r != SYSTEM_COLOR_TOKEN_R || color.g != SYSTEM_COLOR_TOKEN_G {
+            return None;
+        }
+        Self::from_index(color.b)
+    }
+
+    /// The reference with discriminant `index`.
+    const fn from_index(index: u8) -> Option<Self> {
+        match index {
+            0 => Some(Self::Text),
+            1 => Some(Self::Background),
+            2 => Some(Self::Accent),
+            3 => Some(Self::AccentText),
+            4 => Some(Self::ButtonFace),
+            5 => Some(Self::ButtonText),
+            6 => Some(Self::WindowBackground),
+            7 => Some(Self::SelectionBackground),
+            8 => Some(Self::SelectionText),
+            9 => Some(Self::SecondaryText),
+            10 => Some(Self::TertiaryText),
+            11 => Some(Self::DisabledText),
+            12 => Some(Self::UnderPageBackground),
+            13 => Some(Self::SelectionBackgroundInactive),
+            14 => Some(Self::SelectionTextInactive),
+            15 => Some(Self::Link),
+            16 => Some(Self::Separator),
+            17 => Some(Self::Grid),
+            18 => Some(Self::FindHighlight),
+            19 => Some(Self::SidebarBackground),
+            20 => Some(Self::SidebarSelection),
+            21 => Some(Self::ControlBackground),
+            22 => Some(Self::PlaceholderText),
+            23 => Some(Self::TextSelectionBackground),
+            24 => Some(Self::Icon),
+            _ => None,
+        }
+    }
+}
+
+/// `currentColor` packed into a [`ColorU`]: the element's own cascaded `color`,
+/// for a colour value the ENGINE writes that has to follow it.
+///
+/// An icon's `flood()`, for one, paints monochrome artwork in the text colour.
+/// Same reserved space as [`SystemColorRef::to_color_token`] (`'S' 'Y'`,
+/// alpha 0) with an index no `SystemColorRef` uses, so
+/// [`crate::dynamic_selector::resolve_system_color_token`] passes it through
+/// unchanged and a reader that never resolves it paints nothing (it is fully
+/// transparent). The display list resolves it per node, where the node's
+/// `color` is known.
+pub const CURRENT_COLOR_TOKEN: ColorU = ColorU {
+    r: SYSTEM_COLOR_TOKEN_R,
+    g: SYSTEM_COLOR_TOKEN_G,
+    b: 0xFF,
+    a: 0,
+};
+
+/// Is `color` the [`CURRENT_COLOR_TOKEN`]?
+#[must_use]
+pub const fn is_current_color_token(color: ColorU) -> bool {
+    color.r == CURRENT_COLOR_TOKEN.r
+        && color.g == CURRENT_COLOR_TOKEN.g
+        && color.b == CURRENT_COLOR_TOKEN.b
+        && color.a == CURRENT_COLOR_TOKEN.a
 }
 
 // --- PARSER ---
@@ -1707,16 +2142,11 @@ pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
 
 /// Parse a color that can be either a concrete color or a system color reference.
 ///
-/// Supports all standard CSS color formats plus:
-/// - `system:accent` - System accent/highlight color
-/// - `system:text` - System text color
-/// - `system:background` - System background color
-/// - `system:selection-background` - Selection/highlight background
-/// - `system:selection-text` - Text color when selected
-/// - `system:button-face` - Button background color
-/// - `system:button-text` - Button text color
-/// - `system:window-background` - Window background color
-/// - `system:accent-text` - Text color on accent background
+/// Supports all standard CSS color formats plus one `system:<slot>` keyword
+/// per [`SystemColorRef`] - the slot names of
+/// [`crate::system::SystemColors`] in kebab-case (`system:accent`,
+/// `system:text`, `system:window-background`, ...; see
+/// [`SystemColorRef::as_css_str`]).
 #[cfg(feature = "parser")]
 /// # Errors
 ///
@@ -1726,23 +2156,31 @@ pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParse
 
     // Check for system color syntax: "system:name"
     if let Some(system_name) = input.strip_prefix("system:") {
-        let system_ref = match system_name.trim() {
-            "text" => SystemColorRef::Text,
-            "background" => SystemColorRef::Background,
-            "accent" => SystemColorRef::Accent,
-            "accent-text" => SystemColorRef::AccentText,
-            "button-face" => SystemColorRef::ButtonFace,
-            "button-text" => SystemColorRef::ButtonText,
-            "window-background" => SystemColorRef::WindowBackground,
-            "selection-background" => SystemColorRef::SelectionBackground,
-            "selection-text" => SystemColorRef::SelectionText,
-            _ => return Err(CssColorParseError::InvalidColor(input)),
-        };
-        return Ok(ColorOrSystem::System(system_ref));
+        return SystemColorRef::from_css_name(system_name.trim())
+            .map(ColorOrSystem::System)
+            .ok_or(CssColorParseError::InvalidColor(input));
     }
 
     // Otherwise parse as regular color
     parse_css_color(input).map(ColorOrSystem::Color)
+}
+
+/// [`parse_color_or_system`] for a property whose value holds a bare [`ColorU`]
+/// (`color`, `border-*-color`, `caret-color`, the shadows, ...).
+///
+/// A `system:` keyword comes back as its token (see
+/// [`SystemColorRef::to_color_token`]), which the layout getters resolve
+/// against the theme the cascade evaluated. EVERY colour parser of such a
+/// property goes through here.
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is neither a CSS color nor a `system:` color keyword.
+pub fn parse_color_or_system_token(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
+    Ok(match parse_color_or_system(input)? {
+        ColorOrSystem::Color(c) => c,
+        ColorOrSystem::System(r) => r.to_color_token(),
+    })
 }
 
 #[cfg(feature = "parser")]
@@ -2283,6 +2721,10 @@ mod tests {
             find_highlight: OptionColorU::None,
             sidebar_background: OptionColorU::None,
             sidebar_selection: OptionColorU::None,
+            control_background: OptionColorU::None,
+            placeholder_text: OptionColorU::None,
+            text_selection_background: OptionColorU::None,
+            icon: OptionColorU::None,
         };
 
         // Test resolution of system colors
@@ -2299,6 +2741,20 @@ mod tests {
         let concrete = ColorOrSystem::Color(ColorU::RED);
         let resolved_concrete = concrete.resolve(&system_colors, ColorU::GRAY);
         assert_eq!(resolved_concrete, ColorU::RED);
+    }
+
+    /// `parse_css` reads any CSS colour and says when the text is none:
+    /// `from_str` (api.json) answers BLACK for a typo, so an app cannot
+    /// tell `"black"` from `"blck"` (DEDUP_OFFICE D11 / A6).
+    #[test]
+    fn parse_css_reports_a_text_that_is_no_colour() {
+        assert_eq!(ColorU::parse_css("red"), Some(ColorU::RED));
+        assert_eq!(ColorU::parse_css("black"), Some(ColorU::BLACK));
+        assert_eq!(ColorU::parse_css(" #f53 "), Some(ColorU::new_rgb(0xff, 0x55, 0x33)));
+        assert_eq!(ColorU::parse_css("rgb(1,2,3)"), Some(ColorU::new_rgb(1, 2, 3)));
+        assert_eq!(ColorU::parse_css("blck"), None);
+        assert_eq!(ColorU::parse_css(""), None);
+        assert_eq!(ColorU::parse_css("#ff573"), None);
     }
 
     #[test]
@@ -2809,6 +3265,30 @@ mod autotest_generated {
         // Max contrast (fp gives 20.999998, not a clean 21.0).
         let max = ColorU::BLACK.contrast_ratio(&ColorU::WHITE);
         assert!((max - 21.0).abs() < 0.01, "black/white contrast was {max}");
+    }
+
+    /// `system:accent-text` reads on `system:accent` whatever accent the user
+    /// picked: a neutral (Graphite) or light (yellow) accent takes the ink
+    /// that reads, the blues keep the platform's white.
+    #[test]
+    fn the_accent_ink_reads_on_any_desktop_accent() {
+        use crate::system::SystemColors;
+        let white = ColorU::rgb(255, 255, 255);
+        let resolve = |accent: ColorU| {
+            let colors = SystemColors {
+                accent: OptionColorU::Some(accent),
+                accent_text: OptionColorU::Some(white),
+                ..SystemColors::default()
+            };
+            SystemColorRef::AccentText.resolve_for_theme(&colors, true)
+        };
+        assert_eq!(resolve(ColorU::rgb(10, 132, 255)), white, "white stays on blue");
+        assert_eq!(resolve(ColorU::rgb(255, 59, 48)), white, "and on red");
+        for accent in [ColorU::rgb(140, 140, 144), ColorU::rgb(255, 214, 10)] {
+            let ink = resolve(accent);
+            assert_ne!(ink, white, "white does not read on {accent:?}");
+            assert!(ink.contrast_ratio(&accent) >= 4.5, "{ink:?} on {accent:?}");
+        }
     }
 
     #[test]
@@ -4119,5 +4599,41 @@ mod autotest_generated {
             parse_css_color("#zzz"),
             Err(CssColorParseError::InvalidColorComponent(b'z'))
         );
+    }
+
+    /// `to_hex` writes the shortest exact CSS form - 6 digits when opaque,
+    /// 8 when not - and `parse_hex` reads every hex form back; the eight
+    /// private copies in widgets and apps did one or the other
+    /// (DEDUP_OFFICE D11, DEDUP_WIDGETS_API F32).
+    #[test]
+    fn to_hex_and_parse_hex_round_trip() {
+        let opaque = ColorU::new_rgb(0xff, 0x57, 0x33);
+        assert_eq!(opaque.to_hex(), "#ff5733");
+        let translucent = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
+        assert_eq!(translucent.to_hex(), "#01020304");
+        for c in SAMPLES {
+            assert_eq!(ColorU::parse_hex(&c.to_hex()), Some(c), "{c:?}");
+        }
+        assert_eq!(ColorU::parse_hex("  FF5733 "), Some(opaque), "no '#', any case, trimmed");
+        // Three digits double each one: #f53 is #ff5533 (CSS Color 4, 5.2).
+        assert_eq!(ColorU::parse_hex("#f53"), Some(ColorU::new_rgb(0xff, 0x55, 0x33)));
+        assert_eq!(
+            ColorU::parse_hex("#f538"),
+            Some(ColorU {
+                r: 0xff,
+                g: 0x55,
+                b: 0x33,
+                a: 0x88
+            })
+        );
+        assert_eq!(ColorU::parse_hex("#ff573"), None);
+        assert_eq!(ColorU::parse_hex("#gg5733"), None);
+        assert_eq!(ColorU::parse_hex("red"), None, "a keyword is no hex colour");
+        assert_eq!(ColorU::parse_hex(""), None);
     }
 }

@@ -85,6 +85,25 @@ impl TransientPlacement {
             TransientAnchor::Left => LogicalPosition::new(a.origin.x - size.width, a.origin.y),
             TransientAnchor::Right => LogicalPosition::new(a.origin.x + a.size.width, a.origin.y),
             TransientAnchor::Cursor => cursor.unwrap_or(a.origin),
+            // The anchor rect IS the viewport (`cover_viewport`).
+            TransientAnchor::Viewport => a.origin,
+        }
+    }
+
+    /// For an `anchor="viewport"` placement, the placement that covers a
+    /// parent viewport of `viewport` size: anchored to the whole viewport and
+    /// sized to it. Any other placement is returned unchanged. The shell
+    /// applies this to every placement it collects, with the parent window's
+    /// current size, so a parent resize resizes the window.
+    #[must_use]
+    pub fn cover_viewport(self, viewport: LogicalSize) -> Self {
+        if self.anchor != TransientAnchor::Viewport {
+            return self;
+        }
+        Self {
+            anchor_rect: LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport),
+            size: OptionLogicalSize::Some(viewport),
+            ..self
         }
     }
 
@@ -103,6 +122,12 @@ impl TransientPlacement {
         cursor: Option<azul_core::geom::LogicalPosition>,
         bounds: LogicalRect,
     ) -> azul_core::geom::LogicalPosition {
+        // A viewport cover sits exactly on its parent: flipping or sliding
+        // it into the monitor would uncover part of the parent it exists to
+        // cover.
+        if self.anchor == TransientAnchor::Viewport {
+            return self.anchor_rect.origin;
+        }
         let a = self.anchor_rect;
         let (min_x, min_y) = (bounds.origin.x, bounds.origin.y);
         let (max_x, max_y) = (bounds.max_x(), bounds.max_y());
@@ -134,6 +159,50 @@ impl TransientPlacement {
         pos.y = pos.y.min(max_y - size.height).max(min_y);
         pos
     }
+}
+
+/// Does the popup hanging off `source_node` TAKE the keyboard focus when it
+/// opens, or leave it on its invoker?
+///
+/// Two WAI-ARIA models, one per kind of popup:
+/// - a panel you work IN (the colour picker, a date picker, anything
+///   dialog-like) takes focus: it autofocuses its first control, holds its
+///   parent's keyboard, and hands focus back on close;
+/// - a LIST you pick from (a combobox's options, a menu, a tree, a tooltip)
+///   leaves DOM focus on the invoker - typing keeps editing a combobox field
+///   while its list is open - and only takes focus once the user navigates
+///   into it.
+///
+/// Derived from the role of the popup's content root (the node's first
+/// child): `List`, `MenuPopup`, `DropList`, `Outline` and `Tooltip` keep the
+/// focus, anything else takes it. A node with no content takes it (there is
+/// nothing to keep focus away from).
+#[must_use]
+pub fn transient_takes_focus(styled_dom: &StyledDom, source_node: NodeId) -> bool {
+    use azul_core::a11y::AccessibilityRole;
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let nodes = styled_dom.node_data.as_container();
+    let Some(content) = hierarchy
+        .get(source_node)
+        .and_then(|h| h.first_child_id(source_node))
+    else {
+        return true;
+    };
+    let role = nodes
+        .get(content)
+        .and_then(|nd| nd.get_accessibility_info())
+        .map(|a| a.role);
+    !matches!(
+        role,
+        Some(
+            AccessibilityRole::List
+                | AccessibilityRole::MenuPopup
+                | AccessibilityRole::DropList
+                | AccessibilityRole::Outline
+                | AccessibilityRole::Tooltip
+        )
+    )
 }
 
 /// Every `<transient-window>` in `styled_dom` whose config says `open`, with
@@ -394,6 +463,45 @@ mod tests {
         let monitor = rect(-300.0, -200.0, 1920.0, 1080.0);
         let p = mk(TransientAnchor::Bottom, 550.0).resolve_within(size, None, monitor);
         assert_eq!(p.y, 570.0, "room on the screen below the window: no flip");
+    }
+
+    /// `anchor="viewport"`, the modal dialog's top layer: the window covers
+    /// the PARENT's whole viewport - its origin the parent's (0,0) and its
+    /// size the viewport's, whatever the anchor node's own rect - so its
+    /// content (the `::backdrop` and the centred dialog) is laid out at that
+    /// size, and a parent resize resizes it.
+    #[test]
+    fn a_viewport_placement_covers_the_parent_window() {
+        let cfg = TransientWindowConfig::opened().with_anchor(TransientAnchor::Viewport);
+        let p = placement_for(NodeId::new(3), rect(120.0, 80.0, 40.0, 20.0), &cfg)
+            .cover_viewport(LogicalSize::new(800.0, 600.0));
+        assert_eq!(
+            p.anchor_rect,
+            rect(0.0, 0.0, 800.0, 600.0),
+            "anchored to the whole viewport, not to the anchor node"
+        );
+        assert!(
+            matches!(p.size, OptionLogicalSize::Some(s) if s.width == 800.0 && s.height == 600.0),
+            "laid out at the viewport's size, got {:?}",
+            p.size
+        );
+        let size = LogicalSize::new(800.0, 600.0);
+        assert_eq!(p.resolve(size, None), LogicalPosition::new(0.0, 0.0));
+        // Not slid around by a monitor work area the window hangs out of.
+        let monitor = rect(-100.0, -50.0, 850.0, 620.0);
+        assert_eq!(
+            p.resolve_within(size, None, monitor),
+            LogicalPosition::new(0.0, 0.0),
+            "the cover sits exactly on its parent"
+        );
+
+        // Any other anchor is left alone.
+        let below = placement_for(
+            NodeId::new(3),
+            rect(120.0, 80.0, 40.0, 20.0),
+            &TransientWindowConfig::opened(),
+        );
+        assert_eq!(below.cover_viewport(LogicalSize::new(800.0, 600.0)), below);
     }
 
     /// Placement arithmetic: the popup's top-left for each edge.
@@ -758,6 +866,12 @@ impl TransientWindowManager {
     /// of its `open` attribute. Opening also lifts an earlier user dismissal —
     /// the user clicked the swatch again, which is the re-arm. Takes effect
     /// on the next reconcile. Returns whether anything changed.
+    ///
+    /// Closing wins over the attribute the way a user dismissal does: a
+    /// window that is open (through its attribute or a callback) is held
+    /// closed until its attribute goes false and true again. Without that, a
+    /// popup the app opened through its attribute could not be closed from a
+    /// callback at all - `forced_open` was the only thing this cleared.
     pub fn set_forced_open(&mut self, node: NodeId, open: bool) -> bool {
         let was = self.forced_open.contains(&node);
         if open {
@@ -768,7 +882,11 @@ impl TransientWindowManager {
             !was
         } else {
             self.forced_open.retain(|n| *n != node);
-            was
+            let is_open = self.open.iter().any(|w| w.source_node == node);
+            if is_open && !self.dismissed.contains(&node) {
+                self.dismissed.push(node);
+            }
+            was || is_open
         }
     }
 
@@ -784,6 +902,41 @@ impl TransientWindowManager {
     ) {
         self.focus_before_open.retain(|(n, _, _)| *n != node);
         self.focus_before_open.push((node, focused, visible));
+    }
+
+    /// Record `focused` (with its `:focus-visible` modality) as the focus to
+    /// hand back for every window `diff` just OPENED that no seam recorded
+    /// one for.
+    ///
+    /// The `open` ATTRIBUTE is the documented way to open a popup ("the app
+    /// never touches a window, it toggles `open`") and it reaches no callback
+    /// seam, so only `set_transient_window_open` used to record anything: an
+    /// attribute-opened popup owed nobody their focus, and Escape left it
+    /// nowhere. Called right after [`Self::reconcile`], while the focus the
+    /// user had when the popup appeared is still the focus.
+    pub fn remember_focus_for_opened(
+        &mut self,
+        diff: &TransientDiff,
+        focused: Option<(azul_core::dom::DomNodeId, bool)>,
+    ) {
+        let Some((focused, visible)) = focused else {
+            return;
+        };
+        for dom in &diff.opened {
+            // A torn-off toplevel is no popup of its invoker: nothing is
+            // owed back when it closes (see `recreate`).
+            let Some(node) = self
+                .get(*dom)
+                .filter(|w| w.torn.is_none())
+                .map(|w| w.source_node)
+            else {
+                continue;
+            };
+            if self.focus_before_open.iter().any(|(n, _, _)| *n == node) {
+                continue;
+            }
+            self.focus_before_open.push((node, focused, visible));
+        }
     }
 
     /// Take back the focus recorded for `node` (one-shot, so a second close
@@ -913,6 +1066,11 @@ impl TransientWindowManager {
             };
             let torn = (p.torn && p.tearoff != TransientTearoff::None)
                 .then(|| p.resolve(content_size, None));
+            if torn.is_some() {
+                // Opened as a toplevel of its own: it owes nobody focus (see
+                // `recreate`), whatever the callback seam recorded.
+                let _ = self.take_focus_before_open(p.node);
+            }
             self.open.push(OpenTransientWindow {
                 source_node: p.node,
                 content_dom,
@@ -943,7 +1101,14 @@ impl TransientWindowManager {
         self.next_index += 1;
         w.content_dom = new;
         let surface = core::mem::replace(&mut w.surface, OptionRefAny::None);
+        let (node, torn) = (w.source_node, w.torn.is_some());
         self.closed_surfaces.push(surface);
+        // Torn off, it is a window of its own the user clicks into (open
+        // question 4 of the focus report): no longer its invoker's popup, so
+        // closing it must not pull focus back from wherever the user went.
+        if torn {
+            let _ = self.take_focus_before_open(node);
+        }
         (old, new)
     }
 
@@ -1147,7 +1312,7 @@ mod manager_tests {
             dock: TransientDock::Popup,
         }
     }
-    fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {
+    pub(super) fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {
         Some(LogicalSize::new(100.0, 50.0))
     }
 
@@ -1201,7 +1366,7 @@ mod manager_tests {
         assert!(m.open_windows().is_empty());
     }
 
-    fn tearable(node: usize) -> TransientPlacement {
+    pub(super) fn tearable(node: usize) -> TransientPlacement {
         TransientPlacement {
             tearoff: TransientTearoff::Free,
             ..placement(node, 0.0)
@@ -1266,6 +1431,34 @@ mod manager_tests {
         assert!(d.is_empty());
         assert_eq!(m.open_windows().len(), 1);
         assert_eq!(m.open_windows()[0].content_dom, popup2);
+    }
+
+    /// `set_transient_window_open(node, false)` is documented to close the
+    /// popup "regardless of its `open` attribute". A popup the app opened
+    /// through its attribute must close when a callback closes it, and stay
+    /// closed until the attribute goes false and true again - the same edge
+    /// a user dismissal re-arms on.
+    #[test]
+    fn closing_through_the_api_wins_over_an_open_attribute() {
+        let mut m = TransientWindowManager::new();
+        let opened = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(opened.opened.len(), 1, "premise: the attribute opens it");
+
+        assert!(
+            m.set_forced_open(NodeId::new(4), false),
+            "closing an open window is a change"
+        );
+        let d = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(
+            d.closed, opened.opened,
+            "the API close wins over the open attribute"
+        );
+        assert!(m.open_windows().is_empty());
+
+        // The attribute going false re-arms the node; true opens it again.
+        let _ = m.reconcile(&[], sized);
+        let d = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(d.opened.len(), 1, "false then true opens it again");
     }
 
     #[test]
@@ -1367,10 +1560,14 @@ mod manager_tests {
 mod focus_return_tests {
     use azul_core::{
         dom::{DomId, DomNodeId, NodeId},
+        geom::LogicalPosition,
         styled_dom::NodeHierarchyItemId,
     };
 
-    use super::TransientWindowManager;
+    use super::{
+        manager_tests::{sized, tearable},
+        TearDrop, TransientPlacement, TransientWindowManager,
+    };
 
     fn dnid(n: usize) -> DomNodeId {
         DomNodeId {
@@ -1407,6 +1604,82 @@ mod focus_return_tests {
         m.remember_focus_before_open(popup, dnid(3), false);
         m.remember_focus_before_open(popup, dnid(9), true);
         assert_eq!(m.take_focus_before_open(popup), Some((dnid(9), true)));
+    }
+
+    /// OPEN QUESTION 4 of the focus report, decided by its own reasoning: a
+    /// torn-off palette is "a window of its own that the user clicks into"
+    /// (`LayoutWindow::transient_keyboard_owner` already leaves it out), not
+    /// a popup holding its swatch's keyboard. So it owes the swatch nothing:
+    /// closing it must not pull focus back there from wherever the user has
+    /// worked since. A drag tears it off here.
+    #[test]
+    fn a_torn_off_palette_owes_no_focus_back_to_its_swatch() {
+        let mut m = TransientWindowManager::new();
+        let opened = m.reconcile(&[tearable(4)], sized);
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        m.apply_drop(
+            NodeId::new(4),
+            TearDrop::TearOff(LogicalPosition::new(300.0, 40.0)),
+        )
+        .expect("premise: the palette tears off");
+        assert!(
+            m.dismiss(NodeId::new(4)).is_some(),
+            "premise: the user closes the torn palette"
+        );
+        assert_eq!(
+            m.take_pending_focus_restore(),
+            None,
+            "closing a torn-off palette leaves focus where the user last was"
+        );
+    }
+
+    /// The same when the APP tears the palette off (its `torn` attribute
+    /// flips), with the shell's usual "remember focus for what just opened"
+    /// after the reconcile that re-creates the window as a toplevel.
+    #[test]
+    fn a_palette_the_app_tears_off_owes_no_focus_back_either() {
+        let mut m = TransientWindowManager::new();
+        let attr = |torn: bool| TransientPlacement {
+            torn,
+            ..tearable(4)
+        };
+        let opened = m.reconcile(&[attr(false)], sized);
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        let torn = m.reconcile(&[attr(true)], sized);
+        assert_eq!(torn.opened.len(), 1, "premise: re-created as a toplevel");
+        m.remember_focus_for_opened(&torn, Some((dnid(8), false)));
+        m.dismiss(NodeId::new(4)).expect("premise: it is open");
+        assert_eq!(m.take_pending_focus_restore(), None);
+    }
+
+    /// A palette that opens ALREADY torn off never was its swatch's popup:
+    /// neither the callback seam nor the attribute seam records a focus to
+    /// hand back.
+    #[test]
+    fn a_palette_opened_torn_off_owes_no_focus_back() {
+        let mut m = TransientWindowManager::new();
+        m.remember_focus_before_open(NodeId::new(4), dnid(3), true);
+        let opened = m.reconcile(
+            &[TransientPlacement {
+                torn: true,
+                ..tearable(4)
+            }],
+            sized,
+        );
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        m.dismiss(NodeId::new(4)).expect("premise: it is open");
+        assert_eq!(m.take_pending_focus_restore(), None);
+    }
+
+    /// GUARD for the three above: a palette that stays DOCKED on its swatch
+    /// is a popup, and closing it still hands focus and ring back.
+    #[test]
+    fn a_docked_palette_still_owes_focus_back_to_its_swatch() {
+        let mut m = TransientWindowManager::new();
+        let opened = m.reconcile(&[tearable(4)], sized);
+        m.remember_focus_for_opened(&opened, Some((dnid(3), true)));
+        m.dismiss(NodeId::new(4)).expect("premise: it is open");
+        assert_eq!(m.take_pending_focus_restore(), Some((dnid(3), true)));
     }
 
     /// Two popups do not cross their records.

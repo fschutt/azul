@@ -30,8 +30,8 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 use azul_css::{
-    codegen::format::GetHash,
     css::CssPropertyValue,
+    hash::GetHash,
     props::{
         basic::{ColorU, FontRef, PixelValue},
         layout::{LayoutDisplay, LayoutOverflow, LayoutPosition},
@@ -76,12 +76,169 @@ use crate::{
     },
 };
 
+/// Fill the unknown grid lines of a table: linear interpolation between
+/// the known ones, the nearest known one past either end (0 without any).
+#[allow(clippy::cast_precision_loss)] // grid line indices are small
+fn fill_grid_lines(lines: &[Option<f32>]) -> Vec<f32> {
+    let known: Vec<(usize, f32)> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| v.map(|v| (i, v)))
+        .collect();
+    (0..lines.len())
+        .map(|i| {
+            if let Some(v) = lines[i] {
+                return v;
+            }
+            let before = known.iter().rev().find(|(k, _)| *k < i);
+            let after = known.iter().find(|(k, _)| *k > i);
+            match (before, after) {
+                (Some(&(a, va)), Some(&(b, vb))) => {
+                    (vb - va).mul_add((i - a) as f32 / (b - a) as f32, va)
+                }
+                (Some(&(_, v)), None) | (None, Some(&(_, v))) => v,
+                (None, None) => 0.0,
+            }
+        })
+        .collect()
+}
+
+/// Two winners of collapsed grid edges paint the same (one strip for both).
+#[allow(clippy::float_cmp)] // the same resolved width, not a computed one
+fn same_collapsed_border(
+    a: &crate::solver3::fc::BorderInfo,
+    b: &crate::solver3::fc::BorderInfo,
+) -> bool {
+    a.width == b.width && a.style == b.style && a.color == b.color
+}
+
+/// `rect` shrunk by `edges` on every side (a box's padding box from its
+/// border box, its content box from its padding box), never below empty.
+fn inset_rect(rect: LogicalRect, edges: &crate::solver3::geometry::EdgeSizes) -> LogicalRect {
+    LogicalRect::new(
+        LogicalPosition::new(rect.origin.x + edges.left, rect.origin.y + edges.top),
+        LogicalSize::new(
+            (rect.size.width - edges.left - edges.right).max(0.0),
+            (rect.size.height - edges.top - edges.bottom).max(0.0),
+        ),
+    )
+}
+
+/// The corner radii of a box inset by `edges` - the inner curve (CSS
+/// Backgrounds 3 s5.2: the outer radius minus the widths beside the corner,
+/// never below 0; one radius per corner, so the larger width).
+fn inset_radius(radius: BorderRadius, edges: &crate::solver3::geometry::EdgeSizes) -> BorderRadius {
+    let inner = |r: f32, a: f32, b: f32| (r - a.max(b)).max(0.0);
+    BorderRadius {
+        top_left: inner(radius.top_left, edges.top, edges.left),
+        top_right: inner(radius.top_right, edges.top, edges.right),
+        bottom_left: inner(radius.bottom_left, edges.bottom, edges.left),
+        bottom_right: inner(radius.bottom_right, edges.bottom, edges.right),
+    }
+}
+
+/// At most this many tiles of one background layer: a hairline tile over a
+/// window would be thousands of items.
+const MAX_BACKGROUND_TILES: i64 = 1024;
+
+/// The tiles of a background layer whose image fills `tile`, repeated per
+/// `repeat` over `area` (CSS Backgrounds 3 s3.4 `background-repeat`): `tile`
+/// itself plus every whole step of its size - left and right, up and down,
+/// as `repeat` allows - that overlaps `area`. Past
+/// [`MAX_BACKGROUND_TILES`] (or for a tile with no area) only `tile` itself.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // bounded tile counts
+pub(crate) fn background_tiles(
+    tile: LogicalRect,
+    area: LogicalRect,
+    repeat: azul_css::props::style::StyleBackgroundRepeat,
+) -> Vec<LogicalRect> {
+    use azul_css::props::style::StyleBackgroundRepeat;
+
+    let (w, h) = (tile.size.width, tile.size.height);
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return vec![tile];
+    }
+    let (repeat_x, repeat_y) = match repeat {
+        StyleBackgroundRepeat::NoRepeat => (false, false),
+        StyleBackgroundRepeat::PatternRepeat => (true, true),
+        StyleBackgroundRepeat::RepeatX => (true, false),
+        StyleBackgroundRepeat::RepeatY => (false, true),
+    };
+    // The whole steps from the tile's own position that reach `lo..hi`.
+    let steps = |on: bool, origin: f32, size: f32, lo: f32, hi: f32| -> (i64, i64) {
+        if !on {
+            return (0, 0);
+        }
+        let first = ((lo - origin) / size).floor();
+        let last = ((hi - origin) / size).ceil() - 1.0;
+        if !(first.is_finite() && last.is_finite()) || last < first {
+            return (0, 0);
+        }
+        (first as i64, last as i64)
+    };
+    let (x0, x1) = steps(
+        repeat_x,
+        tile.origin.x,
+        w,
+        area.origin.x,
+        area.origin.x + area.size.width,
+    );
+    let (y0, y1) = steps(
+        repeat_y,
+        tile.origin.y,
+        h,
+        area.origin.y,
+        area.origin.y + area.size.height,
+    );
+    let count = (x1.saturating_sub(x0).saturating_add(1))
+        .saturating_mul(y1.saturating_sub(y0).saturating_add(1));
+    if count > MAX_BACKGROUND_TILES {
+        return vec![tile];
+    }
+    let mut tiles = Vec::with_capacity(count.max(0) as usize);
+    for j in y0..=y1 {
+        for i in x0..=x1 {
+            tiles.push(LogicalRect::new(
+                LogicalPosition::new(
+                    (i as f32).mul_add(w, tile.origin.x),
+                    (j as f32).mul_add(h, tile.origin.y),
+                ),
+                tile.size,
+            ));
+        }
+    }
+    tiles
+}
+
+/// The value a per-layer background list (`background-clip`,
+/// `background-repeat`, ...) gives layer `layer` of `layers`; `None` for an
+/// empty list (every layer then takes the property's initial value).
+///
+/// The layers and their lists are stored in paint order, the bottom layer
+/// first (`parse_style_background_content_multiple`). CSS lists both from the
+/// TOP layer and repeats a list shorter than the layers from there, dropping
+/// the excess of a longer one (CSS Backgrounds 3 s2.2): the list is aligned
+/// at its end with the top layer. Lists of the layers' own length - what a
+/// theme builds - pair up index by index.
+#[must_use]
+pub(crate) fn layer_value<T: Copy>(values: &[T], layers: usize, layer: usize) -> Option<T> {
+    let count = values.len();
+    if count == 0 || layer >= layers {
+        return None;
+    }
+    let from_top = layers - 1 - layer;
+    values.get(count - 1 - from_top % count).copied()
+}
+
 const APPROX_ASCENT_RATIO: f32 = 0.8;
 const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
 const APPROX_STRIKETHROUGH_OFFSET_RATIO: f32 = 0.3;
 const APPROX_OVERLINE_OFFSET_RATIO: f32 = 0.85;
-const APPROX_ELLIPSIS_WIDTH_RATIO: f32 = 0.6;
 const DEFAULT_A4_WIDTH_PT: f32 = 595.0;
 const DEFAULT_SHADOW_FONT_SIZE_PX: f32 = 16.0;
 
@@ -115,6 +272,24 @@ pub struct StyleBorderColors {
     pub bottom: Option<CssPropertyValue<StyleBorderBottomColor>>,
     /// Left border color (CSS `border-left-color`)
     pub left: Option<CssPropertyValue<StyleBorderLeftColor>>,
+}
+
+/// Which painted colour [`DisplayList::patch_paint_colors`] rewrites in place:
+/// the per-frame fast path of a colour `animation` transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaintColorSlot {
+    /// Text runs and their underline / strikethrough (`color`).
+    Text,
+    /// A solid background fill (`background` of one colour layer).
+    Background,
+    /// The top side of a border (`border-top-color`).
+    BorderTop,
+    /// The right side of a border (`border-right-color`).
+    BorderRight,
+    /// The bottom side of a border (`border-bottom-color`).
+    BorderBottom,
+    /// The left side of a border (`border-left-color`).
+    BorderLeft,
 }
 
 /// Border styles for all four sides.
@@ -606,6 +781,7 @@ impl DisplayList {
             | I::ScrollBar { .. }
             | I::VirtualView { .. }
             | I::VirtualViewPlaceholder { .. }
+            | I::WebView { .. }
             | I::PushClip { .. }
             | I::PopClip
             | I::PopImageMaskClip
@@ -728,9 +904,18 @@ pub fn split_text_for_glides(
     // A caret glide reveals only on its own line and only while moving
     // forward: text typed at a caret pushes it right, and the glyphs behind a
     // backward move were deleted, not hidden.
-    let caret = caret.filter(|(from, to, _)| {
+    // A reveal glide runs along one line to the right, or - a WRAP - down onto
+    // the next line, where the target sits left of where the caret took off.
+    // A glide upwards or backwards (a deletion, an arrow key) reveals nothing.
+    let same_line = |from: &LogicalRect, to: &LogicalRect| {
         (from.origin.y - to.origin.y).abs() < to.size.height * 0.5
-            && to.origin.x > from.origin.x + 0.5
+    };
+    let caret = caret.filter(|(from, to, _)| {
+        if same_line(from, to) {
+            to.origin.x > from.origin.x + 0.5
+        } else {
+            to.origin.y > from.origin.y
+        }
     });
     let selection = selection.filter(|(current, rendered)| {
         current.len() == rendered.len() && current.iter().zip(rendered.iter()).any(|(c, r)| c != r)
@@ -823,19 +1008,33 @@ pub fn split_text_for_glides(
         if let Some((from, to, rendered)) = caret {
             let edge = rendered.origin.x + rendered.size.width * 0.5;
             let (top, bottom) = (to.origin.y, to.origin.y + to.size.height);
+            // The band the glide reveals, on the TARGET line: everything from
+            // the old caret on a same-line glide; across a wrap, the last em
+            // before the target - the glyph the wrapping keystroke typed (the
+            // rest of that line was on screen already, so it stays).
+            let lo = if same_line(&from, &to) {
+                from.origin.x - margin
+            } else {
+                to.origin.x - margin
+            };
+            // Across a wrap the caret flies in diagonally; until it has
+            // LANDED on the target line the band stays hidden altogether.
+            // (On a same-line glide it has "landed" from the start.)
+            let landed = (rendered.origin.y - to.origin.y).abs() < to.size.height * 0.5;
             let mut next: Vec<Piece> = Vec::new();
             for (piece_glyphs, piece_color, clip, piece_bg) in pieces {
                 let (revealing, rest): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
                     piece_glyphs.into_iter().partition(|g| {
-                        on_line(g, top, bottom)
-                            && g.point.x >= from.origin.x - margin
-                            && g.point.x < to.origin.x
+                        on_line(g, top, bottom) && g.point.x >= lo && g.point.x < to.origin.x
                     });
                 if !rest.is_empty() {
                     next.push((rest, piece_color, clip, piece_bg));
                 }
                 if !revealing.is_empty() {
                     changed = true;
+                    if !landed {
+                        continue;
+                    }
                     if let Some(c) = clip_x(clip, f32::NEG_INFINITY, edge) {
                         next.push((revealing, piece_color, c, piece_bg));
                     }
@@ -1058,14 +1257,21 @@ impl DisplayList {
     /// cascade pass (a descendant with its OWN explicit colour differs from
     /// `from` and is untouched). Returns the damage union, `None` when
     /// nothing matched (the caller falls back to a full rebuild).
+    ///
+    /// `slot` names the painted colour: text (runs and their decorations), a
+    /// solid background fill, or one side of a border - a flat Button's face
+    /// fade tweens its background AND its four border colours, and one
+    /// unpatchable side used to force the whole tick onto a display-list
+    /// rebuild plus a whole-DOM restyle per side.
     pub fn patch_paint_colors(
         &mut self,
         range: core::ops::Range<usize>,
         from: ColorU,
         to: ColorU,
-        patch_text: bool,
-        patch_background: bool,
+        slot: PaintColorSlot,
     ) -> Option<LogicalRect> {
+        let patch_text = slot == PaintColorSlot::Text;
+        let patch_background = slot == PaintColorSlot::Background;
         let mut damage: Option<LogicalRect> = None;
         let mut grow = |bounds: LogicalRect| {
             damage = Some(damage.map_or(bounds, |d| {
@@ -1109,10 +1315,184 @@ impl DisplayList {
                     *color = to;
                     grow(*bounds.inner());
                 }
+                DisplayListItem::Border { colors, bounds, .. } => {
+                    // The side's colour as the list carries it: an exact
+                    // colour equal to `from` (a token or an unset side does
+                    // not match, and the caller rebuilds instead).
+                    let hit = match slot {
+                        PaintColorSlot::BorderTop => match &mut colors.top {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::BorderRight => match &mut colors.right {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::BorderBottom => match &mut colors.bottom {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::BorderLeft => match &mut colors.left {
+                            Some(CssPropertyValue::Exact(c)) if c.inner == from => {
+                                c.inner = to;
+                                true
+                            }
+                            _ => false,
+                        },
+                        PaintColorSlot::Text | PaintColorSlot::Background => false,
+                    };
+                    if hit {
+                        grow(*bounds.inner());
+                    }
+                }
                 _ => {}
             }
         }
         damage
+    }
+
+    /// Patch a node's BACKGROUND in place, layer by layer - the per-tick fast
+    /// path of a fade between two backgrounds of one shape: a gradient face
+    /// (flora paints its faces as two-stop gradients, `themes::decl::face`) or
+    /// a list of colour layers. Every item `node` paints for a layer of `from`
+    /// takes the layer of `to` at the same position: a colour layer is a
+    /// `Rect`, a gradient layer its gradient item. Neither item's bounds depend
+    /// on the layer's colours, so only the paint moves and the backend's
+    /// display-list diff damages exactly these items.
+    ///
+    /// Only the node's OWN items are rewritten: a background is not
+    /// inherited, so a descendant painting an equal face paints its own.
+    ///
+    /// Returns the damage union, or `None` when the list cannot be patched and
+    /// the caller must rebuild it: the two lists do not pair up kind for kind,
+    /// a layer is an image (where its tiles go may depend on what it shows),
+    /// two layers of `from` are equal (the match could not tell their items
+    /// apart), or a layer that changes paints nothing this walk can find (a
+    /// transparent colour is not drawn at all).
+    pub fn patch_background_layers(
+        &mut self,
+        node: NodeId,
+        from: &[azul_css::props::style::StyleBackgroundContent],
+        to: &[azul_css::props::style::StyleBackgroundContent],
+    ) -> Option<LogicalRect> {
+        use azul_css::props::style::StyleBackgroundContent as B;
+        if from.is_empty() || from.len() != to.len() {
+            return None;
+        }
+        for (i, pair) in from.iter().zip(to).enumerate() {
+            let same_kind = matches!(
+                pair,
+                (B::Color(_), B::Color(_))
+                    | (B::LinearGradient(_), B::LinearGradient(_))
+                    | (B::RadialGradient(_), B::RadialGradient(_))
+                    | (B::ConicGradient(_), B::ConicGradient(_))
+            );
+            if !same_kind || from[..i].contains(pair.0) {
+                return None;
+            }
+        }
+        let mut found = vec![false; from.len()];
+        let mut damage: Option<LogicalRect> = None;
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            if self.node_mapping.get(idx).copied().flatten() != Some(node) {
+                continue;
+            }
+            let bounds = match item {
+                DisplayListItem::Rect { color, bounds, .. } => {
+                    let Some(i) = from.iter().position(|f| *f == B::Color(*color)) else {
+                        continue;
+                    };
+                    let B::Color(next) = &to[i] else {
+                        continue;
+                    };
+                    *color = *next;
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::LinearGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::LinearGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::LinearGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::RadialGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::RadialGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::RadialGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::ConicGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::ConicGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::ConicGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                _ => continue,
+            };
+            damage = Some(damage.map_or(bounds, |d| {
+                let x = d.origin.x.min(bounds.origin.x);
+                let y = d.origin.y.min(bounds.origin.y);
+                let right = (d.origin.x + d.size.width).max(bounds.origin.x + bounds.size.width);
+                let bottom = (d.origin.y + d.size.height).max(bounds.origin.y + bounds.size.height);
+                LogicalRect {
+                    origin: LogicalPosition { x, y },
+                    size: LogicalSize {
+                        width: right - x,
+                        height: bottom - y,
+                    },
+                }
+            }));
+        }
+        // A layer that moves must have been found: one the walk missed would
+        // keep painting its old face while the rest of the background fades.
+        let missed = from
+            .iter()
+            .zip(to)
+            .zip(&found)
+            .any(|((f, t), seen)| !*seen && f != t);
+        if missed {
+            return None;
+        }
+        Some(damage.unwrap_or_else(LogicalRect::zero))
     }
 
     pub fn patch_node_image(&mut self, node: NodeId, image: &ImageRef) -> Option<LogicalRect> {
@@ -1615,6 +1995,23 @@ pub enum DisplayListItem {
         clip_rect: WindowLogicalRect,
     },
 
+    /// The rect a native web view is shown in (`<webview>`,
+    /// `NodeType::WebView`): its node's CONTENT box, in this list's
+    /// coordinates like every other item - so the scroll frames and clips it
+    /// sits in move and cut it exactly as they do the boxes around it.
+    ///
+    /// It paints NOTHING. The platform's web view is a native child view the
+    /// window composites over its own content; this item reserves its place
+    /// and tells the window backend where that place is right now
+    /// (`crate::headless::painted_webviews` resolves it against the live
+    /// scroll offsets and the enclosing clips, every frame).
+    WebView {
+        /// The `<webview>` node.
+        node_id: NodeId,
+        /// Its content box.
+        bounds: WindowLogicalRect,
+    },
+
     // --- State-Management Commands ---
     /// Pushes a new clipping rectangle onto the renderer's clip stack.
     /// All subsequent primitives will be clipped by this rect until a `PopClip`.
@@ -1793,13 +2190,13 @@ pub enum DisplayListItem {
 /// means the extent was computed wrongly, and in that case damaging too
 /// much is recoverable while damaging nothing leaves stale pixels.
 /// The caret of an editable that has no text yet, in the node's CONTENT-BOX
-/// space: at the origin, one line-height tall (`font-size × line-height`,
-/// the `normal` 1.2 when unset), one pixel wide — the line box the first
-/// character will create. Height is floored at 1 px so a zero font never
-/// produces an invisible caret.
+/// space: at the origin, one used line-height tall (`line_height_px`, from
+/// `getters::get_used_line_height`, `normal` as 1.2em), one pixel wide - the
+/// line box the first character will create. Height is floored at 1 px so a
+/// zero font never produces an invisible caret.
 #[must_use]
-pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> LogicalRect {
-    let height = (font_size_px * line_height).max(1.0);
+pub const fn empty_editable_caret_rect(line_height_px: f32) -> LogicalRect {
+    let height = line_height_px.max(1.0);
     let height = if height.is_finite() { height } else { 1.0 };
     LogicalRect {
         origin: LogicalPosition::zero(),
@@ -1807,22 +2204,25 @@ pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> Logical
     }
 }
 
-fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+/// The common area of `a` and `b`; `None` when they share no area (touching
+/// edges, a degenerate or NaN rect).
+fn intersect_rects(a: LogicalRect, b: LogicalRect) -> Option<LogicalRect> {
     let x0 = a.origin.x.max(b.origin.x);
     let y0 = a.origin.y.max(b.origin.y);
     let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
     let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
-    if x1 > x0 && y1 > y0 {
-        LogicalRect {
-            origin: LogicalPosition { x: x0, y: y0 },
-            size: LogicalSize {
-                width: x1 - x0,
-                height: y1 - y0,
-            },
-        }
-    } else {
-        b
-    }
+    (x1 > x0 && y1 > y0).then_some(LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize {
+            width: x1 - x0,
+            height: y1 - y0,
+        },
+    })
+}
+
+/// [`intersect_rects`], or `b` itself when the two share no area.
+fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    intersect_rects(a, b).unwrap_or(b)
 }
 
 impl DisplayListItem {
@@ -2192,6 +2592,10 @@ impl DisplayListItem {
             // repaint on its own. Without this it hit `_ => false` and forced
             // false-positive damage on every relayout (#12).
             (Self::HitTestArea { .. }, Self::HitTestArea { .. }) => true,
+            // A web view's item paints no pixels either (the platform draws
+            // the view); where it goes reaches the backend through the
+            // placement sync, never through damage.
+            (Self::WebView { .. }, Self::WebView { .. }) => true,
             // TextLayout: visually equal iff same box / font / colour AND the same
             // underlying (type-erased) layout allocation. A no-op relayout reuses
             // the cached layout Arc (pointer identity holds); a real text change
@@ -2221,23 +2625,29 @@ impl DisplayListItem {
             // its bar every frame (`_ => false`), so `FrameDamage::None` was
             // unreachable and idle windows re-rendered + re-presented forever.
             (Self::ScrollBarStyled { info: i1 }, Self::ScrollBarStyled { info: i2 }) => i1 == i2,
-            // VirtualView: the item only carries WHERE the child renders; the
-            // child DOM's content changes are detected by
+            // VirtualView: the item carries WHERE the child renders - its
+            // box, and `content_offset`, which IS the view's scroll (a view
+            // has no scroll frame; the lightweight scroll path re-points
+            // this field alone, see `patch_virtual_view_content_offset`).
+            // The child DOM's own content changes are detected by
             // compute_virtual_view_damage (child display-list diff).
+            // Comparing without the offset made a scrolled view "unchanged":
+            // the diff produced no damage, and the content stayed where it
+            // was while the scrollbar moved.
             (
                 Self::VirtualView {
                     child_dom_id: d1,
                     bounds: b1,
                     clip_rect: c1,
-                    ..
+                    content_offset: o1,
                 },
                 Self::VirtualView {
                     child_dom_id: d2,
                     bounds: b2,
                     clip_rect: c2,
-                    ..
+                    content_offset: o2,
                 },
-            ) => d1 == d2 && b1 == b2 && c1 == c2,
+            ) => d1 == d2 && b1 == b2 && c1 == c2 && o1 == o2,
             (
                 Self::VirtualViewPlaceholder { bounds: b1, .. },
                 Self::VirtualViewPlaceholder { bounds: b2, .. },
@@ -2351,6 +2761,10 @@ impl DisplayListItem {
             // the damaged renderer, and the render arm for TextLayout is a
             // no-op either way.
             Self::TextLayout { .. } => None,
+            // A web view's pixels are the PLATFORM's (a native child view
+            // composited over the window): the raster paints nothing for it,
+            // so moving or resizing it damages nothing of ours.
+            Self::WebView { .. } => None,
             // Text damages only where its GLYPHS are, not its whole clip box.
             //
             // `bounds()` reports a text run's `clip_rect`, and the emission
@@ -2472,6 +2886,7 @@ impl DisplayListItem {
             | Self::BoxShadow { bounds, .. }
             | Self::VirtualView { bounds, .. }
             | Self::VirtualViewPlaceholder { bounds, .. }
+            | Self::WebView { bounds, .. }
             | Self::HitTestArea { bounds, .. }
             | Self::PushClip { bounds, .. }
             | Self::PushImageMaskClip { bounds, .. }
@@ -2830,68 +3245,76 @@ impl DisplayListBuilder {
         }
     }
 
-    /// Unified method to paint all background layers and border for an element.
-    ///
-    /// This consolidates the background/border painting logic that was previously
-    /// duplicated across:
-    /// - `paint_node_background_and_border()` for block elements
-    /// - `paint_inline_shape()` for inline-block elements
-    ///
-    /// The backgrounds are painted in order (back to front per CSS spec), followed
-    /// by the border.
-    pub(crate) fn push_backgrounds_and_border(
+    /// One background layer over `bounds`: a colour fills it, a gradient or an
+    /// image is drawn to it. The one place a `StyleBackgroundContent` becomes
+    /// a display item.
+    pub(crate) fn push_background_layer(
         &mut self,
         bounds: LogicalRect,
-        background_contents: &[azul_css::props::style::StyleBackgroundContent],
-        border_info: &BorderInfo,
-        simple_border_radius: BorderRadius,
-        style_border_radius: StyleBorderRadius,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        border_radius: BorderRadius,
         image_cache: &azul_core::resources::ImageCache,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
 
-        // Paint all background layers in order (CSS paints backgrounds back to front)
-        for bg in background_contents {
-            match bg {
-                StyleBackgroundContent::Color(color) => {
-                    self.push_rect(bounds, *color, simple_border_radius);
-                }
-                StyleBackgroundContent::LinearGradient(gradient) => {
-                    self.push_linear_gradient(bounds, gradient.clone(), simple_border_radius);
-                }
-                StyleBackgroundContent::RadialGradient(gradient) => {
-                    self.push_radial_gradient(bounds, gradient.clone(), simple_border_radius);
-                }
-                StyleBackgroundContent::ConicGradient(gradient) => {
-                    self.push_conic_gradient(bounds, gradient.clone(), simple_border_radius);
-                }
-                StyleBackgroundContent::Image(image_id) => {
-                    if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
-                        self.push_image(bounds, image_ref.clone(), simple_border_radius);
-                    }
-                }
-                StyleBackgroundContent::SystemColor(_s) => {
-                    // TODO(superplan g8): resolve via SystemColorRef::resolve(&SystemColors,
-                    // fallback) and push_rect. SystemColors is not threaded into the
-                    // display-list builder yet, so `background: system:<name>` currently
-                    // parses but paints nothing (graceful no-op rather than a wrong color).
+        match layer {
+            StyleBackgroundContent::Color(color) => {
+                self.push_rect(bounds, *color, border_radius);
+            }
+            StyleBackgroundContent::LinearGradient(gradient) => {
+                self.push_linear_gradient(bounds, gradient.clone(), border_radius);
+            }
+            StyleBackgroundContent::RadialGradient(gradient) => {
+                self.push_radial_gradient(bounds, gradient.clone(), border_radius);
+            }
+            StyleBackgroundContent::ConicGradient(gradient) => {
+                self.push_conic_gradient(bounds, gradient.clone(), border_radius);
+            }
+            StyleBackgroundContent::Image(image_id) => {
+                if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
+                    self.push_image(bounds, image_ref.clone(), border_radius);
                 }
             }
+            StyleBackgroundContent::SystemColor(_s) => {
+                // Never reached from the generator: `get_background_contents`
+                // resolves every `system:` colour against the cascade's context
+                // before a layer gets here. A caller that bypasses the getter
+                // gets nothing painted rather than a colour of the wrong theme.
+            }
         }
+    }
 
-        // Paint border
-        self.push_border(
-            bounds,
-            border_info.widths,
-            border_info.colors,
-            border_info.styles,
-            style_border_radius,
-        );
+    /// One background layer over `area`, drawn from tiles of `tile` repeated
+    /// per `repeat` (CSS Backgrounds 3 s3.4, [`background_tiles`]). How the
+    /// canvas paints the root's background: over the whole window, with a
+    /// gradient or an image sized and anchored by the root's box. A colour
+    /// has no tile, it fills `area`.
+    pub(crate) fn push_background_layer_tiled(
+        &mut self,
+        area: LogicalRect,
+        tile: LogicalRect,
+        repeat: azul_css::props::style::StyleBackgroundRepeat,
+        layer: &azul_css::props::style::StyleBackgroundContent,
+        image_cache: &azul_core::resources::ImageCache,
+    ) {
+        use azul_css::props::style::StyleBackgroundContent;
+
+        if matches!(
+            layer,
+            StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+        ) {
+            self.push_background_layer(area, layer, BorderRadius::default(), image_cache);
+            return;
+        }
+        for t in background_tiles(tile, area, repeat) {
+            self.push_background_layer(t, layer, BorderRadius::default(), image_cache);
+        }
     }
 
     /// Paint backgrounds and border for inline text elements.
     ///
-    /// Similar to `push_backgrounds_and_border` but uses `InlineBorderInfo` which stores
+    /// Similar to `DisplayListGenerator::paint_box_decorations` (a box's
+    /// shadows, backgrounds and border) but uses `InlineBorderInfo` which stores
     /// pre-resolved pixel values instead of CSS property values. This is used for
     /// inline (display: inline) elements where the border info is computed during
     /// text layout and stored in the glyph runs.
@@ -2903,40 +3326,19 @@ impl DisplayListBuilder {
         border: Option<&crate::text3::cache::InlineBorderInfo>,
         image_cache: &azul_core::resources::ImageCache,
     ) {
-        use azul_css::props::style::StyleBackgroundContent;
-
-        // Paint solid background color if present
-        if let Some(bg_color) = background_color {
-            self.push_rect(bounds, bg_color, BorderRadius::default());
+        // The layers hold the solid colour too (`background_color` is their
+        // first `Color` layer, kept for the PDF runs): painting both drew a
+        // span's background twice, a translucent one twice as dark. The
+        // colour alone only when there are no layers.
+        if background_contents.is_empty() {
+            if let Some(bg_color) = background_color {
+                self.push_rect(bounds, bg_color, BorderRadius::default());
+            }
         }
 
         // Paint all background layers in order (CSS paints backgrounds back to front)
         for bg in background_contents {
-            match bg {
-                StyleBackgroundContent::Color(color) => {
-                    self.push_rect(bounds, *color, BorderRadius::default());
-                }
-                StyleBackgroundContent::LinearGradient(gradient) => {
-                    self.push_linear_gradient(bounds, gradient.clone(), BorderRadius::default());
-                }
-                StyleBackgroundContent::RadialGradient(gradient) => {
-                    self.push_radial_gradient(bounds, gradient.clone(), BorderRadius::default());
-                }
-                StyleBackgroundContent::ConicGradient(gradient) => {
-                    self.push_conic_gradient(bounds, gradient.clone(), BorderRadius::default());
-                }
-                StyleBackgroundContent::Image(image_id) => {
-                    if let Some(image_ref) = image_cache.get_css_image_id(image_id) {
-                        self.push_image(bounds, image_ref.clone(), BorderRadius::default());
-                    }
-                }
-                StyleBackgroundContent::SystemColor(_s) => {
-                    // TODO(superplan g8): resolve via SystemColorRef::resolve(&SystemColors,
-                    // fallback) and push_rect. SystemColors is not threaded into the
-                    // display-list builder yet, so `background: system:<name>` currently
-                    // parses but paints nothing (graceful no-op rather than a wrong color).
-                }
-            }
+            self.push_background_layer(bounds, bg, BorderRadius::default(), image_cache);
         }
 
         // Paint border if present
@@ -3124,17 +3526,53 @@ impl DisplayListBuilder {
     pub(crate) fn pop_scroll_frame(&mut self) {
         self.push_item(DisplayListItem::PopScrollFrame);
     }
+    /// The view's place in the list, attributed to its HOST (`node_id`,
+    /// layout node `layout_index`): it is the host's content. Pushed after the
+    /// host's descendants, it took whatever node painted last - so a host
+    /// whose own first item came after it (a scroll box's bar) ranked over its
+    /// own page in hit testing, and took the page's clicks (`AzMonitor`'s
+    /// process table).
     pub(crate) fn push_virtual_view_placeholder(
         &mut self,
         node_id: NodeId,
+        layout_index: usize,
         bounds: LogicalRect,
         clip_rect: LogicalRect,
     ) {
+        let (node, layout) = (self.current_node, self.current_layout);
+        self.current_node = Some(node_id);
+        self.current_layout = Some((layout_index, EmitPhase::Content));
         self.push_item(DisplayListItem::VirtualViewPlaceholder {
             node_id,
             bounds: bounds.into(),
             clip_rect: clip_rect.into(),
         });
+        self.current_node = node;
+        self.current_layout = layout;
+    }
+    /// A `<webview>`'s reserved rect (`DisplayListItem::WebView`),
+    /// attributed to its node like a view placeholder: it is the node's own
+    /// content. A composited web view's last `frame` is drawn there first,
+    /// as an image of the node (patched in place by the next one).
+    pub(crate) fn push_webview(
+        &mut self,
+        node_id: NodeId,
+        layout_index: usize,
+        bounds: LogicalRect,
+        frame: Option<ImageRef>,
+    ) {
+        let (node, layout) = (self.current_node, self.current_layout);
+        self.current_node = Some(node_id);
+        self.current_layout = Some((layout_index, EmitPhase::Content));
+        if let Some(frame) = frame {
+            self.push_image(bounds, frame, BorderRadius::default());
+        }
+        self.push_item(DisplayListItem::WebView {
+            node_id,
+            bounds: bounds.into(),
+        });
+        self.current_node = node;
+        self.current_layout = layout;
     }
     pub(crate) fn push_border(
         &mut self,
@@ -3240,17 +3678,28 @@ impl DisplayListBuilder {
         self.push_item(DisplayListItem::PopStackingContext);
     }
 
+    /// A reference frame for the transform of `owner` - the node whose
+    /// transform it applies. Structural items get no node attribution from
+    /// the leaked `current_node` (see `push_item`), but a reference frame's
+    /// OWNER is part of what it is: the `VirtualView` placement walk
+    /// (`headless::resolve_virtual_view_placements`) resolves the frame's
+    /// live matrix by it, and without it a transformed host's child dom was
+    /// placed (and hit-tested) untransformed.
     pub(crate) fn push_reference_frame(
         &mut self,
         transform_key: TransformKey,
         initial_transform: ComputedTransform3D,
         bounds: LogicalRect,
+        owner: Option<NodeId>,
     ) {
         self.push_item(DisplayListItem::PushReferenceFrame {
             transform_key,
             initial_transform,
             bounds: bounds.into(),
         });
+        if let Some(slot) = self.node_mapping.last_mut() {
+            *slot = owner;
+        }
     }
 
     pub(crate) fn pop_reference_frame(&mut self) {
@@ -3453,30 +3902,56 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
 
     // 0. Canvas background propagation (CSS 2.1 § 14.2): "The background of the root element
     //    becomes the background of the canvas." If the root (html) has a transparent background,
-    //    propagate from <body>. The canvas background fills the ENTIRE viewport, not just the
-    //    root's content box. This is critical when <html> doesn't have height:100% — without this,
-    //    the body's background only covers the body's content area, not the viewport.
+    //    propagate from <body> (`body_background_propagated_to`). The canvas background fills
+    //    the WHOLE surface (`LayoutContext::canvas_rect`), not just the root's content box -
+    //    critical when <html> doesn't have height:100%, and under a safe area: the insets move
+    //    where the root is laid out, not what lies behind it. A gradient or an image keeps the
+    //    root's box as its tile and repeats from there (CSS Backgrounds 3 s2.11.1: "anchored at
+    //    the same point as it would be if it was painted for the root element"). It is painted
+    //    ONCE, here: the root's box and a propagating body paint none of it again
+    //    (`DisplayListGenerator::canvas_painted`).
+    if let Some(root_dom_id) = tree
+        .get(LayoutNodeId::new(tree.root))
+        .and_then(|root| root.dom_node_id)
     {
-        let root_node = tree.get(LayoutNodeId::new(tree.root));
-        if let Some(root) = root_node {
-            if let Some(root_dom_id) = root.dom_node_id {
-                let root_state = generator.get_styled_node_state(root_dom_id);
-                let canvas_bg =
-                    get_background_color(generator.ctx.styled_dom, root_dom_id, &root_state);
-                if canvas_bg.a > 0 {
-                    let viewport_rect = LogicalRect {
-                        origin: LogicalPosition::zero(),
-                        size: generator.ctx.viewport_size,
-                    };
-                    builder.push_rect(viewport_rect, canvas_bg, BorderRadius::default());
+        let root_state = generator.get_styled_node_state(root_dom_id);
+        let body = crate::solver3::getters::body_background_propagated_to(
+            generator.ctx.styled_dom,
+            root_dom_id,
+            &root_state,
+        );
+        generator.canvas_painted = [Some(root_dom_id), body];
+        let layers = get_background_contents(generator.ctx.styled_dom, root_dom_id, &root_state);
+        if !layers.is_empty() {
+            // `background-repeat` belongs to the element the layers came from.
+            let source = body.unwrap_or(root_dom_id);
+            let source_state = generator.get_styled_node_state(source);
+            let repeats = crate::solver3::getters::get_background_repeats(
+                generator.ctx.styled_dom,
+                source,
+                &source_state,
+            );
+            let canvas_rect = generator.ctx.canvas_rect;
+            let tile = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
+            for (i, layer) in layers.iter().enumerate() {
+                let repeat = layer_value(&repeats, layers.len(), i)
+                    .unwrap_or(azul_css::props::style::StyleBackgroundRepeat::PatternRepeat);
+                builder.push_background_layer_tiled(
+                    canvas_rect,
+                    tile,
+                    repeat,
+                    layer,
+                    generator.ctx.image_cache,
+                );
+                if let azul_css::props::style::StyleBackgroundContent::Color(c) = layer {
                     debug_info!(
                         generator.ctx,
-                        "[DisplayList] Canvas background: color=({},{},{},{}), size={:?}",
-                        canvas_bg.r,
-                        canvas_bg.g,
-                        canvas_bg.b,
-                        canvas_bg.a,
-                        generator.ctx.viewport_size
+                        "[DisplayList] Canvas background: color=({},{},{},{}), rect={:?}",
+                        c.r,
+                        c.g,
+                        c.b,
+                        c.a,
+                        canvas_rect
                     );
                 }
             }
@@ -3524,6 +3999,40 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// DL-PATCHING source (resize-skip passes only): the previous pass's
     /// display list plus per-node deltas. `None` = full generation.
     patch: Option<PatchState<'a>>,
+    /// What is open around the point the walk has reached, innermost last:
+    /// the clip and scroll frames `push_node_clips` pushed per box, and the
+    /// groups no box can be painted outside of. See
+    /// [`DisplayListGenerator::enter_scroll_chain`].
+    open_clips: Vec<OpenClip>,
+    /// The DOM nodes whose background the canvas painted (CSS Backgrounds 3
+    /// s2.11): the root, and the `<body>` it took its background from, if it
+    /// did. Their boxes paint their borders and shadows but none of that
+    /// background again.
+    canvas_painted: [Option<NodeId>; 2],
+}
+
+/// One entry of [`DisplayListGenerator::open_clips`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenClip {
+    /// Something the walk cannot close and reopen around a box painted
+    /// inside it: a stacking context with its reference frame, opacity,
+    /// filters and image mask; an in-flow child's reference frame or image
+    /// mask; a box's clip-path when its overflow clips nothing.
+    Barrier,
+    /// The clip and scroll frames `push_node_clips` pushed around the
+    /// content of the box at this layout index - a
+    /// [`ScrollChainLink`](crate::solver3::scroll_chain::ScrollChainLink).
+    Owner(usize),
+}
+
+/// The frames [`DisplayListGenerator::enter_scroll_chain`] closed and opened
+/// around one box, for [`DisplayListGenerator::leave_scroll_chain`] to undo.
+#[derive(Debug, Default)]
+struct ChainDetour {
+    /// Owners closed, outermost first.
+    closed: Vec<usize>,
+    /// Owners opened, outermost first.
+    opened: Vec<usize>,
 }
 
 /// State for patched display-list generation. Built by `layout_document`
@@ -3783,6 +4292,40 @@ pub fn compute_patch_move_summary(
     })
 }
 
+/// Damage for every scrollbar whose drawing differs between two builds of one
+/// DOM: the old AND the new bounds of each such bar.
+///
+/// A patched build's changed-node damage cannot see a bar. Bars are pushed by
+/// the stacking-context walk (`EmitPhase::ScWalk`: re-built on every pass,
+/// never spliced), so they carry no layout tag - and they change without
+/// their node changing: the VIEWPORT's bar runs along the window, so a taller
+/// window lengthens it under a root that did not move, and any thumb follows
+/// the content extent under it. A bar outside its node's box (the viewport's
+/// is outside the root's whenever the page has margins) then had no rect at
+/// all in the damage a frame paints with when the item diff bails. So bars
+/// are compared directly, paired by their hit id; one that appeared,
+/// vanished or carries no id counts as changed.
+#[must_use]
+pub fn changed_scrollbar_damage(old: &DisplayList, new: &DisplayList) -> Vec<LogicalRect> {
+    fn bars(dl: &DisplayList) -> impl Iterator<Item = &ScrollbarDrawInfo> + '_ {
+        dl.items.iter().filter_map(|item| match item {
+            DisplayListItem::ScrollBarStyled { info } => Some(&**info),
+            _ => None,
+        })
+    }
+    let mut damage = Vec::new();
+    for (from, to) in [(old, new), (new, old)] {
+        for bar in bars(from) {
+            let unchanged = bar.hit_id.is_some()
+                && bars(to).any(|other| other.hit_id == bar.hit_id && other == bar);
+            if !unchanged {
+                damage.push(*bar.bounds.inner());
+            }
+        }
+    }
+    damage
+}
+
 impl<'a> PatchState<'a> {
     pub(crate) fn build(
         prev: &'a DisplayList,
@@ -3858,6 +4401,15 @@ struct StackingContext {
     child_contexts: Vec<StackingContext>,
     /// Children that do not create their own stacking contexts and are painted in DOM order.
     in_flow_children: Vec<usize>,
+    /// A positioned box with `z-index: auto` (`node_paints_as_positioned_box`),
+    /// not a stacking context: CSS 2.2 Appendix E paints it at step 8 of the
+    /// stacking context it is in, in tree order with the stacking contexts of
+    /// level 0, "as if it created a new stacking context, but any positioned
+    /// descendants and descendants which actually create a new stacking
+    /// context [are] part of the parent stacking context". So it has no
+    /// `child_contexts` of its own (they follow it in its parent's list) and
+    /// pushes no stacking context.
+    positioned_box: bool,
 }
 
 impl<'a, 'b, T> DisplayListGenerator<'a, 'b, T>
@@ -3884,6 +4436,8 @@ where
             id_namespace,
             dom_id,
             patch: None,
+            open_clips: Vec::new(),
+            canvas_painted: [None, None],
         }
     }
 
@@ -3899,14 +4453,12 @@ where
         source_node_index: usize,
     ) -> Option<(ColorU, WindowLogicalRect)> {
         let tree = self.positioned_tree.tree;
-        let dom_id_opt = tree
-            .get(LayoutNodeId::new(source_node_index))
-            .and_then(|n| n.dom_node_id);
-        if let (Some(sel), Some(dom_id)) = (
+        let block = tree.text_block_at(self.ctx.styled_dom.dom_id, source_node_index);
+        if let (Some(sel), Some(block)) = (
             self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id),
-            dom_id_opt,
+            block,
         ) {
-            if sel.affected_nodes.contains_key(&dom_id) {
+            if sel.affected_blocks.contains_key(&block) {
                 return None;
             }
         }
@@ -3983,7 +4535,6 @@ where
         // DOM attribution is PER ITEM, not per run: a content run can switch
         // attribution mid-run (e.g. an IFC root's items ending with a text
         // child's id) — the golden test caught a first-item flattening here.
-        let saved_node = builder.current_node;
         builder.set_current_layout(Some((node_index, phase)));
         for i in run.0..run.1 {
             builder.set_current_node(patch.prev.node_mapping.get(i).copied().flatten());
@@ -3994,7 +4545,12 @@ where
             builder.push_item(item);
         }
         builder.set_current_layout(None);
-        builder.set_current_node(saved_node);
+        // The builder is left attributing to the run's LAST item's node, as a
+        // fresh paint leaves it: items this node emits outside its cached runs
+        // (its scrollbars, a placeholder prompt) take their owner from here.
+        // Restoring the node that was current BEFORE the copy handed them to
+        // whatever was painted last - a resized parent - so after a resize
+        // their hit-tests and damage went to the wrong node.
         true
     }
 
@@ -4089,14 +4645,18 @@ where
     /// Emits drawing commands for text selections only (not cursor).
     /// The cursor is drawn separately via `paint_cursor()`.
     fn paint_selections(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
-        let node = self
-            .positioned_tree
-            .tree
-            .get(LayoutNodeId::new(node_index))
+        let tree = self.positioned_tree.tree;
+        tree.get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
-        let Some(dom_id) = node.dom_node_id else {
+        // The text block this node is the IFC root of - named by the SAME
+        // rule the editing paths key their selections with, so a range is
+        // looked up under exactly the block it was made in.
+        let Some(block) = tree.text_block_at(self.ctx.styled_dom.dom_id, node_index) else {
             return Ok(());
         };
+        // The element whose style the block's text takes: its own, or an
+        // anonymous block's container's (it has no style of its own).
+        let dom_id = block.container();
 
         // Get inline layout using the unified helper that handles IFC membership
         // This is critical: text nodes don't have their own inline_layout_result,
@@ -4137,22 +4697,16 @@ where
 
         // === NEW: Check text_selections first (multi-node selection support) ===
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
-            let local_ranges = text_selection.affected_nodes.get(&dom_id);
-            // Remote / seat ranges are keyed by the node the caret sits in,
-            // which may be a text CHILD of this IFC root rather than the root
-            // itself (a seat's caret lives in the text node, 9b-ii-a-i-d-ii-a)
-            // - the same ownership rule the caret path applies below.
+            let local_ranges = text_selection.affected_blocks.get(&block);
+            // Remote / seat ranges are keyed by their text block too.
             let remote_ranges: Vec<&(
                 azul_core::selection::SelectionOwner,
                 azul_core::selection::SelectionRange,
             )> = text_selection
                 .remote_ranges
-                .iter()
-                .filter(|(node, _)| {
-                    **node == dom_id || self.ifc_root_owns_dom_node(node_index, **node)
-                })
-                .flat_map(|(_, ranges)| ranges.iter())
-                .collect();
+                .get(&block)
+                .map(|ranges| ranges.iter().collect())
+                .unwrap_or_default();
             if local_ranges.is_some() || !remote_ranges.is_empty() {
                 let style = get_selection_style(
                     self.ctx.styled_dom,
@@ -4236,12 +4790,9 @@ where
     /// space as the offset glyph positions, plus the `::selection` text colour
     /// — or `None` when there is nothing to recolour.
     ///
-    /// Resolves the selection through `ifc_root_owns_dom_node` rather than off
-    /// the IFC root's own `dom_node_id`: an editing session keys `affected_nodes`
-    /// on the TEXT node (`initialize_editing` puts the caret there), while this
-    /// pass runs on the root that owns the inline layout. A cross-block
-    /// selection keys on the block, which is its own IFC root — both resolve.
-    /// The `user-select` gate matches `paint_selections` on purpose: the
+    /// Resolves the selection by the IFC root's TEXT BLOCK, the key every
+    /// selection is stored under (a session's and a cross-block selection's
+    /// alike). The `user-select` gate matches `paint_selections` on purpose: the
     /// recolour must cover exactly the glyphs the highlight covers.
     /// The origin of the content box that owns an IFC's inline layout.
     ///
@@ -4284,17 +4835,20 @@ where
         if sel.is_collapsed() {
             return None;
         }
-        let (dom_id, ranges) = sel
-            .affected_nodes
-            .iter()
-            .find(|&(node, _)| self.ifc_root_owns_dom_node(source_node_index, *node))?;
-        let node_state = self.get_styled_node_state(*dom_id);
-        if !super::getters::is_text_selectable(self.ctx.styled_dom, *dom_id, &node_state) {
+        let block = self
+            .positioned_tree
+            .tree
+            .text_block_at(self.ctx.styled_dom.dom_id, source_node_index)?;
+        let ranges = sel.affected_blocks.get(&block)?;
+        // An anonymous block has no style of its own: its container's.
+        let style_node = block.container();
+        let node_state = self.get_styled_node_state(style_node);
+        if !super::getters::is_text_selectable(self.ctx.styled_dom, style_node, &node_state) {
             return None;
         }
         let style = get_selection_style(
             self.ctx.styled_dom,
-            Some(*dom_id),
+            Some(style_node),
             self.ctx.system_style.as_ref(),
         );
         let text_color = style.text_color?;
@@ -4328,42 +4882,6 @@ where
         Some((rects, text_color))
     }
 
-    /// Does the IFC rooted at `node_index` own the inline content of `dom_id`?
-    ///
-    /// The editing session's text node need not be a DIRECT child of the IFC
-    /// root — `p > span > text` puts it one level deeper — so resolve it through
-    /// `ifc_membership`, which every inline descendant of the root carries,
-    /// instead of scanning the root's children.
-    fn ifc_root_owns_dom_node(&self, node_index: usize, dom_id: NodeId) -> bool {
-        let tree = self.positioned_tree.tree;
-        if let Some(indices) = tree.dom_to_layout.get(&dom_id) {
-            return indices
-                .iter()
-                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index);
-        }
-        // The node generated NO box of its own — an EMPTY text node is
-        // filtered out of the layout tree — so it belongs to the IFC of the
-        // nearest DOM ancestor that did generate one. This is the focused
-        // empty editable: the caret session sits on the value's empty text
-        // node, and the strut line box lives on its `<p>`.
-        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
-        let mut current = hierarchy
-            .get(dom_id)
-            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        while let Some(parent) = current {
-            if let Some(indices) = tree.dom_to_layout.get(&parent) {
-                return indices.iter().any(|&idx| {
-                    idx.index() == node_index
-                        || tree.get_ifc_root_layout_index(idx.index()) == node_index
-                });
-            }
-            current = hierarchy
-                .get(parent)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        false
-    }
-
     /// Emits drawing commands for all text cursors (carets).
     ///
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
@@ -4389,24 +4907,19 @@ where
             .tree
             .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
-        let Some(dom_id) = node.dom_node_id else {
+        // The text block this node is the IFC root of: a caret is painted
+        // here iff it sits in this block.
+        let Some(block) = self
+            .positioned_tree
+            .tree
+            .text_block_at(self.ctx.styled_dom.dom_id, node_index)
+        else {
             return Ok(());
         };
-
-        // Check if this node is contenteditable
-        let is_contenteditable =
-            super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id);
-        if !is_contenteditable {
-            return Ok(());
-        }
-
-        // Check if text is selectable
+        // The block's element: the block's own, or an anonymous block's
+        // container. An empty editable's strut caret takes its metrics.
+        let dom_id = block.container();
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        let is_selectable =
-            super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
-        if !is_selectable {
-            return Ok(());
-        }
 
         // Get inline layout
         // (d6h) Materialized: sentinel-safe caret/selection geometry.
@@ -4431,7 +4944,32 @@ where
         let content_box_offset_x = node_pos.x + padding.left + border.left;
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
-        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+        // The element a caret STANDS in: the parent of the text its run was
+        // laid out from, or the block itself on a blank line. Editability,
+        // selectability and `caret-color` are asked of it, not of the block:
+        // an inline editing host (`<p>Name: <span contenteditable>`) sits
+        // INSIDE its paragraph, and asked of the paragraph its caret was
+        // never painted.
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let caret_element = |cursor: &azul_core::selection::TextCursor| -> NodeId {
+            layout
+                .items
+                .iter()
+                .find_map(|item| match &item.item {
+                    ShapedItem::Cluster(c)
+                        if c.source_cluster_id.source_run == cursor.cluster_id.source_run =>
+                    {
+                        c.source_node_id
+                    }
+                    _ => None,
+                })
+                .and_then(|text| {
+                    hierarchy
+                        .get(text)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                })
+                .unwrap_or(dom_id)
+        };
 
         // Find the index of the last (primary) cursor that belongs to this DOM/node,
         // so preedit underline is only drawn on the actual primary cursor.
@@ -4441,23 +4979,25 @@ where
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, loc)| {
-                loc.dom == self.ctx.styled_dom.dom_id
-                    && (loc.node == dom_id || self.ifc_root_owns_dom_node(node_index, loc.node))
-            })
+            .find(|(_, loc)| loc.block == block)
             .map(|(i, _)| i);
 
         for (i, location) in self.ctx.cursor_locations.iter().enumerate() {
             let cursor = &location.cursor;
-            // Check DOM ID matches
-            if self.ctx.styled_dom.dom_id != location.dom {
+            // Only the carets in THIS block.
+            if location.block != block {
                 continue;
             }
-
-            // Check this node contains the cursor
-            if dom_id != location.node && !self.ifc_root_owns_dom_node(node_index, location.node) {
+            let element = caret_element(cursor);
+            if !super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, element) {
                 continue;
             }
+            let element_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[element].styled_node_state;
+            if !super::getters::is_text_selectable(self.ctx.styled_dom, element, element_state) {
+                continue;
+            }
+            let style = get_caret_style(self.ctx.styled_dom, Some(element));
 
             // Get cursor rect from text layout — or, for an EMPTY editable,
             // the strut caret. `get_cursor_rect` anchors the caret to a
@@ -4475,13 +5015,18 @@ where
                         dom_id,
                         node_state,
                     );
-                    let line_height = super::getters::get_line_height_value(
+                    let line_height = super::getters::get_used_line_height(
                         self.ctx.styled_dom,
                         dom_id,
                         node_state,
+                        font_size,
+                        azul_css::props::basic::PhysicalSize::new(
+                            self.ctx.viewport_size.width,
+                            self.ctx.viewport_size.height,
+                        ),
                     )
-                    .map_or(1.2, |lh| lh.inner.normalized());
-                    empty_editable_caret_rect(font_size, line_height)
+                    .resolve(font_size, 0.0, 0.0, 0.0, 0);
+                    empty_editable_caret_rect(line_height)
                 }
                 None => continue,
             };
@@ -4630,15 +5175,12 @@ where
         let mut in_flow_children = Vec::new();
 
         for &child_index in self.positioned_tree.tree.children(node_index) {
-            if self.establishes_stacking_context(child_index) {
-                child_contexts.push(self.collect_stacking_contexts(child_index)?);
-            } else {
+            if !self.establishes_stacking_context(child_index)
+                && !self.paints_as_positioned_box(child_index)
+            {
                 in_flow_children.push(child_index);
-                // Recurse into non-stacking-context children to find nested
-                // stacking contexts. Per CSS 2.2 Appendix E, these are promoted
-                // to be child stacking contexts of the nearest ancestor SC.
-                self.find_nested_stacking_contexts(child_index, &mut child_contexts)?;
             }
+            self.file_into_context(child_index, &mut child_contexts)?;
         }
 
         Ok(StackingContext {
@@ -4646,22 +5188,52 @@ where
             z_index,
             child_contexts,
             in_flow_children,
+            positioned_box: false,
         })
     }
 
-    /// Recursively searches non-stacking-context subtrees for nested stacking
-    /// contexts, promoting them to the parent stacking context's child list.
+    /// Files the box at `index` - and what its subtree paints outside the
+    /// in-flow walk - into the stacking context being collected, in tree
+    /// order (CSS 2.2 Appendix E):
+    /// - a stacking context of its own goes into `child_contexts` whole;
+    /// - a positioned box with `z-index: auto` goes in as a positioned entry
+    ///   (painted at step 8, see [`StackingContext::positioned_box`]), and
+    ///   the positioned boxes and stacking contexts of its subtree FOLLOW it
+    ///   in the same list - they belong to this context, not to it;
+    /// - any other box is painted by the in-flow walk of its parent; only the
+    ///   positioned boxes and stacking contexts of its subtree are filed.
+    fn file_into_context(
+        &mut self,
+        index: usize,
+        child_contexts: &mut Vec<StackingContext>,
+    ) -> Result<()> {
+        if self.establishes_stacking_context(index) {
+            child_contexts.push(self.collect_stacking_contexts(index)?);
+            return Ok(());
+        }
+        if self.paints_as_positioned_box(index) {
+            child_contexts.push(StackingContext {
+                node_index: index,
+                z_index: 0,
+                child_contexts: Vec::new(),
+                in_flow_children: self.positioned_tree.tree.children(index).to_vec(),
+                positioned_box: true,
+            });
+        }
+        self.find_nested_stacking_contexts(index, child_contexts)
+    }
+
+    /// Files every child of `parent_index` (see [`Self::file_into_context`]):
+    /// the stacking contexts and positioned boxes of a subtree the in-flow
+    /// walk paints are promoted to the nearest ancestor stacking context
+    /// (CSS 2.2 Appendix E).
     fn find_nested_stacking_contexts(
         &mut self,
         parent_index: usize,
         child_contexts: &mut Vec<StackingContext>,
     ) -> Result<()> {
         for &child_index in self.positioned_tree.tree.children(parent_index) {
-            if self.establishes_stacking_context(child_index) {
-                child_contexts.push(self.collect_stacking_contexts(child_index)?);
-            } else {
-                self.find_nested_stacking_contexts(child_index, child_contexts)?;
-            }
+            self.file_into_context(child_index, child_contexts)?;
         }
         Ok(())
     }
@@ -4726,27 +5298,20 @@ where
             builder.begin_fixed_position_element();
         }
 
+        // What this context pushes from here on - its reference frame, the
+        // stacking context, opacity, filters, its image mask - wraps
+        // everything it paints: no box painted inside can be taken out of
+        // it (`enter_scroll_chain`).
+        self.open_clips.push(OpenClip::Barrier);
+
         // Check if this node has a GPU-accelerated transform (CSS transform or drag).
         // If so, wrap in a reference frame so WebRender can animate it on the GPU.
+        // CSS transform first, then the ANIMATION channel: an engine-driven
+        // transition animates nodes that have no CSS `transform` of their own
+        // (`GpuValueCache::reference_frame_of`, the hit tester's rule too).
         let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
-            self.gpu_value_cache.and_then(|cache| {
-                // CSS transform first, then the ANIMATION channel. An
-                // engine-driven transition animates nodes that have no CSS
-                // `transform` of their own, so without this second lookup they
-                // get no reference frame and the element jumps to its
-                // destination instead of travelling there.
-                let (key, transform) = cache
-                    .css_transform_keys
-                    .get(&dom_id)
-                    .zip(cache.css_current_transform_values.get(&dom_id))
-                    .or_else(|| {
-                        cache
-                            .anim_transform_keys
-                            .get(&dom_id)
-                            .zip(cache.anim_current_transform_values.get(&dom_id))
-                    })?;
-                Some((*key, *transform))
-            })
+            self.gpu_value_cache
+                .and_then(|cache| cache.reference_frame_of(dom_id))
         });
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
@@ -4767,10 +5332,19 @@ where
 
         // Push reference frame BEFORE stacking context if node has a transform
         if let Some((transform_key, initial_transform)) = has_reference_frame {
-            builder.push_reference_frame(transform_key, initial_transform, node_bounds);
+            builder.push_reference_frame(
+                transform_key,
+                initial_transform,
+                node_bounds,
+                node.dom_node_id,
+            );
         }
 
-        builder.push_stacking_context(context.z_index, node_bounds);
+        // A positioned box with `z-index: auto` is painted as if it were a
+        // stacking context, but is none: no group of its own.
+        if !context.positioned_box {
+            builder.push_stacking_context(context.z_index, node_bounds);
+        }
 
         // Push opacity/filter effects if the node has them
         let mut pushed_opacity = false;
@@ -4798,16 +5372,33 @@ where
                     .zip(cache.anim_current_opacity_values.get(&dom_id))
                     .map(|(k, _)| *k)
             });
+            // A layer without an animation key binds the node's CSS opacity
+            // key (`GpuValueCache::synchronize` mints it from the cascade),
+            // so an `opacity` tween steps by value alone once its layer
+            // exists (`GpuValueCache::refresh_opacity_value_of`).
+            let css_opacity_key = || {
+                self.gpu_value_cache.and_then(|cache| {
+                    cache
+                        .opacity_keys
+                        .get(&dom_id)
+                        .zip(cache.current_opacity_values.get(&dom_id))
+                        .map(|(k, _)| *k)
+                })
+            };
             if opacity < 1.0 || anim_opacity_key.is_some() {
                 builder.push_item(DisplayListItem::PushOpacity {
                     bounds: node_bounds.into(),
                     opacity,
-                    opacity_key: anim_opacity_key,
+                    opacity_key: anim_opacity_key.or_else(css_opacity_key),
                 });
                 pushed_opacity = true;
             }
 
-            // Filter
+            // Filter. `flood()` / `drop-shadow()` may carry a `system:`
+            // keyword: the renderers get the theme's colour, never the token.
+            // A `flood()` may also carry the currentColor token (an icon
+            // following the text colour): that one is THIS node's `color`,
+            // which only the node knows.
             if let Some(filter_vec_value) = self
                 .ctx
                 .styled_dom
@@ -4816,7 +5407,29 @@ where
                 .get_filter(node_data, &dom_id, node_state)
             {
                 if let Some(filter_vec) = filter_vec_value.get_property() {
-                    let filters: Vec<_> = filter_vec.as_ref().to_vec();
+                    let current_color = || {
+                        let color = self
+                            .ctx
+                            .styled_dom
+                            .css_property_cache
+                            .ptr
+                            .get_text_color_or_default(node_data, &dom_id, node_state)
+                            .inner;
+                        super::getters::system_colors_resolved(self.ctx.styled_dom, color)
+                    };
+                    let filters: Vec<_> = filter_vec
+                        .as_ref()
+                        .iter()
+                        .map(|f| super::getters::system_colors_resolved(self.ctx.styled_dom, *f))
+                        .map(|f| match f {
+                            StyleFilter::Flood(c)
+                                if azul_css::props::basic::color::is_current_color_token(c) =>
+                            {
+                                StyleFilter::Flood(current_color())
+                            }
+                            other => other,
+                        })
+                        .collect();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushFilter {
                             bounds: node_bounds.into(),
@@ -4836,7 +5449,11 @@ where
                 .get_backdrop_filter(node_data, &dom_id, node_state)
             {
                 if let Some(filter_vec) = backdrop_filter_value.get_property() {
-                    let filters: Vec<_> = filter_vec.as_ref().to_vec();
+                    let filters: Vec<_> = filter_vec
+                        .as_ref()
+                        .iter()
+                        .map(|f| super::getters::system_colors_resolved(self.ctx.styled_dom, *f))
+                        .collect();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushBackdropFilter {
                             bounds: node_bounds.into(),
@@ -4883,10 +5500,10 @@ where
         // 2. Push clips and scroll frames AFTER painting background
         // +spec:positioning:ddc554 - overflow clips apply to absolutely positioned descendants
         // when this node is their containing block (stacking contexts painted within clip scope)
-        // TODO: CSS Overflow 3 says overflow clips should NOT apply to abs-pos descendants
-        // whose containing block is above this clipper. Currently all descendants are clipped.
-        // The containing_block_index field on LayoutNode is set for this purpose.
-        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node);
+        // Which of them a descendant is painted in is its `ScrollChain`: every
+        // child context below goes through `paint_child_context`.
+        let did_push_clip_or_scroll =
+            self.open_node_clips(builder, context.node_index, node);
 
         // +spec:display-contents:434de8 - E.2 painting order: negative z-index, in-flow, z-index
         // 0/auto, positive z-index
@@ -4898,7 +5515,7 @@ where
             .collect();
         negative_z_children.sort_by_key(|c| c.z_index);
         for child in negative_z_children {
-            self.generate_for_stacking_context(builder, child)?;
+            self.paint_child_context(builder, child)?;
         }
 
         // 4. Paint the in-flow descendants of the context root.
@@ -4906,9 +5523,17 @@ where
 
         // +spec:stacking-contexts:9a4eb3 - z-index:auto/0 positioned descendants painted in tree
         // order
-        // 5. Paint child stacking contexts with z-index: 0 / auto.
-        for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
-            self.generate_for_stacking_context(builder, child)?;
+        // 5. Paint child stacking contexts with z-index: 0 / auto and the
+        // positioned boxes with z-index: auto, in tree order (CSS 2.2 E.2
+        // step 8) - a box being dragged last, over everything (W3C), as the
+        // in-flow walk paints its dragged children.
+        let (dragged, resting): (Vec<&StackingContext>, Vec<&StackingContext>) = context
+            .child_contexts
+            .iter()
+            .filter(|c| c.z_index == 0)
+            .partition(|c| self.is_being_dragged(c.node_index));
+        for child in resting.into_iter().chain(dragged) {
+            self.paint_child_context(builder, child)?;
         }
 
         // +spec:stacking-contexts:198fa4 - positive z-index stacking contexts painted in z-index
@@ -4923,7 +5548,7 @@ where
         positive_z_children.sort_by_key(|c| c.z_index);
 
         for child in positive_z_children {
-            self.generate_for_stacking_context(builder, child)?;
+            self.paint_child_context(builder, child)?;
         }
 
         // Pop image mask clip (before filter/opacity since it was pushed after them)
@@ -4946,7 +5571,9 @@ where
         }
 
         // Pop the stacking context for WebRender
-        builder.pop_stacking_context();
+        if !context.positioned_box {
+            builder.pop_stacking_context();
+        }
 
         // Pop reference frame if we pushed one
         if has_reference_frame.is_some() {
@@ -4965,16 +5592,28 @@ where
             // Emit VirtualViewPlaceholder before popping the clip so it's inside PushClip/PopClip
             if let Some(dom_id) = node.dom_node_id {
                 if self.is_virtual_view_node(dom_id) {
-                    builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
+                    builder.push_virtual_view_placeholder(
+                        dom_id,
+                        context.node_index,
+                        node_bounds,
+                        node_bounds,
+                    );
                 }
+                self.maybe_push_webview(builder, dom_id, context.node_index);
             }
-            self.pop_node_clips(builder, node);
+            self.close_node_clips(builder, context.node_index, node);
         } else {
             // Even without clips, emit VirtualViewPlaceholder for VirtualView nodes
             if let Some(dom_id) = node.dom_node_id {
                 if self.is_virtual_view_node(dom_id) {
-                    builder.push_virtual_view_placeholder(dom_id, node_bounds, node_bounds);
+                    builder.push_virtual_view_placeholder(
+                        dom_id,
+                        context.node_index,
+                        node_bounds,
+                        node_bounds,
+                    );
                 }
+                self.maybe_push_webview(builder, dom_id, context.node_index);
             }
         }
 
@@ -4982,7 +5621,171 @@ where
         // and are not clipped by the scroll frame
         self.paint_scrollbars(builder, context.node_index)?;
 
+        // This context's barrier (pushed before its reference frame).
+        self.open_clips.pop();
+
         Ok(())
+    }
+
+    /// Paints a child stacking context inside the clip and scroll frames its
+    /// [`ScrollChain`] names.
+    ///
+    /// A stacking context is painted with its parent CONTEXT's children,
+    /// after everything in flow - by which time the frames of the boxes
+    /// between the two contexts that are not contexts themselves (a plain
+    /// `overflow: auto` list around a translucent item) have long been
+    /// closed. It sits in their content all the same, scrolled and clipped
+    /// with it: the hit tester always said so. This reopens them around it.
+    ///
+    /// [`ScrollChain`]: crate::solver3::scroll_chain::ScrollChain
+    fn paint_child_context(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        child: &StackingContext,
+    ) -> Result<()> {
+        let detour = self.enter_scroll_chain(builder, child.node_index);
+        let painted = self.generate_for_stacking_context(builder, child);
+        self.leave_scroll_chain(builder, detour);
+        painted
+    }
+
+    /// [`Self::push_node_clips`], remembered in [`Self::open_clips`]: a box
+    /// whose clips are a [`ScrollChainLink`] as the box that owns them, any
+    /// other push (a clip-path on a box that does not clip its overflow) as
+    /// a barrier.
+    ///
+    /// [`ScrollChainLink`]: crate::solver3::scroll_chain::ScrollChainLink
+    fn open_node_clips(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNodeHot,
+    ) -> bool {
+        let pushed = self.push_node_clips(builder, node_index, node);
+        if pushed {
+            let is_link = crate::solver3::scroll_chain::chain_link(
+                self.positioned_tree.tree,
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+            )
+            .is_some();
+            self.open_clips.push(if is_link {
+                OpenClip::Owner(node_index)
+            } else {
+                OpenClip::Barrier
+            });
+        }
+        pushed
+    }
+
+    /// Closes what [`Self::open_node_clips`] opened.
+    fn close_node_clips(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNodeHot,
+    ) {
+        self.pop_node_clips(builder, node_index, node);
+        self.open_clips.pop();
+    }
+
+    /// Makes the clip and scroll frames open at this point of the walk the
+    /// ones the box at `node_index` is painted in - its box's
+    /// [`ScrollChain`] - before the box is painted: closes the open ones it
+    /// is not inside, opens the ones it is inside but that are not open
+    /// here. [`Self::leave_scroll_chain`] restores what was open.
+    ///
+    /// Only what was opened since the last [`OpenClip::Barrier`] can be
+    /// closed; the chain rule stops at the same boxes (see
+    /// `scroll_chain::box_anchor`), so what it names below one is already
+    /// open. A frame reopened here repeats its `PushScrollFrame`, scroll id
+    /// and all: every renderer applies an id's offset to each frame that
+    /// carries it (the CPU compositor paints such a split frame in place).
+    ///
+    /// [`ScrollChain`]: crate::solver3::scroll_chain::ScrollChain
+    fn enter_scroll_chain(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> ChainDetour {
+        let chain = crate::solver3::scroll_chain::ScrollChain::of(
+            self.positioned_tree.tree,
+            self.ctx.styled_dom,
+            self.scroll_ids,
+            LayoutNodeId::new(node_index),
+            azul_core::spaces::Inclusivity::AncestorsOnly,
+        );
+        let movable_from = self
+            .open_clips
+            .iter()
+            .rposition(|entry| *entry == OpenClip::Barrier)
+            .map_or(0, |i| i + 1);
+        let owner = |entry: &OpenClip| match entry {
+            OpenClip::Owner(index) => Some(*index),
+            OpenClip::Barrier => None,
+        };
+        let fixed: Vec<usize> = self.open_clips[..movable_from]
+            .iter()
+            .filter_map(owner)
+            .collect();
+        let open: Vec<usize> = self.open_clips[movable_from..]
+            .iter()
+            .filter_map(owner)
+            .collect();
+        let wanted: Vec<usize> = chain
+            .links
+            .iter()
+            .map(|link| link.layout_index.index())
+            .filter(|index| !fixed.contains(index))
+            .collect();
+        let keep = open
+            .iter()
+            .zip(wanted.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        let closed: Vec<usize> = open[keep..].to_vec();
+        for &index in closed.iter().rev() {
+            self.close_owner(builder, index);
+        }
+        let mut opened = Vec::new();
+        for &index in &wanted[keep..] {
+            if self.reopen_owner(builder, index) {
+                opened.push(index);
+            }
+        }
+        ChainDetour { closed, opened }
+    }
+
+    /// Undoes [`Self::enter_scroll_chain`].
+    fn leave_scroll_chain(&mut self, builder: &mut DisplayListBuilder, detour: ChainDetour) {
+        for &index in detour.opened.iter().rev() {
+            self.close_owner(builder, index);
+        }
+        for &index in &detour.closed {
+            self.reopen_owner(builder, index);
+        }
+    }
+
+    /// Pops the clips of the owner on top of [`Self::open_clips`].
+    fn close_owner(&mut self, builder: &mut DisplayListBuilder, index: usize) {
+        if let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(index)) {
+            self.pop_node_clips(builder, index, node);
+        }
+        self.open_clips.pop();
+    }
+
+    /// Pushes the clips of an owner again, where the walk is now.
+    fn reopen_owner(&mut self, builder: &mut DisplayListBuilder, index: usize) -> bool {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(index)) else {
+            return false;
+        };
+        let pushed = self.push_node_clips(builder, index, node);
+        if pushed {
+            self.open_clips.push(OpenClip::Owner(index));
+        }
+        pushed
     }
 
     /// Paints the content and non-stacking-context children.
@@ -5028,9 +5831,12 @@ where
         let mut dragging_children = Vec::new();
 
         for &child_index in children_indices {
-            // Skip stacking context children - they're painted by the stacking
-            // context tree traversal, not by the in-flow descendant path.
-            if self.establishes_stacking_context(child_index) {
+            // Skip stacking context children and positioned boxes - they're
+            // painted by the stacking context tree traversal (CSS 2.2 E.2
+            // step 8), not by the in-flow descendant path.
+            if self.establishes_stacking_context(child_index)
+                || self.paints_as_positioned_box(child_index)
+            {
                 continue;
             }
             let child_node = self
@@ -5040,12 +5846,7 @@ where
                 .ok_or(LayoutError::InvalidTree)?;
 
             // Check if this child is being dragged (paint last for z-order)
-            let is_dragging = child_node.dom_node_id.is_some_and(|dom_id| {
-                let styled_node_state = self.get_styled_node_state(dom_id);
-                styled_node_state.dragging
-            });
-
-            if is_dragging {
+            if self.is_being_dragged(child_index) {
                 dragging_children.push(child_index);
                 continue;
             }
@@ -5070,275 +5871,137 @@ where
             }
         }
 
-        // Paint non-float children first
-        for child_index in non_float_children {
-            let child_node = self
-                .positioned_tree
-                .tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-
-            // Check if this child has a GPU transform (CSS transform or drag)
-            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-                self.gpu_value_cache.and_then(|cache| {
-                    // CSS transform first, then the ANIMATION channel — an
-                    // engine-driven transition animates nodes that have no CSS
-                    // `transform` of their own, and without this they get no
-                    // reference frame and jump to their destination.
-                    let (key, transform) = cache
-                        .css_transform_keys
-                        .get(&dom_id)
-                        .zip(cache.css_current_transform_values.get(&dom_id))
-                        .or_else(|| {
-                            cache
-                                .anim_transform_keys
-                                .get(&dom_id)
-                                .zip(cache.anim_current_transform_values.get(&dom_id))
-                        })?;
-                    Some((*key, *transform))
-                })
-            });
-
-            // Push reference frame if child has a transform
-            if let Some((transform_key, initial_transform)) = child_ref_frame {
-                let child_pos = self
-                    .positioned_tree
-                    .calculated_positions
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or_default();
-                let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                    width: 0.0,
-                    height: 0.0,
-                });
-                let child_bounds = LogicalRect {
-                    origin: child_pos,
-                    size: child_size,
-                };
-                builder.set_current_node(child_node.dom_node_id);
-                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
-            }
-
-            // Push image mask clip if this child has one (wraps background + children)
-            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
-
-            // IMPORTANT: Paint background and border BEFORE pushing clips!
-            // This ensures the container's background is in parent space (stationary),
-            // not in scroll space. Same logic as generate_for_stacking_context.
-            self.paint_node_background_and_border(builder, child_index)?;
-
-            // Push clips and scroll frames AFTER painting background
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
-
-            // Paint descendants inside the clip/scroll frame
-            self.paint_in_flow_descendants(
-                builder,
-                child_index,
-                self.positioned_tree.tree.children(child_index),
-            )?;
-
-            // For VirtualView children: emit placeholder INSIDE the clip
-            if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
-                }
-            }
-
-            // Pop the child's clips.
-            if did_push_clip {
-                self.pop_node_clips(builder, child_node);
-            }
-
-            // Pop image mask clip
-            if did_push_child_image_mask {
-                builder.pop_image_mask_clip();
-            }
-            // The stroke follows the geometry, not the fill region - it must
-            // be outside the mask the fill was painted through.
-            self.paint_svg_stroke(builder, child_index);
-
-            // Paint scrollbars AFTER popping clips so they appear on top of content
-            self.paint_scrollbars(builder, child_index)?;
-
-            // Pop reference frame if we pushed one
-            if child_ref_frame.is_some() {
-                builder.pop_reference_frame();
-            }
-        }
-
+        // Non-floats first, then the floats over them, then the children being
+        // dragged, over everything (W3C). The three groups are painted alike.
         // +spec:positioning:1bcbb5 - floats rendered in front of non-positioned in-flow blocks, but
-        // behind in-flow inlines Paint float children AFTER non-floats (so they appear on
-        // top)
-        for child_index in float_children {
-            let child_node = self
-                .positioned_tree
-                .tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-
-            // Check if this child has a GPU transform (CSS transform or drag)
-            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-                self.gpu_value_cache.and_then(|cache| {
-                    // CSS transform first, then the ANIMATION channel — an
-                    // engine-driven transition animates nodes that have no CSS
-                    // `transform` of their own, and without this they get no
-                    // reference frame and jump to their destination.
-                    let (key, transform) = cache
-                        .css_transform_keys
-                        .get(&dom_id)
-                        .zip(cache.css_current_transform_values.get(&dom_id))
-                        .or_else(|| {
-                            cache
-                                .anim_transform_keys
-                                .get(&dom_id)
-                                .zip(cache.anim_current_transform_values.get(&dom_id))
-                        })?;
-                    Some((*key, *transform))
-                })
-            });
-
-            // Push reference frame if child has a transform
-            if let Some((transform_key, initial_transform)) = child_ref_frame {
-                let child_pos = self
-                    .positioned_tree
-                    .calculated_positions
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or_default();
-                let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                    width: 0.0,
-                    height: 0.0,
-                });
-                let child_bounds = LogicalRect {
-                    origin: child_pos,
-                    size: child_size,
-                };
-                builder.set_current_node(child_node.dom_node_id);
-                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
-            }
-
-            // Same as above: push image mask, paint background, then clips
-            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
-            self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
-            self.paint_in_flow_descendants(
-                builder,
-                child_index,
-                self.positioned_tree.tree.children(child_index),
-            )?;
-
-            // For VirtualView children: emit placeholder INSIDE the clip
-            if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
-                }
-            }
-
-            if did_push_clip {
-                self.pop_node_clips(builder, child_node);
-            }
-            if did_push_child_image_mask {
-                builder.pop_image_mask_clip();
-            }
-            // The stroke follows the geometry, not the fill region - it must
-            // be outside the mask the fill was painted through.
-            self.paint_svg_stroke(builder, child_index);
-
-            // Paint scrollbars AFTER popping clips so they appear on top of content
-            self.paint_scrollbars(builder, child_index)?;
-
-            // Pop reference frame if we pushed one
-            if child_ref_frame.is_some() {
-                builder.pop_reference_frame();
-            }
+        // behind in-flow inlines
+        for child_index in non_float_children
+            .into_iter()
+            .chain(float_children)
+            .chain(dragging_children)
+        {
+            self.paint_in_flow_child(builder, child_index)?;
         }
 
-        // Paint dragging children LAST so they appear on top of everything (W3C spec)
-        for child_index in dragging_children {
-            let child_node = self
+        Ok(())
+    }
+
+    /// Paints one in-flow (non-stacking-context) child of
+    /// [`Self::paint_in_flow_descendants`] and everything under it: its
+    /// reference frame and image mask, its background and border (in the
+    /// PARENT's space, so a scroll container's background stays put), the
+    /// clip and scroll frames it pushes for its own content, its descendants
+    /// inside them, and its scrollbars on top once they are closed.
+    fn paint_in_flow_child(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        child_index: usize,
+    ) -> Result<()> {
+        let child_node = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(child_index))
+            .ok_or(LayoutError::InvalidTree)?;
+
+        // An absolutely positioned child is painted in the frames of its
+        // CONTAINING BLOCK's content, not its parent's: the clip and scroll
+        // frames of the boxes in between - the parent's own, when it is not
+        // positioned - are closed around it (`scroll_chain::box_anchor`). A
+        // child in flow sits in its parent's content, which is what is open.
+        let detour = matches!(
+            get_position_type(self.ctx.styled_dom, child_node.dom_node_id),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        )
+        .then(|| self.enter_scroll_chain(builder, child_index));
+
+        // Check if this child has a GPU transform (CSS transform or drag)
+        let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
+            self.gpu_value_cache
+                .and_then(|cache| cache.reference_frame_of(dom_id))
+        });
+
+        // Push reference frame if child has a transform
+        if let Some((transform_key, initial_transform)) = child_ref_frame {
+            let child_pos = self
                 .positioned_tree
-                .tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-
-            // Check if this child has a GPU transform (CSS transform or drag)
-            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
-                self.gpu_value_cache.and_then(|cache| {
-                    // CSS transform first, then the ANIMATION channel — an
-                    // engine-driven transition animates nodes that have no CSS
-                    // `transform` of their own, and without this they get no
-                    // reference frame and jump to their destination.
-                    let (key, transform) = cache
-                        .css_transform_keys
-                        .get(&dom_id)
-                        .zip(cache.css_current_transform_values.get(&dom_id))
-                        .or_else(|| {
-                            cache
-                                .anim_transform_keys
-                                .get(&dom_id)
-                                .zip(cache.anim_current_transform_values.get(&dom_id))
-                        })?;
-                    Some((*key, *transform))
-                })
+                .calculated_positions
+                .get(child_index)
+                .copied()
+                .unwrap_or_default();
+            let child_size = child_node.used_size.unwrap_or(LogicalSize {
+                width: 0.0,
+                height: 0.0,
             });
+            let child_bounds = LogicalRect {
+                origin: child_pos,
+                size: child_size,
+            };
+            builder.set_current_node(child_node.dom_node_id);
+            builder.push_reference_frame(
+                transform_key,
+                initial_transform,
+                child_bounds,
+                child_node.dom_node_id,
+            );
+            self.open_clips.push(OpenClip::Barrier);
+        }
 
-            // Push reference frame if child has a transform
-            if let Some((transform_key, initial_transform)) = child_ref_frame {
-                let child_pos = self
-                    .positioned_tree
-                    .calculated_positions
-                    .get(child_index)
-                    .copied()
-                    .unwrap_or_default();
-                let child_size = child_node.used_size.unwrap_or(LogicalSize {
-                    width: 0.0,
-                    height: 0.0,
-                });
-                let child_bounds = LogicalRect {
-                    origin: child_pos,
-                    size: child_size,
-                };
-                builder.set_current_node(child_node.dom_node_id);
-                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+        // Push image mask clip if this child has one (wraps background + children)
+        let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
+        if did_push_child_image_mask {
+            self.open_clips.push(OpenClip::Barrier);
+        }
+
+        // IMPORTANT: Paint background and border BEFORE pushing clips!
+        // This ensures the container's background is in parent space (stationary),
+        // not in scroll space. Same logic as generate_for_stacking_context.
+        self.paint_node_background_and_border(builder, child_index)?;
+
+        // Push clips and scroll frames AFTER painting background
+        let did_push_clip = self.open_node_clips(builder, child_index, child_node);
+
+        // Paint descendants inside the clip/scroll frame
+        self.paint_in_flow_descendants(
+            builder,
+            child_index,
+            self.positioned_tree.tree.children(child_index),
+        )?;
+
+        // For VirtualView children: emit placeholder INSIDE the clip
+        if let Some(dom_id) = child_node.dom_node_id {
+            if self.is_virtual_view_node(dom_id) {
+                let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
+                builder.push_virtual_view_placeholder(dom_id, child_index, child_bounds, child_bounds);
             }
+            // ... and a web view's reserved rect, at the same place.
+            self.maybe_push_webview(builder, dom_id, child_index);
+        }
 
-            // Same as above: push image mask, paint background, then clips
-            let did_push_child_image_mask = self.push_image_mask_clip(builder, child_index);
-            self.paint_node_background_and_border(builder, child_index)?;
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node);
-            self.paint_in_flow_descendants(
-                builder,
-                child_index,
-                self.positioned_tree.tree.children(child_index),
-            )?;
+        // Pop the child's clips.
+        if did_push_clip {
+            self.close_node_clips(builder, child_index, child_node);
+        }
 
-            // For VirtualView children: emit placeholder INSIDE the clip
-            if let Some(dom_id) = child_node.dom_node_id {
-                if self.is_virtual_view_node(dom_id) {
-                    let child_bounds = self.get_paint_rect(child_index).unwrap_or_default();
-                    builder.push_virtual_view_placeholder(dom_id, child_bounds, child_bounds);
-                }
-            }
+        // Pop image mask clip
+        if did_push_child_image_mask {
+            builder.pop_image_mask_clip();
+            self.open_clips.pop();
+        }
+        // The stroke follows the geometry, not the fill region - it must
+        // be outside the mask the fill was painted through.
+        self.paint_svg_stroke(builder, child_index);
 
-            if did_push_clip {
-                self.pop_node_clips(builder, child_node);
-            }
-            if did_push_child_image_mask {
-                builder.pop_image_mask_clip();
-            }
-            // The stroke follows the geometry, not the fill region - it must
-            // be outside the mask the fill was painted through.
-            self.paint_svg_stroke(builder, child_index);
+        // Paint scrollbars AFTER popping clips so they appear on top of content
+        self.paint_scrollbars(builder, child_index)?;
 
-            // Paint scrollbars AFTER popping clips so they appear on top of content
-            self.paint_scrollbars(builder, child_index)?;
+        // Pop reference frame if we pushed one
+        if child_ref_frame.is_some() {
+            builder.pop_reference_frame();
+            self.open_clips.pop();
+        }
 
-            // Pop reference frame if we pushed one
-            if child_ref_frame.is_some() {
-                builder.pop_reference_frame();
-            }
+        if let Some(detour) = detour {
+            self.leave_scroll_chain(builder, detour);
         }
 
         Ok(())
@@ -5350,6 +6013,44 @@ where
         node_data_container
             .get(dom_id)
             .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::VirtualView))
+    }
+
+    /// Reserve a `<webview>`'s CONTENT box (`DisplayListItem::WebView`) -
+    /// where its native view goes, inside its border and padding as an
+    /// iframe's page is. Emitted where a view placeholder is, inside the
+    /// node's own clips, so every enclosing clip and scroll frame applies to
+    /// it. A web view that is not painted (`visibility: hidden`) reserves
+    /// nothing, which hides its native view. Nothing for any other node.
+    fn maybe_push_webview(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_index: usize,
+    ) {
+        let is_webview = self
+            .ctx
+            .styled_dom
+            .node_data
+            .as_container()
+            .get(dom_id)
+            .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::WebView(_)));
+        if !is_webview || self.is_node_hidden(node_index) {
+            return;
+        }
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
+            return;
+        };
+        let Some(paint_rect) = self.get_paint_rect(node_index) else {
+            return;
+        };
+        let bp = node.box_props.unpack();
+        let content_box = BorderBoxRect(paint_rect)
+            .to_content_box(&bp.padding, &bp.border)
+            .rect();
+        // A composited backend's last frame of the page (the content
+        // overlay: `LayoutWindow::set_webview_frame`); a native view has none.
+        let frame = self.ctx.resolved_content().image_for_paint(dom_id);
+        builder.push_webview(dom_id, node_index, content_box, frame);
     }
 
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
@@ -5374,12 +6075,28 @@ where
         let Some((path, color, width)) = self.svg_stroke_for(dom_id, &border_info) else {
             return;
         };
+        // Its user space mapped into its `<svg>`'s: the path and the width.
+        let user = self.svg_user_transform(dom_id);
+        let (path, width) = if user.is_identity() {
+            (path, width)
+        } else {
+            #[allow(clippy::cast_possible_truncation)] // a stroke width in user units
+            let scaled = width * user.length_scale() as f32;
+            (path.transformed(&user), scaled)
+        };
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return;
         };
         let view_box = self.enclosing_view_box(dom_id);
         #[cfg(feature = "cpurender")]
-        let mask = rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width);
+        let mask = svg_mask_memo::get_or_rasterise(
+            svg_mask_memo::MaskKind::Stroke,
+            &path,
+            &paint_rect,
+            view_box,
+            width,
+            || rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width),
+        );
         #[cfg(not(feature = "cpurender"))]
         let mask = None;
         builder.push_item(DisplayListItem::StrokedPath {
@@ -5436,26 +6153,14 @@ where
     /// ordinary element - which has no user space and whose geometry is
     /// already window-logical.
     fn enclosing_view_box(&self, node: NodeId) -> Option<(f32, f32, f32, f32)> {
-        let node_data = self.ctx.styled_dom.node_data.as_container();
-        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
-        let mut cursor = Some(node);
-        while let Some(id) = cursor {
-            if let Some(azul_core::dom::SvgNodeData::ViewBox {
-                min_x,
-                min_y,
-                width,
-                height,
-            }) = node_data
-                .get(id)
-                .and_then(azul_core::dom::NodeData::get_svg_data)
-            {
-                return Some((*min_x, *min_y, *width, *height));
-            }
-            cursor = hierarchy
-                .get(id)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        None
+        let svg = super::svg::svg_ancestor(self.ctx.styled_dom, node)?;
+        super::svg::view_box_of(self.ctx.styled_dom, svg)
+    }
+
+    /// The `transform`s between `node` and its `<svg>` composed
+    /// ([`super::svg::user_transform`]).
+    fn svg_user_transform(&self, node: NodeId) -> azul_core::svg::SvgAffine {
+        super::svg::user_transform(self.ctx.styled_dom, node)
     }
 
     fn push_image_mask_clip(&self, builder: &mut DisplayListBuilder, node_index: usize) -> bool {
@@ -5485,11 +6190,8 @@ where
                 // in one rect - so the tiling is resolved HERE, into a single
                 // non-repeating mask that covers the paint rect. Every backend
                 // then needs no notion of repeat at all.
-                let (image, mask_rect) = match clip_mask.repeat {
-                    true => tile_mask(&clip_mask.image, mask_rect, paint_rect)
-                        .unwrap_or_else(|| (clip_mask.image.clone(), mask_rect)),
-                    false => (clip_mask.image.clone(), mask_rect),
-                };
+                let (image, mask_rect) = if clip_mask.repeat { tile_mask(&clip_mask.image, mask_rect, paint_rect)
+                .unwrap_or_else(|| (clip_mask.image.clone(), mask_rect)) } else { (clip_mask.image.clone(), mask_rect) };
                 builder.push_image_mask_clip(paint_rect, image, mask_rect);
                 true
             }
@@ -5500,12 +6202,36 @@ where
                 // nearest `<svg>` ancestor's viewBox. Without it a shape drawn
                 // at 16 units paints a sixteenth of a 256px slot.
                 let view_box = self.enclosing_view_box(dom_id);
-                rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box).is_some_and(
-                    |mask_image| {
-                        builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
-                        true
+                // ... reached through the `transform`s of the shape and its
+                // groups.
+                let user = self.svg_user_transform(dom_id);
+                let transformed;
+                let svg_clip = if user.is_identity() {
+                    svg_clip
+                } else {
+                    transformed = svg_clip.transformed(&user);
+                    &transformed
+                };
+                // `fill-rule`, kept on the node (SVG's default is non-zero).
+                let even_odd = node_data
+                    .get_attribute("fill-rule")
+                    .is_some_and(|rule| rule.as_str().trim() == "evenodd");
+                svg_mask_memo::get_or_rasterise(
+                    if even_odd {
+                        svg_mask_memo::MaskKind::ClipEvenOdd
+                    } else {
+                        svg_mask_memo::MaskKind::Clip
                     },
+                    svg_clip,
+                    &paint_rect,
+                    view_box,
+                    0.0,
+                    || rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box, even_odd),
                 )
+                .is_some_and(|mask_image| {
+                    builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
+                    true
+                })
             }
             #[cfg(not(feature = "cpurender"))]
             Some(azul_core::dom::SvgNodeData::Path(_)) => {
@@ -5554,11 +6280,10 @@ where
 
         let styled_node_state = self.get_styled_node_state(dom_id);
 
-        let raw_overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let raw_overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-        // +spec:overflow:833078 - resolve visible/clip to auto/hidden per CSS Overflow 3 §3.1
-        let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
-        let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+        // +spec:overflow:833078 - the getters answer the COMPUTED values (visible/clip
+        // resolved to auto/hidden per CSS Overflow 3 §3.1)
+        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
 
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
         let element_size = PhysicalSizeImport {
@@ -5604,7 +6329,20 @@ where
         // portion of border box; default is not clipped
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
+        // THE VIEWPORT'S FRAME, when this is the root element and the viewport
+        // scrolls it - see `viewport_scroll_frame`. Pushed LAST, innermost,
+        // after whatever the root's own overflow pushes.
+        let viewport_frame = self.viewport_scroll_frame(
+            node_index,
+            dom_id,
+            overflow_x.is_scroll_container() || overflow_y.is_scroll_container(),
+        );
+
         if !needs_clip {
+            if let Some((clip, content_size, scroll_id)) = viewport_frame {
+                builder.push_scroll_frame(clip, content_size, scroll_id);
+                return true;
+            }
             return has_clip_path;
         }
 
@@ -5678,19 +6416,22 @@ where
             &styled_node_state,
         );
 
-        let is_virtual_view = self.is_virtual_view_node(dom_id);
-
         // +spec:overflow:484889 - clip content in unreachable scrollable overflow region
         // +spec:overflow:917dae - scrollable overflow rect is a rectangle in box's own coordinate
         // system Every clipped node pushes a clip (scrollable, hidden, or clip alike).
         builder.push_clip(clip_rect, border_radius);
-        // Regular scrollable nodes ALSO push a scroll frame: WebRender's APZ
-        // manages the offset via define_scroll_frame, CPU renderers translate
-        // children by scroll_offset. VirtualView scroll state is instead managed
-        // by ScrollManager and passed to the callback as scroll_offset, with the
+        // Scroll containers ALSO push a scroll frame: WebRender's APZ manages
+        // the offset via define_scroll_frame, CPU renderers translate children
+        // by scroll_offset. Every box with a scroll id gets one - an
+        // `overflow: hidden` box a program can scroll included: while only
+        // `scroll | auto` were framed here, the hit tester and the scroll
+        // manager added a hidden box's offset back and the raster painted its
+        // content unscrolled. VirtualView scroll state is instead managed by
+        // ScrollManager and passed to the callback as scroll_offset, with the
         // VirtualViewPlaceholder emitted after pop_node_clips in
-        // generate_for_stacking_context — so VirtualView nodes get only the clip.
-        if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
+        // generate_for_stacking_context — so VirtualView nodes get only the
+        // clip. See `opens_own_scroll_frame`.
+        if self.opens_own_scroll_frame(node_index, dom_id, overflow_x, overflow_y) {
             let scroll_id = self
                 .scroll_ids
                 .get(&LayoutNodeId::new(node_index))
@@ -5704,44 +6445,116 @@ where
             );
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
         }
+        // A root that clips an axis of its own (`overflow: clip`) still
+        // scrolls the viewport, inside that clip.
+        if let Some((clip, content_size, scroll_id)) = viewport_frame {
+            builder.push_scroll_frame(clip, content_size, scroll_id);
+        }
 
         true
     }
 
-    /// Pops any clip/scroll commands associated with a node.
-    fn pop_node_clips(&self, builder: &mut DisplayListBuilder, node: &LayoutNodeHot) {
+    /// The VIEWPORT's scroll frame `(clip, content size, scroll id)`, when
+    /// `node_index` is the root element and the viewport scrolls it: the root
+    /// got a scroll id for it (`LayoutWindow::compute_scroll_ids`, through
+    /// [`crate::solver3::scrollbar::is_viewport_scroll_frame`]), and its own
+    /// overflow is no scroll container that brings a frame of its own.
+    ///
+    /// It wraps the root's content like any scroll container's frame - after
+    /// the root's own background and border, which stay put the way every
+    /// scroll container's do - so both renderers move the page by the offset
+    /// they move every frame by: the CPU raster subtracts it, `WebRender`
+    /// scrolls the frame's spatial node (`wr_translate2::scroll_all_nodes`),
+    /// and the hit tester adds it back along the same chain. The viewport's
+    /// bar is painted after the frame closes, so it stays where it is.
+    ///
+    /// The clip is the whole WINDOW (`LayoutContext::canvas_rect`), not the
+    /// root's box, and no `PushClip` goes with it: a `visible` root clips
+    /// nothing, so its viewport must not either. The content size is the
+    /// extent registration publishes (`LayoutTree::scroll_extent`).
+    fn viewport_scroll_frame(
+        &self,
+        node_index: usize,
+        dom_id: NodeId,
+        own_scroll_container: bool,
+    ) -> Option<(LogicalRect, LogicalSize, LocalScrollId)> {
+        let index = LayoutNodeId::new(node_index);
+        let scroll_id = *self.scroll_ids.get(&index)?;
+        let reqs = self
+            .positioned_tree
+            .tree
+            .warm(index)
+            .and_then(|w| w.scrollbar_info);
+        crate::solver3::scrollbar::is_viewport_scroll_frame(
+            self.ctx.styled_dom.dom_id,
+            dom_id,
+            own_scroll_container,
+            reqs,
+        )
+        .then(|| {
+            (
+                self.ctx.canvas_rect,
+                self.positioned_tree.tree.scroll_extent(index, true),
+                scroll_id,
+            )
+        })
+    }
+
+    /// Does the box at `node_index` open a scroll frame of its OWN (not the
+    /// viewport's - see [`Self::viewport_scroll_frame`]) around its content?
+    ///
+    /// Its own computed overflow makes it a scroll container, it got a
+    /// scroll id (`LayoutWindow::compute_scroll_ids`), and it is not a
+    /// `VirtualView` ([`crate::solver3::scroll_chain::opens_scroll_frame`],
+    /// the rule every `ScrollChain` marks its moving links by).
+    /// `push_node_clips` and `pop_node_clips` both ask this, so they cannot
+    /// disagree.
+    fn opens_own_scroll_frame(
+        &self,
+        node_index: usize,
+        dom_id: NodeId,
+        overflow_x: super::getters::MultiValue<LayoutOverflow>,
+        overflow_y: super::getters::MultiValue<LayoutOverflow>,
+    ) -> bool {
+        (overflow_x.is_scroll_container() || overflow_y.is_scroll_container())
+            && crate::solver3::scroll_chain::opens_scroll_frame(
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+                dom_id,
+            )
+    }
+
+    /// Pops any clip/scroll commands associated with a node - the ones
+    /// [`Self::push_node_clips`] pushed for the same `node_index`.
+    fn pop_node_clips(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        node: &LayoutNodeHot,
+    ) {
         let Some(dom_id) = node.dom_node_id else {
             return;
         };
 
         let styled_node_state = self.get_styled_node_state(dom_id);
-        // Mirror push_node_clips EXACTLY: resolve visible/clip → auto/hidden per
-        // CSS Overflow 3 §3.1 (an axis computes to auto/hidden when the *other*
-        // axis is a scroll container). push_node_clips decides whether to emit a
-        // scroll frame from the RESOLVED values; popping from the RAW values can
-        // disagree. Concretely: the auto-injected titlebar title has
-        // overflow-x:hidden, overflow-y:visible → push resolves y→auto (a scroll
-        // container, since is_scroll() counts Auto) and emits PushClip +
-        // PushScrollFrame, but pop saw raw y=visible (is_scroll=false) and emitted
-        // only PopClip → an unbalanced PushScrollFrame. The layer allocator then
-        // extends the titlebar's scroll layer to the end of the list, swallowing
-        // the document body into the titlebar's clip rect (blank window) and
-        // underflowing the clip stack. Resolving here keeps push/pop symmetric.
-        let raw_overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let raw_overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
-        let overflow_x = raw_overflow_x.resolve_computed(&raw_overflow_y);
-        let overflow_y = raw_overflow_y.resolve_computed(&raw_overflow_x);
+        // Mirror push_node_clips EXACTLY: both read the COMPUTED overflow (CSS
+        // Overflow 3 §3.1, an axis computes to auto/hidden when the *other* axis
+        // is a scroll container), which the getters answer. They once popped
+        // from the specified values while pushing from resolved ones:
+        // the auto-injected titlebar title has overflow-x:hidden,
+        // overflow-y:visible, so push saw y=auto and emitted PushClip +
+        // PushScrollFrame while pop saw y=visible and emitted only PopClip - an
+        // unbalanced PushScrollFrame that let the titlebar's scroll layer swallow
+        // the document body (blank window) and underflowed the clip stack.
+        let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-        let paint_rect = self
-            .get_paint_rect(
-                self.positioned_tree
-                    .tree
-                    .nodes
-                    .iter()
-                    .position(|n| n.dom_node_id == Some(dom_id))
-                    .unwrap_or(0),
-            )
-            .unwrap_or_default();
+        // The index the push was made for. This used to be re-found as the
+        // FIRST layout node of the dom node, which for a box split into
+        // several layout nodes is not the one that pushed - and whose scroll
+        // id, since ids follow the layout node, need not agree.
+        let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let element_size = PhysicalSizeImport {
             width: paint_rect.size.width,
@@ -5757,13 +6570,23 @@ where
 
         let needs_clip = overflow_x.is_clipped() || overflow_y.is_clipped();
 
-        let is_virtual_view = self.is_virtual_view_node(dom_id);
+        // The viewport's frame was pushed last, innermost: it closes first.
+        if self
+            .viewport_scroll_frame(
+                node_index,
+                dom_id,
+                overflow_x.is_scroll_container() || overflow_y.is_scroll_container(),
+            )
+            .is_some()
+        {
+            builder.pop_scroll_frame();
+        }
 
         if needs_clip {
-            // Regular (non-VirtualView) scroll/auto also pushed a scroll frame;
-            // pop it first (LIFO) before the shared clip. Hidden/clip and
-            // VirtualView scroll only pushed a clip.
-            if (overflow_x.is_scroll() || overflow_y.is_scroll()) && !is_virtual_view {
+            // A scroll container with a frame of its own pushed it after the
+            // clip; pop it first (LIFO). `clip`, a hidden box with nothing to
+            // scroll and a VirtualView only pushed a clip.
+            if self.opens_own_scroll_frame(node_index, dom_id, overflow_x, overflow_y) {
                 builder.pop_scroll_frame();
             }
             builder.pop_clip();
@@ -5871,6 +6694,98 @@ where
         !parent_is_replaced
     }
 
+    /// A box's decoration in its CSS order (CSS Backgrounds 3 s7, CSS 2.2
+    /// Appendix E): its OUTER shadows (below everything, around the border
+    /// box), its background layers - within its `background-clip` box
+    /// (s3.7; the border box unless it says `padding-box` / `content-box`) -,
+    /// its INNER (`inset`) shadows - above the background, inside the padding
+    /// box, with the padding box's radii - and its border. The one painter of
+    /// a box's decoration, for a block box
+    /// (`paint_node_background_and_border_inner`) and an atomic inline
+    /// (`paint_inline_shape`, which skipped the shadows), so the two cannot
+    /// drift again.
+    ///
+    /// azul stores a shadow in four per-side slots, and `box-shadow` fills all
+    /// four with the SAME shadow: each DISTINCT shadow is painted once
+    /// (`get_box_shadows`, whose compact-cache fast path skips the cascade
+    /// for the many nodes without one).
+    #[allow(clippy::too_many_arguments)] // the box's resolved pieces, each needed once
+    fn paint_box_decorations(
+        &self,
+        builder: &mut DisplayListBuilder,
+        dom_id: NodeId,
+        node_state: &azul_core::styled_dom::StyledNodeState,
+        border_box: LogicalRect,
+        border: &crate::solver3::geometry::EdgeSizes,
+        padding: &crate::solver3::geometry::EdgeSizes,
+        background_contents: &[azul_css::props::style::StyleBackgroundContent],
+        border_info: &BorderInfo,
+        border_radius: BorderRadius,
+        style_border_radius: StyleBorderRadius,
+    ) {
+        use azul_css::props::style::StyleBackgroundClip;
+
+        // The padding edge and its curve (the border's inner one).
+        let padding_box = inset_rect(border_box, border);
+        let padding_radius = inset_radius(border_radius, border);
+
+        // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside
+        // border box, not affecting layout.
+        let shadows = super::getters::get_box_shadows(self.ctx.styled_dom, dom_id, node_state);
+        let is_inset = |s: &StyleBoxShadow| matches!(s.clip_mode, BoxShadowClipMode::Inset);
+        for shadow in shadows.iter().filter(|s| !is_inset(s)) {
+            builder.push_item(DisplayListItem::BoxShadow {
+                bounds: border_box.into(),
+                shadow: *shadow,
+                border_radius,
+            });
+        }
+        if !background_contents.is_empty() {
+            // Each layer within its own clip box: a gradient on the border
+            // box under a face on the padding box shows only through the
+            // border (a metal edge).
+            let clips =
+                super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
+            let layers = background_contents.len();
+            for (i, layer) in background_contents.iter().enumerate() {
+                let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
+                    StyleBackgroundClip::BorderBox => (border_box, border_radius),
+                    StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
+                    StyleBackgroundClip::ContentBox => (
+                        inset_rect(padding_box, padding),
+                        inset_radius(padding_radius, padding),
+                    ),
+                };
+                builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
+            }
+        }
+        // CSS Backgrounds 3 s7.2: an inner shadow is cast inside the padding
+        // edge, above the background.
+        for shadow in shadows.iter().filter(|s| is_inset(s)) {
+            builder.push_item(DisplayListItem::BoxShadow {
+                bounds: padding_box.into(),
+                shadow: *shadow,
+                border_radius: padding_radius,
+            });
+        }
+        // The Border item carries the declared widths to the renderer, which
+        // resolves them with no zoom: in a zoomed subtree they are resolved
+        // here (the radii already are: `get_style_border_radius`). The
+        // cascade's `get_border_info` stays declared - the layout zooms it.
+        let widths = match super::getters::PaintZoom::of(self.ctx.styled_dom, dom_id, node_state)
+        {
+            Some(zoom) => zoom.border_widths(border_info.widths),
+            None => border_info.widths,
+        };
+        builder.push_border(
+            border_box,
+            widths,
+            border_info.colors,
+            border_info.styles,
+            style_border_radius,
+        );
+    }
+
     fn paint_node_background_and_border(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -5899,6 +6814,16 @@ where
             .tree
             .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
+
+        // A `::marker` box carries its LIST ITEM's DOM node (the item's font
+        // and colour shape its text): the item's background, border, shadows
+        // and page breaks are the item's, painted once by the item. Here they
+        // framed the marker's own line a second time (WPT
+        // list-style-position-023: an inside marker on a line of its own in
+        // the item's silver border).
+        if super::fc::is_marker_box(self.positioned_tree.tree, node_index) {
+            return Ok(());
+        }
 
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
@@ -6017,16 +6942,22 @@ where
             return Ok(());
         }
 
-        // Tables have a special 6-layer background painting order
-        if matches!(node.formatting_context, FormattingContext::Table) {
+        // A table paints its own background and border like any box (layer
+        // 1 of CSS 2.2 17.5.1, with its background images, shadow and
+        // radius), then the table layers above it (`paint_table_items`,
+        // below). It used to skip the box painting for a bare `push_rect` of
+        // its colour, so a table's border was never drawn in the separated
+        // model (WPT table-row-group-001: the 2px frame missing). In the
+        // collapsing model its border is part of the resolved grid
+        // (`paint_collapsed_table_borders`), so the box paints none.
+        let is_table = matches!(node.formatting_context, FormattingContext::Table);
+        if is_table {
             debug_info!(
                 self.ctx,
                 "Painting table backgrounds/borders for node {} at {:?}",
                 node_index,
                 paint_rect
             );
-            // Delegate to specialized table painting function
-            return self.paint_table_items(builder, node_index);
         }
 
         // CSS 2.2 section 17.5.1: a cell's BACKGROUND belongs to layer 6 of
@@ -6040,10 +6971,17 @@ where
         if is_table_cell && self.is_inside_collapsed_table(node_index) {
             return Ok(());
         }
+        if is_table_cell && self.cell_is_hidden_empty(node_index) {
+            return Ok(());
+        }
 
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let background_contents = if is_table_cell {
+            // The root's background, and a body's it took over, went to the
+            // canvas (step 0 of `generate_display_list`): painting them on
+            // the box again would double a translucent colour.
+            let painted_on_the_canvas = self.canvas_painted.contains(&Some(dom_id));
+            let background_contents = if is_table_cell || painted_on_the_canvas {
                 Vec::new()
             } else {
                 get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state)
@@ -6076,31 +7014,6 @@ where
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-            // Paint box shadows before backgrounds (CSS spec: shadows render behind the element)
-            let node_state =
-                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-            // +spec:overflow:bb4308 - box shadows are ink overflow: painted outside border box, not
-            // affecting layout Check all four sides for box-shadow (azul stores them
-            // per-side). Routed through `super::getters::*` so the compact-cache
-            // has_box_shadow fast path fires — most nodes have no shadow and skip 4
-            // cascade walks.
-            for shadow in [
-                super::getters::get_box_shadow_left(self.ctx.styled_dom, dom_id, node_state),
-                super::getters::get_box_shadow_right(self.ctx.styled_dom, dom_id, node_state),
-                super::getters::get_box_shadow_top(self.ctx.styled_dom, dom_id, node_state),
-                super::getters::get_box_shadow_bottom(self.ctx.styled_dom, dom_id, node_state),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                builder.push_item(DisplayListItem::BoxShadow {
-                    bounds: paint_rect.into(),
-                    shadow,
-                    border_radius: simple_border_radius,
-                });
-            }
-
             // An SVG SHAPE takes its border as a STROKE. A stroke follows the
             // geometry; a border follows the box - and the box is clipped to
             // the geometry, so a rectangular border on a shape leaves a
@@ -6109,7 +7022,9 @@ where
             // `COMBINED_CSS_PROPERTIES_KEY_MAP`), so they are consumed here
             // and NOT handed to the rectangle painter.
             let stroke = self.svg_stroke_for(dom_id, &border_info);
-            let border_info = if stroke.is_some() {
+            let border_info = if stroke.is_some()
+                || (is_table && self.table_is_border_collapsed(node_index))
+            {
                 let mut without_border = border_info;
                 without_border.widths = StyleBorderWidths {
                     top: None,
@@ -6122,19 +7037,30 @@ where
                 border_info
             };
 
-            // Use unified background/border painting
-            builder.push_backgrounds_and_border(
+            // Shadows, backgrounds and the border, in their CSS order.
+            let bp = node.box_props.unpack();
+            self.paint_box_decorations(
+                builder,
+                dom_id,
+                &styled_node_state,
                 paint_rect,
+                &bp.border,
+                &bp.padding,
                 &background_contents,
                 &border_info,
                 simple_border_radius,
                 style_border_radius,
-                self.ctx.image_cache,
             );
 
             // The stroke is NOT painted here: it must land OUTSIDE this
             // node's own clip mask. See `paint_svg_stroke`.
             drop(stroke);
+        }
+
+        // The table layers 2-6 (column groups, columns, row groups, rows,
+        // cells) over the table's own background and border.
+        if is_table {
+            self.paint_table_items(builder, node_index)?;
         }
 
         // Seat focus ring (9b-ii-a-i-d-iii, the overlay half). `:focus` and
@@ -6225,46 +7151,22 @@ where
             .get(LayoutNodeId::new(table_index))
             .ok_or(LayoutError::InvalidTree)?;
 
-        let Some(table_paint_rect) = self.get_paint_rect(table_index) else {
+        // Layer 1 (the table's own background and border) is the table box's
+        // ordinary painting in `paint_node_background_and_border_inner`.
+        if table_node.dom_node_id.is_none() && self.get_paint_rect(table_index).is_none() {
             return Ok(());
-        };
-
-        // Layer 1: Table background
-        if let Some(dom_id) = table_node.dom_node_id {
-            let styled_node_state = self.get_styled_node_state(dom_id);
-            let bg_color = get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-            let element_size = PhysicalSizeImport {
-                width: table_paint_rect.size.width,
-                height: table_paint_rect.size.height,
-            };
-            let border_radius = get_border_radius(
-                self.ctx.styled_dom,
-                dom_id,
-                &styled_node_state,
-                element_size,
-                self.ctx.viewport_size,
-            );
-
-            builder.push_rect(table_paint_rect, bg_color, border_radius);
         }
+        let collapsed = self.table_is_border_collapsed(table_index);
 
-        // Traverse table children to paint layers 2-6
+        // The grid as the layout placed it (one placement for both).
+        let grid =
+            crate::solver3::fc::analyze_table_structure(self.positioned_tree.tree, table_index, self.ctx)
+                .ok();
 
-        // Layer 2: Column group backgrounds
-        // Layer 3: Column backgrounds (columns are children of column groups)
-        for &child_idx in self.positioned_tree.tree.children(table_index) {
-            let child_node = self.positioned_tree.tree.get(LayoutNodeId::new(child_idx));
-            if let Some(node) = child_node {
-                if matches!(node.formatting_context, FormattingContext::TableColumnGroup) {
-                    // Paint column group background
-                    self.paint_element_background(builder, child_idx);
-
-                    // Paint backgrounds of individual columns within this group
-                    for &col_idx in self.positioned_tree.tree.children(child_idx) {
-                        self.paint_element_background(builder, col_idx);
-                    }
-                }
-            }
+        // Layer 2: column group backgrounds; layer 3: column backgrounds.
+        if let Some(grid) = &grid {
+            self.paint_table_column_backgrounds(builder, grid, true);
+            self.paint_table_column_backgrounds(builder, grid, false);
         }
 
         // Layer 4: Row group backgrounds (tbody, thead, tfoot)
@@ -6296,8 +7198,10 @@ where
         // flow; the collapsing model paints ONE resolved border per grid edge
         // here, on top of all table backgrounds (cell borders are suppressed
         // in paint_node_background_and_border for collapsed tables).
-        if self.table_is_border_collapsed(table_index) {
-            self.paint_collapsed_table_borders(builder, table_index);
+        if collapsed {
+            if let Some(grid) = &grid {
+                self.paint_collapsed_table_borders(builder, table_index, grid);
+            }
         }
 
         Ok(())
@@ -6333,6 +7237,23 @@ where
             == StyleBorderCollapse::Collapse
     }
 
+    /// `empty-cells: hide` (CSS 2.2 17.6.1.1): in the separated borders
+    /// model an empty cell paints neither its border nor its background.
+    fn cell_is_hidden_empty(&self, node_index: usize) -> bool {
+        use azul_css::props::layout::StyleEmptyCells;
+        let Some(node) = self
+            .positioned_tree
+            .tree
+            .get(LayoutNodeId::new(node_index))
+        else {
+            return false;
+        };
+        matches!(node.formatting_context, FormattingContext::TableCell)
+            && crate::solver3::fc::get_empty_cells_property(self.ctx, node) == StyleEmptyCells::Hide
+            && !self.is_inside_collapsed_table(node_index)
+            && crate::solver3::fc::is_cell_empty(self.positioned_tree.tree, node_index)
+    }
+
     /// Whether a node lives inside a `border-collapse: collapse` table
     /// (walks the layout-tree parent chain to the nearest Table node).
     fn is_inside_collapsed_table(&self, node_index: usize) -> bool {
@@ -6353,236 +7274,290 @@ where
         false
     }
 
-    /// CSS 2.2 section 17.6.2: paint the collapsing-border grid.
-    ///
-    /// For every grid edge the participating borders (the two adjacent cells
-    /// on interior edges; cell + table on perimeter edges; the row's own
-    /// border on horizontal edges) compete via
-    /// `BorderInfo::resolve_conflict` (hidden wins, then wider, then style
-    /// priority, then source priority) and the single winner is painted as a
-    /// strip CENTERED on the grid line — perimeter borders deliberately
-    /// straddle the table edge, exactly like browsers render them.
-    ///
-    /// v1 limitations, acceptable for the current corpus and safe (worst
-    /// case: a border strip at a slightly wrong offset, never a double
-    /// border): cells are paired positionally per row (colspan/rowspan
-    /// pairing is approximate), column/column-group borders do not
-    /// participate, and non-solid winners (dashed/dotted/double) paint as a
-    /// solid strip of the winning color.
-    fn paint_collapsed_table_borders(&self, builder: &mut DisplayListBuilder, table_index: usize) {
-        use azul_css::props::style::border::BorderStyle;
-
-        use crate::solver3::fc::{
-            get_border_info as collapsed_border_info, BorderInfo as CollapsedBorder, BorderSource,
-        };
-
-        // (cell layout-tree index, paint rect, owning row index) per row
-        let mut rows: Vec<(usize, Vec<(usize, LogicalRect)>)> = Vec::new();
-        for &child_idx in self.positioned_tree.tree.children(table_index) {
-            let Some(child) = self.positioned_tree.tree.get(LayoutNodeId::new(child_idx)) else {
-                continue;
+    /// The grid lines of a laid-out table, read off its cells' border boxes:
+    /// the x of column lines `0..=columns`, the y of row lines `0..=rows`,
+    /// and each cell's paint rect. A line no cell starts or ends on (one
+    /// that runs inside spanning cells only, or between two empty rows) is
+    /// interpolated between its known neighbours.
+    fn table_grid_lines(
+        &self,
+        grid: &crate::solver3::fc::TableLayoutContext,
+    ) -> (Vec<f32>, Vec<f32>, Vec<Option<LogicalRect>>) {
+        let cols = grid.columns.len();
+        let rows = grid.num_rows;
+        let mut xs: Vec<Option<f32>> = vec![None; cols + 1];
+        let mut ys: Vec<Option<f32>> = vec![None; rows + 1];
+        let rects: Vec<Option<LogicalRect>> = grid
+            .cells
+            .iter()
+            .map(|cell| self.get_paint_rect(cell.node_index))
+            .collect();
+        for (cell, rect) in grid.cells.iter().zip(&rects) {
+            let Some(r) = rect else { continue };
+            let col_end = (cell.column + cell.colspan).min(cols);
+            let row_end = (cell.row + cell.rowspan).min(rows);
+            let set = |line: &mut Option<f32>, v: f32| {
+                if line.is_none() {
+                    *line = Some(v);
+                }
             };
-            match child.formatting_context {
-                FormattingContext::TableRowGroup => {
-                    for &row_idx in self.positioned_tree.tree.children(child_idx) {
-                        rows.push((row_idx, self.collect_row_cells(row_idx)));
-                    }
-                }
-                FormattingContext::TableRow => {
-                    rows.push((child_idx, self.collect_row_cells(child_idx)));
-                }
-                _ => {}
+            // Column line `c` is the start edge of column `c`: its left edge,
+            // or its right edge in a right-to-left table (the columns run
+            // from the right, `fc::position_table_cells`).
+            let (start_x, end_x) = if grid.rtl {
+                (r.origin.x + r.size.width, r.origin.x)
+            } else {
+                (r.origin.x, r.origin.x + r.size.width)
+            };
+            if let Some(line) = xs.get_mut(cell.column) {
+                set(line, start_x);
+            }
+            if let Some(line) = xs.get_mut(col_end) {
+                set(line, end_x);
+            }
+            if let Some(line) = ys.get_mut(cell.row) {
+                set(line, r.origin.y);
+            }
+            if let Some(line) = ys.get_mut(row_end) {
+                set(line, r.origin.y + r.size.height);
             }
         }
-        rows.retain(|(_, cells)| !cells.is_empty());
-        if rows.is_empty() {
+        (fill_grid_lines(&xs), fill_grid_lines(&ys), rects)
+    }
+
+    /// Column group (`groups`) or column backgrounds: layers 2 and 3 of CSS
+    /// 2.2 17.5.1. A column box has no box of its own; its background shows
+    /// under the cells of its columns - each cell's border box cut to the
+    /// columns' extent, so none shows in the border spacing.
+    fn paint_table_column_backgrounds(
+        &self,
+        builder: &mut DisplayListBuilder,
+        grid: &crate::solver3::fc::TableLayoutContext,
+        groups: bool,
+    ) {
+        let boxes: Vec<(usize, usize, usize)> = if groups {
+            grid.column_groups
+                .iter()
+                .map(|g| (g.node_index, g.start, g.span))
+                .collect()
+        } else {
+            // A column group without columns stands for its columns itself;
+            // its background is the group layer's.
+            grid.column_boxes
+                .iter()
+                .filter(|c| c.group != Some(c.node_index))
+                .map(|c| (c.node_index, c.start, c.span))
+                .collect()
+        };
+        let painted: Vec<(ColorU, usize, usize)> = boxes
+            .into_iter()
+            .filter_map(|(node_index, start, span)| {
+                let dom_id = self
+                    .positioned_tree
+                    .tree
+                    .get(LayoutNodeId::new(node_index))?
+                    .dom_node_id?;
+                let state = self.get_styled_node_state(dom_id);
+                let color = get_background_color(self.ctx.styled_dom, dom_id, &state);
+                let end = (start + span).min(grid.columns.len());
+                (color.a > 0 && start < end).then_some((color, start, end))
+            })
+            .collect();
+        if painted.is_empty() {
             return;
         }
-
-        let cell_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
-            let node = self.positioned_tree.tree.get(LayoutNodeId::new(idx))?;
-            Some(collapsed_border_info(self.ctx, node, BorderSource::Cell).into())
-        };
-        let row_border = |idx: usize| -> Option<[CollapsedBorder; 4]> {
-            let node = self.positioned_tree.tree.get(LayoutNodeId::new(idx))?;
-            Some(collapsed_border_info(self.ctx, node, BorderSource::Row).into())
-        };
-        let table_border: Option<[CollapsedBorder; 4]> = self
-            .positioned_tree
-            .tree
-            .get(LayoutNodeId::new(table_index))
-            .map(|node| collapsed_border_info(self.ctx, node, BorderSource::Table).into());
-        const TOP: usize = 0;
-        const RIGHT: usize = 1;
-        const BOTTOM: usize = 2;
-        const LEFT: usize = 3;
-
-        // Fold the participants down to one winner. `resolve_conflict`
-        // returning None means `hidden` participated: paint nothing.
-        let resolve = |participants: &[Option<CollapsedBorder>]| -> Option<CollapsedBorder> {
-            let mut winner: Option<CollapsedBorder> = None;
-            for b in participants.iter().flatten() {
-                winner = match winner {
-                    None => Some(*b),
-                    Some(w) => Some(CollapsedBorder::resolve_conflict(&w, b)?),
-                };
-            }
-            let w = winner?;
-            (w.width > 0.0 && !matches!(w.style, BorderStyle::None | BorderStyle::Hidden))
-                .then_some(w)
-        };
-
-        // Vertical edges, one strip per (row, boundary).
-        for (row_idx, cells) in &rows {
-            let _ = row_idx;
-            let n = cells.len();
-            for boundary in 0..=n {
-                let left_cell = boundary.checked_sub(1).and_then(|i| cells.get(i));
-                let right_cell = cells.get(boundary);
-                let winner = resolve(&[
-                    left_cell
-                        .and_then(|(i, _)| cell_border(*i))
-                        .map(|b| b[RIGHT]),
-                    right_cell
-                        .and_then(|(i, _)| cell_border(*i))
-                        .map(|b| b[LEFT]),
-                    // table border participates on the perimeter only
-                    if boundary == 0 {
-                        table_border.map(|b| b[LEFT])
-                    } else if boundary == n {
-                        table_border.map(|b| b[RIGHT])
-                    } else {
-                        None
-                    },
-                ]);
-                let Some(w) = winner else { continue };
-                let (x, y0, y1) = match (left_cell, right_cell) {
-                    (Some((_, lr)), _) => (
-                        lr.origin.x + lr.size.width,
-                        lr.origin.y,
-                        lr.origin.y + lr.size.height,
-                    ),
-                    (None, Some((_, rr))) => {
-                        (rr.origin.x, rr.origin.y, rr.origin.y + rr.size.height)
-                    }
-                    (None, None) => continue,
-                };
+        let (xs, _, rects) = self.table_grid_lines(grid);
+        for (color, start, end) in painted {
+            // The columns' extent, whichever way they run.
+            let (x0, x1) = (xs[start].min(xs[end]), xs[start].max(xs[end]));
+            for (cell, rect) in grid.cells.iter().zip(&rects) {
+                let Some(r) = rect else { continue };
+                if cell.column >= end || cell.column + cell.colspan <= start {
+                    continue;
+                }
+                let left = r.origin.x.max(x0);
+                let right = (r.origin.x + r.size.width).min(x1);
+                if right <= left {
+                    continue;
+                }
                 builder.push_rect(
                     LogicalRect::new(
-                        LogicalPosition::new(w.width.mul_add(-0.5, x), y0),
-                        LogicalSize::new(w.width, y1 - y0),
+                        LogicalPosition::new(left, r.origin.y),
+                        LogicalSize::new(right - left, r.size.height),
                     ),
-                    w.color,
-                    BorderRadius::default(),
-                );
-            }
-        }
-
-        // Horizontal edges: for each row boundary, one strip per column
-        // segment (positional pairing of the cells above/below).
-        let n_rows = rows.len();
-        for boundary in 0..=n_rows {
-            let above = boundary.checked_sub(1).and_then(|i| rows.get(i));
-            let below = rows.get(boundary);
-            let segments: &[(usize, LogicalRect)] = match below.or(above) {
-                Some((_, cells)) => cells,
-                None => continue,
-            };
-            for (col, (_, seg_rect)) in segments.iter().enumerate() {
-                let above_cell = above.and_then(|(_, cells)| cells.get(col));
-                let below_cell = below.and_then(|(_, cells)| cells.get(col));
-                let winner = resolve(&[
-                    above_cell
-                        .and_then(|(i, _)| cell_border(*i))
-                        .map(|b| b[BOTTOM]),
-                    above.and_then(|(r, _)| row_border(*r)).map(|b| b[BOTTOM]),
-                    below_cell
-                        .and_then(|(i, _)| cell_border(*i))
-                        .map(|b| b[TOP]),
-                    below.and_then(|(r, _)| row_border(*r)).map(|b| b[TOP]),
-                    if boundary == 0 {
-                        table_border.map(|b| b[TOP])
-                    } else if boundary == n_rows {
-                        table_border.map(|b| b[BOTTOM])
-                    } else {
-                        None
-                    },
-                ]);
-                let Some(w) = winner else { continue };
-                let y = match above_cell.or(below_cell) {
-                    Some((_, r)) if above_cell.is_some() => r.origin.y + r.size.height,
-                    Some((_, r)) => r.origin.y,
-                    None => continue,
-                };
-                // Extend the strip by its own half-width at both ends so the
-                // corners where a wider horizontal border meets a narrower
-                // vertical one are filled.
-                let x0 = w.width.mul_add(-0.5, seg_rect.origin.x);
-                let x1 = w
-                    .width
-                    .mul_add(0.5, seg_rect.origin.x + seg_rect.size.width);
-                builder.push_rect(
-                    LogicalRect::new(
-                        LogicalPosition::new(x0, w.width.mul_add(-0.5, y)),
-                        LogicalSize::new(x1 - x0, w.width),
-                    ),
-                    w.color,
+                    color,
                     BorderRadius::default(),
                 );
             }
         }
     }
 
-    /// Paint rects of a row's cell children, in tree order.
-    fn collect_row_cells(&self, row_idx: usize) -> Vec<(usize, LogicalRect)> {
-        self.positioned_tree
-            .tree
-            .children(row_idx)
-            .iter()
-            .filter_map(|&cell_idx| {
-                let rect = self.get_paint_rect(cell_idx)?;
-                Some((cell_idx, rect))
-            })
-            .collect()
+    /// CSS 2.2 section 17.6.2: paint the collapsing-border grid - ONE
+    /// border per grid edge, the winner `fc::resolve_collapsed_borders`
+    /// picked (the resolution the layout halved into the cells' and the
+    /// table's boxes), as a strip centred on its grid line. Runs of edges
+    /// with the same winner are one strip. Vertical strips run between the
+    /// row lines; the horizontal ones are painted after them and reach over
+    /// each joint by half the widest vertical edge meeting there, so the
+    /// corners are filled.
+    fn paint_collapsed_table_borders(
+        &self,
+        builder: &mut DisplayListBuilder,
+        table_index: usize,
+        grid: &crate::solver3::fc::TableLayoutContext,
+    ) {
+        let borders = crate::solver3::fc::resolve_collapsed_borders(
+            self.ctx,
+            self.positioned_tree.tree,
+            table_index,
+            grid,
+        );
+        let (rows, cols) = (borders.num_rows, borders.num_cols);
+        if rows == 0 || cols == 0 {
+            return;
+        }
+        let (xs, ys, _) = self.table_grid_lines(grid);
+
+        // Vertical edges: column line `c` (at `x`), runs of rows.
+        for (c, &x) in xs.iter().enumerate().take(cols + 1) {
+            let mut r = 0;
+            while r < rows {
+                let Some(edge) = borders.vertical_at(r, c) else {
+                    r += 1;
+                    continue;
+                };
+                let mut end = r + 1;
+                while end < rows
+                    && borders
+                        .vertical_at(end, c)
+                        .is_some_and(|e| same_collapsed_border(&e, &edge))
+                {
+                    end += 1;
+                }
+                let rect = LogicalRect::new(
+                    LogicalPosition::new(edge.width.mul_add(-0.5, x), ys[r]),
+                    LogicalSize::new(edge.width, ys[end] - ys[r]),
+                );
+                Self::paint_collapsed_edge(builder, rect, &edge, false);
+                r = end;
+            }
+        }
+
+        // The widest vertical edge meeting row line `r` at column line `c`.
+        let joint = |r: usize, c: usize| -> f32 {
+            let above = if r > 0 {
+                borders.vertical_at(r - 1, c)
+            } else {
+                None
+            };
+            let below = if r < rows {
+                borders.vertical_at(r, c)
+            } else {
+                None
+            };
+            above
+                .map_or(0.0, |e| e.width)
+                .max(below.map_or(0.0, |e| e.width))
+        };
+
+        // Horizontal edges: row line `r` (at `y`), runs of columns.
+        for (r, &y) in ys.iter().enumerate().take(rows + 1) {
+            let mut c = 0;
+            while c < cols {
+                let Some(edge) = borders.horizontal_at(r, c) else {
+                    c += 1;
+                    continue;
+                };
+                let mut end = c + 1;
+                while end < cols
+                    && borders
+                        .horizontal_at(r, end)
+                        .is_some_and(|e| same_collapsed_border(&e, &edge))
+                {
+                    end += 1;
+                }
+                // From the left line of the run to its right one (in a
+                // right-to-left table line `c` is the right one), each end
+                // reaching over its joint by half the widest vertical edge.
+                let (left_line, right_line) = if xs[c] <= xs[end] { (c, end) } else { (end, c) };
+                let x0 = joint(r, left_line).mul_add(-0.5, xs[left_line]);
+                let x1 = joint(r, right_line).mul_add(0.5, xs[right_line]);
+                let rect = LogicalRect::new(
+                    LogicalPosition::new(x0, edge.width.mul_add(-0.5, y)),
+                    LogicalSize::new(x1 - x0, edge.width),
+                );
+                Self::paint_collapsed_edge(builder, rect, &edge, true);
+                c = end;
+            }
+        }
+    }
+
+    /// One collapsed border strip. A solid border is a rect; any other
+    /// style becomes a one-sided border item across the strip (the top side
+    /// of a horizontal strip, the left side of a vertical one), so the
+    /// renderer draws its dashes, dots, double lines or bevels.
+    fn paint_collapsed_edge(
+        builder: &mut DisplayListBuilder,
+        rect: LogicalRect,
+        edge: &crate::solver3::fc::BorderInfo,
+        horizontal: bool,
+    ) {
+        if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+            return;
+        }
+        if edge.style == BorderStyle::Solid {
+            builder.push_rect(rect, edge.color, BorderRadius::default());
+            return;
+        }
+        let width = PixelValue::px(edge.width);
+        let mut widths = StyleBorderWidths {
+            top: None,
+            right: None,
+            bottom: None,
+            left: None,
+        };
+        let mut colors = StyleBorderColors {
+            top: None,
+            right: None,
+            bottom: None,
+            left: None,
+        };
+        let mut styles = StyleBorderStyles {
+            top: None,
+            right: None,
+            bottom: None,
+            left: None,
+        };
+        if horizontal {
+            widths.top = Some(CssPropertyValue::Exact(LayoutBorderTopWidth { inner: width }));
+            colors.top = Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: edge.color }));
+            styles.top = Some(CssPropertyValue::Exact(StyleBorderTopStyle { inner: edge.style }));
+        } else {
+            widths.left = Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: width }));
+            colors.left = Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: edge.color }));
+            styles.left = Some(CssPropertyValue::Exact(StyleBorderLeftStyle { inner: edge.style }));
+        }
+        builder.push_border(
+            rect,
+            widths,
+            colors,
+            styles,
+            StyleBorderRadius {
+                top_left: PixelValue::zero(),
+                top_right: PixelValue::zero(),
+                bottom_left: PixelValue::zero(),
+                bottom_right: PixelValue::zero(),
+            },
+        );
     }
 
     /// Helper function to paint a table row's background and then its cells' backgrounds
     /// Layer 5: Row background
     /// Layer 6: Cell backgrounds (painted after row, so they appear on top)
     fn paint_table_row_and_cells(&self, builder: &mut DisplayListBuilder, row_idx: usize) {
-        // Layer 5: Paint row background.
-        // Rows don't have entries in calculated_positions (adding them would
-        // double-offset cells during position recursion). Compute the row rect
-        // from the bounding box of its cell children.
-        if let Some(row_node) = self.positioned_tree.tree.get(LayoutNodeId::new(row_idx)) {
-            if let Some(dom_id) = row_node.dom_node_id {
-                let styled_node_state = self.get_styled_node_state(dom_id);
-                let bg_color =
-                    get_background_color(self.ctx.styled_dom, dom_id, &styled_node_state);
-                if bg_color.a > 0 {
-                    // Compute row rect from cell children
-                    let mut min_x = f32::MAX;
-                    let mut min_y = f32::MAX;
-                    let mut max_x = f32::MIN;
-                    let mut max_y = f32::MIN;
-                    for &cell_idx in self.positioned_tree.tree.children(row_idx) {
-                        if let Some(cell_rect) = self.get_paint_rect(cell_idx) {
-                            min_x = min_x.min(cell_rect.origin.x);
-                            min_y = min_y.min(cell_rect.origin.y);
-                            max_x = max_x.max(cell_rect.origin.x + cell_rect.size.width);
-                            max_y = max_y.max(cell_rect.origin.y + cell_rect.size.height);
-                        }
-                    }
-                    if min_x < max_x && min_y < max_y {
-                        let row_rect = LogicalRect::new(
-                            LogicalPosition::new(min_x, min_y),
-                            LogicalSize::new(max_x - min_x, max_y - min_y),
-                        );
-                        builder.push_rect(row_rect, bg_color, BorderRadius::default());
-                    }
-                }
-            }
-        }
+        // Layer 5: the row's background, over the row's box (a row spans the
+        // grid's columns, fc.rs `place_table_grid_boxes`).
+        self.paint_element_background(builder, row_idx);
 
         // Layer 6: Paint cell backgrounds (topmost layer)
         if let Some(_node) = self.positioned_tree.tree.get(LayoutNodeId::new(row_idx)) {
@@ -6595,6 +7570,9 @@ where
     /// Helper function to paint an element's background (used for all table elements)
     /// Reads background-color and border-radius from CSS properties and emits `push_rect()`
     fn paint_element_background(&self, builder: &mut DisplayListBuilder, node_index: usize) {
+        if self.cell_is_hidden_empty(node_index) {
+            return;
+        }
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return;
         };
@@ -6764,6 +7742,16 @@ where
             // to full scroll content size. Text must be clipped to the viewport
             // when overflow is hidden/scroll/auto, not to the full content size.
             let mut viewport_clip_rect = content_box_rect;
+            let own_content_width = content_box_rect.size.width;
+
+            // `position: relative` on an inline box moves the runs of its
+            // text (CSS 2.2 9.4.3) - percentages against this content box,
+            // the IFC root's own box being the containing block.
+            let run_shifts = self.inline_run_shifts(
+                node_index,
+                &cached_layout.glyph_runs,
+                content_box_rect.size,
+            );
 
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
@@ -6789,21 +7777,120 @@ where
             // actually clips (hidden/scroll/auto) keeps the viewport bound;
             // a visible axis takes the full content extent computed above,
             // which `reshape_text_node` keeps fresh between relayouts.
-            if let Some(dom_id) = node.dom_node_id {
-                let st = self.get_styled_node_state(dom_id);
-                let clips = |ov: crate::solver3::getters::MultiValue<LayoutOverflow>| {
-                    matches!(
-                        ov,
-                        crate::solver3::getters::MultiValue::Exact(
-                            LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
+            {
+                // Per axis: does this box clip its inline content? An
+                // ANONYMOUS box (the wrapper of text beside blocks) has no
+                // DOM node and `overflow` keeps its initial `visible` there:
+                // it clips nothing. It used to skip everything below - the
+                // ink allowance, a hanging marker, a grown IFC - and cut the
+                // anti-aliased left edge of its first glyph at the box (WPT
+                // text-decoration-propagation-04: "dolor" one pixel short of
+                // the same line in a div).
+                let (clips_x, clips_y) = node.dom_node_id.map_or((false, false), |dom_id| {
+                    let st = self.get_styled_node_state(dom_id);
+                    let clips = |ov: crate::solver3::getters::MultiValue<LayoutOverflow>| {
+                        matches!(
+                            ov,
+                            crate::solver3::getters::MultiValue::Exact(
+                                LayoutOverflow::Hidden
+                                    | LayoutOverflow::Scroll
+                                    | LayoutOverflow::Auto
+                            )
                         )
+                    };
+                    (
+                        clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)),
+                        clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)),
                     )
-                };
-                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                });
+                // `content_box_rect` was extended to `get_scroll_content_size`,
+                // which floors at the node's own BORDER box (`used_size`): for
+                // a padded box with nothing overflowing it is padding-box tall
+                // while its origin stays at the content box, so the clip ran
+                // `padding-top` pixels past the box. A box's own padding and
+                // border are not overflow — only an extent beyond the border
+                // box is (the grown IFC above); otherwise the tight content
+                // box stands. (azul#478: every `td { padding: 3px }` clip
+                // reached into the next row, the rows' page-break avoid-ranges
+                // overlapped, and the break climbed a third of the page.)
+                let own_box = node.used_size.unwrap_or_default();
+                if !clips_x
+                    && content_size.width > own_box.width + 0.01
+                {
                     viewport_clip_rect.size.width = content_box_rect.size.width;
                 }
-                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) {
+                if !clips_y
+                    && content_size.height > own_box.height + 0.01
+                {
                     viewport_clip_rect.size.height = content_box_rect.size.height;
+                }
+                // Ink BEFORE the start edges, on a visible axis: an OUTSIDE
+                // list marker hangs in the padding gutter at a negative inline
+                // offset (`position_one_line`'s `marker_pen`), and the growth
+                // above only reaches toward the end edges. Every text item of
+                // this IFC carries this clip, so the marker lay outside its
+                // own item's clip: WebRender clipped it away, and so did the
+                // CPU's pre-blended LCD tile path - except where the digit's
+                // and the dot's tiles overlapped and the run fell back to the
+                // unclipped sweep ("2." painted, "1." and every bullet did
+                // not: AzMail samples 02 and 08). `unclipped_bounds` is
+                // content-box relative and encloses every positioned item.
+                // Read from the CACHED layout's own record: under dense-text
+                // retention `cached_layout.layout` is the shared empty
+                // sentinel, whose overflow is the default - read there, the
+                // ink began at 0 and this never fired (the marker of every
+                // `<li>` stayed clipped in the default build).
+                let ink = cached_layout.overflow.unclipped_bounds;
+                if !clips_x && ink.x < 0.0 {
+                    viewport_clip_rect.origin.x += ink.x;
+                    viewport_clip_rect.size.width -= ink.x;
+                }
+                if !clips_y && ink.y < 0.0 {
+                    viewport_clip_rect.origin.y += ink.y;
+                    viewport_clip_rect.size.height -= ink.y;
+                }
+                // Glyph INK reaches past the advances the layout measures -
+                // a side bearing, the anti-aliased edge of the last glyph,
+                // an italic overhang - and a box shrink-wrapped to its text
+                // (a table cell, an inline-block) ends exactly at the last
+                // advance: on a visible x axis the run was cut there, the
+                // right edge of a cell's last "b" one pixel short (WPT
+                // anonymous-table-ws-001, table-width-s). One em of the
+                // largest run each side, the allowance the text damage
+                // (`visual_bounds`) pads with. Horizontal only: a text
+                // clip's VERTICAL extent is its lines', which the page
+                // breaks read (azul#478 above).
+                if !clips_x {
+                    let em = cached_layout
+                        .glyph_runs
+                        .iter()
+                        .map(|run| run.font_size_px)
+                        .fold(0.0f32, f32::max);
+                    if em.is_finite() && em > 0.0 {
+                        viewport_clip_rect.origin.x -= em;
+                        viewport_clip_rect.size.width += em * 2.0;
+                    }
+                }
+                // The runs a relatively positioned inline box moves paint as
+                // far past that ink as it moved them (a visible axis only).
+                if let Some(shifts) = run_shifts.as_deref() {
+                    let (lo, hi) = shifts.iter().fold(
+                        (LogicalPosition::zero(), LogicalPosition::zero()),
+                        |(lo, hi), s| {
+                            (
+                                LogicalPosition::new(lo.x.min(s.x), lo.y.min(s.y)),
+                                LogicalPosition::new(hi.x.max(s.x), hi.y.max(s.y)),
+                            )
+                        },
+                    );
+                    if !clips_x {
+                        viewport_clip_rect.origin.x += lo.x;
+                        viewport_clip_rect.size.width += hi.x - lo.x;
+                    }
+                    if !clips_y {
+                        viewport_clip_rect.origin.y += lo.y;
+                        viewport_clip_rect.size.height += hi.y - lo.y;
+                    }
                 }
             }
 
@@ -6821,11 +7908,29 @@ where
                     .get_text_shadow(node_data, &dom_id, node_state)
                 {
                     if let Some(shadow) = shadow_val.get_property() {
-                        builder.push_item(DisplayListItem::PushTextShadow { shadow: (**shadow) });
+                        // A `system:` shadow colour resolved against the
+                        // cascade's theme, like every other colour handed on.
+                        builder.push_item(DisplayListItem::PushTextShadow {
+                            shadow: super::getters::system_colors_resolved(
+                                self.ctx.styled_dom,
+                                **shadow,
+                            ),
+                        });
                         pushed_text_shadow = true;
                     }
                 }
             }
+
+            // `text-overflow: ellipsis`: cut at the box's own content edge
+            // (`content_box_rect` may have grown to the scrolled extent).
+            let ellipsis = node.dom_node_id.and_then(|dom_id| {
+                self.text_overflow_ellipsis(
+                    dom_id,
+                    inline_layout,
+                    cached_layout.dense.as_deref(),
+                    own_content_width,
+                )
+            });
 
             self.paint_inline_content(
                 builder,
@@ -6835,7 +7940,9 @@ where
                 cached_layout.dense.as_deref(),
                 &cached_layout.payload,
                 &cached_layout.glyph_runs,
+                run_shifts.as_deref(),
                 node_index,
+                ellipsis.as_ref(),
             );
 
             if pushed_text_shadow {
@@ -6848,8 +7955,26 @@ where
             // <img> tag. Content resolves overlay→DOM: a runtime-swapped image or
             // produced callback frame (overlay) wins over the immutable DOM's ImageRef.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            if matches!(node_data.get_node_type(), NodeType::Image(_)) {
+            let svg_image = matches!(node_data.get_node_type(), NodeType::SvgImage(_));
+            if svg_image || matches!(node_data.get_node_type(), NodeType::Image(_)) {
                 if let Some(image_ref) = self.ctx.resolved_content().image_for_paint(dom_id) {
+                    // An SVG `<image>` draws where its attributes put it in
+                    // its `<svg>` (`solver3::svg::image_rect`); its box is the
+                    // `<svg>`'s viewport.
+                    let paint_rect = if svg_image {
+                        let size = image_ref.get_size();
+                        match super::svg::image_rect(
+                            self.ctx.styled_dom,
+                            dom_id,
+                            paint_rect,
+                            (size.width, size.height),
+                        ) {
+                            Some(rect) => rect,
+                            None => return Ok(()),
+                        }
+                    } else {
+                        paint_rect
+                    };
                     debug_info!(
                         self.ctx,
                         "Painting image for node {} at {:?}",
@@ -7068,6 +8193,16 @@ where
         let baseline_y =
             content_box.origin.y + first.font_metrics.ascent / upem * style.font_size_px;
 
+        // The prompt is this node's paint: attribute it to the node (the
+        // display list's per-item DOM attribution - hit-testing, damage, a
+        // later patch). It is emitted between the node's two cached runs, so
+        // it cannot inherit the attribution from the background run: on a
+        // PATCHED build (the resize fast path) that run is spliced, and the
+        // splice leaves the builder's current node at whatever painted before
+        // it - AzMeet's centring div, not the join field's value `<p>`.
+        let saved_node = builder.current_node;
+        builder.set_current_node(Some(dom_id));
+
         // Split into per-font runs (fallback can mix faces).
         let mut pen_x = content_box.origin.x;
         let mut run: Vec<GlyphInstance> = Vec::with_capacity(glyphs.len());
@@ -7110,6 +8245,7 @@ where
                 None,
             );
         }
+        builder.set_current_node(saved_node);
     }
 
     #[cfg(not(feature = "text_layout"))]
@@ -7125,7 +8261,28 @@ where
     /// clip so scrollbars appear on top of content and are not clipped.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
+    /// A scroll container's scrollbars, attributed to the container itself.
+    ///
+    /// They are painted AFTER the container's children, so without naming
+    /// their node they took whatever the builder attributed last: the last
+    /// child on a fresh paint, the node before a copied run on the resize fast
+    /// path (DL patching) - one scrollbar, two owners, and hit-tests and damage
+    /// aimed at a child.
     fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
+        let saved_node = builder.current_node;
+        if let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) {
+            builder.set_current_node(node.dom_node_id);
+        }
+        let result = self.paint_scrollbars_inner(builder, node_index);
+        builder.set_current_node(saved_node);
+        result
+    }
+
+    fn paint_scrollbars_inner(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
         // CSS 2.2 §11.2: visibility:hidden scroll containers must not paint scrollbars,
         // but their layout space is preserved (already handled by layout).
         if self.is_node_hidden(node_index) {
@@ -7153,6 +8310,18 @@ where
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
 
+        // THE VIEWPORT'S BAR. CSS Overflow 3 §3.3 gives the root element's
+        // overflow to the viewport, so the root's bar belongs to the WINDOW:
+        // it runs along the viewport's edge - not along the root's box, which
+        // sits inside the page's margins and is as tall as the page - it is
+        // an overlay without arrow buttons, and it measures the viewport
+        // against the root's margin box. That is the scrollport and extent
+        // `register_scroll_nodes` publishes, which is where the pointer finds
+        // and drags the bar, and what `update_scrollbar_transforms` moves the
+        // thumb along.
+        let is_viewport = node_id
+            .is_some_and(|nid| crate::solver3::scrollbar::is_viewport_scroller(self.dom_id, nid));
+
         // A VirtualView is a replaced element with NO flow content, so the
         // layout-side necessity test (`check_scrollbar_necessity`: laid-out
         // content > container) can never fire for it and `overflow: auto` would
@@ -7168,7 +8337,7 @@ where
         // built, and the layout pass that precedes this one has already
         // recomputed `warm.scrollbar_info` from the laid-out sizes.
         if let Some(nid) = node_id {
-            if std::env::var("AZ_VV_BAR_TRACE").is_ok()
+            if env_flag!("AZ_VV_BAR_TRACE")
                 && self
                     .ctx
                     .styled_dom
@@ -7198,7 +8367,7 @@ where
                     padding_box_size,
                     &mut scrollbar_info,
                 );
-                if std::env::var("AZ_VV_BAR_TRACE").is_ok() {
+                if env_flag!("AZ_VV_BAR_TRACE") {
                     eprintln!(
                         "[vv-bar] nid={nid:?} raised={raised} virt={:?} \
                          padbox={padding_box_size:?} reqs_after={scrollbar_info:?}",
@@ -7217,7 +8386,10 @@ where
             })
             .unwrap_or_default();
 
-        // Skip if scrollbar-width: none
+        // Skip if scrollbar-width: none - no gutter to paint either. (The bars
+        // themselves need no special case: `presence` below is `None` on
+        // every axis of such a node, which is how the scroll manager knows
+        // there is nothing to press.)
         if matches!(
             scrollbar_style.width_mode,
             azul_css::props::style::scrollbar::LayoutScrollbarWidth::None
@@ -7290,38 +8462,52 @@ where
         let sbp = node.box_props.unpack();
         let border = &sbp.border;
 
-        // Get border-radius for potential clipping
-        let container_border_radius = node_id
-            .map(|nid| {
-                let node_state =
-                    &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
-                let element_size = PhysicalSizeImport {
-                    width: paint_rect.size.width,
-                    height: paint_rect.size.height,
-                };
-                let viewport_size =
-                    LogicalSize::new(self.ctx.viewport_size.width, self.ctx.viewport_size.height);
-                get_border_radius(
-                    self.ctx.styled_dom,
-                    nid,
-                    node_state,
-                    element_size,
-                    viewport_size,
-                )
-            })
-            .unwrap_or_default();
+        // Get border-radius for potential clipping. The viewport has none:
+        // the root's radius rounds the root's box, not the window.
+        let container_border_radius = if is_viewport {
+            BorderRadius::default()
+        } else {
+            node_id
+                .map(|nid| {
+                    let node_state =
+                        &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                    let element_size = PhysicalSizeImport {
+                        width: paint_rect.size.width,
+                        height: paint_rect.size.height,
+                    };
+                    let viewport_size = LogicalSize::new(
+                        self.ctx.viewport_size.width,
+                        self.ctx.viewport_size.height,
+                    );
+                    get_border_radius(
+                        self.ctx.styled_dom,
+                        nid,
+                        node_state,
+                        element_size,
+                        viewport_size,
+                    )
+                })
+                .unwrap_or_default()
+        };
 
         // Calculate the inner rect (content-box) where scrollbars should be placed
-        // Scrollbars are positioned inside the border, at the right/bottom edges
-        let inner_rect = LogicalRect {
-            origin: LogicalPosition::new(
-                paint_rect.origin.x + border.left,
-                paint_rect.origin.y + border.top,
-            ),
-            size: LogicalSize::new(
-                (paint_rect.size.width - border.left - border.right).max(0.0),
-                (paint_rect.size.height - border.top - border.bottom).max(0.0),
-            ),
+        // Scrollbars are positioned inside the border, at the right/bottom edges.
+        // The viewport's scrollport is the viewport itself - at the window
+        // origin, like the canvas background - the same rect
+        // `register_scroll_nodes` publishes as the root's container.
+        let inner_rect = if is_viewport {
+            LogicalRect::new(LogicalPosition::zero(), self.ctx.viewport_size)
+        } else {
+            LogicalRect {
+                origin: LogicalPosition::new(
+                    paint_rect.origin.x + border.left,
+                    paint_rect.origin.y + border.top,
+                ),
+                size: LogicalSize::new(
+                    (paint_rect.size.width - border.left - border.right).max(0.0),
+                    (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                ),
+            }
         };
 
         // Get scroll position for thumb calculation.
@@ -7348,16 +8534,57 @@ where
         // For VirtualView nodes, the virtual_scroll_size (propagated through
         // ScrollPosition.children_rect) is more accurate than the layout-computed content
         // size.
-        let content_size = node_id
+        //
+        // NOT for the viewport. `scroll_offsets` is the ScrollManager snapshot
+        // taken BEFORE this pass, so it holds what the PREVIOUS layout
+        // published - and for the viewport that is the root's margin box at
+        // the previous window size - or nothing at all on a window's first
+        // pass, where this fell back to the bare content (no margin box). A
+        // relayout and a fresh window of the same size painted two different
+        // thumbs: real_ribbon_resize_sweep diverged by 6 px at 705, the first
+        // width after the root was first published. The viewport's extent is
+        // read off THIS layout, by the function registration publishes.
+        //
+        // Nor for any other box: the snapshot sized the thumb of the pass
+        // that GREW a box's content for the content before it, while the
+        // press router measured the new one right after this pass - the
+        // thumb was drawn one layout late. Every box's extent is read off
+        // this layout too, by the rule registration publishes
+        // (`LayoutTree::scroll_extent` and the caret gutter,
+        // `caret_scroll_extent`). Only a `VirtualView`'s extent is not
+        // layout's: its callback publishes it, and the snapshot is where it
+        // is (the builder re-runs when a callback changes it mid-pass).
+        let is_virtual_view = node_id.is_some_and(|nid| {
+            self.ctx
+                .styled_dom
+                .node_data
+                .as_container()
+                .get(nid)
+                .is_some_and(azul_core::dom::NodeData::is_virtual_view_node)
+        });
+        let virtual_size = node_id
+            .filter(|_| is_virtual_view)
             .and_then(|nid| self.scroll_offsets.get(&nid))
-            .map_or_else(
-                || {
-                    self.positioned_tree
-                        .tree
-                        .get_content_size(LayoutNodeId::new(node_index))
-                },
-                |pos| pos.children_rect.size,
-            );
+            .map(|pos| pos.children_rect.size);
+        let content_size = if let Some(size) = virtual_size {
+            size
+        } else {
+            let extent = self
+                .positioned_tree
+                .tree
+                .scroll_extent(LayoutNodeId::new(node_index), is_viewport);
+            match node_id {
+                Some(nid) => crate::managers::scroll_registration::caret_scroll_extent(
+                    crate::managers::scroll_registration::caret_scroll_node(
+                        &self.ctx.cursor_locations,
+                    ),
+                    self.dom_id,
+                    nid,
+                    extent,
+                ),
+                None => extent,
+            }
+        };
 
         // The HANDLE's own width, which is not the groove's: Breeze centres a
         // 6px handle in a 21px groove, and Adwaita/macOS inset theirs too.
@@ -7381,8 +8608,18 @@ where
             bottom_left: thumb_radius,
             bottom_right: thumb_radius,
         };
+        // WHICH bars, how thick, with or without arrow buttons: the one
+        // per-axis answer layout resolved from the axis's overflow and this
+        // node's style (`ScrollbarRequirements::presence`, amended above for
+        // a VirtualView). The scroll manager hit-tests and the GPU updater
+        // moves exactly these bars, so a thumb is painted where the pointer
+        // grabs it. The viewport's bar is an overlay without buttons: painted
+        // with them, its thumb started a button's length below where the
+        // pointer grabs it.
+        let v_bar = scrollbar_info.presence(ScrollbarOrientation::Vertical);
+        let h_bar = scrollbar_info.presence(ScrollbarOrientation::Horizontal);
 
-        if scrollbar_info.needs_vertical {
+        if v_bar.is_present() {
             // Look up opacity key from GPU cache for GPU-animated opacity.
             // If a key already exists in the cache from a previous frame, reuse it.
             // Otherwise, create a new unique key. The key will be registered
@@ -7401,19 +8638,14 @@ where
             });
 
             // Vertical scrollbar: use shared geometry computation
-            let button_size = if scrollbar_style.show_scroll_buttons {
-                scrollbar_style.scroll_button_size_px
-            } else {
-                0.0
-            };
             let v_geom = compute_scrollbar_geometry_with_button_size(
                 ScrollbarOrientation::Vertical,
                 inner_rect,
                 content_size,
                 scroll_offset_y,
-                scrollbar_style.visual_width_px,
-                scrollbar_info.needs_horizontal,
-                button_size,
+                v_bar.thickness(),
+                h_bar.is_present(),
+                v_bar.button_size(),
             );
 
             // Position thumb after the top button; GPU transform moves it within usable track
@@ -7453,9 +8685,9 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
 
-            // Buttons at top/bottom of track (only if enabled in style)
+            // Buttons at top/bottom of track (only a classic bar has them)
             let (button_decrement_bounds, button_increment_bounds) =
-                if scrollbar_style.show_scroll_buttons && v_geom.button_size > 0.0 {
+                if v_geom.button_size > 0.0 {
                     (
                         Some(LogicalRect {
                             origin: v_geom.track_rect.origin,
@@ -7494,7 +8726,7 @@ where
             });
         }
 
-        if scrollbar_info.needs_horizontal {
+        if h_bar.is_present() {
             // Look up horizontal opacity key from GPU cache (same pattern as vertical).
             let opacity_key = node_id.map(|nid| {
                 self.gpu_value_cache
@@ -7508,19 +8740,14 @@ where
             });
 
             // Horizontal scrollbar: use shared geometry computation
-            let h_button_size = if scrollbar_style.show_scroll_buttons {
-                scrollbar_style.scroll_button_size_px
-            } else {
-                0.0
-            };
             let h_geom = compute_scrollbar_geometry_with_button_size(
                 ScrollbarOrientation::Horizontal,
                 inner_rect,
                 content_size,
                 scroll_offset_x,
-                scrollbar_style.visual_width_px,
-                scrollbar_info.needs_vertical,
-                h_button_size,
+                h_bar.thickness(),
+                v_bar.is_present(),
+                h_bar.button_size(),
             );
 
             // Position thumb after the left button; GPU transform moves it within usable track
@@ -7552,9 +8779,9 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
 
-            // Buttons at left/right of track (only if enabled in style)
+            // Buttons at left/right of track (only a classic bar has them)
             let (button_decrement_bounds, button_increment_bounds) =
-                if scrollbar_style.show_scroll_buttons && h_geom.button_size > 0.0 {
+                if h_geom.button_size > 0.0 {
                     (
                         Some(LogicalRect {
                             origin: h_geom.track_rect.origin,
@@ -7596,7 +8823,221 @@ where
         Ok(())
     }
 
+    /// How far `position: relative` moves each glyph run of the inline
+    /// layout of IFC root `node_index`, parallel to `glyph_runs`: the
+    /// `positioning::inline_relative_offset` of the run's text node, the
+    /// percentages against `cb_size` (the IFC root's content box). `None`
+    /// when no run moves - the common case, no allocation. The relative pass
+    /// moves boxes; the text of an inline box is painted from these runs and
+    /// the line layout, which it never reaches (pdfocr engine issue 2).
+    fn inline_run_shifts(
+        &self,
+        node_index: usize,
+        glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
+        cb_size: LogicalSize,
+    ) -> Option<Vec<LogicalPosition>> {
+        let ifc_root = super::fc::ifc_root_style_dom_id(self.positioned_tree.tree, node_index)?;
+        let mut shifts: Option<Vec<LogicalPosition>> = None;
+        // Consecutive runs of one text node (a line break, a font fallback)
+        // share its shift: resolved once.
+        let mut last: Option<(NodeId, LogicalPosition)> = None;
+        for (i, run) in glyph_runs.iter().enumerate() {
+            let Some(source) = run.source_node_id else {
+                continue;
+            };
+            let shift = match last {
+                Some((node, shift)) if node == source => shift,
+                _ => {
+                    let shift = super::positioning::inline_relative_offset(
+                        self.ctx.styled_dom,
+                        source,
+                        ifc_root,
+                        cb_size,
+                        self.ctx.viewport_size,
+                    );
+                    last = Some((source, shift));
+                    shift
+                }
+            };
+            if shift.x != 0.0 || shift.y != 0.0 {
+                shifts.get_or_insert_with(|| vec![LogicalPosition::zero(); glyph_runs.len()])[i] =
+                    shift;
+            }
+        }
+        shifts
+    }
+
+    /// `text-overflow: ellipsis` (CSS Overflow 3 §3.1) for the IFC rooted at
+    /// `dom_id`, whose content box is `content_width` wide: the ellipsis,
+    /// shaped in the root's style, and the lines it ends. `None` - decided
+    /// without a cascade walk wherever no node of the DOM declares the
+    /// property - when the root does not ask for it, its inline axis does not
+    /// clip (`overflow-x: visible` has no end edge to cut at), its lines are
+    /// not left-to-right horizontal ones, or no line runs past the end edge.
+    fn text_overflow_ellipsis(
+        &self,
+        dom_id: NodeId,
+        layout: &UnifiedLayout,
+        dense: Option<&crate::text3::dense::DenseText>,
+        content_width: f32,
+    ) -> Option<TextOverflowEllipsis> {
+        use azul_css::props::{
+            layout::{overflow::StyleTextOverflow, wrapping::LayoutWritingMode},
+            style::text::StyleDirection,
+        };
+
+        use crate::solver3::getters::{
+            get_direction_property, get_text_overflow_property, get_writing_mode, MultiValue,
+        };
+
+        let sd = self.ctx.styled_dom;
+        let declared = sd
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| {
+                cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_OVERFLOW != 0
+            });
+        if !declared {
+            return None;
+        }
+        let state = self.get_styled_node_state(dom_id);
+        if !matches!(
+            get_text_overflow_property(sd, dom_id, &state),
+            MultiValue::Exact(StyleTextOverflow::Ellipsis)
+        ) {
+            return None;
+        }
+        if !matches!(
+            get_overflow_x(sd, dom_id, &state),
+            MultiValue::Exact(
+                LayoutOverflow::Hidden
+                    | LayoutOverflow::Scroll
+                    | LayoutOverflow::Auto
+                    | LayoutOverflow::Clip
+            )
+        ) {
+            return None;
+        }
+        if matches!(
+            get_direction_property(sd, dom_id, &state),
+            MultiValue::Exact(StyleDirection::Rtl)
+        ) || matches!(
+            get_writing_mode(sd, dom_id, &state),
+            MultiValue::Exact(mode) if mode != LayoutWritingMode::HorizontalTb
+        ) {
+            return None;
+        }
+        // Under dense-text retention the stored items are the empty sentinel.
+        let expanded;
+        let items: &[PositionedItem] = if layout.items.is_empty() {
+            expanded = dense?.to_unified_items();
+            &expanded
+        } else {
+            &layout.items
+        };
+        // Most clipped boxes fit their text: nothing to shape.
+        if !items
+            .iter()
+            .any(|item| item.position.x + item.item.bounds().width > content_width + 0.5)
+        {
+            return None;
+        }
+        let style = Arc::new(super::getters::get_style_properties(
+            sd,
+            dom_id,
+            self.ctx.system_style.as_ref(),
+            azul_css::props::basic::PhysicalSize {
+                width: self.ctx.viewport_size.width,
+                height: self.ctx.viewport_size.height,
+            },
+        ));
+        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let glyphs = crate::text3::cache::shape_ellipsis(
+            &style,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
+        );
+        if glyphs.is_empty() {
+            return None;
+        }
+        let advance: f32 = glyphs.iter().map(|g| g.advance + g.kerning).sum();
+        let cuts = ellipsis_cuts(items, content_width, advance);
+        if cuts.is_empty() {
+            return None;
+        }
+        Some(TextOverflowEllipsis {
+            glyphs,
+            font_size_px: style.font_size_px,
+            color: super::getters::get_used_text_color(sd, dom_id, &state),
+            cuts,
+        })
+    }
+
+    /// Paints the ellipsis at the end of every line `ellipsis` cuts (the
+    /// glyphs it replaces are left out of the runs), the content box's top
+    /// left at `origin`.
+    fn paint_ellipses(
+        builder: &mut DisplayListBuilder,
+        ellipsis: &TextOverflowEllipsis,
+        origin: LogicalPosition,
+        clip_rect: LogicalRect,
+        source_node_index: usize,
+        uniform_bg: Option<(ColorU, WindowLogicalRect)>,
+    ) {
+        for cut in &ellipsis.cuts {
+            let mut pen_x = origin.x + cut.x;
+            let baseline_y = origin.y + cut.baseline;
+            // One run per face (the ellipsis may come from a fallback face).
+            let mut run: Vec<GlyphInstance> = Vec::with_capacity(ellipsis.glyphs.len());
+            let mut run_hash = ellipsis.glyphs.first().map_or(0, |g| g.font_hash);
+            for g in &ellipsis.glyphs {
+                if g.font_hash != run_hash && !run.is_empty() {
+                    builder.push_text_run(
+                        core::mem::take(&mut run),
+                        FontHash::from_hash(run_hash),
+                        ellipsis.font_size_px,
+                        ellipsis.color,
+                        clip_rect,
+                        Some(source_node_index),
+                        uniform_bg,
+                    );
+                    run_hash = g.font_hash;
+                }
+                run.push(GlyphInstance {
+                    index: u32::from(g.glyph_id),
+                    point: LogicalPosition::new(pen_x + g.offset.x, baseline_y - g.offset.y),
+                    size: LogicalSize::zero(),
+                });
+                pen_x += g.advance + g.kerning;
+            }
+            if !run.is_empty() {
+                builder.push_text_run(
+                    run,
+                    FontHash::from_hash(run_hash),
+                    ellipsis.font_size_px,
+                    ellipsis.color,
+                    clip_rect,
+                    Some(source_node_index),
+                    uniform_bg,
+                );
+            }
+        }
+    }
+
     /// Converts the rich layout information from `text3` into drawing commands.
+    ///
+    /// `ellipsis`: the root's `text-overflow: ellipsis`, where it cuts lines
+    /// ([`Self::text_overflow_ellipsis`]): the glyphs past a cut are left out
+    /// of their runs, their decorations end at it, and the ellipsis is painted
+    /// after the text.
+    ///
+    /// `run_shifts` (parallel to `glyph_runs`, `None` when nothing moves):
+    /// how far `position: relative` on an inline box moves each run - its
+    /// background and border, its glyphs, its decorations and hit-test area,
+    /// and in a paged list the clusters of the `TextLayout` payload.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
@@ -7609,21 +9050,29 @@ where
         dense_view: Option<&crate::text3::dense::DenseText>,
         payload: &Arc<dyn std::any::Any + Send + Sync>,
         glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
+        run_shifts: Option<&[LogicalPosition]>,
         source_node_index: usize,
+        ellipsis: Option<&TextOverflowEllipsis>,
     ) {
+        let shift_of_run = |i: usize| {
+            run_shifts
+                .and_then(|s| s.get(i).copied())
+                .unwrap_or_else(LogicalPosition::zero)
+        };
         let _p = crate::probe::Probe::span("dl_inline_text");
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // NOTE: Text decorations (underline, strikethrough, overline) are handled in
         // push_text_layout_to_display_list TODO: Text shadows not yet implemented
-        // NOTE: Text-overflow ellipsis is handled via apply_text_overflow_ellipsis()
-        // which can be called as a post-processing step on the display list when
-        // the node has overflow:hidden and text-overflow:ellipsis CSS properties.
+        // NOTE: `text-overflow: ellipsis` is paint, from `ellipsis` (the root's,
+        // see `text_overflow_ellipsis`): the glyphs past each cut are not
+        // painted, the ellipsis is painted after what stays. The layout keeps
+        // every glyph (selection, hit-testing and copying see the whole text).
         // +spec:overflow:7807b1 - text-overflow ellipsis side depends on direction (RTL clips left,
-        // LTR clips right); not yet implemented +spec:overflow:bbf9c1 - text-overflow
+        // LTR clips right); only LTR lines are cut so far +spec:overflow:bbf9c1 - text-overflow
         // ellipsis should only truncate content that is actually clipped; as content
-        // scrolls into view, show it instead of ellipsis TODO: Handle text overflowing
-        // (based on container_rect and overflow behavior)
+        // scrolls into view, show it instead of ellipsis (the cut is at the box's unscrolled
+        // end edge)
 
         // Calculate actual content bounds from the layout
         // Use these bounds instead of container_rect to avoid inflated bounds
@@ -7674,6 +9123,16 @@ where
                 size: LogicalSize::default(),
             }
         };
+        // Lines ABOVE the box: a paragraph continuing at the top of the
+        // next column of a multi-column container (`text3::cache::
+        // ColumnFlow`). The PDF bridge draws every glyph at `bounds.origin`
+        // plus its item position, so `bounds` stays anchored at the box -
+        // and then reaches a whole layout height below the box's top while
+        // missing the lines above it, for the page slicer and the paged
+        // extent alike. Such a layout's TextLayout carries its own copy of
+        // the layout moved down to start at 0, under an origin moved up by
+        // as much: every glyph stays where it is, `bounds` holds the lines.
+        let lines_above = layout_bounds.y < 0.0 && !layout.items.is_empty();
 
         // Only push TextLayout if layout has actual content
         // This prevents empty TextLayout items with 0x0 bounds at various Y positions
@@ -7736,15 +9195,69 @@ where
             // damage diffing is Arc::ptr_eq, so a fresh Arc per rebuild made
             // every blink / tween tick repaint the whole text run (and deep-
             // cloned all shaped glyphs per frame). Real text changes replace
-            // the cached Arc, so ptr_eq still fires damage then.
+            // the cached Arc, so ptr_eq still fires damage then. (A layout
+            // with lines above its box is the one exception, see
+            // `lines_above`: paged-only, a split multi-column paragraph.)
+            //
+            // The other exception: the clusters a relatively positioned inline
+            // box moves (`run_shifts`), which the PDF bridge draws from here
+            // (it skips the `Text` runs of a shaped font) - moved in the copy
+            // as their runs are below. Its items are the sparse ones, expanded
+            // from the dense view when the stored form is the retirement
+            // sentinel.
+            let moved_nodes: Vec<(NodeId, LogicalPosition)> = run_shifts
+                .map(|shifts| {
+                    glyph_runs
+                        .iter()
+                        .zip(shifts)
+                        .filter_map(|(run, s)| {
+                            let node = run.source_node_id?;
+                            (s.x != 0.0 || s.y != 0.0).then_some((node, *s))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (text_payload, text_bounds) = if lines_above || !moved_nodes.is_empty() {
+                let dy = if lines_above { layout_bounds.y } else { 0.0 };
+                let mut moved = UnifiedLayout {
+                    items: if layout.items.is_empty() {
+                        dense_view
+                            .map(crate::text3::dense::DenseText::to_unified_items)
+                            .unwrap_or_default()
+                    } else {
+                        layout.items.clone()
+                    },
+                    overflow: layout.overflow.clone(),
+                };
+                for item in &mut moved.items {
+                    item.position.y -= dy;
+                    let source = match &item.item {
+                        ShapedItem::Cluster(c) => c.source_node_id,
+                        _ => None,
+                    };
+                    let shift = source
+                        .and_then(|n| moved_nodes.iter().find(|(m, _)| *m == n))
+                        .map(|&(_, s)| s);
+                    if let Some(s) = shift {
+                        item.position.x += s.x;
+                        item.position.y += s.y;
+                    }
+                }
+                let moved: Arc<dyn std::any::Any + Send + Sync> = Arc::new(moved);
+                let origin =
+                    LogicalPosition::new(container_rect.origin.x, container_rect.origin.y + dy);
+                (moved, LogicalRect::new(origin, actual_bounds.size))
+            } else {
+                (payload.clone(), actual_bounds)
+            };
             builder.push_text_layout(
                 // (d5) The CACHED payload Arc — TextPayload{dense,sparse}
                 // when the dense view is retained, the bare layout Arc
                 // otherwise. Cloned from the cache entry, so ptr_eq damage
                 // diffing sees the same allocation across paints exactly
                 // as before.
-                payload.clone(),
-                actual_bounds,
+                text_payload,
+                text_bounds,
                 FontHash::from_hash(primary_hash),
                 primary_size,
                 ColorU {
@@ -7761,14 +9274,23 @@ where
 
         // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
         // This must happen BEFORE rendering text so that backgrounds appear behind text.
-        for glyph_run in glyph_runs {
+        for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            // The run's origin: the IFC's content box, moved by the
+            // relatively positioned inline boxes around its text.
+            let shift = shift_of_run(i);
+            let run_origin = LogicalPosition::new(
+                container_rect.origin.x + shift.x,
+                container_rect.origin.y + shift.y,
+            );
             // Calculate the bounding box for this glyph run
             if let (Some(first_glyph), Some(last_glyph)) =
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
             {
                 // Calculate run bounds from glyph positions
-                let run_start_x = container_rect.origin.x + first_glyph.point.x;
-                let run_end_x = container_rect.origin.x + last_glyph.point.x;
+                let run_start_x = run_origin.x + first_glyph.point.x;
+                // The pen AFTER the last glyph (`end_x`), not the last pen:
+                // a run's extent covers its last letter.
+                let run_end_x = run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
                 let run_width = (run_end_x - run_start_x).max(0.0);
 
                 // Skip if run has no width
@@ -7777,7 +9299,7 @@ where
                 }
 
                 // Approximate height based on font size (baseline is at glyph.point.y)
-                let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                let baseline_y = run_origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * APPROX_ASCENT_RATIO;
 
@@ -7818,7 +9340,14 @@ where
         let selection_recolour = self.selection_recolour_for_ifc(source_node_index);
 
         // SECOND PASS: Render text runs
-        for glyph_run in glyph_runs {
+        for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            // The run's origin: the IFC's content box, moved by the
+            // relatively positioned inline boxes around its text.
+            let shift = shift_of_run(i);
+            let run_origin = LogicalPosition::new(
+                container_rect.origin.x + shift.x,
+                container_rect.origin.y + shift.y,
+            );
             // Clip text to the viewport-sized content box, not the full scroll
             // content area. This prevents text from overflowing outside the
             // container when overflow is hidden/scroll/auto.
@@ -7828,9 +9357,18 @@ where
             // relative to (0,0) of the IFC). (#25) The runs are stored
             // compact; this expansion builds the same Vec the pre-#25 code
             // built by copy-then-offset — construct instead of memcpy.
-            let offset_glyphs: Vec<GlyphInstance> = glyph_run
-                .glyphs
-                .to_vec_offset(container_rect.origin.x, container_rect.origin.y);
+            let mut offset_glyphs: Vec<GlyphInstance> =
+                glyph_run.glyphs.to_vec_offset(run_origin.x, run_origin.y);
+            // What the ellipsis replaces is not painted (it is still laid
+            // out: hit-testing, selection and copying see it).
+            if let Some(ellipsis) = ellipsis {
+                offset_glyphs.retain(|g| {
+                    !ellipsis.hides(g.point.x - run_origin.x, g.point.y - run_origin.y)
+                });
+                if offset_glyphs.is_empty() {
+                    continue;
+                }
+            }
 
             // Store only the font hash in the display list to keep it lean
             let uniform_bg = if glyph_run.background_content.is_empty() {
@@ -7849,6 +9387,8 @@ where
             } else {
                 None // gradient/image span background — unprovable
             };
+            // A moved run may leave the background the IFC proved.
+            let uniform_bg = uniform_bg.filter(|_| shift.x == 0.0 && shift.y == 0.0);
             // Colour is paint-only and deliberately excluded from the text
             // layout hash, so a cached run can outlive the cascade that
             // resolved its colour (the deactivated-ribbon-tab KNOWN GAP:
@@ -7861,80 +9401,19 @@ where
                 .and_then(|nid| {
                     let sd = self.ctx.styled_dom;
                     let styled_nodes = sd.styled_nodes.as_container();
-                    if nid.index() >= styled_nodes.len() {
-                        return None;
-                    }
-                    let cache = &sd.css_property_cache.ptr;
-                    let node_data = sd.node_data.as_container();
-                    // ANCESTOR USER OVERRIDES participate in inheritance: an
-                    // `animation: color ..` transition overrides `color` on a
-                    // CONTAINER, and the precomputed inherited tables cannot
-                    // see it — the text painted the stale colour (found by
-                    // the css_anim_perf_transition damage law: the "colour
-                    // transition" repainted nothing). Walk self -> root: the
-                    // nearest override wins unless a closer node declares its
-                    // OWN colour, which re-roots inheritance below it.
-                    let hierarchy = sd.node_hierarchy.as_container();
-                    let ty = azul_css::props::property::CssPropertyType::TextColor;
-                    let mut cur = Some(nid);
-                    while let Some(n) = cur {
-                        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
-                            cache.get_user_override(&n, &ty)
-                        {
-                            if let Some(c) = v.get_property() {
-                                return Some(c.inner);
-                            }
-                            break;
-                        }
-                        if n.index() < node_data.len()
-                            && cache.has_own_declaration(&node_data[n], &n, &ty)
-                        {
-                            break;
-                        }
-                        cur = hierarchy
-                            .get(n)
-                            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-                    }
-                    let node_state = &styled_nodes[nid].styled_node_state;
-                    // No declared `color` anywhere up the chain: the UA default
-                    // applies, and that default depends on the theme. Black is
-                    // right on a light window and invisible on a dark one. The
-                    // themed default is CASCADED (the root's `cascaded_props`,
-                    // every descendant's `computed_values`, the compact text
-                    // tier), so on a cascaded DOM `get_text_color` answers it
-                    // here; the fallback below re-derives it from the context
-                    // only for a DOM no UA pass has run on, and asserts that.
-                    Some(
-                        cache
-                            .get_text_color(&node_data[nid], &nid, node_state)
-                            .and_then(|c| c.get_property().copied())
-                            .unwrap_or_else(|| {
-                                debug_assert!(
-                                    !cache.ua_applied,
-                                    "live_color: node {} has no `color` in its resolved style \
-                                     although the UA pass ran — the themed root default did \
-                                     not reach it (theme-chain analysis 2026-09-12, R1)",
-                                    nid.index()
-                                );
-                                // The SAME context the cascade evaluated this
-                                // DOM against — which carries the window's own
-                                // theme — not a fresh system-only one: the two
-                                // used to disagree after an in-app theme switch,
-                                // leaving the widgets dark and the text black.
-                                let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_else(|| {
-                                    self.ctx.system_style.as_ref().map_or_else(
-                                        azul_css::dynamic_selector::DynamicSelectorContext::default,
-                                        |s| {
-                                            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
-                                        },
-                                    )
-                                });
-                                azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
-                            })
-                            .inner,
-                    )
+                    // The one resolution of the used colour - the ancestors'
+                    // runtime overrides (a colour transition on a container),
+                    // the cascade, the themed UA default, `system:` tokens -
+                    // shared with `currentcolor` borders.
+                    styled_nodes.get(nid).map(|styled| {
+                        super::getters::get_used_text_color(sd, nid, &styled.styled_node_state)
+                    })
                 })
-                .unwrap_or(glyph_run.color);
+                // A run without a source node (a marker, synthesized
+                // content) keeps its baked colour, `system:` resolved.
+                .unwrap_or_else(|| {
+                    super::getters::system_colors_resolved(self.ctx.styled_dom, glyph_run.color)
+                });
             match &selection_recolour {
                 Some((rects, selected_color)) => {
                     // A glyph's `point` is its pen position ON THE BASELINE at
@@ -7946,12 +9425,15 @@ where
                     // hence the half-open x test. (A zero-advance mark sitting
                     // exactly on the right edge stays unselected; it is one
                     // combining mark at the very end of a selection.)
+                    // The selection rects are where the LINES put the text:
+                    // a moved run's glyph is tested where it was laid out.
                     let inside = |g: &GlyphInstance| {
+                        let (x, y) = (g.point.x - shift.x, g.point.y - shift.y);
                         rects.iter().any(|r| {
-                            g.point.x >= r.min_x() - 0.5
-                                && g.point.x < r.max_x() - 0.5
-                                && g.point.y >= r.min_y()
-                                && g.point.y <= r.max_y()
+                            x >= r.min_x() - 0.5
+                                && x < r.max_x() - 0.5
+                                && y >= r.min_y()
+                                && y <= r.max_y()
                         })
                     };
                     let (selected, normal): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
@@ -8006,8 +9488,14 @@ where
                 if let (Some(first_glyph), Some(last_glyph)) =
                     (glyph_run.glyphs.first(), glyph_run.glyphs.last())
                 {
-                    let decoration_start_x = container_rect.origin.x + first_glyph.point.x;
-                    let decoration_end_x = container_rect.origin.x + last_glyph.point.x;
+                    let decoration_start_x = run_origin.x + first_glyph.point.x;
+                    // Under the last letter too (`end_x`: the pen after it) -
+                    // and not under what an ellipsis replaces.
+                    let mut decoration_end_x =
+                        run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
+                    if let Some(cut) = ellipsis.and_then(|e| e.cut_at(first_glyph.point.y)) {
+                        decoration_end_x = decoration_end_x.min(run_origin.x + cut.x);
+                    }
                     let decoration_width = decoration_end_x - decoration_start_x;
 
                     // Use font metrics to determine decoration positions
@@ -8016,7 +9504,7 @@ where
                     let thickness = (font_size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
 
                     // Baseline is at glyph.point.y
-                    let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                    let baseline_y = run_origin.y + first_glyph.point.y;
 
                     if needs_underline {
                         // Underline is typically 10-15% below baseline
@@ -8057,9 +9545,29 @@ where
             }
         }
 
+        // The ellipses, after the text they end (in the root's colour, on the
+        // background the IFC proved).
+        if let Some(ellipsis) = ellipsis {
+            Self::paint_ellipses(
+                builder,
+                ellipsis,
+                container_rect.origin,
+                viewport_clip_rect,
+                source_node_index,
+                ifc_uniform_bg,
+            );
+        }
+
         // THIRD PASS: Generate hit-test areas for text runs
         // This enables cursor resolution directly on text nodes instead of their containers
-        for glyph_run in glyph_runs {
+        for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            // The run's origin: the IFC's content box, moved by the
+            // relatively positioned inline boxes around its text.
+            let shift = shift_of_run(i);
+            let run_origin = LogicalPosition::new(
+                container_rect.origin.x + shift.x,
+                container_rect.origin.y + shift.y,
+            );
             // Only generate hit-test areas for runs with a source node id
             let Some(source_node_id) = glyph_run.source_node_id else {
                 continue;
@@ -8069,8 +9577,10 @@ where
             if let (Some(first_glyph), Some(last_glyph)) =
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
             {
-                let run_start_x = container_rect.origin.x + first_glyph.point.x;
-                let run_end_x = container_rect.origin.x + last_glyph.point.x;
+                let run_start_x = run_origin.x + first_glyph.point.x;
+                // The pen AFTER the last glyph (`end_x`), not the last pen:
+                // a run's extent covers its last letter.
+                let run_end_x = run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
                 let run_width = (run_end_x - run_start_x).max(0.0);
 
                 // Skip if run has no width
@@ -8079,7 +9589,7 @@ where
                 }
 
                 // Calculate run bounds using font metrics
-                let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                let baseline_y = run_origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * APPROX_ASCENT_RATIO;
 
@@ -8179,7 +9689,13 @@ where
 
     // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per
     // E.2
-    /// Paints an inline shape (inline-block background and border)
+    /// Paints an inline shape (inline-block background and border), mapped to
+    /// the inline-block's OWN node: it is painted while its line's block is
+    /// being painted, and the block's attribution made the box's paint the
+    /// block's in the list - no face of its own for a button in a row to fade
+    /// or patch, and its damage the block's. Only the node changes: the items
+    /// stay in the block's content run (`current_layout`), which is where a
+    /// cached copy of the run replays them.
     fn paint_inline_shape(
         &self,
         builder: &mut DisplayListBuilder,
@@ -8187,11 +9703,26 @@ where
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
     ) {
-        // Render inline-block backgrounds and borders using their CSS styling
-        // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
             return;
         };
+        let block = builder.current_node();
+        builder.set_current_node(Some(node_id));
+        self.paint_inline_shape_of(builder, object_bounds, shape, bounds, node_id);
+        builder.set_current_node(block);
+    }
+
+    /// [`Self::paint_inline_shape`] for the inline-block `node_id`.
+    fn paint_inline_shape_of(
+        &self,
+        builder: &mut DisplayListBuilder,
+        object_bounds: LogicalRect,
+        shape: &InlineShape,
+        bounds: &crate::text3::cache::Rect,
+        node_id: NodeId,
+    ) {
+        // Render inline-block backgrounds and borders using their CSS styling
+        // The text3 engine positions these correctly in the inline flow
 
         // If this inline-block establishes a stacking context, its background was
         // already painted by paint_node_background_and_border (called from
@@ -8215,23 +9746,62 @@ where
         // Get border information
         let border_info = get_border_info(self.ctx.styled_dom, node_id, styled_node_state);
 
-        // FIX: object_bounds is the margin-box position from text3.
-        // We need to convert to border-box for painting backgrounds/borders.
-        let margins = self
+        // An inline TABLE (CSS 2.2 17.5.1): its own box here is layer 1; the
+        // layers above it - column, row and cell backgrounds, the resolved
+        // collapsed borders - are `paint_table_items`, below, which a block
+        // table's box painting calls and this one did not (an inline table
+        // painted no cell background and no collapsed border at all). In the
+        // collapsing model the table's border is part of the resolved grid,
+        // so its box paints none, as a block table's.
+        let inline_table = self
             .positioned_tree
             .tree
             .dom_to_layout
             .get(&node_id)
-            .map_or_else(crate::solver3::geometry::EdgeSizes::default, |indices| {
-                indices
-                    .first()
-                    .map_or_else(crate::solver3::geometry::EdgeSizes::default, |&idx| {
-                        self.positioned_tree.tree.nodes[idx.index()]
-                            .box_props
-                            .unpack()
-                            .margin
-                    })
+            .and_then(|indices| indices.first())
+            .map(|idx| idx.index())
+            .filter(|&index| {
+                self.positioned_tree
+                    .tree
+                    .get(LayoutNodeId::new(index))
+                    .is_some_and(|n| matches!(n.formatting_context, FormattingContext::Table))
             });
+        let border_info = if inline_table.is_some_and(|t| self.table_is_border_collapsed(t)) {
+            let mut without_border = border_info;
+            without_border.widths = StyleBorderWidths {
+                top: None,
+                right: None,
+                bottom: None,
+                left: None,
+            };
+            without_border
+        } else {
+            border_info
+        };
+
+        // FIX: object_bounds is the margin-box position from text3.
+        // We need to convert to border-box for painting backgrounds/borders.
+        let (margins, border, padding) = self
+            .positioned_tree
+            .tree
+            .dom_to_layout
+            .get(&node_id)
+            .and_then(|indices| indices.first())
+            .map(|&idx| {
+                self.positioned_tree.tree.nodes[idx.index()]
+                    .box_props
+                    .unpack()
+            })
+            .map_or_else(
+                || {
+                    (
+                        crate::solver3::geometry::EdgeSizes::default(),
+                        crate::solver3::geometry::EdgeSizes::default(),
+                        crate::solver3::geometry::EdgeSizes::default(),
+                    )
+                },
+                |bp| (bp.margin, bp.border, bp.padding),
+            );
 
         // Convert margin-box bounds to border-box bounds
         let border_box_bounds = LogicalRect {
@@ -8263,15 +9833,27 @@ where
         let style_border_radius =
             get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
-        // Use unified background/border painting with border-box bounds
-        builder.push_backgrounds_and_border(
+        // Shadows, backgrounds and the border with border-box bounds - the
+        // box painter's own sequence (an inline-block's shadow used to be
+        // skipped here).
+        self.paint_box_decorations(
+            builder,
+            node_id,
+            styled_node_state,
             border_box_bounds,
+            &border,
+            &padding,
             &background_contents,
             &border_info,
             simple_border_radius,
             style_border_radius,
-            self.ctx.image_cache,
         );
+
+        // The table layers 2-6 over the inline table's own box (see above).
+        // A grid that cannot be analysed leaves the box as painted.
+        if let Some(table) = inline_table {
+            drop(self.paint_table_items(builder, table));
+        }
 
         // Push hit-test area for this inline-block element
         // This is critical for buttons and other inline-block elements to receive
@@ -8290,54 +9872,130 @@ where
     // fixed/root creates SC +spec:positioning:d06368 - relative/absolute with z-index:auto do
     // not form stacking context but are painted as if they did
     fn establishes_stacking_context(&self, node_index: usize) -> bool {
-        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
-            return false;
-        };
-        let Some(dom_id) = node.dom_node_id else {
-            return false;
-        };
+        node_establishes_stacking_context(
+            self.ctx.styled_dom,
+            self.positioned_tree.tree,
+            node_index,
+        )
+    }
 
-        let position = get_position_type(self.ctx.styled_dom, Some(dom_id));
-        let z_auto = crate::solver3::getters::is_z_index_auto(self.ctx.styled_dom, Some(dom_id));
+    /// Is the box at `node_index` a positioned box painted at step 8 of its
+    /// stacking context without being one (see
+    /// [`node_paints_as_positioned_box`])?
+    fn paints_as_positioned_box(&self, node_index: usize) -> bool {
+        node_paints_as_positioned_box(
+            self.ctx.styled_dom,
+            self.positioned_tree.tree,
+            node_index,
+        )
+    }
 
-        // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
-        if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
+    /// Is the box at `node_index` being dragged? Painted last among what its
+    /// walk paints at its level, over everything (W3C).
+    fn is_being_dragged(&self, node_index: usize) -> bool {
+        self.positioned_tree
+            .tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|node| node.dom_node_id)
+            .is_some_and(|dom_id| self.get_styled_node_state(dom_id).dragging)
+    }
+}
+
+/// Is the box at `node_index` a positioned box with `z-index: auto` that is
+/// not a stacking context - `position: relative` or `absolute` and nothing
+/// else that makes one (opacity, a transform, a filter)?
+///
+/// CSS 2.2 Appendix E paints such a box at step 8 of its stacking context, in
+/// tree order with the stacking contexts of level 0 (a transformed or
+/// translucent box) and after every in-flow box of the context - not where
+/// the in-flow walk reaches it. (Fixed and sticky boxes are always stacking
+/// contexts: `node_establishes_stacking_context`.)
+pub(crate) fn node_paints_as_positioned_box(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> bool {
+    let Some(dom_id) = tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|node| node.dom_node_id)
+    else {
+        return false;
+    };
+    matches!(
+        get_position_type(styled_dom, Some(dom_id)),
+        LayoutPosition::Relative | LayoutPosition::Absolute
+    ) && crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id))
+        && !node_establishes_stacking_context(styled_dom, tree, node_index)
+}
+
+/// Does the box at `node_index` paint as a stacking context of its own?
+///
+/// The display list's answer (`DisplayListGenerator::establishes_stacking_context`),
+/// shared with `scroll_chain::box_anchor`: a stacking context wraps
+/// everything painted inside it in groups the walk cannot close around a
+/// descendant, so no descendant's containing block can take it out of one.
+pub(crate) fn node_establishes_stacking_context(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> bool {
+    let Some(node) = tree.get(LayoutNodeId::new(node_index)) else {
+        return false;
+    };
+    let Some(dom_id) = node.dom_node_id else {
+        return false;
+    };
+
+    let position = get_position_type(styled_dom, Some(dom_id));
+    let z_auto = crate::solver3::getters::is_z_index_auto(styled_dom, Some(dom_id));
+
+    // +spec:position-sticky:66ba22 - fixed and sticky positioned boxes form a stacking context
+    if position == LayoutPosition::Fixed || position == LayoutPosition::Sticky {
+        return true;
+    }
+
+    // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
+    // context BY THEIR Z-INDEX. They still form one for every other reason below
+    // (opacity < 1, a transform): returning here for `z-index: auto` skipped those
+    // checks, so an absolutely positioned element with `opacity: 0` painted fully
+    // opaque (the Tooltip widget's hidden tip was always visible).
+    if position == LayoutPosition::Absolute && !z_auto {
+        return true;
+    }
+
+    // position:relative with explicit z-index integer establishes stacking context
+    if position == LayoutPosition::Relative && !z_auto {
+        return true;
+    }
+
+    if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(dom_id) {
+        let node_state = &styled_node.styled_node_state;
+
+        // Opacity < 1 (GPU: fast path via compact cache)
+        if crate::solver3::getters::get_opacity(styled_dom, dom_id, node_state) < 1.0 {
             return true;
         }
 
-        // +spec:positioning:d06368 - relative/absolute with z-index:auto do not form stacking
-        // context z-index:auto on position:absolute does NOT establish stacking context
-        if position == LayoutPosition::Absolute {
-            return !z_auto;
-        }
-
-        // position:relative with explicit z-index integer establishes stacking context
-        if position == LayoutPosition::Relative && !z_auto {
-            return true;
-        }
-
-        if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            let node_state =
-                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-            // Opacity < 1 (GPU: fast path via compact cache)
-            if crate::solver3::getters::get_opacity(self.ctx.styled_dom, dom_id, node_state) < 1.0 {
+        // Transform != none (GPU: has_transform bit check, then slow walk only if set)
+        if let Some(t) = crate::solver3::getters::get_transform(styled_dom, dom_id, node_state) {
+            if !t.is_empty() {
                 return true;
             }
-
-            // Transform != none (GPU: has_transform bit check, then slow walk only if set)
-            if let Some(t) =
-                crate::solver3::getters::get_transform(self.ctx.styled_dom, dom_id, node_state)
-            {
-                if !t.is_empty() {
-                    return true;
-                }
-            }
         }
 
-        false
+        // `filter` other than `none` (Filter Effects 1, section 5): the filter
+        // applies to the element and its descendants as ONE group, and the
+        // display list paints a filter only around a stacking context. Without
+        // this a filter on an ordinary box was silently dropped - an icon's
+        // tint above all (ledger E15). Fast path: the compact cache's bit.
+        if crate::solver3::getters::get_filter(styled_dom, dom_id, node_state)
+            .is_some_and(|f| !f.as_ref().is_empty())
+        {
+            return true;
+        }
     }
+
+    false
 }
 
 /// Helper struct to pass layout results to the display list generator.
@@ -8451,7 +10109,7 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
             Some((max_x, max_y))
         });
         let (max_x, max_y) = if let Some((dx, dy)) = dense_extent {
-            if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+            if env_flag!("AZ_DENSE_TEXT" == "verify") {
                 let mut sx: f32 = 0.0;
                 let mut sy: f32 = 0.0;
                 for positioned_item in &text_layout.items {
@@ -8516,7 +10174,7 @@ fn get_image_ref_for_image_source(
         ImageSource::Node(_) => None,
         ImageSource::Url(url) => {
             // CSS url() image — resolved exactly like `background-image`: look it
-            // up in the ImageCache by its CSS id (see push_backgrounds_and_border).
+            // up in the ImageCache by its CSS id (see DisplayListBuilder::push_background_layer).
             let css_id: azul_css::AzString = url.clone().into();
             image_cache.get_css_image_id(&css_id).cloned()
         }
@@ -8826,7 +10484,10 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PopScrollFrame
         | DisplayListItem::PushStackingContext { .. }
         | DisplayListItem::PopStackingContext
-        | DisplayListItem::VirtualViewPlaceholder { .. } => None,
+        | DisplayListItem::VirtualViewPlaceholder { .. }
+        // A live web page has no printed form: a page of paged output shows
+        // what the box itself paints (its fallback content, if any).
+        | DisplayListItem::WebView { .. } => None,
 
         // Gradient items - simple bounds check
         DisplayListItem::LinearGradient {
@@ -10316,6 +11977,10 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
         },
+        DisplayListItem::WebView { node_id, bounds } => DisplayListItem::WebView {
+            node_id: *node_id,
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
+        },
         // Pass through stateless items
         DisplayListItem::PopClip => DisplayListItem::PopClip,
         DisplayListItem::PopScrollFrame => DisplayListItem::PopScrollFrame,
@@ -10540,21 +12205,57 @@ fn generate_text_display_items(
     }]
 }
 
-/// Calculate the total height of a display list (max Y + height of all items).
+/// The paged extent of a display list: the bottom of the lowest content
+/// that can be PAINTED.
+///
+/// Every item counts with the part of its bounds the clips it is painted in
+/// leave visible (`PushClip`, `PushScrollFrame`, `PushImageMaskClip`; nested
+/// ones intersect, their pops close them). Content an `overflow: hidden` box
+/// clips away shows on no page, so it must not make one - an abspos block's
+/// text running past a fixed-height clipped page box made empty pages. A
+/// clip marker's own rect counts like an item (it is the clipping box),
+/// within the clips around it. Items under 0.1px tall are no visible
+/// content; the result is never negative or NaN.
 pub(crate) fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
+    // The clips open at each item: no entry = unclipped, `None` = an empty
+    // clip (nothing inside it is painted).
+    let mut clips: Vec<Option<LogicalRect>> = Vec::new();
     let mut max_bottom = 0.0f32;
 
     for item in &display_list.items {
-        if let Some(bounds) = get_display_item_bounds(item) {
-            // Skip items with zero height - they don't contribute to visible content
-            if bounds.0.size.height < 0.1 {
-                continue;
-            }
-
-            let item_bottom = bounds.0.origin.y + bounds.0.size.height;
-            if item_bottom > max_bottom {
-                max_bottom = item_bottom;
-            }
+        if matches!(
+            item,
+            DisplayListItem::PopClip
+                | DisplayListItem::PopScrollFrame
+                | DisplayListItem::PopImageMaskClip
+        ) {
+            clips.pop();
+            continue;
+        }
+        let Some(bounds) = get_display_item_bounds(item) else {
+            continue;
+        };
+        let visible = match clips.last().copied() {
+            None => Some(bounds.0),
+            Some(clip) => clip.and_then(|c| intersect_rects(c, bounds.0)),
+        };
+        if matches!(
+            item,
+            DisplayListItem::PushClip { .. }
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::PushImageMaskClip { .. }
+        ) {
+            clips.push(visible);
+        }
+        let Some(visible) = visible else {
+            continue;
+        };
+        if visible.size.height < 0.1 {
+            continue;
+        }
+        let item_bottom = visible.origin.y + visible.size.height;
+        if item_bottom > max_bottom {
+            max_bottom = item_bottom;
         }
     }
 
@@ -10575,109 +12276,106 @@ struct BreakProperties {
 // TEXT-OVERFLOW STUB
 // ============================================================================
 
-/// Applies text-overflow ellipsis handling to a display list.
-///
-/// CSS UI Module Level 3, section 6.2 (text-overflow):
-/// When inline content overflows a block container that has `overflow: hidden`
-/// (or clip/scroll) and `text-overflow: ellipsis`, the overflowing text should
-/// be replaced with an ellipsis character (U+2026) or a custom string.
-///
-/// This is a display-list post-processing step that modifies glyph runs
-/// to show an ellipsis when text overflows its container. It operates on
-/// the assumption that the container already has a `PushClip` that clips
-/// the overflow -- this function additionally replaces the trailing glyphs
-/// with an ellipsis so the user gets a visual indicator of truncation.
-///
-/// # Parameters
-/// - `display_list`: The display list to modify (text items may be clipped/replaced)
-/// - `container_bounds`: The bounds of the containing block (overflow boundary)
-/// - `_ellipsis`: The ellipsis string (currently unused; U+2026 glyph index is used)
-///
-/// # Algorithm
-/// 1. For each Text item in the display list, check if any glyphs extend past the container's right
-///    edge (inline-end in LTR).
-/// 2. If so, find the last glyph that fits entirely within the container, accounting for the width
-///    of the ellipsis character.
-/// 3. Remove all glyphs after that point.
-/// 4. Append an ellipsis glyph (U+2026 = glyph index 0x2026 as a fallback; proper glyph lookup
-///    requires font metrics not available here).
-///
-/// Note: This is a best-effort implementation. A pixel-perfect version would
-/// need access to font metrics to measure the exact ellipsis glyph width and
-/// to look up the correct glyph index for the ellipsis in each font.
-// +spec:overflow:f175b9 - bidi ellipsis: characters visually at the end edge of the line are hidden
-// for ellipsis
-pub(crate) fn apply_text_overflow_ellipsis(
-    display_list: &mut DisplayList,
-    container_bounds: LogicalRect,
-    _ellipsis: &str,
-) {
-    let container_right = container_bounds.origin.x + container_bounds.size.width;
+/// Where `text-overflow: ellipsis` cuts one line of an inline formatting
+/// context (CSS Overflow 3 §3.1), in the IFC's own coordinates (its content
+/// box's top left at 0, 0).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EllipsisCut {
+    /// The line's band on the block axis: a glyph whose baseline lies in it is
+    /// one of the line's.
+    pub top: f32,
+    pub bottom: f32,
+    /// The end edge of what stays, where the ellipsis starts: everything the
+    /// line holds from here on is hidden.
+    pub x: f32,
+    /// The baseline the ellipsis sits on: the last kept character's (the
+    /// one its glyph run is painted on).
+    pub baseline: f32,
+}
 
-    // Approximate ellipsis width as ~0.6 * font_size (typical for "..." in most fonts).
-    // This is a heuristic; proper implementation requires font metric access.
-    for item in &mut display_list.items {
-        if let DisplayListItem::Text {
-            glyphs,
-            font_size_px,
-            clip_rect,
-            ..
-        } = item
-        {
-            if glyphs.is_empty() {
-                continue;
-            }
+impl EllipsisCut {
+    /// Whether the glyph with its pen at (`x`, `baseline`) is one the cut
+    /// hides: on this line, at or past where the ellipsis starts.
+    fn hides(&self, x: f32, baseline: f32) -> bool {
+        baseline >= self.top - 0.5 && baseline <= self.bottom + 0.5 && x >= self.x - 0.01
+    }
+}
 
-            // Check if any glyph extends past the container right edge
-            let last_glyph = &glyphs[glyphs.len() - 1];
-            let last_glyph_right = last_glyph.point.x + last_glyph.size.width;
-
-            if last_glyph_right <= container_right {
-                continue; // No overflow, nothing to do
-            }
-
-            // Estimate ellipsis width
-            let ellipsis_width = *font_size_px * APPROX_ELLIPSIS_WIDTH_RATIO;
-            let truncation_edge = container_right - ellipsis_width;
-
-            // Find the last glyph that fits before the truncation edge
-            let mut keep_count = 0;
-            for (i, glyph) in glyphs.iter().enumerate() {
-                let glyph_right = glyph.point.x + glyph.size.width;
-                if glyph_right > truncation_edge {
-                    break;
-                }
-                keep_count = i + 1;
-            }
-
-            // Truncate the glyphs
-            glyphs.truncate(keep_count);
-
-            // Append an ellipsis glyph. We use Unicode codepoint U+2026
-            // (HORIZONTAL ELLIPSIS) as the glyph index. This is a common
-            // convention; renderers that use proper glyph IDs will need to
-            // map this to the font's actual glyph index.
-            let ellipsis_x = glyphs.last().map_or(container_bounds.origin.x, |last| {
-                last.point.x + last.size.width
-            });
-
-            let ellipsis_glyph = GlyphInstance {
-                index: 0x2026, // U+2026 HORIZONTAL ELLIPSIS
-                point: LogicalPosition::new(
-                    ellipsis_x,
-                    glyphs
-                        .first()
-                        .map_or(container_bounds.origin.y, |g| g.point.y),
-                ),
-                size: LogicalSize::new(ellipsis_width, *font_size_px),
-            };
-
-            glyphs.push(ellipsis_glyph);
-
-            // Update the clip rect to match the container bounds so
-            // the ellipsis is visible but nothing past it is shown
-            *clip_rect = container_bounds.into();
+/// The lines of `items` (a laid-out IFC, in line order) that run past the end
+/// edge `end_x`, each cut for an ellipsis `advance` wide: CSS Overflow 3 §3.1,
+/// "implementations must hide characters and atomic inline-level elements at
+/// the end edge of the line as necessary to fit the ellipsis, and place the
+/// ellipsis immediately adjacent to the end edge of the remaining inline
+/// content. The first character or atomic inline-level element on a line must
+/// be clipped rather than ellipsed." Only the lines that overflow are cut; a
+/// line that fits keeps everything. Left-to-right lines: the end edge is the
+/// right one.
+pub(crate) fn ellipsis_cuts(
+    items: &[PositionedItem],
+    end_x: f32,
+    advance: f32,
+) -> Vec<EllipsisCut> {
+    let right = |item: &PositionedItem| item.position.x + item.item.bounds().width;
+    let mut cuts = Vec::new();
+    let mut start = 0;
+    while start < items.len() {
+        let line_index = items[start].line_index;
+        let end = items[start..]
+            .iter()
+            .position(|item| item.line_index != line_index)
+            .map_or(items.len(), |n| start + n);
+        let line = &items[start..end];
+        start = end;
+        if !line.iter().any(|item| right(item) > end_x + 0.5) {
+            continue;
         }
+        let mut order: Vec<&PositionedItem> = line.iter().collect();
+        order.sort_by(|a, b| a.position.x.total_cmp(&b.position.x));
+        let fits = end_x - advance + 0.01;
+        let kept = 1 + order[1..].iter().take_while(|item| right(item) <= fits).count();
+        let last = order[kept - 1];
+        let on_baseline = order[..kept]
+            .iter()
+            .rev()
+            .find(|item| matches!(item.item, ShapedItem::Cluster(_)))
+            .copied()
+            .unwrap_or(last);
+        let (ascent, _) = crate::text3::cache::get_item_vertical_metrics_approx(&on_baseline.item);
+        let top = line.iter().map(|item| item.position.y).fold(f32::INFINITY, f32::min);
+        let bottom = line
+            .iter()
+            .map(|item| item.position.y + item.item.bounds().height)
+            .fold(f32::NEG_INFINITY, f32::max);
+        cuts.push(EllipsisCut {
+            top,
+            bottom,
+            x: right(last),
+            baseline: on_baseline.position.y + ascent,
+        });
+    }
+    cuts
+}
+
+/// The ellipsis of an IFC whose root asks for `text-overflow: ellipsis`, and
+/// the lines it ends: the glyphs, shaped in the root's style, and its paint.
+struct TextOverflowEllipsis {
+    glyphs: Vec<crate::text3::cache::Glyph>,
+    font_size_px: f32,
+    color: ColorU,
+    cuts: Vec<EllipsisCut>,
+}
+
+impl TextOverflowEllipsis {
+    /// The cut of the line a glyph with its baseline at `baseline` is on.
+    fn cut_at(&self, baseline: f32) -> Option<&EllipsisCut> {
+        self.cuts
+            .iter()
+            .find(|cut| baseline >= cut.top - 0.5 && baseline <= cut.bottom + 0.5)
+    }
+
+    /// Whether a glyph with its pen at (`x`, `baseline`), IFC-local, is hidden.
+    fn hides(&self, x: f32, baseline: f32) -> bool {
+        self.cuts.iter().any(|cut| cut.hides(x, baseline))
     }
 }
 
@@ -10856,6 +12554,189 @@ pub(crate) fn apply_clip_path(
     display_list.node_mapping.push(None);
 }
 
+/// A bounded memo of the SVG masks the display-list builder rasterises
+/// (CHART7): every build used to rasterise every clip mask and stroke mask
+/// again - 2x-oversampled coverage per shape, per frame - for geometry that
+/// had not changed. A mask is a pure function of its inputs (the path, the
+/// box it is drawn into, the viewBox, the stroke width), so an unchanged
+/// shape gets its earlier `ImageRef` back (the same image id, so a
+/// renderer's image cache hits too).
+///
+/// Thread-local (display lists are built on the thread that lays out) and
+/// bounded by entries and by mask bytes: the least recently used mask goes.
+#[cfg(feature = "cpurender")]
+mod svg_mask_memo {
+    use std::{
+        cell::RefCell,
+        collections::HashMap,
+        hash::{Hash, Hasher},
+    };
+
+    use super::{ImageRef, LogicalRect};
+
+    /// At most this many masks ...
+    const MAX_ENTRIES: usize = 256;
+    /// ... holding at most this many mask bytes (R8: one per pixel).
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+
+    /// Which rasteriser drew a mask.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub(super) enum MaskKind {
+        /// `rasterize_svg_clip_to_r8`: the shape's fill region (non-zero).
+        Clip,
+        /// ... with `fill-rule="evenodd"`: overlapping rings cut holes.
+        ClipEvenOdd,
+        /// `rasterize_svg_stroke_to_r8`: its stroke.
+        Stroke,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct Key {
+        kind: MaskKind,
+        path: u64,
+        /// The paint rect's origin (only where the pixels depend on it) and
+        /// size, as f32 bits.
+        rect: [u32; 4],
+        view_box: Option<[u32; 4]>,
+        width: u32,
+    }
+
+    struct Entry {
+        image: ImageRef,
+        bytes: usize,
+        last_used: u64,
+    }
+
+    #[derive(Default)]
+    struct Memo {
+        entries: HashMap<Key, Entry>,
+        bytes: usize,
+        clock: u64,
+    }
+
+    thread_local! {
+        static MEMO: RefCell<Memo> = RefCell::new(Memo::default());
+    }
+
+    /// A 64-bit hash of every coordinate of `path`, by element.
+    fn path_hash(path: &azul_core::svg::SvgMultiPolygon) -> u64 {
+        use azul_core::svg::SvgPathElement;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let point = |p: &azul_css::props::basic::SvgPoint, h: &mut std::collections::hash_map::DefaultHasher| {
+            p.x.to_bits().hash(h);
+            p.y.to_bits().hash(h);
+        };
+        for ring in path.rings.as_ref() {
+            0xFFu8.hash(&mut h);
+            for item in ring.items.as_ref() {
+                match item {
+                    SvgPathElement::Line(l) => {
+                        0u8.hash(&mut h);
+                        point(&l.start, &mut h);
+                        point(&l.end, &mut h);
+                    }
+                    SvgPathElement::QuadraticCurve(q) => {
+                        1u8.hash(&mut h);
+                        point(&q.start, &mut h);
+                        point(&q.ctrl, &mut h);
+                        point(&q.end, &mut h);
+                    }
+                    SvgPathElement::CubicCurve(c) => {
+                        2u8.hash(&mut h);
+                        point(&c.start, &mut h);
+                        point(&c.ctrl_1, &mut h);
+                        point(&c.ctrl_2, &mut h);
+                        point(&c.end, &mut h);
+                    }
+                }
+            }
+        }
+        h.finish()
+    }
+
+    /// The mask of `kind` for these inputs: the memo's, else `rasterise()`'s
+    /// (remembered when it drew one).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a mask's pixel count
+    pub(super) fn get_or_rasterise(
+        kind: MaskKind,
+        path: &azul_core::svg::SvgMultiPolygon,
+        paint_rect: &LogicalRect,
+        view_box: Option<(f32, f32, f32, f32)>,
+        width: f32,
+        rasterise: impl FnOnce() -> Option<ImageRef>,
+    ) -> Option<ImageRef> {
+        // A clip WITHOUT a viewBox is drawn in window coordinates (the paint
+        // rect's origin is subtracted from the geometry); a stroke, and a
+        // clip in a viewBox, only see the box's size.
+        let origin = match (kind, view_box) {
+            (MaskKind::Clip | MaskKind::ClipEvenOdd, None) => [
+                paint_rect.origin.x.to_bits(),
+                paint_rect.origin.y.to_bits(),
+            ],
+            _ => [0, 0],
+        };
+        let key = Key {
+            kind,
+            path: path_hash(path),
+            rect: [
+                origin[0],
+                origin[1],
+                paint_rect.size.width.to_bits(),
+                paint_rect.size.height.to_bits(),
+            ],
+            view_box: view_box.map(|(x, y, w, h)| [x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits()]),
+            width: width.to_bits(),
+        };
+        let hit = MEMO.with(|memo| {
+            let mut memo = memo.borrow_mut();
+            memo.clock += 1;
+            let clock = memo.clock;
+            memo.entries.get_mut(&key).map(|e| {
+                e.last_used = clock;
+                e.image.clone()
+            })
+        });
+        if hit.is_some() {
+            return hit;
+        }
+        let image = rasterise()?;
+        let size = image.get_size();
+        let bytes = (size.width.max(0.0) * size.height.max(0.0)) as usize;
+        if bytes > MAX_BYTES {
+            return Some(image);
+        }
+        MEMO.with(|memo| {
+            let mut memo = memo.borrow_mut();
+            while !memo.entries.is_empty()
+                && (memo.entries.len() >= MAX_ENTRIES || memo.bytes + bytes > MAX_BYTES)
+            {
+                let Some(oldest) = memo
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, e)| e.last_used)
+                    .map(|(k, _)| *k)
+                else {
+                    break;
+                };
+                if let Some(gone) = memo.entries.remove(&oldest) {
+                    memo.bytes -= gone.bytes;
+                }
+            }
+            let last_used = memo.clock;
+            memo.bytes += bytes;
+            memo.entries.insert(
+                key,
+                Entry {
+                    image: image.clone(),
+                    bytes,
+                    last_used,
+                },
+            );
+        });
+        Some(image)
+    }
+}
+
 /// The STROKE of a path, rasterised as an R8 coverage mask over `paint_rect`.
 ///
 /// The GPU backend's half of `DisplayListItem::StrokedPath`: `WebRender` has no
@@ -10938,23 +12819,11 @@ fn rasterize_svg_stroke_to_r8(
     })
 }
 
-/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given
-/// paint rect size.
-///
-/// Returns `None` if the rect has zero size.
-///
-/// Gated on `cpurender`, the feature that owns the `agg-rust` rasteriser this
-/// body is written against (`layout/Cargo.toml`: `cpurender = ["dep:agg-rust",
-/// ...]`), and the same gate its ONLY caller (`push_image_mask_clip`) already
-/// carries. Without `cpurender` a build has no vector rasteriser, so an SVG
-/// `clip-path` does not clip - the caller's `#[cfg(not(feature =
-/// "cpurender"))]` arm already says so on stderr, once.
-#[cfg(feature = "cpurender")]
 /// One mask image repeated across `area`, as a single image and the rect that
 /// holds it.
 ///
 /// `ImageMask::repeat` asks for a tiled mask, and nothing downstream can tile:
-/// the display-list item carries one image and one rect, and WebRender's
+/// the display-list item carries one image and one rect, and `WebRender`'s
 /// `ImageMask` is the same shape. So the tiles are laid out here, at the
 /// SOURCE mask's own resolution (`src_w` px per tile, not one screen pixel per
 /// tile) - the mask is authored in logical px and applied in device px, so a
@@ -11060,10 +12929,23 @@ fn mask_pixels_r8(mask: &ImageRef) -> Option<(Vec<u8>, usize, usize)> {
     Some((out, w, h))
 }
 
+/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given
+/// paint rect size.
+///
+/// Returns `None` if the rect has zero size.
+///
+/// Gated on `cpurender`, the feature that owns the `agg-rust` rasteriser this
+/// body is written against (`layout/Cargo.toml`: `cpurender = ["dep:agg-rust",
+/// ...]`), and the same gate its ONLY caller (`push_image_mask_clip`) already
+/// carries. Without `cpurender` a build has no vector rasteriser, so an SVG
+/// `clip-path` does not clip - the caller's `#[cfg(not(feature =
+/// "cpurender"))]` arm already says so on stderr, once.
+#[cfg(feature = "cpurender")]
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
     view_box: Option<(f32, f32, f32, f32)>,
+    even_odd: bool,
 ) -> Option<ImageRef> {
     use agg_rust::{
         basics::FillingRule, color::Rgba8, path_storage::PathStorage, pixfmt_rgba::PixfmtRgba32,
@@ -11156,7 +13038,11 @@ fn rasterize_svg_clip_to_r8(
         let mut rb = RendererBase::new(pf);
 
         let mut ras = RasterizerScanlineAa::new();
-        ras.filling_rule(FillingRule::NonZero);
+        ras.filling_rule(if even_odd {
+            FillingRule::EvenOdd
+        } else {
+            FillingRule::NonZero
+        });
         // FLATTENED first. `PathStorage` stores curve3/curve4 as COMMANDS;
         // the rasteriser does not subdivide them, so feeding it the raw
         // storage draws straight lines between the curve endpoints - a circle
@@ -12445,6 +14331,24 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_virtual_views_place_in_the_list_is_its_hosts() {
+        // The placeholder is pushed after the host's descendants painted; it
+        // inherited the last one's attribution, so hit testing ranked the
+        // host by a later item and put it over its own page.
+        let mut b = DisplayListBuilder::new();
+        b.current_node = Some(NodeId::new(5));
+        b.current_layout = Some((5, EmitPhase::Content));
+        b.push_virtual_view_placeholder(NodeId::new(2), 2, LogicalRect::zero(), LogicalRect::zero());
+        let list = b.build();
+        assert_eq!(list.node_mapping.last(), Some(&Some(NodeId::new(2))), "the host's node");
+        assert_eq!(
+            list.layout_node_mapping.last(),
+            Some(&Some((2, EmitPhase::Content))),
+            "the host's layout node"
+        );
+    }
+
+    #[test]
     fn builder_stack_pushes_accept_extreme_arguments() {
         let mut b = DisplayListBuilder::new();
         // i32 extremes for z-index, degenerate bounds, and an all-NaN clip.
@@ -12475,9 +14379,10 @@ mod autotest_generated {
             TransformKey::unique(),
             ComputedTransform3D::IDENTITY,
             LogicalRect::zero(),
+            None,
         );
         b.pop_reference_frame();
-        b.push_virtual_view_placeholder(NodeId::ZERO, LogicalRect::zero(), LogicalRect::zero());
+        b.push_virtual_view_placeholder(NodeId::ZERO, 0, LogicalRect::zero(), LogicalRect::zero());
         b.push_hit_test_area(rect(0.0, 0.0, 1.0, 1.0), (u64::MAX, TAG_TYPE_CURSOR));
         b.push_image(LogicalRect::zero(), test_image(), BorderRadius::default());
         b.push_linear_gradient(
@@ -13206,6 +15111,68 @@ mod autotest_generated {
         assert_eq!(h, 0.0);
     }
 
+    #[test]
+    fn calculate_display_list_height_ends_where_the_enclosing_clip_ends() {
+        // A 300px `overflow: hidden` box whose text runs on to y=900: what is
+        // painted ends at the clip, and so does the extent the page count is
+        // measured by. Content wholly below the clip adds nothing; content
+        // after the clip is closed counts again.
+        let bg = |y: f32, h: f32| DisplayListItem::Rect {
+            bounds: rect(0.0, y, 400.0, h).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let clipped = list_of(vec![
+            bg(0.0, 300.0),
+            DisplayListItem::PushClip {
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            bg(200.0, 700.0),
+            bg(1000.0, 50.0),
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(calculate_display_list_height(&clipped), 300.0);
+
+        let after = list_of(vec![
+            DisplayListItem::PushClip {
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            bg(200.0, 700.0),
+            DisplayListItem::PopClip,
+            bg(300.0, 100.0),
+        ]);
+        assert_eq!(calculate_display_list_height(&after), 400.0);
+    }
+
+    #[test]
+    fn calculate_display_list_height_clips_by_scroll_frames_and_nested_clips() {
+        // `overflow: hidden` with content to scroll opens a scroll frame
+        // instead of a plain clip; it clips just the same. Nested clips
+        // intersect: the inner one cannot reach past the outer one.
+        let text = |y: f32, h: f32| DisplayListItem::Rect {
+            bounds: rect(20.0, y, 200.0, h).into(),
+            color: opaque(),
+            border_radius: BorderRadius::default(),
+        };
+        let dl = list_of(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+                content_size: LogicalSize::new(400.0, 900.0),
+                scroll_id: 7,
+            },
+            DisplayListItem::PushClip {
+                bounds: rect(20.0, 200.0, 200.0, 500.0).into(),
+                border_radius: BorderRadius::default(),
+            },
+            text(200.0, 700.0),
+            DisplayListItem::PopClip,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        assert_eq!(calculate_display_list_height(&dl), 300.0);
+    }
+
     // ---------------------------------------------------------------------
     // get_scroll_id
     // ---------------------------------------------------------------------
@@ -13868,138 +15835,59 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // apply_text_overflow_ellipsis
+    // ellipsis_cuts (text-overflow: ellipsis)
     // ---------------------------------------------------------------------
 
-    #[test]
-    fn ellipsis_leaves_non_overflowing_text_alone() {
-        let container = rect(0.0, 0.0, 100.0, 20.0);
-        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 10.0, 10.0)]; // right edge 18 < 100
-        let mut dl = list_of(vec![text_item(
-            Some(0),
-            rect(0.0, 0.0, 100.0, 20.0),
-            glyphs.clone(),
-        )]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs: g, .. } => {
-                assert_eq!(g.len(), glyphs.len());
-                assert_eq!(g.iter().map(|x| x.index).collect::<Vec<_>>(), vec![1, 2]);
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    /// A line of `n` items 10 wide and 20 tall from x = 0, at `y`.
+    #[cfg(feature = "text_layout")]
+    fn line_of(line_index: usize, n: usize, y: f32) -> Vec<PositionedItem> {
+        (0..n)
+            .map(|i| positioned(line_index, i as f32 * 10.0, y, 10.0, 20.0))
+            .collect()
     }
 
     #[test]
-    fn ellipsis_truncates_overflowing_text_and_appends_u2026() {
-        let container = rect(0.0, 0.0, 50.0, 20.0);
-        // Glyphs at x = 0,10,20,30,40,50 each 8 wide => right edges 8,18,28,38,48,58.
-        let glyphs: Vec<_> = (0..6)
-            .map(|i| glyph(i + 1, (i as f32) * 10.0, 10.0))
-            .collect();
-        let mut dl = list_of(vec![text_item(
-            Some(0),
-            rect(0.0, 0.0, 500.0, 20.0),
-            glyphs,
-        )]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text {
-                glyphs: g,
-                clip_rect,
-                ..
-            } => {
-                // font_size 16 => ellipsis width 9.6 => truncation edge 40.4;
-                // glyph right edges 8/18/28/38 fit, 48 does not.
-                assert_eq!(g.len(), 5, "4 kept glyphs + 1 ellipsis");
-                assert_eq!(
-                    g.last().unwrap().index,
-                    0x2026,
-                    "U+2026 HORIZONTAL ELLIPSIS"
-                );
-                assert_eq!(g[3].index, 4, "the last kept glyph");
-                // The clip rect is retargeted to the container so nothing spills past it.
-                assert_eq!(clip_rect.into_inner(), container);
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    #[cfg(feature = "text_layout")]
+    fn a_line_that_fits_is_not_cut() {
+        assert!(ellipsis_cuts(&line_of(0, 5, 0.0), 50.0, 12.0).is_empty());
+        assert!(ellipsis_cuts(&line_of(0, 5, 0.0), 50.4, 12.0).is_empty());
     }
 
     #[test]
-    fn ellipsis_on_a_container_too_narrow_for_any_glyph_leaves_only_the_ellipsis() {
-        // keep_count == 0 => glyphs.truncate(0) => `glyphs.last()` is None. The fallback
-        // must anchor the ellipsis to the container origin instead of panicking.
-        let container = rect(3.0, 4.0, 1.0, 20.0);
-        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 10.0, 10.0)];
-        let mut dl = list_of(vec![text_item(
-            Some(0),
-            rect(0.0, 0.0, 500.0, 20.0),
-            glyphs,
-        )]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs: g, .. } => {
-                assert_eq!(g.len(), 1);
-                assert_eq!(g[0].index, 0x2026);
-                assert_eq!(
-                    g[0].point,
-                    LogicalPosition::new(3.0, 4.0),
-                    "anchored to the container origin"
-                );
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    #[cfg(feature = "text_layout")]
+    fn an_overflowing_line_keeps_what_fits_beside_the_ellipsis() {
+        // Ten items to x = 100 in a box 50 wide, an ellipsis 12 wide: what
+        // ends by x = 38 stays (three items), the ellipsis starts at 30.
+        let cuts = ellipsis_cuts(&line_of(0, 10, 4.0), 50.0, 12.0);
+        assert_eq!(cuts.len(), 1);
+        let cut = cuts[0];
+        assert_eq!(cut.x, 30.0);
+        assert_eq!((cut.top, cut.bottom), (4.0, 24.0));
+        assert_eq!(cut.baseline, 4.0 + 16.0, "the last kept item's baseline");
+        assert!(cut.hides(30.0, cut.baseline), "the first hidden item");
+        assert!(cut.hides(90.0, cut.baseline));
+        assert!(!cut.hides(20.0, cut.baseline), "the last kept item");
+        assert!(!cut.hides(40.0, 60.0), "a glyph of another line");
     }
 
     #[test]
-    fn ellipsis_skips_empty_runs_and_non_text_items() {
-        let container = rect(0.0, 0.0, 1.0, 20.0);
-        let mut dl = list_of(vec![
-            text_item(Some(0), rect(0.0, 0.0, 500.0, 20.0), Vec::new()),
-            DisplayListItem::PopClip,
-            DisplayListItem::Rect {
-                bounds: rect(0.0, 0.0, 900.0, 20.0).into(),
-                color: opaque(),
-                border_radius: BorderRadius::default(),
-            },
-        ]);
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs, .. } => {
-                assert!(glyphs.is_empty(), "an empty run is left alone")
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
-        assert_eq!(dl.items.len(), 3, "no items added or removed");
+    #[cfg(feature = "text_layout")]
+    fn the_first_item_of_a_line_is_clipped_rather_than_ellipsed() {
+        let cuts = ellipsis_cuts(&line_of(0, 10, 0.0), 5.0, 12.0);
+        assert_eq!(cuts.len(), 1);
+        assert_eq!(cuts[0].x, 10.0, "the first item stays, the ellipsis after it");
     }
 
     #[test]
-    fn ellipsis_with_a_nan_font_size_does_not_panic() {
-        // A NaN ellipsis width makes every `glyph_right > truncation_edge` comparison
-        // false, so nothing is truncated — but an ellipsis is still appended.
-        let container = rect(0.0, 0.0, 50.0, 20.0);
-        let glyphs = vec![glyph(1, 0.0, 10.0), glyph(2, 100.0, 10.0)];
-        let mut dl = list_of(vec![DisplayListItem::Text {
-            glyphs,
-            font_hash: FontHash::invalid(),
-            font_size_px: f32::NAN,
-            color: opaque(),
-            clip_rect: rect(0.0, 0.0, 500.0, 20.0).into(),
-            source_node_index: None,
-        }]);
-
-        apply_text_overflow_ellipsis(&mut dl, container, "…");
-        match &dl.items[0] {
-            DisplayListItem::Text { glyphs: g, .. } => {
-                assert_eq!(g.len(), 3, "both glyphs kept + ellipsis");
-                assert_eq!(g.last().unwrap().index, 0x2026);
-                assert!(g.last().unwrap().size.width.is_nan());
-            }
-            other => panic!("expected Text, got {other:?}"),
-        }
+    #[cfg(feature = "text_layout")]
+    fn every_line_is_cut_on_its_own() {
+        let mut items = line_of(0, 10, 0.0);
+        items.extend(line_of(1, 3, 20.0));
+        items.extend(line_of(2, 8, 40.0));
+        let cuts = ellipsis_cuts(&items, 50.0, 12.0);
+        assert_eq!(cuts.len(), 2, "the line that fits is not cut: {cuts:?}");
+        assert_eq!((cuts[0].top, cuts[0].x), (0.0, 30.0));
+        assert_eq!((cuts[1].top, cuts[1].x), (40.0, 30.0));
     }
 
     // ---------------------------------------------------------------------
@@ -14580,6 +16468,7 @@ mod dense_scroll_extent_tests {
             ascent: 800.0,
             descent: -200.0,
             cap_height: None,
+            browser_ascent_boost: false,
             x_height: None,
             line_gap: 0.0,
             units_per_em: 1000,
@@ -14882,7 +16771,371 @@ mod tiled_mask_tests {
     /// nothing to tile and the caller falls back to drawing it once.
     #[test]
     fn a_mask_without_cpu_pixels_is_left_alone() {
-        let null = ImageRef::null_image(4, 4, RawImageFormat::R8, Vec::new().into());
+        let null = ImageRef::null_image(4, 4, RawImageFormat::R8, Vec::new());
         assert!(tile_mask(&null, rect(0.0, 0.0, 2.0, 2.0), rect(0.0, 0.0, 20.0, 20.0)).is_none());
+    }
+}
+
+#[cfg(all(test, feature = "cpurender"))]
+mod svg_mask_memo_tests {
+    use azul_core::{dom::DomId, geom::LogicalSize, resources::RendererResources};
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The SVG masks of `document` laid out in a fresh 100 x 100 window:
+    /// (the clip masks of its shapes, the stroke masks of its strokes).
+    ///
+    /// Through the TREE loader (`parse_xml` + `dom_from_parsed_xml`), the
+    /// one that turns an SVG shape into geometry, a fill and a stroke (core
+    /// `apply_xml_node_attributes`), as `layout/tests/svg_paint.rs` does.
+    /// The document loader (`parse_xml_to_styled_dom`, the arena path) builds
+    /// none of that: its `<path>` had no `SvgNodeData::Path`, so no mask was
+    /// ever drawn and the premise below failed.
+    fn masks_of(document: &str) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
+        let parsed = crate::xml::parse_xml(document).expect("the document parses");
+        let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+            crate::xml::dom_from_parsed_xml(parsed),
+        );
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(100.0, 100.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+            .expect("the document lays out");
+        let dl = &lw
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list;
+        let mut clips = Vec::new();
+        let mut strokes = Vec::new();
+        for item in &dl.items {
+            match item {
+                DisplayListItem::PushImageMaskClip { mask_image, .. } => {
+                    clips.push(mask_image.clone());
+                }
+                DisplayListItem::StrokedPath { mask, .. } => strokes.push(mask.clone()),
+                _ => {}
+            }
+        }
+        (clips, strokes)
+    }
+
+    /// Every display-list build rasterised every SVG clip mask and stroke
+    /// mask again (CHART7): a chart's 2x-oversampled masks, per frame, for
+    /// geometry that had not changed. An unchanged shape in an unchanged box
+    /// gets the SAME mask image back.
+    #[test]
+    fn a_rebuilt_display_list_reuses_its_unchanged_svg_masks() {
+        let doc = "<html><head><style>body { margin: 0; }</style></head><body>\
+                   <svg viewBox=\"0 0 10 10\" width=\"40\" height=\"40\">\
+                   <path d=\"M0 0 L10 0 L10 10 Z\" fill=\"red\" stroke=\"blue\" \
+                   stroke-width=\"1\"/></svg></body></html>";
+        let (clips_a, strokes_a) = masks_of(doc);
+        let (clips_b, strokes_b) = masks_of(doc);
+        assert!(
+            !clips_a.is_empty(),
+            "the filled path paints through its clip mask"
+        );
+        assert!(
+            strokes_a.iter().any(Option::is_some),
+            "the stroke carries its mask"
+        );
+        assert_eq!(
+            clips_a, clips_b,
+            "the second build reuses the first build's clip mask images"
+        );
+        assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
+    }
+}
+
+/// An `inline-table` is painted from its parent's line (`paint_inline_shape`,
+/// like every atomic inline) - all of its table layers too.
+#[cfg(test)]
+mod inline_table_paint_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_css::props::basic::ColorU;
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The colours of every `Rect` item the page `css` paints:
+    /// `body(0) > div.t(1) > div.r(2) > div.c(3)`.
+    fn rect_colours(css: &str) -> Vec<ColorU> {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        let mut dom = Dom::create_body()
+            .with_child(div("t").with_child(div("r").with_child(div("c"))));
+        let (css, _) = azul_css::parser2::new_from_str(css);
+        let styled = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_inline_table_paints_its_cells_and_its_collapsed_borders() {
+        // WPT css/CSS2/tables/border-collapse-empty-row (test AND reference):
+        // the `td { border: 10px solid black }` of its `display: inline-table`
+        // tables were never drawn. An inline table is an atomic inline: its
+        // parent's line paints it (`paint_inline_shape`), which painted the
+        // table's own box only - the table layers above it (cell
+        // backgrounds, the resolved collapsed borders: `paint_table_items`)
+        // are painted by a block table's own box painting alone. Its cells
+        // paint neither themselves (layer 6 belongs to the table).
+        let colours = rect_colours(
+            "body { margin: 0; } .t { display: inline-table; border-collapse: collapse; } .r { \
+             display: table-row; } .c { display: table-cell; width: 20px; height: 20px; \
+             background: rgb(255, 0, 0); border: 4px solid rgb(0, 0, 255); }",
+        );
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        assert!(
+            colours.contains(&red),
+            "the cell's background is painted: {colours:?}"
+        );
+        assert!(
+            colours.contains(&blue),
+            "the cell's collapsed border is painted (solid: one rect per edge): {colours:?}"
+        );
+    }
+}
+
+/// What clips a run of text: its IFC's box, widened on a visible axis.
+#[cfg(test)]
+mod text_clip_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    #[test]
+    fn text_in_an_anonymous_block_gets_the_same_ink_allowance_as_text_in_a_div() {
+        // WPT css/css-text-decor/text-decoration-propagation-04: "dolor"
+        // beside a block child is wrapped in an anonymous block, which has no
+        // DOM node - and the visible-axis clip logic ran only for boxes with
+        // one, so its run kept the bare content box as its clip and the
+        // anti-aliased left edge of the "d" was cut (4 pixels against the
+        // same line in a div).
+        let xml = "<html><head><style>body { margin: 8px; font-size: 16px; }</style></head>\
+                   <body><div>dolor<div>sit</div></div></body></html>";
+        let styled = crate::xml::parse_xml_to_styled_dom(xml).expect("the page parses");
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let clips: Vec<f32> = lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { clip_rect, .. } => Some(clip_rect.0.origin.x),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(clips.len(), 2, "two runs: {clips:?}");
+        assert!(
+            clips.iter().all(|x| *x < 8.0),
+            "every run's clip reaches past the content box's left edge (x 8): {clips:?}"
+        );
+    }
+
+    #[test]
+    fn text_on_a_visible_axis_is_not_cut_at_the_edge_of_its_shrink_wrapped_box() {
+        // WPT css/css-tables/anonymous-table-ws-001 and html/rendering/non-
+        // replaced-elements/tables/table-width-s: the anti-aliased right
+        // edge of a table cell's last glyph ("b") was missing - 2 and 4
+        // pixels against the same text in a block. A box shrink-wrapped to
+        // its text ends at the last ADVANCE, the glyph's ink reaches a
+        // little past it, and every text run carries its IFC's content box
+        // as its clip: on an `overflow: visible` axis the ink was cut there
+        // (the renderer clips to whole pixels inside the clip). Chrome
+        // clips nothing on a visible axis. The run's clip reaches at least
+        // half an em (8px) past the inline-block's content box.
+        // `body(0) > div.ib(1) > span(2) > "a b"(3)`.
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ib".into())].into())
+                .with_child(Dom::create_span_with_text("a b")),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "body { margin: 0; font-size: 16px; } .ib { display: inline-block; }",
+        );
+        let styled = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let result = &lw.layout_results[&DomId::ROOT_ID];
+        let ib = *result
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the inline-block is laid out");
+        let width = result
+            .layout_tree
+            .get(ib)
+            .and_then(|n| n.used_size)
+            .expect("the inline-block has a size")
+            .width;
+        let clips: Vec<f32> = result
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text {
+                    glyphs, clip_rect, ..
+                } if !glyphs.is_empty() => {
+                    let c = clip_rect.inner();
+                    Some(c.origin.x + c.size.width)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(!clips.is_empty(), "harness: the text is painted");
+        for right in clips {
+            assert!(
+                right >= width + 8.0,
+                "the run's clip ends {right}, the {width}px box's text must not be cut at its \
+                 edge"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod a_list_marker_paints_no_box_of_its_items_tests {
+    use azul_core::{dom::DomId, geom::LogicalSize, resources::RendererResources};
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// WPT css/CSS2/lists/list-style-position-023: an INSIDE marker of an
+    /// item whose content starts with a block has no line of the item's own
+    /// to ride - it is a line of its own (an anonymous box carrying the
+    /// ITEM's DOM node). That box painted the item's background and border
+    /// as if it were the item: a second silver frame around the "1." line.
+    #[test]
+    fn an_inside_marker_on_a_line_of_its_own_is_not_framed_by_the_items_border() {
+        let xml = "<html><head><style>\
+                   ol, li { margin: 0; padding: 0; } \
+                   li { border: solid silver 4px; padding: 8px 8px 8px 48px; \
+                        list-style-position: inside; }\
+                   </style></head><body><ol><li><div>Text</div></li></ol></body></html>";
+        let styled = crate::xml::parse_xml_to_styled_dom(xml).expect("the page parses");
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let borders: Vec<_> = lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Border { bounds, .. } => Some(*bounds),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(borders.len(), 1, "the item's border, once: {borders:?}");
+    }
+}
+
+#[cfg(test)]
+mod per_layer_list_tests {
+    use super::layer_value;
+
+    /// A list as long as the layers pairs up index by index (paint order on
+    /// both sides); a shorter one repeats from the TOP layer down, as CSS
+    /// lists it: `a, b` over three layers (top to bottom) is `a, b, a`.
+    #[test]
+    fn a_per_layer_list_is_aligned_with_the_top_layer() {
+        // Paint order: the bottom layer's value first.
+        assert_eq!(layer_value(&['z', 'y', 'x'], 3, 0), Some('z'));
+        assert_eq!(layer_value(&['z', 'y', 'x'], 3, 2), Some('x'));
+        // CSS `a, b` is stored `b, a`: top layer a, then b, then a again.
+        let short = ['b', 'a'];
+        assert_eq!(layer_value(&short, 3, 2), Some('a'), "the top layer");
+        assert_eq!(layer_value(&short, 3, 1), Some('b'));
+        assert_eq!(layer_value(&short, 3, 0), Some('a'), "the list repeats");
+        // One value is every layer's.
+        for layer in 0..4 {
+            assert_eq!(layer_value(&['p'], 4, layer), Some('p'));
+        }
+        // CSS `a, b, c` over two layers drops `c`, the bottom-most value.
+        let long = ['c', 'b', 'a'];
+        assert_eq!(layer_value(&long, 2, 1), Some('a'));
+        assert_eq!(layer_value(&long, 2, 0), Some('b'));
+        // No list, or no such layer: the property's initial value.
+        assert_eq!(layer_value::<char>(&[], 2, 0), None);
+        assert_eq!(layer_value(&['p'], 2, 2), None);
     }
 }

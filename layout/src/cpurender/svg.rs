@@ -7,6 +7,7 @@ use agg_rust::{
     trans_affine::TransAffine,
 };
 use azul_core::resources::ImageRef;
+use azul_css::props::basic::color::ColorU;
 
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -55,51 +56,13 @@ pub fn render_svg_to_png_over(
     target_height: u32,
     background: Option<(u8, u8, u8, u8)>,
 ) -> Result<Vec<u8>, String> {
-    let svg_str =
-        core::str::from_utf8(svg_data).map_err(|e| format!("SVG is not valid UTF-8: {e}"))?;
-
-    let nodes =
-        crate::xml::parse_xml_string(svg_str).map_err(|e| format!("XML parse error: {e}"))?;
-
-    // Find the <svg> root
-    let node_slice: &[azul_core::xml::XmlNodeChild] = nodes.as_ref();
-    let svg_node = node_slice
-        .iter()
-        .find_map(|n| {
-            if let azul_core::xml::XmlNodeChild::Element(e) = n {
-                let tag = e.node_type.as_str().to_lowercase();
-                if tag == "svg" {
-                    Some(e)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| "No <svg> root element found".to_string())?;
-
-    // Parse viewBox for coordinate mapping
-    let vb = parse_viewbox(svg_node);
-    let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
-
-    let sx = f64::from(target_width) / vb_w;
-    let sy = f64::from(target_height) / vb_h;
-    let scale = sx.min(sy);
-
-    let root_transform =
-        TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
-
-    let mut pixmap = AzulPixmap::new(target_width, target_height)
-        .ok_or_else(|| "Failed to create pixmap".to_string())?;
-    // `None` leaves the pixmap at its zeroed (fully transparent) state.
-    if let Some((r, g, b, a)) = background {
-        pixmap.fill(r, g, b, a);
-    }
-
-    render_svg_group(svg_node, &mut pixmap, &root_transform);
-
+    let pixmap = rasterize_svg(
+        svg_data,
+        target_width,
+        target_height,
+        background.unwrap_or((0, 0, 0, 0)),
+        &SvgPaintContext::default(),
+    )?;
     pixmap
         .encode_png()
         .map_err(|e| format!("PNG encode error: {e}"))
@@ -121,6 +84,76 @@ pub fn render_svg_to_imageref(
     target_width: u32,
     target_height: u32,
 ) -> Result<ImageRef, String> {
+    render_svg_to_imageref_painted(
+        svg_data,
+        target_width,
+        target_height,
+        &SvgPaintContext::default(),
+    )
+}
+
+/// [`render_svg_to_imageref`] with the paints the host decides: what
+/// `currentColor` is, and which literal paints are swapped (an icon's
+/// palette remap). Transparent background.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
+pub fn render_svg_to_imageref_painted(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    paint: &SvgPaintContext,
+) -> Result<ImageRef, String> {
+    // Transparent background so whatever is behind shows through any gaps.
+    let pixmap = rasterize_svg(svg_data, target_width, target_height, (0, 0, 0, 0), paint)?;
+    ImageRef::new_rawimage(premultiplied_raw_image(&pixmap))
+        .ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+}
+
+/// The rasterised document as an RGBA8 `RawImage` over an explicit backdrop
+/// (`None` = transparent, as [`render_svg_to_png_over`]): the pixels AGG
+/// drew, PREMULTIPLIED and labelled so, with no PNG encode / decode between
+/// the rasteriser and the caller.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
+pub fn render_svg_to_raw_image_over(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: Option<(u8, u8, u8, u8)>,
+) -> Result<azul_core::resources::RawImage, String> {
+    let pixmap = rasterize_svg(
+        svg_data,
+        target_width,
+        target_height,
+        background.unwrap_or((0, 0, 0, 0)),
+        &SvgPaintContext::default(),
+    )?;
+    Ok(premultiplied_raw_image(&pixmap))
+}
+
+/// A rasterised pixmap as an RGBA8 `RawImage`. The pixmap is AGG's
+/// PREMULTIPLIED output, and the image says so: labelled straight, the
+/// image load premultiplied it a second time and a translucent paint
+/// (`system:text` at 85%) came out darker than itself.
+fn premultiplied_raw_image(pixmap: &AzulPixmap) -> azul_core::resources::RawImage {
+    azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(pixmap.data().to_vec().into()),
+        width: pixmap.width as usize,
+        height: pixmap.height as usize,
+        premultiplied_alpha: true,
+        data_format: azul_core::resources::RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    }
+}
+
+/// Parse `svg_data`, find its `<svg>` root and hand it to `f`: the one
+/// place every entry point here reads a document.
+fn with_svg_root<R>(
+    svg_data: &[u8],
+    f: impl FnOnce(&azul_core::xml::XmlNode) -> R,
+) -> Result<R, String> {
     let svg_str =
         core::str::from_utf8(svg_data).map_err(|e| format!("SVG is not valid UTF-8: {e}"))?;
     let nodes =
@@ -128,42 +161,136 @@ pub fn render_svg_to_imageref(
     let node_slice: &[azul_core::xml::XmlNodeChild] = nodes.as_ref();
     let svg_node = node_slice
         .iter()
-        .find_map(|n| {
-            if let azul_core::xml::XmlNodeChild::Element(e) = n {
-                if e.node_type.as_str().to_lowercase() == "svg" {
-                    Some(e)
-                } else {
-                    None
-                }
-            } else {
-                None
+        .find_map(|n| match n {
+            azul_core::xml::XmlNodeChild::Element(e)
+                if e.node_type.as_str().eq_ignore_ascii_case("svg") =>
+            {
+                Some(e)
             }
+            _ => None,
         })
         .ok_or_else(|| "No <svg> root element found".to_string())?;
+    Ok(f(svg_node))
+}
 
-    let vb = parse_viewbox(svg_node);
-    let (vb_x, vb_y, vb_w, vb_h) =
-        vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
-    let scale = (f64::from(target_width) / vb_w).min(f64::from(target_height) / vb_h);
-    let root_transform =
-        TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
+/// Rasterise a document into a fresh `target_width` x `target_height` pixmap
+/// filled with `background` first, the viewBox scaled to fit.
+fn rasterize_svg(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: (u8, u8, u8, u8),
+    paint: &SvgPaintContext,
+) -> Result<AzulPixmap, String> {
+    with_svg_root(svg_data, |svg_node| -> Result<AzulPixmap, String> {
+        // Parse viewBox for coordinate mapping. An ABSENT viewBox is
+        // `0 0 <width> <height>` (SVG's own sizing rule), not "the target's
+        // pixels": an icon written `width="16" height="16"` rasterised at 2x
+        // would otherwise draw its 16 units into a quarter of the image.
+        let vb = parse_viewbox(svg_node).or_else(|| {
+            match (svg_length(svg_node, "width"), svg_length(svg_node, "height")) {
+                (Some(w), Some(h)) => Some((0.0, 0.0, f64::from(w), f64::from(h))),
+                _ => None,
+            }
+        });
+        let (vb_x, vb_y, vb_w, vb_h) =
+            vb.unwrap_or_else(|| (0.0, 0.0, f64::from(target_width), f64::from(target_height)));
+        let scale = (f64::from(target_width) / vb_w).min(f64::from(target_height) / vb_h);
+        let root_transform =
+            TransAffine::new_custom(scale, 0.0, 0.0, scale, -vb_x * scale, -vb_y * scale);
 
-    let mut pixmap = AzulPixmap::new(target_width, target_height)
-        .ok_or_else(|| "Failed to create pixmap".to_string())?;
-    // Transparent background so the tile container shows through any gaps.
-    pixmap.fill(0, 0, 0, 0);
-    render_svg_group(svg_node, &mut pixmap, &root_transform);
+        // `AzulPixmap::new` starts OPAQUE WHITE, so the backdrop is always
+        // painted explicitly - transparent included.
+        let mut pixmap = AzulPixmap::new(target_width, target_height)
+            .ok_or_else(|| "Failed to create pixmap".to_string())?;
+        let (r, g, b, a) = background;
+        pixmap.fill(r, g, b, a);
+        render_svg_group_painted(svg_node, &mut pixmap, &root_transform, paint);
+        Ok(pixmap)
+    })?
+}
 
-    let rgba = pixmap.data().to_vec();
-    let raw = azul_core::resources::RawImage {
-        pixels: azul_core::resources::RawImageData::U8(rgba.into()),
-        width: target_width as usize,
-        height: target_height as usize,
-        premultiplied_alpha: false,
-        data_format: azul_core::resources::RawImageFormat::RGBA8,
-        tag: Vec::new().into(),
-    };
-    ImageRef::new_rawimage(raw).ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+/// The size an SVG document asks to be drawn at, in user units: its
+/// `width` / `height` (a bare number or `px`), else its viewBox's. `None`
+/// when it states neither or does not parse.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // user units are f32 everywhere else
+pub fn svg_natural_size(svg_data: &[u8]) -> Option<(f32, f32)> {
+    with_svg_root(svg_data, |svg| {
+        match (svg_length(svg, "width"), svg_length(svg, "height")) {
+            (Some(w), Some(h)) => Some((w, h)),
+            _ => parse_viewbox(svg)
+                .map(|(_, _, w, h)| (w as f32, h as f32))
+                .filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0),
+        }
+    })
+    .ok()
+    .flatten()
+}
+
+/// A positive, finite `width` / `height` of the `<svg>` element, as a bare
+/// number or in `px` (a percentage or another unit states no size).
+fn svg_length(svg: &azul_core::xml::XmlNode, key: &str) -> Option<f32> {
+    let value = svg.attributes.get_key(key)?;
+    let value = value.as_str().trim();
+    let value = value.strip_suffix("px").unwrap_or(value).trim();
+    value
+        .parse::<f32>()
+        .ok()
+        .filter(|n| n.is_finite() && *n > 0.0)
+}
+
+/// Is every paint of the document `currentColor` (or `none`), with at least
+/// one `currentColor`? Then it is one colour on alpha - an icon that follows
+/// its host's `color` exactly when flooded through its alpha. A shape
+/// without a `fill` is black (SVG's default), a literal colour, so it does
+/// not count.
+#[must_use]
+pub fn svg_uses_only_current_color(svg_data: &[u8]) -> bool {
+    /// `Some(saw_current_color)` while every paint so far qualifies.
+    fn walk(
+        node: &azul_core::xml::XmlNode,
+        fill: Option<&str>,
+        stroke: Option<&str>,
+    ) -> Option<bool> {
+        use azul_core::xml::XmlNodeChild;
+
+        let own_fill = presentation_property(node, "fill");
+        let own_stroke = presentation_property(node, "stroke");
+        let fill = own_fill.as_deref().or(fill);
+        let stroke = own_stroke.as_deref().or(stroke);
+        let is_current = |v: &str| v.trim().eq_ignore_ascii_case("currentcolor");
+        let is_none = |v: &str| v.trim().eq_ignore_ascii_case("none");
+
+        let tag = node.node_type.as_str().to_lowercase();
+        let mut saw = false;
+        if matches!(
+            tag.as_str(),
+            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
+        ) {
+            match fill {
+                Some(f) if is_current(f) => saw = true,
+                Some(f) if is_none(f) => {}
+                _ => return None, // a literal colour, or SVG's default black
+            }
+            match stroke {
+                Some(s) if is_current(s) => saw = true,
+                Some(s) if is_none(s) => {}
+                None => {}
+                Some(_) => return None,
+            }
+        }
+        for child in node.children.as_ref() {
+            if let XmlNodeChild::Element(e) = child {
+                saw |= walk(e, fill, stroke)?;
+            }
+        }
+        Some(saw)
+    }
+    with_svg_root(svg_data, |svg| walk(svg, None, None))
+        .ok()
+        .flatten()
+        .unwrap_or(false)
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
@@ -185,26 +312,235 @@ fn parse_viewbox(node: &azul_core::xml::XmlNode) -> Option<(f64, f64, f64, f64)>
     }
 }
 
-/// Inherited SVG style (fill, stroke, stroke-width) that cascades from parent groups.
+/// How the rasteriser paints what is not a literal colour - and the literal
+/// colours the caller wants swapped. The default paints every document as
+/// written, with `currentColor` black.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SvgPaintContext {
+    /// What `currentColor` paints: the `color` the HOST gives the document
+    /// (an icon's cascaded CSS colour). `None` is black, the initial
+    /// `color`. A `color` attribute inside the document still wins below the
+    /// element that sets it.
+    pub current_color: Option<ColorU>,
+    /// Literal paints drawn as others, `(from, to)` matched on RGB - an
+    /// icon's palette remap. Applies to SVG's implicit black fill too (a
+    /// literal paint the author left out), never to `currentColor`.
+    pub palette: Vec<(ColorU, ColorU)>,
+}
+
+/// SVG's initial paint: opaque black.
+const SVG_BLACK: Rgba8 = Rgba8 {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+};
+
+impl SvgPaintContext {
+    /// A literal paint after the palette: the replacement's colour, at the
+    /// literal's alpha times the replacement's.
+    #[allow(clippy::cast_possible_truncation)] // (a * b) / 255 <= 255
+    fn remap(&self, c: Rgba8) -> Rgba8 {
+        self.palette
+            .iter()
+            .find(|(from, _)| from.r == c.r && from.g == c.g && from.b == c.b)
+            .map_or(c, |(_, to)| Rgba8 {
+                r: to.r,
+                g: to.g,
+                b: to.b,
+                a: ((u16::from(to.a) * u16::from(c.a)) / 255) as u8,
+            })
+    }
+
+    /// A `fill` / `stroke` value as a colour. `currentColor` is the inherited
+    /// `color` property - the document's own (`color`, a literal, so it goes
+    /// through the palette) first, then the host's - and a literal colour
+    /// goes through the palette.
+    fn resolve(&self, value: &str, color: Option<&str>) -> Option<Rgba8> {
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("currentcolor") {
+            let own = color
+                .filter(|c| !c.trim().eq_ignore_ascii_case("currentcolor"))
+                .and_then(parse_svg_color)
+                .map(|c| self.remap(c));
+            return Some(own.unwrap_or_else(|| {
+                self.current_color.map_or(SVG_BLACK, |c| Rgba8 {
+                    r: c.r,
+                    g: c.g,
+                    b: c.b,
+                    a: c.a,
+                })
+            }));
+        }
+        parse_svg_color(value).map(|c| self.remap(c))
+    }
+}
+
+/// Inherited SVG style (fill, stroke and the stroke's properties) that
+/// cascades from parent groups.
 #[cfg(all(feature = "std", feature = "xml"))]
 #[derive(Clone, Default)]
 struct SvgInheritedStyle {
     fill: Option<String>,   // None = not set (inherit default black)
     stroke: Option<String>, // None = not set (inherit default none)
     stroke_width: Option<f64>,
+    stroke_linecap: Option<String>,   // None = `butt`
+    stroke_linejoin: Option<String>,  // None = `miter`
+    stroke_miterlimit: Option<f64>,   // None = 4
+    stroke_dasharray: Option<String>, // None = `none` (a solid stroke)
+    stroke_dashoffset: Option<f64>,   // None = 0
+}
+
+/// How an SVG shape's outline is stroked (SVG 2 s13.5): the width, the
+/// caps, the joins and the dash pattern, each from the element or the
+/// groups it inherits from.
+#[cfg(all(feature = "std", feature = "xml"))]
+struct SvgStrokeStyle {
+    width: f64,
+    cap: agg_rust::math_stroke::LineCap,
+    join: agg_rust::math_stroke::LineJoin,
+    miter_limit: f64,
+    /// `(dash, gap)` pairs; empty = a solid stroke.
+    dashes: Vec<(f64, f64)>,
+    dash_offset: f64,
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
+impl SvgStrokeStyle {
+    /// The stroke of `node` under the inherited `style`.
+    fn of(node: &azul_core::xml::XmlNode, style: &SvgInheritedStyle) -> Self {
+        use agg_rust::math_stroke::{LineCap, LineJoin};
+        let number = |name: &str| {
+            presentation_property(node, name)
+                .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite())
+        };
+        let cap = match presentation_property(node, "stroke-linecap")
+            .or_else(|| style.stroke_linecap.clone())
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("round") => LineCap::Round,
+            Some("square") => LineCap::Square,
+            _ => LineCap::Butt,
+        };
+        let join = match presentation_property(node, "stroke-linejoin")
+            .or_else(|| style.stroke_linejoin.clone())
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("round") => LineJoin::Round,
+            Some("bevel") => LineJoin::Bevel,
+            // SVG 2's `miter-clip`: the miter cut off at the limit.
+            Some("miter-clip") => LineJoin::Miter,
+            // `miter` (and `arcs`, which falls back to it): a bevel once the
+            // miter exceeds the limit - AGG's "revert", made for SVG / PDF.
+            _ => LineJoin::MiterRevert,
+        };
+        let miter_limit = number("stroke-miterlimit")
+            .or(style.stroke_miterlimit)
+            .filter(|m| *m >= 1.0)
+            .unwrap_or(4.0);
+        let dashes = parse_svg_dash_array(
+            presentation_property(node, "stroke-dasharray")
+                .or_else(|| style.stroke_dasharray.clone())
+                .as_deref(),
+        );
+        Self {
+            width: number("stroke-width")
+                .or(style.stroke_width)
+                .unwrap_or(1.0),
+            cap,
+            join,
+            miter_limit,
+            dashes,
+            dash_offset: number("stroke-dashoffset")
+                .or(style.stroke_dashoffset)
+                .unwrap_or(0.0),
+        }
+    }
+
+    /// Set the width, caps and joins on an AGG stroker.
+    fn configure<VS: agg_rust::basics::VertexSource>(&self, stroke: &mut ConvStroke<VS>) {
+        stroke.set_width(self.width);
+        stroke.set_line_cap(self.cap);
+        stroke.set_line_join(self.join);
+        stroke.set_miter_limit(self.miter_limit);
+    }
+
+    /// The dash pattern on an AGG dasher, its offset folded into one period
+    /// (the dasher walks the offset dash by dash).
+    fn dash<VS: agg_rust::basics::VertexSource>(
+        &self,
+        dasher: &mut agg_rust::conv_dash::ConvDash<VS>,
+    ) {
+        let period: f64 = self.dashes.iter().map(|(d, g)| d + g).sum();
+        for &(dash, gap) in &self.dashes {
+            dasher.add_dash(dash, gap);
+        }
+        dasher.dash_start(self.dash_offset.rem_euclid(period));
+    }
+}
+
+/// `stroke-dasharray` as `(dash, gap)` pairs (SVG 2 s13.5.6): lengths
+/// separated by commas and / or spaces, an odd list repeated to make it even.
+/// EMPTY - a solid stroke - for `none`, a negative or unreadable entry, a
+/// pattern whose lengths sum to (almost) zero (the dasher would emit a vertex
+/// per period of nothing), or more pairs than AGG's dasher holds (16).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn parse_svg_dash_array(value: Option<&str>) -> Vec<(f64, f64)> {
+    let Some(value) = value.map(str::trim) else {
+        return Vec::new();
+    };
+    if value.is_empty() || value == "none" {
+        return Vec::new();
+    }
+    let mut lengths = Vec::new();
+    for part in value.split(|c: char| c == ',' || c.is_whitespace()) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        match part.trim_end_matches("px").parse::<f64>() {
+            Ok(v) if v.is_finite() && v >= 0.0 => lengths.push(v),
+            _ => return Vec::new(),
+        }
+    }
+    if lengths.len() % 2 == 1 {
+        lengths.extend_from_within(..);
+    }
+    let period: f64 = lengths.iter().sum();
+    if period < 1e-3 || lengths.len() > 32 {
+        return Vec::new();
+    }
+    lengths.chunks_exact(2).map(|p| (p[0], p[1])).collect()
+}
+
+#[cfg(all(feature = "std", feature = "xml"))]
+#[cfg_attr(not(test), allow(dead_code))] // the unpainted entry point the tests drive
 fn render_svg_group(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
     parent_transform: &TransAffine,
 ) {
-    render_svg_group_with_style(
+    render_svg_group_painted(node, pixmap, parent_transform, &SvgPaintContext::default());
+}
+
+/// [`render_svg_group`] with the host's paints ([`SvgPaintContext`]).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn render_svg_group_painted(
+    node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    parent_transform: &TransAffine,
+    paint: &SvgPaintContext,
+) {
+    render_svg_group_inner(
         node,
         pixmap,
         parent_transform,
         &SvgInheritedStyle::default(),
+        None,
+        paint,
     );
 }
 
@@ -244,36 +580,75 @@ fn presentation_property(node: &azul_core::xml::XmlNode, name: &str) -> Option<S
     })
 }
 
+/// [`render_svg_group_painted`] with an explicit inherited style and no
+/// host paints.
 #[cfg(all(feature = "std", feature = "xml"))]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
-                                 // (one branch per case)
+#[cfg_attr(not(test), allow(dead_code))] // the tests drive an explicit parent style
 fn render_svg_group_with_style(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
     parent_transform: &TransAffine,
     parent_style: &SvgInheritedStyle,
 ) {
-    use agg_rust::math_stroke::{LineCap, LineJoin};
-    use azul_core::xml::{XmlNode, XmlNodeChild};
+    render_svg_group_inner(
+        node,
+        pixmap,
+        parent_transform,
+        parent_style,
+        None,
+        &SvgPaintContext::default(),
+    );
+}
 
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
+fn render_svg_group_inner(
+    node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    parent_transform: &TransAffine,
+    parent_style: &SvgInheritedStyle,
+    parent_color: Option<&str>,
+    paint: &SvgPaintContext,
+) {
+    use azul_core::xml::XmlNodeChild;
+
+    // A node's own transform maps its user space into its parent's: it
+    // applies FIRST, the parent's after (`multiply`). `premultiply` ran the
+    // parent's first - an element moved inside a page scaled 2x moved by
+    // half as much as it should.
     let group_transform = node
         .attributes
         .get_key("transform")
         .map_or(*parent_transform, |t| {
             let mut tf = parse_svg_transform(t.as_str());
-            tf.premultiply(parent_transform);
+            tf.multiply(parent_transform);
             tf
         });
 
     // Inherit style from this group's attributes
-    let group_style = SvgInheritedStyle {
-        fill: presentation_property(node, "fill").or_else(|| parent_style.fill.clone()),
-        stroke: presentation_property(node, "stroke").or_else(|| parent_style.stroke.clone()),
-        stroke_width: presentation_property(node, "stroke-width")
-            .and_then(|s| s.parse().ok())
-            .or(parent_style.stroke_width),
+    let inherit = |name: &str, parent: &Option<String>| {
+        presentation_property(node, name).or_else(|| parent.clone())
     };
+    let inherit_number = |name: &str, parent: Option<f64>| {
+        presentation_property(node, name)
+            .and_then(|s| s.trim().trim_end_matches("px").trim().parse().ok())
+            .or(parent)
+    };
+    let group_style = SvgInheritedStyle {
+        fill: inherit("fill", &parent_style.fill),
+        stroke: inherit("stroke", &parent_style.stroke),
+        stroke_width: inherit_number("stroke-width", parent_style.stroke_width),
+        stroke_linecap: inherit("stroke-linecap", &parent_style.stroke_linecap),
+        stroke_linejoin: inherit("stroke-linejoin", &parent_style.stroke_linejoin),
+        stroke_miterlimit: inherit_number("stroke-miterlimit", parent_style.stroke_miterlimit),
+        stroke_dasharray: inherit("stroke-dasharray", &parent_style.stroke_dasharray),
+        stroke_dashoffset: inherit_number("stroke-dashoffset", parent_style.stroke_dashoffset),
+    };
+    // `color`, the property `currentColor` reads, inherits like the paints.
+    let group_color =
+        presentation_property(node, "color").or_else(|| parent_color.map(str::to_string));
 
     for child in node.children.as_ref() {
         let XmlNodeChild::Element(child_node) = child else {
@@ -284,7 +659,14 @@ fn render_svg_group_with_style(
 
         match tag.as_str() {
             "g" | "svg" => {
-                render_svg_group_with_style(child_node, pixmap, &group_transform, &group_style);
+                render_svg_group_inner(
+                    child_node,
+                    pixmap,
+                    &group_transform,
+                    &group_style,
+                    group_color.as_deref(),
+                    paint,
+                );
             }
             "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
                 let Some(path_storage) = build_agg_path(child_node) else {
@@ -301,22 +683,20 @@ fn render_svg_group_with_style(
                         .get_key("transform")
                         .map_or(group_transform, |t| {
                             let mut tf = parse_svg_transform(t.as_str());
-                            tf.premultiply(&group_transform);
+                            tf.multiply(&group_transform);
                             tf
                         });
+
+                let elem_color =
+                    presentation_property(child_node, "color").or_else(|| group_color.clone());
 
                 // Fill: element overrides group
                 let fill_attr =
                     presentation_property(child_node, "fill").or_else(|| group_style.fill.clone());
                 let fill_color = match fill_attr.as_deref() {
                     Some("none") => None,
-                    Some(c) => parse_svg_color(c),
-                    None => Some(Rgba8 {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    }), // SVG default
+                    Some(c) => paint.resolve(c, elem_color.as_deref()),
+                    None => Some(paint.remap(SVG_BLACK)), // SVG default
                 };
 
                 let fill_opacity = presentation_property(child_node, "fill-opacity")
@@ -345,7 +725,7 @@ fn render_svg_group_with_style(
                     .or_else(|| group_style.stroke.clone());
                 let stroke_color = match stroke_attr.as_deref() {
                     Some("none") | None => None,
-                    Some(c) => parse_svg_color(c),
+                    Some(c) => paint.resolve(c, elem_color.as_deref()),
                 };
 
                 if let Some(mut color) = stroke_color {
@@ -354,23 +734,34 @@ fn render_svg_group_with_style(
                         .unwrap_or(1.0);
                     color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
 
-                    let stroke_width = presentation_property(child_node, "stroke-width")
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .or(group_style.stroke_width)
-                        .unwrap_or(1.0);
-
-                    let mut conv_stroke = ConvStroke::new(&mut curved);
-                    conv_stroke.set_width(stroke_width);
-                    conv_stroke.set_line_cap(LineCap::Round);
-                    conv_stroke.set_line_join(LineJoin::Round);
-
-                    let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                    agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    // The stroke in user space (dashed, then outlined),
+                    // then the element's transform.
+                    let stroke = SvgStrokeStyle::of(child_node, &group_style);
+                    if stroke.dashes.is_empty() {
+                        let mut conv_stroke = ConvStroke::new(&mut curved);
+                        stroke.configure(&mut conv_stroke);
+                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    } else {
+                        let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
+                        stroke.dash(&mut dashed);
+                        let mut conv_stroke = ConvStroke::new(&mut dashed);
+                        stroke.configure(&mut conv_stroke);
+                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    }
                 }
             }
             _ => {
                 // Recurse into unknown containers (defs, symbol, etc.)
-                render_svg_group_with_style(child_node, pixmap, &group_transform, &group_style);
+                render_svg_group_inner(
+                    child_node,
+                    pixmap,
+                    &group_transform,
+                    &group_style,
+                    group_color.as_deref(),
+                    paint,
+                );
             }
         }
     }
@@ -550,126 +941,34 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
     path
 }
 
-/// Parse SVG transform attribute (supports matrix, translate, scale, rotate).
+/// An SVG `transform` attribute as the rasteriser's matrix: azul's one
+/// parser ([`azul_core::svg::parse_svg_transform`]: the list applies right to
+/// left, junk is identity). Compose it with the parent's as
+/// `own.multiply(&parent)` (own first, then the parent's).
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_transform(s: &str) -> TransAffine {
-    let s = s.trim();
-
-    let parse_nums = |inner: &str| -> Vec<f64> {
-        inner
-            .split(|c: char| c == ',' || c.is_ascii_whitespace())
-            .filter(|s| !s.is_empty())
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
-
-    if let Some(inner) = s.strip_prefix("matrix(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        if nums.len() == 6 {
-            return TransAffine::new_custom(nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]);
-        }
-    } else if let Some(inner) = s
-        .strip_prefix("translate(")
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let nums = parse_nums(inner);
-        let tx = nums.first().copied().unwrap_or(0.0);
-        let ty = nums.get(1).copied().unwrap_or(0.0);
-        return TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
-    } else if let Some(inner) = s.strip_prefix("scale(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        let sx = nums.first().copied().unwrap_or(1.0);
-        let sy = nums.get(1).copied().unwrap_or(sx);
-        return TransAffine::new_custom(sx, 0.0, 0.0, sy, 0.0, 0.0);
-    } else if let Some(inner) = s.strip_prefix("rotate(").and_then(|s| s.strip_suffix(')')) {
-        let nums = parse_nums(inner);
-        let angle = nums.first().copied().unwrap_or(0.0).to_radians();
-        let cos_a = angle.cos();
-        let sin_a = angle.sin();
-        return TransAffine::new_custom(cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0);
-    }
-    TransAffine::new()
+    let m = azul_core::svg::parse_svg_transform(s);
+    TransAffine::new_custom(m.a, m.b, m.c, m.d, m.e, m.f)
 }
 
-/// Parse SVG color string (#RRGGBB, #RGB, named colors).
+/// Parse an SVG paint colour: any CSS colour - `#rgb`, `#rgba`, `#rrggbb`,
+/// `#rrggbbaa`, `rgb()`, `rgba()`, `hsl()`, `hsla()` and every CSS colour
+/// keyword (SVG paints ARE CSS colours). One colour parser: the CSS one
+/// ([`ColorU::parse_css`]); `currentColor` and paint servers (`url(#..)`)
+/// are the callers'. A PDF page's SVG (printpdf) writes every paint as
+/// `rgb(r, g, b)`: with the old `#hex` + 8 names table it drew nothing.
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_color(s: &str) -> Option<Rgba8> {
     let s = s.trim();
-    if let Some(hex) = s.strip_prefix('#') {
-        // The arms below index `hex` at fixed BYTE offsets, but `hex.len()` is a byte
-        // count: a multibyte char (e.g. "#€123", € = 3 bytes) makes the byte length hit
-        // the 6/3 arm while the slice boundary lands mid-character and panics. Valid hex
-        // is ASCII, so reject anything else up front.
-        if !hex.is_ascii() {
-            return None;
-        }
-        return match hex.len() {
-            6 => {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-                Some(Rgba8 { r, g, b, a: 255 })
-            }
-            3 => {
-                let r = u8::from_str_radix(&hex[0..1], 16).ok()? * 17;
-                let g = u8::from_str_radix(&hex[1..2], 16).ok()? * 17;
-                let b = u8::from_str_radix(&hex[2..3], 16).ok()? * 17;
-                Some(Rgba8 { r, g, b, a: 255 })
-            }
-            _ => None,
-        };
+    if s.is_empty() {
+        return None;
     }
-    match s.to_lowercase().as_str() {
-        "black" => Some(Rgba8 {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }),
-        "white" => Some(Rgba8 {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }),
-        "red" => Some(Rgba8 {
-            r: 255,
-            g: 0,
-            b: 0,
-            a: 255,
-        }),
-        "green" => Some(Rgba8 {
-            r: 0,
-            g: 128,
-            b: 0,
-            a: 255,
-        }),
-        "blue" => Some(Rgba8 {
-            r: 0,
-            g: 0,
-            b: 255,
-            a: 255,
-        }),
-        "yellow" => Some(Rgba8 {
-            r: 255,
-            g: 255,
-            b: 0,
-            a: 255,
-        }),
-        "orange" => Some(Rgba8 {
-            r: 255,
-            g: 165,
-            b: 0,
-            a: 255,
-        }),
-        "gold" => Some(Rgba8 {
-            r: 255,
-            g: 215,
-            b: 0,
-            a: 255,
-        }),
-        _ => None,
-    }
+    ColorU::parse_css(s).map(|c| Rgba8 {
+        r: c.r,
+        g: c.g,
+        b: c.b,
+        a: c.a,
+    })
 }
 
 #[cfg(all(test, feature = "std", feature = "xml"))]
@@ -802,10 +1101,30 @@ mod autotest_generated {
 
     #[test]
     fn parse_svg_color_wrong_hex_lengths_are_none() {
-        // note: 8-digit #RRGGBBAA is valid CSS but unsupported here
-        for s in ["#f", "#ff", "#ffff", "#fffff", "#fffffff", "#ffffffff"] {
+        // 3, 4, 6 and 8 digits are CSS hex colours; every other length is not.
+        for s in ["#f", "#ff", "#fffff", "#fffffff", "#fffffffff"] {
             assert_eq!(parse_svg_color(s), None, "{s} must be rejected");
         }
+        assert_eq!(
+            parse_svg_color("#ff000080"),
+            Some(Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 128
+            }),
+            "#rrggbbaa carries its alpha"
+        );
+        assert_eq!(
+            parse_svg_color("#f008"),
+            Some(Rgba8 {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 136
+            }),
+            "#rgba carries its alpha"
+        );
     }
 
     #[test]
@@ -851,30 +1170,50 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_color_unsupported_named_colors_are_none() {
-        // Only 8 names are in the table; every other CSS keyword silently falls
-        // back to None (the caller then paints nothing).
-        for s in [
-            "gray",
-            "grey",
-            "cyan",
-            "magenta",
-            "transparent",
-            "currentColor",
-        ] {
-            assert_eq!(parse_svg_color(s), None, "{s} is not in the named table");
-        }
+    fn parse_svg_color_every_css_keyword_is_a_paint() {
+        // SVG paints are CSS colours: the whole keyword table, not 8 names.
+        let grey = Some(Rgba8 {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        });
+        assert_eq!(parse_svg_color("gray"), grey);
+        assert_eq!(parse_svg_color("grey"), grey);
+        assert_eq!(
+            parse_svg_color("cyan"),
+            Some(Rgba8 {
+                r: 0,
+                g: 255,
+                b: 255,
+                a: 255
+            })
+        );
+        assert_eq!(parse_svg_color("transparent").map(|c| c.a), Some(0));
+        // `currentColor` is the caller's (SvgPaintContext::resolve).
+        assert_eq!(parse_svg_color("currentColor"), None);
+    }
+
+    #[test]
+    fn parse_svg_color_functional_notations_are_paints() {
+        assert_eq!(parse_svg_color("rgb(255,0,0)"), Some(RED));
+        assert_eq!(
+            parse_svg_color("rgb(255, 0, 0)"),
+            Some(RED),
+            "printpdf's form"
+        );
+        assert_eq!(
+            parse_svg_color("rgba(255, 0, 0, 0.5)").map(|c| (c.r, c.a)),
+            Some((255, 128))
+        );
+        assert_eq!(parse_svg_color("hsl(0, 100%, 50%)"), Some(RED));
     }
 
     #[test]
     fn parse_svg_color_leading_trailing_junk_is_rejected() {
         assert_eq!(parse_svg_color("red;garbage"), None);
         assert_eq!(parse_svg_color("#ff0000;"), None);
-        assert_eq!(
-            parse_svg_color("rgb(255,0,0)"),
-            None,
-            "rgb() is unsupported"
-        );
+        assert_eq!(parse_svg_color("rgb(255,0)"), None, "a channel missing");
         assert_eq!(parse_svg_color("url(#grad)"), None, "paint servers -> None");
     }
 
@@ -1035,13 +1374,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_transform_rotate_with_center_ignores_the_center() {
-        // `rotate(angle cx cy)` is legal SVG; the extra args are silently dropped
-        // and the rotation happens around the origin instead of (cx, cy).
+    fn parse_svg_transform_rotate_turns_about_its_centre() {
+        // rotate(90 50 50) = translate(50 50) rotate(90) translate(-50 -50):
+        // the centre stays put, so the translation is c - R c = (100, 0).
         let with_center = parse_svg_transform("rotate(90 50 50)");
         let without = parse_svg_transform("rotate(90)");
-        assert_eq!((with_center.tx, with_center.ty), (0.0, 0.0));
-        assert_eq!(with_center.sx, without.sx);
+        assert!((with_center.tx - 100.0).abs() < 1e-9, "{}", with_center.tx);
+        assert!(with_center.ty.abs() < 1e-9, "{}", with_center.ty);
+        assert!((with_center.sx - without.sx).abs() < 1e-12);
+        assert!((with_center.shy - without.shy).abs() < 1e-12);
     }
 
     #[test]
@@ -1070,17 +1411,26 @@ mod autotest_generated {
     }
 
     #[test]
-    fn parse_svg_transform_transform_list_keeps_only_the_first_function() {
-        // SVG allows a whitespace-separated transform *list*. This parser only
-        // understands a single function: for "translate(10,20) scale(2)" the
-        // strip_suffix(')') leaves "10,20) scale(2" as the argument text, whose
-        // only parseable number is 10 -> ty and the whole scale() are dropped.
-        //
-        // Characterization, not an endorsement — see the report: a transform
-        // list renders *wrong* (ty lost, scale ignored) rather than crashing.
+    fn parse_svg_transform_a_list_applies_right_to_left() {
+        // SVG 1.1 7.6: "translate(10,20) scale(2)" scales first, then moves:
+        // p' = 2 p + (10, 20).
         let t = parse_svg_transform("translate(10,20) scale(2)");
-        assert_eq!((t.sx, t.sy), (1.0, 1.0), "scale() silently dropped");
-        assert_eq!((t.tx, t.ty), (10.0, 0.0), "translate ty silently dropped");
+        assert_eq!((t.sx, t.sy), (2.0, 2.0));
+        assert_eq!((t.tx, t.ty), (10.0, 20.0));
+        // The other order moves first, then scales: p' = 2 (p + (10, 20)).
+        let t = parse_svg_transform("scale(2), translate(10 20)");
+        assert_eq!((t.sx, t.sy), (2.0, 2.0));
+        assert_eq!((t.tx, t.ty), (20.0, 40.0));
+        // An unknown function puts the whole list in error.
+        assert_identity(&parse_svg_transform("translate(10,20) wobble(2)"));
+    }
+
+    #[test]
+    fn parse_svg_transform_skews_by_the_tangent() {
+        let t = parse_svg_transform("skewX(45)");
+        assert!((t.shx - 1.0).abs() < 1e-9 && t.shy == 0.0);
+        let t = parse_svg_transform("skewY(45)");
+        assert!((t.shy - 1.0).abs() < 1e-9 && t.shx == 0.0);
     }
 
     #[test]
@@ -2149,8 +2499,7 @@ mod autotest_generated {
     fn render_svg_group_with_style_explicit_parent_style_is_used() {
         let style = SvgInheritedStyle {
             fill: Some("red".to_string()),
-            stroke: None,
-            stroke_width: None,
+            ..SvgInheritedStyle::default()
         };
         let svg = el_with(
             "svg",
@@ -2471,5 +2820,319 @@ mod autotest_generated {
         .expect("a zero-area viewBox must still build an ImageRef");
         let size = img.get_size();
         assert_eq!((size.width as u32, size.height as u32), (8, 8));
+    }
+
+    // ==================================================================
+    // paint context: currentColor and the palette remap (icon recolouring,
+    // scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md 8.1)
+    // ==================================================================
+
+    const HOST_RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const REMAP_BLUE: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
+
+    fn painted(svg: &XmlNode, paint: &SvgPaintContext) -> AzulPixmap {
+        let mut p = pixmap(8, 8);
+        p.fill(255, 255, 255, 255);
+        render_svg_group_painted(svg, &mut p, &TransAffine::new(), paint);
+        p
+    }
+
+    fn host(color: ColorU) -> SvgPaintContext {
+        SvgPaintContext {
+            current_color: Some(color),
+            palette: Vec::new(),
+        }
+    }
+
+    fn full_rect(pairs: &[(&str, &str)]) -> XmlNode {
+        let mut attrs = vec![("width", "8"), ("height", "8")];
+        attrs.extend_from_slice(pairs);
+        el_with("svg", &[], vec![el("rect", &attrs)])
+    }
+
+    #[test]
+    fn current_color_paints_the_colour_the_host_gives_it() {
+        let p = painted(&full_rect(&[("fill", "currentColor")]), &host(HOST_RED));
+        assert_eq!(px(&p, 4, 4), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn current_color_is_case_insensitive_and_read_from_style_too() {
+        let p = painted(&full_rect(&[("style", "fill:currentcolor")]), &host(HOST_RED));
+        assert_eq!(px(&p, 4, 4), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn current_color_without_a_host_colour_is_black() {
+        let p = painted(
+            &full_rect(&[("fill", "currentColor")]),
+            &SvgPaintContext::default(),
+        );
+        assert_eq!(px(&p, 4, 4), [0, 0, 0, 255], "black is the initial `color`");
+    }
+
+    #[test]
+    fn a_stroke_in_current_color_takes_the_host_colour() {
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el(
+                "rect",
+                &[
+                    ("x", "2"),
+                    ("y", "2"),
+                    ("width", "4"),
+                    ("height", "4"),
+                    ("fill", "none"),
+                    ("stroke", "currentColor"),
+                    ("stroke-width", "2"),
+                ],
+            )],
+        );
+        let p = painted(&svg, &host(HOST_RED));
+        assert_eq!(px(&p, 2, 4), [255, 0, 0, 255], "on the stroke");
+        assert_eq!(px(&p, 4, 4), [255, 255, 255, 255], "inside: fill none");
+    }
+
+    #[test]
+    fn the_documents_own_color_beats_the_hosts() {
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el_with(
+                "g",
+                &[("color", "#00ff00")],
+                vec![el(
+                    "rect",
+                    &[("width", "8"), ("height", "8"), ("fill", "currentColor")],
+                )],
+            )],
+        );
+        let p = painted(&svg, &host(HOST_RED));
+        assert_eq!(px(&p, 4, 4), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn a_palette_swaps_the_listed_paint_and_nothing_else() {
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                el(
+                    "rect",
+                    &[("width", "4"), ("height", "8"), ("fill", "#000000")],
+                ),
+                el(
+                    "rect",
+                    &[("x", "4"), ("width", "4"), ("height", "8"), ("fill", "#00ff00")],
+                ),
+            ],
+        );
+        let paint = SvgPaintContext {
+            current_color: None,
+            palette: vec![(
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                REMAP_BLUE,
+            )],
+        };
+        let p = painted(&svg, &paint);
+        assert_eq!(px(&p, 1, 4), [0, 0, 255, 255], "the listed paint is swapped");
+        assert_eq!(px(&p, 6, 4), [0, 255, 0, 255], "an unlisted paint is kept");
+    }
+
+    #[test]
+    fn a_palette_remaps_the_implicit_black_fill() {
+        // No `fill` at all is SVG's black: a literal paint the author left out.
+        let paint = SvgPaintContext {
+            current_color: None,
+            palette: vec![(
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+                REMAP_BLUE,
+            )],
+        };
+        let p = painted(&full_rect(&[]), &paint);
+        assert_eq!(px(&p, 4, 4), [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn a_palette_does_not_touch_current_color() {
+        let paint = SvgPaintContext {
+            current_color: Some(HOST_RED),
+            palette: vec![(HOST_RED, REMAP_BLUE)],
+        };
+        let p = painted(&full_rect(&[("fill", "currentColor")]), &paint);
+        assert_eq!(px(&p, 4, 4), [255, 0, 0, 255], "currentColor is the host's colour");
+    }
+
+    #[test]
+    fn only_current_color_paint_makes_a_monochrome_document() {
+        assert!(svg_uses_only_current_color(
+            br#"<svg><path d="M0 0h4v4z" fill="currentColor"/><rect fill="none" stroke="currentColor"/></svg>"#
+        ));
+        assert!(svg_uses_only_current_color(
+            br#"<svg><g style="fill:currentColor"><path d="M0 0h4v4z"/></g></svg>"#
+        ));
+        assert!(
+            !svg_uses_only_current_color(
+                br#"<svg><path d="M0 0h4v4z" fill="currentColor"/><path d="M0 0h4v4z"/></svg>"#
+            ),
+            "a shape with no fill is black, a literal colour"
+        );
+        assert!(!svg_uses_only_current_color(
+            br##"<svg><path d="M0 0h4v4z" fill="#ff0000"/></svg>"##
+        ));
+        assert!(
+            !svg_uses_only_current_color(br#"<svg><path d="M0 0h4v4z" fill="none"/></svg>"#),
+            "nothing painted in currentColor is not a currentColor icon"
+        );
+        assert!(!svg_uses_only_current_color(b"not xml at all"));
+    }
+
+    #[test]
+    fn the_natural_size_is_width_and_height_then_the_view_box() {
+        assert_eq!(
+            svg_natural_size(br#"<svg width="24" height="16px"></svg>"#),
+            Some((24.0, 16.0))
+        );
+        assert_eq!(
+            svg_natural_size(br#"<svg viewBox="0 0 32 20"></svg>"#),
+            Some((32.0, 20.0))
+        );
+        assert_eq!(svg_natural_size(br#"<svg></svg>"#), None);
+        assert_eq!(svg_natural_size(b"garbage"), None);
+    }
+
+    #[test]
+    fn a_painted_imageref_takes_the_host_colour() {
+        let img = render_svg_to_imageref_painted(
+            br#"<svg viewBox="0 0 4 4"><rect width="4" height="4" fill="currentColor"/></svg>"#,
+            4,
+            4,
+            &host(HOST_RED),
+        )
+        .expect("render");
+        let size = img.get_size();
+        assert_eq!((size.width as u32, size.height as u32), (4, 4));
+    }
+
+    /// The stroke properties of an SVG shape (SVG 2 s13.5): `stroke-linecap`
+    /// (default `butt`), `stroke-linejoin` (default `miter`, limit 4) and
+    /// `stroke-dasharray`. The CPU renderer drew every stroke with round caps,
+    /// round joins and no dashes (PDF9: a dashed line came out solid, a
+    /// square-ended one rounded).
+    #[test]
+    fn an_svg_stroke_takes_its_linecap_linejoin_and_dasharray() {
+        const WHITE: [u8; 4] = [255, 255, 255, 255];
+        const RED_PX: [u8; 4] = [255, 0, 0, 255];
+        let render = |child: XmlNode| {
+            let svg = el_with("svg", &[], vec![child]);
+            let mut p = pixmap(40, 40);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            p
+        };
+
+        // A 6px line from (10, 10) to (30, 10).
+        let line = |extra: &[(&'static str, &'static str)]| {
+            let mut a = vec![
+                ("x1", "10"),
+                ("y1", "10"),
+                ("x2", "30"),
+                ("y2", "10"),
+                ("stroke", "red"),
+                ("stroke-width", "6"),
+            ];
+            a.extend_from_slice(extra);
+            el("line", &a)
+        };
+        let p = render(line(&[]));
+        assert_eq!(
+            px(&p, 8, 10),
+            WHITE,
+            "a butt cap (the default) ends the stroke at its end point"
+        );
+        assert_eq!(px(&p, 12, 10), RED_PX, "the line itself");
+        let p = render(line(&[("stroke-linecap", "square")]));
+        assert_eq!(
+            px(&p, 7, 7),
+            RED_PX,
+            "a square cap extends the stroke by half its width, corners included"
+        );
+        let p = render(line(&[("stroke-linecap", "round")]));
+        assert_eq!(px(&p, 8, 10), RED_PX, "a round cap reaches past the end");
+        assert_ne!(px(&p, 7, 7), RED_PX, "but not into the corner");
+
+        // A 6px right angle with its corner at (5, 5): a miter fills the
+        // outer corner square [2, 5] x [2, 5]; a round or bevel join does not
+        // reach its corner pixel (2, 2).
+        let corner = |join: Option<&'static str>| {
+            let mut a = vec![
+                ("d", "M5 30 L5 5 L30 5"),
+                ("fill", "none"),
+                ("stroke", "red"),
+                ("stroke-width", "6"),
+            ];
+            if let Some(j) = join {
+                a.push(("stroke-linejoin", j));
+            }
+            el("path", &a)
+        };
+        assert_eq!(
+            px(&render(corner(None)), 2, 2),
+            RED_PX,
+            "a miter join (the default) fills the outer corner"
+        );
+        assert_ne!(
+            px(&render(corner(Some("round"))), 2, 2),
+            RED_PX,
+            "a round join cuts it"
+        );
+        assert_ne!(
+            px(&render(corner(Some("bevel"))), 2, 2),
+            RED_PX,
+            "a bevel join cuts it"
+        );
+
+        // A 4px dashed line, 5 on / 5 off from x = 0.
+        let dashed = |extra: &[(&'static str, &'static str)]| {
+            let mut a = vec![
+                ("x1", "0"),
+                ("y1", "10"),
+                ("x2", "40"),
+                ("y2", "10"),
+                ("stroke", "red"),
+                ("stroke-width", "4"),
+                ("stroke-dasharray", "5 5"),
+            ];
+            a.extend_from_slice(extra);
+            el("line", &a)
+        };
+        let p = render(dashed(&[]));
+        assert_eq!(px(&p, 2, 10), RED_PX, "the first dash");
+        assert_eq!(px(&p, 7, 10), WHITE, "the first gap");
+        assert_eq!(px(&p, 12, 10), RED_PX, "the second dash");
+        let p = render(dashed(&[("stroke-dashoffset", "5")]));
+        assert_eq!(px(&p, 2, 10), WHITE, "an offset of 5 starts with the gap");
+        assert_eq!(px(&p, 7, 10), RED_PX, "and the dash follows");
     }
 }

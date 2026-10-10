@@ -75,6 +75,93 @@ impl AudioFrame {
 // because AudioFrame holds a F32Vec (matches the convention in `json.rs`).
 impl_option!(AudioFrame, OptionAudioFrame, copy = false, [Clone, Debug]);
 
+// ==== Audio files and the player (MEDIA9) ====
+
+use azul_css::{AzString, U8Vec};
+
+/// What an audio file holds: its format, length and tags. Every text is empty when the file does
+/// not say; numbers are 0.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AudioFileInfo {
+    /// The track's title (`TITLE`, ID3 `TIT2`, the MP4 title atom).
+    pub title: AzString,
+    /// The performer.
+    pub artist: AzString,
+    /// The album.
+    pub album: AzString,
+    /// The album's artist (a compilation's "Various Artists").
+    pub album_artist: AzString,
+    /// The genre.
+    pub genre: AzString,
+    /// The date or year the file gives, as it gives it ("2024", "2024-05-01").
+    pub date: AzString,
+    /// Unsynchronised lyrics, when the file carries them.
+    pub lyrics: AzString,
+    /// The codec ("mp3", "aac", "flac", "vorbis", "opus", "`pcm_s16le`", ...).
+    pub codec: AzString,
+    /// The container ("wave", "flac", "isomp4", "ogg", "mkv", ...).
+    pub container: AzString,
+    /// The cover art's media type ("image/jpeg", "image/png"), empty without a cover.
+    pub cover_mime: AzString,
+    /// The cover art, encoded as stored (decode it with `RawImage::decode_image_bytes_any`);
+    /// empty without a cover. The front cover when the file has several pictures.
+    pub cover: U8Vec,
+    /// The length in seconds (0 when the file does not say and it was not measured).
+    pub duration_s: f64,
+    /// Samples per second per channel.
+    pub sample_rate: u32,
+    /// The track's number on its album (0 = not given).
+    pub track_number: u32,
+    /// The track count of the album (0 = not given).
+    pub track_total: u32,
+    /// The disc's number (0 = not given).
+    pub disc_number: u32,
+    /// Channels (1 mono, 2 stereo, ...).
+    pub channels: u16,
+}
+
+impl_option!(
+    AudioFileInfo,
+    OptionAudioFileInfo,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+/// What an `AudioPlayer` is doing, as the listener hears it (`AudioPlayer::get_state`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AudioPlayerState {
+    /// Where the listener is in the track heard now, in seconds.
+    pub position_s: f64,
+    /// The length of the track heard now, in seconds (0 when unknown).
+    pub duration_s: f64,
+    /// Decoded audio waiting ahead of the listener, in seconds. A track handed over with
+    /// `AudioPlayer::preload_file` is ready to start at once (`play`) when this is above zero:
+    /// the file is open, the output is open, and its first samples are decoded.
+    pub buffered_s: f64,
+    /// The id of the track heard now (what `load_*` / `queue_*` returned); 0 = none.
+    pub track: u64,
+    /// The id of the last track that could not be opened (0 = none): its reason is
+    /// `AudioPlayer::error_message`.
+    pub failed_track: u64,
+    /// The player's volume, `0.0..=1.0`.
+    pub volume: f32,
+    /// The peak level (`0.0..=1.0`) of the left channel of the audio heard now (a meter's input).
+    pub peak_left: f32,
+    /// The peak level of the right channel.
+    pub peak_right: f32,
+    /// Tracks queued after the one being decoded.
+    pub queued_tracks: u32,
+    /// Playback runs (not paused, something to play, an output open).
+    pub playing: bool,
+    /// Everything loaded and queued has been heard to its end.
+    pub finished: bool,
+    /// An audio output opened: false in a headless run without the synthetic sink, and on a
+    /// machine without an output device (`AudioPlayer::error_message` says why).
+    pub has_output: bool,
+}
+
 #[cfg(test)]
 #[path = "audio_test.rs"]
 mod audio_test;

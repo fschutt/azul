@@ -1,0 +1,43 @@
+[
+  {
+    "name": "azul_widgets_every_input_form_submits_its_form_data_and_resets",
+    "description": "The 'Every input type' Form: Submit hands the app the FormData, which the page prints one line per entry (each line's id is form-data-<name>) - the hidden input, the checked checkbox, the radio group, the select with optgroups, a date picker and a text field are all in it. Reset clears the printed data again.",
+    "steps": [
+      { "op": "assert_not_exists", "selector": "#form-data-form-id" },
+      { "op": "scroll_into_view", "selector": "#form-submit", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "selector": "#form-submit" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_exists", "selector": "#form-data-form-id" },
+      { "op": "assert_exists", "selector": "#form-data-newsletter" },
+      { "op": "assert_exists", "selector": "#form-data-plan" },
+      { "op": "assert_exists", "selector": "#form-data-food" },
+      { "op": "assert_exists", "selector": "#form-data-day" },
+      { "op": "assert_exists", "selector": "#form-data-full-name" },
+      { "op": "scroll_into_view", "selector": "#form-reset", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "selector": "#form-reset" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_not_exists", "selector": "#form-data-form-id" }
+    ]
+  },
+  {
+    "name": "azul_widgets_raw_inputs_become_widgets_that_submit",
+    "description": "The 'Raw HTML inputs' Form: the raw <input>s built with Dom::create_input and the ones parsed from XML are replaced by widgets, and the raw type=submit (replaced by a submit Button that keeps its id) submits the Form around them - the range, the checked checkbox, the checked radio of the group, the select and the XML hidden input are all in the printed FormData (ids raw-form-data-<name>).",
+    "steps": [
+      { "op": "assert_not_exists", "selector": "#raw-form-data-source" },
+      { "op": "scroll_into_view", "selector": "#raw-submit", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "selector": "#raw-submit" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_exists", "selector": "#raw-form-data-brightness" },
+      { "op": "assert_exists", "selector": "#raw-form-data-terms" },
+      { "op": "assert_exists", "selector": "#raw-form-data-size" },
+      { "op": "assert_exists", "selector": "#raw-form-data-pet" },
+      { "op": "assert_exists", "selector": "#raw-form-data-source" }
+    ]
+  }
+]

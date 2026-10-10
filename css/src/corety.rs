@@ -288,6 +288,34 @@ impl AzString {
         }
     }
 
+    /// A translation KEY rather than display text: the string is `key`, marked
+    /// localizable, so the layout pass replaces it with the key's translation
+    /// in the active locale.
+    #[must_use]
+    pub fn tr(key: &str) -> Self {
+        let mut s = Self::from(key);
+        s.set_localizable(true);
+        s
+    }
+
+    /// Was this string made with [`Self::tr`] (or marked with
+    /// [`Self::set_localizable`])?
+    #[inline]
+    #[must_use]
+    pub const fn is_localizable(&self) -> bool {
+        (self.vec.flags & 1) != 0
+    }
+
+    /// Mark (or unmark) this string as a translation key.
+    #[inline]
+    pub const fn set_localizable(&mut self, localizable: bool) {
+        if localizable {
+            self.vec.flags |= 1;
+        } else {
+            self.vec.flags &= !1;
+        }
+    }
+
     #[inline]
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -333,6 +361,7 @@ impl AzString {
             len: m.vec.len,
             cap: m.vec.cap,
             destructor: m.vec.destructor,
+            flags: m.vec.flags,
         }
     }
 
@@ -622,6 +651,24 @@ impl_vec_partialeq!(u32, U32Vec);
 impl_vec_eq!(u32, U32Vec);
 impl_vec_hash!(u32, U32Vec);
 
+// Vec<u64>: item ids (a list selection's keys, `widgets::list_selection`).
+impl_vec!(
+    u64,
+    U64Vec,
+    U64VecDestructor,
+    U64VecDestructorType,
+    U64VecSlice,
+    OptionU64
+);
+impl_vec_mut!(u64, U64Vec);
+impl_vec_debug!(u64, U64Vec);
+impl_vec_partialord!(u64, U64Vec);
+impl_vec_ord!(u64, U64Vec);
+impl_vec_clone!(u64, U64Vec, U64VecDestructor);
+impl_vec_partialeq!(u64, U64Vec);
+impl_vec_eq!(u64, U64Vec);
+impl_vec_hash!(u64, U64Vec);
+
 impl_vec!(
     AzString,
     StringVec,
@@ -879,6 +926,7 @@ impl StringArena {
                 // does that.
                 cap: arc_raw as usize,
                 destructor: U8VecDestructor::External(arena_string_destructor),
+                flags: 0,
             },
         }
     }
@@ -2255,6 +2303,7 @@ mod autotest_generated {
             len: 0,
             cap: raw as usize,
             destructor: U8VecDestructor::External(arena_string_destructor),
+                flags: 0,
         };
 
         arena_string_destructor(&mut v);
@@ -2287,6 +2336,7 @@ mod autotest_generated {
             len: 0,
             cap: 0,
             destructor: U8VecDestructor::NoDestructor,
+            flags: 0,
         };
         arena_string_destructor(&mut v);
         assert_eq!(v.cap, 0);
@@ -2308,5 +2358,33 @@ mod autotest_generated {
         assert_eq!(s.as_str(), "outlives the handle");
         assert_eq!(s.vec.cap as *const StringArenaInner, inner_ptr);
         drop(s); // final reference → chunks freed here, exactly once
+    }
+}
+
+#[cfg(test)]
+mod localizable_flag_tests {
+    use super::*;
+
+    #[test]
+    fn a_cloned_translation_key_is_still_a_translation_key() {
+        // A DOM is cloned all the time (an app keeps a parsed XML document in
+        // its model and clones it out of `layout()`; components copy their
+        // templates), and the key must survive every copy or the layout pass
+        // renders the raw key instead of its translation.
+        let key = AzString::tr("welcome-greeting");
+        assert!(key.is_localizable());
+
+        let copy = key.clone();
+        assert!(copy.is_localizable(), "clone() dropped the localizable flag");
+        assert_eq!(copy.as_str(), "welcome-greeting");
+
+        let copy_of_copy = copy.clone_self();
+        assert!(copy_of_copy.is_localizable(), "clone_self() dropped the flag");
+    }
+
+    #[test]
+    fn a_cloned_plain_string_stays_plain() {
+        let plain = AzString::from("welcome-greeting");
+        assert!(!plain.clone().is_localizable());
     }
 }

@@ -21,16 +21,14 @@ use alloc::{boxed::Box, string::String};
 
 use azul_css::{
     corety::{AzString, OptionF32, OptionString},
-    css::Css,
     dynamic_selector::{BoolCondition, OsFamily, OsVersion},
-    parser2::new_from_str,
     props::basic::{
         color::{parse_css_color, ColorU, OptionColorU},
         pixel::{OptionPixelValue, PixelValue},
     },
     system::{
         defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility,
-        SubpixelType, SystemStyle, Theme, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
+        SubpixelType, SystemStyle, DarkLightMode, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
     },
 };
 
@@ -1703,7 +1701,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     } else {
         defaults::kde_breeze_light()
     };
-    style.theme = if is_dark { Theme::Dark } else { Theme::Light };
+    style.theme = if is_dark { DarkLightMode::Dark } else { DarkLightMode::Light };
 
     // ── Fonts ───────────────────────────────────────────────────────
     // KDE font spec: "Noto Sans,10,-1,5,50,0,0,0,0,0" (family, point size, …).
@@ -1778,12 +1776,16 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     }
     if let Some(c) = read_kde_color("Colors:View", "BackgroundNormal") {
         style.colors.background = OptionColorU::Some(c);
+        // Colors:View is also the group every editable control is drawn in.
+        style.colors.control_background = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "ForegroundNormal") {
         style.colors.text = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "ForegroundInactive") {
         style.colors.secondary_text = OptionColorU::Some(c);
+        // Breeze greys a field's prompt with the view's inactive foreground.
+        style.colors.placeholder_text = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "ForegroundLink") {
         style.colors.link = OptionColorU::Some(c);
@@ -1800,6 +1802,8 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     if let Some(c) = read_kde_color("Colors:Selection", "BackgroundNormal") {
         style.colors.accent = OptionColorU::Some(c);
         style.colors.selection_background = OptionColorU::Some(c);
+        // KDE has one selection group for items and text alike.
+        style.colors.text_selection_background = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:Selection", "ForegroundNormal") {
         style.colors.accent_text = OptionColorU::Some(c);
@@ -2087,7 +2091,7 @@ fn parse_pywal_colors(json_str: &str, style: &mut SystemStyle) {
     if let Some(bg) = extract_json_value(json_str, "background") {
         if let Ok(c) = parse_css_color(bg) {
             style.colors.window_background = OptionColorU::Some(c);
-            style.theme = Theme::Dark; // pywal usually means dark
+            style.theme = DarkLightMode::Dark; // pywal usually means dark
         }
     }
 
@@ -2346,52 +2350,6 @@ fn detect_language_linux() -> AzString {
 
 // ── App-specific stylesheet loading ─────────────────────────────────────
 
-/// Load an application-specific stylesheet from the user's config directory.
-///
-/// Path: `<config_dir>/azul/styles/<exe_name>.css`
-///
-/// Config directory is determined by:
-/// - Linux:   `$XDG_CONFIG_HOME` or `~/.config`
-/// - macOS:   `~/Library/Application Support`
-/// - Windows: `%APPDATA%`
-///
-/// Returns `None` if the file does not exist or cannot be parsed.
-fn load_app_specific_stylesheet() -> Option<Css> {
-    // Bail out if ricing is disabled
-    if !azul_css::system::ricing_enabled() {
-        return None;
-    }
-
-    let exe_name = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))?;
-
-    let config_dir = get_config_dir()?;
-
-    let css_path = alloc::format!("{}/azul/styles/{}.css", config_dir, exe_name);
-    let css_str = std::fs::read_to_string(&css_path).ok()?;
-    let (css, _warnings) = new_from_str(&css_str);
-    if css.is_empty() {
-        None
-    } else {
-        Some(css)
-    }
-}
-
-/// Get the platform-appropriate user config directory.
-fn get_config_dir() -> Option<String> {
-    // On Linux, prefer XDG_CONFIG_HOME, fall back to ~/.config
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        if !xdg.is_empty() {
-            return Some(xdg);
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return Some(alloc::format!("{}/.config", home));
-    }
-    None
-}
-
 // ── Font parsing helper ─────────────────────────────────────────────────
 
 /// Parse a font string like "Cantarell 11" or "Ubuntu Bold 12" into
@@ -2421,13 +2379,74 @@ fn parse_font_name_and_size(s: &str) -> Option<(String, f32)> {
     None
 }
 
+/// Give the TITLEBAR its type from the desktop's own title font.
+///
+/// `SystemFonts::title_font{,_size}` is where every Linux desktop's answer
+/// lands — xfwm4's `xfconf xfwm4 /general/title_font`, GNOME's
+/// `org.gnome.desktop.wm.preferences titlebar-font`, Breeze's `WM/activeFont`
+/// — and `TitlebarMetrics::title_font{,_size,_weight}` is the only one a
+/// client-side titlebar ever reads (`SystemStyle::create_csd_stylesheet`,
+/// `Titlebar::from_system_style_csd`). Nothing joined the two, so a fully
+/// detected desktop still drew its titlebar in the BUILT-IN defaults.
+///
+/// They are also in different UNITS, which is the other half of it: a desktop
+/// states a font in POINTS (Pango, and `SystemFonts` says so in its docs) and
+/// the titlebar metrics are consumed as CSS PIXELS. At the 96 dpi X11 and
+/// Wayland report, 10 pt is 13.3 px, not 10.
+fn adopt_desktop_titlebar_font(style: &mut SystemStyle) {
+    use azul_css::{corety::OptionU16, props::basic::pixel::PT_TO_PX};
+
+    let tm = &mut style.metrics.titlebar;
+    if let OptionString::Some(family) = &style.fonts.title_font {
+        tm.title_font_weight = OptionU16::Some(font_weight_from_family_name(family.as_str()));
+        tm.title_font = OptionString::Some(family.clone());
+    }
+    if let OptionF32::Some(pt) = style.fonts.title_font_size {
+        if pt.is_finite() && pt > 0.0 {
+            tm.title_font_size = OptionF32::Some(pt * PT_TO_PX);
+        }
+    }
+}
+
+/// The CSS weight the style word in a Pango family name states.
+///
+/// A desktop names its title face the way Pango describes it — "Ubuntu
+/// Medium 10", "Cantarell Bold 11" — so the weight is carried in the family
+/// string and nowhere else. A name that states none is 400, not the bold the
+/// GNOME defaults happen to carry.
+fn font_weight_from_family_name(name: &str) -> u16 {
+    let n = name.to_ascii_lowercase();
+    // Longest first: "semibold" must not be read by the "bold" arm, nor
+    // "extralight" by "light".
+    for (word, weight) in [
+        ("extrabold", 800u16),
+        ("ultrabold", 800),
+        ("semibold", 600),
+        ("demibold", 600),
+        ("extralight", 200),
+        ("ultralight", 200),
+        ("semilight", 350),
+        ("black", 900),
+        ("heavy", 900),
+        ("bold", 700),
+        ("medium", 500),
+        ("light", 300),
+        ("thin", 100),
+    ] {
+        if n.contains(word) {
+            return weight;
+        }
+    }
+    400
+}
+
 // ── Public entry point ───────────────────────────────────────────────────
 
 /// Discover the Linux system style.
 ///
 /// Tries XDG Desktop Portal first (raw D-Bus), then CLI-based discovery
 /// (KDE, GNOME, riced desktops), and finally hardcoded GNOME Adwaita defaults.
-pub(crate) fn discover() -> SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
     let portal_result = query_xdg_portal();
 
@@ -2503,7 +2522,7 @@ pub(crate) fn discover() -> SystemStyle {
     // "prefer-dark" from a stale GTK flag must not repaint a light session.
     if let Some((color_scheme, accent_rgb)) = portal_result.filter(|_| !desktop_answered) {
         match color_scheme {
-            1 if style.theme != Theme::Dark => {
+            1 if style.theme != DarkLightMode::Dark => {
                 let fonts = style.fonts.clone();
                 let linux = style.linux.clone();
                 let metrics = style.metrics.clone();
@@ -2512,7 +2531,7 @@ pub(crate) fn discover() -> SystemStyle {
                 style.linux = linux;
                 style.metrics = metrics;
             }
-            2 if style.theme != Theme::Light => {
+            2 if style.theme != DarkLightMode::Light => {
                 let fonts = style.fonts.clone();
                 let linux = style.linux.clone();
                 let metrics = style.metrics.clone();
@@ -2534,8 +2553,15 @@ pub(crate) fn discover() -> SystemStyle {
 
     // ── 3. Fill in extras and metadata ──────────────────────────────
     discover_linux_extras(&mut style);
+    // The titlebar is the desktop's, and so is its type: whatever the store
+    // above reported for the window title now reaches the metrics a CSD
+    // titlebar is built from.
+    adopt_desktop_titlebar_font(&mut style);
     style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
-    style.language = detect_language_linux();
+    style.language = azul_css::system::SystemLanguage::resolve(
+        detect_language_linux().as_str(),
+        known_languages,
+    );
     style.os_version = detect_linux_version();
 
     // Accessibility — try GNOME first, then KDE
@@ -2547,10 +2573,11 @@ pub(crate) fn discover() -> SystemStyle {
     }
     style.prefers_high_contrast = detect_gnome_high_contrast();
 
-    // App-specific ricing stylesheet
-    style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
+    // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
+    // `$XDG_CONFIG_HOME/azul/styles/<exe>.css`) are not a system style: the
+    // rice loader (`azul_css::rice`) reads them for every window.
 
-    // ── 4. `AZ_THEME=light|dark` overrides the lot ──────────────────
+    // ── 4. `AZ_MODE=light|dark` overrides the lot ──────────────────
     // Applied HERE, before DISCOVERED_THEME is written, so the pin reaches the
     // window theme too and not just the cascade. The replacement palette
     // follows the session: a KDE desktop pinned light gets Breeze Light, not
@@ -2559,7 +2586,7 @@ pub(crate) fn discover() -> SystemStyle {
         linux_settings_source(&azul_css::system::detect_linux_desktop_env()),
         LinuxSettingsSource::KdeConfig
     );
-    azul_css::system::apply_env_theme_pin(
+    azul_css::system::apply_env_mode_pin(
         &mut style,
         || {
             if kde_session {
@@ -2582,8 +2609,8 @@ pub(crate) fn discover() -> SystemStyle {
     // See `effective_system_theme`.
     DISCOVERED_THEME.store(
         match style.theme {
-            Theme::Dark => 1,
-            Theme::Light => 2,
+            DarkLightMode::Dark => 1,
+            DarkLightMode::Light => 2,
         },
         core::sync::atomic::Ordering::Relaxed,
     );
@@ -2612,10 +2639,10 @@ static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 static DISCOVERED_THEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 /// The theme detection read from the desktop's own config at startup.
-fn discovered_startup_theme() -> Option<Theme> {
+fn discovered_startup_theme() -> Option<DarkLightMode> {
     match DISCOVERED_THEME.load(core::sync::atomic::Ordering::Relaxed) {
-        1 => Some(Theme::Dark),
-        2 => Some(Theme::Light),
+        1 => Some(DarkLightMode::Dark),
+        2 => Some(DarkLightMode::Light),
         _ => None,
     }
 }
@@ -2628,10 +2655,10 @@ fn discovered_startup_theme() -> Option<Theme> {
 /// a bare WM, a session where it simply does not answer - the startup read is
 /// the only thing that knows, and it is usually right: it came from kdeglobals,
 /// xfconf or the GTK theme name. Without this the window kept
-/// `WindowTheme::default()` (LightMode) on every portal-less desktop, so a
+/// `DarkLightMode::default()` (LightMode) on every portal-less desktop, so a
 /// Breeze Dark KDE session rendered a LIGHT application chrome while
-/// `SystemStyle` sitting right beside it correctly said `Theme::Dark`.
-fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) -> Option<Theme> {
+/// `SystemStyle` sitting right beside it correctly said `DarkLightMode::Dark`.
+fn effective_system_theme(observed: Option<DarkLightMode>, discovered: Option<DarkLightMode>) -> Option<DarkLightMode> {
     observed.or(discovered)
 }
 
@@ -2641,10 +2668,10 @@ fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) ->
 /// "No preference" deliberately yields `None` rather than defaulting to light —
 /// it means the desktop is not expressing one, so whatever full detection chose
 /// at startup (GTK theme name, kdeglobals, pywal, ...) remains the better answer.
-fn color_scheme_to_theme(scheme: u32) -> Option<Theme> {
+fn color_scheme_to_theme(scheme: u32) -> Option<DarkLightMode> {
     match scheme {
-        1 => Some(Theme::Dark),
-        2 => Some(Theme::Light),
+        1 => Some(DarkLightMode::Dark),
+        2 => Some(DarkLightMode::Light),
         _ => None,
     }
 }
@@ -2653,11 +2680,11 @@ fn color_scheme_to_theme(scheme: u32) -> Option<Theme> {
 ///
 /// Cheap: one relaxed atomic load. Safe to call every frame — the D-Bus round
 /// trip happens on the watcher thread, never on the caller's.
-pub(crate) fn observed_system_theme() -> Option<Theme> {
+pub(crate) fn observed_system_theme() -> Option<DarkLightMode> {
     ensure_theme_watcher();
     match OBSERVED_COLOR_SCHEME.load(core::sync::atomic::Ordering::Relaxed) {
-        1 => Some(Theme::Dark),
-        2 => Some(Theme::Light),
+        1 => Some(DarkLightMode::Dark),
+        2 => Some(DarkLightMode::Light),
         _ => None,
     }
 }
@@ -3141,23 +3168,30 @@ fn color_scheme_from_message(msg: &[u8], expect_reply_serial: Option<u32>) -> Op
 pub(crate) fn adopt_observed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     let theme = effective_system_theme(observed_system_theme(), discovered_startup_theme())?;
     let theme = match theme {
-        Theme::Dark => WindowTheme::DarkMode,
-        Theme::Light => WindowTheme::LightMode,
+        DarkLightMode::Dark => DarkLightMode::Dark,
+        DarkLightMode::Light => DarkLightMode::Light,
     };
-    if common.current_window_state().theme == theme {
+    // The DESKTOP's light / dark, which is not necessarily the window's: an
+    // app that pins its mode keeps its window where it is, but the desktop is
+    // still recorded and its style re-discovered, so switching the app back
+    // to "follow the system" lands on the desktop's current mode at once.
+    if common.desktop_theme() == theme {
         return None;
     }
+    let window_theme = common.adopt_desktop_theme(theme);
 
     // The diff pipeline compares against previous_window_state to decide that a
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("linux.adopt_observed_theme");
 
-    common.update_unsynced_state(|ws| ws.theme = theme);
+    if let Some(window_theme) = window_theme {
+        common.update_unsynced_state(|ws| ws.theme = window_theme);
+    }
 
     // RE-DISCOVER the style, the way the Windows backend does on
     // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had
@@ -3166,7 +3200,15 @@ pub(crate) fn adopt_observed_theme(
     // scrollbar and the light titlebar, and only the `@theme` CSS conditions
     // moved. The whole palette belongs to the scheme, so the whole palette is
     // re-read.
-    Some(rediscovered_style_for(theme))
+    //
+    // The held language is the one the app's known languages resolved at
+    // startup; handing it back as the known list keeps its RTL-ness across
+    // the switch.
+    let held_language = common.system_style.language.clone();
+    Some(rediscovered_style_for(
+        theme,
+        core::slice::from_ref(&held_language),
+    ))
 }
 
 /// The re-discovered style for a theme, discovered ONCE per switch.
@@ -3178,12 +3220,15 @@ pub(crate) fn adopt_observed_theme(
 /// it was discovered for, so the second window through re-uses the first
 /// window's work and a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(
+    theme: azul_core::window::DarkLightMode,
+    known_languages: &[azul_css::system::SystemLanguage],
+) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
     static CACHE: Mutex<
         Option<(
-            azul_core::window::WindowTheme,
+            azul_core::window::DarkLightMode,
             alloc::sync::Arc<SystemStyle>,
         )>,
     > = Mutex::new(None);
@@ -3196,7 +3241,7 @@ fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync:
             return alloc::sync::Arc::clone(style);
         }
     }
-    let style = alloc::sync::Arc::new(discover());
+    let style = alloc::sync::Arc::new(discover(known_languages));
     *guard = Some((theme, alloc::sync::Arc::clone(&style)));
     style
 }
@@ -3215,7 +3260,7 @@ fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync:
 pub fn dump_discovered_style() -> String {
     use core::fmt::Write;
 
-    let s = discover();
+    let s = discover(&[]);
     let mut o = String::new();
     let c = |v: &OptionColorU| -> String {
         v.as_option().map_or_else(
@@ -3271,7 +3316,7 @@ pub fn dump_discovered_style() -> String {
         kde_color_sources().len()
     );
     let _ = writeln!(o, "theme               {:?}", s.theme);
-    let _ = writeln!(o, "language            {}", s.language.as_str());
+    let _ = writeln!(o, "language            {}", s.language.id.as_str());
     let _ = writeln!(o, "-- fonts --");
     let _ = writeln!(
         o,
@@ -3631,12 +3676,12 @@ mod kde_ini_tests {
     /// window rendered its LIGHT chrome on a dark desktop. Detection was not
     /// the problem - `AZ_DUMP_SYSTEM_STYLE=1` correctly read `theme Dark` and
     /// the whole Breeze Dark palette out of kdeglobals. The problem is that
-    /// the WINDOW theme (`WindowState::theme`, which is what an app reads
-    /// through `CallbackInfo::get_theme()`) is fed by ONE source: the
+    /// the WINDOW's light / dark (`WindowState::theme`, which is what an app
+    /// reads through `LayoutCallbackInfo::get_mode()`) is fed by ONE source: the
     /// xdg-desktop-portal watcher. This session logs
     /// `xdg-desktop-portal unavailable`, so the watcher never stores anything,
     /// `adopt_observed_theme` returns `None`, and the window keeps
-    /// `WindowTheme::default()` - which is `LightMode` - forever.
+    /// `DarkLightMode::default()` - which is `LightMode` - forever.
     ///
     /// `observed_system_theme`'s own doc already states the rule this restores:
     /// when the portal expresses no preference, "whatever full detection chose
@@ -3646,24 +3691,24 @@ mod kde_ini_tests {
     fn a_silent_portal_falls_back_to_what_detection_read_at_startup() {
         // The portal answers: it wins, even against a different startup read.
         assert_eq!(
-            effective_system_theme(Some(Theme::Dark), Some(Theme::Light)),
-            Some(Theme::Dark)
+            effective_system_theme(Some(DarkLightMode::Dark), Some(DarkLightMode::Light)),
+            Some(DarkLightMode::Dark)
         );
         assert_eq!(
-            effective_system_theme(Some(Theme::Light), Some(Theme::Dark)),
-            Some(Theme::Light)
+            effective_system_theme(Some(DarkLightMode::Light), Some(DarkLightMode::Dark)),
+            Some(DarkLightMode::Light)
         );
 
         // THE DEFECT: no portal, but startup detection read a dark desktop out
         // of kdeglobals. Today this is `None` and the window stays LightMode.
         assert_eq!(
-            effective_system_theme(None, Some(Theme::Dark)),
-            Some(Theme::Dark),
+            effective_system_theme(None, Some(DarkLightMode::Dark)),
+            Some(DarkLightMode::Dark),
             "a dark desktop with no portal must still produce a dark window"
         );
         assert_eq!(
-            effective_system_theme(None, Some(Theme::Light)),
-            Some(Theme::Light)
+            effective_system_theme(None, Some(DarkLightMode::Light)),
+            Some(DarkLightMode::Light)
         );
 
         // Nothing known anywhere: stay quiet rather than guess.
@@ -3699,5 +3744,89 @@ mod kde_ini_tests {
             linux_settings_source(&DesktopEnvironment::Kde),
             LinuxSettingsSource::KdeConfig
         );
+    }
+}
+
+#[cfg(test)]
+mod titlebar_font_tests {
+    //! THE CSD TITLEBAR IS SET IN THE WRONG TYPE.
+    //!
+    //! Measured on Linux Mint 22.2 / XFCE, 96 dpi, `Xft.dpi` unset:
+    //!
+    //! ```text
+    //! $ xfconf-query -c xfwm4 -p /general/title_font
+    //! Ubuntu Medium 10
+    //! ```
+    //!
+    //! 10 pt at 96 dpi is 13.3 px. azul's own titlebar came out in Cantarell
+    //! 11 px bold — `TitlebarMetrics::linux_gnome()`, untouched — because the
+    //! XFCE discovery writes the desktop's answer into `SystemFonts` and
+    //! nothing carries it across to `SystemMetrics::titlebar`, which is the
+    //! only place `create_csd_stylesheet` and `Titlebar::from_system_style_csd`
+    //! look.
+
+    use azul_css::{
+        corety::{OptionF32, OptionString},
+        system::defaults,
+    };
+
+    use super::adopt_desktop_titlebar_font;
+
+    /// The size, in the unit the titlebar is drawn in.
+    #[test]
+    fn the_titlebar_is_set_at_the_size_the_desktop_reported() {
+        let mut style = defaults::gnome_adwaita_light();
+        // What xfwm4 reports on this desktop, as the discovery parses it.
+        style.fonts.title_font = OptionString::Some("Ubuntu Medium".into());
+        style.fonts.title_font_size = OptionF32::Some(10.0);
+
+        adopt_desktop_titlebar_font(&mut style);
+
+        let px = style
+            .metrics
+            .titlebar
+            .title_font_size
+            .into_option()
+            .expect("the titlebar must state a size");
+        assert!(
+            (px - 13.333_333).abs() < 0.01,
+            "10 pt is 13.33 px at 96 dpi; the titlebar says {px} px"
+        );
+    }
+
+    /// …and the family, and the weight the family name states. `Medium` is
+    /// 500; the GNOME default this style starts from says 700, which is
+    /// Cantarell's, not this desktop's.
+    #[test]
+    fn the_titlebar_is_set_in_the_face_the_desktop_reported() {
+        let mut style = defaults::gnome_adwaita_light();
+        style.fonts.title_font = OptionString::Some("Ubuntu Medium".into());
+        style.fonts.title_font_size = OptionF32::Some(10.0);
+
+        adopt_desktop_titlebar_font(&mut style);
+
+        assert_eq!(
+            style.metrics.titlebar.title_font.as_option().map(|s| s.as_str()),
+            Some("Ubuntu Medium"),
+        );
+        assert_eq!(
+            style.metrics.titlebar.title_font_weight.into_option(),
+            Some(500),
+            "`Medium` is weight 500"
+        );
+    }
+
+    /// A desktop that reported nothing keeps whatever the platform defaults
+    /// said — the join must not erase a known titlebar with a blank one.
+    #[test]
+    fn a_desktop_that_reported_nothing_changes_nothing() {
+        let mut style = defaults::gnome_adwaita_light();
+        style.fonts.title_font = OptionString::None;
+        style.fonts.title_font_size = OptionF32::None;
+        let before = style.metrics.titlebar.clone();
+
+        adopt_desktop_titlebar_font(&mut style);
+
+        assert_eq!(style.metrics.titlebar, before);
     }
 }

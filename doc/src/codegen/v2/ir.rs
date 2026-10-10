@@ -304,6 +304,28 @@ pub struct StructDef {
     pub callback_wrapper_info: Option<CallbackWrapperInfo>,
 }
 
+/// Does a struct with these field names (in declaration order) have the
+/// field count of the FFI Vec layout?
+///
+/// The layout is `[ptr, len, cap, destructor]`, since 2026-09 followed by
+/// `flags: u8` - a per-value byte `impl_vec!` gives every Vec type (bit 0
+/// marks an `AzString` as a Fluent translation key). Both counts are
+/// accepted, the fifth field only under that name. This is the ONE place an
+/// emitter learns how many fields a Vec has; the field NAMES it relies on
+/// (`ptr`, `len`, ...) it still checks itself.
+#[must_use]
+pub fn is_vec_field_count<'a, I>(field_names: I) -> bool
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let names: Vec<&str> = field_names.into_iter().collect();
+    match names.len() {
+        4 => true,
+        5 => names[4] == "flags",
+        _ => false,
+    }
+}
+
 /// Information about a callback wrapper struct
 ///
 /// Callback wrappers pair a function pointer (callback_typedef) with

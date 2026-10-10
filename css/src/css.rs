@@ -13,7 +13,7 @@ use core::fmt;
 
 use crate::{
     corety::OptionString,
-    dynamic_selector::DynamicSelectorVec,
+    dynamic_selector::{DynamicSelector, DynamicSelectorVec, ThemeCondition},
     props::property::{CssProperty, CssPropertyType},
     AzString,
 };
@@ -188,9 +188,31 @@ impl Css {
     /// properties at the top level. Pseudo and at-rule blocks like
     /// `:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work
     /// directly via CSS nesting.
+    ///
+    /// The result is a node's OWN style (`NodeData::set_css`, `with_style`,
+    /// `CallbackInfo::set_node_style`), which the cascade reads by its
+    /// conditions and never selector-matches: a `:hover { .. }` block
+    /// becomes a rule under a `:hover` CONDITION
+    /// ([`CssRuleBlock::lower_node_pseudo_states`]). For a stylesheet the
+    /// cascade selector-matches, see [`Self::parse_scoped`].
     #[cfg(feature = "parser")]
     #[must_use]
     pub fn parse_inline(style: &str) -> Self {
+        let mut css = Self::parse_scoped(style);
+        for rule in css.rules.as_mut() {
+            rule.lower_node_pseudo_states();
+        }
+        css
+    }
+
+    /// Parse the same text as [`Self::parse_inline`] into a SCOPED
+    /// stylesheet (`Dom::set_css`): wrapped in `* { ... }`, every rule at
+    /// `rule_priority::INLINE`, and every rule kept in selector form - a
+    /// `:hover { .. }` block stays `*:hover` - for the cascade to
+    /// selector-match against the owner's subtree.
+    #[cfg(feature = "parser")]
+    #[must_use]
+    pub fn parse_scoped(style: &str) -> Self {
         use alloc::string::ToString;
         let mut wrapped = String::with_capacity(style.len() + 6);
         wrapped.push_str("* {\n");
@@ -309,14 +331,19 @@ impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
     }
 }
 
-/// Contains one parsed `key: value` pair, static or dynamic
+/// Contains one parsed `key: value` pair: a property (static or a runtime
+/// reference) or a custom-property definition
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
     Static(CssProperty),
-    /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
+    /// Runtime reference with a fallback, resolved by the cascade: `var(--name, 500px)` or
+    /// `env(safe-area-inset-top, 0px)`
     Dynamic(DynamicCssProperty),
+    /// Custom-property definition, such as `--accent: #ff6600`: inherited down the tree like
+    /// any inheritable property, read by `var(--accent, <fallback>)`
+    CustomProperty(CssCustomProperty),
 }
 
 impl_option!(
@@ -325,6 +352,25 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+/// A custom-property definition, `--name: value`.
+///
+/// Stored on nodes like any declaration - in a stylesheet rule or in a
+/// node's own style - and carrying that rule's conditions (`@theme`,
+/// `@media`, `@os`, pseudo-states). The cascade gives every node the nearest
+/// live definition of each name (standard CSS inheritance) and resolves
+/// `var()` references against it under the window's context, so
+/// `@theme(dark) { :root { --bg: #272822 } }` next to a light definition
+/// follows the mode at runtime. The value is kept as written: it is only
+/// typed where a `var()` reads it, as the reading property's type.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct CssCustomProperty {
+    /// The name without its leading `--` (`accent` for `--accent: #ff6600`).
+    pub name: AzString,
+    /// The value as written, trimmed; may itself contain `var()` references.
+    pub value: AzString,
+}
 
 impl CssDeclaration {
     #[must_use]
@@ -337,47 +383,65 @@ impl CssDeclaration {
         Self::Dynamic(prop)
     }
 
-    /// Returns the type of the property (i.e. the CSS key as a typed enum)
+    /// Returns the type of the property (i.e. the CSS key as a typed enum),
+    /// `None` for a custom-property definition, which sets no property.
     #[must_use]
-    pub const fn get_type(&self) -> CssPropertyType {
-        use self::CssDeclaration::{Dynamic, Static};
+    pub const fn get_type(&self) -> Option<CssPropertyType> {
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
-            Static(s) => s.get_type(),
-            Dynamic(d) => d.default_value.get_type(),
+            Static(s) => Some(s.get_type()),
+            Dynamic(d) => Some(d.default_value.get_type()),
+            CustomProperty(_) => None,
         }
     }
 
     /// Determines if the property will be inherited (applied to the children)
-    /// during the recursive application of the style on the DOM tree
+    /// during the recursive application of the style on the DOM tree.
+    /// Custom properties always inherit.
     #[must_use]
     pub const fn is_inheritable(&self) -> bool {
-        use self::CssDeclaration::{Dynamic, Static};
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => s.get_type().is_inheritable(),
             Dynamic(d) => d.is_inheritable(),
+            CustomProperty(_) => true,
         }
     }
 
     /// Returns whether this rule affects only styling properties or layout
-    /// properties (that could trigger a re-layout)
+    /// properties (that could trigger a re-layout). A custom-property
+    /// definition can feed any property below it, layout ones included.
     #[must_use]
     pub const fn can_trigger_relayout(&self) -> bool {
-        use self::CssDeclaration::{Dynamic, Static};
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => s.get_type().can_trigger_relayout(),
             Dynamic(d) => d.can_trigger_relayout(),
+            CustomProperty(_) => true,
         }
     }
 
     #[must_use]
     pub fn to_str(&self) -> String {
-        use self::CssDeclaration::{Dynamic, Static};
+        use self::CssDeclaration::{CustomProperty, Dynamic, Static};
         match self {
             Static(s) => format!("{s:?}"),
             Dynamic(d) => self.env_variable().map_or_else(
                 || format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
                 |v| format!("env({}, {:?})", v.as_css_name(), d.default_value),
             ),
+            CustomProperty(c) => format!("--{}: {}", c.name, c.value),
+        }
+    }
+
+    /// The declaration as CSS text, `key: value;`: a `var()` / `env()`
+    /// reference spelled with its fallback, a definition as `--name: value;`.
+    #[must_use]
+    pub fn format_css(&self) -> String {
+        match self {
+            Self::Static(p) => p.format_css(),
+            Self::Dynamic(d) => format!("{}: {};", d.default_value.key(), d.format_css_value()),
+            Self::CustomProperty(c) => format!("--{}: {};", c.name.as_str(), c.value.as_str()),
         }
     }
 
@@ -385,54 +449,117 @@ impl CssDeclaration {
     ///
     /// An `env()` declaration is a `Dynamic` whose `dynamic_id` carries the
     /// [`ENV_DYNAMIC_ID_PREFIX`](crate::dynamic_selector::ENV_DYNAMIC_ID_PREFIX);
-    /// its `default_value` is the parsed fallback. `None` for `Static` and
-    /// for a plain `var()` reference.
+    /// its `default_value` is the parsed fallback. `None` for `Static`, for
+    /// a plain `var()` reference and for a custom-property definition.
     #[must_use]
     pub fn env_variable(&self) -> Option<crate::dynamic_selector::EnvVariable> {
         match self {
-            Self::Static(_) => None,
+            Self::Static(_) | Self::CustomProperty(_) => None,
             Self::Dynamic(d) => {
                 crate::dynamic_selector::EnvVariable::from_dynamic_id(d.dynamic_id.as_str())
             }
         }
     }
 
-    /// Whether the cascade can turn this declaration into a concrete property:
-    /// every `Static`, plus `env()` references. A `var()` `Dynamic` is not
-    /// (it is substituted at parse time and never reaches the cascade).
+    /// The `var()` reference this declaration is, if it is one (a `Dynamic`
+    /// that is not an `env()`).
     #[must_use]
-    pub fn is_cascade_resolvable(&self) -> bool {
-        matches!(self, Self::Static(_)) || self.env_variable().is_some()
+    pub fn var_reference(&self) -> Option<&DynamicCssProperty> {
+        match self {
+            Self::Dynamic(d) if self.env_variable().is_none() => Some(d),
+            _ => None,
+        }
+    }
+
+    /// The custom-property definition this declaration is, if it is one.
+    #[must_use]
+    pub const fn custom_property(&self) -> Option<&CssCustomProperty> {
+        match self {
+            Self::CustomProperty(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Whether this declaration takes part in the custom-property machinery
+    /// (a definition or a `var()` reference) - what makes a stylesheet or a
+    /// node's style need the variable pass of the cascade.
+    #[must_use]
+    pub fn uses_custom_properties(&self) -> bool {
+        matches!(self, Self::CustomProperty(_)) || self.var_reference().is_some()
+    }
+
+    /// The first variable name of a `var()` reference that declares NO
+    /// fallback (design gap 1: every `var()` must declare one). The parser
+    /// gives such a reference the property's initial value as its fallback
+    /// and warns; the widget lint rejects it.
+    #[must_use]
+    pub fn var_without_fallback(&self) -> Option<&str> {
+        let d = self.var_reference()?;
+        if d.default_value.is_initial() {
+            d.var_names().next()
+        } else {
+            None
+        }
+    }
+
+    /// Whether the cascade turns this declaration into a concrete property:
+    /// every `Static`, `env()` and `var()` reference. A custom-property
+    /// definition is not a property; the cascade reads it for the variable
+    /// environment instead.
+    #[must_use]
+    pub const fn is_cascade_resolvable(&self) -> bool {
+        !matches!(self, Self::CustomProperty(_))
     }
 
     /// Whether this declaration's value depends on the window's
     /// [`DynamicSelectorContext`](crate::dynamic_selector::DynamicSelectorContext)
     /// - i.e. it is an `env()` - so a context change must re-run the cascade for it, exactly as it
-    ///   must for a rule with `@media`-style conditions.
+    ///   must for a rule with `@media`-style conditions. (A `var()` depends on the context through
+    ///   the conditions of the DEFINITIONS it reads; those rules are conditional themselves.)
     #[must_use]
     pub fn depends_on_dynamic_context(&self) -> bool {
         self.env_variable().is_some()
     }
 
     /// The concrete property this declaration contributes to the cascade
-    /// under `ctx`.
+    /// under `ctx`, with no custom properties known (a `var()` takes its
+    /// fallback). See [`Self::resolve_with_variables`].
+    #[must_use]
+    pub fn resolve_in_cascade(
+        &self,
+        ctx: Option<&crate::dynamic_selector::DynamicSelectorContext>,
+    ) -> Option<CssProperty> {
+        self.resolve_with_variables(ctx, None)
+    }
+
+    /// The concrete property this declaration contributes to the cascade
+    /// under `ctx`, for a node that sees the custom properties `vars`.
     ///
     /// - `Static` - the property itself.
     /// - `env()` - the variable's live value (an absolute length parsed as the declared property's
     ///   own type, so `padding-bottom` gets a padding and `top` gets an inset), or the parsed
     ///   fallback when the platform reports none for it, or when there is no context yet (a
     ///   `StyledDom` no window has adopted - the same rule conditional rule blocks follow).
-    /// - a `var()` `Dynamic` - `None`, matching the previous behaviour of every cascade site (they
-    ///   filtered on `Static`).
+    /// - `var()` - the first variable of its fallback chain that `vars` defines with a value that
+    ///   parses as the property ([`crate::custom_properties::resolve_var`]), else the fallback.
+    ///   `vars: None` (no environment known) is the fallback.
+    /// - a custom-property definition - `None`: it sets no property.
     #[must_use]
-    pub fn resolve_in_cascade(
+    pub fn resolve_with_variables(
         &self,
         ctx: Option<&crate::dynamic_selector::DynamicSelectorContext>,
+        vars: Option<&crate::custom_properties::CustomPropertyMap>,
     ) -> Option<CssProperty> {
         match self {
             Self::Static(s) => Some(s.clone()),
+            Self::CustomProperty(_) => None,
             Self::Dynamic(d) => {
-                let var = self.env_variable()?;
+                let Some(var) = self.env_variable() else {
+                    return Some(vars.map_or_else(
+                        || d.default_value.clone(),
+                        |v| crate::custom_properties::resolve_var(d, v),
+                    ));
+                };
                 let Some(px) = ctx.and_then(|c| var.resolve(c)) else {
                     return Some(d.default_value.clone());
                 };
@@ -460,32 +587,27 @@ impl CssDeclaration {
     }
 }
 
-/// A `DynamicCssProperty` is a type of css property that can be changed on possibly
-/// every frame by the Rust code - for example to implement an `On::Hover` behaviour.
-///
-/// The syntax for such a property looks like this:
+/// A runtime reference with a fallback, resolved by the cascade: a `var()`
+/// or an `env()` on a longhand property.
 ///
 /// ```no_run,ignore
-/// #my_div {
-///    padding: var(--my_dynamic_property_id, 400px);
-/// }
+/// .button { background: var(--azul-button-face, system:button-face); }
+/// .footer { padding-bottom: env(safe-area-inset-bottom, 0px); }
 /// ```
 ///
-/// Azul will register a dynamic property with the key "`my_dynamic_property_id`"
-/// and the default value of 400px. If the property gets overridden during one frame,
-/// the overridden property takes precedence.
-///
-/// At runtime the style is immutable (which is a performance optimization - if we
-/// can assume that the property never changes at runtime), we can do some optimizations on it.
-/// Dynamic style properties can also be used for animations and conditional styles
-/// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
-/// special cases now use one single API.
+/// The declared value stays unresolved: every restyle resolves it for each
+/// node under the window's live context - a `var()` against the custom
+/// properties that node sees (the nearest live `--name` definition, from
+/// any stylesheet or the node's own style), an `env()` against the
+/// context's insets. A missing or unusable variable takes the fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DynamicCssProperty {
-    /// The stringified ID of this property, i.e. the `"my_id"` in `width: var(--my_id, 500px)`.
+    /// What is referenced. A `var()`: the variable names without `--`, comma-separated in the
+    /// order they are tried (`"a,b"` for `var(--a, var(--b, 1px))`). An `env()`: `"env:<name>"`.
     pub dynamic_id: AzString,
-    /// Default values for this properties - one single value can control multiple properties!
+    /// The fallback, parsed as the property; the property's initial value for a `var()` written
+    /// without one.
     pub default_value: CssProperty,
 }
 
@@ -810,6 +932,43 @@ impl DynamicCssProperty {
     pub const fn can_trigger_relayout(&self) -> bool {
         self.default_value.get_type().can_trigger_relayout()
     }
+
+    /// The variable names a `var()` reference tries, in order (`a`, `b` for
+    /// `var(--a, var(--b, 1px))`).
+    pub fn var_names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.dynamic_id
+            .as_str()
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+    }
+
+    /// The reference as CSS value text: `env(<name>, <fallback>)`, or the
+    /// nested `var(--a, var(--b, <fallback>))` it was parsed from (no
+    /// innermost fallback when it had none).
+    #[must_use]
+    pub fn format_css_value(&self) -> String {
+        if let Some(env) =
+            crate::dynamic_selector::EnvVariable::from_dynamic_id(self.dynamic_id.as_str())
+        {
+            return format!("env({}, {})", env.as_css_name(), self.default_value.value());
+        }
+        let names: Vec<&str> = self.var_names().collect();
+        let mut out = if self.default_value.is_initial() {
+            String::new()
+        } else {
+            self.default_value.value()
+        };
+        for (i, name) in names.iter().enumerate().rev() {
+            let innermost = i + 1 == names.len();
+            out = if innermost && out.is_empty() {
+                format!("var(--{name})")
+            } else {
+                format!("var(--{name}, {out})")
+            };
+        }
+        out
+    }
 }
 
 /// Layer priority for `CssRuleBlock`. Lower numbers cascade first;
@@ -825,20 +984,52 @@ pub mod rule_priority {
     /// overrides it.
     pub const UA: u8 = 0;
 
-    /// Stylesheets the host system reports (system fonts, theme CSS
-    /// derived from `SystemStyle`). One step above UA so they win
-    /// against framework defaults but lose against anything the app
-    /// author writes.
+    /// Stylesheets the host system reports (system fonts, theme CSS derived
+    /// from `SystemStyle`).
+    ///
+    /// One step above UA so they win against framework defaults but lose
+    /// against anything the app author writes. Also a rice file's
+    /// `priority: base`, the default (`crate::rice`): it fills what nobody
+    /// declared and cannot break the app.
     pub const SYSTEM: u8 = 10;
+
+    /// A node's PRESENTATIONAL HINTS: what its markup attributes say about its
+    /// style (`<svg width="100">`, `<img height>`, an SVG `<text>`'s
+    /// `font-size`).
+    ///
+    /// Author-level with specificity 0 (CSS 2.2 6.4.4): every stylesheet rule
+    /// and inline style beats them. Stored on the node (its `style`) but
+    /// cascaded as the first of its stylesheet rules, not as inline style.
+    pub const PRESENTATIONAL: u8 = 15;
 
     /// Default for parser-produced rules: the app author's CSS.
     /// Everything coming out of `Css::from_string` lives here.
     pub const AUTHOR: u8 = 20;
 
+    /// A rice file's `priority: app` (`crate::rice`): re-skins the app's own
+    /// DOM. Above the app author's sheets, below inline declarations, so
+    /// the widgets keep their look.
+    pub const APP: u8 = 25;
+
     /// Inline `style="..."` / `NodeData::set_css(...)` rules — used
     /// once the inline-vs-component unification (separate plan) folds
     /// inline storage into the same Vec.
     pub const INLINE: u8 = 30;
+
+    /// A rice file's `priority: widgets`, and the priority a CSS base theme is
+    /// written at: a full theme.
+    ///
+    /// Above the widgets' inline declarations, below the app's own runtime
+    /// overrides ([`RUNTIME`]: a colour-picker preview, a drag ghost).
+    pub const WIDGETS: u8 = 35;
+
+    /// A rice file of custom properties only (`priority: palette`, or a
+    /// header-less file whose every declaration is a `--name`).
+    ///
+    /// The SAME slot as [`WIDGETS`]: a palette sets values, never geometry, and
+    /// a spin-off's `:root { --accent }` has to meet its base theme's
+    /// definitions in one slot so the theme chain's rank decides between them.
+    pub const PALETTE: u8 = WIDGETS;
 
     /// Reserved for direct-rule runtime overrides.
     ///
@@ -849,6 +1040,11 @@ pub mod rule_priority {
     /// inline. Used only when a callback writes a full rule, not a
     /// single property.
     pub const RUNTIME: u8 = 50;
+
+    /// A rice file's `priority: force`: above everything, the app's runtime
+    /// overrides included. The web's user `!important`, and explicitly
+    /// unsupported territory (the rice status says so).
+    pub const FORCE: u8 = 60;
 }
 
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
@@ -895,6 +1091,29 @@ impl CssRuleBlock {
                 .iter()
                 .any(CssDeclaration::depends_on_dynamic_context)
     }
+
+    /// This rule in the form a node's OWN style reads: the trailing dynamic
+    /// pseudo-states of a path that targets the node itself (`*:hover`,
+    /// `*:focus:hover`) move into the conditions (`*` +
+    /// `PseudoState(Hover)`), the form a widget's `on_hover(..)` declaration
+    /// has. The cascade reads a node's own style by its conditions alone and
+    /// matches no selector there, so a `:hover` left in the path applied in
+    /// every state.
+    ///
+    /// A path that reaches past the node (`* .x:hover`) or keeps a
+    /// structural pseudo-class (`*:first:hover`) is left as it is.
+    pub fn lower_node_pseudo_states(&mut self) {
+        let (base, states) = self.path.split_trailing_states();
+        if states.is_empty() || !base.iter().all(|s| matches!(s, CssPathSelector::Global)) {
+            return;
+        }
+        let base = base.to_vec();
+        let mut conditions: Vec<DynamicSelector> =
+            states.into_iter().map(DynamicSelector::PseudoState).collect();
+        conditions.extend(self.conditions.as_slice().iter().cloned());
+        self.path = CssPath::new(base);
+        self.conditions = conditions.into();
+    }
 }
 
 impl PartialOrd for CssRuleBlock {
@@ -928,7 +1147,37 @@ impl_vec_partialeq!(CssDeclaration, CssDeclarationVec);
 impl_vec_eq!(CssDeclaration, CssDeclarationVec);
 impl_vec_hash!(CssDeclaration, CssDeclarationVec);
 
+/// Does any of `conditions` name an app theme (`@theme(<name>)`)? Only such
+/// a declaration can rank other than last.
+fn has_app_theme_condition(conditions: &[DynamicSelector]) -> bool {
+    conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))))
+}
+
 impl CssRuleBlock {
+    /// THE cascade order of a rule whose theme rank is `rank`
+    /// ([`crate::dynamic_selector::cascade_rank`]): rules sort ASCENDING by
+    /// this key, stably, and the last one of a property wins.
+    ///
+    /// `(priority, rank, selector specificity)`, then source order (the
+    /// stable sort) - CSS `@layer` semantics: the theme rank sorts BEFORE
+    /// specificity, so a spin-off's `.btn` beats its base's `.btn.primary`.
+    /// A LOWER rank is more specific and wins, hence `Reverse`; a rule
+    /// outside every theme block (`UNTHEMED_RANK`) sorts first of its
+    /// priority.
+    #[must_use]
+    pub fn cascade_key(
+        &self,
+        rank: usize,
+    ) -> (u8, core::cmp::Reverse<usize>, (usize, usize, usize, usize)) {
+        (
+            self.priority,
+            core::cmp::Reverse(rank),
+            get_specificity(&self.path),
+        )
+    }
+
     #[must_use]
     pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
         Self {
@@ -943,7 +1192,7 @@ impl CssRuleBlock {
     pub fn with_conditions(
         path: CssPath,
         declarations: Vec<CssDeclaration>,
-        conditions: Vec<crate::dynamic_selector::DynamicSelector>,
+        conditions: Vec<DynamicSelector>,
     ) -> Self {
         Self {
             path,
@@ -955,7 +1204,7 @@ impl CssRuleBlock {
 }
 
 /// A group of CSS path selectors, used during selector matching.
-pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
+pub type CssContentGroup<'a> = &'a [CssPathSelector];
 
 /// Signifies the type of a DOM node without carrying any associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1254,6 +1503,10 @@ pub enum NodeTypeTag {
     /// `Dom::create_page_break()`): an empty block with UA
     /// `break-before: page`. CSS tag: `pagebreak`.
     PageBreak,
+    /// A native web view (`<webview src=..>` / `Dom::create_webview`), a
+    /// replaced element. CSS tag: `webview`. APPENDED at the end for ABI
+    /// stability.
+    WebView,
 }
 
 /// Error returned when a CSS tag name string cannot be mapped to a [`NodeTypeTag`].
@@ -1526,6 +1779,7 @@ impl NodeTypeTag {
             "icon" => Ok(Self::Icon),
             "geolocation-probe" => Ok(Self::GeolocationProbe),
             "pagebreak" => Ok(Self::PageBreak),
+            "webview" => Ok(Self::WebView),
 
             // Pseudo-elements (usually prefixed with ::)
             "before" | "::before" => Ok(Self::Before),
@@ -1761,6 +2015,7 @@ impl fmt::Display for NodeTypeTag {
             Self::Icon => write!(f, "icon"),
             Self::GeolocationProbe => write!(f, "geolocation-probe"),
             Self::PageBreak => write!(f, "pagebreak"),
+            Self::WebView => write!(f, "webview"),
 
             // Pseudo-elements
             Self::Before => write!(f, "::before"),
@@ -1816,6 +2071,33 @@ impl CssPath {
         }
     }
 
+    /// This path split into its base and its trailing DYNAMIC pseudo-states,
+    /// in source order: `.btn:focus:hover` -> (`.btn`, `[Focus, Hover]`).
+    /// Structural pseudo-classes (`:first`, `:nth-child`, ..) stay in the
+    /// base (see [`CssPathPseudoSelector::dynamic_state`]).
+    #[must_use]
+    pub fn split_trailing_states(
+        &self,
+    ) -> (
+        &[CssPathSelector],
+        Vec<crate::dynamic_selector::PseudoStateType>,
+    ) {
+        let selectors = self.selectors.as_slice();
+        let mut end = selectors.len();
+        let mut states = Vec::new();
+        while let Some(CssPathSelector::PseudoSelector(p)) =
+            end.checked_sub(1).map(|last| &selectors[last])
+        {
+            let Some(state) = p.dynamic_state() else {
+                break;
+            };
+            states.push(state);
+            end -= 1;
+        }
+        states.reverse();
+        (&selectors[..end], states)
+    }
+
     /// Prepend a `Root` scope selector (`push_front`) confining this rule to the owner
     /// node `start` (whose subtree spans the inclusive flat ids `[start, end]`).
     /// Two cases (#47 leak fix + descendant-selector support):
@@ -1847,11 +2129,15 @@ impl CssPath {
     /// the mount root alone: the UA body margin survived on every child and
     /// each reftest page rendered shifted by 8px against the browser.
     pub fn push_front_scope_for(&mut self, start: usize, end: usize, node_only_bare_global: bool) {
-        let is_bare_global = self.selectors.as_ref().len() == 1
-            && matches!(
-                self.selectors.as_ref().first(),
-                Some(CssPathSelector::Global)
-            );
+        // The wrapper `*`, alone or with pseudo-classes only: `with_css`'s
+        // nested `:hover { .. }` block is `*:hover` - the OWNER's hover, as
+        // inline as the declarations around it. Scoped to the subtree it
+        // matched every hovered child too.
+        let selectors = self.selectors.as_ref();
+        let is_bare_global = matches!(selectors.first(), Some(CssPathSelector::Global))
+            && selectors[1..]
+                .iter()
+                .all(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
         let range = if is_bare_global && node_only_bare_global {
             CssScopeRange { start, end: start }
         } else {
@@ -2130,6 +2416,28 @@ impl fmt::Display for CssPathPseudoSelector {
     }
 }
 
+impl CssPathPseudoSelector {
+    /// The dynamic pseudo-STATE this pseudo-class names (`:hover` ->
+    /// `PseudoStateType::Hover`); `None` for the structural ones (`:first`,
+    /// `:last`, `:nth-child`, `:lang`, `:root`), which select an element by
+    /// its place in the document, not by a state it enters and leaves.
+    #[must_use]
+    pub const fn dynamic_state(&self) -> Option<crate::dynamic_selector::PseudoStateType> {
+        use crate::dynamic_selector::PseudoStateType;
+        match self {
+            Self::Hover => Some(PseudoStateType::Hover),
+            Self::Active => Some(PseudoStateType::Active),
+            Self::Focus => Some(PseudoStateType::Focus),
+            Self::SeatFocus => Some(PseudoStateType::SeatFocus),
+            Self::Backdrop => Some(PseudoStateType::Backdrop),
+            Self::Dragging => Some(PseudoStateType::Dragging),
+            Self::DragOver => Some(PseudoStateType::DragOver),
+            Self::Placeholder => Some(PseudoStateType::Placeholder),
+            Self::First | Self::Last | Self::NthChild(_) | Self::Lang(_) | Self::Root => None,
+        }
+    }
+}
+
 impl Css {
     /// Creates a new, empty CSS.
     #[must_use]
@@ -2141,12 +2449,67 @@ impl Css {
     /// Lower-priority rules sort first; ties break by selector specificity.
     /// This preserves layer identity (UA / SYSTEM / AUTHOR / INLINE / RUNTIME)
     /// without needing a separate `Stylesheet` boundary.
+    ///
+    /// Context-free: the THEME RANK of a rule depends on the window's theme
+    /// chain, so the cascade orders its matched rules by
+    /// [`CssRuleBlock::cascade_key`] on top of this order
+    /// ([`Self::sort_rules_in_cascade_order`]). Stable, so rules equal in
+    /// `(priority, specificity)` keep their source order.
     pub fn sort_by_specificity(&mut self) {
-        self.rules.as_mut().sort_by(|a, b| {
-            a.priority
-                .cmp(&b.priority)
-                .then_with(|| get_specificity(&a.path).cmp(&get_specificity(&b.path)))
-        });
+        self.rules
+            .as_mut()
+            .sort_by_cached_key(|r| r.cascade_key(crate::dynamic_selector::UNTHEMED_RANK));
+    }
+
+    /// Put `rules` in full CASCADE ORDER under a theme chain: ascending
+    /// [`CssRuleBlock::cascade_key`] - `(priority, theme rank, selector
+    /// specificity)` - so that the LAST rule of a property wins. `rank` is
+    /// the chain's [`crate::dynamic_selector::cascade_rank`] (the window
+    /// context's `cascade_rank`).
+    ///
+    /// `rules` must come in source order or in [`Self::sort_by_specificity`]
+    /// order: the sort is stable, so source order breaks every remaining tie.
+    pub fn sort_rules_in_cascade_order(
+        rules: &mut [&CssRuleBlock],
+        rank: impl Fn(&[DynamicSelector]) -> usize,
+    ) {
+        if !rules.iter().any(|r| has_app_theme_condition(r.conditions.as_slice())) {
+            // Every rank is the same: the order is already the cascade's.
+            return;
+        }
+        rules.sort_by_cached_key(|r| r.cascade_key(rank(r.conditions.as_slice())));
+    }
+
+    /// THE resolution of a node's inline style for one property: among the
+    /// declarations of `property_type` whose conditions `applies` accepts,
+    /// the one of the LOWEST cascade rank wins (`rank`: the chain's
+    /// [`crate::dynamic_selector::cascade_rank`]), the LAST in source order
+    /// among equals. Inline declarations share priority and specificity, so
+    /// this is the rule order of [`CssRuleBlock::cascade_key`] reduced to
+    /// `(rank, source order)`: with no theme block in play, the last match.
+    pub fn winning_inline_property(
+        &self,
+        property_type: CssPropertyType,
+        applies: impl FnMut(&DynamicSelectorVec) -> bool,
+        rank: impl Fn(&[DynamicSelector]) -> usize,
+    ) -> Option<&CssProperty> {
+        winning_inline_in(self.iter_inline_properties(), property_type, applies, rank)
+    }
+
+    /// This inline style's `(declaration, conditions)` pairs in CASCADE
+    /// ORDER, weakest first, into `out` (cleared first; a buffer the caller
+    /// reuses across nodes): applied in turn, later overwriting earlier, the
+    /// declarations that apply leave every property at the value
+    /// [`Self::winning_inline_property`] picks. Every declaration is listed,
+    /// applicable or not - the caller filters, as it did on
+    /// [`Self::iter_inline_properties`]. Source order when no declaration
+    /// sits in an app-theme block.
+    pub fn inline_properties_in_cascade_order<'a>(
+        &'a self,
+        rank: impl Fn(&[DynamicSelector]) -> usize,
+        out: &mut Vec<(&'a CssProperty, &'a DynamicSelectorVec)>,
+    ) {
+        inline_in_cascade_order(self.iter_inline_properties(), rank, out);
     }
 
     pub fn rules(&self) -> core::slice::Iter<'_, CssRuleBlock> {
@@ -2155,10 +2518,13 @@ impl Css {
 
     /// Iterate `(property, conditions)` pairs as if this were a flat list of
     /// `CssPropertyWithConditions`. Each `Static` declaration yields one item,
-    /// sharing the conditions of its enclosing rule. `Dynamic` declarations
-    /// are skipped (matching the previous inline-CSS behaviour).
+    /// sharing the conditions of its enclosing rule. `var()` / `env()`
+    /// references and custom-property definitions are skipped: this is the
+    /// DECLARED static style. The cascade's readers go through
+    /// `CssPropertyCache::inline_properties` instead, which yields the
+    /// references as the cascade resolved them.
     ///
-    /// Used by cascade and diff code that walks per-property to keep the
+    /// Used by diff and widget code that walks per-property to keep the
     /// flat-iteration shape after the inline-vs-component unification.
     pub fn iter_inline_properties(
         &self,
@@ -2166,8 +2532,20 @@ impl Css {
         self.rules.as_ref().iter().flat_map(|r| {
             r.declarations.as_ref().iter().filter_map(move |d| match d {
                 CssDeclaration::Static(p) => Some((p, &r.conditions)),
-                CssDeclaration::Dynamic(_) => None,
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
             })
+        })
+    }
+
+    /// Whether any rule of this stylesheet defines a custom property or
+    /// reads one with `var()` - what makes the cascade run its variable pass.
+    #[must_use]
+    pub fn uses_custom_properties(&self) -> bool {
+        self.rules.as_ref().iter().any(|r| {
+            r.declarations
+                .as_ref()
+                .iter()
+                .any(CssDeclaration::uses_custom_properties)
         })
     }
 }
@@ -2303,6 +2681,90 @@ mod priority_sort_tests {
             .map(|r| get_specificity(&r.path))
             .collect();
         assert!(last_two_specificity[0] < last_two_specificity[1]);
+    }
+
+    fn in_theme(mut rule: CssRuleBlock, name: &'static str) -> CssRuleBlock {
+        rule.conditions = DynamicSelectorVec::from_vec(vec![DynamicSelector::Theme(
+            ThemeCondition::Custom(AzString::from_const_str(name)),
+        )]);
+        rule
+    }
+
+    /// `(priority, rank, specificity, source order)`: rank before specificity,
+    /// priority before rank.
+    #[test]
+    fn rules_sort_by_priority_then_theme_rank_then_specificity() {
+        let chain = ["xyz:pink", "xyz"];
+        let rank = |c: &[DynamicSelector]| crate::dynamic_selector::cascade_rank(&chain, c);
+        let class = |n: &str| CssPathSelector::Class(n.to_string().into());
+        let base_specific = in_theme(
+            rule_with(rule_priority::AUTHOR, vec![class("btn"), class("primary")]),
+            "xyz",
+        );
+        let spin_off_plain = in_theme(
+            rule_with(rule_priority::AUTHOR, vec![class("btn")]),
+            "xyz:pink",
+        );
+        let unthemed = rule_with(
+            rule_priority::AUTHOR,
+            vec![CssPathSelector::Id("x".to_string().into())],
+        );
+        let inline_unthemed = rule_with(rule_priority::INLINE, vec![CssPathSelector::Global]);
+        let mut rules = vec![&inline_unthemed, &spin_off_plain, &base_specific, &unthemed];
+        Css::sort_rules_in_cascade_order(&mut rules, rank);
+        assert_eq!(
+            rules,
+            vec![&unthemed, &base_specific, &spin_off_plain, &inline_unthemed],
+            "unthemed ranks last (weakest), the spin-off above its base whatever the \
+             specificity, and a higher priority above every rank"
+        );
+    }
+
+    /// A node's own declarations: the lowest rank wins, the last among equals.
+    #[test]
+    fn the_winning_inline_declaration_is_the_best_ranked_then_the_last() {
+        use crate::{
+            dynamic_selector::{CssPropertyWithConditions as P, CssPropertyWithConditionsVec},
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+        let ink = |v: u8| {
+            CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(v, v, v),
+            })
+        };
+        let named = |n: &'static str| {
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str(n)))
+        };
+        let style: Css = CssPropertyWithConditionsVec::from_vec(vec![
+            P::with_condition(ink(1), named("xyz:pink")),
+            P::simple(ink(2)),
+            P::with_condition(ink(3), named("xyz")),
+            P::with_condition(ink(4), named("xyz:pink")),
+            P::with_condition(ink(5), named("xyz")),
+        ])
+        .into();
+        let chain = ["xyz:pink", "xyz"];
+        let rank = |c: &[DynamicSelector]| crate::dynamic_selector::cascade_rank(&chain, c);
+        let all = |_: &DynamicSelectorVec| true;
+        assert_eq!(
+            style.winning_inline_property(CssPropertyType::TextColor, all, rank),
+            Some(&ink(4)),
+            "the last of the best rank"
+        );
+        let no_spin_off =
+            |c: &DynamicSelectorVec| !c.as_slice().contains(&named("xyz:pink"));
+        assert_eq!(
+            style.winning_inline_property(CssPropertyType::TextColor, no_spin_off, rank),
+            Some(&ink(5))
+        );
+        let mut order = Vec::new();
+        style.inline_properties_in_cascade_order(rank, &mut order);
+        let applied: Vec<&CssProperty> = order.iter().map(|(p, _)| *p).collect();
+        assert_eq!(
+            applied,
+            vec![&ink(2), &ink(3), &ink(5), &ink(1), &ink(4)],
+            "weakest first, source order among equals"
+        );
     }
 }
 
@@ -2603,8 +3065,8 @@ mod autotest_generated {
         let p = prop_width(42.0);
         let d = CssDeclaration::new_static(p.clone());
         assert_eq!(d, CssDeclaration::Static(p.clone()));
-        assert_eq!(d.get_type(), p.get_type());
-        assert_eq!(d.get_type(), CssPropertyType::Width);
+        assert_eq!(d.get_type(), Some(p.get_type()));
+        assert_eq!(d.get_type(), Some(CssPropertyType::Width));
     }
 
     #[test]
@@ -2614,8 +3076,40 @@ mod autotest_generated {
         assert_eq!(d, CssDeclaration::Dynamic(dp));
         assert_eq!(
             d.get_type(),
-            CssPropertyType::TextColor,
+            Some(CssPropertyType::TextColor),
             "a Dynamic declaration's type is its default value's type"
+        );
+    }
+
+    #[test]
+    fn a_custom_property_definition_has_no_property_type_and_always_inherits() {
+        let d = CssDeclaration::CustomProperty(CssCustomProperty {
+            name: "accent".into(),
+            value: "#ff6600".into(),
+        });
+        assert_eq!(d.get_type(), None);
+        assert!(d.is_inheritable());
+        assert!(!d.is_cascade_resolvable(), "a definition sets no property");
+        assert_eq!(d.resolve_in_cascade(None), None);
+        assert_eq!(d.format_css(), "--accent: #ff6600;");
+    }
+
+    #[test]
+    fn a_var_reference_prints_its_fallback_chain() {
+        let with_fallback = DynamicCssProperty {
+            dynamic_id: "a,b".into(),
+            default_value: prop_width(1.0),
+        };
+        let v = with_fallback.format_css_value();
+        assert!(v.starts_with("var(--a, var(--b, "), "{v}");
+        let without = DynamicCssProperty {
+            dynamic_id: "a".into(),
+            default_value: CssProperty::initial(CssPropertyType::Width),
+        };
+        assert_eq!(without.format_css_value(), "var(--a)");
+        assert_eq!(
+            CssDeclaration::Dynamic(without).var_without_fallback(),
+            Some("a")
         );
     }
 
@@ -3298,6 +3792,7 @@ mod autotest_generated {
             After,
             Marker,
             Placeholder,
+            WebView,
         ]
     };
 
@@ -3307,7 +3802,7 @@ mod autotest_generated {
         // without being added here, this count check fails and points at the omission.
         assert_eq!(
             ALL_TAGS.len(),
-            183, // +TransientWindow (2026-08-22)
+            184, // +WebView (2026-10-10)
             "ALL_TAGS is out of sync with the NodeTypeTag enum"
         );
         let mut seen: Vec<NodeTypeTag> = Vec::new();
@@ -3502,7 +3997,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn css_path_display_and_debug_agree_and_compose() {
+    fn css_path_display_composes_and_debug_names_the_type() {
         let p = CssPath::new(vec![
             CssPathSelector::Type(NodeTypeTag::Div),
             CssPathSelector::Id("id".to_string().into()),
@@ -3512,11 +4007,13 @@ mod autotest_generated {
         assert_eq!(format!("{p}"), "div#id.cls:hover");
         assert_eq!(
             format!("{p:?}"),
-            format!("{p}"),
-            "Debug delegates to Display"
+            format!("CssPath({p})"),
+            "Debug wraps Display in the type name"
         );
-        // An empty path renders as the empty string — deterministic, no panic.
+        // An empty path displays as the empty string, and debug-formats to
+        // `CssPath()`, never to nothing - deterministic, no panic.
         assert_eq!(format!("{}", CssPath::default()), "");
+        assert_eq!(format!("{:?}", CssPath::default()), "CssPath()");
     }
 
     #[test]
@@ -3531,6 +4028,38 @@ mod autotest_generated {
                 CssPathSelector::Global,
             ][..],
             "inline style must not leak past the owner node (#47)"
+        );
+    }
+
+    #[test]
+    fn push_front_scope_scopes_an_inline_state_block_to_the_node_only() {
+        // `Dom::with_css("background: a; :hover { background: b }")`: the
+        // nested block is `*:hover` - the OWNER's hover, inline semantics like
+        // the bare `*` around it. Scoped to the whole subtree it matched every
+        // hovered CHILD as well, so hovering a toolbar tool's label gave the
+        // label the tool's hover face (AzDrive, AzNews).
+        for pseudo in [CssPathPseudoSelector::Hover, CssPathPseudoSelector::Active] {
+            let mut p = CssPath::new(vec![
+                CssPathSelector::Global,
+                CssPathSelector::PseudoSelector(pseudo.clone()),
+            ]);
+            p.push_front_scope_for(5, 9, true);
+            assert_eq!(
+                p.selectors.as_ref()[0],
+                CssPathSelector::Root(CssScopeRange { start: 5, end: 5 }),
+                "an inline `*:{pseudo:?}` block is the owner's state, not its subtree's"
+            );
+        }
+        // An AUTHOR stylesheet's `*:hover` (a component sheet) is a real rule
+        // over the subtree.
+        let mut p = CssPath::new(vec![
+            CssPathSelector::Global,
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+        ]);
+        p.push_front_scope_for(5, 9, false);
+        assert_eq!(
+            p.selectors.as_ref()[0],
+            CssPathSelector::Root(CssScopeRange { start: 5, end: 9 })
         );
     }
 
@@ -4312,5 +4841,54 @@ mod autotest_generated {
                 r.path
             );
         }
+    }
+}
+
+/// [`Css::winning_inline_property`] over any `(declaration, conditions)`
+/// stream.
+///
+/// The cascade's readers pass the node's inline style AS RESOLVED
+/// (`CssPropertyCache::inline_properties`: `var()` references substituted), so
+/// the rank decides over the values that will actually paint. Among the
+/// declarations of `property_type` that `applies`, the lowest `rank` wins, the
+/// LAST in source order among equals.
+pub fn winning_inline_in<'a>(
+    items: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
+    property_type: CssPropertyType,
+    mut applies: impl FnMut(&DynamicSelectorVec) -> bool,
+    rank: impl Fn(&[DynamicSelector]) -> usize,
+) -> Option<&'a CssProperty> {
+    let mut best: Option<(usize, &'a CssProperty)> = None;
+    for (prop, conds) in items {
+        if prop.get_type() != property_type || !applies(conds) {
+            continue;
+        }
+        let r = rank(conds.as_slice());
+        if best.is_none_or(|(b, _)| r <= b) {
+            best = Some((r, prop));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// [`Css::inline_properties_in_cascade_order`] over any
+/// `(declaration, conditions)` stream (see [`winning_inline_in`]).
+///
+/// Into `out`, cleared first, weakest first - applied in turn, later
+/// overwriting earlier.
+pub fn inline_in_cascade_order<'a>(
+    items: impl Iterator<Item = (&'a CssProperty, &'a DynamicSelectorVec)>,
+    rank: impl Fn(&[DynamicSelector]) -> usize,
+    out: &mut Vec<(&'a CssProperty, &'a DynamicSelectorVec)>,
+) {
+    out.clear();
+    out.extend(items);
+    if out
+        .iter()
+        .any(|(_, conds)| has_app_theme_condition(conds.as_slice()))
+    {
+        // Stable: source order among equal ranks. A HIGHER rank (less
+        // specific, outside every block last of all) applies first.
+        out.sort_by_key(|(_, conds)| core::cmp::Reverse(rank(conds.as_slice())));
     }
 }

@@ -20,6 +20,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::{mono_layout, type_layout, union_payload_layout, AbiLayout},
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -197,7 +198,15 @@ pub fn emit_forward_struct_decls(
 /// opaque.
 fn emit_type_alias(builder: &mut CodeBuilder, ta: &TypeAliasDef, ir: &CodegenIR) {
     let ffi = ocaml_ffi_type_name(&ta.name);
-    if let Some((size, align)) = c_size_of_alias(ta, ir, &mut Vec::new()) {
+    // An aggregate alias (a monomorphized tagged union or struct) is sized
+    // by the shared C layout - the same numbers azul.h and every other
+    // blob-sizing binding use.
+    let aggregate = ta
+        .monomorphized_def
+        .as_ref()
+        .filter(|m| !matches!(m.kind, MonomorphizedKind::SimpleEnum { .. }))
+        .and_then(|m| mono_layout(m, ir, 0));
+    if let Some(AbiLayout { size, align }) = aggregate {
         builder.line(&format!("type {}", ffi));
         builder.line(&format!(
             "let ({} : {} structure typ) = structure \"{}\"",
@@ -449,7 +458,9 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
     // uint16_t / uint32_t / uint64_t) gives Ctypes' libffi descriptor
     // the right alignment without using `array N uint8_t` (rejected
     // for by-value struct marshalling).
-    let (size, align) = c_size_of_tagged_enum(e, ir, &mut Vec::new());
+    // The shared C layout (`c_layout::type_layout`), which every tagged
+    // union has (`bug_classes::c_layout_sizes_every_tagged_union_like_rust`).
+    let AbiLayout { size, align } = type_layout(&e.name, ir).unwrap_or(AbiLayout { size: 8, align: 8 });
     emit_byte_blob_fields(builder, &ffi, size, align);
     builder.line(&format!("let () = seal {}", ffi));
 
@@ -509,9 +520,11 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
             ));
 
             // I.5.6 (OCaml): payload extractor. For repr(C, u8) tagged
-            // unions the payload starts at offset `max 1 (align_of
-            // payload)` — tag is the first byte; payload is laid out
-            // at its own natural alignment immediately after. Coerce
+            // unions the payload starts at `payload_offset` (below) - the
+            // tag byte rounded up to the largest alignment of any
+            // variant, NOT the payload's own alignment (the old
+            // `max 1 (Ctypes.alignment payload)` read a 4-aligned `Ok`
+            // next to an 8-aligned `Err` 4 bytes early). Coerce
             // the struct's raw byte pointer to that offset, then to a
             // typed payload pointer.
             //
@@ -545,7 +558,15 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                             )
                         })
                         .unwrap_or(false);
-                    if payload_is_proper_struct {
+                    // Where Rust puts the payload: the tag rounded up to
+                    // the largest alignment of ANY variant
+                    // (`c_layout::union_payload_layout`, the one place
+                    // that decides it), not the payload's own alignment -
+                    // an `Ok` of 4-byte alignment next to an 8-aligned `Err`
+                    // sits at 8.
+                    let payload_offset =
+                        union_payload_layout(&e.name, ir).map(|p| p.payload_offset);
+                    if let (true, Some(payload_offset)) = (payload_is_proper_struct, payload_offset) {
                         let payload_ffi = super::ocaml_ffi_type_name(payload_ty);
                         let into_name = if e.name.starts_with("Option") {
                             "intoSome".to_string()
@@ -568,14 +589,10 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                              Ctypes.char) raw_ptr in",
                             ffi
                         ));
-                        // `max 1` guards primitive-aligned payloads
-                        // (align_of u8 == 1 → offset 1 not 0).
                         builder.line(&format!(
-                            "let payload_align = max 1 (Ctypes.alignment {}) in",
-                            payload_ffi
+                            "let payload_byte_ptr = Ctypes.(+@) byte_ptr {} in",
+                            payload_offset
                         ));
-                        builder
-                            .line("let payload_byte_ptr = Ctypes.(+@) byte_ptr payload_align in");
                         builder.line(&format!(
                             "let payload_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.char) (Ctypes.ptr \
                              {}) payload_byte_ptr in",
@@ -637,90 +654,6 @@ fn emit_byte_blob_fields(builder: &mut CodeBuilder, ffi: &str, size: usize, alig
     }
 }
 
-/// Compute (size, alignment) in bytes for any IR type name as the C
-/// ABI sees it on a 64-bit LP64 host. Recurses through structs and
-/// tagged unions; primitive sizes are hard-coded. Cycles are broken by
-/// returning a conservative `(8, 8)` for a re-entered type.
-fn c_size_of_type(type_name: &str, ir: &CodegenIR, visiting: &mut Vec<String>) -> (usize, usize) {
-    let trimmed = type_name.trim();
-
-    // Pointer / reference forms — always 8/8 on 64-bit.
-    if trimmed.starts_with("*const ")
-        || trimmed.starts_with("*mut ")
-        || trimmed.starts_with("&mut ")
-        || trimmed.starts_with('&')
-    {
-        return (8, 8);
-    }
-
-    // Fixed-size array `[T; N]`.
-    if let Some((elem, count)) = parse_array_type(trimmed) {
-        let (es, ea) = c_size_of_type(&elem, ir, visiting);
-        return (es * count, ea);
-    }
-
-    // Primitives.
-    if let Some(r) = primitive_size(trimmed) {
-        return r;
-    }
-
-    // Cycle break.
-    if visiting.iter().any(|v| v == trimmed) {
-        return (8, 8);
-    }
-
-    if let Some(s) = ir.find_struct(trimmed) {
-        visiting.push(trimmed.to_string());
-        let (sz, al) = c_size_of_struct(s, ir, visiting);
-        visiting.pop();
-        return (sz, al);
-    }
-
-    if let Some(e) = ir.find_enum(trimmed) {
-        visiting.push(trimmed.to_string());
-        let r = if e.is_union {
-            c_size_of_tagged_enum(e, ir, visiting)
-        } else {
-            // `#[repr(C)]` unit enum -> C `enum X` -> sizeof(int) = 4
-            // on every LP64 platform we target. `#[repr(u8)]` (1 byte)
-            // is also possible but rare in this codebase; honor it
-            // when explicit. We don't currently distinguish at the IR
-            // level, so default to 4 (matches `int` width that the
-            // OCaml-side `int` Ctypes typ uses).
-            match e.repr.as_deref() {
-                Some("u8") | Some("i8") => (1, 1),
-                Some("u16") | Some("i16") => (2, 2),
-                Some("u64") | Some("i64") => (8, 8),
-                _ => (4, 4),
-            }
-        };
-        visiting.pop();
-        return r;
-    }
-
-    // A monomorphized generic alias is a real aggregate on the wire, so a
-    // parent that embeds one must count its true size. Sizing it 8 (the
-    // pointer-shaped fallback below) is what made every tagged union with
-    // a `*Value` payload - `CssProperty` above all - come out at a
-    // fraction of its C size.
-    if let Some(ta) = ir.find_type_alias(trimmed) {
-        visiting.push(trimmed.to_string());
-        let r = c_size_of_alias(ta, ir, visiting).or_else(|| match &ta.monomorphized_def {
-            // A monomorphized unit enum is a C `enum`: an int.
-            Some(m) => matches!(m.kind, MonomorphizedKind::SimpleEnum { .. }).then_some((4, 4)),
-            // `GLuint = u32` and friends are their target.
-            None => primitive_size(ta.target.trim()),
-        });
-        visiting.pop();
-        if let Some(r) = r {
-            return r;
-        }
-    }
-
-    // Callback function pointers, opaque types, unknown — pointer-sized.
-    (8, 8)
-}
-
 /// (size, alignment) of a C primitive, or `None` when the name is not one.
 fn primitive_size(name: &str) -> Option<(usize, usize)> {
     Some(match name {
@@ -731,156 +664,6 @@ fn primitive_size(name: &str) -> Option<(usize, usize)> {
         "c_void" | "()" | "void" => (0, 1),
         _ => return None,
     })
-}
-
-/// (size, alignment) of a monomorphized generic alias that crosses the ABI
-/// as an AGGREGATE - a `#[repr(C, u8)]` tagged union or a struct. `None`
-/// for a scalar alias (a monomorphized unit enum, `GLuint = u32`) and for
-/// an alias the IR never monomorphized.
-fn c_size_of_alias(
-    ta: &TypeAliasDef,
-    ir: &CodegenIR,
-    visiting: &mut Vec<String>,
-) -> Option<(usize, usize)> {
-    match &ta.monomorphized_def.as_ref()?.kind {
-        MonomorphizedKind::SimpleEnum { .. } => None,
-        MonomorphizedKind::Struct { fields } => Some(c_size_of_fields(fields, ir, visiting)),
-        MonomorphizedKind::TaggedUnion { variants, .. } => {
-            let mut max_payload_size: usize = 0;
-            let mut max_payload_align: usize = 1;
-            for v in variants {
-                let (psz, pal) = match (&v.payload_type, &v.payload_ref_kind) {
-                    (None, _) => (0, 1),
-                    (Some(t), FieldRefKind::Owned) => c_size_of_type(t, ir, visiting),
-                    // A pointer payload (`BoxOrStatic`) is one word.
-                    (Some(_), _) => (8, 8),
-                };
-                if psz > max_payload_size {
-                    max_payload_size = psz;
-                }
-                if pal > max_payload_align {
-                    max_payload_align = pal;
-                }
-            }
-            Some(tagged_layout(max_payload_size, max_payload_align))
-        }
-    }
-}
-
-/// The `#[repr(C, u8)]` layout over the largest payload: a 1-byte tag
-/// padded up to the payload's alignment, the payload, then the whole
-/// rounded up to that alignment again.
-fn tagged_layout(max_payload_size: usize, max_payload_align: usize) -> (usize, usize) {
-    let align = max_payload_align.max(1);
-    let head = 1_usize.div_ceil(align) * align;
-    let total = head + max_payload_size;
-    (total.div_ceil(align) * align, align)
-}
-
-fn c_size_of_struct(s: &StructDef, ir: &CodegenIR, visiting: &mut Vec<String>) -> (usize, usize) {
-    c_size_of_fields(&s.fields, ir, visiting)
-}
-
-/// The C layout of a field list: each field at its own alignment, the
-/// whole rounded up to the widest one. Shared by `c_size_of_struct` and
-/// by the monomorphized `Struct` aliases, which carry fields and no
-/// `StructDef`.
-fn c_size_of_fields(
-    fields: &[FieldDef],
-    ir: &CodegenIR,
-    visiting: &mut Vec<String>,
-) -> (usize, usize) {
-    let mut offset: usize = 0;
-    let mut max_align: usize = 1;
-    for f in fields {
-        // Ref-kind pointers are 8/8.
-        let (fs, fa) = match f.ref_kind {
-            FieldRefKind::Owned => c_size_of_type(&f.type_name, ir, visiting),
-            FieldRefKind::Ref
-            | FieldRefKind::RefMut
-            | FieldRefKind::Ptr
-            | FieldRefKind::PtrMut
-            | FieldRefKind::Boxed
-            | FieldRefKind::OptionBoxed => (8, 8),
-        };
-        if fa > max_align {
-            max_align = fa;
-        }
-        // Align offset up to fa.
-        offset = offset.div_ceil(fa) * fa;
-        offset += fs;
-    }
-    if max_align == 0 {
-        max_align = 1;
-    }
-    // Round size up to struct alignment.
-    let size = offset.div_ceil(max_align) * max_align;
-    (size, max_align)
-}
-
-fn c_size_of_tagged_enum(
-    e: &EnumDef,
-    ir: &CodegenIR,
-    visiting: &mut Vec<String>,
-) -> (usize, usize) {
-    use super::super::ir::EnumVariantKind;
-    let mut max_payload_size: usize = 0;
-    let mut max_payload_align: usize = 1;
-    for v in &e.variants {
-        let (psz, pal) = match &v.kind {
-            EnumVariantKind::Unit => (0, 1),
-            EnumVariantKind::Tuple(parts) => {
-                let mut off: usize = 0;
-                let mut al: usize = 1;
-                for (ty, rk) in parts {
-                    let (fs, fa) = match rk {
-                        FieldRefKind::Owned => c_size_of_type(ty, ir, visiting),
-                        _ => (8, 8),
-                    };
-                    if fa > al {
-                        al = fa;
-                    }
-                    off = off.div_ceil(fa) * fa;
-                    off += fs;
-                }
-                let sz = if al > 0 {
-                    off.div_ceil(al) * al
-                } else {
-                    off
-                };
-                (sz, al)
-            }
-            EnumVariantKind::Struct(fields) => {
-                let mut off: usize = 0;
-                let mut al: usize = 1;
-                for f in fields {
-                    let (fs, fa) = match f.ref_kind {
-                        FieldRefKind::Owned => c_size_of_type(&f.type_name, ir, visiting),
-                        _ => (8, 8),
-                    };
-                    if fa > al {
-                        al = fa;
-                    }
-                    off = off.div_ceil(fa) * fa;
-                    off += fs;
-                }
-                let sz = if al > 0 {
-                    off.div_ceil(al) * al
-                } else {
-                    off
-                };
-                (sz, al)
-            }
-        };
-        if psz > max_payload_size {
-            max_payload_size = psz;
-        }
-        if pal > max_payload_align {
-            max_payload_align = pal;
-        }
-    }
-
-    tagged_layout(max_payload_size, max_payload_align)
 }
 
 // ============================================================================

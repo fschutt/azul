@@ -420,6 +420,7 @@ where
             debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
             fragmentation_context: Some(&mut fragmentation_context),
             cursor_is_visible: true,
             cursor_locations: Vec::new(),
@@ -503,6 +504,7 @@ where
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -741,6 +743,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -768,8 +771,20 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, None)?
     };
 
-    // Step 1.2: Clear Taffy Caches for Dirty Nodes
-    for &node_idx in &recon_result.intrinsic_dirty {
+    // Step 1.2: Clear Taffy Caches - ALL of them on this path.
+    //
+    // A reconciled tree's clones keep their flex measurements
+    // (`clone_node_from_old`), and `layout_document` keeps them for every
+    // clean node: it clears the dirty nodes' and their ancestors' (its Step
+    // 1.2), and its `cache_map` remap carries each node's
+    // `NodeCache::final_layout_current` to the node's new index, which is
+    // what lets a memoised final layout be served. This path resizes the
+    // `cache_map` by POSITION (Step 1.4), so after a structural change a
+    // node can read another node's flag; serving a kept final layout on that
+    // word would skip a subtree a measure has rewritten. So the paged path
+    // lays every flex item out again, as it did when the clone dropped the
+    // measurements.
+    for node_idx in 0..new_tree.nodes.len() {
         if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);
@@ -786,12 +801,14 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // Move cache_map out of LayoutCache for the duration of layout.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
     cache_map.resize_to_tree(new_tree.nodes.len());
-    for &node_idx in &recon_result.intrinsic_dirty {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
-    for &node_idx in &recon_result.layout_roots {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
+    cache_map.mark_dirty_all(
+        recon_result
+            .intrinsic_dirty
+            .iter()
+            .chain(recon_result.layout_roots.iter())
+            .copied(),
+        &new_tree.nodes,
+    );
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
@@ -808,6 +825,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true,      // Paged layout: cursor always visible
         cursor_locations: Vec::new(), // Paged layout: no cursor
@@ -1045,7 +1063,15 @@ pub fn spine_path_at_y(
     }
 
     let (_, _, node) = best?;
-    // Child-index path root → node.
+    Some(child_index_path(styled_dom, node))
+}
+
+/// The child-index path root → `node` (`azul_core::dom::Dom` child indices,
+/// the addresses `split_dom_at_path` / `DomSplit::at_path` consume) - the
+/// one path builder of the structural breaks ([`spine_path_at_y`], the
+/// split block of [`spine_line_split_at_y`]).
+fn child_index_path(styled_dom: &StyledDom, node: NodeId) -> Vec<u32> {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut path: Vec<u32> = Vec::new();
     let mut cur = node;
     while let Some(parent) = hierarchy
@@ -1067,7 +1093,7 @@ pub fn spine_path_at_y(
         cur = parent;
     }
     path.reverse();
-    Some(path)
+    path
 }
 
 /// Materialize the tail of a [`PageSequence`] starting at `first_page` as a
@@ -2140,6 +2166,13 @@ pub struct StructuralBreak {
     /// text there instead of moving the whole block. `None` = block
     /// boundary (the entire addressed block moves), the v1 contract.
     pub line_start: Option<azul_core::selection::ContentIndex>,
+    /// The child-index path of the block `line_start` splits - the block
+    /// the break lands IN, which `path` (the first block whose top is
+    /// at/after `y`) never names: for a break inside the LAST block `path`
+    /// is `None`. `Some` exactly when `line_start` is (LAYOUT7: a block
+    /// taller than a page had no page of its own after the first in
+    /// `AzWriter`, which could only start pages at `path`).
+    pub line_path: Option<Vec<u32>>,
 }
 
 /// Map every break of a [`PaginationInfo`](crate::solver3::page_breaks::PaginationInfo)
@@ -2164,12 +2197,16 @@ pub fn pagination_to_dom_breaks(
         pagination
             .breaks
             .iter()
-            .map(|b| StructuralBreak {
-                y: b.y,
-                kind: b.kind,
-                causing_node: b.causing_node.into_option(),
-                path: spine_path_at_y(tree, positions, styled_dom, b.y),
-                line_start: spine_line_start_at_y(tree, positions, styled_dom, b.y),
+            .map(|b| {
+                let split = spine_line_split_at_y(tree, positions, styled_dom, b.y);
+                StructuralBreak {
+                    y: b.y,
+                    kind: b.kind,
+                    causing_node: b.causing_node.into_option(),
+                    path: spine_path_at_y(tree, positions, styled_dom, b.y),
+                    line_start: split.as_ref().map(|(_, line_start)| *line_start),
+                    line_path: split.map(|(path, _)| path),
+                }
             })
             .collect(),
     )
@@ -2235,8 +2272,33 @@ pub fn spine_line_start_at_y(
     styled_dom: &StyledDom,
     y: f32,
 ) -> Option<azul_core::selection::ContentIndex> {
-    use crate::text3::cache::ShapedItem;
-    let hierarchy = styled_dom.node_hierarchy.as_container();
+    line_split_at_y(tree, positions, styled_dom, y).map(|(_, line_start)| line_start)
+}
+
+/// [`spine_line_start_at_y`] with the block it splits: the child-index path
+/// of the block the break lands IN (see [`child_index_path`]) and the (run,
+/// byte) of the first line that moves. `None` at a block boundary.
+#[must_use]
+pub fn spine_line_split_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<(Vec<u32>, azul_core::selection::ContentIndex)> {
+    let (layout_idx, line_start) = line_split_at_y(tree, positions, styled_dom, y)?;
+    let dom_id = tree.get(LayoutNodeId::new(layout_idx))?.dom_node_id?;
+    Some((child_index_path(styled_dom, dom_id), line_start))
+}
+
+/// The one body of [`spine_line_start_at_y`] / [`spine_line_split_at_y`]:
+/// the layout index of the block the break lands in and the first line that
+/// moves.
+fn line_split_at_y(
+    tree: &crate::solver3::layout_tree::LayoutTree,
+    positions: &crate::solver3::PositionVec,
+    styled_dom: &StyledDom,
+    y: f32,
+) -> Option<(usize, azul_core::selection::ContentIndex)> {
     // Re-find the spine block the path addresses (same selection rule).
     let (layout_idx, node_top) = spine_layout_hit_at_y(tree, positions, styled_dom, y)?;
     let node = tree.get(LayoutNodeId::new(layout_idx))?;
@@ -2260,10 +2322,10 @@ pub fn spine_line_start_at_y(
                     "d6h verify: spine_line_start dense vs sparse diverged at rel_y {rel_y}"
                 );
             }
-            return result;
+            return result.map(|line_start| (layout_idx, line_start));
         }
     }
-    spine_line_start_sparse(layout, rel_y)
+    spine_line_start_sparse(layout, rel_y).map(|line_start| (layout_idx, line_start))
 }
 
 /// The sparse fold of [`spine_line_start_at_y`] — the pre-d6h body,
@@ -2621,6 +2683,7 @@ where
             debug_messages,
             counters: &mut counter_values,
             viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
             fragmentation_context: None,
             reflowed_ifcs: std::collections::BTreeSet::new(),
             cursor_is_visible: false,

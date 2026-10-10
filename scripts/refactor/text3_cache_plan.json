@@ -1,0 +1,388 @@
+{
+  "source": "layout/src/text3/cache.rs",
+  "target_dir": "layout/src/text3/cache",
+  "copy_use_block": true,
+  "glob_preamble": [
+    "#[allow(clippy::wildcard_imports)]",
+    "// the text layout cache's items, re-exported from the sibling modules by mod.rs"
+  ],
+  "super_paths": ["dense"],
+  "mod_block_comment": [
+    "// The modules of what was one file. Every item keeps the visibility it had there: a",
+    "// `pub(crate)` one in a private module is what clippy would rather call `pub`, which a",
+    "// `pub use` would publish."
+  ],
+  "pub_crate_module_attrs": ["#[allow(clippy::redundant_pub_crate)]"],
+  "keep_in_mod_rs": [],
+  "outline_modules": [
+    "shape_outside_and_ruby_tests",
+    "font_cache_swap_tests",
+    "autotest_generated",
+    "a_run_shaped_before_its_font_loads",
+    "a_caret_past_the_last_stop_tests"
+  ],
+  "modules": [
+    {
+      "name": "metrics",
+      "doc": "Font metrics: the fallback ratios and strut defaults, line heights and half-leading.",
+      "items": [
+        "const FALLBACK_ASCENT_RATIO",
+        "const FALLBACK_DESCENT_RATIO",
+        "const DEFAULT_STRUT_ASCENT",
+        "const DEFAULT_STRUT_DESCENT",
+        "const DEFAULT_X_HEIGHT",
+        "const DEFAULT_CAP_HEIGHT",
+        "const DEFAULT_CH_WIDTH",
+        "const SPACE_WIDTH_RATIO",
+        "const DEFAULT_STRUT_FONT_SIZE",
+        "const RUBY_ANNOTATION_FONT_SCALE",
+        "fn ruby_reserved_box",
+        "enum LineHeight",
+        "fn split_leading",
+        "struct VerticalMetrics",
+        "struct LayoutFontMetrics"
+      ]
+    },
+    {
+      "name": "font_chains",
+      "doc": "Font fallback chains: their keys, resolving a chain, and the faces that cover a text.",
+      "items": [
+        "struct FontChainKey",
+        "enum FontChainKeyOrRef",
+        "fn resolve_chain_on_miss",
+        "fn needs_own_glyph",
+        "fn fallback_ranges_for",
+        "fn missing_coverage_faces",
+        "fn faces_covering",
+        "fn covering_font",
+        "fn append_coverage_faces"
+      ]
+    },
+    {
+      "name": "loaded_fonts",
+      "doc": "The fonts a layout has loaded: the font pool, owned-or-shared fonts and the font context.",
+      "items": ["struct LoadedFonts", "enum FontOrRef", "struct FontContext"]
+    },
+    {
+      "name": "font_manager",
+      "doc": "The font manager: font loading, memory fonts and their tiers, and the fonts it retires.",
+      "items": [
+        "enum MemoryFontTier",
+        "struct MemoryFace",
+        "struct FaceStyle",
+        "fn parse_face_style",
+        "struct CondemnedFonts",
+        "struct CondemnedEmbeddedFonts",
+        "struct FontManager"
+      ]
+    },
+    {
+      "name": "constraints",
+      "doc": "What a text layout is asked for: the constraints, available space, wrapping and breaking rules, alignment and writing modes.",
+      "items": [
+        "enum AvailableSpace",
+        "enum LayoutError",
+        "enum TextBoundary",
+        "struct CursorBoundsError",
+        "struct UnifiedConstraints",
+        "struct ColumnFlow",
+        "struct LineConstraints",
+        "enum SegmentAlignment",
+        "struct LineSegment",
+        "enum TextWrap",
+        "enum OverflowWrap",
+        "enum Hyphens",
+        "enum WhiteSpaceMode",
+        "enum LineBreakStrictness",
+        "enum WordBreak",
+        "struct InitialLetter",
+        "enum InitialLetterAlign",
+        "enum OverflowBehavior",
+        "enum WritingMode",
+        "enum JustifyContent",
+        "enum TextAlign",
+        "enum TextOrientation",
+        "enum BidiDirection",
+        "enum UnicodeBidi",
+        "struct ShapeConstraints"
+      ]
+    },
+    {
+      "name": "styles",
+      "doc": "Text styles: runs, font selection, decorations, spacing and the resolved style properties.",
+      "items": [
+        "struct StyledRun",
+        "struct VisualRun",
+        "struct FontSelector",
+        "fn optical_size_for",
+        "enum FontStack",
+        "struct FontHash",
+        "enum FontStyle",
+        "struct TextDecoration",
+        "enum TextTransform",
+        "type FourCc",
+        "enum Spacing",
+        "struct StyleProperties",
+        "enum TextCombineUpright",
+        "enum FontVariantCaps",
+        "type FontVariantNumeric",
+        "enum FontVariantLigatures",
+        "enum FontVariantEastAsian",
+        "struct BidiLevel",
+        "struct StyleOverride",
+        "struct PartialStyleProperties"
+      ]
+    },
+    {
+      "name": "inline_items",
+      "doc": "An inline formatting context's content: text, images, shapes, spaces and breaks, and their glyphs.",
+      "items": [
+        "enum InlineContent",
+        "struct InlineImage",
+        "struct Glyph",
+        "struct TextRunInfo",
+        "enum ImageSource",
+        "enum VerticalAlign",
+        "enum ObjectFit",
+        "struct InlineBorderInfo",
+        "struct InlineShape",
+        "struct MeasuredImage",
+        "struct MeasuredShape",
+        "struct InlineSpace",
+        "struct InlineBreak",
+        "enum BreakType",
+        "enum ClearType",
+        "enum GlyphSource",
+        "enum CharacterClass",
+        "enum GlyphOrientation"
+      ]
+    },
+    {
+      "name": "shapes",
+      "doc": "Geometry for text: rects, sizes and points, paths, and the shapes text flows inside or around.",
+      "items": [
+        "enum PathSegment",
+        "struct Rect",
+        "struct Size",
+        "struct Point",
+        "enum ShapeDefinition",
+        "fn calculate_bounding_box_size",
+        "struct Stroke",
+        "fn round_eq",
+        "enum ShapeBoundary"
+      ]
+    },
+    {
+      "name": "shaped_items",
+      "doc": "The pipeline's items: logical items, visual items and shaped clusters and glyphs.",
+      "items": [
+        "type ShapedGlyphVec",
+        "enum GlyphKind",
+        "enum LogicalItem",
+        "struct VisualItem",
+        "enum ShapedItem",
+        "struct ClusterFlags",
+        "struct ShapedCluster",
+        "fn empty_arc_str",
+        "struct ShapedGlyph",
+        "struct PositionedItem"
+      ]
+    },
+    {
+      "name": "unified_layout",
+      "doc": "A laid-out text: the positioned items, its lines, overflow and intrinsic sizes, and incremental relayout.",
+      "items": [
+        "struct UnifiedLayout",
+        "fn baseline_in_layout",
+        "struct OverflowInfo",
+        "struct UnifiedLine",
+        "struct LayoutFragment",
+        "struct FlowLayout",
+        "struct IntrinsicTextSizes",
+        "struct CachedLineBreaks",
+        "enum IncrementalRelayoutResult",
+        "fn extract_line_breaks",
+        "fn try_incremental_relayout"
+      ]
+    },
+    {
+      "name": "shaping_cache",
+      "doc": "The text shaping cache: its entries and keys, its memory report and the layout entry points it serves.",
+      "items": [
+        "type CacheId",
+        "struct CompactSegment",
+        "struct CompactShapedEntry",
+        "struct PerItemShapedEntry",
+        "struct GroupItem",
+        "fn group_items",
+        "struct TextShapingCache",
+        "const ARC_HEADER",
+        "fn hashmap_bytes",
+        "struct TextCacheMemoryReport",
+        "struct LogicalItemsKey",
+        "struct VisualItemsKey",
+        "struct ShapedItemsKey",
+        "struct LayoutKey",
+        "fn calculate_id"
+      ]
+    },
+    {
+      "name": "logical_items",
+      "doc": "Stages 1 and 2: content to logical items, and bidi reordering into visual order.",
+      "items": [
+        "fn create_logical_items",
+        "fn get_base_direction_from_logical",
+        "fn reorder_logical_items",
+        "fn perform_bidi_analysis",
+        "fn apply_l2_visual_reversal"
+      ]
+    },
+    {
+      "name": "shaping",
+      "doc": "Stage 3: shaping visual items with font fallback, placeholders, ellipses and text orientation.",
+      "items": [
+        "fn shape_visual_items_with_per_item_cache",
+        "fn split_text_by_font_coverage",
+        "fn measure_run_advance",
+        "static FONT_SHAPE_DEFICIT",
+        "fn take_font_shape_deficit",
+        "macro std::thread_local!",
+        "fn note_font_shape_deficit",
+        "fn thread_font_shape_deficit",
+        "fn shape_placeholder_text",
+        "fn shape_ellipsis",
+        "fn shape_with_font_fallback",
+        "fn shape_visual_items",
+        "fn is_hanging_punctuation_char",
+        "fn is_hanging_punctuation",
+        "fn shape_text_correctly",
+        "fn measure_inline_object",
+        "fn apply_text_orientation"
+      ]
+    },
+    {
+      "name": "line_metrics",
+      "doc": "The vertical metrics of items and lines: vertical alignment, baseline shifts and line heights.",
+      "items": [
+        "fn get_item_vertical_align",
+        "fn get_item_vertical_metrics_approx",
+        "fn get_item_vertical_metrics",
+        "fn baseline_shift",
+        "fn calculate_line_metrics"
+      ]
+    },
+    {
+      "name": "line_layout",
+      "doc": "Stage 4: breaking shaped items into lines, hyphenation, and positioning each line.",
+      "items": [
+        "struct Standard",
+        "struct StubHyphenationBreaks",
+        "fn resolve_effective_alignment",
+        "fn perform_fragment_layout",
+        "fn break_one_line",
+        "struct HyphenationBreak",
+        "fn find_all_hyphenation_breaks",
+        "fn try_hyphenate_word_cluster",
+        "struct HyphenationResult",
+        "fn position_one_line",
+        "fn physical_text_align",
+        "fn line_alignment_offset",
+        "fn text_indent_of_line",
+        "fn indent_line_box",
+        "fn get_line_constraints",
+        "fn get_hyphenator"
+      ]
+    },
+    {
+      "name": "justification",
+      "doc": "Justification: distributing a line's free space, kashida, and the trailing white space it leaves out.",
+      "items": [
+        "fn calculate_justification_spacing",
+        "fn justify_kashida_and_rebuild",
+        "fn is_arabic_cluster",
+        "fn measure_trailing_whitespace",
+        "fn can_justify_after",
+        "fn classify_character",
+        "fn get_justification_priority"
+      ]
+    },
+    {
+      "name": "char_classes",
+      "doc": "Character classes the line breaker and the justifier ask about: white space, word separators, cursive scripts.",
+      "items": [
+        "fn is_collapsible_whitespace",
+        "fn is_cursive_script_cluster",
+        "fn is_cursive_script_char",
+        "fn is_word_char",
+        "fn cluster_is_word_boundary",
+        "fn is_word_separator",
+        "fn is_no_break_space",
+        "fn is_word_separator_char",
+        "fn is_zero_width_space"
+      ]
+    },
+    {
+      "name": "measure",
+      "doc": "Measuring items along a line: advances with letter and word spacing, inline box edges, line widths.",
+      "items": [
+        "fn get_item_measure",
+        "fn get_item_measure_with_spacing",
+        "fn fold_line_width",
+        "fn is_hanging_marker",
+        "fn inline_box_edge_advances"
+      ]
+    },
+    {
+      "name": "exclusions",
+      "doc": "Shape exclusions: where a line crosses a path or polygon, and the spans left for text.",
+      "items": [
+        "fn flatten_svg_to_path_segments",
+        "fn path_segments_line_intersection",
+        "fn get_shape_horizontal_spans",
+        "fn merge_segments",
+        "fn polygon_line_intersection"
+      ]
+    },
+    {
+      "name": "break_opportunities",
+      "doc": "Line break opportunities (UAX 14 with CSS word-break and line-break) and the cursor that walks them.",
+      "items": [
+        "fn is_break_suppressing_control",
+        "fn is_break_forcing_control",
+        "fn is_cjk_character",
+        "fn is_cjk_cluster",
+        "fn is_break_opportunity_with_word_break",
+        "fn is_cjk_break_allowed_by_strictness",
+        "fn is_small_kana",
+        "fn is_break_opportunity",
+        "struct BreakCursor"
+      ]
+    }
+  ],
+  "member_visibility": {
+    "struct TextShapingCache": [
+      "logical_items",
+      "visual_items",
+      "per_item_shaped",
+      "per_item_accessed",
+      "stage_accessed",
+      "generation"
+    ],
+    "struct GroupItem": ["source", "run_byte_offset", "style", "source_node_id"],
+    "struct CompactShapedEntry": ["clusters"],
+    "struct FontManager": ["vf_bake_cache", "loaded_fonts_memo"],
+    "impl Glyph": [
+      "bounds",
+      "character_class",
+      "is_whitespace",
+      "can_justify",
+      "justification_priority",
+      "break_opportunity_after"
+    ],
+    "impl WritingMode": ["get_direction"],
+    "impl UnifiedLayout": ["cluster_is_grapheme_continuation"],
+    "impl UnifiedConstraints": ["direction", "is_vertical"],
+    "impl StyleProperties": ["apply_override"],
+    "impl TextShapingCache": ["touch_stage", "inline_content_layout_eq"]
+  }
+}

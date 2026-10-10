@@ -18,13 +18,12 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
     task::{ThreadId, ThreadReceiver, ThreadSendMsg},
-    video::{VideoConfig, VideoFrame},
+    video::{VideoConfig, VideoFrame, VideoPhase, VideoStatus},
 };
 
 use super::capture_common::{
-    invoke_on_frame, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
+    invoke_on_frame, terminate_requested, OnVideoFrame, OnVideoFrameCallback, OptionOnVideoFrame,
 };
-use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 
 use crate::{
     callbacks::{Callback, CallbackInfo, CallbackType},
@@ -33,12 +32,41 @@ use crate::{
         OptionThreadPool, Thread, ThreadCallback, ThreadPool, ThreadReceiveMsg, ThreadSender,
         ThreadWriteBackMsg, WriteBackCallback,
     },
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
 };
 
 /// Default decode size for the test pattern (the real decoder reports the
 /// stream's actual size).
 const DEFAULT_W: u32 = 1280;
 const DEFAULT_H: u32 = 720;
+
+/// How much media time passes between two position reports while a video
+/// plays: the web's `timeupdate` budget, the same one the media-player
+/// manager throttles `TimeUpdate` to. A progress bar needs no more, and a
+/// report per frame would rebuild the app's UI at the frame rate.
+pub const STATUS_INTERVAL_S: f32 = crate::managers::media_player::TIME_UPDATE_INTERVAL_S;
+
+/// Slack when matching the clock to a frame's presentation time, so a clock
+/// that lands a hair before a frame (`n / fps` rounds) still shows it.
+const PTS_TOLERANCE_S: f32 = 0.001;
+/// How far ahead of its clock the decode worker keeps frames while playing.
+pub const DECODE_LOOKAHEAD_S: f32 = 2.0;
+/// How far behind its clock the worker keeps frames (a short seek back
+/// replays them without a decode).
+pub const DECODE_KEEP_BEHIND_S: f32 = 0.5;
+/// A seek this far past the decoded frames restarts the decode at the
+/// target's keyframe instead of decoding every frame up to it.
+pub const DECODE_JUMP_S: f32 = 3.0;
+/// How far (in frames) the clock may run past the newest decoded frame
+/// before playback STALLS: one late frame is a hitch, not a wait.
+pub const STALL_SLACK_FRAMES: f32 = 2.0;
+/// How long a stall lasts before the app is told the video is loading
+/// (buffering) rather than playing.
+pub const STALL_REPORT_S: f64 = 0.3;
+/// How much is decoded past the frame a stall waits on before playback goes
+/// on: a download that delivers a frame at a time would otherwise play a
+/// frame, wait, play a frame.
+pub const RESUME_LEAD_S: f32 = 0.5;
 
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
@@ -53,6 +81,13 @@ pub struct VideoWidgetState {
     /// Optional user hook invoked with each decoded frame (effects / save /
     /// send). Re-set on every fresh build (see [`merge_video_state`]).
     pub on_frame: OptionOnVideoFrame,
+    /// Optional user hook invoked with every [`VideoStatus`] the decode
+    /// worker reports. Re-set on every fresh build (see [`merge_video_state`]).
+    pub on_status: OptionOnVideoStatus,
+    /// The status the decode worker last reported ([`VideoStatus::loading`]
+    /// until it reports one). Written by [`video_status_writeback`], never by
+    /// a rebuild.
+    pub status: VideoStatus,
     /// Optional pre-decoded frames to replay (a `RefAny` holding a
     /// `Vec<VideoFrame>`); when set, the replay worker cycles these instead of
     /// the built-in test pattern. Carried forward by [`merge_video_state`].
@@ -85,6 +120,14 @@ pub struct VideoWidgetState {
     /// What the decode worker runs on, as the `on_mount` hook last returned it.
     /// Written on mount, never by a rebuild (see [`merge_video_state`]).
     pub setup: VideoSetup,
+    /// The theme the widget was built in: the render callback draws the
+    /// "no signal" poster in it. Adopted from every rebuild (see
+    /// [`merge_video_state`]).
+    pub theme: UiTheme,
+    /// Whether the widget was built UNPINNED, following the app theme: the
+    /// poster then carries every theme's block (`@theme(..)`) and `theme`
+    /// is only the structure it was built in. Adopted from every rebuild.
+    pub follows_app_theme: bool,
 }
 
 /// The runtime-installed streaming decode worker every video picks up when it
@@ -129,6 +172,13 @@ pub struct VideoWidget {
     /// Optional hook fired when the widget is mounted, returning the
     /// [`VideoSetup`] its decode worker runs on.
     pub on_mount: OptionVideoMount,
+    /// Optional hook fired with every [`VideoStatus`] the decoder reports.
+    pub on_status: OptionOnVideoStatus,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). The
+    /// picture is the source's own; the theme draws the widget's chrome - the
+    /// "no signal" poster shown until the first frame. A DOM-level choice:
+    /// switching it rebuilds the widget.
+    pub theme: OptionUiTheme,
 }
 
 impl VideoWidget {
@@ -140,7 +190,48 @@ impl VideoWidget {
             on_frame: OptionOnVideoFrame::None,
             frames: OptionRefAny::None,
             on_mount: OptionVideoMount::None,
+            on_status: OptionOnVideoStatus::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Set a hook fired whenever the video's pipeline reports a
+    /// [`VideoStatus`]: loading, the first frame on screen (held as a poster
+    /// or playing), the position about four times a second while it plays,
+    /// the end, or a failure with a message for the user. This is where an
+    /// app drives its play button, its time display and its error text.
+    pub fn set_on_status<C: Into<OnVideoStatusCallback>>(&mut self, data: RefAny, callback: C) {
+        self.on_status = Some(OnVideoStatus {
+            refany: data,
+            callback: callback.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_status`](Self::set_on_status).
+    #[must_use]
+    pub fn with_on_status<C: Into<OnVideoStatusCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.set_on_status(data, callback);
+        self
     }
 
     /// Set a hook fired when the widget is mounted. It receives the widget's
@@ -208,13 +299,38 @@ impl VideoWidget {
     /// without one it shows the built-in test pattern. Pools for the decoder come
     /// from the `on_mount` hook, never from here: building the `Dom` only
     /// describes the UI.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does).
+    /// Unpinned (`theme: None`), the widget follows the APP theme: built in
+    /// the structure (and marker) of the theme its DOM is built for, its
+    /// poster carrying every theme's block.
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::video(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::video(self),
+            None => self.build_in(UiTheme::current(), true),
+        }
+    }
+
+    /// Builds the widget in `theme` - what `themes::flat::video` /
+    /// `themes::flora::video` call. The theme travels in the widget state, so
+    /// the render callback draws the poster in it.
+    #[must_use]
+    pub(crate) fn build(self, theme: UiTheme) -> Dom {
+        self.build_in(theme, false)
+    }
+
+    /// [`Self::build`] in the structure of `theme`; `follows_app_theme`: the
+    /// poster carries every theme's block rather than `theme`'s alone.
+    fn build_in(self, theme: UiTheme, follows_app_theme: bool) -> Dom {
         let state = VideoWidgetState {
             config: self.config,
             started: false,
             gl_texture_id: None,
             on_frame: self.on_frame,
+            on_status: self.on_status,
+            status: VideoStatus::loading(),
             frames: self.frames,
             decode_callback: None,
             current_frame: None,
@@ -222,6 +338,8 @@ impl VideoWidget {
             seek_sender: None,
             on_mount: self.on_mount,
             setup: VideoSetup::new(),
+            theme,
+            follows_app_theme,
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -234,6 +352,9 @@ impl VideoWidget {
         // re-render in place (no DOM rebuild) — see `video_writeback`. The caller
         // sizes the outer node via `.with_css(...)` on the returned Dom.
         Dom::create_div()
+            .with_ids_and_classes(azul_core::dom::IdOrClassVec::from_vec(alloc::vec![
+                style_kit::marker(theme)
+            ]))
             .with_dataset(OptionRefAny::Some(dataset.clone()))
             .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_video_state))
             .with_callback(
@@ -256,6 +377,45 @@ impl VideoWidget {
                 .with_css("width: 100%; height: 100%; overflow: hidden;"),
             )
     }
+}
+
+/// The "no signal" poster in `theme` - the video widget's only chrome.
+fn poster_style(theme: UiTheme) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::video_poster_style(),
+        UiTheme::Flora => crate::widgets::themes::flora::video_poster_style(),
+    }
+}
+
+/// The poster of a widget state: its theme's, or - built unpinned - every
+/// theme's block of it (`themes::theme_blocks::follow_props`).
+fn state_poster_style(
+    s: &VideoWidgetState,
+) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    if s.follows_app_theme {
+        crate::widgets::themes::theme_blocks::follow_props(
+            poster_style(UiTheme::Flat).as_slice(),
+            poster_style(UiTheme::Flora).as_slice(),
+        )
+    } else {
+        poster_style(s.theme)
+    }
+}
+
+/// The `<img>` one decoded frame renders as, filling the widget.
+///
+/// Marked DECORATIVE (`role: Nothing`, no name): the frame is the picture
+/// behind the player, and the player's accessible surface is its controls,
+/// which the app names ("Play video", "Seek"). An `<img>` with no
+/// accessibility info at all is absent from the tree without saying so, and
+/// a named one would be announced again on every decoded frame.
+fn frame_image(img: ImageRef) -> Dom {
+    Dom::create_image(img)
+        .with_css("width: 100%; height: 100%;")
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Nothing,
+            ..Default::default()
+        })
 }
 
 /// `VirtualView` render callback (mirrors `map_widget_render`): build the `<img>`
@@ -291,17 +451,10 @@ extern "C" fn video_widget_render(
                         // Vulkan init failure, network stall) was
                         // indistinguishable from a black video — the shipped
                         // azul-video "black frame" bug. A dead pipeline must be
-                        // visibly dead.
-                        OptionDom::Some(Dom::create_div().with_css(
-                            "width: 100%; height: 100%; background: #2a2a30; border: 1px solid \
-                             #44444c;",
-                        ))
+                        // visibly dead. Drawn in the widget's theme.
+                        OptionDom::Some(Dom::create_div().with_css_props(state_poster_style(&s)))
                     },
-                    |img| {
-                        OptionDom::Some(
-                            Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
-                        )
-                    },
+                    |img| OptionDom::Some(frame_image(img.clone())),
                 )
             })
     };
@@ -387,6 +540,32 @@ azul_core::impl_managed_callback! {
     from_handle_fn: AzVideoMountCallback_createFromHostHandle,
     from_handle_byref_fn: AzVideoMountCallback_createFromHostHandleByref,
     extra_args:     [ setup: VideoSetup ],
+}
+
+// --- User hook: on_status (backreference DI, FFI-exposed) ---
+
+/// User hook fired with every [`VideoStatus`] the video's decoder reports.
+/// Returns `Update` like any callback: `RefreshDom` to redraw the app's
+/// controls from the new status.
+pub type OnVideoStatusCallbackType = extern "C" fn(RefAny, CallbackInfo, VideoStatus) -> Update;
+impl_widget_callback!(
+    OnVideoStatus,
+    OptionOnVideoStatus,
+    OnVideoStatusCallback,
+    OnVideoStatusCallbackType
+);
+azul_core::impl_managed_callback! {
+    wrapper:        OnVideoStatusCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_VIDEO_STATUS_INVOKER,
+    invoker_ty:     AzOnVideoStatusCallbackInvoker,
+    thunk_fn:       az_on_video_status_callback_thunk,
+    setter_fn:      AzApp_setOnVideoStatusCallbackInvoker,
+    from_handle_fn: AzOnVideoStatusCallback_createFromHostHandle,
+    from_handle_byref_fn: AzOnVideoStatusCallback_createFromHostHandleByref,
+    extra_args:     [ status: VideoStatus ],
 }
 
 /// Everything a video needs before its worker starts, done once it is in the
@@ -513,8 +692,11 @@ extern "C" fn video_on_resize(mut data: RefAny, info: CallbackInfo) -> Update {
 
 /// Background worker (test pattern): SMPTE-style colour bars scrolling
 /// horizontally ~30x/s. Replaced by the real vk-video decode worker later.
+///
+/// Stops when it is told to (`TerminateThread`: its `<video>` left the DOM or
+/// the window closed) or when the main thread stops receiving.
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
     const BARS: [[u8; 3]; 7] = [
         [235, 235, 235],
         [235, 235, 16],
@@ -527,6 +709,9 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
     let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
     let mut tick: u32 = 0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let shift = (tick as usize / 4) % 7;
         let mut bytes = Vec::with_capacity(w * h * 4);
         for _y in 0..h {
@@ -535,11 +720,7 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
                 bytes.extend_from_slice(&[c[0], c[1], c[2], 255]);
             }
         }
-        let frame = VideoFrame {
-            width: w as u32,
-            height: h as u32,
-            bytes: bytes.into(),
-        };
+        let frame = VideoFrame::new(w as u32, h as u32, bytes.into());
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(video_writeback),
             RefAny::new(frame),
@@ -558,11 +739,12 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
 /// path as the test pattern, so real decoded pixels land in the shared GL
 /// texture. `init` is the `RefAny` handed to
 /// [`VideoWidget::with_frames`](VideoWidget::with_frames); if it doesn't hold a
-/// non-empty `Vec<VideoFrame>` the worker just returns.
+/// non-empty `Vec<VideoFrame>` the worker just returns. Like the test
+/// pattern, it stops when it is told to (`TerminateThread`).
 extern "C" fn video_replay_worker(
     mut init: RefAny,
     mut sender: ThreadSender,
-    _recv: ThreadReceiver,
+    mut recv: ThreadReceiver,
 ) {
     let frames: Vec<VideoFrame> = match init.downcast_ref::<Vec<VideoFrame>>() {
         Some(f) => f.clone(),
@@ -573,6 +755,9 @@ extern "C" fn video_replay_worker(
     }
     let mut idx: usize = 0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let frame = frames[idx % frames.len()].clone();
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(video_writeback),
@@ -610,17 +795,19 @@ pub extern "C" fn video_writeback(
             // empty buffer would spuriously "match" and store a bogus frame. A
             // `checked_mul` that overflows drops the frame — the hook is still
             // notified below, exactly as for a byte-count mismatch.
-            let fits = (frame.width as usize)
-                .checked_mul(frame.height as usize)
-                .and_then(|px| px.checked_mul(4))
-                .is_some();
+            // `expected_len` is `None` on overflow and for a format frames
+            // do not use.
+            let fits = frame.expected_len().is_some();
             if fits {
+                // A decoded frame is opaque, for which straight ==
+                // premultiplied: no per-pixel multiply. It is shown in the
+                // format it was decoded in (NV12 / BGRA8 / RGBA8).
                 if let Some(img) = ImageRef::new_rawimage(RawImage {
                     pixels: RawImageData::U8(frame.bytes.clone()),
                     width: frame.width as usize,
                     height: frame.height as usize,
-                    premultiplied_alpha: false,
-                    data_format: RawImageFormat::RGBA8,
+                    premultiplied_alpha: true,
+                    data_format: frame.format,
                     tag: b"azul-video-frame".to_vec().into(),
                 }) {
                     if let Some(mut s) = writeback_data.downcast_mut::<VideoWidgetState>() {
@@ -637,6 +824,37 @@ pub extern "C" fn video_writeback(
     // and orphan the worker's dataset clone). Same trick as `map_tile_writeback`.
     info.trigger_all_virtual_view_rerender();
     user_update
+}
+
+#[must_use]
+/// Writeback (main thread): the decode worker reported a [`VideoStatus`].
+///
+/// Stores it as the widget's `status` and hands it to the app's `on_status`
+/// hook, returning the hook's `Update` (`DoNothing` without a hook). A status
+/// is not a frame: nothing is re-rendered here, the app redraws its own
+/// controls if it asks to.
+pub extern "C" fn video_status_writeback(
+    mut writeback_data: RefAny,
+    mut status_data: RefAny,
+    info: CallbackInfo,
+) -> Update {
+    let Some(status) = status_data
+        .downcast_ref::<VideoStatus>()
+        .map(|s| (*s).clone())
+    else {
+        return Update::DoNothing;
+    };
+    let hook = match writeback_data.downcast_mut::<VideoWidgetState>() {
+        Some(mut s) => {
+            s.status = status.clone();
+            s.on_status.clone()
+        }
+        None => OptionOnVideoStatus::None,
+    };
+    match hook {
+        OptionOnVideoStatus::Some(h) => h.callback.invoke(h.refany, info, status),
+        OptionOnVideoStatus::None => Update::DoNothing,
+    }
 }
 
 /// Carry live state forward across relayout.
@@ -671,14 +889,30 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
                     ))));
                 }
             }
+            // Transport: a flipped `paused` holds or resumes the running
+            // worker, the way a changed timestamp seeks it.
+            if old_g.config.paused != new_g.config.paused {
+                if let Some(snd) = old_g.seek_sender.as_ref() {
+                    let transport = if new_g.config.paused {
+                        VideoTransport::Pause
+                    } else {
+                        VideoTransport::Resume
+                    };
+                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(transport))));
+                }
+            }
             // Adopt the app-driven config; keep every worker-facing field
-            // (frames, current_frame, thread_id, seek_sender, started) in the
-            // allocation the worker actually writes to.
+            // (frames, current_frame, thread_id, seek_sender, started, the
+            // reported status) in the allocation the worker actually writes to.
             old_g.config = new_g.config.clone();
             old_g.on_frame = new_g.on_frame.clone();
+            old_g.on_status = new_g.on_status.clone();
             // The hook is adopted; `setup` and the decode worker were installed on
             // mount and belong to the running widget, so they stay.
             old_g.on_mount = new_g.on_mount.clone();
+            // The app's theme is adopted like its config: the poster follows it.
+            old_g.theme = new_g.theme;
+            old_g.follows_app_theme = new_g.follows_app_theme;
             true
         } else {
             // Foreign / mismatched payloads (one side is not this widget's
@@ -692,6 +926,499 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
         old_data
     } else {
         new_data
+    }
+}
+
+// ============================================================================
+// Transport: what the decode worker plays when, testable without a decoder
+// ============================================================================
+
+/// Main → decode-worker transport message, sent by [`merge_video_state`] as
+/// `ThreadSendMsg::Custom(RefAny::new(VideoTransport::..))` when the app
+/// flips [`VideoConfig::paused`], the way a changed `timestamp` is sent as an
+/// `f32` seek.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum VideoTransport {
+    /// Hold on the frame on screen.
+    Pause,
+    /// Play on from the frame on screen; from the start once the video ended.
+    Resume,
+}
+
+/// Where the media clock of a [`VideoPlayback`] stands.
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum PlaybackClock {
+    /// Stopped at `base_s`: the poster, a pause, or no frame yet.
+    Held,
+    /// Running since `since_s` (on the caller's clock) from `base_s`.
+    Running { since_s: f64 },
+    /// Playing, but WAITING at `base_s` since `since_s` for frames that are
+    /// not decoded yet (a download slower than the video, a decoder catching
+    /// up after a resume): the clock stands until [`RESUME_LEAD_S`] is
+    /// decoded past it.
+    Stalled { since_s: f64 },
+    /// Stopped at the end of a video that does not loop.
+    Ended,
+}
+
+/// The decode worker's transport and presentation schedule: which decoded
+/// frame is due, and what to tell the app.
+///
+/// Kept apart from the decoder so its rules are testable without one: the
+/// caller hands in the time (`now_s`, seconds on any monotonic clock) instead
+/// of the schedule reading a clock itself. Frames may arrive in any order —
+/// `VideoToolbox` hands them back in DECODE order — and are kept in
+/// PRESENTATION order. The clock starts with the first frame on screen, not
+/// with the download, so a slow network never eats the start of the video;
+/// and it never runs ahead of the frames: a playing video whose next frames
+/// are not decoded yet STALLS (reported as `Loading` once the wait lasts
+/// [`STALL_REPORT_S`]) and plays on once [`RESUME_LEAD_S`] is decoded.
+#[derive(Debug)]
+pub struct VideoPlayback {
+    /// Decoded frames, sorted by presentation time: `(pts_s, frame)`.
+    frames: Vec<(f32, VideoFrame)>,
+    /// Length in seconds, `0.0` while unknown.
+    duration_s: f32,
+    /// Media position when the clock was last stopped or (re)started.
+    base_s: f32,
+    clock: PlaybackClock,
+    /// Index of the frame the last [`tick`](Self::tick) handed out; `None`
+    /// makes the next one hand out whichever frame is due.
+    presented: Option<usize>,
+    /// The status the last [`tick`](Self::tick) handed out; `None` makes the
+    /// next one report whatever the state is.
+    reported: Option<VideoStatus>,
+    /// Every frame of the stream is in `frames`: the last one is the end.
+    complete: bool,
+    looping: bool,
+    /// The app asked to hold.
+    paused: bool,
+    /// One frame's time, from the worker ([`set_frame_interval`](Self::set_frame_interval));
+    /// 1/30 s until then. Says whether the frame due at a position is held.
+    frame_s: f32,
+    /// Held, how much is kept decoded past the poster ([`set_preroll`](Self::set_preroll)).
+    preroll_s: f32,
+}
+
+/// What one [`VideoPlayback::tick`] asks of the decode worker.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct VideoTick {
+    /// Present the frame at this index of [`VideoPlayback::frame`].
+    pub present: Option<usize>,
+    /// Tell the app, through the widget's `on_status` hook.
+    pub status: Option<VideoStatus>,
+}
+
+/// A position a caller handed in, made usable: NaN, infinities and negative
+/// times all mean the start.
+const fn sanitize_position(position_s: f32) -> f32 {
+    if position_s.is_finite() && position_s > 0.0 {
+        position_s
+    } else {
+        0.0
+    }
+}
+
+impl VideoPlayback {
+    /// A schedule that starts at `start_s`. `paused` holds the first frame as
+    /// a poster until [`resume`](Self::resume); `looping` wraps the end back
+    /// to the start.
+    #[must_use]
+    pub const fn new(start_s: f32, paused: bool, looping: bool) -> Self {
+        Self {
+            frames: Vec::new(),
+            duration_s: 0.0,
+            base_s: sanitize_position(start_s),
+            clock: PlaybackClock::Held,
+            presented: None,
+            reported: None,
+            complete: false,
+            looping,
+            paused,
+            frame_s: 1.0 / 30.0,
+            preroll_s: 0.0,
+        }
+    }
+
+    /// The video is `duration_s` long (`0.0`, NaN or negative: unknown).
+    pub const fn set_duration(&mut self, duration_s: f32) {
+        self.duration_s = sanitize_position(duration_s);
+    }
+
+    /// Held, keep `seconds` decoded past the poster, so a resume plays at
+    /// once: for an app that holds a video only to start it in step with
+    /// something else (its sound). A poster nobody may ever play keeps none.
+    pub const fn set_preroll(&mut self, seconds: f32) {
+        self.preroll_s = sanitize_position(seconds);
+    }
+
+    /// The newest presentation time decoded, if any frame is.
+    fn newest(&self) -> Option<f32> {
+        self.frames.last().map(|(pts, _)| *pts)
+    }
+
+    /// Whether playback can run from `position_s` without waiting: the frame
+    /// due there is held, and every frame is in or [`RESUME_LEAD_S`] is
+    /// decoded past it.
+    fn has_lead(&self, position_s: f32) -> bool {
+        self.holds_frame_at(position_s)
+            && (self.complete
+                || self.newest().is_some_and(|newest| {
+                    newest + PTS_TOLERANCE_S >= position_s + RESUME_LEAD_S
+                }))
+    }
+
+    /// One frame lasts `frame_s` (ignored unless positive and finite).
+    pub const fn set_frame_interval(&mut self, frame_s: f32) {
+        if frame_s > 0.0 && frame_s.is_finite() {
+            self.frame_s = frame_s;
+        }
+    }
+
+    /// The frames held, in presentation order.
+    #[must_use]
+    pub const fn frames_held(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// The frame on screen, if a tick presented one.
+    #[must_use]
+    pub fn on_screen(&self) -> Option<&VideoFrame> {
+        self.presented.and_then(|i| self.frame(i))
+    }
+
+    /// Whether the frame due at `position_s` is held: the first held frame
+    /// is at or before it (within one frame).
+    fn holds_frame_at(&self, position_s: f32) -> bool {
+        self.frames
+            .first()
+            .is_some_and(|(first, _)| *first <= position_s + self.frame_s + PTS_TOLERANCE_S)
+    }
+
+    /// Whether the worker should decode another access unit now.
+    /// `decoded_until_s` is the presentation time of the newest frame it
+    /// decoded since it last (re)started, `None` before the first. Held, the
+    /// schedule wants the poster - the frame at its position - and nothing
+    /// after it (but its [`preroll`](Self::set_preroll)); playing or waiting
+    /// on frames, [`DECODE_LOOKAHEAD_S`] ahead of the clock; ended, or with
+    /// every frame in, nothing. This is what keeps a `<video>` nobody plays
+    /// from holding its whole clip decoded.
+    #[must_use]
+    pub fn wants_frame(&self, now_s: f64, decoded_until_s: Option<f32>) -> bool {
+        if self.complete {
+            return false;
+        }
+        let Some(decoded_until) = decoded_until_s else {
+            return true;
+        };
+        match self.clock {
+            PlaybackClock::Held => self.base_s + self.preroll_s > decoded_until + PTS_TOLERANCE_S,
+            PlaybackClock::Running { .. } | PlaybackClock::Stalled { .. } => {
+                decoded_until < self.position(now_s) + DECODE_LOOKAHEAD_S
+            }
+            PlaybackClock::Ended => false,
+        }
+    }
+
+    /// The position the worker must restart decoding for, from the keyframe
+    /// at or before it: the frame due there is not held (a seek back past the
+    /// kept frames, a loop wrap), or it lies more than [`DECODE_JUMP_S`] past
+    /// what the worker decoded (a seek far ahead). `None` otherwise, and
+    /// before the first frame (the worker is decoding from the start).
+    #[must_use]
+    pub fn restart_wanted(&self, now_s: f64, decoded_until_s: Option<f32>) -> Option<f32> {
+        if self.frames.is_empty() || self.clock == PlaybackClock::Ended {
+            return None;
+        }
+        let position = self.position(now_s);
+        if !self.holds_frame_at(position) {
+            return Some(position);
+        }
+        match decoded_until_s {
+            Some(until) if !self.complete && position > until + DECODE_JUMP_S => Some(position),
+            _ => None,
+        }
+    }
+
+    /// The worker restarted its decode (a seek past the frames held, a loop
+    /// wrap): the end is not in until it is handed in again, and the old
+    /// run's frames go - kept, frames AHEAD of the clock from the old run
+    /// would hide that the new run has not decoded the frames the clock is
+    /// at (the picture on screen stays until the next one is presented).
+    pub fn restart_decode(&mut self) {
+        self.complete = false;
+        self.frames.clear();
+        self.presented = None;
+    }
+
+    /// Drop the frames more than [`DECODE_KEEP_BEHIND_S`] behind the clock,
+    /// never the one on screen; how many went.
+    pub fn trim(&mut self, now_s: f64) -> usize {
+        let keep_from = self.position(now_s) - DECODE_KEEP_BEHIND_S;
+        let mut n = self.frames.partition_point(|(pts, _)| *pts < keep_from);
+        if let Some(on_screen) = self.presented {
+            n = n.min(on_screen);
+        }
+        if n == 0 {
+            return 0;
+        }
+        self.frames.drain(..n);
+        self.presented = self.presented.map(|i| i - n);
+        n
+    }
+
+    /// The length in seconds, `0.0` while unknown.
+    #[must_use]
+    pub const fn duration(&self) -> f32 {
+        self.duration_s
+    }
+
+    /// Every frame has been handed in: the last one is the end of the video.
+    pub const fn finish(&mut self) {
+        self.complete = true;
+    }
+
+    /// The decoded frame at `index`, in presentation order.
+    #[must_use]
+    pub fn frame(&self, index: usize) -> Option<&VideoFrame> {
+        self.frames.get(index).map(|(_, frame)| frame)
+    }
+
+    /// Present the due frame again on the next tick (the output size
+    /// changed).
+    pub const fn invalidate(&mut self) {
+        self.presented = None;
+    }
+
+    /// Where the media clock stands at `now_s`.
+    #[must_use]
+    pub const fn position(&self, now_s: f64) -> f32 {
+        match self.clock {
+            PlaybackClock::Running { since_s } => {
+                let elapsed = now_s - since_s;
+                let elapsed = if elapsed > 0.0 { elapsed } else { 0.0 };
+                self.base_s + elapsed as f32
+            }
+            PlaybackClock::Held | PlaybackClock::Stalled { .. } | PlaybackClock::Ended => {
+                self.base_s
+            }
+        }
+    }
+
+    /// Stop the clock where it stands at `now_s`, and restart it from there.
+    const fn rebase(&mut self, position_s: f32, now_s: f64) {
+        self.base_s = position_s;
+        self.clock = PlaybackClock::Running { since_s: now_s };
+    }
+
+    /// `position_s` clamped to the end of the video, when the end is known.
+    const fn clamp_to_end(&self, position_s: f32) -> f32 {
+        if self.duration_s > 0.0 && position_s > self.duration_s {
+            self.duration_s
+        } else {
+            position_s
+        }
+    }
+
+    /// Add a decoded frame, shown from `pts_s` on. Frames may arrive in any
+    /// order; the frame on screen stays the one on screen.
+    pub fn push_frame(&mut self, pts_s: f32, frame: VideoFrame) {
+        let pts_s = sanitize_position(pts_s);
+        let at = self
+            .frames
+            .partition_point(|(pts, _)| *pts < pts_s - PTS_TOLERANCE_S);
+        if let Some(slot) = self.frames.get_mut(at) {
+            if (slot.0 - pts_s).abs() <= PTS_TOLERANCE_S {
+                // Decoded again (a restart from a keyframe): the newer copy.
+                slot.1 = frame;
+                return;
+            }
+        }
+        self.frames.insert(at, (pts_s, frame));
+        if let Some(on_screen) = self.presented {
+            if at <= on_screen {
+                self.presented = Some(on_screen + 1);
+            }
+        }
+    }
+
+    /// Hold on the frame on screen.
+    pub fn pause(&mut self, now_s: f64) {
+        if let PlaybackClock::Running { .. } | PlaybackClock::Stalled { .. } = self.clock {
+            self.base_s = self.clamp_to_end(self.position(now_s));
+            self.clock = PlaybackClock::Held;
+        }
+        self.paused = true;
+        self.reported = None;
+    }
+
+    /// Play on from the frame on screen, or from the start once the video
+    /// ended. Before the first frame this only arms playback: the clock
+    /// starts with the first frame. Without [`RESUME_LEAD_S`] decoded past
+    /// the frame on screen, playback waits for it (stalled) rather than
+    /// running ahead of the decoder.
+    pub fn resume(&mut self, now_s: f64) {
+        if self.clock == PlaybackClock::Ended {
+            self.base_s = 0.0;
+            self.clock = PlaybackClock::Held;
+        }
+        self.paused = false;
+        if self.clock == PlaybackClock::Held && !self.frames.is_empty() {
+            self.clock = if self.has_lead(self.base_s) {
+                PlaybackClock::Running { since_s: now_s }
+            } else {
+                PlaybackClock::Stalled { since_s: now_s }
+            };
+        }
+        self.reported = None;
+    }
+
+    /// Jump to `position_s`, clamped into the video; a held video stays held,
+    /// a playing one plays on from there.
+    pub fn seek(&mut self, position_s: f32, now_s: f64) {
+        let target = self.clamp_to_end(sanitize_position(position_s));
+        self.base_s = target;
+        match self.clock {
+            PlaybackClock::Running { .. } | PlaybackClock::Stalled { .. } => {
+                self.clock = PlaybackClock::Running { since_s: now_s };
+            }
+            PlaybackClock::Ended => {
+                if self.duration_s <= 0.0 || target < self.duration_s {
+                    self.clock = PlaybackClock::Held;
+                }
+            }
+            PlaybackClock::Held => {}
+        }
+        self.reported = None;
+    }
+
+    /// Advance to `now_s`: which frame is due, and what the app should hear.
+    #[must_use]
+    pub fn tick(&mut self, now_s: f64) -> VideoTick {
+        let Some(newest) = self.newest() else {
+            // Nothing decoded yet (or since a restart): a playing clock waits
+            // where it stands.
+            let phase = match self.clock {
+                PlaybackClock::Running { .. } => {
+                    self.base_s = self.position(now_s);
+                    self.clock = PlaybackClock::Stalled { since_s: now_s };
+                    VideoPhase::Playing
+                }
+                PlaybackClock::Stalled { .. } => self.phase_at(now_s),
+                PlaybackClock::Held | PlaybackClock::Ended => VideoPhase::Loading,
+            };
+            let status = self.report(phase, self.base_s);
+            return VideoTick {
+                present: None,
+                status,
+            };
+        };
+        // The clock starts with the first frame on screen, not with the
+        // download.
+        if !self.paused && self.clock == PlaybackClock::Held {
+            self.clock = PlaybackClock::Running { since_s: now_s };
+        }
+        // A wait for the decoder ends once a lead is decoded past the frame
+        // it waits on.
+        if let PlaybackClock::Stalled { .. } = self.clock {
+            if self.has_lead(self.base_s) {
+                self.clock = PlaybackClock::Running { since_s: now_s };
+            }
+        }
+        let mut position = self.position(now_s);
+        if let PlaybackClock::Running { .. } = self.clock {
+            let end = if self.duration_s > 0.0 {
+                self.duration_s
+            } else {
+                newest
+            };
+            if !self.complete && position > newest + STALL_SLACK_FRAMES * self.frame_s {
+                // Playback outran the decoder (the download): wait on the
+                // newest frame - or, after a seek past it, at the target.
+                position = newest.max(self.base_s);
+                self.base_s = position;
+                self.clock = PlaybackClock::Stalled { since_s: now_s };
+            } else if self.complete && position >= end {
+                if self.looping && end > 0.0 {
+                    position %= end;
+                    self.rebase(position, now_s);
+                    // The position jumped back: say so now.
+                    self.reported = None;
+                } else {
+                    position = end;
+                    self.base_s = end;
+                    self.clock = PlaybackClock::Ended;
+                    self.paused = true;
+                }
+            }
+        }
+        // The frame due is not held (a seek back past the kept frames, a
+        // loop wrap): keep the picture - not the stale frame after it - while
+        // the worker decodes from its keyframe again (`restart_wanted`).
+        if self.clock != PlaybackClock::Ended && !self.holds_frame_at(position) {
+            if let PlaybackClock::Running { .. } = self.clock {
+                // Nothing to show at the clock: it waits for the frames there.
+                self.base_s = position;
+                self.clock = PlaybackClock::Stalled { since_s: now_s };
+            }
+            let phase = self.phase_at(now_s);
+            let status = self.report(phase, position);
+            return VideoTick {
+                present: None,
+                status,
+            };
+        }
+        let index = if self.clock == PlaybackClock::Ended {
+            self.frames.len() - 1
+        } else {
+            self.frames
+                .partition_point(|(pts, _)| *pts <= position + PTS_TOLERANCE_S)
+                .saturating_sub(1)
+        };
+        let present = if self.presented == Some(index) {
+            None
+        } else {
+            self.presented = Some(index);
+            Some(index)
+        };
+        let phase = self.phase_at(now_s);
+        let status = self.report(phase, position);
+        VideoTick { present, status }
+    }
+
+    /// What the app hears of the clock at `now_s`: a wait for the decoder is
+    /// still `Playing` for a moment (a hitch), then `Loading` (buffering).
+    fn phase_at(&self, now_s: f64) -> VideoPhase {
+        match self.clock {
+            PlaybackClock::Held => VideoPhase::Paused,
+            PlaybackClock::Running { .. } => VideoPhase::Playing,
+            PlaybackClock::Stalled { since_s } => {
+                if now_s - since_s >= STALL_REPORT_S {
+                    VideoPhase::Loading
+                } else {
+                    VideoPhase::Playing
+                }
+            }
+            PlaybackClock::Ended => VideoPhase::Ended,
+        }
+    }
+
+    /// The status to hand out, if the app has not heard it yet: a new phase,
+    /// a new length, a seek or a transport change, or - while playing - a
+    /// position [`STATUS_INTERVAL_S`] on from the last report.
+    fn report(&mut self, phase: VideoPhase, position_s: f32) -> Option<VideoStatus> {
+        let due = self.reported.as_ref().is_none_or(|last| {
+            last.phase != phase
+                || last.duration_s != self.duration_s
+                || (phase == VideoPhase::Playing
+                    && (position_s - last.position_s).abs() >= STATUS_INTERVAL_S)
+        });
+        if !due {
+            return None;
+        }
+        let status = VideoStatus::create(phase, position_s, self.duration_s);
+        self.reported = Some(status.clone());
+        Some(status)
     }
 }
 
@@ -731,7 +1458,7 @@ mod autotest_generated {
             ThreadRecvCallback,
         },
         video::VideoSource,
-        window::{MonitorVec, RawWindowHandle, WindowTheme},
+        window::{MonitorVec, RawWindowHandle, DarkLightMode},
     };
     use azul_css::{system::SystemStyle, AzString};
     use rust_fontconfig::FcFontCache;
@@ -762,6 +1489,7 @@ mod autotest_generated {
             timestamp,
             autoplay: true,
             looping: false,
+            paused: false,
             output_format: RawImageFormat::BGRA8,
         }
     }
@@ -802,6 +1530,7 @@ mod autotest_generated {
                 timestamp: -0.0,
                 autoplay: false,
                 looping: true,
+                paused: true,
                 output_format: RawImageFormat::R8,
             },
         ]
@@ -818,6 +1547,7 @@ mod autotest_generated {
         );
         assert_eq!(actual.autoplay, expected.autoplay);
         assert_eq!(actual.looping, expected.looping);
+        assert_eq!(actual.paused, expected.paused);
         assert_eq!(actual.output_format, expected.output_format);
     }
 
@@ -826,6 +1556,7 @@ mod autotest_generated {
         timestamp: 2.5,
         autoplay: false,
         looping: true,
+        paused: true,
         output_format: RawImageFormat::RGBA8,
     };
 
@@ -845,6 +1576,8 @@ mod autotest_generated {
             started: false,
             gl_texture_id: None,
             on_frame: OptionOnVideoFrame::None,
+            on_status: OptionOnVideoStatus::None,
+            status: VideoStatus::loading(),
             frames: OptionRefAny::None,
             decode_callback: None,
             current_frame: None,
@@ -852,6 +1585,8 @@ mod autotest_generated {
             seek_sender: None,
             on_mount: OptionVideoMount::None,
             setup: VideoSetup::new(),
+            theme: crate::widgets::themes::UiTheme::Flat,
+            follows_app_theme: false,
         }
     }
 
@@ -928,20 +1663,12 @@ mod autotest_generated {
     /// A tightly-packed RGBA frame (`width * height * 4` bytes).
     fn frame(width: u32, height: u32) -> VideoFrame {
         let px = (width as usize) * (height as usize);
-        VideoFrame {
-            width,
-            height,
-            bytes: vec![7u8; px * 4].into(),
-        }
+        VideoFrame::new(width, height, vec![7u8; px * 4].into())
     }
 
     /// A frame whose declared dimensions need NOT match its byte count.
     fn frame_raw(width: u32, height: u32, bytes: Vec<u8>) -> VideoFrame {
-        VideoFrame {
-            width,
-            height,
-            bytes: bytes.into(),
-        }
+        VideoFrame::new(width, height, bytes.into())
     }
 
     /// A zero-allocation stand-in for an already-decoded frame.
@@ -1106,7 +1833,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,
@@ -1331,6 +2058,10 @@ mod autotest_generated {
             assert!(
                 matches!(widget.frames, OptionRefAny::None),
                 "a fresh widget has no replay list"
+            );
+            assert!(
+                matches!(widget.on_status, OptionOnVideoStatus::None),
+                "a fresh widget has no status hook"
             );
         }
     }
@@ -2062,18 +2793,28 @@ mod autotest_generated {
         );
     }
 
+    /// THREADS8 (PR #476 engine backlog 4): a `<video>` that leaves the DOM
+    /// has its worker told to stop (`managers::thread_owner`), and a window
+    /// that closes tells every worker the same. The test-pattern worker never
+    /// read its receiver: it ran on until the 2 s grace expired and was
+    /// DETACHED ("did not acknowledge TerminateThread"), and every resize /
+    /// per-frame `Tick` message piled up unread in its channel meanwhile.
     #[test]
-    fn test_worker_ignores_terminate_and_scrolls_the_pattern() {
-        // ADVERSARIAL: the worker never polls its receiver, so `TerminateThread`
-        // - the message the framework's thread destructor sends before joining -
-        // is ignored outright. The only thing that stops it is a failed send.
+    fn the_test_pattern_worker_stops_when_it_is_told_to_terminate() {
         let sent = run_worker(video_test_worker, RefAny::new(()), 3, true);
 
-        assert_eq!(
-            sent.len(),
-            4,
-            "3 accepted + 1 rejected: TerminateThread did not stop the worker"
+        assert!(
+            sent.is_empty(),
+            "a worker told to stop before its first frame sends nothing (sent {})",
+            sent.len()
         );
+    }
+
+    #[test]
+    fn test_worker_scrolls_the_pattern() {
+        let sent = run_worker(video_test_worker, RefAny::new(()), 3, false);
+
+        assert_eq!(sent.len(), 4, "3 accepted + 1 rejected");
         for f in &sent {
             assert_eq!(f.len, 1280 * 720 * 4);
             assert!(f.rows_identical);
@@ -2138,6 +2879,20 @@ mod autotest_generated {
             false,
         );
         assert!(sent.is_empty());
+    }
+
+    /// THREADS8: the replay worker, like the test pattern, ran on after its
+    /// `<video>` left the DOM until the grace period detached it.
+    #[test]
+    fn the_replay_worker_stops_when_it_is_told_to_terminate() {
+        let frames = vec![frame_raw(1, 1, vec![0; 4]), frame_raw(2, 2, vec![1; 16])];
+        let sent = run_worker(video_replay_worker, RefAny::new(frames), 3, true);
+
+        assert!(
+            sent.is_empty(),
+            "a worker told to stop before its first frame sends nothing (sent {})",
+            sent.len()
+        );
     }
 
     #[test]
@@ -2686,5 +3441,852 @@ mod autotest_generated {
             rx.try_iter().next().is_none(),
             "a stable config must never seek, however many relayouts happen"
         );
+    }
+
+    // ==================================================================
+    // Transport + status: merge_video_state, video_status_writeback
+    // ==================================================================
+
+    fn custom_transport(msg: &ThreadSendMsg) -> Option<VideoTransport> {
+        let ThreadSendMsg::Custom(r) = msg else {
+            return None;
+        };
+        let mut r = r.clone();
+        let out = r.downcast_ref::<VideoTransport>().map(|v| *v);
+        out
+    }
+
+    fn held(cfg: VideoConfig, paused: bool) -> VideoConfig {
+        VideoConfig { paused, ..cfg }
+    }
+
+    /// Records every status the widget's `on_status` hook is handed, and
+    /// answers with a caller-chosen `Update`.
+    struct StatusLog {
+        seen: Vec<VideoStatus>,
+        reply: Update,
+    }
+
+    extern "C" fn record_status(mut data: RefAny, _: CallbackInfo, status: VideoStatus) -> Update {
+        let mut reply = Update::DoNothing;
+        if let Some(mut log) = data.downcast_mut::<StatusLog>() {
+            log.seen.push(status);
+            reply = log.reply;
+        }
+        reply
+    }
+
+    fn status_log(reply: Update) -> RefAny {
+        RefAny::new(StatusLog {
+            seen: Vec::new(),
+            reply,
+        })
+    }
+
+    fn logged_statuses(data: &mut RefAny) -> Vec<VideoStatus> {
+        data.downcast_ref::<StatusLog>()
+            .expect("payload must still be a StatusLog")
+            .seen
+            .clone()
+    }
+
+    fn status_hook_into(log: &RefAny) -> OptionOnVideoStatus {
+        Some(OnVideoStatus {
+            refany: log.clone(),
+            callback: (record_status as OnVideoStatusCallbackType).into(),
+        })
+        .into()
+    }
+
+    fn stored_status(data: &mut RefAny) -> Option<VideoStatus> {
+        data.downcast_ref::<VideoWidgetState>()
+            .map(|s| s.status.clone())
+    }
+
+    #[test]
+    fn merge_pauses_and_resumes_the_worker_when_paused_flips() {
+        let mp4 = || config(file_source("/clip.mp4"), 0.0);
+        let (new, old, rx) = merge_pair(held(mp4(), false), held(mp4(), true));
+        let merged = merge_video_state(new, old);
+
+        let msgs: Vec<ThreadSendMsg> = rx.try_iter().collect();
+        assert_eq!(msgs.len(), 1, "one transport message, no seek");
+        assert_eq!(custom_transport(&msgs[0]), Some(VideoTransport::Pause));
+
+        let fresh = RefAny::new(base_state(held(mp4(), false)));
+        let _merged = merge_video_state(fresh, merged);
+        let msgs: Vec<ThreadSendMsg> = rx.try_iter().collect();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(
+            custom_transport(&msgs[0]),
+            Some(VideoTransport::Resume),
+            "clearing `paused` resumes the running worker"
+        );
+    }
+
+    #[test]
+    fn merge_stays_quiet_while_paused_is_unchanged() {
+        let mp4 = || config(file_source("/clip.mp4"), 0.0);
+        let (new, old, rx) = merge_pair(held(mp4(), true), held(mp4(), true));
+        let _merged = merge_video_state(new, old);
+        assert!(
+            rx.try_iter().next().is_none(),
+            "a held video that stays held must not wake the worker"
+        );
+    }
+
+    #[test]
+    fn merge_adopts_the_fresh_status_hook_and_keeps_the_reported_status() {
+        let log = status_log(Update::DoNothing);
+        let mut new = base_state(VideoConfig::default());
+        new.on_status = status_hook_into(&log);
+        let mut old = base_state(VideoConfig::default());
+        old.status = VideoStatus::create(VideoPhase::Playing, 3.0, 10.0);
+
+        let mut merged = merge_video_state(RefAny::new(new), RefAny::new(old));
+
+        let hooked = merged
+            .downcast_ref::<VideoWidgetState>()
+            .is_some_and(|s| matches!(s.on_status, OptionOnVideoStatus::Some(_)));
+        assert!(hooked, "the fresh build's hook wins");
+        assert_eq!(
+            stored_status(&mut merged),
+            Some(VideoStatus::create(VideoPhase::Playing, 3.0, 10.0)),
+            "a rebuild must not forget what the worker reported"
+        );
+    }
+
+    #[test]
+    fn a_fresh_widget_is_loading_and_carries_its_status_hook() {
+        let dom = VideoWidget::create(VideoConfig::default())
+            .with_on_status(
+                status_log(Update::DoNothing),
+                record_status as OnVideoStatusCallbackType,
+            )
+            .dom();
+        let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
+        assert_eq!(stored_status(&mut dataset), Some(VideoStatus::loading()));
+        let hooked = dataset
+            .downcast_ref::<VideoWidgetState>()
+            .is_some_and(|s| matches!(s.on_status, OptionOnVideoStatus::Some(_)));
+        assert!(hooked, "dom() must carry the status hook into the state");
+    }
+
+    #[test]
+    fn a_reported_status_is_stored_and_handed_to_the_hook() {
+        let mut log = status_log(Update::RefreshDom);
+        let mut s = base_state(VideoConfig::default());
+        s.on_status = status_hook_into(&log);
+        let mut data = RefAny::new(s);
+        let poster = VideoStatus::create(VideoPhase::Paused, 0.0, 10.0);
+        let payload = RefAny::new(poster.clone());
+
+        let (update, changes) =
+            with_callback_info(|info| video_status_writeback(data.clone(), payload.clone(), info));
+
+        assert_eq!(update, Update::RefreshDom, "the hook's Update must win");
+        assert_eq!(logged_statuses(&mut log), vec![poster.clone()]);
+        assert_eq!(stored_status(&mut data), Some(poster));
+        assert_eq!(
+            count_virtual_view_rerenders(&changes),
+            0,
+            "a status is not a frame: nothing to re-render"
+        );
+    }
+
+    #[test]
+    fn a_status_without_a_hook_is_still_stored() {
+        let mut data = state(VideoConfig::default());
+        let failed = VideoStatus::failed(AzString::from_const_str("no network"));
+        let payload = RefAny::new(failed.clone());
+
+        let (update, _) =
+            with_callback_info(|info| video_status_writeback(data.clone(), payload.clone(), info));
+
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(stored_status(&mut data), Some(failed));
+    }
+
+    #[test]
+    fn a_status_payload_of_the_wrong_type_is_ignored() {
+        let mut log = status_log(Update::RefreshDom);
+        let mut s = base_state(VideoConfig::default());
+        s.on_status = status_hook_into(&log);
+        let mut data = RefAny::new(s);
+
+        let (update, _) = with_callback_info(|info| {
+            video_status_writeback(data.clone(), RefAny::new(0_u32), info)
+        });
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(logged_statuses(&mut log).is_empty());
+        assert_eq!(stored_status(&mut data), Some(VideoStatus::loading()));
+    }
+
+    // ==================================================================
+    // VideoPlayback: the worker's transport, with the time handed in
+    // ==================================================================
+
+    /// A 1 x 1 frame whose width tags it, so a test can tell which one is
+    /// on screen.
+    fn tagged(tag: u32) -> VideoFrame {
+        frame(tag, 1)
+    }
+
+    /// A completely decoded 1 s clip of 30 frames; frame `n` is tagged
+    /// `n + 1`.
+    fn clip(paused: bool, looping: bool) -> VideoPlayback {
+        let mut pb = VideoPlayback::new(0.0, paused, looping);
+        pb.set_duration(1.0);
+        for n in 0..30_u32 {
+            pb.push_frame(n as f32 / 30.0, tagged(n + 1));
+        }
+        pb.finish();
+        pb
+    }
+
+    /// The tag of the frame a tick presented, if it presented one.
+    fn shown(pb: &VideoPlayback, tick: &VideoTick) -> Option<u32> {
+        tick.present.and_then(|i| pb.frame(i)).map(|f| f.width)
+    }
+
+    fn phase_of(tick: &VideoTick) -> Option<VideoPhase> {
+        tick.status.as_ref().map(|s| s.phase)
+    }
+
+    fn position_of(tick: &VideoTick) -> Option<f32> {
+        tick.status.as_ref().map(|s| s.position_s)
+    }
+
+    // ---- the decode gate: the worker holds a window of frames, not the clip
+
+    /// The idle memory spike (2026-09-30): a `<video>` nobody had played held
+    /// its whole clip decoded - 300 frames, ~280 MB - because the worker
+    /// decoded on while held. Held, the schedule wants the poster and then
+    /// nothing until the clock runs.
+    #[test]
+    fn a_held_video_wants_its_poster_and_no_frame_after_it() {
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.set_duration(1.0);
+        assert!(pb.wants_frame(0.0, None), "the poster");
+        pb.push_frame(0.0, tagged(1));
+        let _ = pb.tick(0.0);
+        assert!(
+            !pb.wants_frame(5.0, Some(0.0)),
+            "held on its poster, the rest of the clip stays undecoded"
+        );
+    }
+
+    /// Playing, the worker keeps [`DECODE_LOOKAHEAD_S`] of frames ahead of
+    /// the clock and no more.
+    #[test]
+    fn a_playing_video_decodes_one_lookahead_ahead_of_its_clock() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        let _ = pb.tick(0.0); // the clock starts with the first frame
+        assert!(
+            pb.wants_frame(0.5, Some(1.0)),
+            "1.0 s decoded at 0.5 s: under the lookahead"
+        );
+        let full = 0.5 + DECODE_LOOKAHEAD_S + 0.1;
+        assert!(!pb.wants_frame(0.5, Some(full)), "the lookahead is full");
+        assert!(pb.wants_frame(3.0, Some(full)), "the clock moved on: room again");
+    }
+
+    /// Frames the clock has passed are dropped, except the one on screen.
+    #[test]
+    fn frames_behind_the_clock_are_dropped_and_the_one_on_screen_stays() {
+        let mut pb = clip(false, false); // 30 frames, 1 s
+        let _ = pb.tick(0.0);
+        let tick = pb.tick(0.9);
+        assert_eq!(shown(&pb, &tick), Some(28), "frame 28 (0.9 s) is on screen");
+        let dropped = pb.trim(0.9);
+        // Everything more than DECODE_KEEP_BEHIND_S (0.5 s) behind 0.9 s:
+        // the 12 frames before 0.4 s.
+        assert!((11..=13).contains(&dropped), "frames behind the clock go: {dropped}");
+        assert_eq!(pb.frames_held(), 30 - dropped);
+        assert_eq!(pb.on_screen().map(|f| f.width), Some(28), "the frame on screen stays");
+        let again = pb.tick(0.9);
+        assert_eq!(again.present, None, "and is still the one on screen");
+    }
+
+    /// A loop wrap (or a seek back past the kept frames): the schedule shows
+    /// nothing new - not the stale frame after the target - and asks the
+    /// worker to decode from the target's keyframe again.
+    #[test]
+    fn a_loop_wrap_asks_for_the_start_to_be_decoded_again() {
+        let mut pb = clip(false, true);
+        let _ = pb.tick(0.0);
+        let _ = pb.tick(0.95);
+        let _ = pb.trim(0.95); // the start of the clip is gone
+        assert_eq!(pb.restart_wanted(0.95, Some(0.97)), None);
+        let wrapped = pb.tick(1.02); // past the 1 s end: wraps to ~0.02 s
+        assert!(pb.position(1.02) < 0.5, "the clock wrapped");
+        assert_eq!(wrapped.present, None, "no frame at the wrapped position: keep the picture");
+        let want = pb.restart_wanted(1.02, Some(0.97));
+        assert!(want.is_some_and(|p| p < 0.5), "decode from the start again: {want:?}");
+    }
+
+    /// A seek far ahead of the decoder restarts at the target's keyframe
+    /// instead of decoding every frame up to it.
+    #[test]
+    fn a_seek_far_ahead_of_the_decoder_restarts_at_the_target() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        for n in 0..15_u32 {
+            pb.push_frame(n as f32 / 30.0, tagged(n + 1));
+        }
+        let _ = pb.tick(0.0);
+        assert_eq!(pb.restart_wanted(0.1, Some(0.47)), None);
+        pb.seek(8.0, 0.1);
+        assert_eq!(pb.restart_wanted(0.1, Some(0.47)), Some(8.0));
+    }
+
+    /// A frame decoded again for a time that already has one replaces it
+    /// (a restart re-decodes the frames between its keyframe and the target).
+    #[test]
+    fn a_frame_decoded_again_replaces_the_one_at_its_time() {
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.push_frame(0.5, tagged(1));
+        pb.push_frame(0.5, tagged(2));
+        assert_eq!(pb.frames_held(), 1);
+        assert_eq!(pb.frame(0).map(|f| f.width), Some(2));
+    }
+
+    #[test]
+    fn a_video_that_does_not_autoplay_holds_its_first_frame_as_a_poster() {
+        let mut pb = clip(true, false);
+
+        let first = pb.tick(0.0);
+        assert_eq!(shown(&pb, &first), Some(1), "the first frame is the poster");
+        assert_eq!(phase_of(&first), Some(VideoPhase::Paused));
+
+        let later = pb.tick(5.0);
+        assert_eq!(later.present, None, "a held video shows nothing new");
+        assert_eq!(later.status, None, "and has nothing new to say");
+        assert_eq!(pb.position(5.0), 0.0, "its clock never started");
+    }
+
+    #[test]
+    fn the_clock_starts_with_the_first_frame_not_with_the_download() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(1.0);
+
+        let loading = pb.tick(0.0);
+        assert_eq!(loading.present, None, "no frame, nothing to show");
+        assert_eq!(phase_of(&loading), Some(VideoPhase::Loading));
+        assert_eq!(
+            loading.status.as_ref().map(|s| s.duration_s),
+            Some(1.0),
+            "the length is known before the pixels"
+        );
+
+        // The download took three seconds: playback starts at 0, not at 3.
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(0.5, tagged(2));
+        let first = pb.tick(3.0);
+        assert_eq!(shown(&pb, &first), Some(1));
+        assert_eq!(phase_of(&first), Some(VideoPhase::Playing));
+        assert_eq!(pb.position(3.25), 0.25);
+    }
+
+    #[test]
+    fn resume_plays_from_the_poster_and_pause_freezes_the_position() {
+        let mut pb = clip(true, false);
+        let _poster = pb.tick(0.0);
+
+        pb.resume(10.0);
+        let playing = pb.tick(10.5);
+        assert_eq!(phase_of(&playing), Some(VideoPhase::Playing));
+        assert_eq!(shown(&pb, &playing), Some(16), "0.5 s in is frame 15");
+
+        pb.pause(10.75);
+        let paused = pb.tick(11.0);
+        assert_eq!(phase_of(&paused), Some(VideoPhase::Paused));
+        assert_eq!(position_of(&paused), Some(0.75));
+        assert_eq!(pb.position(99.0), 0.75, "a held clock stands still");
+
+        pb.resume(20.0);
+        assert_eq!(pb.position(20.125), 0.875, "and runs on from where it stood");
+    }
+
+    #[test]
+    fn pausing_before_the_first_frame_keeps_the_video_held_when_it_arrives() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.pause(0.0);
+        pb.push_frame(0.0, tagged(1));
+        let tick = pb.tick(1.0);
+        assert_eq!(shown(&pb, &tick), Some(1));
+        assert_eq!(phase_of(&tick), Some(VideoPhase::Paused));
+    }
+
+    #[test]
+    fn frames_are_shown_in_presentation_order_whatever_order_they_decode_in() {
+        // An I P B B group in DECODE order, the order VideoToolbox hands the
+        // frames back in: the P frame is decoded second and shown last.
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(0.3, tagged(4));
+        pb.push_frame(0.1, tagged(2));
+        pb.push_frame(0.2, tagged(3));
+        pb.finish();
+
+        let order: Vec<u32> = (0..4).filter_map(|i| pb.frame(i)).map(|f| f.width).collect();
+        assert_eq!(order, vec![1, 2, 3, 4]);
+
+        pb.seek(0.15, 0.0);
+        let tick = pb.tick(0.0);
+        assert_eq!(
+            shown(&pb, &tick),
+            Some(2),
+            "0.15 s is the first B frame, not the P frame decoded before it"
+        );
+    }
+
+    #[test]
+    fn a_frame_decoded_after_the_one_on_screen_does_not_move_the_picture() {
+        let mut pb = VideoPlayback::new(0.3, true, false);
+        pb.push_frame(0.3, tagged(4));
+        let first = pb.tick(0.0);
+        assert_eq!(shown(&pb, &first), Some(4));
+
+        // A B frame that is shown earlier arrives later.
+        pb.push_frame(0.1, tagged(2));
+        let again = pb.tick(0.0);
+        assert_eq!(again.present, None, "the frame on screen is still the right one");
+    }
+
+    #[test]
+    fn a_video_that_ends_holds_its_last_frame_and_says_so_once() {
+        let mut pb = clip(false, false);
+        let _start = pb.tick(0.0);
+
+        let end = pb.tick(2.0);
+        assert_eq!(shown(&pb, &end), Some(30));
+        assert_eq!(phase_of(&end), Some(VideoPhase::Ended));
+        assert_eq!(position_of(&end), Some(1.0));
+
+        let after = pb.tick(3.0);
+        assert_eq!(after.status, None, "Ended is reported once");
+        assert_eq!(after.present, None);
+    }
+
+    #[test]
+    fn playing_after_the_end_starts_over() {
+        let mut pb = clip(false, false);
+        let _start = pb.tick(0.0);
+        let _end = pb.tick(2.0);
+
+        pb.resume(5.0);
+        let again = pb.tick(5.0);
+        assert_eq!(shown(&pb, &again), Some(1));
+        assert_eq!(phase_of(&again), Some(VideoPhase::Playing));
+        assert_eq!(position_of(&again), Some(0.0));
+    }
+
+    #[test]
+    fn a_looping_video_wraps_to_the_start() {
+        let mut pb = clip(false, true);
+        let _start = pb.tick(0.0);
+
+        let wrapped = pb.tick(1.25);
+        assert_eq!(phase_of(&wrapped), Some(VideoPhase::Playing));
+        assert_eq!(position_of(&wrapped), Some(0.25), "the wrap is reported at once");
+        assert_eq!(shown(&pb, &wrapped), Some(8), "0.25 s is frame 7");
+    }
+
+    #[test]
+    fn a_seek_moves_the_picture_and_is_reported_at_once() {
+        let mut pb = clip(true, false);
+        let _poster = pb.tick(0.0);
+
+        pb.seek(0.5, 1.0);
+        let tick = pb.tick(1.0);
+        assert_eq!(shown(&pb, &tick), Some(16));
+        assert_eq!(
+            phase_of(&tick),
+            Some(VideoPhase::Paused),
+            "a seek keeps a held video held"
+        );
+        assert_eq!(position_of(&tick), Some(0.5));
+    }
+
+    #[test]
+    fn a_seek_is_clamped_into_the_video() {
+        let mut pb = clip(true, false);
+        pb.seek(f32::NAN, 0.0);
+        assert_eq!(pb.position(0.0), 0.0);
+        pb.seek(-3.0, 0.0);
+        assert_eq!(pb.position(0.0), 0.0);
+        pb.seek(f32::INFINITY, 0.0);
+        assert_eq!(pb.position(0.0), 0.0);
+        pb.seek(99.0, 0.0);
+        assert_eq!(pb.position(0.0), 1.0, "past the end is the end");
+    }
+
+    #[test]
+    fn position_reports_come_about_four_times_a_second() {
+        let mut pb = clip(false, false);
+        let mut reports = 0;
+        for step in 0..100_u32 {
+            // 0.99 s of playback in 10 ms steps
+            if pb.tick(f64::from(step) * 0.01).status.is_some() {
+                reports += 1;
+            }
+        }
+        assert!(
+            (3..=5).contains(&reports),
+            "one report per {STATUS_INTERVAL_S} s of playback, got {reports}"
+        );
+    }
+
+    #[test]
+    fn playback_that_outruns_the_decoder_waits_for_it() {
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(0.5, tagged(2));
+        let _start = pb.tick(0.0);
+
+        let starved = pb.tick(2.0);
+        assert_eq!(shown(&pb, &starved), Some(2));
+        assert_eq!(
+            pb.position(2.0),
+            0.5,
+            "the clock waits at the newest decoded frame"
+        );
+        assert_ne!(
+            phase_of(&starved),
+            Some(VideoPhase::Ended),
+            "a video still decoding has not ended"
+        );
+    }
+
+    /// A download slower than the video: the clock waits at the newest frame
+    /// and, once that lasts, the app hears `Loading` (buffering) - not a
+    /// `Playing` whose picture stands still; it plays on from where it stood
+    /// once half a second is decoded ahead, not frame by frame.
+    #[test]
+    fn a_stall_that_lasts_reports_loading_and_plays_on_with_a_lead() {
+        let frame_s = 1.0_f32 / 30.0;
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(frame_s, tagged(2));
+        let start = pb.tick(0.0);
+        assert_eq!(phase_of(&start), Some(VideoPhase::Playing));
+
+        // The download stops: the clock passes the newest frame and waits there.
+        let late = pb.tick(0.2);
+        assert_eq!(pb.position(0.2), frame_s, "the clock waits at the newest frame");
+        assert_ne!(
+            phase_of(&late),
+            Some(VideoPhase::Loading),
+            "a moment's wait is not buffering yet"
+        );
+        let stalled = pb.tick(0.2 + STALL_REPORT_S + 0.05);
+        assert_eq!(
+            phase_of(&stalled),
+            Some(VideoPhase::Loading),
+            "a wait that lasts is buffering"
+        );
+        assert_eq!(pb.position(9.0), frame_s, "the clock stands while buffering");
+
+        // Frames arrive, less than the lead: still waiting.
+        for n in 2..10_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        let _ = pb.tick(1.0);
+        assert_eq!(pb.position(1.5), frame_s, "less than the lead: still waiting");
+
+        // Half a second decoded ahead: plays on from where it stood.
+        for n in 10..30_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        let resumed = pb.tick(2.0);
+        assert_eq!(phase_of(&resumed), Some(VideoPhase::Playing));
+        assert!(
+            (pb.position(2.1) - (frame_s + 0.1)).abs() < 1e-4,
+            "on from where it stood: {}",
+            pb.position(2.1)
+        );
+    }
+
+    /// A paused or a seeked video does not stall: a pause holds the frame on
+    /// screen as the poster, a seek waits for the frames at its target.
+    #[test]
+    fn a_pause_during_a_stall_holds_and_a_resume_waits_for_the_lead_again() {
+        let frame_s = 1.0_f32 / 30.0;
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        let _ = pb.tick(0.0);
+        let _ = pb.tick(1.0); // stalled at 0.0
+        pb.pause(1.1);
+        let held = pb.tick(2.0);
+        assert_eq!(phase_of(&held), Some(VideoPhase::Paused));
+        assert_eq!(pb.position(5.0), 0.0);
+        // Resumed with no frame ahead: waits (and after a moment says so).
+        pb.resume(3.0);
+        let _ = pb.tick(3.0);
+        let waiting = pb.tick(3.0 + STALL_REPORT_S + 0.05);
+        assert_eq!(phase_of(&waiting), Some(VideoPhase::Loading));
+        assert_eq!(pb.position(4.0), 0.0);
+        for n in 1..30_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        let playing = pb.tick(5.0);
+        assert_eq!(phase_of(&playing), Some(VideoPhase::Playing));
+    }
+
+    /// An app that holds a video only to start it in step with its sound (a
+    /// media center fading its menus out first): held, the video decodes a
+    /// lead past its poster, so the resume plays at once - no wait for the
+    /// decoder while the sound already runs.
+    #[test]
+    fn a_video_held_to_start_soon_decodes_its_lead_and_starts_at_once() {
+        let frame_s = 1.0_f32 / 30.0;
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.set_duration(10.0);
+        pb.set_preroll(RESUME_LEAD_S);
+        assert!(pb.wants_frame(0.0, None), "the poster");
+        pb.push_frame(0.0, tagged(1));
+        let poster = pb.tick(0.0);
+        assert_eq!(phase_of(&poster), Some(VideoPhase::Paused));
+        assert!(pb.wants_frame(1.0, Some(0.0)), "held, it decodes its lead");
+        for n in 1..=15_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        assert!(
+            !pb.wants_frame(1.0, Some(15.0 * frame_s)),
+            "and no more than the lead"
+        );
+        pb.resume(2.0);
+        let playing = pb.tick(2.0);
+        assert_eq!(phase_of(&playing), Some(VideoPhase::Playing));
+        assert!(
+            (pb.position(2.25) - 0.25).abs() < 1e-4,
+            "it starts at once: {}",
+            pb.position(2.25)
+        );
+    }
+
+    /// A decoded frame is the picture BEHIND the player's controls, which the
+    /// app names ("Play video", "Seek"): the frame is marked decorative
+    /// (`role: Nothing`, no name) so it is neither absent-and-unexplained nor
+    /// announced once per frame.
+    #[test]
+    fn a_decoded_frame_is_a_decorative_image() {
+        let dom = frame_image(placeholder_image(b"frame"));
+        assert!(matches!(dom.root.get_node_type(), NodeType::Image(_)));
+        let info = dom
+            .root
+            .accessibility
+            .as_ref()
+            .expect("a frame image must declare accessibility, or it is absent from the tree");
+        assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Nothing);
+        assert!(info.accessibility_name.as_ref().is_none());
+    }
+
+    // ==================================================================
+    // Theme: the video's own chrome is its "no signal" poster
+    // ==================================================================
+
+    /// The poster a render pass emits for a widget state in `theme` that has
+    /// no decoded frame yet.
+    fn poster_of(theme: crate::widgets::themes::UiTheme) -> Dom {
+        let mut s = base_state(VideoConfig::default());
+        s.theme = theme;
+        let dataset = RefAny::new(s);
+        let ret = with_virtual_view_info(320.0, 180.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
+        match ret.dom {
+            OptionDom::Some(d) => d,
+            OptionDom::None => panic!("no frame yet must still render the poster"),
+        }
+    }
+
+    #[test]
+    fn a_video_without_a_theme_follows_the_app_theme_flat_by_default() {
+        use crate::widgets::themes::{theme_checks as tc, OptionUiTheme};
+        let w = VideoWidget::create(VideoConfig::default());
+        assert_eq!(w.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&w.dom(), "__azul-theme-flat"));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            VideoWidget::create(VideoConfig::default()).dom()
+        };
+        assert!(tc::has_class(&dom, "__azul-theme-flora"), "built for flora, it is flora's");
+    }
+
+    /// An UNPINNED video's poster carries every theme's block: under either
+    /// app theme it paints that theme's poster, in light and in dark.
+    #[test]
+    fn an_unpinned_videos_poster_carries_every_themes_block() {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, DynamicSelectorContext, ThemeCondition},
+            props::property::CssProperty,
+        };
+
+        use crate::widgets::themes::UiTheme;
+
+        let dom = VideoWidget::create(VideoConfig::default()).dom();
+        let dataset = dom.root.get_dataset().cloned().expect("the widget state");
+        let ret = with_virtual_view_info(320.0, 180.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
+        let poster = match ret.dom {
+            OptionDom::Some(d) => d,
+            OptionDom::None => panic!("no frame yet must still render the poster"),
+        };
+        let decls: Vec<CssPropertyWithConditions> = poster
+            .root
+            .style
+            .iter_inline_properties()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect();
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let own: Vec<CssPropertyWithConditions> = poster_of(theme)
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, c)| CssPropertyWithConditions {
+                    property: p.clone(),
+                    apply_if: c.clone(),
+                })
+                .collect();
+            for dark in [false, true] {
+                let ctx = DynamicSelectorContext {
+                    mode: if dark {
+                        azul_css::system::DarkLightMode::Dark
+                    } else {
+                        azul_css::system::DarkLightMode::Light
+                    },
+                    ..Default::default()
+                }
+                .with_app_theme(theme.name());
+                let bg = |v: &[CssPropertyWithConditions]| {
+                    v.iter()
+                        .filter(|p| p.matches(&ctx))
+                        .filter(|p| matches!(p.property, CssProperty::BackgroundContent(_)))
+                        .next_back()
+                        .map(|p| p.property.clone())
+                };
+                assert_eq!(bg(&decls), bg(&own), "{theme:?} dark={dark}");
+            }
+        }
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree_and_reach_the_widget_state() {
+        use crate::widgets::themes::{theme_checks as tc, OptionUiTheme, UiTheme};
+        let mut a = VideoWidget::create(VideoConfig::default());
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        let b = VideoWidget::create(VideoConfig::default()).with_theme(UiTheme::Flora);
+        assert_eq!(b.theme, a.theme);
+        let dom = b.dom();
+        assert!(tc::has_class(&dom, "__azul-theme-flora"));
+        let mut dataset = dom.root.get_dataset().cloned().expect("the widget state");
+        let theme = dataset.downcast_ref::<VideoWidgetState>().map(|s| s.theme);
+        assert_eq!(
+            theme,
+            Some(UiTheme::Flora),
+            "the render callback reads the theme off the state"
+        );
+    }
+
+    #[test]
+    fn a_flat_poster_is_the_established_dark_screen_in_both_modes() {
+        use crate::widgets::themes::{theme_checks as tc, UiTheme};
+        let p = poster_of(UiTheme::Flat);
+        for dark in [false, true] {
+            assert_eq!(
+                tc::background(&p, dark).and_then(|x| tc::bg_color(&x)),
+                Some(azul_css::props::basic::color::ColorU::rgb(42, 42, 48)),
+                "dark={dark}"
+            );
+            assert_eq!(
+                tc::border_top_color(&p, dark, None),
+                Some(azul_css::props::basic::color::ColorU::rgb(68, 68, 76)),
+                "dark={dark}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_poster_is_an_ink_panel_by_day_and_by_night() {
+        use azul_css::props::basic::color::ColorU;
+
+        use crate::widgets::themes::{theme_checks as tc, UiTheme};
+        let p = poster_of(UiTheme::Flora);
+        assert_eq!(
+            tc::background(&p, false).and_then(|x| tc::bg_color(&x)),
+            Some(ColorU::rgb(33, 31, 27))
+        );
+        assert_eq!(
+            tc::background(&p, true).and_then(|x| tc::bg_color(&x)),
+            Some(ColorU::rgb(20, 20, 20))
+        );
+        assert_eq!(tc::border_top_color(&p, false, None), Some(ColorU::rgb(68, 63, 53)));
+        assert_eq!(tc::border_top_color(&p, true, None), Some(ColorU::rgb(54, 54, 54)));
+        tc::assert_theme_invariants("video poster Flora", &p);
+    }
+
+    #[test]
+    fn a_rebuild_adopts_the_new_theme() {
+        use crate::widgets::themes::UiTheme;
+        let old = state(VideoConfig::default());
+        let mut fresh = base_state(VideoConfig::default());
+        fresh.theme = UiTheme::Flora;
+        let mut merged = merge_video_state(RefAny::new(fresh), old);
+        let theme = merged.downcast_ref::<VideoWidgetState>().map(|s| s.theme);
+        assert_eq!(theme, Some(UiTheme::Flora));
+    }
+
+    #[test]
+    fn the_theme_changes_the_poster_not_the_accessibility_tree() {
+        use crate::widgets::themes::{theme_checks as tc, UiTheme};
+        assert_eq!(
+            tc::a11y_outline(&poster_of(UiTheme::Flat)),
+            tc::a11y_outline(&poster_of(UiTheme::Flora))
+        );
+    }
+
+    /// R5: the widget's STRUCTURE (display, overflow, ...) is its base -
+    /// declared once, outside every `@theme(<name>)` block, so it holds under
+    /// flat, flora and any theme to come: the widget's own nodes, and the
+    /// poster an unpinned widget's render pass draws.
+    #[test]
+    fn a_video_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            let dom = under(t, || VideoWidget::create(VideoConfig::default()).dom());
+            assert_structure_is_shared(&format!("video, built for {}", t.name()), &dom, &[]);
+
+            let dataset = dom.root.get_dataset().cloned().expect("the widget state");
+            let ret = under(t, || {
+                with_virtual_view_info(320.0, 180.0, |info| {
+                    video_widget_render(dataset.clone(), info)
+                })
+            });
+            let poster = match ret.dom {
+                OptionDom::Some(d) => d,
+                OptionDom::None => panic!("no frame yet must still render the poster"),
+            };
+            assert_structure_is_shared(
+                &format!("video poster, built for {}", t.name()),
+                &poster,
+                &[],
+            );
+        }
     }
 }

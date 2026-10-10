@@ -110,6 +110,35 @@ impl GpuValueCache {
         Self::default()
     }
 
+    /// The reference frame the display list opens for `node`, as its key
+    /// and the matrix it is painted with now - or `None` when it opens none.
+    ///
+    /// THE rule, shared by the display-list builder (which emits a
+    /// `PushReferenceFrame` exactly when this is `Some`), the hit tester and
+    /// every "where is it on screen" question: the CSS `transform` channel
+    /// first, then the ANIMATION channel - an engine-driven transition (a
+    /// FLIP slide, a keyframe transform) moves a node that has no CSS
+    /// `transform` of its own. A key without a value opens nothing.
+    #[must_use]
+    pub fn reference_frame_of(&self, node: NodeId) -> Option<(TransformKey, ComputedTransform3D)> {
+        self.css_transform_keys
+            .get(&node)
+            .zip(self.css_current_transform_values.get(&node))
+            .or_else(|| {
+                self.anim_transform_keys
+                    .get(&node)
+                    .zip(self.anim_current_transform_values.get(&node))
+            })
+            .map(|(key, transform)| (*key, *transform))
+    }
+
+    /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
+    /// `None` when it is painted untransformed.
+    #[must_use]
+    pub fn painted_transform_of(&self, node: NodeId) -> Option<ComputedTransform3D> {
+        self.reference_frame_of(node).map(|(_, transform)| transform)
+    }
+
     /// Fingerprint of the KEY POPULATION the display-list builder consumes —
     /// which nodes carry which transform/opacity keys, and (for the channels
     /// the builder `zip`s with their value map) whether a value exists.
@@ -143,7 +172,9 @@ impl GpuValueCache {
                 + self.transform_keys.len()
                 + self.h_transform_keys.len()
                 + self.scrollbar_v_opacity_keys.len()
-                + self.scrollbar_h_opacity_keys.len(),
+                + self.scrollbar_h_opacity_keys.len()
+                + self.opacity_keys.len()
+                + self.current_opacity_values.len(),
         );
         for (n, k) in &self.css_transform_keys {
             entries.push((0, n.index() as u64, k.id as u64));
@@ -177,6 +208,15 @@ impl GpuValueCache {
         for n in self.anim_current_opacity_values.keys() {
             entries.push((9, n.index() as u64, 0));
         }
+        // So does the CSS `opacity` channel: `PushOpacity` binds a node's CSS
+        // key when it has no animation key (an `opacity` tween then steps by
+        // value alone, `refresh_opacity_value_of`).
+        for (n, k) in &self.opacity_keys {
+            entries.push((10, n.index() as u64, k.id as u64));
+        }
+        for n in self.current_opacity_values.keys() {
+            entries.push((11, n.index() as u64, 0));
+        }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
         // builds under no_std (where `HashMap` above is really `BTreeMap` and
@@ -192,6 +232,72 @@ impl GpuValueCache {
         // An empty population must not collide with "no cache entry" sentinels
         // downstream; FNV_OFFSET is a fine non-zero value for it.
         h
+    }
+
+    /// Every value a display list can BIND, by key id: `on_transform` for
+    /// each transform key with a value (scrollbar thumbs, CSS `transform`,
+    /// the animation channel), `on_opacity` for each opacity key with a value
+    /// (scrollbar fades of `dom_id`, CSS `opacity`, the animation channel).
+    ///
+    /// THE one "current animated values by key" source. The CPU renderer
+    /// (`cpurender::extract_gpu_values`) and `WebRender`'s dynamic properties
+    /// (`wr_translate2::synchronize_gpu_values`) both read it, so a value that
+    /// changes without a display-list rebuild - an animation tick - reaches
+    /// both backends the same way.
+    pub fn for_each_bound_value(
+        &self,
+        dom_id: DomId,
+        mut on_transform: impl FnMut(usize, &ComputedTransform3D),
+        mut on_opacity: impl FnMut(usize, f32),
+    ) {
+        for (node_id, key) in &self.transform_keys {
+            if let Some(value) = self.current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.h_transform_keys {
+            if let Some(value) = self.h_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        // The ANIMATION channel is separate from the CSS one because
+        // `synchronize` owns `css_transform_keys` and evicts anything not
+        // backed by a CSS `transform`; by key id the two are
+        // indistinguishable, which is the intent.
+        for (node_id, key) in &self.anim_transform_keys {
+            if let Some(value) = self.anim_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.css_transform_keys {
+            if let Some(value) = self.css_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.anim_opacity_keys {
+            if let Some(&value) = self.anim_current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.opacity_keys {
+            if let Some(&value) = self.current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_v_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_h_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
     }
 
     /// Synchronizes the cache with the current `StyledDom`, generating change events
@@ -318,6 +424,65 @@ impl GpuValueCache {
             }
         }
         changed
+    }
+
+    /// One node's [`Self::refresh_transform_values`]: re-read `node`'s CSS
+    /// `transform` from the cascade (its user override first) and publish it
+    /// under the key it ALREADY has, with percentages resolved against
+    /// `size` (its border box, logical px).
+    ///
+    /// The per-frame channel of a `transform` tween: the reference frame
+    /// exists (the key was minted by `synchronize`), only its matrix moves,
+    /// and both compositors read the matrix live from here - no layout, no
+    /// display-list rebuild. Returns `false` and changes nothing when the
+    /// node has no key, or no longer resolves to a transform: that is a
+    /// change of the key POPULATION, which only a display-list build can
+    /// show (`synchronize` then adds or removes the key).
+    pub fn refresh_transform_value_of(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        size: (f32, f32),
+    ) -> bool {
+        if node_id.index() >= styled_dom.node_data.len()
+            || !self.css_transform_keys.contains_key(&node_id)
+        {
+            return false;
+        }
+        let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
+            return false;
+        };
+        self.css_current_transform_values.insert(node_id, fresh);
+        true
+    }
+
+    /// The `opacity` twin of [`Self::refresh_transform_value_of`]: re-read
+    /// `node`'s CSS `opacity` from the cascade (its user override first) and
+    /// publish it under the key it ALREADY has - the per-frame channel of an
+    /// `opacity` tween, read live by both compositors through the key the
+    /// display list's `PushOpacity` binds. Returns that key, or `None` and
+    /// changes nothing when the node has no key or no longer resolves to an
+    /// opacity (a change of the key population: only a display-list build
+    /// can show it).
+    pub fn refresh_opacity_value_of(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+    ) -> Option<OpacityKey> {
+        if node_id.index() >= styled_dom.node_data.len() {
+            return None;
+        }
+        let key = *self.opacity_keys.get(&node_id)?;
+        let node_data = &styled_dom.node_data.as_container()[node_id];
+        let state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+        let value = styled_dom
+            .get_css_property_cache()
+            .get_opacity(node_data, &node_id, state)?
+            .get_property()?
+            .inner
+            .normalized();
+        self.current_opacity_values.insert(node_id, value);
+        Some(key)
     }
 
     fn compute_transform_events(

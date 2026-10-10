@@ -13,10 +13,17 @@
 
 pub mod app;
 pub mod audio;
+pub mod auth_session;
 pub mod capability;
 pub mod iroh;
+pub mod keyring;
 pub mod map;
+pub mod network;
 pub mod pdf;
+pub mod power;
+/// The device-state readings (power, battery, network) beside the motion sensors: api.json's `sensor`
+/// module.
+pub mod sensors;
 pub mod sqlite;
 pub mod video_codec;
 pub mod webtransport;

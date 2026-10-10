@@ -80,16 +80,14 @@ pub fn matches_html_element(
         return false;
     }
 
-    // Collect all selector groups (processed right-to-left from the CSS path).
-    let groups: Vec<(CssContentGroup<'_>, CssGroupSplitReason)> =
-        CssGroupIterator::new(css_path.selectors.as_ref()).collect();
-
-    if groups.is_empty() {
-        return false;
-    }
+    // The selector groups, right to left, walked without collecting them:
+    // this runs for every node x rule.
+    let mut groups = CssGroupIterator::new(css_path.selectors.as_ref()).peekable();
 
     // The rightmost group must match the target node directly.
-    let (ref first_group, first_reason) = groups[0];
+    let Some((first_group, first_reason)) = groups.next() else {
+        return false;
+    };
     // groups[0] is ALWAYS the subject (rightmost) group, so it is the "last content
     // group" that an interactive pseudo (:hover/:focus/:active) attaches to — regardless
     // of how many ancestor groups precede it. The old `groups.len() == 1` disabled
@@ -109,13 +107,15 @@ pub fn matches_html_element(
     // Navigate from the target node upward/sideways through the DOM,
     // matching each remaining selector group with its combinator.
     let mut current_node = node_id;
+    // The combinator to a group's right comes from the PREVIOUS group's reason.
+    let mut combinator = first_reason;
 
-    for (group_idx, (content_group, _reason)) in groups.iter().enumerate().skip(1) {
-        // The combinator comes from the PREVIOUS group's reason
-        let combinator = groups[group_idx - 1].1;
-        let is_last = group_idx == groups.len() - 1;
+    while let Some((content_group, reason)) = groups.next() {
+        let is_last = groups.peek().is_none();
+        let this_combinator = combinator;
+        combinator = reason;
 
-        match combinator {
+        match this_combinator {
             DirectChildren => {
                 // Parent must match directly (child combinator `>`)
                 let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
@@ -295,13 +295,12 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     fn next(&mut self) -> Option<(CssContentGroup<'a>, CssGroupSplitReason)> {
         use self::CssPathSelector::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
 
-        let mut new_idx = self.current_idx;
+        let end = self.current_idx;
+        let mut new_idx = end;
 
         if new_idx == 0 {
             return None;
         }
-
-        let mut current_path = Vec::new();
 
         while new_idx != 0 {
             match self.css_path.get(new_idx - 1)? {
@@ -321,15 +320,15 @@ impl<'a> Iterator for CssGroupIterator<'a> {
                     self.last_reason = CssGroupSplitReason::GeneralSibling;
                     break;
                 }
-                other => current_path.push(other),
+                _ => {}
             }
             new_idx -= 1;
         }
 
-        // NOTE: Order inside of a ContentGroup is not important
-        // for matching elements, only important for testing
-        #[cfg(test)]
-        current_path.reverse();
+        // A group is a contiguous run of the path: borrowed, not collected.
+        // Selector matching runs this for every node x rule, and the Vec it
+        // built per group was most of a 300-contact list's restyle.
+        let current_path = &self.css_path[new_idx..end];
 
         if new_idx == 0 {
             if current_path.is_empty() {
@@ -437,19 +436,10 @@ pub fn construct_html_cascade_tree(
 #[must_use]
 pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
-    // vs "structural" (based on DOM structure only)
+    // vs "structural" (based on DOM structure only): the one mapping of the
+    // crate, `CssPathPseudoSelector::dynamic_state`.
     const fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
-        matches!(
-            p,
-            CssPathPseudoSelector::Hover
-                | CssPathPseudoSelector::Active
-                | CssPathPseudoSelector::Focus
-                | CssPathPseudoSelector::SeatFocus
-                | CssPathPseudoSelector::Backdrop
-                | CssPathPseudoSelector::Dragging
-                | CssPathPseudoSelector::DragOver
-                | CssPathPseudoSelector::Placeholder
-        )
+        p.dynamic_state().is_some()
     }
 
     let Some(last) = path.selectors.as_ref().last() else {
@@ -471,7 +461,7 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
 /// Returns true if all selectors in the group match the given node.
 /// Combinator selectors (>, +, ~, space) should not appear in the group.
 fn selector_group_matches(
-    selectors: &[&CssPathSelector],
+    selectors: &[CssPathSelector],
     html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,

@@ -1,0 +1,537 @@
+{
+ "source": "editing/data/underline.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 147,
+ "eligible_cases": 26,
+ "left_out": {
+  "attribute class": 6,
+  "markup outside the mail subset": 38,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 66,
+  "tag <del>": 3,
+  "tag <ins>": 5,
+  "tag <strike>": 3
+ },
+ "cases": [
+  {
+   "id": "underline-ea30e954",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[]bar"
+   ],
+   "expected_canonical": [
+    "foo[]bar"
+   ]
+  },
+  {
+   "id": "underline-88c64b26",
+   "initial": "<p>[foo</p> <p>bar]</p>",
+   "initial_xhtml": "<p>[foo</p> <p>bar]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><u>[foo</u></p> <p><u>bar]</u></p>"
+   ],
+   "expected_canonical": [
+    "<p><u>[foo</u></p> <p><u>bar]</u></p>"
+   ]
+  },
+  {
+   "id": "underline-3aaa738b",
+   "initial": "<span>[foo</span> <span>bar]</span>",
+   "initial_xhtml": "<span>[foo</span> <span>bar]</span>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<u><span>[foo</span> <span>bar]</span></u>"
+   ],
+   "expected_canonical": [
+    "<u><span>[foo</span> <span>bar]</span></u>"
+   ]
+  },
+  {
+   "id": "underline-2436d406",
+   "initial": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "initial_xhtml": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><u>[foo</u></p><p> <u><span>bar</span></u> </p><p><u>baz]</u></p>"
+   ],
+   "expected_canonical": [
+    "<p><u>[foo</u></p><p> <u><span>bar</span></u> </p><p><u>baz]</u></p>"
+   ]
+  },
+  {
+   "id": "underline-cdeda869",
+   "initial": "<p>[foo<p><br><p>bar]",
+   "initial_xhtml": "<p>[foo</p><p><br/></p><p>bar]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><u>[foo</u></p><p><u><br></u></p><p><u>bar]</u></p>"
+   ],
+   "expected_canonical": [
+    "<p><u>[foo</u></p><p><u><br/></u></p><p><u>bar]</u></p>"
+   ]
+  },
+  {
+   "id": "underline-f2189b74",
+   "initial": "<b>foo[]bar</b>",
+   "initial_xhtml": "<b>foo[]bar</b>",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo[]bar</b>"
+   ],
+   "expected_canonical": [
+    "<b>foo[]bar</b>"
+   ]
+  },
+  {
+   "id": "underline-ad396535",
+   "initial": "<i>foo[]bar</i>",
+   "initial_xhtml": "<i>foo[]bar</i>",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i>foo[]bar</i>"
+   ],
+   "expected_canonical": [
+    "<i>foo[]bar</i>"
+   ]
+  },
+  {
+   "id": "underline-76910e25",
+   "initial": "<span>foo</span>{}<span>bar</span>",
+   "initial_xhtml": "<span>foo</span>{}<span>bar</span>",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo</span>{}<span>bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo</span>{}<span>bar</span>"
+   ]
+  },
+  {
+   "id": "underline-3aa262f0",
+   "initial": "<span>foo[</span><span>]bar</span>",
+   "initial_xhtml": "<span>foo[</span><span>]bar</span>",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo[</span><span>]bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo[</span><span>]bar</span>"
+   ]
+  },
+  {
+   "id": "underline-81b72ebf",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<u>[bar]</u>baz"
+   ],
+   "expected_canonical": [
+    "foo<u>[bar]</u>baz"
+   ]
+  },
+  {
+   "id": "underline-78ece6cf",
+   "initial": "foo[bar<b>baz]qoz</b>quz",
+   "initial_xhtml": "foo[bar<b>baz]qoz</b>quz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<u>[bar</u><b><u>baz]</u>qoz</b>quz"
+   ],
+   "expected_canonical": [
+    "foo<u>[bar</u><b><u>baz]</u>qoz</b>quz"
+   ]
+  },
+  {
+   "id": "underline-40a16b3f",
+   "initial": "foo[bar<i>baz]qoz</i>quz",
+   "initial_xhtml": "foo[bar<i>baz]qoz</i>quz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<u>[bar</u><i><u>baz]</u>qoz</i>quz"
+   ],
+   "expected_canonical": [
+    "foo<u>[bar</u><i><u>baz]</u>qoz</i>quz"
+   ]
+  },
+  {
+   "id": "underline-42ff4d5a",
+   "initial": "{<p><p> <p>foo</p>}",
+   "initial_xhtml": "{<p></p><p> </p><p>foo</p>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<p></p><p> </p><p><u>foo</u></p>}"
+   ],
+   "expected_canonical": [
+    "{<p></p><p> </p><p><u>foo</u></p>}"
+   ]
+  },
+  {
+   "id": "underline-bd282df9",
+   "initial": "<u>foo[bar]baz</u>",
+   "initial_xhtml": "<u>foo[bar]baz</u>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<u>foo</u>[bar]<u>baz</u>"
+   ],
+   "expected_canonical": [
+    "<u>foo</u>[bar]<u>baz</u>"
+   ]
+  },
+  {
+   "id": "underline-e386e0fd",
+   "initial": "<u>foo[b<i>ar]ba</i>z</u>",
+   "initial_xhtml": "<u>foo[b<i>ar]ba</i>z</u>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<u>foo</u>[b<i>ar]<u>ba</u></i><u>z</u>"
+   ],
+   "expected_canonical": [
+    "<u>foo</u>[b<i>ar]<u>ba</u></i><u>z</u>"
+   ]
+  },
+  {
+   "id": "underline-b0f56c4e",
+   "initial": "foo<s>[bar]</s>baz",
+   "initial_xhtml": "foo<s>[bar]</s>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<s><u>[bar]</u></s>baz"
+   ],
+   "expected_canonical": [
+    "foo<s><u>[bar]</u></s>baz"
+   ]
+  },
+  {
+   "id": "underline-0e06976a",
+   "initial": "<s>foo[bar]baz</s>",
+   "initial_xhtml": "<s>foo[bar]baz</s>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<s>foo<u>[bar]</u>baz</s>"
+   ],
+   "expected_canonical": [
+    "<s>foo<u>[bar]</u>baz</s>"
+   ]
+  },
+  {
+   "id": "underline-466570f2",
+   "initial": "<s>foo[b<i>ar]ba</i>z</s>",
+   "initial_xhtml": "<s>foo[b<i>ar]ba</i>z</s>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "<s>foo<u>[b</u><i><u>ar]</u>ba</i>z</s>"
+   ],
+   "expected_canonical": [
+    "<s>foo<u>[b</u><i><u>ar]</u>ba</i>z</s>"
+   ]
+  },
+  {
+   "id": "underline-cb339ad2",
+   "initial": "fo[o<u>b]ar</u>baz",
+   "initial_xhtml": "fo[o<u>b]ar</u>baz",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<u>[ob]ar</u>baz"
+   ],
+   "expected_canonical": [
+    "fo<u>[ob]ar</u>baz"
+   ]
+  },
+  {
+   "id": "underline-02b66e6e",
+   "initial": "foo<u>ba[r</u>b]az",
+   "initial_xhtml": "foo<u>ba[r</u>b]az",
+   "commands": [
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<u>ba[rb]</u>az"
+   ],
+   "expected_canonical": [
+    "foo<u>ba[rb]</u>az"
+   ]
+  },
+  {
+   "id": "underline-67214d05",
+   "initial": "fo[o<u>bar</u>b]az",
+   "initial_xhtml": "fo[o<u>bar</u>b]az",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<u>[obarb]</u>az"
+   ],
+   "expected_canonical": [
+    "fo<u>[obarb]</u>az"
+   ]
+  },
+  {
+   "id": "underline-7c274fbc",
+   "initial": "foo[<u>b]ar</u>baz",
+   "initial_xhtml": "foo[<u>b]ar</u>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[b]<u>ar</u>baz"
+   ],
+   "expected_canonical": [
+    "foo[b]<u>ar</u>baz"
+   ]
+  },
+  {
+   "id": "underline-ecaf9e69",
+   "initial": "foo<u>ba[r</u>]baz",
+   "initial_xhtml": "foo<u>ba[r</u>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<u>ba</u>[r]baz"
+   ],
+   "expected_canonical": [
+    "foo<u>ba</u>[r]baz"
+   ]
+  },
+  {
+   "id": "underline-46da94a7",
+   "initial": "foo[<u>bar</u>]baz",
+   "initial_xhtml": "foo[<u>bar</u>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "underline-c216fd4b",
+   "initial": "foo<u>[bar]</u>baz",
+   "initial_xhtml": "foo<u>[bar]</u>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "underline-7d67961e",
+   "initial": "foo{<u>bar</u>}baz",
+   "initial_xhtml": "foo{<u>bar</u>}baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "underline",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{bar}baz"
+   ],
+   "expected_canonical": [
+    "foo{bar}baz"
+   ]
+  }
+ ]
+}

@@ -58,6 +58,9 @@ use super::{
     super::{
         generator::CodeBuilder,
         ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind, TypeCategory},
+        // `"LayoutCallback"` -> `"layoutCallback"`: the JavaScript name of
+        // the local invoker variable.
+        lower_first,
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
     },
     is_refany_type, sanitize_js_identifier,
@@ -748,12 +751,3 @@ fn emit_refany_helpers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.blank();
 }
 
-/// `"Callback"` → `"callback"`, `"LayoutCallback"` → `"layoutCallback"`
-/// — JavaScript convention for the local invoker variable.
-fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
-}

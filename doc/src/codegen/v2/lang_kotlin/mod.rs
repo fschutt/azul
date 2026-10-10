@@ -37,6 +37,7 @@ pub use super::lang_java::{
     is_java_reserved, map_jvm_type as base_map_jvm_type, user_enum_type_name,
 };
 use super::{
+    c_layout::union_payload_layout,
     config::CodegenConfig,
     generator::CodeBuilder,
     ir::{
@@ -45,6 +46,18 @@ use super::{
         StructDef, TypeAliasDef, TypeCategory,
     },
 };
+
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant), as a JNA byte
+/// array listed right after `tag` in the field order. Nothing for N = 0
+/// (JNA rejects zero-length arrays).
+fn emit_variant_padding(builder: &mut CodeBuilder, padding: usize, field_names: &mut Vec<String>) {
+    if padding > 0 {
+        builder.line(&format!("@JvmField var _pad0: ByteArray = ByteArray({})", padding));
+        field_names.push("\"_pad0\"".to_string());
+    }
+}
 
 /// Library name JNA loads. Matches the Java side.
 pub const LIBRARY_NAME: &str = "azul";
@@ -410,6 +423,7 @@ fn emit_tagged_union(
     builder.blank();
 
     // 2. Per-variant payload structures
+    let payload = union_payload_layout(&enum_def.name, ir);
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         builder.line(&format!("open class {} : Structure() {{", variant_struct));
@@ -420,21 +434,23 @@ fn emit_tagged_union(
         builder.line(&format!("@JvmField var tag: Byte = 0 // {}_Tag", name));
 
         let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
+        emit_variant_padding(
+            builder,
+            payload.as_ref().map_or(0, |p| p.padding(&v.name)),
+            &mut field_names,
+        );
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
                 if types.len() == 1 {
                     let (ty, ref_kind) = &types[0];
                     let (kt, default) = ref_kind_kt_field(ty, ref_kind, ir);
-                    builder.line(&format!("@JvmField var payload: {} = {}", kt, default));
+                    builder.line(&kt_jna_field("payload", &kt, &default));
                     field_names.push("\"payload\"".to_string());
                 } else {
                     for (i, (ty, ref_kind)) in types.iter().enumerate() {
                         let (kt, default) = ref_kind_kt_field(ty, ref_kind, ir);
-                        builder.line(&format!(
-                            "@JvmField var payload_{}: {} = {}",
-                            i, kt, default
-                        ));
+                        builder.line(&kt_jna_field(&format!("payload_{}", i), &kt, &default));
                         field_names.push(format!("\"payload_{}\"", i));
                     }
                 }
@@ -443,7 +459,7 @@ fn emit_tagged_union(
                 for f in fields {
                     let (kt, default) = ref_kind_kt_field(&f.type_name, &f.ref_kind, ir);
                     let fname = sanitize_kt_identifier(&f.name);
-                    builder.line(&format!("@JvmField var {}: {} = {}", fname, kt, default));
+                    builder.line(&kt_jna_field(&fname, &kt, &default));
                     field_names.push(format!("\"{}\"", f.name));
                 }
             }
@@ -476,10 +492,7 @@ fn emit_tagged_union(
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         let field = sanitize_kt_identifier(&v.name);
-        builder.line(&format!(
-            "@JvmField var {}: {} = {}()",
-            field, variant_struct, variant_struct
-        ));
+        builder.line(&kt_jna_field(&field, &variant_struct, &format!("{}()", variant_struct)));
         field_names.push(format!("\"{}\"", v.name));
     }
     emit_field_order(builder, &field_names);
@@ -669,12 +682,18 @@ fn emit_monomorphized_alias(
             builder.line("}");
 
             // Per-variant payload structs
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 builder.line(&format!("open class {} : Structure() {{", variant_struct));
                 builder.indent();
                 builder.line("@JvmField var tag: Byte = 0 // repr(C, u8)");
                 let mut field_names = vec!["\"tag\"".to_string()];
+                emit_variant_padding(
+                    builder,
+                    payload.as_ref().map_or(0, |p| p.padding(&v.name)),
+                    &mut field_names,
+                );
                 if let Some(ref payload_type) = v.payload_type {
                     let jt = ref_kind_field_type_kt(payload_type, &v.payload_ref_kind, ir);
                     // Enums can't be `Foo()`-instantiated; declare as
@@ -682,7 +701,7 @@ fn emit_monomorphized_alias(
                     // either. JNA reads the bytes when Union.read() runs,
                     // so just declare with a safe default for the type.
                     let init = default_for_kt_type_or_struct(&jt, ir);
-                    builder.line(&format!("@JvmField var payload: {} = {}", jt, init));
+                    builder.line(&kt_jna_field("payload", &jt, &init));
                     field_names.push("\"payload\"".to_string());
                 }
                 emit_kotlin_field_order_override(builder, &field_names);
@@ -711,10 +730,7 @@ fn emit_monomorphized_alias(
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 let f = sanitize_kt_identifier(&v.name);
-                builder.line(&format!(
-                    "@JvmField var {}: {} = {}()",
-                    f, variant_struct, variant_struct
-                ));
+                builder.line(&kt_jna_field(&f, &variant_struct, &format!("{}()", variant_struct)));
                 field_names.push(format!("\"{}\"", v.name));
             }
             emit_kotlin_field_order_override(builder, &field_names);
@@ -749,6 +765,22 @@ fn default_for_kt_type(jt: &str) -> &'static str {
 /// produces the right initializer per kind:
 /// - Plain Structure-flavoured (`AzFoo.ByValue` / `AzFoo`): `AzFoo()`
 /// - Unit enum (`AzFoo`): `AzFoo.values().first()`
+/// One field of a generated JNA `Structure` / `Union`. A nested struct or
+/// union field is `lateinit var` (a public, non-final JVM field JNA fills):
+/// JNA's `Structure` constructor already instantiates every such field, and
+/// a Kotlin `= AzFoo()` initializer - which runs AFTER the super constructor
+/// - would build each nested struct a second time at every level, which is
+/// exponential in the nesting depth (reading one bool of
+/// `WindowCreateOptions` took 115 ms). Primitives, enums and arrays keep
+/// their initializer.
+fn kt_jna_field(name: &str, kt: &str, default: &str) -> String {
+    if default == format!("{}()", kt) {
+        format!("lateinit var {}: {}", name, kt)
+    } else {
+        format!("@JvmField var {}: {} = {}", name, kt, default)
+    }
+}
+
 fn default_for_kt_type_or_struct(jt: &str, ir: &CodegenIR) -> String {
     let prim = default_for_kt_type(jt);
     if !prim.starts_with("/* default */") {
@@ -966,12 +998,7 @@ fn emit_struct_field(
     }
 
     let (kt, default) = ref_kind_kt_field(&f.type_name, &f.ref_kind, ir);
-    builder.line(&format!(
-        "@JvmField var {}: {} = {}",
-        sanitize_kt_identifier(&f.name),
-        kt,
-        default
-    ));
+    builder.line(&kt_jna_field(&sanitize_kt_identifier(&f.name), &kt, &default));
     field_names.push(format!("\"{}\"", f.name));
 }
 
@@ -1311,5 +1338,20 @@ mod tests {
         assert!(!code(": Library"), "{kt}");
         assert!(!code("import com.sun.jna.Library"), "{kt}");
         assert!(!code(".INSTANCE."), "{kt}");
+    }
+
+    /// A nested struct / union field is `lateinit`: JNA's `Structure`
+    /// constructor instantiates it, and an `= AzFoo()` initializer built
+    /// every nested struct again at every level (115 ms per field read of
+    /// `WindowCreateOptions`).
+    #[test]
+    fn a_nested_struct_field_is_built_once_by_jna_not_again_by_an_initializer() {
+        let kt = generate(super::super::bug_classes::ir(), &CodegenConfig::c_header()).unwrap();
+        let start = kt.find("open class AzFullWindowState : Structure() {").expect("AzFullWindowState");
+        let body = &kt[start..start + kt[start..].find("\n}\n").unwrap()];
+        assert!(body.contains("lateinit var title: AzString\n"), "{}", body);
+        assert!(body.contains("lateinit var size: AzWindowSize\n"), "{}", body);
+        assert!(body.contains("@JvmField var mode: Int = 0"), "primitives keep their initializer:\n{}", body);
+        assert!(!body.contains("= AzString()"), "{}", body);
     }
 }

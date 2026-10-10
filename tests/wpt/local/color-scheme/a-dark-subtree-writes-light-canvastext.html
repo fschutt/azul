@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title>CanvasText in a color-scheme: dark subtree is not the light CanvasText</title>
+<link rel="mismatch" href="a-dark-subtree-writes-light-canvastext-ref.html">
+<meta name="assert" content="CSS Color Adjust 1 2.1: color-scheme on an element changes the used values of system colours (CanvasText) in its subtree.">
+<div style="color-scheme:dark;color:CanvasText;background:gray;font-size:40px">Text</div>

@@ -58,11 +58,14 @@
 //! The Python generator uses its own `PythonConfig` that extends the base config
 //! with Python-specific options.
 
+pub mod abi_guard;
 #[cfg(test)]
 mod bug_classes;
 pub mod c_layout;
 pub mod config;
+pub mod field_access;
 pub mod conformance;
+pub mod field_access_classic;
 pub mod generator;
 pub mod ir;
 pub mod ir_builder;
@@ -110,6 +113,7 @@ pub mod lang_v;
 pub mod managed_host_invoker;
 pub mod managed_lang_helpers;
 pub mod module_plan;
+pub mod raw_field_access;
 pub mod rust;
 pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 
@@ -124,6 +128,32 @@ pub use lang_reexports::generate_reexports;
 pub use rust::{RustDynamicGenerator, RustStaticGenerator};
 
 use crate::api::ApiData;
+
+/// `s` with its first character upper-cased (`mouseEvent` -> `MouseEvent`,
+/// `u32` -> `U32`): THE helper for every binding generator (Haskell, Swift,
+/// D and Go each carried a copy).
+#[must_use]
+pub fn upper_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// `s` with its first character lower-cased (`LayoutCallback` ->
+/// `layoutCallback`): the twin of [`upper_first`], THE helper for every
+/// generator and checker (bug_classes, conformance, Haskell, Kotlin, Java,
+/// C# and Node each carried a copy). Unicode lower-casing, identical to the
+/// ASCII one for the ASCII names fed to it.
+#[must_use]
+pub fn lower_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
 
 // ============================================================================
 // Helper: Build IR from ApiData

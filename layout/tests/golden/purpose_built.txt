@@ -1,0 +1,1807 @@
+=== block flow, sizing and centering
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x365 ov=800x365 bl=367 ic=500/500
+n1 p0 d1 Block { establishes_new_context: false } @0,10 800x365 ov=800x365 mt=10 mb=0 bl=357 ic=500/500 rel=0,10
+n2 p1 d2 Inline @238,10 324x54 ov=63.203125x16 bl=13 ic=300/300 rel=238,0
+n3 p2 d3 Inline @250,17 -x- ic=35.203125/63.203125
+n4 p1 d4 Inline @0,74 400x56 ov=114.40625x16 bl=13 ic=48/114.40625 rel=0,64
+n5 p4 d5 Inline @13,87 -x- ic=48/114.40625
+n6 p1 d6 Inline @200,130 200x16 ov=151.20313x32 bl=29 ic=80/200 rel=200,120
+n7 p6 d7 Inline @200,130 -x- ic=80/204.8125
+n8 p1 d8 Inline @680,146 120x16 ov=87.203125x16 bl=13 ic=120/120 rel=680,136
+n9 p8 d9 Inline @680,146 -x- ic=48/87.203125
+n10 p1 d10 Block { establishes_new_context: false } @0,162 800x10 ov=450x10 mt=0 mb=0 ic=100/100 rel=0,152
+n11 p10 d11 Block { establishes_new_context: false } @350,162 100x10 ov=0x0 ic=100/100 rel=350,0
+n12 p1 d12 Block { establishes_new_context: false } @0,172 800x10 ov=80x10 mt=0 mb=0 ic=80/80 rel=0,162
+n13 p12 d13 Block { establishes_new_context: false } @0,172 80x10 ov=0x0 ic=80/80 rel=0,0
+n14 p1 d- Inline anon=InlineWrapper @0,182 800x16 ov=64x16 bl=13 ic=64/64 rel=0,172
+  line 0 y=1 items=1 glyphs=0 x=0..64
+n15 p14 d16 Contents @0,183 64x12 mt=0 mb=0 bl=13 ic=64/64 rel=0,1
+n16 p15 d17 Inline @0,183 64x12 ov=64x16 bl=13 ic=64/64 rel=0,0
+n17 p16 d18 Inline @0,183 -x- ic=64/64
+n18 p1 d19 Inline @0,198 56x48 ov=56x48 bl=45 ic=56/131.20313 rel=0,188
+n19 p18 d20 Inline @0,198 -x- ic=56/131.20313
+n20 p1 d21 Inline @0,246 136x16 ov=136x16 bl=13 ic=56/136 rel=0,236
+n21 p20 d22 Inline @0,246 -x- ic=56/136
+n22 p1 d23 Inline @0,262 90x32 ov=79.203125x32 bl=29 ic=56/90 rel=0,252
+n23 p22 d24 Inline @0,262 -x- ic=56/160.8125
+n24 p1 d25 Inline @0,294 800x60 ov=68x20 bl=16 ic=68/68 rel=0,284
+n25 p24 d26 Inline @20,314 -x- ic=68/68
+n26 p1 d27 Inline @0,354 800x16 ov=136x16 bl=13 ic=80/136 rel=0,344
+n27 p26 d28 Inline @0,354 -x- ic=80/136
+n28 p1 d29 Block { establishes_new_context: false } @0,370 500x5 ov=0x0 ic=500/500 rel=0,360
+  dl0 PushStackingContext 0,0 800x365
+  dl1 Border 238,10 324x54
+  dl2 HitTestArea 238,10 324x54
+  dl3 Text 234,17 332x40 glyphs=9 fs=16
+  dl4 HitTestArea 250,17.203125 63.203125x16
+  dl5 Border 0,74 400x56
+  dl6 HitTestArea 0,74 400x56
+  dl7 Text -3,87 406x30 glyphs=16 fs=16
+  dl8 HitTestArea 13,87.203125 114.40625x16
+  dl9 HitTestArea 200,130 200x16
+  dl10 Text 184,130 232x32 glyphs=21 fs=16
+  dl11 Text 184,130 232x32 glyphs=6 fs=16
+  dl12 HitTestArea 200,130.20313 151.20313x16
+  dl13 HitTestArea 200,146.20313 49.59375x16
+  dl14 HitTestArea 680,146 120x16
+  dl15 Text 664,146 152x16 glyphs=12 fs=16
+  dl16 HitTestArea 680,146.20313 87.203125x16
+  dl17 HitTestArea 0,183 64x12
+  dl18 Text -16,183 96x16 glyphs=8 fs=16
+  dl19 HitTestArea 0,183.20313 64x16
+  dl20 HitTestArea 0,198 56x48
+  dl21 Text -16,198 88x48 glyphs=3 fs=16
+  dl22 Text -16,198 88x48 glyphs=7 fs=16
+  dl23 Text -16,198 88x48 glyphs=5 fs=16
+  dl24 HitTestArea 0,198.20313 25.59375x16
+  dl25 HitTestArea 0,214.20313 56x16
+  dl26 HitTestArea 0,230.20313 41.59375x16
+  dl27 HitTestArea 0,246 136x16
+  dl28 Text -16,246 168x16 glyphs=17 fs=16
+  dl29 HitTestArea 0,246.20313 136x16
+  dl30 HitTestArea 0,262 90x32
+  dl31 Text -16,262 122x32 glyphs=11 fs=16
+  dl32 Text -16,262 122x32 glyphs=10 fs=16
+  dl33 HitTestArea 0,262.20313 79.203125x16
+  dl34 HitTestArea 0,278.20313 77.59375x16
+  dl35 HitTestArea 0,294 800x60
+  dl36 Text 0,314 800x20 glyphs=6 fs=20
+  dl37 HitTestArea 20,314 68x20
+  dl38 HitTestArea 0,354 800x16
+  dl39 Text -16,354 832x16 glyphs=18 fs=16
+  dl40 HitTestArea 0,354.20313 136x16
+  dl41 PopStackingContext
+=== margin collapsing
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x514 ov=800x514 bl=442 ic=59.203125/100
+n1 p0 d1 Block { establishes_new_context: false } @0,20 800x514 ov=800x514 mt=20 mb=0 bl=422 ic=59.203125/100 rel=0,20
+n2 p1 d2 Inline @0,20 800x16 ov=8x16 bl=13 ic=8/8 rel=0,0
+n3 p2 d3 Inline @0,20 -x- ic=8/8
+n4 p1 d4 Inline @0,76 800x16 ov=8x16 bl=13 ic=8/8 rel=0,56
+n5 p4 d5 Inline @0,76 -x- ic=8/8
+n6 p1 d6 Block { establishes_new_context: false } @0,127 800x16 ov=800x16 mt=35 mb=35 bl=13 ic=48/100 rel=0,107
+n7 p6 d7 Block { establishes_new_context: false } @0,127 800x16 ov=800x16 mt=35 mb=35 bl=13 ic=48/100 rel=0,0
+n8 p7 d8 Inline @0,127 800x16 ov=100x16 bl=13 ic=48/100 rel=0,0
+n9 p8 d9 Inline @0,127 -x- ic=48/100
+n10 p1 d10 Block { establishes_new_context: false } @0,178 800x0 ov=0x0 ic=0/0 rel=0,158
+n11 p1 d11 Inline @0,168 800x16 ov=59.203125x16 bl=13 ic=59.203125/59.203125 rel=0,148
+n12 p11 d12 Inline @0,168 -x- ic=59.203125/59.203125
+n13 p1 d13 Block { establishes_new_context: false } @0,189 800x47 ov=800x46 mb=0 bl=43 ic=51.203125/98.40625 rel=0,169
+n14 p13 d14 Inline @0,220 800x16 ov=98.40625x16 bl=13 ic=51.203125/98.40625 rel=0,30
+n15 p14 d15 Inline @0,220 -x- ic=51.203125/98.40625
+n16 p1 d16 Block { establishes_new_context: false } @0,236 800x47 ov=800x46 mt=0 bl=13 ic=48/95.203125 rel=0,216
+n17 p16 d17 Inline @0,236 800x16 ov=95.203125x16 bl=13 ic=48/95.203125 rel=0,0
+n18 p17 d18 Inline @0,236 -x- ic=48/95.203125
+n19 p1 d19 Block { establishes_new_context: true } @0,283 800x76 ov=800x76 bl=43 ic=32/60 rel=0,263
+n20 p19 d20 Inline @0,313 800x16 ov=60x16 bl=13 ic=32/60 rel=0,30
+n21 p20 d21 Inline @0,313 -x- ic=32/60
+n22 p1 d22 Inline @0,359 800x20 ov=79.203125x16 bl=13 ic=48/79.203125 rel=0,339
+n23 p22 d23 Inline @0,359 -x- ic=48/79.203125
+n24 p1 d24 Block { establishes_new_context: false } @0,429 800x10 ov=800x10 mt=22 mb=0 bl=13 ic=16/16 rel=0,409
+n25 p24 d25 Inline @0,429 800x10 ov=16x16 bl=13 ic=16/16 rel=0,0
+n26 p25 d26 Inline @0,429 -x- ic=16/16
+n27 p1 d27 Block { establishes_new_context: false } @0,439 800x24 ov=0x16 ic=0/0 rel=0,419
+n28 p27 d28 Block { establishes_new_context: false } @4,459 792x0 ov=0x0 ic=0/0 rel=0,16
+n29 p1 d29 Block { establishes_new_context: false } @0,473 800x25 ov=0x25 mt=10 ic=0/0 rel=0,453
+n30 p29 d30 Block { establishes_new_context: false } @0,473 800x0 ov=0x0 ic=0/0 rel=0,0
+n31 p29 d31 Block { establishes_new_context: false } @0,498 800x0 ov=0x0 ic=0/0 rel=0,25
+n32 p1 d32 Flex @0,498 800x36 ov=74.8125x26 ic=53.609375/84.8125 rel=0,478
+n33 p32 d33 Inline @10,508 64.8125x16 ov=64.796875x16 bl=13 ic=33.609375/64.8125 rel=10,10
+n34 p33 d34 Inline @10,508 -x- ic=33.609375/64.8125
+  dl0 PushStackingContext 0,0 800x514
+  dl1 HitTestArea 0,20 800x16
+  dl2 Text -16,20 832x16 glyphs=1 fs=16
+  dl3 HitTestArea 0,20.203125 8x16
+  dl4 HitTestArea 0,76 800x16
+  dl5 Text -16,76 832x16 glyphs=1 fs=16
+  dl6 HitTestArea 0,76.203125 8x16
+  dl7 HitTestArea 0,127 800x16
+  dl8 Text -16,127 832x16 glyphs=13 fs=16
+  dl9 HitTestArea 0,127.203125 100x16
+  dl10 HitTestArea 0,168 800x16
+  dl11 Text -16,168 832x16 glyphs=8 fs=16
+  dl12 HitTestArea 0,168.20313 59.203125x16
+  dl13 HitTestArea 0,220 800x16
+  dl14 Text -16,220 832x16 glyphs=14 fs=16
+  dl15 HitTestArea 0,220.20313 98.40625x16
+  dl16 Border 0,236 800x47
+  dl17 HitTestArea 0,236 800x16
+  dl18 Text -16,236 832x16 glyphs=13 fs=16
+  dl19 HitTestArea 0,236.20313 95.203125x16
+  dl20 PushClip 0,283 800x76
+  dl21 HitTestArea 0,313 800x16
+  dl22 Text -16,313 832x16 glyphs=8 fs=16
+  dl23 HitTestArea 0,313.20313 60x16
+  dl24 PopClip
+  dl25 HitTestArea 0,359 800x20
+  dl26 Text -16,359 832x16 glyphs=11 fs=16
+  dl27 HitTestArea 0,359.20313 79.203125x16
+  dl28 HitTestArea 0,429 800x10
+  dl29 Text -16,429 832x16 glyphs=2 fs=16
+  dl30 HitTestArea 0,429.20313 16x16
+  dl31 HitTestArea 10,508 64.8125x16
+  dl32 Text -6,508 96.8125x16 glyphs=9 fs=16
+  dl33 HitTestArea 10,508.20313 64.796875x16
+  dl34 PopStackingContext
+=== floats, clearance and shapes
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x422 ov=400x422 bl=335 ic=400/400
+n1 p0 d1 Block { establishes_new_context: false } @0,14 400x422 ov=800x422 mt=14 mb=0 bl=321 ic=400/400 rel=0,14
+n2 p1 d2 Inline @5,19 100x60 ov=23.796875x14 bl=11 ic=100/100 rel=5,5
+n3 p2 d3 Inline @5,19 -x- ic=23.8125/23.8125
+n4 p1 d4 Inline @320,14 80x100 ov=30.796875x14 bl=11 ic=80/80 rel=320,0
+n5 p4 d5 Inline @320,14 -x- ic=30.8125/30.8125
+n6 p1 d6 Inline @0,14 400x42 ov=387.09375x42 bl=67 ic=44.8125/906.5 rel=0,0
+n7 p6 d7 Inline @0,14 -x- ic=44.8125/906.5
+n8 p1 d8 Inline @0,84 400x14 ov=72.09375x14 bl=11 ic=44.8125/72.109375 rel=0,70
+n9 p8 d9 Inline @0,84 -x- ic=44.8125/72.109375
+n10 p1 d10 Block { establishes_new_context: true } @0,98 50x50 ov=0x0 ic=50/50 rel=0,84
+n11 p1 d11 Inline @0,148 400x30 ov=117.59375x14 bl=11 ic=37.8125/117.609375 rel=0,134
+n12 p11 d12 Inline @0,148 -x- ic=37.8125/117.609375
+n13 p1 d13 Inline @0,188 400x14 ov=76.296875x14 bl=11 ic=44.8125/76.3125 rel=0,174
+n14 p13 d14 Inline @0,188 -x- ic=44.8125/76.3125
+n15 p1 d15 Block { establishes_new_context: true } @0,202 400x80 ov=400x80 bl=11 ic=58.8125/93.109375 rel=0,188
+n16 p15 d16 Block { establishes_new_context: true } @0,202 30x80 ov=0x0 ic=30/30 rel=0,0
+n17 p15 d- Inline anon=InlineWrapper @0,202 400x14 ov=93.09375x14 bl=11 ic=58.8125/93.109375 rel=0,0
+n18 p17 d17 Inline @0,202 -x- ic=58.8125/93.109375
+n19 p1 d18 Block { establishes_new_context: false } @0,282 400x14 ov=400x14 mt=0 mb=0 bl=11 ic=49/90.3125 rel=0,268
+n20 p19 d19 Block { establishes_new_context: true } @370,282 30x40 ov=0x0 ic=30/30 rel=370,0
+n21 p19 d20 Block { establishes_new_context: true } @370,322 30x40 ov=0x0 ic=30/30 rel=370,40
+n22 p19 d- Inline anon=InlineWrapper @0,282 400x14 ov=90.296875x14 bl=11 ic=49/90.3125 rel=0,0
+n23 p22 d21 Inline @0,282 -x- ic=49/90.3125
+n24 p1 d22 Block { establishes_new_context: true } @0,296 120x120 ov=0x0 ic=120/120 rel=0,282
+n25 p1 d23 Inline @0,310 400x28 ov=387.09375x28 bl=25 ic=44.8125/451.5 rel=0,296
+n26 p25 d24 Inline @0,310 -x- ic=44.8125/451.5
+n27 p1 d25 Inline @0,416 500x10 ov=53.90625x14 bl=11 ic=500/500 rel=0,402
+n28 p27 d26 Inline @0,416 -x- ic=29.40625/53.90625
+n29 p1 d27 Table @500,416 300x20 ov=300x20 ic=300/300 rel=500,402
+n30 p29 d28 TableRow @502,418 296x16 ic=39.8125/115.40625 rel=2,2
+n31 p30 d29 TableCell @502,418 296x16 bl=11 ic=37.8125/113.40625 rel=0,0
+n32 p31 d30 Inline @503,419 -x- ic=37.8125/113.40625
+  dl0 PushStackingContext 0,0 800x422
+  dl1 HitTestArea 0,14 400x42
+  dl2 Text -14,14 428x70 glyphs=30 fs=14
+  dl3 Text -14,14 428x70 glyphs=34 fs=14
+  dl4 Text -14,14 428x70 glyphs=31 fs=14
+  dl5 Text -14,14 428x70 glyphs=35 fs=14
+  dl6 Text -14,14 428x70 glyphs=9 fs=14
+  dl7 HitTestArea 0,13.796875 297.5x14
+  dl8 HitTestArea 0,27.796875 306.59375x14
+  dl9 HitTestArea 0,41.796875 305.90625x14
+  dl10 HitTestArea 0,55.796875 313.59375x14
+  dl11 HitTestArea 0,69.796875 158.90625x14
+  dl12 HitTestArea 0,84 400x14
+  dl13 Text -14,84 428x14 glyphs=12 fs=14
+  dl14 HitTestArea 0,83.796875 72.09375x14
+  dl15 PushClip 0,148 400x30
+  dl16 HitTestArea 0,148 400x30
+  dl17 Text 0,148 400x30 glyphs=20 fs=14
+  dl18 HitTestArea 0,147.79688 117.59375x14
+  dl19 PopClip
+  dl20 HitTestArea 0,188 400x14
+  dl21 Text -14,188 428x14 glyphs=12 fs=14
+  dl22 HitTestArea 0,187.79688 76.296875x14
+  dl23 PushClip 0,202 400x80
+  dl24 HitTestArea 0,202 400x80
+  dl25 Text -14,202 428x14 glyphs=15 fs=14
+  dl26 HitTestArea 30,201.79688 93.09375x14
+  dl27 PopClip
+  dl28 HitTestArea 0,282 400x14
+  dl29 Text -14,282 428x14 glyphs=14 fs=14
+  dl30 HitTestArea 0,281.79688 90.296875x14
+  dl31 HitTestArea 0,310 400x28
+  dl32 Text -14,310 428x28 glyphs=43 fs=14
+  dl33 Text -14,310 428x28 glyphs=27 fs=14
+  dl34 HitTestArea 120,309.79688 275.79688x14
+  dl35 HitTestArea 120,323.79688 172.20313x14
+  dl36 HitTestArea 502,418 296x16
+  dl37 Text 489,419 322x14 glyphs=19 fs=14
+  dl38 HitTestArea 503,418.79688 113.40625x14
+  dl39 HitTestArea 5,19 100x60
+  dl40 Text -9,19 128x60 glyphs=4 fs=14
+  dl41 HitTestArea 5,18.796875 23.796875x14
+  dl42 HitTestArea 320,14 80x100
+  dl43 Text 306,14 108x100 glyphs=5 fs=14
+  dl44 HitTestArea 320,13.796875 30.796875x14
+  dl45 HitTestArea 0,416 500x10
+  dl46 Text -14,416 528x14 glyphs=8 fs=14
+  dl47 HitTestArea 0,415.79688 53.90625x14
+  dl48 PopStackingContext
+=== inline text, white space and breaking
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x1064.5313 ov=320x1064.5313 sb=v bl=1077.5313 ic=320/320
+n1 p0 d1 Block { establishes_new_context: false } @0,16 320x1064.5313 ov=320x1064.5313 mt=16 mb=0 bl=1061.5313 ic=320/320 rel=0,16
+n2 p1 d2 Inline @0,16 320x64 ov=315.20313x64 bl=61 ic=51.203125/1036.0156 rel=0,0
+n3 p2 d3 Inline @0,16 -x- ic=51.203125/1036.0156
+n4 p1 d4 Inline @0,96 320x40.53125 ov=194.40625x40.53125 bl=26.328125 ic=43.203125/194.40625 rel=0,80
+n5 p4 d5 Inline @0,96 -x- ic=43.203125/74.40625
+n6 p4 d6 Inline @0,96 -x- ic=28.8125/28.8125
+n7 p6 d7 Inline @0,96 -x- ic=28.8125/28.8125
+n8 p4 d8 Inline @0,96 -x- ic=0/0
+n9 p4 d9 Inline @0,96 -x- ic=24/24
+n10 p9 d10 Inline @0,96 -x- ic=24/24
+n11 p4 d11 Inline @0,96 -x- ic=0/0
+n12 p4 d12 Inline @0,96 -x- ic=24/24
+n13 p12 d13 Inline @0,96 -x- ic=24/24
+n14 p4 d14 Inline @0,96 -x- ic=27.203125/27.203125
+n15 p1 d15 Inline @0,152.53125 320x32 ov=300x32 bl=29 ic=60/455.20313 rel=0,136.53125
+n16 p15 d16 Inline @0,152.53125 -x- ic=60/350.40625
+n17 p16 d17 Inline @6,158.53125 -x- ic=60/350.40625
+n18 p15 d18 Inline @0,152.53125 -x- ic=32/32
+n19 p15 d19 Inline @0,152.53125 -x- ic=27.203125/27.203125
+n20 p19 d20 Inline @0,152.53125 -x- ic=27.203125/27.203125
+n21 p15 d21 Inline @0,152.53125 -x- ic=0/0
+n22 p15 d22 Inline @0,152.53125 -x- ic=33.609375/33.609375
+n23 p22 d23 Inline @0,152.53125 -x- ic=33.609375/33.609375
+n24 p1 d24 Inline @0,200.53125 320x32 ov=190.8125x32 bl=14 ic=62/190.8125 rel=0,184.53125
+  line 0 y=1 items=17 glyphs=15 x=0..190.8125
+n25 p24 d25 Inline @0,200.53125 -x- ic=48/48
+n26 p24 d26 InlineBlock @52,200.53125 62x32 bl=13 ic=60/60 rel=52,0
+n27 p26 d27 Inline @53,201.53125 11.203125x16 ov=11.203125x16 bl=13 ic=11.203125/11.203125 rel=0,0
+n28 p24 d28 Inline @0,200.53125 -x- ic=40/40
+n29 p24 d29 InlineBlock @162,200.53125 25.609375x20 bl=13 ic=25.609375/25.609375 rel=162,0
+n30 p29 d30 Inline @162,200.53125 25.609375x16 ov=25.59375x16 bl=13 ic=25.609375/25.609375 rel=0,0
+n31 p24 d31 Inline @0,200.53125 -x- ic=3.203125/3.203125
+n32 p1 d32 Inline @0,248.53125 320x16 ov=64x16 bl=13 ic=64/64 rel=0,232.53125
+n33 p32 d33 Inline @0,248.53125 -x- ic=64/64
+n34 p1 d34 Inline @0,280.53125 320x16 ov=35.203125x16 bl=13 ic=35.203125/35.203125 rel=0,264.53125
+n35 p34 d35 Inline @0,280.53125 -x- ic=35.203125/35.203125
+n36 p1 d36 Inline @0,312.53125 320x64 ov=320x64 bl=61 ic=51.203125/1036.0156 rel=0,296.53125
+n37 p36 d37 Inline @0,312.53125 -x- ic=51.203125/1036.0156
+n38 p1 d38 Inline @0,392.53125 320x48 ov=290x48 bl=45 ic=65.203125/753.0156 rel=0,376.53125
+n39 p38 d39 Inline @0,392.53125 -x- ic=65.203125/753.0156
+n40 p1 d40 Inline @0,456.53125 320x32 ov=114.40625x32 bl=29 ic=78.40625/114.40625 rel=0,440.53125
+  line 0 y=0 items=16 glyphs=15 x=0..114.40625
+  line 1 y=16 items=13 glyphs=13 x=0..82.40625
+n41 p40 d41 Inline @0,456.53125 -x- ic=78.40625/114.40625
+n42 p1 d42 Inline @0,504.53125 320x16 ov=516x16 bl=13 ic=516.0156/516.0156 rel=0,488.53125
+n43 p42 d43 Inline @0,504.53125 -x- ic=516.0156/516.0156
+n44 p1 d44 Inline @0,536.53125 320x48 ov=300x48 bl=45 ic=51.203125/698.40625 rel=0,520.53125
+n45 p44 d45 Inline @0,536.53125 -x- ic=51.203125/698.40625
+n46 p1 d46 Inline @0,600.53125 320x32 ov=114.40625x32 bl=29 ic=62.40625/114.40625 rel=0,584.53125
+  line 0 y=0 items=9 glyphs=8 x=0..50.40625
+  line 1 y=16 items=16 glyphs=16 x=0..114.40625
+n47 p46 d47 Inline @0,600.53125 -x- ic=62.40625/114.40625
+n48 p1 d48 Inline @0,648.53125 320x32 ov=320x32 bl=29 ic=350.40625/350.40625 rel=0,632.53125
+n49 p48 d49 Inline @0,648.53125 -x- ic=350.40625/350.40625
+n50 p1 d50 Inline @0,696.53125 320x32 ov=313.59375x32 bl=29 ic=385.60938/385.60938 rel=0,680.53125
+n51 p50 d51 Inline @0,696.53125 -x- ic=385.60938/385.60938
+n52 p1 d52 Inline @0,744.53125 320x32 ov=299.20313x32 bl=29 ic=120/540.8125 rel=0,728.53125
+n53 p52 d53 Inline @0,744.53125 -x- ic=120/540.8125
+n54 p1 d54 Inline @0,792.53125 320x64 ov=117.59375x64 bl=61 ic=40/117.609375 rel=0,776.53125
+  line 0 y=0 items=5 glyphs=4 x=0..27.203125
+  line 1 y=16 items=6 glyphs=5 x=0..40
+  line 2 y=45 items=1 glyphs=0 x=0..0
+  line 3 y=48 items=18 glyphs=18 x=0..117.59375
+n55 p54 d55 Inline @0,792.53125 -x- ic=27.203125/27.203125
+n56 p54 d56 Inline @0,792.53125 -x- ic=0/0
+n57 p54 d57 Inline @0,792.53125 -x- ic=40/40
+n58 p54 d58 Inline @0,792.53125 -x- ic=0/0
+n59 p54 d59 Inline @0,792.53125 -x- ic=0/0
+n60 p54 d60 Inline @0,792.53125 -x- ic=40/117.609375
+n61 p1 d61 Inline @0,872.53125 320x16 ov=76x16 bl=13 ic=40/76 rel=0,856.53125
+n62 p61 d62 Inline @0,872.53125 -x- ic=40/76
+n63 p1 d63 Inline @0,904.53125 320x32 ov=320x32 bl=29 ic=72/648 rel=0,888.53125
+n64 p63 d64 Inline @0,904.53125 -x- ic=72/648
+n65 p1 d65 Inline @0,952.53125 320x64 ov=320x64 bl=61 ic=51.203125/1036.0156 rel=0,936.53125
+n66 p65 d66 Inline @0,952.53125 -x- ic=51.203125/1036.0156
+n67 p1 d67 Block { establishes_new_context: false } @0,1032.5313 320x48 ov=320x48 mt=0 mb=0 bl=45 ic=78.40625/78.40625 rel=0,1016.53125
+n68 p67 d- Inline anon=InlineWrapper @0,1032.5313 320x16 ov=78.40625x16 bl=13 ic=78.40625/78.40625 rel=0,0
+n69 p68 d68 Inline @0,1032.5313 -x- ic=78.40625/78.40625
+n70 p67 d69 Inline @0,1048.5313 320x16 ov=35.203125x16 bl=13 ic=35.203125/35.203125 rel=0,16
+n71 p70 d70 Inline @0,1048.5313 -x- ic=35.203125/35.203125
+n72 p67 d- Inline anon=InlineWrapper @0,1064.5313 320x16 ov=72.796875x16 bl=13 ic=35.203125/72.8125 rel=0,32
+n73 p72 d71 Inline @0,1064.5313 -x- ic=35.203125/72.8125
+  dl0 PushStackingContext 0,0 800x1064.5313
+  dl1 PushScrollFrame 0,0 800x600 content=800x1064.5313
+  dl2 HitTestArea 0,16 320x64
+  dl3 Text -16,16 352x64 glyphs=43 fs=16
+  dl4 Text -16,16 352x64 glyphs=43 fs=16
+  dl5 Text -16,16 352x64 glyphs=37 fs=16
+  dl6 Text -16,16 352x64 glyphs=17 fs=16
+  dl7 HitTestArea 0,16.203125 315.20313x16
+  dl8 HitTestArea 0,32.203125 314.40625x16
+  dl9 HitTestArea 0,48.203125 269.59375x16
+  dl10 HitTestArea 0,64.203125 124.796875x16
+  dl11 HitTestArea 0,96 320x40.53125
+  dl12 Text -24,96 368x40.53125 glyphs=12 fs=16
+  dl13 Text -24,96 368x40.53125 glyphs=3 fs=24
+  dl14 Text -24,96 368x40.53125 glyphs=1 fs=16
+  dl15 Text -24,96 368x40.53125 glyphs=3 fs=16
+  dl16 Text -24,96 368x40.53125 glyphs=1 fs=16
+  dl17 Text -24,96 368x40.53125 glyphs=3 fs=16
+  dl18 Text -24,96 368x40.53125 glyphs=5 fs=16
+  dl19 HitTestArea 0,109.53125 78.40625x16
+  dl20 HitTestArea 78.40625,103.140625 28.796875x24
+  dl21 HitTestArea 107.203125,109.53125 4x16
+  dl22 HitTestArea 111.203125,103.203125 24x16
+  dl23 HitTestArea 135.20313,109.53125 4x16
+  dl24 HitTestArea 139.20313,113.734375 24x16
+  dl25 HitTestArea 163.20313,109.53125 31.203125x16
+  dl26 HitTestArea 0,96 0x0
+  dl27 HitTestArea 0,96 0x0
+  dl28 HitTestArea 0,96 0x0
+  dl29 HitTestArea 0,152.53125 320x32
+  dl30 Border 6,146.73438 306x28
+  dl31 Border 12,162.73438 28.40625x28
+  dl32 Text -16,152.53125 352x32 glyphs=42 fs=16
+  dl33 Text -16,152.53125 352x32 glyphs=4 fs=16
+  dl34 Text -16,152.53125 352x32 glyphs=6 fs=16
+  dl35 Text -16,152.53125 352x32 glyphs=4 fs=16
+  dl36 Text -16,152.53125 352x32 glyphs=1 fs=16
+  dl37 Text -16,152.53125 352x32 glyphs=6 fs=16
+  dl38 HitTestArea 12,152.73438 300x16
+  dl39 HitTestArea 12,168.73438 22.40625x16
+  dl40 HitTestArea 46.40625,168.73438 40x16
+  dl41 HitTestArea 86.40625,168.73438 27.203125x16
+  dl42 HitTestArea 113.59375,168.73438 4x16
+  dl43 HitTestArea 117.59375,168.73438 33.59375x16
+  dl44 HitTestArea 0,152.53125 0x0
+  dl45 HitTestArea 0,152.53125 0x0
+  dl46 HitTestArea 0,152.53125 0x0
+  dl47 HitTestArea 0,200.53125 320x32
+  dl48 Text -16,200.53125 352x32 glyphs=7 fs=16
+  dl49 Text -16,200.53125 352x32 glyphs=7 fs=16
+  dl50 Text -16,200.53125 352x32 glyphs=1 fs=16
+  dl51 HitTestArea 0,201.73438 52x16
+  dl52 HitTestArea 114,201.73438 48x16
+  dl53 HitTestArea 187.60938,201.73438 3.203125x16
+  dl54 Border 52,200.53125 62x32
+  dl55 HitTestArea 52,200.53125 62x32
+  dl56 HitTestArea 162,200.53125 25.609375x20
+  dl57 HitTestArea 52,200.53125 62x32
+  dl58 Text 37,201.53125 43.203125x16 glyphs=2 fs=16
+  dl59 HitTestArea 53,201.73438 11.203125x16
+  dl60 HitTestArea 162,200.53125 25.609375x20
+  dl61 Text 146,200.53125 57.609375x16 glyphs=3 fs=16
+  dl62 HitTestArea 162,200.73438 25.59375x16
+  dl63 HitTestArea 0,248.53125 320x16
+  dl64 Text -16,248.53125 352x16 glyphs=8 fs=16
+  dl65 HitTestArea 128,248.73438 64x16
+  dl66 HitTestArea 0,280.53125 320x16
+  dl67 Text -16,280.53125 352x16 glyphs=5 fs=16
+  dl68 HitTestArea 284.79688,280.73438 35.203125x16
+  dl69 HitTestArea 0,312.53125 320x64
+  dl70 Text -16,312.53125 352x64 glyphs=43 fs=16
+  dl71 Text -16,312.53125 352x64 glyphs=43 fs=16
+  dl72 Text -16,312.53125 352x64 glyphs=37 fs=16
+  dl73 Text -16,312.53125 352x64 glyphs=17 fs=16
+  dl74 HitTestArea 0,312.73438 320x16
+  dl75 HitTestArea 0,328.73438 320x16
+  dl76 HitTestArea 0,344.73438 320x16
+  dl77 HitTestArea 0,360.73438 124.796875x16
+  dl78 HitTestArea 0,392.53125 320x48
+  dl79 Text -16,392.53125 352x48 glyphs=25 fs=16
+  dl80 Text -16,392.53125 352x48 glyphs=27 fs=16
+  dl81 Text -16,392.53125 352x48 glyphs=17 fs=16
+  dl82 HitTestArea 30,392.73438 260x16
+  dl83 HitTestArea 0,408.73438 268.20313x16
+  dl84 HitTestArea 0,424.73438 166.79688x16
+  dl85 HitTestArea 0,456.53125 320x32
+  dl86 Text -16,456.53125 352x32 glyphs=15 fs=16
+  dl87 Text -16,456.53125 352x32 glyphs=13 fs=16
+  dl88 HitTestArea 0,456.73438 114.40625x16
+  dl89 HitTestArea 0,472.73438 82.40625x16
+  dl90 HitTestArea 0,504.53125 320x16
+  dl91 Text -16,504.53125 548x16 glyphs=71 fs=16
+  dl92 HitTestArea 0,504.73438 516x16
+  dl93 HitTestArea 0,536.53125 320x48
+  dl94 Text -16,536.53125 352x48 glyphs=42 fs=16
+  dl95 Text -16,536.53125 352x48 glyphs=38 fs=16
+  dl96 Text -16,536.53125 352x48 glyphs=17 fs=16
+  dl97 HitTestArea 0,536.7344 300x16
+  dl98 HitTestArea 0,552.7344 273.59375x16
+  dl99 HitTestArea 0,568.7344 124.796875x16
+  dl100 HitTestArea 0,600.53125 320x32
+  dl101 Text -16,600.53125 352x32 glyphs=8 fs=16
+  dl102 Text -16,600.53125 352x32 glyphs=16 fs=16
+  dl103 HitTestArea 0,600.7344 50.40625x16
+  dl104 HitTestArea 0,616.7344 114.40625x16
+  dl105 HitTestArea 0,648.53125 320x32
+  dl106 Text -16,648.53125 352x32 glyphs=46 fs=16
+  dl107 Text -16,648.53125 352x32 glyphs=5 fs=16
+  dl108 HitTestArea 0,648.7344 320x16
+  dl109 HitTestArea 0,664.7344 30.40625x16
+  dl110 HitTestArea 0,696.53125 320x32
+  dl111 Text -16,696.53125 352x32 glyphs=38 fs=16
+  dl112 Text -16,696.53125 352x32 glyphs=9 fs=16
+  dl113 HitTestArea 0,696.7344 313.59375x16
+  dl114 HitTestArea 0,712.7344 72x16
+  dl115 HitTestArea 0,744.53125 320x32
+  dl116 Text -16,744.53125 352x32 glyphs=40 fs=16
+  dl117 Text -16,744.53125 352x32 glyphs=33 fs=16
+  dl118 HitTestArea 0,744.7344 299.20313x16
+  dl119 HitTestArea 0,760.7344 237.59375x16
+  dl120 HitTestArea 0,792.53125 320x64
+  dl121 Text -16,792.53125 352x64 glyphs=4 fs=16
+  dl122 Text -16,792.53125 352x64 glyphs=5 fs=16
+  dl123 Text -16,792.53125 352x64 glyphs=18 fs=16
+  dl124 HitTestArea 0,792.7344 27.203125x16
+  dl125 HitTestArea 0,808.7344 40x16
+  dl126 HitTestArea 0,840.7344 117.59375x16
+  dl127 HitTestArea 0,872.53125 320x16
+  dl128 Text -16,872.53125 352x16 glyphs=10 fs=16
+  dl129 HitTestArea 0,872.7344 76x16
+  dl130 HitTestArea 0,904.53125 320x32
+  dl131 Text -16,904.53125 352x32 glyphs=40 fs=16
+  dl132 Text -16,904.53125 352x32 glyphs=40 fs=16
+  dl133 HitTestArea 0,904.7344 320x16
+  dl134 HitTestArea 0,920.7344 320x16
+  dl135 HitTestArea 0,952.53125 320x64
+  dl136 Text -16,952.53125 352x64 glyphs=43 fs=16
+  dl137 Text -16,952.53125 352x64 glyphs=43 fs=16
+  dl138 Text -16,952.53125 352x64 glyphs=37 fs=16
+  dl139 Text -16,952.53125 352x64 glyphs=17 fs=16
+  dl140 HitTestArea 0,952.7344 320x16
+  dl141 HitTestArea 0,968.7344 320x16
+  dl142 HitTestArea 0,984.7344 320x16
+  dl143 HitTestArea 195.20313,1000.7344 124.796875x16
+  dl144 HitTestArea 0,1032.5313 320x48
+  dl145 Text -16,1032.5313 352x16 glyphs=9 fs=16
+  dl146 HitTestArea 0,1032.7344 78.40625x16
+  dl147 HitTestArea 0,1048.5313 320x16
+  dl148 Text -16,1048.5313 352x16 glyphs=5 fs=16
+  dl149 HitTestArea 0,1048.7344 35.203125x16
+  dl150 Text -16,1064.5313 352x16 glyphs=12 fs=16
+  dl151 HitTestArea 0,1064.7344 72.796875x16
+  dl152 PopStackingContext
+  dl153 PopScrollFrame
+  dl154 ScrollBarStyled 788,0 12x600
+=== bidi
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x202 ov=300x202 bl=199 ic=300/300
+n1 p0 d1 Block { establishes_new_context: false } @0,16 300x186 ov=300x186 mt=16 mb=16 bl=183 ic=300/300 rel=0,16
+n2 p1 d2 Inline @0,16 300x32 ov=255.20313x32 bl=29 ic=72/384 rel=0,0
+n3 p2 d3 Inline @0,16 -x- ic=72/384
+n4 p1 d4 Inline @0,64 300x16 ov=95.203125x16 bl=13 ic=59.203125/95.203125 rel=0,48
+n5 p4 d5 Inline @0,64 -x- ic=59.203125/95.203125
+n6 p1 d6 Inline @0,96 300x16 ov=148x16 bl=13 ic=70.40625/148 rel=0,80
+n7 p6 d7 Inline @0,96 -x- ic=24/24
+n8 p6 d8 Inline @0,96 -x- ic=70.40625/93.609375
+n9 p8 d9 Inline @0,96 -x- ic=70.40625/93.609375
+n10 p6 d10 Inline @0,96 -x- ic=22.40625/22.40625
+n11 p1 d11 Inline @0,128 300x16 ov=165.59375x16 bl=13 ic=48/165.60938 rel=0,112
+n12 p11 d12 Inline @0,128 -x- ic=48/165.60938
+n13 p1 d13 Block { establishes_new_context: false } @0,160 300x10 ov=300x10 mt=0 mb=0 bl=13 ic=100/100 rel=0,144
+n14 p13 d14 Inline @200,160 100x10 ov=19.203125x16 bl=13 ic=100/100 rel=200,0
+n15 p14 d15 Inline @200,160 -x- ic=19.203125/19.203125
+n16 p1 d16 Inline @0,186 300x16 ov=97.59375x16 bl=13 ic=46.40625/97.609375 rel=0,170
+n17 p16 d17 Inline @0,186 -x- ic=46.40625/46.40625
+n18 p16 d18 Inline @0,186 -x- ic=19.203125/19.203125
+n19 p18 d19 Inline @0,186 -x- ic=19.203125/19.203125
+n20 p16 d20 Inline @0,186 -x- ic=0/0
+n21 p16 d21 Inline @0,186 -x- ic=24/24
+n22 p21 d22 Inline @0,186 -x- ic=24/24
+  dl0 PushStackingContext 0,0 800x202
+  dl1 HitTestArea 0,16 300x32
+  dl2 Text -16,16 332x32 glyphs=36 fs=16
+  dl3 Text -16,16 332x32 glyphs=15 fs=16
+  dl4 HitTestArea 44.796875,16.203125 255.20313x16
+  dl5 HitTestArea 175.20313,32.203125 124.796875x16
+  dl6 HitTestArea 0,64 300x16
+  dl7 Text -16,64 332x16 glyphs=13 fs=16
+  dl8 HitTestArea 204.79688,64.203125 95.203125x16
+  dl9 HitTestArea 0,96 300x16
+  dl10 Text -16,96 332x16 glyphs=4 fs=16
+  dl11 Text -16,96 332x16 glyphs=12 fs=16
+  dl12 Text -16,96 332x16 glyphs=5 fs=16
+  dl13 HitTestArea 0,96.203125 28x16
+  dl14 HitTestArea 28,96.203125 93.59375x16
+  dl15 HitTestArea 121.59375,96.203125 26.40625x16
+  dl16 HitTestArea 0,96 0x0
+  dl17 HitTestArea 0,128 300x16
+  dl18 Text -16,128 332x16 glyphs=4 fs=16
+  dl19 Text -16,128 332x16 glyphs=7 fs=16
+  dl20 Text -16,128 332x16 glyphs=6 fs=16
+  dl21 Text -16,128 332x16 glyphs=5 fs=16
+  dl22 HitTestArea 0,128.20313 32x16
+  dl23 HitTestArea 32,128.20313 49.59375x16
+  dl24 HitTestArea 81.59375,128.20313 48x16
+  dl25 HitTestArea 129.59375,128.20313 36x16
+  dl26 HitTestArea 200,160 100x10
+  dl27 Text 184,160 132x16 glyphs=3 fs=16
+  dl28 HitTestArea 280.79688,160.20313 19.203125x16
+  dl29 HitTestArea 0,186 300x16
+  dl30 Text -16,186 332x16 glyphs=8 fs=16
+  dl31 Text -16,186 332x16 glyphs=3 fs=16
+  dl32 Text -16,186 332x16 glyphs=1 fs=16
+  dl33 Text -16,186 332x16 glyphs=3 fs=16
+  dl34 HitTestArea 0,186.20313 50.40625x16
+  dl35 HitTestArea 50.40625,186.20313 19.203125x16
+  dl36 HitTestArea 69.59375,186.20313 4x16
+  dl37 HitTestArea 73.59375,186.20313 24x16
+  dl38 HitTestArea 0,186 0x0
+  dl39 HitTestArea 0,186 0x0
+  dl40 PopStackingContext
+=== lists and markers
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x404 ov=800x404 bl=401 ic=128/140
+n1 p0 d1 Block { establishes_new_context: false } @0,16 800x388 ov=800x388 mt=16 mb=16 bl=385 ic=128/140 rel=0,16
+n2 p1 d2 Block { establishes_new_context: false } @0,16 800x80 ov=760x80 mt=16 mb=16 bl=77 ic=88/100 rel=0,0
+n3 p2 d3 Inline @40,16 760x16 ov=36x16 bl=13 ic=24/24 rel=0,0
+n4 p3 d3 Inline pseudo=Marker @40,16 -x- ic=0/0
+n5 p3 d4 Inline @40,16 -x- ic=24/24
+n6 p2 d5 Block { establishes_new_context: false } @40,32 760x64 ov=760x64 mt=0 mb=16 bl=61 ic=88/100 rel=0,16
+n7 p6 d5 Inline pseudo=Marker @40,32 -x- ic=0/0
+n8 p6 d- Inline anon=InlineWrapper @40,32 760x16 ov=42.40625x16 bl=13 ic=30.40625/30.40625 rel=0,0
+n9 p8 d6 Inline @40,32 -x- ic=30.40625/30.40625
+n10 p6 d7 Block { establishes_new_context: false } @40,64 760x32 ov=720x32 mt=16 mb=16 bl=29 ic=48/60 rel=0,32
+n11 p10 d8 Inline @80,64 720x16 ov=72x16 bl=13 ic=48/60 rel=0,0
+n12 p11 d8 Inline pseudo=Marker @80,64 -x- ic=0/0
+n13 p11 d9 Inline @80,64 -x- ic=48/60
+n14 p10 d10 Inline @80,80 720x16 ov=72x16 bl=13 ic=48/60 rel=0,16
+n15 p14 d10 Inline pseudo=Marker @80,80 -x- ic=0/0
+n16 p14 d11 Inline @80,80 -x- ic=48/60
+n17 p1 d12 Block { establishes_new_context: false } @0,112 800x48 ov=760x48 mt=16 mb=16 bl=45 ic=48/48 rel=0,96
+n18 p17 d13 Inline @40,112 760x16 ov=54.40625x16 bl=13 ic=35.203125/35.203125 rel=0,0
+n19 p18 d13 Inline pseudo=Marker @40,112 -x- ic=0/0
+n20 p18 d14 Inline @40,112 -x- ic=35.203125/35.203125
+n21 p17 d15 Inline @40,128 760x16 ov=67.203125x16 bl=13 ic=48/48 rel=0,16
+n22 p21 d15 Inline pseudo=Marker @40,128 -x- ic=0/0
+n23 p21 d16 Inline @40,128 -x- ic=48/48
+n24 p17 d17 Inline @40,144 760x16 ov=54.40625x16 bl=13 ic=35.203125/35.203125 rel=0,32
+n25 p24 d17 Inline pseudo=Marker @40,144 -x- ic=0/0
+n26 p24 d18 Inline @40,144 -x- ic=35.203125/35.203125
+n27 p1 d19 Block { establishes_new_context: false } @0,176 800x32 ov=760x32 mt=16 mb=16 bl=29 ic=27.203125/27.203125 rel=0,160
+n28 p27 d20 Inline @40,176 760x16 ov=46.40625x16 bl=13 ic=27.203125/27.203125 rel=0,0
+n29 p28 d20 Inline pseudo=Marker @40,176 -x- ic=0/0
+n30 p28 d21 Inline @40,176 -x- ic=27.203125/27.203125
+n31 p27 d22 Inline @40,192 760x16 ov=41.59375x16 bl=13 ic=19.203125/19.203125 rel=0,16
+n32 p31 d22 Inline pseudo=Marker @40,192 -x- ic=0/0
+n33 p31 d23 Inline @40,192 -x- ic=19.203125/19.203125
+n34 p1 d24 Block { establishes_new_context: false } @0,224 800x16 ov=760x16 mt=16 mb=16 bl=13 ic=54.40625/96.8125 rel=0,208
+n35 p34 d25 Inline @40,224 760x16 ov=104.796875x16 bl=13 ic=54.40625/96.8125 rel=0,0
+n36 p35 d25 Inline pseudo=Marker @40,224 -x- ic=0/0
+n37 p35 d26 Inline @40,224 -x- ic=54.40625/96.8125
+n38 p1 d27 Block { establishes_new_context: false } @0,256 800x68 ov=760x68 mt=16 mb=16 bl=59 ic=41.203125/66.8125 rel=0,240
+n39 p38 d28 Block { establishes_new_context: false } @40,256 760x30 ov=760x30 mt=0 mb=0 bl=13 ic=35.203125/60.8125 rel=0,0
+n40 p39 d28 Inline pseudo=Marker @40,256 -x- ic=0/0
+n41 p39 d29 Inline @40,256 760x30 ov=80x16 bl=13 ic=35.203125/60.8125 rel=0,0
+n42 p41 d30 Inline @40,256 -x- ic=35.203125/60.8125
+n43 p38 d31 Block { establishes_new_context: false } @40,286 760x16 ov=0x16 bl=13 ic=0/0 rel=0,30
+n44 p43 d31 Inline pseudo=Marker @40,286 760x16 ov=15.203125x16 bl=13 ic=0/0 rel=0,0
+n45 p38 d32 Block { establishes_new_context: false } @40,302 760x22 ov=66.8125x22 mt=0 mb=0 bl=13 ic=41.203125/66.8125 rel=0,46
+n46 p45 d32 Inline pseudo=Marker @40,302 760x16 ov=15.203125x16 bl=13 ic=0/0 rel=0,0
+n47 p45 d33 Table @40,302 66.8125x22 ov=66.8125x22 ic=41.203125/66.8125 rel=0,0
+n48 p47 d34 TableRow @42,304 62.8125x18 ic=37.203125/62.8125 rel=2,2
+n49 p48 d35 TableCell @42,304 62.8125x18 bl=13 ic=35.203125/60.8125 rel=0,0
+n50 p49 d36 Inline @43,305 -x- ic=35.203125/60.8125
+n51 p1 d37 Block { establishes_new_context: false } @0,340 800x16 ov=760x16 mt=16 mb=16 bl=13 ic=54.40625/74.40625 rel=0,324
+n52 p51 d38 Inline @40,340 760x16 ov=74.40625x16 bl=13 ic=54.40625/74.40625 rel=0,0
+n53 p52 d39 Inline @40,340 -x- ic=54.40625/74.40625
+n54 p1 d40 Block { establishes_new_context: false } @0,372 800x0 ov=0x0 ic=51.203125/88.8125 rel=0,356
+n55 p54 d41 Inline @40,372 88.8125x16 ov=100.796875x16 bl=13 ic=51.203125/88.8125 rel=0,0
+n56 p55 d41 Inline pseudo=Marker @40,372 -x- ic=0/0
+n57 p55 d42 Inline @40,372 -x- ic=51.203125/88.8125
+n58 p1 d43 Block { establishes_new_context: false } @0,388 800x16 ov=760x16 mt=16 mb=16 bl=13 ic=32/32 rel=0,372
+n59 p58 d44 Inline @40,388 760x16 ov=59.203125x16 bl=13 ic=32/32 rel=0,0
+n60 p59 d44 Inline pseudo=Marker @40,388 -x- ic=0/0
+n61 p59 d45 Inline @40,388 -x- ic=32/32
+  dl0 PushStackingContext 0,0 800x404
+  dl1 HitTestArea 40,16 760x16
+  dl2 Text 12,16 804x16 glyphs=2 fs=16
+  dl3 Text 12,16 804x16 glyphs=3 fs=16
+  dl4 HitTestArea 40,16.203125 24x16
+  dl5 HitTestArea 40,16 0x0
+  dl6 HitTestArea 40,32 760x64
+  dl7 HitTestArea 40,32 0x0
+  dl8 Text 12,32 804x16 glyphs=2 fs=16
+  dl9 Text 12,32 804x16 glyphs=3 fs=16
+  dl10 HitTestArea 40,32.203125 30.40625x16
+  dl11 HitTestArea 80,64 720x16
+  dl12 Text 52,64 764x16 glyphs=2 fs=16
+  dl13 Text 52,64 764x16 glyphs=8 fs=16
+  dl14 HitTestArea 80,64.203125 60x16
+  dl15 HitTestArea 80,64 0x0
+  dl16 HitTestArea 80,80 720x16
+  dl17 Text 52,80 764x16 glyphs=2 fs=16
+  dl18 Text 52,80 764x16 glyphs=8 fs=16
+  dl19 HitTestArea 80,80.203125 60x16
+  dl20 HitTestArea 80,80 0x0
+  dl21 HitTestArea 40,112 760x16
+  dl22 Text 4.796875,112 811.2031x16 glyphs=3 fs=16
+  dl23 Text 4.796875,112 811.2031x16 glyphs=5 fs=16
+  dl24 HitTestArea 40,112.203125 35.203125x16
+  dl25 HitTestArea 40,112 0x0
+  dl26 HitTestArea 40,128 760x16
+  dl27 Text 4.796875,128 811.2031x16 glyphs=3 fs=16
+  dl28 Text 4.796875,128 811.2031x16 glyphs=6 fs=16
+  dl29 HitTestArea 40,128.20313 48x16
+  dl30 HitTestArea 40,128 0x0
+  dl31 HitTestArea 40,144 760x16
+  dl32 Text 4.796875,144 811.2031x16 glyphs=3 fs=16
+  dl33 Text 4.796875,144 811.2031x16 glyphs=5 fs=16
+  dl34 HitTestArea 40,144.20313 35.203125x16
+  dl35 HitTestArea 40,144 0x0
+  dl36 HitTestArea 40,176 760x16
+  dl37 Text 4.796875,176 811.2031x16 glyphs=3 fs=16
+  dl38 Text 4.796875,176 811.2031x16 glyphs=4 fs=16
+  dl39 HitTestArea 40,176.20313 27.203125x16
+  dl40 HitTestArea 40,176 0x0
+  dl41 HitTestArea 40,192 760x16
+  dl42 Text 1.59375,192 814.40625x16 glyphs=4 fs=16
+  dl43 Text 1.59375,192 814.40625x16 glyphs=3 fs=16
+  dl44 HitTestArea 40,192.20313 19.203125x16
+  dl45 HitTestArea 40,192 0x0
+  dl46 HitTestArea 40,224 760x16
+  dl47 Text 24,224 792x16 glyphs=2 fs=16
+  dl48 Text 24,224 792x16 glyphs=13 fs=16
+  dl49 HitTestArea 48,224.20313 96.796875x16
+  dl50 HitTestArea 40,224 0x0
+  dl51 HitTestArea 40,256 760x30
+  dl52 Text 4.796875,256 811.2031x30 glyphs=3 fs=16
+  dl53 Text 4.796875,256 811.2031x30 glyphs=11 fs=16
+  dl54 HitTestArea 40,256.20313 60.796875x16
+  dl55 Text 4.796875,286 811.2031x16 glyphs=3 fs=16
+  dl56 Text 4.796875,302 811.2031x16 glyphs=3 fs=16
+  dl57 HitTestArea 42,304 62.8125x18
+  dl58 Text 27,305 92.8125x16 glyphs=11 fs=16
+  dl59 HitTestArea 43,305.20313 60.796875x16
+  dl60 HitTestArea 40,340 760x16
+  dl61 Text 24,340 792x16 glyphs=9 fs=16
+  dl62 HitTestArea 40,340.20313 74.40625x16
+  dl63 HitTestArea 40,372 88.8125x16
+  dl64 Text 12,372 144.79688x16 glyphs=2 fs=16
+  dl65 Text 12,372 144.79688x16 glyphs=12 fs=16
+  dl66 HitTestArea 40,372.20313 88.796875x16
+  dl67 HitTestArea 40,372 0x0
+  dl68 HitTestArea 40,388 760x16
+  dl69 Text -3.203125,388 819.2031x16 glyphs=4 fs=16
+  dl70 Text -3.203125,388 819.2031x16 glyphs=4 fs=16
+  dl71 HitTestArea 40,388.20313 32x16
+  dl72 HitTestArea 40,388 0x0
+  dl73 PopStackingContext
+=== tables
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x410 ov=800x410 ic=300/300
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x410 ov=300x410 mt=0 mb=0 ic=300/300 rel=0,0
+n2 p1 d2 Table @0,0 59.8125x106 ov=57.8125x104 ic=38.40625/57.8125 rel=0,0
+n3 p2 d3 TableCaption @1,1 38.40625x12 ov=38.40625x12 bl=10 ic=38.40625/38.40625 rel=0,0
+n4 p3 d4 Inline @1,1 38.40625x12 ov=38.40625x12 bl=10 ic=38.40625/38.40625 rel=0,0
+n5 p2 d5 TableRowGroup @3,15 53.8125x16 ic=16/16 rel=2,14
+n6 p5 d6 TableRow @3,15 53.8125x16 ic=16/16 rel=0,0
+n7 p6 d7 TableCell @3,15 25.90625x16 bl=10 ic=12/12 rel=0,0
+n8 p7 d8 Inline @5,17 -x- ic=12/12
+n9 p6 d9 TableCell @30.90625,15 25.90625x16 bl=10 ic=12/12 rel=27.90625,0
+n10 p9 d10 Inline @32.90625,17 -x- ic=12/12
+n11 p2 d11 TableRowGroup @3,33 53.8125x70 ic=28/53.8125 rel=2,32
+n12 p11 d12 TableRow @3,33 53.8125x16 ic=16/16 rel=0,0
+n13 p12 d13 TableCell @3,33 25.90625x16 bl=10 ic=6/6 rel=0,0
+n14 p13 d14 Inline @5,35 -x- ic=6/6
+n15 p12 d15 TableCell @30.90625,33 25.90625x16 bl=10 ic=12/12 rel=27.90625,0
+n16 p15 d16 Inline @32.90625,35 -x- ic=12/12
+n17 p11 d17 TableRow @3,51 53.8125x16 ic=28/53.8125 rel=0,18
+n18 p17 d18 TableCell @3,51 53.8125x16 bl=10 ic=24/49.8125 rel=0,0
+n19 p18 d19 Inline @5,53 -x- ic=24/49.8125
+n20 p11 d20 TableRow @3,69 53.8125x16 ic=10/10 rel=0,36
+n21 p20 d21 TableCell @3,69 25.90625x34 bl=10 ic=6/6 rel=0,0
+n22 p21 d22 Inline @5,71 -x- ic=6/6
+n23 p20 d23 TableCell @30.90625,69 25.90625x16 bl=10 ic=6/6 rel=27.90625,0
+n24 p23 d24 Inline @32.90625,71 -x- ic=6/6
+n25 p11 d25 TableRow @3,87 53.8125x16 ic=10/10 rel=0,54
+n26 p25 d26 TableCell @30.90625,87 25.90625x16 bl=10 ic=6/6 rel=27.90625,0
+n27 p26 d27 Inline @32.90625,89 -x- ic=6/6
+n28 p1 d28 Table @0,106 300x20 ov=298x17 ic=298/298 rel=0,106
+n29 p28 d29 TableRow @1.5,107.5 298x17 ic=46/96.40625 rel=0,0
+n30 p29 d30 TableCell @1.5,107.5 44.671875x17 bl=10 ic=12/12 rel=0,0
+n31 p30 d31 Inline @4,110 -x- ic=12/12
+n32 p29 d32 TableCell @46.171875,107.5 253.32813x17 bl=10 ic=42/92.40625 rel=44.671875,0
+n33 p32 d33 Inline @48.671875,109 -x- ic=42/92.40625
+n34 p1 d34 Table @0,126 240x18 ov=240x18 ic=240/240 rel=0,126
+n35 p34 d35 TableColumnGroup @2,128 236x14 ic=60/60 rel=2,2
+n36 p35 d36 None @2,128 60x14 ic=60/60 rel=0,0
+n37 p35 d37 None @64,128 174x14 ic=0/0 rel=62,0
+n38 p34 d38 TableRow @2,128 236x14 ic=34.40625/110.609375 rel=2,2
+n39 p38 d39 TableCell @2,128 60x14 bl=10 ic=26.40625/26.40625 rel=0,0
+n40 p39 d40 Inline @3,129 -x- ic=26.40625/26.40625
+n41 p38 d41 TableCell @64,128 174x14 bl=10 ic=32.40625/108.609375 rel=62,0
+n42 p41 d42 Inline @65,129 -x- ic=32.40625/108.609375
+n43 p1 d43 Table @0,144 25x34 ov=25x34 ic=25/25 rel=0,144
+n44 p43 d44 TableRow @5,154 15x14 ic=8/8 rel=5,10
+n45 p44 d45 TableCell @5,154 2x14 ov=0x0 ic=0/0 rel=0,0
+n46 p44 d46 TableCell @12,154 8x14 bl=10 ic=6/6 rel=7,0
+n47 p46 d47 Inline @13,155 -x- ic=6/6
+n48 p1 d48 Table @0,178 66.8125x58 ov=66.8125x58 ic=66.8125/66.8125 rel=0,178
+n49 p48 d49 TableCaption @0,224 40.8125x12 ov=40.8125x12 bl=10 ic=40.8125/40.8125 rel=0,46
+n50 p49 d50 Inline @0,224 40.8125x12 ov=40.796875x12 bl=10 ic=40.8125/40.8125 rel=0,0
+n51 p48 d51 TableRow @2,180 62.8125x42 ic=18.8125/18.8125 rel=2,2
+n52 p51 d52 TableCell @2,180 14x42 bl=10 ic=12/12 rel=0,0
+n53 p52 d53 Inline @3,181 -x- ic=12/12
+n54 p51 d54 TableCell @18,180 18.796875x42 bl=10 ic=16.8125/16.8125 rel=16,0
+n55 p54 d55 Inline @19,181 -x- ic=16.8125/16.8125
+n56 p51 d56 TableCell @38.8125,180 8x42 bl=22 ic=6/6 rel=36.8125,0
+  line 0 y=8 items=2 glyphs=1 x=0..6
+  line 1 y=20 items=1 glyphs=1 x=0..6
+n57 p56 d57 Inline @39.8125,181 -x- ic=6/6
+n58 p56 d58 Inline @39.8125,181 -x- ic=0/0
+n59 p56 d59 Inline @39.8125,181 -x- ic=6/6
+n60 p51 d60 TableCell @48.8125,180 16x42 bl=16 ic=14/14 rel=46.8125,0
+n61 p60 d61 Inline @49.8125,181 -x- ic=14/14
+n62 p1 d62 Table @0,236 55.40625x20 ov=55.40625x20 ic=34.40625/55.40625 rel=0,236
+n63 p62 d63 TableRow @0,236 55.40625x20 ic=34.40625/55.40625 rel=0,0
+n64 p63 d64 TableCell @0,236 55.40625x20 bl=10 ic=26.40625/47.40625 rel=0,0
+n65 p64 d65 Inline @4,240 -x- ic=26.40625/47.40625
+n66 p1 d66 Table @0,256 82x24 ov=82x24 ic=82/82 rel=0,256
+n67 p66 d67 TableRow @2,258 78x20 ic=44/44 rel=2,2
+n68 p67 d68 TableCell @2,258 44x20 ov=42x18 ic=42/42 rel=0,0
+n69 p68 d69 Table @3,259 42x18 ov=42x18 ic=42/42 rel=0,0
+n70 p69 d70 TableRow @5,261 38x14 ic=38/38 rel=2,2
+n71 p70 d71 TableCell @5,261 38x14 bl=10 ic=36/36 rel=0,0
+n72 p71 d72 Inline @6,262 -x- ic=36/36
+n73 p67 d73 TableCell @48,258 32x20 bl=10 ic=30/30 rel=46,0
+n74 p73 d74 Inline @49,259 -x- ic=30/30
+n75 p1 d75 Table @0,280 300x20 ov=300x20 ic=300/300 rel=0,280
+n76 p75 d76 TableRow @0,280 300x20 ic=40.40625/40.40625 rel=0,0
+n77 p76 d77 TableCell @0,280 210x20 bl=10 ic=32.40625/32.40625 rel=0,0
+n78 p77 d78 Inline @4,284 -x- ic=32.40625/32.40625
+n79 p76 d79 TableCell @210,280 90x20 bl=10 ic=32.40625/32.40625 rel=210,0
+n80 p79 d80 Inline @214,284 -x- ic=32.40625/32.40625
+n81 p1 d81 Table @0,300 54.8125x14 ov=54.8125x14 ic=36.8125/54.8125 rel=0,300
+n82 p81 d82 TableRow @0,300 54.8125x14 ic=18.40625/27.40625 rel=0,0
+n83 p82 d83 TableCell @27.40625,300 27.40625x14 bl=10 ic=14.40625/23.40625 rel=27.40625,0
+n84 p83 d84 Inline @30.40625,301 -x- ic=14.40625/23.40625
+n85 p82 d85 TableCell @0,300 27.40625x14 bl=10 ic=14.40625/23.40625 rel=0,0
+n86 p85 d86 Inline @1,301 -x- ic=14.40625/23.40625
+n87 p1 d87 Table @0,314 80.8125x18 ov=80.8125x18 ic=80.8125/80.8125 rel=0,314
+n88 p87 d88 TableRow @2,316 76.8125x14 ic=48.8125/48.8125 rel=2,2
+n89 p88 d89 TableCell @2,316 48.8125x14 bl=10 ic=46.8125/46.8125 rel=0,0
+n90 p89 d90 Inline @3,317 -x- ic=46.8125/46.8125
+n91 p88 d91 TableCell @52.8125,316 26x14 bl=10 ic=24/24 rel=50.8125,0
+n92 p91 d92 Inline @53.8125,317 -x- ic=24/24
+n93 p1 d93 Table @0,332 50x78 ov=50x78 ic=50/50 rel=0,332
+n94 p93 d94 TableRow @2,334 46x74 ic=33.203125/224.60938 rel=2,2
+n95 p94 d95 TableCell @2,334 46x74 bl=70 ic=31.203125/222.60938 rel=0,0
+n96 p95 d96 Inline @3,335 -x- ic=31.203125/222.60938
+  dl0 PushStackingContext 0,0 800x410
+  dl1 Border 0,0 59.8125x106
+  dl2 HitTestArea 1,1 38.40625x12
+  dl3 Text -11,1 62.40625x12 glyphs=7 fs=12
+  dl4 HitTestArea 1,1.40625 38.40625x12
+  dl5 Border 3,15 25.90625x16
+  dl6 HitTestArea 3,15 25.90625x16
+  dl7 Text -7,17 45.90625x12 glyphs=2 fs=12
+  dl8 HitTestArea 9.953125,17.40625 12x12
+  dl9 Border 30.90625,15 25.90625x16
+  dl10 HitTestArea 30.90625,15 25.90625x16
+  dl11 Text 20.90625,17 45.90625x12 glyphs=2 fs=12
+  dl12 HitTestArea 37.859375,17.40625 12x12
+  dl13 Border 3,33 25.90625x16
+  dl14 HitTestArea 3,33 25.90625x16
+  dl15 Text -7,35 45.90625x12 glyphs=1 fs=12
+  dl16 HitTestArea 5,35.40625 6x12
+  dl17 Border 30.90625,33 25.90625x16
+  dl18 HitTestArea 30.90625,33 25.90625x16
+  dl19 Text 20.90625,35 45.90625x12 glyphs=2 fs=12
+  dl20 HitTestArea 32.90625,35.40625 12x12
+  dl21 Border 3,51 53.8125x16
+  dl22 HitTestArea 3,51 53.8125x16
+  dl23 Text -7,53 73.8125x12 glyphs=8 fs=12
+  dl24 HitTestArea 5,53.40625 49.796875x12
+  dl25 Border 3,69 25.90625x34
+  dl26 HitTestArea 3,69 25.90625x34
+  dl27 Text -7,71 45.90625x30 glyphs=1 fs=12
+  dl28 HitTestArea 5,80.40625 6x12
+  dl29 Border 30.90625,69 25.90625x16
+  dl30 HitTestArea 30.90625,69 25.90625x16
+  dl31 Text 20.90625,71 45.90625x12 glyphs=1 fs=12
+  dl32 HitTestArea 32.90625,71.40625 6x12
+  dl33 Border 30.90625,87 25.90625x16
+  dl34 HitTestArea 30.90625,87 25.90625x16
+  dl35 Text 20.90625,89 45.90625x12 glyphs=1 fs=12
+  dl36 HitTestArea 32.90625,89.40625 6x12
+  dl37 Border 299,107.5 1x17
+  dl38 Border 44.671875,107 255.32813x1
+  dl39 Border 44.671875,124 255.32813x1
+  dl40 HitTestArea 1.5,107.5 44.671875x17
+  dl41 Text -8,110 63.671875x12 glyphs=2 fs=12
+  dl42 HitTestArea 4,110.40625 12x12
+  dl43 HitTestArea 46.171875,107.5 253.32813x17
+  dl44 Text 36.671875,109 273.32813x14 glyphs=17 fs=12
+  dl45 HitTestArea 48.671875,110.40625 92.40625x12
+  dl46 HitTestArea 2,128 60x14
+  dl47 Text -9,129 82x12 glyphs=5 fs=12
+  dl48 HitTestArea 3,129.40625 26.40625x12
+  dl49 HitTestArea 64,128 174x14
+  dl50 Text 53,129 196x12 glyphs=22 fs=12
+  dl51 HitTestArea 65,129.40625 108.59375x12
+  dl52 HitTestArea 12,154 8x14
+  dl53 Text 1,155 30x12 glyphs=1 fs=12
+  dl54 HitTestArea 13,155.40625 6x12
+  dl55 HitTestArea 0,224 40.8125x12
+  dl56 Text -12,224 64.8125x12 glyphs=6 fs=12
+  dl57 HitTestArea 0,224.40625 40.796875x12
+  dl58 HitTestArea 2,180 14x42
+  dl59 Text -9,181 36x40 glyphs=2 fs=12
+  dl60 HitTestArea 3,209.40625 12x12
+  dl61 HitTestArea 18,180 18.796875x42
+  dl62 Text 7,181 40.796875x40 glyphs=2 fs=12
+  dl63 HitTestArea 19,195.40625 16.796875x12
+  dl64 HitTestArea 38.8125,180 8x42
+  dl65 Text 27.8125,181 30x40 glyphs=1 fs=12
+  dl66 Text 27.8125,181 30x40 glyphs=1 fs=12
+  dl67 HitTestArea 39.8125,189.40625 6x12
+  dl68 HitTestArea 39.8125,201.40625 6x12
+  dl69 HitTestArea 48.8125,180 16x42
+  dl70 Text 29.8125,181 54x40 glyphs=2 fs=20
+  dl71 HitTestArea 49.8125,181 14x20
+  dl72 HitTestArea 0,236 55.40625x20
+  dl73 Text -8,240 71.40625x12 glyphs=9 fs=12
+  dl74 HitTestArea 4,240.40625 47.40625x12
+  dl75 HitTestArea 5,261 38x14
+  dl76 Text -6,262 60x12 glyphs=6 fs=12
+  dl77 HitTestArea 6,262.40625 36x12
+  dl78 HitTestArea 48,258 32x20
+  dl79 Text 37,259 54x18 glyphs=5 fs=12
+  dl80 HitTestArea 49,262.40625 30x12
+  dl81 HitTestArea 0,280 210x20
+  dl82 Text -8,284 226x12 glyphs=6 fs=12
+  dl83 HitTestArea 88.796875,284.40625 32.40625x12
+  dl84 HitTestArea 210,280 90x20
+  dl85 Text 202,284 106x12 glyphs=6 fs=12
+  dl86 HitTestArea 214,284.40625 32.40625x12
+  dl87 HitTestArea 27.40625,300 27.40625x14
+  dl88 Text 18.40625,301 47.40625x12 glyphs=5 fs=12
+  dl89 HitTestArea 30.40625,301.40625 23.40625x12
+  dl90 HitTestArea 0,300 27.40625x14
+  dl91 Text -11,301 47.40625x12 glyphs=5 fs=12
+  dl92 HitTestArea 1,301.40625 23.40625x12
+  dl93 HitTestArea 52.8125,316 26x14
+  dl94 Text 41.8125,317 48x12 glyphs=4 fs=12
+  dl95 HitTestArea 53.8125,317.40625 24x12
+  dl96 HitTestArea 2,334 46x74
+  dl97 Text -9,335 68x72 glyphs=6 fs=12
+  dl98 Text -9,335 68x72 glyphs=9 fs=12
+  dl99 Text -9,335 68x72 glyphs=7 fs=12
+  dl100 Text -9,335 68x72 glyphs=5 fs=12
+  dl101 Text -9,335 68x72 glyphs=8 fs=12
+  dl102 Text -9,335 68x72 glyphs=5 fs=12
+  dl103 HitTestArea 3,335.40625 33x12
+  dl104 HitTestArea 3,347.40625 40.203125x12
+  dl105 HitTestArea 3,359.40625 35.40625x12
+  dl106 HitTestArea 3,371.40625 31.203125x12
+  dl107 HitTestArea 3,383.40625 41.40625x12
+  dl108 HitTestArea 3,395.40625 26.40625x12
+  dl109 PopStackingContext
+=== flex
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x376 ov=800x376 bl=293 ic=500/500
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x376 ov=800x376 mt=0 mb=0 bl=293 ic=500/500 rel=0,0
+n2 p1 d2 Flex @0,0 400x50 ov=400x50 ic=400/400 rel=0,0
+n3 p2 d3 Inline @0,0 116.671875x50 ov=8x16 bl=13 ic=8/8 rel=0,0
+n4 p3 d4 Inline @0,0 -x- ic=8/8
+n5 p2 d5 Inline @116.671875,0 233.32813x50 ov=8x16 bl=13 ic=8/8 rel=116.671875,0
+n6 p5 d6 Inline @116.671875,0 -x- ic=8/8
+n7 p2 d7 Inline @350,0 50x50 ov=8x16 bl=13 ic=50/50 rel=350,0
+n8 p7 d8 Inline @350,0 -x- ic=8/8
+n9 p1 d9 Flex @0,50 800x120 ov=800x120 ic=8/8 rel=0,50
+n10 p9 d10 Inline @0,50 800x16 ov=8x16 bl=13 ic=8/8 rel=0,0
+n11 p10 d11 Inline @0,50 -x- ic=8/8
+n12 p9 d12 Inline @0,154 800x16 ov=8x16 bl=13 ic=8/8 rel=0,104
+n13 p12 d13 Inline @0,154 -x- ic=8/8
+n14 p1 d14 Flex @0,170 200x50 ov=160x50 ic=200/200 rel=0,170
+n15 p14 d15 Block { establishes_new_context: false } @0,170 80x20 ov=0x0 ic=80/80 rel=0,0
+n16 p14 d16 Block { establishes_new_context: false } @80,170 80x30 ov=0x0 ic=80/80 rel=80,0
+n17 p14 d17 Block { establishes_new_context: false } @0,200 80x20 ov=0x0 ic=80/80 rel=0,30
+n18 p1 d18 Flex @0,220 800x60 ov=72x60 ic=72/72 rel=0,220
+n19 p18 d19 Inline @0,240 48x20 ov=48x16 bl=13 ic=48/48 rel=0,20
+n20 p19 d20 Inline @0,240 -x- ic=48/48
+n21 p18 d21 Inline @48,264 24x16 ov=24x16 bl=13 ic=24/24 rel=48,44
+n22 p21 d22 Inline @48,264 -x- ic=24/24
+n23 p1 d- Inline anon=InlineWrapper @0,280 800x16 ov=22.40625x16 bl=13 ic=22.40625/22.40625 rel=0,280
+  line 0 y=0 items=1 glyphs=0 x=0..22.40625
+n24 p23 d23 Flex @0,280 22.40625x16 ic=22.40625/22.40625 rel=0,0
+n25 p24 d24 Inline @0,280 11.203125x16 ov=11.203125x16 bl=13 ic=11.203125/11.203125 rel=0,0
+n26 p25 d25 Inline @0,280 -x- ic=11.203125/11.203125
+n27 p24 d26 Inline @21.203125,280 11.203125x16 ov=11.203125x16 bl=13 ic=11.203125/11.203125 rel=21.203125,0
+n28 p27 d27 Inline @21.203125,280 -x- ic=11.203125/11.203125
+n29 p1 d28 Flex @0,296 800x16 ov=500x16 ic=500/500 rel=0,296
+n30 p29 d29 Inline @0,296 500x16 ov=63.203125x16 bl=13 ic=500/500 rel=0,0
+n31 p30 d30 Inline @0,296 -x- ic=43.203125/63.203125
+n32 p1 d31 Flex @0,312 300x16 ov=300x16 ic=300/300 rel=0,312
+n33 p32 d32 Inline @292,312 8x16 ov=8x16 bl=13 ic=8/8 rel=292,0
+n34 p33 d33 Inline @292,312 -x- ic=8/8
+n35 p32 d34 Inline @284,312 8x16 ov=8x16 bl=13 ic=8/8 rel=284,0
+n36 p35 d35 Inline @284,312 -x- ic=8/8
+n37 p1 d36 Flex @0,328 200x48 ov=200x48 ic=200/200 rel=0,328
+n38 p37 d37 Inline @0,328 179.39063x48 ov=171.20313x48 bl=45 ic=38.40625/435.20313 rel=0,0
+n39 p38 d38 Inline @0,328 -x- ic=38.40625/435.20313
+n40 p37 d39 Inline @179.39063,328 20.609375x48 ov=8x16 bl=13 ic=50/50 rel=179.39063,0
+n41 p40 d40 Inline @179.39063,328 -x- ic=8/8
+  dl0 PushStackingContext 0,0 800x376
+  dl1 HitTestArea 0,0 116.671875x50
+  dl2 Text -16,0 148.67188x50 glyphs=1 fs=16
+  dl3 HitTestArea 0,0.203125 8x16
+  dl4 HitTestArea 116.671875,0 233.32813x50
+  dl5 Text 100.671875,0 265.32813x50 glyphs=1 fs=16
+  dl6 HitTestArea 116.671875,0.203125 8x16
+  dl7 HitTestArea 350,0 50x50
+  dl8 Text 334,0 82x50 glyphs=1 fs=16
+  dl9 HitTestArea 350,0.203125 8x16
+  dl10 HitTestArea 0,50 800x16
+  dl11 Text -16,50 832x16 glyphs=1 fs=16
+  dl12 HitTestArea 0,50.203125 8x16
+  dl13 HitTestArea 0,154 800x16
+  dl14 Text -16,154 832x16 glyphs=1 fs=16
+  dl15 HitTestArea 0,154.20313 8x16
+  dl16 HitTestArea 0,240 48x20
+  dl17 Text -16,240 80x20 glyphs=6 fs=16
+  dl18 HitTestArea 0,240.20313 48x16
+  dl19 HitTestArea 48,264 24x16
+  dl20 Text 32,264 56x16 glyphs=3 fs=16
+  dl21 HitTestArea 48,264.20313 24x16
+  dl22 HitTestArea 0,280 11.203125x16
+  dl23 Text -16,280 43.203125x16 glyphs=2 fs=16
+  dl24 HitTestArea 0,280.20313 11.203125x16
+  dl25 HitTestArea 21.203125,280 11.203125x16
+  dl26 Text 5.203125,280 43.203125x16 glyphs=2 fs=16
+  dl27 HitTestArea 21.203125,280.20313 11.203125x16
+  dl28 HitTestArea 0,296 500x16
+  dl29 Text -16,296 532x16 glyphs=9 fs=16
+  dl30 HitTestArea 0,296.20313 63.203125x16
+  dl31 HitTestArea 292,312 8x16
+  dl32 Text 276,312 40x16 glyphs=1 fs=16
+  dl33 HitTestArea 292,312.20313 8x16
+  dl34 HitTestArea 284,312 8x16
+  dl35 Text 268,312 40x16 glyphs=1 fs=16
+  dl36 HitTestArea 284,312.20313 8x16
+  dl37 HitTestArea 0,328 179.39063x48
+  dl38 Text -16,328 211.39063x48 glyphs=26 fs=16
+  dl39 Text -16,328 211.39063x48 glyphs=20 fs=16
+  dl40 Text -16,328 211.39063x48 glyphs=15 fs=16
+  dl41 HitTestArea 0,328.20313 171.20313x16
+  dl42 HitTestArea 0,344.20313 156.79688x16
+  dl43 HitTestArea 0,360.20313 99.203125x16
+  dl44 HitTestArea 179.39063,328 20.609375x48
+  dl45 Text 163.39063,328 52.609375x48 glyphs=1 fs=16
+  dl46 HitTestArea 179.39063,328.20313 8x16
+  dl47 PopStackingContext
+=== grid
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x166 ov=800x166 ic=400/400
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x166 ov=800x166 mt=0 mb=0 ic=400/400 rel=0,0
+n2 p1 d2 Grid @0,0 400x40 ov=202.67188x16 ic=400/400 rel=0,0
+n3 p2 d3 Inline @0,0 100x16 ov=8x16 bl=13 ic=8/8 rel=0,0
+n4 p3 d4 Inline @0,0 -x- ic=8/8
+n5 p2 d5 Inline @108,0 94.671875x16 ov=8x16 bl=13 ic=8/8 rel=108,0
+n6 p5 d6 Inline @108,0 -x- ic=8/8
+n7 p2 d7 Inline @210.67188,0 189.32813x16 ov=8x16 bl=13 ic=8/8 rel=210.67188,0
+n8 p7 d8 Inline @210.67188,0 -x- ic=8/8
+n9 p2 d9 Inline @0,24 202.67188x16 ov=8x16 bl=13 ic=8/8 rel=0,24
+n10 p9 d10 Inline @0,24 -x- ic=8/8
+n11 p2 d11 Inline @210.67188,24 189.32813x16 ov=8x16 bl=13 ic=8/8 rel=210.67188,24
+n12 p11 d12 Inline @210.67188,24 -x- ic=8/8
+n13 p1 d13 Grid @0,40 800x46 ov=22.40625x46 ic=22.40625/22.40625 rel=0,40
+n14 p13 d14 Inline @0,40 0x46 ov=22.40625x16 bl=13 ic=22.40625/22.40625 rel=0,0
+n15 p14 d15 Inline @0,40 -x- ic=22.40625/22.40625
+n16 p13 d16 Inline @0,40 0x30 ov=16x16 bl=13 ic=16/16 rel=0,0
+n17 p16 d17 Inline @0,40 -x- ic=16/16
+n18 p13 d18 Inline @0,70 0x16 ov=16x16 bl=13 ic=16/16 rel=0,30
+n19 p18 d19 Inline @0,70 -x- ic=16/16
+n20 p1 d20 Grid @0,86 800x80 ov=16x80 ic=16/16 rel=0,86
+n21 p20 d21 Inline @0,86 8x80 ov=8x16 bl=13 ic=8/8 rel=0,0
+n22 p21 d22 Inline @0,86 -x- ic=8/8
+n23 p20 d23 Inline @8,86 16x80 ov=16x16 bl=13 ic=16/16 rel=8,0
+n24 p23 d24 Inline @8,86 -x- ic=16/16
+  dl0 PushStackingContext 0,0 800x166
+  dl1 HitTestArea 0,0 100x16
+  dl2 Text -16,0 132x16 glyphs=1 fs=16
+  dl3 HitTestArea 0,0.203125 8x16
+  dl4 HitTestArea 108,0 94.671875x16
+  dl5 Text 92,0 126.671875x16 glyphs=1 fs=16
+  dl6 HitTestArea 108,0.203125 8x16
+  dl7 HitTestArea 210.67188,0 189.32813x16
+  dl8 Text 194.67188,0 221.32813x16 glyphs=1 fs=16
+  dl9 HitTestArea 210.67188,0.203125 8x16
+  dl10 HitTestArea 0,24 202.67188x16
+  dl11 Text -16,24 234.67188x16 glyphs=1 fs=16
+  dl12 HitTestArea 0,24.203125 8x16
+  dl13 HitTestArea 210.67188,24 189.32813x16
+  dl14 Text 194.67188,24 221.32813x16 glyphs=1 fs=16
+  dl15 HitTestArea 210.67188,24.203125 8x16
+  dl16 HitTestArea 0,40 0x0
+  dl17 Text -16,40 54.40625x0 glyphs=4 fs=16
+  dl18 HitTestArea 0,40.203125 22.40625x16
+  dl19 HitTestArea 0,40 0x0
+  dl20 Text -16,40 48x0 glyphs=2 fs=16
+  dl21 HitTestArea 0,40.203125 16x16
+  dl22 HitTestArea 0,70 0x0
+  dl23 Text -16,70 48x0 glyphs=2 fs=16
+  dl24 HitTestArea 0,70.203125 16x16
+  dl25 HitTestArea 0,86 8x80
+  dl26 Text -16,86 40x80 glyphs=1 fs=16
+  dl27 HitTestArea 0,86.203125 8x16
+  dl28 HitTestArea 8,86 16x80
+  dl29 Text -8,86 48x80 glyphs=2 fs=16
+  dl30 HitTestArea 8,86.203125 16x16
+  dl31 PopStackingContext
+=== multicol
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x452 ov=600x452 bl=481 ic=600/600
+n1 p0 d1 Block { establishes_new_context: false } @0,0 600x452 ov=600x452 mt=0 mb=0 bl=481 ic=600/600 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 600x112 ov=600x112 bl=77 ic=51.203125/516.0156 rel=0,0
+n3 p2 d3 Inline @0,16 186.67188x64 ov=169.59375x64 bl=61 ic=51.203125/516.0156 rel=0,16
+n4 p3 d4 Inline @0,16 -x- ic=51.203125/516.0156
+n5 p2 d5 Inline @0,96 186.67188x16 ov=186.67188x16 bl=-51 ic=51.203125/516.0156 rel=0,96
+n6 p5 d6 Inline @0,96 -x- ic=51.203125/516.0156
+n7 p2 d7 Inline @206.67188,64 186.67188x48 ov=186.67188x48 bl=-51 ic=51.203125/516.0156 rel=206.67188,64
+n8 p7 d8 Inline @206.67188,64 -x- ic=51.203125/516.0156
+n9 p2 d9 Inline @413.32813,32 186.67188x16 ov=35.203125x16 bl=13 ic=35.203125/35.203125 rel=413.32813,32
+n10 p9 d10 Inline @413.32813,32 -x- ic=35.203125/35.203125
+n11 p2 d11 Inline @413.32813,64 186.67188x16 ov=151.20313x16 bl=13 ic=49.609375/151.20313 rel=413.32813,64
+n12 p11 d12 Inline @413.32813,64 -x- ic=49.609375/151.20313
+n13 p1 d13 Block { establishes_new_context: false } @0,112 600x100 ov=600x100 bl=13 ic=8/8 rel=0,112
+n14 p13 d14 Inline @0,112 189.32813x100 ov=8x16 bl=13 ic=8/8 rel=0,0
+n15 p14 d15 Inline @0,112 -x- ic=8/8
+n16 p13 d16 Inline @205.32813,112 189.32813x100 ov=8x16 bl=13 ic=8/8 rel=205.32813,0
+n17 p16 d17 Inline @205.32813,112 -x- ic=8/8
+n18 p1 d18 Block { establishes_new_context: false } @0,212 600x240 ov=600x240 bl=269 ic=51.203125/516.0156 rel=0,212
+n19 p18 d19 Block { establishes_new_context: true } @0,212 40x40 ov=0x0 ic=40/40 rel=0,0
+n20 p18 d20 Inline @0,228 2.125x224 ov=51.203125x224 bl=253 ic=51.203125/516.0156 rel=0,16
+n21 p20 d21 Inline @0,228 -x- ic=51.203125/516.0156
+  dl0 PushStackingContext 0,0 800x452
+  dl1 HitTestArea 0,16 186.67188x64
+  dl2 Text -16,16 218.67188x64 glyphs=19 fs=16
+  dl3 Text -16,16 218.67188x64 glyphs=23 fs=16
+  dl4 Text -16,16 218.67188x64 glyphs=21 fs=16
+  dl5 Text -16,16 218.67188x64 glyphs=5 fs=16
+  dl6 HitTestArea 0,16.203125 141.59375x16
+  dl7 HitTestArea 0,32.203125 169.59375x16
+  dl8 HitTestArea 0,48.203125 151.20313x16
+  dl9 HitTestArea 0,64.203125 41.59375x16
+  dl10 HitTestArea 0,96 186.67188x16
+  dl11 Text -16,0 408.26563x112 glyphs=19 fs=16
+  dl12 Text -16,0 408.26563x112 glyphs=23 fs=16
+  dl13 Text -16,0 408.26563x112 glyphs=21 fs=16
+  dl14 Text -16,0 408.26563x112 glyphs=5 fs=16
+  dl15 HitTestArea 0,96.203125 141.59375x16
+  dl16 HitTestArea 206.67188,0.203125 169.59375x16
+  dl17 HitTestArea 206.67188,16.203125 151.20313x16
+  dl18 HitTestArea 206.67188,32.203125 41.59375x16
+  dl19 HitTestArea 206.67188,64 186.67188x48
+  dl20 Text 190.67188,0 280.26563x112 glyphs=19 fs=16
+  dl21 Text 190.67188,0 280.26563x112 glyphs=23 fs=16
+  dl22 Text 190.67188,0 280.26563x112 glyphs=21 fs=16
+  dl23 Text 190.67188,0 280.26563x112 glyphs=5 fs=16
+  dl24 HitTestArea 206.67188,64.203125 141.59375x16
+  dl25 HitTestArea 206.67188,80.203125 169.59375x16
+  dl26 HitTestArea 206.67188,96.203125 151.20313x16
+  dl27 HitTestArea 413.32813,0.203125 41.59375x16
+  dl28 HitTestArea 413.32813,32 186.67188x16
+  dl29 Text 397.32813,32 218.67188x16 glyphs=5 fs=16
+  dl30 HitTestArea 413.32813,32.203125 35.203125x16
+  dl31 HitTestArea 413.32813,64 186.67188x16
+  dl32 Text 397.32813,64 218.67188x16 glyphs=20 fs=16
+  dl33 HitTestArea 413.32813,64.203125 151.20313x16
+  dl34 HitTestArea 0,112 189.32813x100
+  dl35 Text -16,112 221.32813x100 glyphs=1 fs=16
+  dl36 HitTestArea 0,112.203125 8x16
+  dl37 HitTestArea 205.32813,112 189.32813x100
+  dl38 Text 189.32813,112 221.32813x100 glyphs=1 fs=16
+  dl39 HitTestArea 205.32813,112.203125 8x16
+  dl40 HitTestArea 0,228 2.125x224
+  dl41 Text -16,228 83.203125x256 glyphs=3 fs=16
+  dl42 Text -16,228 83.203125x256 glyphs=5 fs=16
+  dl43 Text -16,228 83.203125x256 glyphs=5 fs=16
+  dl44 Text -16,228 83.203125x256 glyphs=3 fs=16
+  dl45 Text -16,228 83.203125x256 glyphs=5 fs=16
+  dl46 Text -16,228 83.203125x256 glyphs=4 fs=16
+  dl47 Text -16,228 83.203125x256 glyphs=3 fs=16
+  dl48 Text -16,228 83.203125x256 glyphs=4 fs=16
+  dl49 Text -16,228 83.203125x256 glyphs=3 fs=16
+  dl50 Text -16,228 83.203125x256 glyphs=3 fs=16
+  dl51 Text -16,228 83.203125x256 glyphs=5 fs=16
+  dl52 Text -16,228 83.203125x256 glyphs=7 fs=16
+  dl53 Text -16,228 83.203125x256 glyphs=3 fs=16
+  dl54 Text -16,228 83.203125x256 glyphs=5 fs=16
+  dl55 HitTestArea 0,260.20313 24x16
+  dl56 HitTestArea 0,276.20313 35.203125x16
+  dl57 HitTestArea 0,292.20313 46.40625x16
+  dl58 HitTestArea 0,308.20313 24x16
+  dl59 HitTestArea 0,324.20313 46.40625x16
+  dl60 HitTestArea 0,340.20313 32x16
+  dl61 HitTestArea 0,356.20313 24x16
+  dl62 HitTestArea 0,372.20313 27.203125x16
+  dl63 HitTestArea 0,388.20313 24x16
+  dl64 HitTestArea 0,404.20313 24x16
+  dl65 HitTestArea 0,420.20313 40x16
+  dl66 HitTestArea 0,436.20313 51.203125x16
+  dl67 HitTestArea 0,452.20313 24x16
+  dl68 HitTestArea 0,468.20313 41.59375x16
+  dl69 PopStackingContext
+=== positioned boxes
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x264 ov=800x264 bl=245 ic=300/300
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x248 ov=800x248 mt=0 mb=16 bl=245 ic=300/300 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @10,5 300x200 ov=300x46 mt=0 mb=0 bl=43 ic=300/300 rel=0,0
+n3 p2 d3 Inline @40,25 50x50 ov=24x16 bl=13 ic=50/50 rel=0,0
+n4 p3 d4 Inline @40,25 -x- ic=24/24
+n5 p2 d5 Inline @270,165 40x40 ov=16x16 bl=13 ic=40/40 rel=0,0
+n6 p5 d6 Inline @270,165 -x- ic=16/16
+n7 p2 d7 Inline @10,5 300x30 ov=33.59375x16 bl=13 ic=33.609375/33.609375 rel=0,0
+n8 p7 d8 Inline @10,5 -x- ic=33.609375/33.609375
+n9 p2 d9 Inline @10,35 43.203125x16 ov=43.203125x16 bl=13 ic=43.203125/43.203125 rel=0,30
+n10 p9 d10 Inline @10,35 -x- ic=43.203125/43.203125
+n11 p2 d11 Inline @10,45 300x16 ov=19.203125x16 bl=13 ic=19.203125/19.203125 rel=0,30
+n12 p11 d12 Inline @10,45 -x- ic=19.203125/19.203125
+n13 p1 d13 Inline @780,0 20x20 ov=35.203125x16 bl=13 ic=20/20 rel=0,200
+n14 p13 d14 Inline @780,0 -x- ic=35.203125/35.203125
+n15 p1 d15 Block { establishes_new_context: true } @360,200 80x10 ov=0x0 ic=0/0 rel=-40,200
+n16 p1 d16 Inline @0,200 800x16 ov=43.203125x16 bl=13 ic=43.203125/43.203125 rel=0,200
+n17 p16 d17 Inline @0,200 -x- ic=43.203125/43.203125
+n18 p1 d18 Inline @0,232 800x16 ov=120x16 bl=13 ic=46.40625/120 rel=0,232
+n19 p18 d19 Inline @0,232 -x- ic=32/32
+n20 p18 d20 Inline @5,235 -x- ic=46.40625/84
+n21 p20 d21 Inline @5,235 -x- ic=46.40625/84
+n22 p1 d22 Inline @10,10 780x580 ov=72x16 bl=13 ic=72/72 rel=0,264
+n23 p22 d23 Inline @10,10 -x- ic=72/72
+  dl0 PushStackingContext 0,0 800x264
+  dl1 HitTestArea 0,232 800x16
+  dl2 Text -16,232 837x19 glyphs=5 fs=16
+  dl3 Text -16,232 837x19 glyphs=12 fs=16
+  dl4 HitTestArea 0,232.20313 36x16
+  dl5 HitTestArea 41,235.20313 84x16
+  dl6 HitTestArea 10,5 300x30
+  dl7 Text -6,5 332x30 glyphs=4 fs=16
+  dl8 HitTestArea 10,5.203125 33.59375x16
+  dl9 HitTestArea 40,25 50x50
+  dl10 Text 24,25 82x50 glyphs=3 fs=16
+  dl11 HitTestArea 40,25.203125 24x16
+  dl12 HitTestArea 270,165 40x40
+  dl13 Text 254,165 72x40 glyphs=2 fs=16
+  dl14 HitTestArea 270,165.20313 16x16
+  dl15 HitTestArea 10,35 43.203125x16
+  dl16 Text -6,35 75.203125x16 glyphs=6 fs=16
+  dl17 HitTestArea 10,35.203125 43.203125x16
+  dl18 PushStackingContext 780,0 20x20
+  dl19 HitTestArea 780,0 20x20
+  dl20 Text 764,0 67.203125x20 glyphs=5 fs=16
+  dl21 HitTestArea 780,0.203125 35.203125x16
+  dl22 PopStackingContext
+  dl23 PushStackingContext 0,200 800x16
+  dl24 HitTestArea 0,200 800x16
+  dl25 Text -16,200 832x16 glyphs=6 fs=16
+  dl26 HitTestArea 0,200.20313 43.203125x16
+  dl27 PopStackingContext
+  dl28 HitTestArea 5,235 0x0
+  dl29 HitTestArea 10,10 780x580
+  dl30 Text -6,10 812x580 glyphs=9 fs=16
+  dl31 HitTestArea 10,10.203125 72x16
+  dl32 PushStackingContext 10,45 300x16
+  dl33 HitTestArea 10,45 300x16
+  dl34 Text -6,45 332x16 glyphs=3 fs=16
+  dl35 HitTestArea 10,45.203125 19.203125x16
+  dl36 PopStackingContext
+  dl37 PopStackingContext
+=== overflow and scrolling
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x346 ov=800x346 bl=391 ic=200/200
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x346 ov=800x346 mt=0 mb=0 bl=391 ic=200/200 rel=0,0
+n2 p1 d2 Block { establishes_new_context: true } @0,0 200x100 ov=400x300 sb=vh bl=13 ic=200/200 rel=0,0
+n3 p2 d3 Inline @0,0 400x300 ov=79.203125x16 bl=13 ic=400/400 rel=0,0
+n4 p3 d4 Inline @0,0 -x- ic=56/79.203125
+n5 p1 d5 Inline @0,100 200x60 ov=92x16 sb=vh bl=13 ic=200/200 rel=0,100
+n6 p5 d6 Inline @0,100 -x- ic=49.609375/92
+n7 p1 d7 Block { establishes_new_context: true } @0,160 150x40 ov=150x96 bl=77 ic=150/150 rel=0,160
+n8 p7 d8 Inline @0,176 150x64 ov=148.79688x64 bl=61 ic=65.609375/506.40625 rel=0,16
+n9 p8 d9 Inline @0,176 -x- ic=65.609375/506.40625
+n10 p1 d10 Inline @0,200 150x16 ov=464.79688x16 sb=vh bl=13 ic=150/150 rel=0,200
+n11 p10 d11 Inline @0,200 -x- ic=464.8125/464.8125
+n12 p1 d12 Block { establishes_new_context: false } @0,216 100x50 ov=100x80 mt=0 mb=0 bl=13 ic=100/100 rel=0,216
+n13 p12 d13 Inline @0,216 100x80 ov=41.59375x16 bl=13 ic=41.609375/41.609375 rel=0,0
+n14 p13 d14 Inline @0,216 -x- ic=41.609375/41.609375
+n15 p1 d15 Block { establishes_new_context: true } @0,266 800x80 ov=788x144 sb=v bl=125 ic=8/8 rel=0,266
+n16 p15 d16 Inline @0,282 788x16 ov=8x16 bl=13 ic=8/8 rel=0,16
+n17 p16 d17 Inline @0,282 -x- ic=8/8
+n18 p15 d18 Inline @0,314 788x16 ov=8x16 bl=13 ic=8/8 rel=0,48
+n19 p18 d19 Inline @0,314 -x- ic=8/8
+n20 p15 d20 Inline @0,346 788x16 ov=8x16 bl=13 ic=8/8 rel=0,80
+n21 p20 d21 Inline @0,346 -x- ic=8/8
+n22 p15 d22 Inline @0,378 788x16 ov=8x16 bl=13 ic=8/8 rel=0,112
+n23 p22 d23 Inline @0,378 -x- ic=8/8
+  dl0 PushStackingContext 0,0 800x346
+  dl1 PushClip 0,0 188x88
+  dl2 PushScrollFrame 0,0 188x88 content=400x300
+  dl3 HitTestArea 0,0 400x300
+  dl4 Text -16,0 432x300 glyphs=11 fs=16
+  dl5 HitTestArea 0,0.203125 79.203125x16
+  dl6 PopScrollFrame
+  dl7 PopClip
+  dl8 ScrollBarStyled 188,0 12x88
+  dl9 ScrollBarStyled 0,88 188x12
+  dl10 PushClip 0,100 188x48
+  dl11 PushScrollFrame 0,100 188x48 content=200x60
+  dl12 Text 0,100 200x60 glyphs=13 fs=16
+  dl13 HitTestArea 0,100.203125 92x16
+  dl14 PopScrollFrame
+  dl15 PopClip
+  dl16 ScrollBarStyled 188,100 12x48
+  dl17 ScrollBarStyled 0,148 188x12
+  dl18 PushClip 0,160 150x40
+  dl19 PushScrollFrame 0,160 150x40 content=150x96
+  dl20 HitTestArea 0,176 150x64
+  dl21 Text -16,176 182x64 glyphs=20 fs=16
+  dl22 Text -16,176 182x64 glyphs=16 fs=16
+  dl23 Text -16,176 182x64 glyphs=18 fs=16
+  dl24 Text -16,176 182x64 glyphs=16 fs=16
+  dl25 HitTestArea 0,176.20313 148.79688x16
+  dl26 HitTestArea 0,192.20313 106.40625x16
+  dl27 HitTestArea 0,208.20313 137.59375x16
+  dl28 HitTestArea 0,224.20313 101.59375x16
+  dl29 PopScrollFrame
+  dl30 PopClip
+  dl31 PushClip 0,200 138x4
+  dl32 PushScrollFrame 0,200 138x4 content=464.79688x16
+  dl33 Text 0,200 150x16 glyphs=66 fs=16
+  dl34 HitTestArea 0,200.20313 464.79688x16
+  dl35 PopScrollFrame
+  dl36 PopClip
+  dl37 ScrollBarStyled 138,200 12x4
+  dl38 ScrollBarStyled 0,204 138x12
+  dl39 HitTestArea 0,216 100x80
+  dl40 Text -16,216 132x80 glyphs=7 fs=16
+  dl41 HitTestArea 0,216.20313 41.59375x16
+  dl42 PushClip 0,266 788x80
+  dl43 PushScrollFrame 0,266 788x80 content=800x144
+  dl44 HitTestArea 0,282 788x16
+  dl45 Text -16,282 820x16 glyphs=1 fs=16
+  dl46 HitTestArea 0,282.20313 8x16
+  dl47 HitTestArea 0,314 788x16
+  dl48 Text -16,314 820x16 glyphs=1 fs=16
+  dl49 HitTestArea 0,314.20313 8x16
+  dl50 HitTestArea 0,346 788x16
+  dl51 Text -16,346 820x16 glyphs=1 fs=16
+  dl52 HitTestArea 0,346.20313 8x16
+  dl53 HitTestArea 0,378 788x16
+  dl54 Text -16,378 820x16 glyphs=1 fs=16
+  dl55 HitTestArea 0,378.20313 8x16
+  dl56 PopScrollFrame
+  dl57 PopClip
+  dl58 ScrollBarStyled 788,266 12x80
+  dl59 PopStackingContext
+=== text-overflow
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x98 ov=800x98 bl=109 ic=150/150
+n1 p0 d1 Block { establishes_new_context: false } @0,14 800x98 ov=150x98 mt=14 mb=0 bl=95 ic=150/150 rel=0,14
+n2 p1 d2 Inline @0,14 120x14 ov=451.5x14 bl=11 ic=120/120 rel=0,0
+n3 p2 d3 Inline @0,14 -x- ic=451.5/451.5
+n4 p1 d4 Inline @0,42 120x14 ov=451.5x14 bl=11 ic=120/120 rel=0,28
+n5 p4 d5 Inline @0,42 -x- ic=451.5/451.5
+n6 p1 d6 Inline @0,70 150x42 ov=270.20313x42 bl=39 ic=150/150 rel=0,56
+n7 p6 d7 Inline @0,70 -x- ic=270.20313/468.3125
+  dl0 PushStackingContext 0,0 800x98
+  dl1 PushClip 0,14 120x14
+  dl2 PushScrollFrame 0,14 120x14 content=451.5x14
+  dl3 HitTestArea 0,14 120x14
+  dl4 Text 0,14 120x14 glyphs=17 fs=14
+  dl5 Text 0,14 120x14 glyphs=3 fs=14
+  dl6 HitTestArea 0,13.796875 451.5x14
+  dl7 PopScrollFrame
+  dl8 PopClip
+  dl9 PushClip 0,42 120x14
+  dl10 PushScrollFrame 0,42 120x14 content=451.5x14
+  dl11 HitTestArea 0,42 120x14
+  dl12 Text 0,42 120x14 glyphs=71 fs=14
+  dl13 HitTestArea 0,41.796875 451.5x14
+  dl14 PopScrollFrame
+  dl15 PopClip
+  dl16 PushClip 0,70 150x42
+  dl17 PushScrollFrame 0,70 150x42 content=270.20313x42
+  dl18 HitTestArea 0,70 150x42
+  dl19 Text 0,70 150x42 glyphs=22 fs=14
+  dl20 Text 0,70 150x42 glyphs=8 fs=14
+  dl21 Text 0,70 150x42 glyphs=19 fs=14
+  dl22 Text 0,70 150x42 glyphs=3 fs=14
+  dl23 HitTestArea 0,69.796875 142.79688x14
+  dl24 HitTestArea 0,83.796875 48.296875x14
+  dl25 HitTestArea 0,97.796875 270.20313x14
+  dl26 PopScrollFrame
+  dl27 PopClip
+  dl28 PopStackingContext
+=== text decoration
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x160 ov=800x160 bl=157 ic=75.203125/268.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,16 800x144 ov=800x144 mt=16 mb=16 bl=141 ic=75.203125/268.8125 rel=0,16
+n2 p1 d2 Inline @0,16 800x16 ov=268.79688x16 bl=13 ic=72/268.8125 rel=0,0
+n3 p2 d3 Inline @0,16 -x- ic=72/268.8125
+n4 p1 d4 Inline @0,48 800x16 ov=142.40625x16 bl=13 ic=48/142.40625 rel=0,32
+n5 p4 d5 Inline @0,48 -x- ic=30.40625/30.40625
+n6 p4 d6 Inline @0,48 -x- ic=48/48
+n7 p6 d7 Inline @0,48 -x- ic=48/48
+n8 p4 d8 Inline @0,48 -x- ic=0/0
+n9 p4 d9 Inline @0,48 -x- ic=32/32
+n10 p9 d10 Inline @0,48 -x- ic=32/32
+n11 p4 d11 Inline @0,48 -x- ic=0/0
+n12 p4 d12 Inline @0,48 -x- ic=8/8
+n13 p12 d13 Inline @0,48 -x- ic=8/8
+n14 p4 d14 Inline @0,48 -x- ic=0/0
+n15 p4 d15 Inline @0,48 -x- ic=8/8
+n16 p15 d16 Inline @0,48 -x- ic=8/8
+n17 p1 d17 Block { establishes_new_context: false } @0,80 800x48 ov=800x48 mt=16 mb=0 bl=45 ic=75.203125/141.60938 rel=0,64
+n18 p17 d18 Inline @0,80 800x16 ov=141.59375x16 bl=13 ic=75.203125/141.60938 rel=0,0
+n19 p18 d19 Inline @0,80 -x- ic=75.203125/141.60938
+n20 p17 d- Inline anon=InlineWrapper @0,112 800x16 ov=72.8125x16 bl=13 ic=35.203125/72.8125 rel=0,32
+  line 0 y=0 items=1 glyphs=0 x=0..72.8125
+n21 p20 d20 InlineBlock @0,112 72.8125x16 bl=13 ic=35.203125/72.8125 rel=0,0
+n22 p21 d21 Inline @0,112 72.8125x16 ov=72.796875x16 bl=13 ic=35.203125/72.8125 rel=0,0
+n23 p1 d22 Inline @0,144 800x16 ov=38.40625x16 bl=13 ic=38.40625/38.40625 rel=0,128
+n24 p23 d23 Inline @0,144 -x- ic=38.40625/38.40625
+  dl0 PushStackingContext 0,0 800x160
+  dl1 HitTestArea 0,16 800x16
+  dl2 Text -16,16 832x16 glyphs=36 fs=16
+  dl3 Underline 0,30.921875 268.79688x1.28125
+  dl4 HitTestArea 0,16.203125 268.79688x16
+  dl5 HitTestArea 0,48 800x16
+  dl6 Text -16,48 832x16 glyphs=6 fs=16
+  dl7 Text -16,48 832x16 glyphs=6 fs=16
+  dl8 Strikethrough 34.40625,56.203125 48x1.28125
+  dl9 Text -16,48 832x16 glyphs=1 fs=16
+  dl10 Text -16,48 832x16 glyphs=4 fs=16
+  dl11 Overline 86.40625,47.40625 32x1.28125
+  dl12 Text -16,48 832x16 glyphs=1 fs=16
+  dl13 Text -16,48 832x16 glyphs=1 fs=16
+  dl14 Underline 122.40625,62.921875 8x1.28125
+  dl15 Text -16,48 832x16 glyphs=1 fs=16
+  dl16 Text -16,48 832x16 glyphs=1 fs=16
+  dl17 Strikethrough 134.40625,56.203125 8x1.28125
+  dl18 HitTestArea 0,48.203125 34.40625x16
+  dl19 HitTestArea 34.40625,48.203125 48x16
+  dl20 HitTestArea 82.40625,48.203125 4x16
+  dl21 HitTestArea 86.40625,48.203125 32x16
+  dl22 HitTestArea 118.40625,48.203125 4x16
+  dl23 HitTestArea 122.40625,48.203125 8x16
+  dl24 HitTestArea 130.40625,48.203125 4x16
+  dl25 HitTestArea 134.40625,48.203125 8x16
+  dl26 HitTestArea 0,48 0x0
+  dl27 HitTestArea 0,48 0x0
+  dl28 HitTestArea 0,48 0x0
+  dl29 HitTestArea 0,48 0x0
+  dl30 HitTestArea 0,80 800x16
+  dl31 Text -16,80 832x16 glyphs=20 fs=16
+  dl32 Underline 0,94.921875 141.59375x1.28125
+  dl33 HitTestArea 0,80.203125 141.59375x16
+  dl34 HitTestArea 0,112 72.8125x16
+  dl35 HitTestArea 0,112 72.8125x16
+  dl36 Text -16,112 104.8125x16 glyphs=12 fs=16
+  dl37 HitTestArea 0,112.203125 72.796875x16
+  dl38 HitTestArea 0,144 800x16
+  dl39 Text -16,144 832x16 glyphs=4 fs=16
+  dl40 HitTestArea 0,144.20313 38.40625x16
+  dl41 PopStackingContext
+=== writing modes
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x466 ov=800x466 bl=607 ic=100/284.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x466 ov=800x466 mt=0 mb=0 bl=607 ic=100/284.8125 rel=0,0
+n2 p1 d2 Inline @0,0 800x200 ov=16x640 bl=637 ic=57.609375/284.8125 rel=0,0
+n3 p2 d3 Inline @0,0 -x- ic=57.609375/284.8125
+n4 p1 d4 Block { establishes_new_context: true } @0,200 800x150 ov=90x20 bl=13 ic=100/100 rel=0,200
+n5 p4 d5 Inline @10,210 30x0 ov=16x16 bl=13 ic=30/30 rel=10,10
+n6 p5 d6 Inline @10,210 -x- ic=8/8
+n7 p4 d7 Inline @50,200 40x0 ov=16x16 bl=13 ic=40/40 rel=50,0
+n8 p7 d8 Inline @50,200 -x- ic=8/8
+n9 p1 d9 Inline @0,350 800x16 ov=70.40625x16 bl=13 ic=70.40625/70.40625 rel=0,350
+n10 p9 d10 Inline @0,350 -x- ic=70.40625/70.40625
+n11 p1 d11 Inline @0,366 800x100 ov=16x112 bl=109 ic=51.203125/51.203125 rel=0,366
+n12 p11 d12 Inline @0,366 -x- ic=51.203125/51.203125
+n13 p1 d13 Inline @0,466 800x0 ov=16x144 bl=141 ic=73.609375/73.609375 rel=0,466
+n14 p13 d14 Inline @0,466 -x- ic=16/16
+n15 p14 d15 Inline @0,466 -x- ic=16/16
+n16 p13 d16 Inline @0,466 -x- ic=57.609375/57.609375
+  dl0 PushStackingContext 0,0 800x466
+  dl1 HitTestArea 0,0 800x200
+  dl2 Text -16,0 832x640 glyphs=1 fs=16
+  dl3 Text -16,0 832x640 glyphs=1 fs=16
+  dl4 Text -16,0 832x640 glyphs=1 fs=16
+  dl5 Text -16,0 832x640 glyphs=1 fs=16
+  dl6 Text -16,0 832x640 glyphs=1 fs=16
+  dl7 Text -16,0 832x640 glyphs=1 fs=16
+  dl8 Text -16,0 832x640 glyphs=1 fs=16
+  dl9 Text -16,0 832x640 glyphs=1 fs=16
+  dl10 Text -16,0 832x640 glyphs=1 fs=16
+  dl11 Text -16,0 832x640 glyphs=1 fs=16
+  dl12 Text -16,0 832x640 glyphs=1 fs=16
+  dl13 Text -16,0 832x640 glyphs=1 fs=16
+  dl14 Text -16,0 832x640 glyphs=1 fs=16
+  dl15 Text -16,0 832x640 glyphs=1 fs=16
+  dl16 Text -16,0 832x640 glyphs=1 fs=16
+  dl17 Text -16,0 832x640 glyphs=1 fs=16
+  dl18 Text -16,0 832x640 glyphs=1 fs=16
+  dl19 Text -16,0 832x640 glyphs=1 fs=16
+  dl20 Text -16,0 832x640 glyphs=1 fs=16
+  dl21 Text -16,0 832x640 glyphs=1 fs=16
+  dl22 Text -16,0 832x640 glyphs=1 fs=16
+  dl23 Text -16,0 832x640 glyphs=1 fs=16
+  dl24 Text -16,0 832x640 glyphs=1 fs=16
+  dl25 Text -16,0 832x640 glyphs=1 fs=16
+  dl26 Text -16,0 832x640 glyphs=1 fs=16
+  dl27 Text -16,0 832x640 glyphs=1 fs=16
+  dl28 Text -16,0 832x640 glyphs=1 fs=16
+  dl29 Text -16,0 832x640 glyphs=1 fs=16
+  dl30 Text -16,0 832x640 glyphs=1 fs=16
+  dl31 Text -16,0 832x640 glyphs=1 fs=16
+  dl32 Text -16,0 832x640 glyphs=1 fs=16
+  dl33 Text -16,0 832x640 glyphs=1 fs=16
+  dl34 Text -16,0 832x640 glyphs=1 fs=16
+  dl35 Text -16,0 832x640 glyphs=1 fs=16
+  dl36 Text -16,0 832x640 glyphs=1 fs=16
+  dl37 Text -16,0 832x640 glyphs=1 fs=16
+  dl38 Text -16,0 832x640 glyphs=1 fs=16
+  dl39 Text -16,0 832x640 glyphs=1 fs=16
+  dl40 Text -16,0 832x640 glyphs=1 fs=16
+  dl41 Text -16,0 832x640 glyphs=1 fs=16
+  dl42 HitTestArea 0,0.203125 8x16
+  dl43 HitTestArea 0,16.203125 8x16
+  dl44 HitTestArea 0,32.203125 8x16
+  dl45 HitTestArea 0,48.203125 8x16
+  dl46 HitTestArea 0,64.203125 3.203125x16
+  dl47 HitTestArea 0,80.203125 8x16
+  dl48 HitTestArea 0,96.203125 8x16
+  dl49 HitTestArea 0,112.203125 3.203125x16
+  dl50 HitTestArea 0,128.20313 4x16
+  dl51 HitTestArea 0,144.20313 8x16
+  dl52 HitTestArea 0,160.20313 3.203125x16
+  dl53 HitTestArea 0,176.20313 4x16
+  dl54 HitTestArea 0,192.20313 8x16
+  dl55 HitTestArea 0,208.20313 8x16
+  dl56 HitTestArea 0,224.20313 8x16
+  dl57 HitTestArea 0,240.20313 8x16
+  dl58 HitTestArea 0,256.20313 4x16
+  dl59 HitTestArea 0,272.20313 8x16
+  dl60 HitTestArea 0,288.20313 8x16
+  dl61 HitTestArea 0,304.20313 8x16
+  dl62 HitTestArea 0,320.20313 8x16
+  dl63 HitTestArea 0,336.20313 4x16
+  dl64 HitTestArea 0,352.20313 14.40625x16
+  dl65 HitTestArea 0,368.20313 8x16
+  dl66 HitTestArea 0,384.20313 8x16
+  dl67 HitTestArea 0,400.20313 8x16
+  dl68 HitTestArea 0,416.20313 8x16
+  dl69 HitTestArea 0,432.20313 4x16
+  dl70 HitTestArea 0,448.20313 3.203125x16
+  dl71 HitTestArea 0,464.20313 8x16
+  dl72 HitTestArea 0,480.20313 8x16
+  dl73 HitTestArea 0,496.20313 8x16
+  dl74 HitTestArea 0,512.2031 4x16
+  dl75 HitTestArea 0,528.2031 8x16
+  dl76 HitTestArea 0,544.2031 8x16
+  dl77 HitTestArea 0,560.2031 3.203125x16
+  dl78 HitTestArea 0,576.2031 8x16
+  dl79 HitTestArea 0,592.2031 14.40625x16
+  dl80 HitTestArea 0,608.2031 8x16
+  dl81 HitTestArea 0,624.2031 8x16
+  dl82 HitTestArea 10,210 0x0
+  dl83 Text -6,210 32x16 glyphs=1 fs=16
+  dl84 HitTestArea 10,210.20313 8x16
+  dl85 HitTestArea 50,200 0x0
+  dl86 Text 34,200 32x16 glyphs=1 fs=16
+  dl87 HitTestArea 50,200.20313 8x16
+  dl88 HitTestArea 0,350 800x16
+  dl89 Text -16,350 832x16 glyphs=10 fs=16
+  dl90 HitTestArea 0,350.20313 70.40625x16
+  dl91 HitTestArea 0,366 800x100
+  dl92 Text -16,366 832x112 glyphs=1 fs=16
+  dl93 Text -16,366 832x112 glyphs=1 fs=16
+  dl94 Text -16,366 832x112 glyphs=1 fs=16
+  dl95 Text -16,366 832x112 glyphs=1 fs=16
+  dl96 Text -16,366 832x112 glyphs=1 fs=16
+  dl97 Text -16,366 832x112 glyphs=1 fs=16
+  dl98 Text -16,366 832x112 glyphs=1 fs=16
+  dl99 HitTestArea 0,366.20313 8x16
+  dl100 HitTestArea 0,382.20313 8x16
+  dl101 HitTestArea 0,398.20313 8x16
+  dl102 HitTestArea 0,414.20313 3.203125x16
+  dl103 HitTestArea 0,430.20313 8x16
+  dl104 HitTestArea 0,446.20313 8x16
+  dl105 HitTestArea 0,462.20313 8x16
+  dl106 HitTestArea 0,466 0x0
+  dl107 Text -16,466 32x144 glyphs=1 fs=16
+  dl108 Text -16,466 32x144 glyphs=1 fs=16
+  dl109 Text -16,466 32x144 glyphs=1 fs=16
+  dl110 Text -16,466 32x144 glyphs=1 fs=16
+  dl111 Text -16,466 32x144 glyphs=1 fs=16
+  dl112 Text -16,466 32x144 glyphs=1 fs=16
+  dl113 Text -16,466 32x144 glyphs=1 fs=16
+  dl114 Text -16,466 32x144 glyphs=1 fs=16
+  dl115 Text -16,466 32x144 glyphs=1 fs=16
+  dl116 HitTestArea 0,466.20313 8x16
+  dl117 HitTestArea 0,482.20313 8x16
+  dl118 HitTestArea 0,498.20313 8x16
+  dl119 HitTestArea 0,514.2031 8x16
+  dl120 HitTestArea 0,530.2031 14.40625x16
+  dl121 HitTestArea 0,546.2031 8x16
+  dl122 HitTestArea 0,562.2031 3.203125x16
+  dl123 HitTestArea 0,578.2031 8x16
+  dl124 HitTestArea 0,594.2031 8x16
+  dl125 HitTestArea 0,466 0x0
+  dl126 PopStackingContext
+=== deep nesting
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x124 ov=800x124 bl=105 ic=114.40625/348.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x124 ov=800x124 mt=0 mb=0 bl=105 ic=114.40625/348.8125 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x76 ov=798x74 bl=42 ic=112.40625/346.8125 rel=0,0
+n3 p2 d3 Block { establishes_new_context: false } @1,1 798x74 ov=796x72 bl=41 ic=110.40625/344.8125 rel=0,0
+n4 p3 d4 Block { establishes_new_context: false } @2,2 796x72 ov=794x70 bl=40 ic=108.40625/342.8125 rel=0,0
+n5 p4 d5 Block { establishes_new_context: false } @3,3 794x70 ov=792x68 bl=39 ic=106.40625/340.8125 rel=0,0
+n6 p5 d6 Block { establishes_new_context: false } @4,4 792x68 ov=790x66 bl=38 ic=104.40625/338.8125 rel=0,0
+n7 p6 d7 Block { establishes_new_context: false } @5,5 790x66 ov=788x64 bl=37 ic=102.40625/336.8125 rel=0,0
+n8 p7 d8 Block { establishes_new_context: false } @6,6 788x64 ov=786x62 bl=36 ic=100.40625/334.8125 rel=0,0
+n9 p8 d9 Block { establishes_new_context: false } @7,7 786x62 ov=784x60 bl=35 ic=98.40625/332.8125 rel=0,0
+n10 p9 d10 Block { establishes_new_context: false } @8,8 784x60 ov=782x58 bl=34 ic=96.40625/330.8125 rel=0,0
+n11 p10 d11 Block { establishes_new_context: false } @9,9 782x58 ov=780x56 bl=33 ic=94.40625/328.8125 rel=0,0
+n12 p11 d12 Block { establishes_new_context: false } @10,10 780x56 ov=778x54 bl=32 ic=92.40625/326.8125 rel=0,0
+n13 p12 d13 Block { establishes_new_context: false } @11,11 778x54 ov=776x52 bl=31 ic=90.40625/324.8125 rel=0,0
+n14 p13 d14 Block { establishes_new_context: false } @12,12 776x52 ov=774x50 bl=30 ic=88.40625/322.8125 rel=0,0
+n15 p14 d15 Block { establishes_new_context: false } @13,13 774x50 ov=772x48 bl=29 ic=86.40625/320.8125 rel=0,0
+n16 p15 d16 Block { establishes_new_context: false } @14,14 772x48 ov=770x46 bl=28 ic=84.40625/318.8125 rel=0,0
+n17 p16 d17 Block { establishes_new_context: false } @15,15 770x46 ov=768x44 bl=27 ic=82.40625/316.8125 rel=0,0
+n18 p17 d18 Block { establishes_new_context: false } @16,16 768x44 ov=766x42 bl=26 ic=80.40625/314.8125 rel=0,0
+n19 p18 d19 Block { establishes_new_context: false } @17,17 766x42 ov=764x40 bl=25 ic=78.40625/312.8125 rel=0,0
+n20 p19 d20 Block { establishes_new_context: false } @18,18 764x40 ov=762x38 bl=24 ic=76.40625/310.8125 rel=0,0
+n21 p20 d21 Block { establishes_new_context: false } @19,19 762x38 ov=760x36 bl=23 ic=74.40625/308.8125 rel=0,0
+n22 p21 d22 Block { establishes_new_context: false } @20,20 760x36 ov=758x34 bl=22 ic=72.40625/306.8125 rel=0,0
+n23 p22 d23 Block { establishes_new_context: false } @21,21 758x34 ov=756x32 bl=21 ic=70.40625/304.8125 rel=0,0
+n24 p23 d24 Block { establishes_new_context: false } @22,22 756x32 ov=754x30 bl=20 ic=68.40625/302.8125 rel=0,0
+n25 p24 d25 Block { establishes_new_context: false } @23,23 754x30 ov=752x28 bl=19 ic=66.40625/300.8125 rel=0,0
+n26 p25 d26 Block { establishes_new_context: false } @24,24 752x28 ov=750x26 bl=18 ic=64.40625/298.8125 rel=0,0
+n27 p26 d27 Block { establishes_new_context: false } @25,25 750x26 ov=748x24 bl=17 ic=62.40625/296.8125 rel=0,0
+n28 p27 d28 Block { establishes_new_context: false } @26,26 748x24 ov=746x22 bl=16 ic=60.40625/294.8125 rel=0,0
+n29 p28 d29 Block { establishes_new_context: false } @27,27 746x22 ov=744x20 bl=15 ic=58.40625/292.8125 rel=0,0
+n30 p29 d30 Block { establishes_new_context: false } @28,28 744x20 ov=742x18 bl=14 ic=56.40625/290.8125 rel=0,0
+n31 p30 d31 Inline @29,29 742x18 ov=288.79688x16 bl=13 ic=54.40625/288.8125 rel=0,0
+n32 p31 d32 Inline @30,30 -x- ic=54.40625/288.8125
+n33 p1 d- Inline anon=InlineWrapper @0,76 800x48 ov=113.796875x48 bl=29 ic=77.8125/114.8125 rel=0,76
+  line 0 y=16 items=12 glyphs=11 x=1..114.796875
+n34 p33 d33 Inline @0,76 -x- ic=34.609375/71.609375
+n35 p34 d34 Inline @1,76 -x- ic=34.609375/71.609375
+n36 p35 d35 Inline @2,76 -x- ic=34.609375/71.609375
+n37 p36 d36 Inline @3,76 -x- ic=34.609375/71.609375
+n38 p37 d37 Inline @4,76 -x- ic=34.609375/71.609375
+n39 p38 d38 Inline @5,76 -x- ic=34.609375/71.609375
+n40 p39 d39 Inline @6,76 -x- ic=34.609375/71.609375
+n41 p40 d40 Inline @7,76 -x- ic=34.609375/71.609375
+n42 p41 d41 Inline @8,76 -x- ic=34.609375/71.609375
+n43 p42 d42 Inline @9,76 -x- ic=34.609375/71.609375
+n44 p43 d43 Inline @10,76 -x- ic=34.609375/71.609375
+n45 p44 d44 Inline @11,76 -x- ic=34.609375/71.609375
+n46 p45 d45 Inline @12,76 -x- ic=34.609375/71.609375
+n47 p46 d46 Inline @13,76 -x- ic=34.609375/71.609375
+n48 p47 d47 Inline @14,76 -x- ic=34.609375/71.609375
+n49 p48 d48 Inline @15,76 -x- ic=34.609375/71.609375
+n50 p49 d49 Inline @16,76 -x- ic=34.609375/71.609375
+n51 p50 d50 Inline @17,76 -x- ic=34.609375/71.609375
+n52 p51 d51 Inline @18,76 -x- ic=34.609375/71.609375
+n53 p52 d52 Inline @19,76 -x- ic=34.609375/71.609375
+n54 p53 d53 Inline @20,76 -x- ic=34.609375/71.609375
+n55 p33 d54 InlineBlock @71.59375,76 43.203125x48 bl=27 ic=39.203125/39.203125 rel=71.59375,0
+n56 p55 d55 InlineBlock @73.59375,78 39.203125x44 ov=35.203125x40 bl=25 ic=35.203125/35.203125 rel=0,0
+n57 p56 d56 InlineBlock @75.59375,80 35.203125x40 ov=31.203125x36 bl=23 ic=31.203125/31.203125 rel=0,0
+n58 p57 d57 InlineBlock @77.59375,82 31.203125x36 ov=27.203125x32 bl=21 ic=27.203125/27.203125 rel=0,0
+n59 p58 d58 InlineBlock @79.59375,84 27.203125x32 ov=23.203125x28 bl=19 ic=23.203125/23.203125 rel=0,0
+n60 p59 d59 InlineBlock @81.59375,86 23.203125x28 ov=19.203125x24 bl=17 ic=19.203125/19.203125 rel=0,0
+n61 p60 d60 InlineBlock @83.59375,88 19.203125x24 ov=15.203125x20 bl=15 ic=15.203125/15.203125 rel=0,0
+n62 p61 d61 InlineBlock @85.59375,90 15.203125x20 ov=11.203125x16 bl=13 ic=11.203125/11.203125 rel=0,0
+n63 p62 d62 Inline @87.59375,92 11.203125x16 ov=11.203125x16 bl=13 ic=11.203125/11.203125 rel=0,0
+  dl0 PushStackingContext 0,0 800x124
+  dl1 HitTestArea 29,29 742x18
+  dl2 Text 14,30 772x16 glyphs=40 fs=16
+  dl3 HitTestArea 30,30.203125 288.79688x16
+  dl4 Text -16,76 832x48 glyphs=11 fs=16
+  dl5 HitTestArea 1,92.203125 69.59375x16
+  dl6 Border 71.59375,76 43.203125x48
+  dl7 HitTestArea 19,76 0x0
+  dl8 HitTestArea 85.59375,90 15.203125x20
+  dl9 Text 71.59375,92 43.203125x16 glyphs=2 fs=16
+  dl10 HitTestArea 87.59375,92.203125 11.203125x16
+  dl11 PopStackingContext
+=== baselines and vertical alignment
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x110 ov=800x110 bl=107 ic=191.8125/209.3125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x110 ov=800x110 mt=0 mb=0 bl=107 ic=191.8125/209.3125 rel=0,0
+n2 p1 d2 Inline @0,0 800x32 ov=209.29688x32 bl=29 ic=191.8125/209.3125 rel=0,0
+  line 0 y=0 items=19 glyphs=18 x=0..209.29688
+n3 p2 d3 Inline @0,0 -x- ic=36/36
+n4 p3 d4 Inline @0,0 -x- ic=36/36
+n5 p2 d5 InlineBlock @36,6 40.5x20 bl=18 ic=23/40.5 rel=36,6
+n6 p5 d6 Inline @36,6 23x10 ov=23x10 bl=8 ic=23/23 rel=0,0
+n7 p5 d7 Inline @36,16 0x0 ov=0x0 ic=0/0 rel=0,10
+n8 p5 d8 Inline @36,16 40.5x10 ov=40.5x10 bl=8 ic=19/40.5 rel=0,10
+n9 p2 d9 Inline @0,0 -x- ic=24/24
+n10 p9 d10 Inline @0,0 -x- ic=24/24
+n11 p2 d11 Inline @0,0 -x- ic=54.40625/54.40625
+n12 p11 d12 Inline @0,0 -x- ic=54.40625/54.40625
+n13 p2 d13 Inline @0,0 -x- ic=16/16
+n14 p13 d14 Inline @0,0 -x- ic=16/16
+n15 p2 d15 Inline @0,0 -x- ic=38.40625/38.40625
+n16 p15 d16 Inline @0,0 -x- ic=38.40625/38.40625
+n17 p1 d17 Inline @0,32 800x43 ov=61.59375x43 bl=40 ic=46.40625/61.609375 rel=0,32
+  line 0 y=0 items=9 glyphs=8 x=0..61.59375
+n18 p17 d18 InlineBlock @0,32 0x40 ic=0/0 rel=0,0
+n19 p17 d19 Inline @0,32 -x- ic=46.40625/61.609375
+n20 p1 d20 Inline @0,75 800x19 ov=47.203125x19 bl=16 ic=32/47.203125 rel=0,75
+  line 0 y=0 items=2 glyphs=1 x=0..47.203125
+n21 p20 d21 InlineBlock @0,75 39.203125x16 bl=13 ic=24/39.203125 rel=0,0
+n22 p21 d22 Inline @0,75 39.203125x16 ov=39.203125x16 bl=13 ic=24/39.203125 rel=0,0
+n23 p20 d23 Inline @0,75 -x- ic=8/8
+n24 p1 d- Inline anon=InlineWrapper @0,94 800x16 ov=11.203125x16 bl=13 ic=11.203125/11.203125 rel=0,94
+  line 0 y=0 items=1 glyphs=0 x=0..11.203125
+n25 p24 d24 Table @0,94 11.203125x16 ic=11.203125/11.203125 rel=0,0
+n26 p25 d- TableRow anon=TableRow @0,94 11.203125x16 ic=11.203125/11.203125 rel=0,0
+n27 p26 d25 TableCell @0,94 11.203125x16 bl=13 ic=11.203125/11.203125 rel=0,0
+n28 p27 d26 Inline @0,94 -x- ic=11.203125/11.203125
+  dl0 PushStackingContext 0,0 800x110
+  dl1 Text -30,0 860x32 glyphs=3 fs=30
+  dl2 Text -30,0 860x32 glyphs=3 fs=16
+  dl3 Text -30,0 860x32 glyphs=6 fs=16
+  dl4 Text -30,0 860x32 glyphs=2 fs=16
+  dl5 Text -30,0 860x32 glyphs=4 fs=16
+  dl6 HitTestArea 0,0 36x30
+  dl7 HitTestArea 76.5,0.203125 24x16
+  dl8 HitTestArea 100.5,16.203125 54.40625x16
+  dl9 HitTestArea 154.90625,11.203125 16x16
+  dl10 HitTestArea 170.90625,16.203125 38.40625x16
+  dl11 HitTestArea 36,6 40.5x20
+  dl12 HitTestArea 0,0 0x0
+  dl13 HitTestArea 36,6 40.5x20
+  dl14 Text 26,6 43x10 glyphs=5 fs=10
+  dl15 HitTestArea 36,6 23x10
+  dl16 Text 26,16 60.5x10 glyphs=9 fs=10
+  dl17 HitTestArea 36,16 40.5x10
+  dl18 HitTestArea 0,0 0x0
+  dl19 HitTestArea 0,0 0x0
+  dl20 HitTestArea 0,0 0x0
+  dl21 HitTestArea 0,0 0x0
+  dl22 HitTestArea 0,32 800x43
+  dl23 Text -16,32 832x43 glyphs=8 fs=16
+  dl24 HitTestArea 0,59.203125 61.59375x16
+  dl25 HitTestArea 0,75 800x19
+  dl26 Text -16,75 832x19 glyphs=1 fs=16
+  dl27 HitTestArea 39.203125,78.203125 8x16
+  dl28 HitTestArea 0,75 39.203125x16
+  dl29 PushClip 0,75 39.203125x16
+  dl30 HitTestArea 0,75 39.203125x16
+  dl31 Text -16,75 71.203125x16 glyphs=6 fs=16
+  dl32 HitTestArea 0,75.203125 39.203125x16
+  dl33 PopClip
+  dl34 HitTestArea 0,94 11.203125x16
+  dl35 Text -16,94 43.203125x16 glyphs=2 fs=16
+  dl36 HitTestArea 0,94.203125 11.203125x16
+  dl37 PopStackingContext
+=== initial letter, text-box-trim and replaced boxes
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x282.20313 ov=800x282.20313 bl=294.35938 ic=300/564.0156
+n1 p0 d1 Block { establishes_new_context: false } @0,16 800x282.20313 ov=800x282.20313 mt=16 mb=0 bl=278.35938 ic=300/564.0156 rel=0,16
+n2 p1 d2 Inline @0,16 800x16 ov=564x16 bl=13 ic=72/564.0156 rel=0,0
+n3 p2 d3 Inline @0,16 -x- ic=8/8
+n4 p3 d4 Inline @0,16 -x- ic=8/8
+n5 p2 d5 Inline @0,16 -x- ic=72/556.0156
+n6 p1 d6 Inline @0,48 800x18 ov=64x16 bl=13 ic=64/64 rel=0,32
+n7 p6 d7 Inline @1,49 -x- ic=64/64
+n8 p1 d8 Inline @0,82 800x161 ov=417.20313x161 bl=150 ic=300/417.20313 rel=0,66
+  line 0 y=0 items=16 glyphs=14 x=0..417.20313
+n9 p8 d9 InlineBlock @0,82 300x150 ic=300/300 rel=0,0
+n10 p8 d10 Inline @0,82 -x- ic=41.609375/41.609375
+n11 p8 d11 InlineBlock @349.59375,213 30x30 ic=30/30 rel=349.59375,131
+n12 p8 d12 Inline @0,82 -x- ic=33.609375/33.609375
+n13 p1 d13 Block { establishes_new_context: false } @0,259 800x20 ov=450x20 mt=0 mb=0 ic=100/100 rel=0,243
+n14 p13 d14 Block { establishes_new_context: true } @350,259 100x20 ov=0x0 ic=100/100 rel=350,0
+n15 p1 d15 Inline @0,279 800x19.203125 ov=0x19.203125 bl=15.359375 ic=0/0 rel=0,263
+  dl0 PushStackingContext 0,0 800x282.20313
+  dl1 HitTestArea 0,16 800x16
+  dl2 Text -16,16 832x16 glyphs=1 fs=16
+  dl3 Text -16,16 832x16 glyphs=82 fs=16
+  dl4 HitTestArea 0,16.203125 8x16
+  dl5 HitTestArea 8,16.203125 556x16
+  dl6 HitTestArea 0,16 0x0
+  dl7 Border 0,48 800x18
+  dl8 HitTestArea 0,48 800x18
+  dl9 Text -15,49 830x16 glyphs=7 fs=16
+  dl10 HitTestArea 1,49.203125 64x16
+  dl11 HitTestArea 0,82 800x161
+  dl12 Text -16,82 832x161 glyphs=7 fs=16
+  dl13 Text -16,82 832x161 glyphs=7 fs=16
+  dl14 HitTestArea 300,219.20313 49.59375x16
+  dl15 HitTestArea 379.59375,219.20313 37.59375x16
+  dl16 Image 0,82 300x150
+  dl17 Image 349.59375,213 30x30
+  dl18 Image 350,259 100x20
+  dl19 PopStackingContext
+=== painting order, effects and backgrounds
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x198 ov=800x198 bl=195 ic=100/100
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x198 ov=800x198 mt=0 mb=0 bl=195 ic=100/100 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 100x50 ov=0x0 ic=100/100 rel=0,0
+n3 p1 d3 Block { establishes_new_context: false } @0,50 50x20 ov=0x0 ic=50/50 rel=0,50
+n4 p1 d4 Inline @0,70 50x20 ov=8x16 bl=13 ic=50/50 rel=0,70
+n5 p4 d5 Inline @0,70 -x- ic=8/8
+n6 p1 d6 Inline @0,90 50x20 ov=8x16 bl=13 ic=50/50 rel=0,90
+n7 p6 d7 Inline @0,90 -x- ic=8/8
+n8 p1 d8 Inline @0,110 800x16 ov=43.203125x16 bl=13 ic=43.203125/43.203125 rel=0,110
+n9 p8 d9 Inline @0,110 -x- ic=43.203125/43.203125
+n10 p1 d10 Inline @0,126 40x16 ov=46.40625x16 bl=13 ic=40/40 rel=0,126
+n11 p10 d11 Inline @0,126 -x- ic=46.40625/46.40625
+n12 p1 d12 Block { establishes_new_context: false } @0,142 40x40 ov=0x0 ic=40/40 rel=0,142
+n13 p1 d13 Inline @0,182 800x16 ov=52.796875x16 bl=13 ic=52.8125/52.8125 rel=0,182
+n14 p13 d14 Inline @0,182 -x- ic=52.8125/52.8125
+  dl0 PushStackingContext 0,0 800x198
+  dl1 PushStackingContext 0,110 800x16
+  dl2 HitTestArea 0,110 800x16
+  dl3 Text -16,110 832x16 glyphs=6 fs=16
+  dl4 HitTestArea 0,110.203125 43.203125x16
+  dl5 PopStackingContext
+  dl6 BoxShadow 0,0 100x50
+  dl7 LinearGradient 0,0 100x50
+  dl8 HitTestArea 0,126 40x16
+  dl9 Text -16,126 78.40625x16 glyphs=7 fs=16
+  dl10 HitTestArea 0,126.203125 46.40625x16
+  dl11 RadialGradient 0,142 40x40
+  dl12 PushStackingContext 0,50 50x20
+  dl13 PushOpacity 0,50 50x20
+  dl14 Rect 0,50 50x20
+  dl15 PopOpacity
+  dl16 PopStackingContext
+  dl17 PushReferenceFrame 0,70 50x20
+  dl18 PushStackingContext 0,70 50x20
+  dl19 HitTestArea 0,70 50x20
+  dl20 Text -16,70 82x20 glyphs=1 fs=16
+  dl21 HitTestArea 0,70.203125 8x16
+  dl22 PopStackingContext
+  dl23 PopReferenceFrame
+  dl24 PushStackingContext 0,90 50x20
+  dl25 PushFilter 0,90 50x20
+  dl26 HitTestArea 0,90 50x20
+  dl27 Text -16,90 82x20 glyphs=1 fs=16
+  dl28 HitTestArea 0,90.203125 8x16
+  dl29 PopFilter
+  dl30 PopStackingContext
+  dl31 PopStackingContext
+=== percentages and auto heights
+dom DomId { inner: 0 }
+n0 root d0 Block { establishes_new_context: true } @0,0 800x600 ov=800x600 bl=1173 ic=40/73.609375
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x600 ov=800x1260 mt=0 mb=0 bl=1173 ic=40/73.609375 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x300 ov=800x300 mt=0 mb=0 bl=13 ic=27.203125/73.609375 rel=0,0
+n3 p2 d3 Inline @0,0 800x300 ov=73.59375x16 bl=13 ic=27.203125/73.609375 rel=0,0
+n4 p3 d4 Inline @0,0 -x- ic=27.203125/73.609375
+n5 p1 d- Inline anon=InlineWrapper @0,300 800x600 ov=40x600 bl=13 ic=40/40 rel=0,300
+  line 0 y=0 items=1 glyphs=0 x=0..40
+n6 p5 d5 InlineBlock @0,300 40x600 bl=13 ic=40/40 rel=0,0
+n7 p6 d6 Inline @0,300 40x16 ov=40x16 bl=13 ic=40/40 rel=0,0
+n8 p1 d7 Inline @0,900 800x180 ov=25.59375x16 bl=13 ic=25.609375/25.609375 rel=0,900
+n9 p8 d8 Inline @0,900 -x- ic=25.609375/25.609375
+n10 p1 d9 Block { establishes_new_context: false } @0,1160 800x100 ov=800x25 mt=80 mb=0 bl=13 ic=8/8 rel=0,1160
+n11 p10 d10 Inline @0,1160 800x25 ov=8x16 bl=13 ic=8/8 rel=0,0
+n12 p11 d11 Inline @0,1160 -x- ic=8/8
+  dl0 PushStackingContext 0,0 800x600
+  dl1 HitTestArea 0,0 800x300
+  dl2 Text -16,0 832x300 glyphs=12 fs=16
+  dl3 HitTestArea 0,0.203125 73.59375x16
+  dl4 HitTestArea 0,300 40x600
+  dl5 HitTestArea 0,300 40x600
+  dl6 Text -16,300 72x16 glyphs=5 fs=16
+  dl7 HitTestArea 0,300.20313 40x16
+  dl8 HitTestArea 0,900 800x180
+  dl9 Text -16,900 832x180 glyphs=3 fs=16
+  dl10 HitTestArea 0,900.2031 25.59375x16
+  dl11 HitTestArea 0,1160 800x25
+  dl12 Text -16,1160 832x25 glyphs=1 fs=16
+  dl13 HitTestArea 0,1160.2031 8x16
+  dl14 PopStackingContext

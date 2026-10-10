@@ -29,13 +29,12 @@ use azul_core::{
     task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg},
     video::{ConsumerFrame, FrameConsumer, VideoFrame},
 };
-use azul_css::impl_option_inner; /* brought into scope for impl_widget_callback!'s
-                                   * impl_option! */
 use azul_css::{props::basic::ColorU, AzString};
 
 use crate::{
     callbacks::CallbackInfo,
     image_scale::{self, ResampleFn, SrcImage},
+    request::mock::{self, DeviceKind, MockDevice},
     thread::{
         ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
         WriteBackCallbackType,
@@ -172,6 +171,7 @@ pub fn present_frame(
         frame.bytes.clone(),
         frame.width,
         frame.height,
+        frame.format,
     )
 }
 
@@ -179,9 +179,10 @@ pub fn present_frame(
 /// them out of the frame `RefAny` (dropped right after) instead of cloning
 /// a full frame on the main thread.
 ///
-/// `premultiplied_alpha: true` because every
-/// capture backend forces alpha 255, for which straight == premultiplied —
-/// `load_rgba8` then skips its per-pixel multiply.
+/// The frame goes onto the tile in its own `format` (BGRA8 and NV12 load
+/// without a conversion pass). `premultiplied_alpha: true` because every
+/// capture backend forces alpha 255 (and YCbCr has none), for which
+/// straight == premultiplied — no per-pixel multiply.
 pub fn present_frame_pixels(
     info: &mut CallbackInfo,
     marker: AzString,
@@ -189,15 +190,16 @@ pub fn present_frame_pixels(
     bytes: azul_css::U8Vec,
     width: u32,
     height: u32,
+    format: azul_core::resources::RawImageFormat,
 ) -> Option<u32> {
-    use azul_core::resources::{RawImage, RawImageData, RawImageFormat};
+    use azul_core::resources::{RawImage, RawImageData};
 
     if let Some(img) = ImageRef::new_rawimage(RawImage {
         pixels: RawImageData::U8(bytes),
         width: width as usize,
         height: height as usize,
         premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
+        data_format: format,
         tag: b"azul-capture-frame".to_vec().into(),
     }) {
         if let Some(node) = info.get_node_id_by_marker(marker) {
@@ -255,10 +257,16 @@ pub struct CaptureRequest {
     /// repaint is a screen change, which emits a frame, which repaints the
     /// tile, ... — a steady 30 fps on an idle desktop.
     pub exclude_self: bool,
+    /// The pixel format the widget asked for (its config's
+    /// `output_format`). A backend that can produce it without a conversion
+    /// delivers it ([`CaptureRead::FrameIn`]: BGRA8 or NV12 on Apple); one
+    /// that cannot delivers RGBA8 ([`CaptureRead::Frame`]). Any NV12 variant
+    /// means "NV12": the frame carries the matrix and range it really has.
+    pub format: azul_core::resources::RawImageFormat,
 }
 
 impl CaptureRequest {
-    /// `index` at `width` x `height`, everything else default.
+    /// `index` at `width` x `height`, everything else default (RGBA8).
     #[must_use]
     pub const fn new(index: u32, width: u32, height: u32) -> Self {
         Self {
@@ -268,7 +276,14 @@ impl CaptureRequest {
             height,
             fps: 0,
             exclude_self: true,
+            format: azul_core::resources::RawImageFormat::RGBA8,
         }
+    }
+
+    /// The same request for frames in `format`.
+    #[must_use]
+    pub const fn with_format(self, format: azul_core::resources::RawImageFormat) -> Self {
+        Self { format, ..self }
     }
 
     /// The same request at another size.
@@ -302,6 +317,17 @@ pub enum CaptureRead {
         /// Delivered height in px.
         height: u32,
     },
+    /// A new frame in `format` (tightly packed: BGRA8 / RGBA8 rows, or both
+    /// NV12 planes) is in `out` — what a backend hands out when it can
+    /// deliver the requested format without converting.
+    FrameIn {
+        /// Delivered width in px.
+        width: u32,
+        /// Delivered height in px.
+        height: u32,
+        /// The byte layout of `out`.
+        format: azul_core::resources::RawImageFormat,
+    },
     /// Nothing new within the backend's wait: an idle screen, a camera that
     /// stalled (sleep/wake, a Continuity camera reconnecting). NOT the end of
     /// the stream — the worker keeps polling, and presents nothing, so an
@@ -326,8 +352,10 @@ pub struct CaptureVTable {
     /// Open the source described by the request. Returns an opaque handle,
     /// or `0` on failure (the worker then falls back to the test pattern).
     pub open: fn(request: &CaptureRequest) -> u64,
-    /// Block (bounded, ~1 s) for the next frame, writing tightly-packed RGBA8
-    /// into `out` (resized as needed). See [`CaptureRead`] for the three
+    /// Block (bounded, ~1 s) for the next frame, writing it tightly packed
+    /// into `out` (resized, or swapped with the backend's own buffer): RGBA8
+    /// (`Frame`), or the format the request asked for when the backend has
+    /// it without a conversion (`FrameIn`). See [`CaptureRead`] for the
     /// outcomes — a timeout is `Idle`, never `Ended`.
     pub read: fn(handle: u64, out: &mut Vec<u8>) -> CaptureRead,
     /// Close + free the source.
@@ -346,21 +374,22 @@ static FRAME_RESAMPLER: std::sync::OnceLock<ResampleFn> = std::sync::OnceLock::n
 
 /// Register a platform-accelerated whole-frame scaler (the dll registers
 /// Accelerate/vImage on macOS). It must be a pure function with
-/// [`image_scale::resample_rgba`]'s contract — same inputs, same output
-/// within rounding — because the fan-out may run it per consumer on any
-/// thread. First registration wins; without one the portable scaler is used.
+/// [`image_scale::resample_frame_rect`]'s contract — same inputs, same
+/// output (in the source frame's own format) within rounding — because the
+/// fan-out may run it per consumer on any thread. First registration wins;
+/// without one the portable scaler is used.
 pub fn register_frame_resampler(resample: ResampleFn) {
     let _ = FRAME_RESAMPLER.set(resample);
 }
 
 /// The whole-frame scaler the capture fan-out uses: the registered
-/// platform one, else [`image_scale::resample_rgba`].
+/// platform one, else [`image_scale::resample_frame_rect`].
 #[must_use]
 pub fn frame_resampler() -> ResampleFn {
     FRAME_RESAMPLER
         .get()
         .copied()
-        .unwrap_or(image_scale::resample_rgba)
+        .unwrap_or(image_scale::resample_frame_rect)
 }
 
 /// Register the platform **camera** capture backend (called once by the dll at
@@ -375,14 +404,28 @@ pub fn register_screen_backend(vtable: CaptureVTable) {
     let _ = SCREEN_BACKEND.set(vtable);
 }
 
-/// The registered camera backend, if the dll provided one for this platform.
+/// The camera backend `CameraWidget` opens: the one the dll registered for
+/// this platform, if any. A headless / e2e run never gets it: see
+/// `gated_backend` (the synthetic stand-in is the colour-cycle pattern).
 pub fn camera_backend() -> Option<CaptureVTable> {
-    CAMERA_BACKEND.get().copied()
+    gated_backend(
+        mock::device(DeviceKind::Camera),
+        CAMERA_BACKEND.get().copied(),
+        test_pattern_vtable(TestPattern::ColourCycle),
+        UNAVAILABLE_CAMERA,
+    )
 }
 
-/// The registered screen-capture backend, if any.
+/// The screen-capture backend `ScreenCaptureWidget` opens, if any. A
+/// headless / e2e run never gets it: see `gated_backend` (the synthetic
+/// stand-in is the moving band).
 pub fn screen_backend() -> Option<CaptureVTable> {
-    SCREEN_BACKEND.get().copied()
+    gated_backend(
+        mock::device(DeviceKind::Screen),
+        SCREEN_BACKEND.get().copied(),
+        test_pattern_vtable(TestPattern::MovingBand),
+        UNAVAILABLE_SCREEN,
+    )
 }
 
 /// A platform **audio**-capture backend (microphone), registered by the dll so
@@ -410,10 +453,93 @@ pub fn register_mic_backend(vtable: AudioCaptureVTable) {
     let _ = MIC_BACKEND.set(vtable);
 }
 
-/// The registered mic-capture backend, if the dll provided one for this platform.
+/// The microphone backend `MicrophoneWidget` opens: the one the dll registered
+/// for this platform, if any. A headless / e2e run never gets it: see
+/// `gated_backend` (the synthetic stand-in is the 440 Hz test tone).
 pub fn mic_backend() -> Option<AudioCaptureVTable> {
-    MIC_BACKEND.get().copied()
+    gated_backend(
+        mock::device(DeviceKind::Microphone),
+        MIC_BACKEND.get().copied(),
+        test_tone_vtable(),
+        UNAVAILABLE_MIC,
+    )
 }
+
+// ----------------------------------------------------------------------------
+// Headless runs: never a real device
+// ----------------------------------------------------------------------------
+
+/// The backend a capture opens: the registered platform one in a normal run.
+/// A headless / e2e run ([`crate::request::mock::device`]) never reaches it:
+/// it gets the synthetic stand-in it asked for, else a source that opens
+/// nothing - no device, no camera light, no permission prompt.
+fn gated_backend<T>(
+    device: MockDevice,
+    registered: Option<T>,
+    synthetic: T,
+    unavailable: T,
+) -> Option<T> {
+    match device {
+        MockDevice::Real => registered,
+        MockDevice::Synthetic => Some(synthetic),
+        MockDevice::Unavailable => Some(unavailable),
+    }
+}
+
+/// The handle of a source that opened nothing. Not `0`, which would make the
+/// worker fall back to its test pattern: the stand-in of an unavailable
+/// device is nothing at all.
+const UNAVAILABLE_HANDLE: u64 = 1;
+
+fn unavailable_camera_open(_request: &CaptureRequest) -> u64 {
+    mock::record_unavailable_device(DeviceKind::Camera);
+    UNAVAILABLE_HANDLE
+}
+
+fn unavailable_screen_open(_request: &CaptureRequest) -> u64 {
+    mock::record_unavailable_device(DeviceKind::Screen);
+    UNAVAILABLE_HANDLE
+}
+
+const fn unavailable_read(_handle: u64, _out: &mut Vec<u8>) -> CaptureRead {
+    CaptureRead::Ended
+}
+
+fn unavailable_mic_open(_sample_rate: u32, _channels: u16) -> u64 {
+    mock::record_unavailable_device(DeviceKind::Microphone);
+    UNAVAILABLE_HANDLE
+}
+
+const fn unavailable_mic_read(_handle: u64, _out: &mut Vec<f32>) -> u32 {
+    0
+}
+
+const fn unavailable_close(_handle: u64) {}
+
+/// A camera a headless run did not ask for: it opens nothing (and says so),
+/// and ends before its first frame, so the tile keeps its placeholder.
+const UNAVAILABLE_CAMERA: CaptureVTable = CaptureVTable {
+    open: unavailable_camera_open,
+    read: unavailable_read,
+    close: unavailable_close,
+    reconfigure: None,
+};
+
+/// A screen a headless run did not ask for: see [`UNAVAILABLE_CAMERA`].
+const UNAVAILABLE_SCREEN: CaptureVTable = CaptureVTable {
+    open: unavailable_screen_open,
+    read: unavailable_read,
+    close: unavailable_close,
+    reconfigure: None,
+};
+
+/// A microphone a headless run did not ask for: it opens nothing (and says
+/// so), and delivers no samples.
+const UNAVAILABLE_MIC: AudioCaptureVTable = AudioCaptureVTable {
+    open: unavailable_mic_open,
+    read: unavailable_mic_read,
+    close: unavailable_close,
+};
 
 /// Poll the main->worker channel and report whether the worker was asked to
 /// stop.
@@ -593,8 +719,15 @@ pub fn present_captured(
     }
     let shown = captured.preview.take().or_else(|| captured.source.take());
     if let Some(frame) = shown {
-        let _texture_id: Option<u32> =
-            present_frame_pixels(info, marker, None, frame.bytes, frame.width, frame.height);
+        let _texture_id: Option<u32> = present_frame_pixels(
+            info,
+            marker,
+            None,
+            frame.bytes,
+            frame.width,
+            frame.height,
+            frame.format,
+        );
     }
     update
 }
@@ -737,9 +870,16 @@ pub fn run_capture_loop(
             last_open = azul_core::task::Instant::now();
         }
 
-        let (fw, fh) = match (backend.read)(handle, &mut buf) {
-            CaptureRead::Frame { width, height } if width > 0 && height > 0 => (width, height),
-            CaptureRead::Frame { .. } | CaptureRead::Ended => break,
+        let (fw, fh, format) = match (backend.read)(handle, &mut buf) {
+            CaptureRead::Frame { width, height } if width > 0 && height > 0 => {
+                (width, height, azul_core::resources::RawImageFormat::RGBA8)
+            }
+            CaptureRead::FrameIn {
+                width,
+                height,
+                format,
+            } if width > 0 && height > 0 => (width, height, format),
+            CaptureRead::Frame { .. } | CaptureRead::FrameIn { .. } | CaptureRead::Ended => break,
             CaptureRead::Idle => continue,
         };
         delivered = Some((fw, fh));
@@ -748,7 +888,13 @@ pub fn run_capture_loop(
             // this one (the next read brings a newer one) rather than queue it.
             continue;
         }
-        let captured = cut_frame(&targets, &mut buf, fw, fh, session.resample, &in_flight);
+        let captured = cut_frame(
+            &targets,
+            &mut buf,
+            (fw, fh, format),
+            session.resample,
+            &in_flight,
+        );
         in_flight.store(true, Ordering::Release);
         let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
             WriteBackCallback::new(session.writeback),
@@ -778,29 +924,37 @@ fn open_with_fallback(session: &CaptureSession, request: &CaptureRequest) -> (Ca
 }
 
 /// Cut the preview and every consumer from the captured frame in `buf`
-/// (RGBA8 `fw` x `fh`), moving the pixels out only when the source frame
-/// itself must travel (hook wants it, or no preview cut).
+/// (`fw` x `fh` in `format`), moving the pixels out only when the source
+/// frame itself must travel (hook wants it, or no preview cut). Every cut
+/// keeps the frame's format (`image_scale::frame_output_format`): a BGRA or
+/// NV12 capture reaches the tile and the encoder without a conversion.
 fn cut_frame(
     targets: &CaptureTargets,
     buf: &mut Vec<u8>,
-    fw: u32,
-    fh: u32,
+    (fw, fh, format): (u32, u32, azul_core::resources::RawImageFormat),
     resample: ResampleFn,
     in_flight: &Arc<AtomicBool>,
 ) -> CapturedFrames {
     let src = SrcImage {
         bytes: buf.as_slice(),
-        format: azul_core::resources::RawImageFormat::RGBA8,
+        format,
         width: fw,
         height: fh,
     };
+    let cut_format = image_scale::frame_output_format(format);
     let preview = preview_cut_size(targets, (fw, fh)).and_then(|(pw, ph)| {
-        let rgba = image_scale::cut(&src, pw, ph, resample);
-        (!rgba.is_empty()).then(|| VideoFrame::new(pw, ph, rgba.into()))
+        let bytes = image_scale::cut(&src, pw, ph, resample);
+        (!bytes.is_empty()).then(|| VideoFrame::with_format(pw, ph, bytes.into(), cut_format))
     });
     let consumers = image_scale::fan_out(&src, &targets.consumers, resample);
-    let source = (targets.wants_source || preview.is_none())
-        .then(|| VideoFrame::new(fw, fh, core::mem::take(buf).into()));
+    // The frame travels as it is: the worker keeps a buffer with the frame's
+    // room, which the next read swaps into the platform's capture slot, so
+    // the slot writes the next frame into it instead of growing an empty one.
+    let source = (targets.wants_source || preview.is_none()).then(|| {
+        let room = buf.capacity();
+        let bytes = core::mem::replace(buf, Vec::with_capacity(room));
+        VideoFrame::with_format(fw, fh, bytes.into(), format)
+    });
     CapturedFrames {
         source,
         preview,
@@ -915,6 +1069,79 @@ pub const fn test_pattern_vtable(kind: TestPattern) -> CaptureVTable {
         read: test_pattern_read,
         close: test_pattern_close,
         reconfigure: None,
+    }
+}
+
+/// Frequency of the built-in microphone test tone.
+const TEST_TONE_HZ: f32 = 440.0;
+/// Interval between two test-tone chunks (one chunk is ~20 ms of samples).
+const TEST_TONE_CHUNK: std::time::Duration = std::time::Duration::from_millis(20);
+
+struct TestToneState {
+    channels: u16,
+    /// Frames per chunk: ~20 ms, at least one.
+    frames: usize,
+    /// Phase advance per frame, in radians.
+    step: f32,
+    phase: f32,
+    /// A chunk was delivered: the next one waits [`TEST_TONE_CHUNK`].
+    started: bool,
+}
+
+#[allow(clippy::cast_precision_loss)] // a sample rate is far below 2^24
+fn test_tone_open(sample_rate: u32, channels: u16) -> u64 {
+    Box::into_raw(Box::new(TestToneState {
+        channels,
+        frames: (sample_rate as usize / 50).max(1),
+        step: 2.0 * core::f32::consts::PI * TEST_TONE_HZ / sample_rate as f32,
+        phase: 0.0,
+        started: false,
+    })) as u64
+}
+
+fn test_tone_read(handle: u64, out: &mut Vec<f32>) -> u32 {
+    // SAFETY: `handle` is a `Box<TestToneState>` from `test_tone_open`, alive
+    // until `test_tone_close`; the worker never reads after close.
+    let Some(state) = (unsafe { (handle as *mut TestToneState).as_mut() }) else {
+        return 0;
+    };
+    if state.started {
+        std::thread::sleep(TEST_TONE_CHUNK);
+    }
+    state.started = true;
+    out.clear();
+    out.reserve(state.frames * usize::from(state.channels));
+    for _ in 0..state.frames {
+        let sample = state.phase.sin() * 0.2;
+        state.phase += state.step;
+        if state.phase > 2.0 * core::f32::consts::PI {
+            state.phase -= 2.0 * core::f32::consts::PI;
+        }
+        for _ in 0..state.channels {
+            out.push(sample);
+        }
+    }
+    u32::try_from(state.frames).unwrap_or(u32::MAX)
+}
+
+fn test_tone_close(handle: u64) {
+    if handle != 0 {
+        // SAFETY: the handle came from `Box::into_raw` in `test_tone_open`
+        // and is closed exactly once by the worker.
+        drop(unsafe { Box::from_raw(handle as *mut TestToneState) });
+    }
+}
+
+/// The built-in microphone: a 440 Hz sine at amplitude 0.2, the same on
+/// every channel, starting at phase 0, in ~20 ms chunks paced by wall time.
+/// `MicrophoneWidget` plays it where no platform backend opens, and it is a
+/// headless run's synthetic microphone.
+#[must_use]
+pub const fn test_tone_vtable() -> AudioCaptureVTable {
+    AudioCaptureVTable {
+        open: test_tone_open,
+        read: test_tone_read,
+        close: test_tone_close,
     }
 }
 
@@ -1219,6 +1446,7 @@ mod autotest_generated {
                     node_id,
                     image,
                     update_type,
+                    dirty_rect: _,
                 } => Some((*dom_id, node_id.index(), image, *update_type)),
                 _ => None,
             })
@@ -1769,6 +1997,36 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_frame_is_installed_in_its_own_format_without_a_conversion() {
+        // A BGRA capture or an NV12 camera / decoder frame goes onto the tile
+        // as it is: the old RGBA8 label made `new_rawimage` swizzle every
+        // frame (and refuse NV12 outright).
+        use azul_core::resources::{ImageData, Nv12Layout, RawImageFormat as F};
+        let bgra: Vec<u8> = [200u8, 20, 10, 255].repeat(4);
+        let nv12 = vec![90u8; Nv12Layout::new(2, 2).checked_total_len().expect("small")];
+        for (format, bytes) in [(F::BGRA8, bgra), (F::NV12Rec601Video, nv12)] {
+            let styled = dom_with_markers(Some(CAM_MARKER), None);
+            let frame = VideoFrame::with_format(2, 2, bytes.clone().into(), format);
+            let (_, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
+                present_frame(info, CAM_MARKER.into(), None, &frame)
+            });
+            let installs = image_installs(&changes);
+            assert_eq!(installs.len(), 1, "{format:?}: one install");
+            match installs[0].2.get_data() {
+                DecodedImage::Raw((descriptor, ImageData::Raw(shared))) => {
+                    assert_eq!(descriptor.format, format);
+                    assert_eq!(
+                        shared.as_ref(),
+                        &bytes[..],
+                        "{format:?}: no swizzle, no conversion"
+                    );
+                }
+                other => panic!("{format:?}: a raw image, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn present_frame_with_gl_steady_state_reinstalls_the_frame_not_a_texture() {
         // Re-installing per frame is CORRECT now: the chokepoint patches the
         // display list in place (no rebuild), and the ImageRef identity change
@@ -1944,6 +2202,11 @@ mod autotest_generated {
         inject_on_read: Option<(u32, CaptureTargets)>,
         reads: u32,
         control_tx: Option<Sender<ThreadSendMsg>>,
+        /// The format the fake delivers its frames in (`FrameIn`); `None`
+        /// delivers the legacy RGBA8 `Frame`.
+        deliver: Option<azul_core::resources::RawImageFormat>,
+        /// The format every `open` was asked for.
+        requested_formats: Vec<azul_core::resources::RawImageFormat>,
     }
     static FAKE: Mutex<Option<FakeBackend>> = Mutex::new(None);
     static LOOP_GATE: Mutex<()> = Mutex::new(());
@@ -1952,6 +2215,7 @@ mod autotest_generated {
         let mut g = FAKE.lock().unwrap_or_else(PoisonError::into_inner);
         let fake = g.as_mut().expect("fake backend installed");
         fake.opens.push((r.width, r.height));
+        fake.requested_formats.push(r.format);
         u64::from(fake.opens.len() as u32) // never 0
     }
     fn fake_read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
@@ -1974,10 +2238,33 @@ mod autotest_generated {
         let (w, h) = fake.opens.last().copied().unwrap_or((1, 1));
         let _ = handle;
         out.clear();
-        out.extend((0..w * h).flat_map(|_| [10u8, 20, 200, 255]));
-        CaptureRead::Frame {
-            width: w,
-            height: h,
+        match fake.deliver {
+            Some(format) if format.is_nv12() => {
+                let len = azul_core::resources::Nv12Layout::new(w as usize, h as usize)
+                    .checked_total_len()
+                    .expect("small");
+                out.resize(len, 90);
+                CaptureRead::FrameIn {
+                    width: w,
+                    height: h,
+                    format,
+                }
+            }
+            Some(format) => {
+                out.extend((0..w * h).flat_map(|_| [200u8, 20, 10, 255]));
+                CaptureRead::FrameIn {
+                    width: w,
+                    height: h,
+                    format,
+                }
+            }
+            None => {
+                out.extend((0..w * h).flat_map(|_| [10u8, 20, 200, 255]));
+                CaptureRead::Frame {
+                    width: w,
+                    height: h,
+                }
+            }
         }
     }
     fn fake_close(_handle: u64) {
@@ -2025,6 +2312,44 @@ mod autotest_generated {
         inject_on_read: Option<(u32, CaptureTargets)>,
         floor: Option<(u32, u32)>,
     ) -> (Vec<QueuedSummary>, Vec<(u32, u32)>, u32) {
+        let run = run_fake_loop_in(
+            initial,
+            frames,
+            inject_on_read,
+            floor,
+            None,
+            azul_core::resources::RawImageFormat::RGBA8,
+        );
+        (run.queued, run.opens, run.closes)
+    }
+
+    /// The pixel format of every queued writeback: `(preview, source,
+    /// consumers by id)`.
+    type QueuedFormats = (
+        Option<azul_core::resources::RawImageFormat>,
+        Option<azul_core::resources::RawImageFormat>,
+        Vec<(u32, azul_core::resources::RawImageFormat)>,
+    );
+
+    /// Everything one fake loop run observed.
+    struct FakeRun {
+        queued: Vec<QueuedSummary>,
+        formats: Vec<QueuedFormats>,
+        opens: Vec<(u32, u32)>,
+        closes: u32,
+        requested_formats: Vec<azul_core::resources::RawImageFormat>,
+    }
+
+    /// [`run_fake_loop`] with the backend delivering `deliver` (`None` =
+    /// legacy RGBA8 frames) and the session requesting `request_format`.
+    fn run_fake_loop_in(
+        initial: CaptureTargets,
+        frames: u32,
+        inject_on_read: Option<(u32, CaptureTargets)>,
+        floor: Option<(u32, u32)>,
+        deliver: Option<azul_core::resources::RawImageFormat>,
+        request_format: azul_core::resources::RawImageFormat,
+    ) -> FakeRun {
         let _gate = LOOP_GATE.lock().unwrap_or_else(PoisonError::into_inner);
         let (wb_tx, wb_rx) = channel::<ThreadReceiveMsg>();
         let (ctl_tx, ctl_rx) = channel::<ThreadSendMsg>();
@@ -2035,6 +2360,8 @@ mod autotest_generated {
             inject_on_read,
             reads: 0,
             control_tx: Some(ctl_tx.clone()),
+            deliver,
+            requested_formats: Vec::new(),
         });
         let mut sender = ThreadSender::new(ThreadSenderInner {
             ptr: Box::new(wb_tx),
@@ -2053,16 +2380,17 @@ mod autotest_generated {
         let session = CaptureSession {
             backend: Some(FAKE_VTABLE),
             test_pattern: test_pattern_vtable(TestPattern::ColourCycle),
-            request: CaptureRequest::new(0, 0, 0),
+            request: CaptureRequest::new(0, 0, 0).with_format(request_format),
             floor,
             fallback: (640, 480),
             writeback: loop_writeback,
-            resample: image_scale::resample_rgba,
+            resample: image_scale::resample_frame_rect,
             reopen_cooldown_ms: 0,
         };
         run_capture_loop(session, initial, &mut sender, &mut receiver);
 
         let mut queued = Vec::new();
+        let mut formats = Vec::new();
         while let Ok(ThreadReceiveMsg::WriteBack(mut wb)) = wb_rx.try_recv() {
             let Some(mut c) = wb.refany.downcast_mut::<CapturedFrames>() else {
                 panic!("every capture writeback carries CapturedFrames");
@@ -2074,6 +2402,14 @@ mod autotest_generated {
                 .iter()
                 .map(|x| (x.consumer.id, x.frame.width, x.frame.height))
                 .collect();
+            formats.push((
+                c.preview.as_ref().map(|f| f.format),
+                c.source.as_ref().map(|f| f.format),
+                c.consumers
+                    .iter()
+                    .map(|x| (x.consumer.id, x.frame.format))
+                    .collect(),
+            ));
             // Release the latch the way the real writeback does — the NEXT
             // test's loop must not see a stale `true`.
             c.in_flight.store(false, Ordering::Release);
@@ -2085,7 +2421,70 @@ mod autotest_generated {
             .take()
             .expect("fake backend still installed");
         drop(ctl_tx);
-        (queued, fake.opens, fake.closes)
+        FakeRun {
+            queued,
+            formats,
+            opens: fake.opens,
+            closes: fake.closes,
+            requested_formats: fake.requested_formats,
+        }
+    }
+
+    #[test]
+    fn the_widgets_pixel_format_reaches_the_backends_open_request() {
+        use azul_core::resources::RawImageFormat;
+        let run = run_fake_loop_in(
+            targets(Some((4, 4)), &[], false),
+            1,
+            None,
+            None,
+            None,
+            RawImageFormat::NV12Rec709Video,
+        );
+        assert_eq!(run.requested_formats, vec![RawImageFormat::NV12Rec709Video]);
+    }
+
+    #[test]
+    fn a_bgra_capture_reaches_the_tile_and_every_consumer_as_bgra() {
+        // AVFoundation / ScreenCaptureKit hand out BGRA: nothing between the
+        // capture and the tile or the encoder may swizzle it.
+        use azul_core::resources::RawImageFormat as F;
+        let run = run_fake_loop_in(
+            targets(Some((4, 3)), &[(7, 2, 3)], false),
+            1,
+            None,
+            None,
+            Some(F::BGRA8),
+            F::BGRA8,
+        );
+        assert_eq!(
+            run.formats,
+            vec![(None, Some(F::BGRA8), vec![(7, F::BGRA8)])],
+            "the same-size preview is the BGRA source; the consumer's cut is BGRA"
+        );
+    }
+
+    #[test]
+    fn an_nv12_capture_is_cut_for_the_tile_and_the_encoder_as_nv12() {
+        use azul_core::resources::RawImageFormat as F;
+        let run = run_fake_loop_in(
+            targets(Some((4, 4)), &[(7, 8, 6)], false),
+            1,
+            None,
+            None,
+            Some(F::NV12Rec709Video),
+            F::NV12Rec709Video,
+        );
+        assert_eq!(run.opens, vec![(8, 6)], "the covering size of the tile and Bob");
+        assert_eq!(
+            run.formats,
+            vec![(
+                Some(F::NV12Rec709Video),
+                None,
+                vec![(7, F::NV12Rec709Video)]
+            )],
+            "the 4x4 preview and Bob's 8x6 are NV12, the source stays on the worker"
+        );
     }
 
     #[test]
@@ -2413,6 +2812,135 @@ mod autotest_generated {
             // `0` is the documented EOF/error return.
             assert_eq!((vt.read)(3, &mut samples), 0);
             (vt.close)(u64::MAX);
+        }
+    }
+}
+
+#[cfg(test)]
+mod headless_device_tests {
+    use super::{
+        gated_backend, test_tone_vtable, CaptureRead, MockDevice, UNAVAILABLE_CAMERA,
+        UNAVAILABLE_HANDLE, UNAVAILABLE_MIC, UNAVAILABLE_SCREEN,
+    };
+
+    /// The platform backend a capture widget opens is the registered one
+    /// only in a normal run. A headless run never reaches it: it gets the
+    /// synthetic stand-in it asked for (whether or not a platform backend
+    /// exists), else the source that opens nothing.
+    #[test]
+    fn a_headless_capture_never_reaches_the_platform_backend() {
+        const PLATFORM: u8 = 1;
+        const SYNTHETIC: u8 = 2;
+        const NOTHING: u8 = 3;
+        let pick = |device, registered| gated_backend(device, registered, SYNTHETIC, NOTHING);
+
+        assert_eq!(pick(MockDevice::Real, Some(PLATFORM)), Some(PLATFORM));
+        assert_eq!(
+            pick(MockDevice::Real, None),
+            None,
+            "no backend: the widget's own test pattern / tone, as before"
+        );
+        assert_eq!(pick(MockDevice::Synthetic, Some(PLATFORM)), Some(SYNTHETIC));
+        assert_eq!(pick(MockDevice::Synthetic, None), Some(SYNTHETIC));
+        assert_eq!(pick(MockDevice::Unavailable, Some(PLATFORM)), Some(NOTHING));
+        assert_eq!(pick(MockDevice::Unavailable, None), Some(NOTHING));
+    }
+
+    /// An unavailable camera, screen or microphone delivers nothing: the
+    /// capture worker ends before its first frame (the tile keeps its
+    /// placeholder) instead of falling back to a test pattern. Its handle is
+    /// not 0, which would mean "open failed, show the test pattern".
+    #[test]
+    fn an_unavailable_capture_source_ends_before_its_first_frame() {
+        assert_ne!(UNAVAILABLE_HANDLE, 0);
+        for source in [UNAVAILABLE_CAMERA, UNAVAILABLE_SCREEN] {
+            let mut pixels = Vec::new();
+            assert_eq!(
+                (source.read)(UNAVAILABLE_HANDLE, &mut pixels),
+                CaptureRead::Ended
+            );
+            assert!(pixels.is_empty());
+            (source.close)(UNAVAILABLE_HANDLE);
+        }
+        let mut samples = Vec::new();
+        assert_eq!((UNAVAILABLE_MIC.read)(UNAVAILABLE_HANDLE, &mut samples), 0);
+        assert!(samples.is_empty());
+        (UNAVAILABLE_MIC.close)(UNAVAILABLE_HANDLE);
+    }
+
+    /// A headless run's synthetic microphone is the widget's test tone: a
+    /// 440 Hz sine inside +/-0.2 from phase 0, ~20 ms per chunk, the same
+    /// sample on every channel.
+    #[test]
+    fn the_synthetic_microphone_is_a_440_hz_tone_in_20_ms_chunks() {
+        let tone = test_tone_vtable();
+        let handle = (tone.open)(8_000, 2);
+        assert_ne!(handle, 0);
+        let mut samples = Vec::new();
+        assert_eq!((tone.read)(handle, &mut samples), 160, "20 ms at 8 kHz");
+        assert_eq!(samples.len(), 320, "two channels, interleaved");
+        assert_eq!(samples[0], 0.0, "the tone starts at phase 0");
+        assert!(samples.iter().all(|s| s.is_finite() && s.abs() <= 0.2));
+        assert!(samples.iter().any(|s| s.abs() > 0.1), "a tone, not silence");
+        for pair in samples.chunks_exact(2) {
+            assert_eq!(pair[0], pair[1]);
+        }
+        // 440 Hz at 8 kHz: one period is ~18.2 frames, so 160 frames hold
+        // 8.8 periods, i.e. about 17 sign changes.
+        let mono: Vec<f32> = samples.chunks_exact(2).map(|pair| pair[0]).collect();
+        let crossings = mono
+            .windows(2)
+            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+            .count();
+        assert!((15..=19).contains(&crossings), "{crossings} sign changes");
+        (tone.close)(handle);
+    }
+}
+
+#[cfg(test)]
+mod frame_buffer_tests {
+    use std::sync::{atomic::AtomicBool, Arc};
+
+    use azul_core::resources::RawImageFormat;
+
+    use super::{cut_frame, CaptureTargets};
+
+    /// A captured frame that travels to the main thread as it is (no preview
+    /// cut: the tile is the capture's own size, or an `on_frame` hook wants
+    /// the source) leaves the capture worker a buffer with the frame's room.
+    /// The worker swaps that buffer into the platform's capture slot
+    /// (`CaptureSlot::take_newer`), which writes the next frame into it; an
+    /// EMPTY buffer there made every frame allocate (and zero) a whole frame
+    /// again - the "no second copy" design paid an allocation per frame.
+    #[test]
+    fn a_frame_that_travels_as_it_is_leaves_the_worker_a_buffer_with_its_room() {
+        let (w, h) = (64_u32, 36_u32);
+        let len = (w * h * 4) as usize;
+        for (preview, wants_source) in [(None, false), (Some((64, 36)), false), (None, true)] {
+            let targets = CaptureTargets {
+                preview,
+                consumers: Vec::new(),
+                wants_source,
+            };
+            let mut buf = vec![7_u8; len];
+            let in_flight = Arc::new(AtomicBool::new(false));
+            let captured = cut_frame(
+                &targets,
+                &mut buf,
+                (w, h, RawImageFormat::BGRA8),
+                crate::image_scale::resample_frame_rect,
+                &in_flight,
+            );
+            let source = captured
+                .source
+                .expect("without a preview cut the frame itself travels");
+            assert_eq!(source.bytes.as_ref().len(), len, "the frame travels whole");
+            assert!(
+                buf.capacity() >= len,
+                "preview {preview:?}, hook {wants_source}: the worker kept {} bytes of room for \
+                 the next {len}-byte frame",
+                buf.capacity()
+            );
         }
     }
 }

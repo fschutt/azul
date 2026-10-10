@@ -229,8 +229,7 @@ impl ContentEditableHarness {
                 },
                 affinity: azul_core::selection::CursorAffinity::Trailing,
             });
-        lw.text_edit_manager
-            .initialize_editing(cursor, dom_id, text_child_id, 0);
+        lw.start_editing_at(cursor, dom_id, text_child_id, 0);
         lw.text_edit_manager.blink.set_visibility(true);
     }
 
@@ -720,7 +719,7 @@ fn contenteditable_text_input_changes_output() {
     eprintln!(
         "  [verify] should_draw_cursor={}, multi_cursor={:?}, has CursorRect: {}",
         draw_cursor,
-        cursor_loc.map(|mc| &mc.node_id),
+        cursor_loc.map(|mc| &mc.block),
         has_cursor
     );
     if !has_cursor {
@@ -1383,7 +1382,7 @@ mod structural_roundtrip {
                 .multi_cursor
                 .as_ref()
                 .expect("caret restored after the swap");
-            let caret_node = mc.node_id.node.into_crate_internal().expect("caret node");
+            let caret_node = mc.block.container();
             let lr = lw.layout_results.get(&dom_id).unwrap();
             let container = lr.styled_dom.node_data.as_container();
             let hierarchy = lr.styled_dom.node_hierarchy.as_container();

@@ -43,6 +43,11 @@ pub struct MethodArg {
     pub ty: String,
     /// Reference kind (Value, Ref, RefMut, ConstPtr, MutPtr)
     pub ref_kind: RefKind,
+    /// The type's name as the source writes it, before the `Az` prefix is
+    /// stripped and an `Into<T>` parameter is resolved: `String` for a std
+    /// `String` (`ty` says `String` for an `AzString` too), `AzString`, `S`
+    /// for `S: Into<AzString>`. The fn_body converts a std `String`.
+    pub source_ty: String,
 }
 
 /// A method extracted from an impl block
@@ -64,6 +69,77 @@ pub struct MethodDef {
     pub doc: Vec<String>,
     /// Is this method public
     pub is_public: bool,
+    /// The trait this method implements (`impl Default for T` -> `Default`),
+    /// `None` for an inherent method. A standard trait's method is not an API
+    /// function: api.json carries it as a derive or a custom impl.
+    pub from_trait: Option<String>,
+}
+
+/// The traits whose impl methods api.json never lists as functions: a
+/// derived one is a `derive`, a hand-written one a `custom_impls` entry, and
+/// the codegen makes `T_default`, `T_clone`, ... from those.
+const STD_TRAITS: &[&str] = &[
+    "Default", "Clone", "Copy", "Drop", "Debug", "Display", "PartialEq", "Eq", "PartialOrd",
+    "Ord", "Hash", "From", "Into", "TryFrom", "TryInto", "AsRef", "AsMut", "Deref", "DerefMut",
+    "Iterator", "IntoIterator", "FromIterator", "Extend", "Send", "Sync",
+];
+
+/// Crate-internal plumbing traits: their methods serve the engine (the host
+/// invoker's `HostOut::unwritten` builds a callback's default answer), never
+/// an API caller. Unlike a standard trait they are not a `custom_impls`
+/// entry either - they simply do not cross the API.
+const INTERNAL_TRAITS: &[&str] = &["HostOut"];
+
+impl MethodDef {
+    /// Whether this is an internal plumbing trait's impl method
+    /// (see [`INTERNAL_TRAITS`]).
+    pub fn is_internal_trait_impl(&self) -> bool {
+        self.from_trait
+            .as_deref()
+            .is_some_and(|t| INTERNAL_TRAITS.contains(&t))
+    }
+
+    /// Whether this method can never be an API function: a standard trait's
+    /// (a derive / custom impl in api.json) or an internal trait's.
+    pub fn is_non_api_trait_impl(&self) -> bool {
+        self.is_std_trait_impl() || self.is_internal_trait_impl()
+    }
+
+    /// Whether this is a standard trait's impl method (`default`, `clone`,
+    /// `drop`, `fmt`, `eq`, ...): never an API function, never "missing from
+    /// api.json". A wrapper trait that exposes free functions stays a
+    /// candidate.
+    pub fn is_std_trait_impl(&self) -> bool {
+        self.from_trait
+            .as_deref()
+            .is_some_and(|t| STD_TRAITS.contains(&t))
+    }
+
+    /// The signature as the console shows it: the receiver, every argument
+    /// with its reference kind, the return type -
+    /// `(&mut self, host: DomNodeId, format: &TextFormat) -> ()`. The
+    /// summaries of `autofix add`, `discover` and `debug api` all print this;
+    /// they used to show the receiver alone, which read as "the tool dropped
+    /// the arguments" although the patch it generated carried them.
+    pub fn signature(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        match self.self_kind {
+            None => {}
+            Some(SelfKind::Value) => parts.push("self".to_string()),
+            Some(SelfKind::Ref) => parts.push("&self".to_string()),
+            Some(SelfKind::RefMut) => parts.push("&mut self".to_string()),
+        }
+        for arg in &self.args {
+            parts.push(format!("{}: {}{}", arg.name, arg.ref_kind.as_prefix(), arg.ty));
+        }
+        let ret = self.return_type.as_deref().unwrap_or("()");
+        format!(
+            "({}) -> {}{}",
+            parts.join(", "),
+            self.return_ref_kind.as_prefix(),
+            ret
+        )
+    }
 }
 
 /// A type definition discovered from parsing source files.
@@ -251,6 +327,15 @@ impl TypeDefinition {
                             FieldDef {
                                 name: "destructor".to_string(),
                                 ty: destructor_type,
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "flags".to_string(),
+                            FieldDef {
+                                name: "flags".to_string(),
+                                ty: "u8".to_string(),
                                 ref_kind: RefKind::Value,
                                 doc: Vec::new(),
                             },
@@ -732,6 +817,194 @@ fn split_generic_args(s: &str) -> Option<(String, String)> {
 }
 
 // type index
+/// The crates the index reads: (crate name, source folder under the
+/// workspace root).
+pub(crate) const CRATE_DIRS: &[(&str, &str)] = &[
+    ("azul_core", "core/src"),
+    ("azul_css", "css/src"),
+    ("azul_layout", "layout/src"),
+    ("azul_dll", "dll/src"),
+];
+
+/// A public free function, as `autofix add <Class>.<name> --fn <path>`
+/// reads it.
+#[derive(Debug, Clone)]
+pub struct FreeFnDef {
+    /// The path the api.json fn_body calls: the one given (a public
+    /// re-export path stays as it is)
+    pub path: String,
+    /// The module the function is defined in (`cpurender::text_raster`)
+    pub defined_in: String,
+    /// Its signature, read with the class it is added to as `Self`
+    pub method: MethodDef,
+}
+
+/// The public free function `path` (`azul_layout::cpurender::text_image`),
+/// read with `class_name` as the type it is added to. The definition is
+/// looked up in the path's crate: in the named module, else in a child of it
+/// (a `pub use child::*` re-export). A file a `#[path = ".."]` module
+/// declaration names has the declared module's path (`xml::html` lives in
+/// xml_html.rs).
+pub fn find_free_fn(workspace_root: &Path, path: &str, class_name: &str) -> Result<FreeFnDef, String> {
+    let segments: Vec<&str> = path.split("::").collect();
+    let (crate_name, module, fn_name) = match segments.as_slice() {
+        [crate_name, modules @ .., fn_name] if !fn_name.is_empty() => {
+            (*crate_name, modules.join("::"), *fn_name)
+        }
+        _ => return Err(format!("`{path}` is not a path `<crate>::<module>::<fn>`")),
+    };
+    let Some((_, src)) = CRATE_DIRS.iter().find(|(c, _)| *c == crate_name) else {
+        let known: Vec<&str> = CRATE_DIRS.iter().map(|(c, _)| *c).collect();
+        return Err(format!(
+            "unknown crate `{crate_name}` in `{path}` (the index reads {})",
+            known.join(", ")
+        ));
+    };
+    let mut files = Vec::new();
+    collect_rust_files(&mut files, crate_name, &workspace_root.join(src));
+
+    // Files a `#[path = ".."]` module declaration names: the declared path
+    let mut declared: BTreeMap<PathBuf, String> = BTreeMap::new();
+    for (_, file) in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        if !text.contains("#[path") {
+            continue;
+        }
+        let Ok(ast) = syn::parse_file(&text) else {
+            continue;
+        };
+        let parent_module = infer_module_path(crate_name, file);
+        for item in &ast.items {
+            let Item::Mod(m) = item else { continue };
+            if m.content.is_some() {
+                continue;
+            }
+            let Some(target) = m.attrs.iter().find_map(path_attr_value) else {
+                continue;
+            };
+            let Some(dir) = file.parent() else { continue };
+            let module_path = if parent_module.is_empty() {
+                m.ident.to_string()
+            } else {
+                format!("{parent_module}::{}", m.ident)
+            };
+            declared.insert(dir.join(target), module_path);
+        }
+    }
+
+    let needle = format!("fn {fn_name}");
+    let mut found: Vec<(String, MethodDef)> = Vec::new();
+    for (_, file) in &files {
+        let Ok(text) = fs::read_to_string(file) else {
+            continue;
+        };
+        if !text.contains(&needle) {
+            continue;
+        }
+        let Ok(ast) = syn::parse_file(&text) else {
+            continue;
+        };
+        let module_path = declared
+            .get(file)
+            .cloned()
+            .unwrap_or_else(|| infer_module_path(crate_name, file));
+        collect_free_fns(&ast.items, &module_path, fn_name, class_name, &mut found);
+    }
+
+    let child = format!("{module}::");
+    let exact: Vec<&(String, MethodDef)> = found.iter().filter(|(m, _)| *m == module).collect();
+    let children: Vec<&(String, MethodDef)> = found
+        .iter()
+        .filter(|(m, _)| module.is_empty() || m.starts_with(&child))
+        .collect();
+    let chosen = match (exact.as_slice(), children.as_slice()) {
+        ([one], _) | ([], [one]) => *one,
+        _ => {
+            let at: Vec<&str> = found.iter().map(|(m, _)| m.as_str()).collect();
+            return Err(if found.is_empty() {
+                format!("no public fn `{fn_name}` in {crate_name}")
+            } else {
+                format!(
+                    "`{path}`: no single public fn `{fn_name}` in `{module}` or a child of it \
+                     (found in: {})",
+                    at.join(", ")
+                )
+            });
+        }
+    };
+    Ok(FreeFnDef {
+        path: path.to_string(),
+        defined_in: chosen.0.clone(),
+        method: chosen.1.clone(),
+    })
+}
+
+/// The file a `#[path = "file.rs"]` attribute names.
+fn path_attr_value(attr: &syn::Attribute) -> Option<String> {
+    if !attr.path().is_ident("path") {
+        return None;
+    }
+    let syn::Meta::NameValue(nv) = &attr.meta else {
+        return None;
+    };
+    match &nv.value {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(s),
+            ..
+        }) => Some(s.value()),
+        _ => None,
+    }
+}
+
+/// The public free functions `fn_name` in `items` (inline modules too),
+/// with their module paths.
+fn collect_free_fns(
+    items: &[Item],
+    module: &str,
+    fn_name: &str,
+    class_name: &str,
+    out: &mut Vec<(String, MethodDef)>,
+) {
+    for item in items {
+        match item {
+            Item::Fn(f)
+                if f.sig.ident == fn_name && matches!(f.vis, syn::Visibility::Public(_)) =>
+            {
+                if let Some(method) = free_fn_method(f, class_name) {
+                    out.push((module.to_string(), method));
+                }
+            }
+            Item::Mod(m) => {
+                if let Some((_, nested)) = &m.content {
+                    let nested_module = if module.is_empty() {
+                        m.ident.to_string()
+                    } else {
+                        format!("{module}::{}", m.ident)
+                    };
+                    collect_free_fns(nested, &nested_module, fn_name, class_name, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The signature of the free function `f` as a static method of
+/// `class_name` (the method extraction's rules: `Into<T>` generics resolved,
+/// other generics skipped, `Self` / constructor-ness against `class_name`).
+pub(crate) fn free_fn_method(f: &syn::ItemFn, class_name: &str) -> Option<MethodDef> {
+    let as_method = syn::ImplItemFn {
+        attrs: f.attrs.clone(),
+        vis: f.vis.clone(),
+        defaultness: None,
+        sig: f.sig.clone(),
+        block: (*f.block).clone(),
+    };
+    extract_method_def(&as_method, class_name)
+}
+
 /// Fast lookup index for type definitions
 #[derive(Debug, Default)]
 pub struct TypeIndex {
@@ -739,6 +1012,14 @@ pub struct TypeIndex {
     by_name: BTreeMap<String, Vec<Arc<TypeDefinition>>>,
     /// Map from full path to definition
     by_path: BTreeMap<String, Arc<TypeDefinition>>,
+    /// The modules declared without `pub` (`azul_layout::cpurender::named`):
+    /// a path through one does not name its type from another crate
+    private_modules: std::collections::BTreeSet<String>,
+    /// The desktop modules an `azul_dll::unified` facade re-exports
+    /// (`azul_dll::desktop::extra::audio`): a path through one does not name
+    /// its type on every target (`azul_dll::desktop` is not built on wasm32);
+    /// the facade path does
+    facade_sources: std::collections::BTreeSet<String>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
@@ -752,18 +1033,10 @@ impl TypeIndex {
     pub fn build(workspace_root: &Path, verbose: bool) -> Result<Self> {
         let mut index = Self::new();
 
-        // Crate directories to scan
-        let crate_dirs = [
-            ("azul_core", "core/src"),
-            ("azul_css", "css/src"),
-            ("azul_layout", "layout/src"),
-            ("azul_dll", "dll/src"),
-        ];
-
         // Collect all .rs files
         let mut all_files: Vec<(String, PathBuf)> = Vec::new();
 
-        for (crate_name, src_path) in &crate_dirs {
+        for (crate_name, src_path) in CRATE_DIRS {
             let src_dir = workspace_root.join(src_path);
             if src_dir.exists() {
                 collect_rust_files(&mut all_files, crate_name, &src_dir);
@@ -781,12 +1054,15 @@ impl TypeIndex {
             .collect();
 
         // Merge results
+        let mut parsed: Vec<TypeDefinition> = Vec::new();
+        let mut facts = ModuleFacts::default();
         for result in results {
             match result {
-                Ok(types) => {
-                    for typedef in types {
-                        index.add_type(typedef);
-                    }
+                Ok((types, file_facts)) => {
+                    parsed.extend(types);
+                    facts.private.extend(file_facts.private);
+                    facts.public.extend(file_facts.public);
+                    facts.reexports.extend(file_facts.reexports);
                 }
                 Err(e) => {
                     index.errors.push(e);
@@ -794,17 +1070,67 @@ impl TypeIndex {
             }
         }
 
+        // A type behind a private module is named by the `pub use` that
+        // re-exports it: the private path does not compile in another crate
+        // (TextRasterStyle, wave 6). azul_dll is left out: the generated code
+        // lives in that crate, where its private modules are in reach.
+        let public: std::collections::BTreeSet<&String> = facts.public.iter().collect();
+        let all_private: std::collections::BTreeSet<String> = facts
+            .private
+            .iter()
+            .filter(|m| !public.contains(m))
+            .cloned()
+            .collect();
+        index.private_modules = all_private
+            .iter()
+            .filter(|m| !m.starts_with("azul_dll::"))
+            .cloned()
+            .collect();
+        // azul_dll's own rule: `azul_dll::desktop` is not built on wasm32, so
+        // a type the `azul_dll::unified` facade re-exports is named by the
+        // facade (the 9 desktop externals of 2026-10-05).
+        index.facade_sources = facts
+            .reexports
+            .iter()
+            .filter(|r| is_facade(r))
+            .map(|r| r.from.clone())
+            .collect();
+        for mut typedef in parsed {
+            let public = typedef
+                .full_path
+                .rsplit_once("::")
+                .filter(|(module, _)| first_private_module(module, &index.private_modules).is_some())
+                .and_then(|(module, name)| {
+                    public_path(module, name, &index.private_modules, &facts.reexports, 0)
+                });
+            if let Some(path) = public {
+                typedef.full_path = path;
+            }
+            let facaded = typedef
+                .full_path
+                .rsplit_once("::")
+                .and_then(|(module, name)| facade_path(module, name, &facts.reexports, &all_private));
+            if let Some(path) = facaded {
+                typedef.full_path = path;
+            }
+            index.add_type(typedef);
+        }
+
         // Phase 2: Collect cross-file impl blocks and attach methods to types
         // This handles cases where `impl SomeType` is in a different file than `struct SomeType`
         let cross_file_methods: Vec<_> = all_files
             .par_iter()
-            .filter_map(|(_, file_path)| parse_file_for_cross_file_methods(file_path).ok())
+            .filter_map(|(crate_name, file_path)| {
+                parse_file_for_cross_file_methods(file_path)
+                    .ok()
+                    .map(|methods| (crate_name.as_str(), methods))
+            })
             .collect();
 
         // Merge cross-file methods into existing types
-        for methods_map in cross_file_methods {
+        for (crate_name, methods_map) in cross_file_methods {
             for (type_name, methods) in methods_map {
-                index.attach_methods_to_type(&type_name, methods);
+                index.attach_methods_to_type(&type_name, crate_name, methods);
             }
         }
 
@@ -819,20 +1145,38 @@ impl TypeIndex {
         Ok(index)
     }
 
-    /// Attach methods from cross-file impl blocks to existing types
-    fn attach_methods_to_type(&mut self, type_name: &str, methods: Vec<MethodDef>) {
+    /// Attach methods from cross-file impl blocks (found in a file of
+    /// `impl_crate`) to existing types. An inherent method only reaches the
+    /// candidates of its own crate (an inherent impl lives in its type's
+    /// crate); a trait impl's method reaches every candidate of the name.
+    fn attach_methods_to_type(
+        &mut self,
+        type_name: &str,
+        impl_crate: &str,
+        methods: Vec<MethodDef>,
+    ) {
         if let Some(candidates) = self.by_name.get_mut(type_name) {
             // Attach to all candidates (usually there's only one definition)
             for arc in candidates.iter_mut() {
+                let crate_of_type = arc.crate_name.clone();
+                let reaches =
+                    |m: &&MethodDef| m.from_trait.is_some() || crate_of_type == impl_crate;
+                if !methods.iter().any(|m| reaches(&m)) {
+                    continue;
+                }
                 // We need to get a mutable reference to the TypeDefinition
                 // Since we use Arc, we need to use Arc::make_mut
                 let typedef = Arc::make_mut(arc);
-                for method in &methods {
+                for method in methods.iter().filter(reaches) {
                     // Avoid duplicates by checking if method already exists
                     if !typedef.methods.iter().any(|m| m.name == method.name) {
                         typedef.methods.push(method.clone());
                     }
                 }
+                // `by_path` shares the Arc, so `make_mut` cloned the type:
+                // point the path at the copy that has the methods.
+                self.by_path
+                    .insert(typedef.full_path.clone(), Arc::clone(arc));
             }
         }
     }
@@ -975,6 +1319,22 @@ impl TypeIndex {
         self.by_name.len()
     }
 
+    /// The first private module on the way to `path` (a type or module
+    /// path), if any: the path does not name its item from another crate.
+    /// A desktop module the `azul_dll::unified` facade re-exports counts:
+    /// the path does not name its item on every target (wasm32), the
+    /// facade path does.
+    pub fn private_module_on(&self, path: &str) -> Option<String> {
+        first_private_module(path, &self.private_modules)
+            .or_else(|| first_private_module(path, &self.facade_sources))
+    }
+
+    /// Record `module` as declared without `pub` (tests).
+    #[cfg(test)]
+    pub fn add_private_module_for_test(&mut self, module: &str) {
+        self.private_modules.insert(module.to_string());
+    }
+
     /// Add a type definition for testing purposes
     #[cfg(test)]
     pub fn add_type_for_test(&mut self, typedef: TypeDefinition) {
@@ -1073,29 +1433,48 @@ impl TypeIndex {
 // file collection
 /// Recursively collect all .rs files in a directory
 fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir: &Path) {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    // Skip excluded paths (tests, examples, build.rs, etc.)
+    let mut found = Vec::new();
+    rust_files_under(dir, &crate::autofix::module_map::should_exclude_path, &mut found);
+    files.extend(found.into_iter().map(|path| (crate_name.to_string(), path)));
+}
 
+/// Every `.rs` file under `dir`, recursively, into `out` - except the paths
+/// `skip` names (a skipped directory is not entered). THE walker of the
+/// autofix tools: the index skips tests, examples, benches and build
+/// scripts (`module_map::should_exclude_path`), the preflight syntax check
+/// (autofix/mod.rs) reads every file.
+pub(crate) fn rust_files_under(
+    dir: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+    out: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-
-        // Skip excluded paths (tests, examples, build.rs, etc.)
-        if crate::autofix::module_map::should_exclude_path(&path) {
+        if skip(&path) {
             continue;
         }
-
         if path.is_dir() {
-            collect_rust_files(files, crate_name, &path);
-        } else if path.extension().map_or(false, |e| e == "rs") {
-            files.push((crate_name.to_string(), path));
+            rust_files_under(&path, skip, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
         }
     }
 }
 
 // file parsing
 /// Parse a single file and extract type definitions
+/// True for a type only its own module can name (`struct X` / `enum X`, no
+/// `pub`): the generated C API lives in another module, so such a type is
+/// never part of it - indexing it let a private helper shadow a public type
+/// of the same name (the XML tree builder's `NodeData`, XML8's `Content`).
+fn is_module_private(vis: &syn::Visibility) -> bool {
+    matches!(vis, syn::Visibility::Inherited)
+}
+
 /// True if the item is gated behind `#[cfg(target_arch = "wasm32")]` — i.e. a
 /// platform stub that mirrors a real (non-wasm) type. The indexer skips these so
 /// they don't collide with the canonical definition as a "duplicate type name".
@@ -1113,12 +1492,152 @@ fn is_wasm32_only(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
-fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDefinition>, String> {
+/// Expands the file's own single-arm `macro_rules!` that write items, so the
+/// methods they generate are seen like any other inherent method: the
+/// wizard pages' `dom` / `with_theme` (`page_theme_and_dom!`) and the
+/// standard dialogs' `with_on_event` were invisible to `autofix add` and the
+/// apps could not call them (2026-10-02). Only the simple, common shape is
+/// expanded - one arm whose pattern is `$name:fragment` parameters separated
+/// by commas; anything else is left as it is. The expansion is appended
+/// after the invocation (the invocation itself stays); only inherent impls.
+fn expand_local_item_macros(file: &mut File) {
+    use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
+
+    fn single_arm(tokens: TokenStream) -> Option<(Vec<String>, TokenStream)> {
+        let tt: Vec<TokenTree> = tokens.into_iter().collect();
+        let (pattern, body) = match tt.as_slice() {
+            [TokenTree::Group(p), TokenTree::Punct(eq), TokenTree::Punct(gt), TokenTree::Group(b)]
+            | [TokenTree::Group(p), TokenTree::Punct(eq), TokenTree::Punct(gt), TokenTree::Group(b), TokenTree::Punct(_)]
+                if eq.as_char() == '=' && gt.as_char() == '>' =>
+            {
+                (p.stream(), b.stream())
+            }
+            _ => return None,
+        };
+        let mut params = Vec::new();
+        let toks: Vec<TokenTree> = pattern.into_iter().collect();
+        let mut i = 0;
+        while i < toks.len() {
+            match (&toks[i], toks.get(i + 1), toks.get(i + 2), toks.get(i + 3)) {
+                (
+                    TokenTree::Punct(d),
+                    Some(TokenTree::Ident(name)),
+                    Some(TokenTree::Punct(colon)),
+                    Some(TokenTree::Ident(_frag)),
+                ) if d.as_char() == '$' && colon.as_char() == ':' => {
+                    params.push(name.to_string());
+                    i += 4;
+                    match toks.get(i) {
+                        None => {}
+                        Some(TokenTree::Punct(c)) if c.as_char() == ',' => i += 1,
+                        Some(_) => return None,
+                    }
+                }
+                _ => return None,
+            }
+        }
+        Some((params, body))
+    }
+
+    fn split_args(tokens: TokenStream) -> Vec<TokenStream> {
+        let mut args = vec![TokenStream::new()];
+        for t in tokens {
+            match &t {
+                TokenTree::Punct(c) if c.as_char() == ',' => args.push(TokenStream::new()),
+                _ => args.last_mut().expect("one arg at least").extend([t]),
+            }
+        }
+        if args.last().is_some_and(|a| a.is_empty()) {
+            args.pop();
+        }
+        args
+    }
+
+    fn substitute(body: TokenStream, params: &[String], args: &[TokenStream]) -> TokenStream {
+        let toks: Vec<TokenTree> = body.into_iter().collect();
+        let mut out = TokenStream::new();
+        let mut i = 0;
+        while i < toks.len() {
+            if let (TokenTree::Punct(d), Some(TokenTree::Ident(name))) = (&toks[i], toks.get(i + 1)) {
+                if d.as_char() == '$' {
+                    if let Some(k) = params.iter().position(|p| *p == name.to_string()) {
+                        let arg: Vec<TokenTree> = args[k].clone().into_iter().collect();
+                        if let [single @ TokenTree::Ident(_)] = arg.as_slice() {
+                            // An identifier (a type, a fn name) goes in as itself.
+                            out.extend([single.clone()]);
+                        } else {
+                            // A None-delimited group keeps an `expr` argument one expression.
+                            out.extend([TokenTree::Group(Group::new(Delimiter::None, args[k].clone()))]);
+                        }
+                        i += 2;
+                        continue;
+                    }
+                }
+            }
+            match &toks[i] {
+                TokenTree::Group(g) => {
+                    let mut ng = Group::new(g.delimiter(), substitute(g.stream(), params, args));
+                    ng.set_span(g.span());
+                    out.extend([TokenTree::Group(ng)]);
+                }
+                t => out.extend([t.clone()]),
+            }
+            i += 1;
+        }
+        out
+    }
+
+    let mut macros: BTreeMap<String, (Vec<String>, TokenStream)> = BTreeMap::new();
+    for item in &file.items {
+        if let Item::Macro(m) = item {
+            if m.mac.path.is_ident("macro_rules") {
+                if let (Some(ident), Some(def)) = (&m.ident, single_arm(m.mac.tokens.clone())) {
+                    macros.insert(ident.to_string(), def);
+                }
+            }
+        }
+    }
+    if macros.is_empty() {
+        return;
+    }
+    let mut expanded = Vec::new();
+    for item in &file.items {
+        let Item::Macro(m) = item else { continue };
+        if m.ident.is_some() {
+            continue;
+        }
+        let Some(name) = m.mac.path.get_ident().map(ToString::to_string) else { continue };
+        let Some((params, body)) = macros.get(&name) else { continue };
+        let args = split_args(m.mac.tokens.clone());
+        if args.len() != params.len() {
+            continue;
+        }
+        if let Ok(f) = syn::parse2::<File>(substitute(body.clone(), params, &args)) {
+            // Only the inherent impls: the methods are what the API tool was
+            // missing. Types a macro defines are indexed by their own rules
+            // (`extract_macro_generated_types`; defining them twice reported
+            // every css property as duplicated) and trait impls would turn
+            // into custom_impls changes of unrelated types.
+            expanded.extend(
+                f.items
+                    .into_iter()
+                    .filter(|i| matches!(i, Item::Impl(imp) if imp.trait_.is_none())),
+            );
+        }
+    }
+    file.items.extend(expanded);
+}
+
+fn parse_file_for_types(
+    crate_name: &str,
+    file_path: &Path,
+) -> Result<(Vec<TypeDefinition>, ModuleFacts), String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
-    let syntax_tree: File = syn::parse_file(&content)
+    let mut syntax_tree: File = syn::parse_file(&content)
         .map_err(|e| format!("Failed to parse {}: {}", file_path.display(), e))?;
+    expand_local_item_macros(&mut syntax_tree);
 
     let module_path = infer_module_path(crate_name, file_path);
     let mut types = Vec::new();
@@ -1134,7 +1653,7 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
                 // desktop-extra types): they intentionally mirror a real type by
                 // name + repr-C layout, so indexing them would raise a false
                 // "duplicate type name" against the canonical (non-wasm) def.
-                if !is_wasm32_only(&s.attrs) {
+                if !is_wasm32_only(&s.attrs) && !is_module_private(&s.vis) {
                     if let Some(typedef) = extract_struct(crate_name, &module_path, file_path, s) {
                         types.push(typedef);
                     }
@@ -1142,7 +1661,7 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
             }
 
             Item::Enum(e) => {
-                if !is_wasm32_only(&e.attrs) {
+                if !is_wasm32_only(&e.attrs) && !is_module_private(&e.vis) {
                     if let Some(typedef) = extract_enum(crate_name, &module_path, file_path, e) {
                         types.push(typedef);
                     }
@@ -1206,7 +1725,240 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
         }
     }
 
-    Ok(types)
+    let facts = module_facts(crate_name, &module_path, &syntax_tree.items);
+    Ok((types, facts))
+}
+
+/// What one file's top-level items say about reaching definitions from
+/// another crate: its module declarations and its `pub use` re-exports.
+#[derive(Debug, Default)]
+struct ModuleFacts {
+    /// Modules declared without `pub` (absolute paths)
+    private: Vec<String>,
+    /// Modules declared `pub` (absolute paths): a `#[cfg]` pair of a private
+    /// and a public declaration of one module is public
+    public: Vec<String>,
+    /// `pub use` items
+    reexports: Vec<Reexport>,
+}
+
+/// One item of a `pub use`.
+#[derive(Debug, Clone)]
+struct Reexport {
+    /// The module declaring it (absolute: `azul_layout::cpurender`)
+    at: String,
+    /// The module its items come from (absolute: `..::cpurender::text_raster`)
+    from: String,
+    /// `None` for a glob, else the item's name (a rename is not followed)
+    item: Option<String>,
+}
+
+/// The [`ModuleFacts`] of `items`, the top level of the module `module_path`
+/// of `crate_name`.
+fn module_facts(crate_name: &str, module_path: &str, items: &[Item]) -> ModuleFacts {
+    let at = if module_path.is_empty() {
+        crate_name.to_string()
+    } else {
+        format!("{crate_name}::{module_path}")
+    };
+    let mut facts = ModuleFacts::default();
+    for item in items {
+        match item {
+            Item::Mod(m) => {
+                let path = format!("{at}::{}", m.ident);
+                if matches!(m.vis, syn::Visibility::Public(_)) {
+                    facts.public.push(path);
+                } else {
+                    facts.private.push(path);
+                }
+            }
+            Item::Use(u) if matches!(u.vis, syn::Visibility::Public(_)) => {
+                let mut flat = Vec::new();
+                flatten_use_tree(&u.tree, &mut Vec::new(), &mut flat);
+                for (prefix, item) in flat {
+                    if let Some(from) = resolve_use_prefix(crate_name, &at, &prefix) {
+                        facts.reexports.push(Reexport {
+                            at: at.clone(),
+                            from,
+                            item,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    facts
+}
+
+/// The leaves of a use tree: (path prefix, `None` for a glob or the name).
+/// A rename (`a as b`) is left out: its type is reached under another name.
+fn flatten_use_tree(
+    tree: &UseTree,
+    prefix: &mut Vec<String>,
+    out: &mut Vec<(Vec<String>, Option<String>)>,
+) {
+    match tree {
+        UseTree::Path(p) => {
+            prefix.push(p.ident.to_string());
+            flatten_use_tree(&p.tree, prefix, out);
+            prefix.pop();
+        }
+        UseTree::Name(n) => out.push((prefix.clone(), Some(n.ident.to_string()))),
+        UseTree::Rename(_) => {}
+        UseTree::Glob(_) => out.push((prefix.clone(), None)),
+        UseTree::Group(g) => {
+            for t in &g.items {
+                flatten_use_tree(t, prefix, out);
+            }
+        }
+    }
+}
+
+/// The absolute module a `use` path prefix names from module `at`:
+/// `crate::..`, `self::..`, `super::..`, another crate of the index, or a
+/// child of `at`. `None` for an empty prefix or a `super` above the root.
+fn resolve_use_prefix(crate_name: &str, at: &str, prefix: &[String]) -> Option<String> {
+    let (first, rest) = prefix.split_first()?;
+    let mut base: Vec<String> = match first.as_str() {
+        "crate" => vec![crate_name.to_string()],
+        "self" => at.split("::").map(str::to_string).collect(),
+        "super" => {
+            let mut segs: Vec<String> = at.split("::").map(str::to_string).collect();
+            segs.pop();
+            segs
+        }
+        other if CRATE_DIRS.iter().any(|(c, _)| *c == other) => vec![other.to_string()],
+        other => {
+            let mut segs: Vec<String> = at.split("::").map(str::to_string).collect();
+            segs.push(other.to_string());
+            segs
+        }
+    };
+    for seg in rest {
+        if seg == "super" {
+            base.pop();
+        } else {
+            base.push(seg.clone());
+        }
+    }
+    (!base.is_empty()).then(|| base.join("::"))
+}
+
+/// The first module of `private` on the way to `path` (`path` itself
+/// included): `azul_layout::cpurender::named` for
+/// `azul_layout::cpurender::named::NotNamed`.
+fn first_private_module(path: &str, private: &std::collections::BTreeSet<String>) -> Option<String> {
+    let segs: Vec<&str> = path.split("::").collect();
+    (2..=segs.len())
+        .map(|i| segs[..i].join("::"))
+        .find(|p| private.contains(p))
+}
+
+/// The path `module::name` is reached by from another crate: itself when no
+/// module on the way is private, else the path of a `pub use` that
+/// re-exports it - a glob or the name of its module, or a glob / the name of
+/// a (public) module on the way - followed up the tree. `None` when nothing
+/// re-exports it.
+fn public_path(
+    module: &str,
+    name: &str,
+    private: &std::collections::BTreeSet<String>,
+    reexports: &[Reexport],
+    depth: usize,
+) -> Option<String> {
+    if first_private_module(module, private).is_none() {
+        return Some(format!("{module}::{name}"));
+    }
+    if depth > 8 {
+        return None;
+    }
+    reexports.iter().find_map(|r| {
+        // `module::name` as a path relative to `r.at`
+        let relative = if r.from == module {
+            match &r.item {
+                None => name.to_string(),
+                Some(item) if item == name => name.to_string(),
+                Some(_) => return None,
+            }
+        } else {
+            let rest = module.strip_prefix(r.from.as_str())?.strip_prefix("::")?;
+            let (first, tail) = match rest.split_once("::") {
+                Some((first, tail)) => (first, Some(tail)),
+                None => (rest, None),
+            };
+            // a private child module is not re-exported (neither by a glob
+            // nor by name)
+            if private.contains(&format!("{}::{first}", r.from)) {
+                return None;
+            }
+            if r.item.as_deref().is_some_and(|item| item != first) {
+                return None;
+            }
+            match tail {
+                Some(tail) => format!("{first}::{tail}::{name}"),
+                None => format!("{first}::{name}"),
+            }
+        };
+        let full = format!("{}::{relative}", r.at);
+        let (m, n) = full.rsplit_once("::")?;
+        public_path(m, n, private, reexports, depth + 1)
+    })
+}
+
+/// Is `r` an `azul_dll::unified` facade's glob of a desktop module
+/// (`pub use crate::desktop::extra::<m>::*;` in dll/src/unified/<m>.rs, off
+/// wasm32; the facade has wasm32 stubs of the same names)?
+fn is_facade(r: &Reexport) -> bool {
+    r.item.is_none() && r.at.starts_with("azul_dll::unified") && r.from.starts_with("azul_dll::desktop::")
+}
+
+/// The `azul_dll::unified` facade path of the type `module::name`: the
+/// shortest path a facade glob reaches it by - the type at the facade's
+/// source module itself (defined there, or re-exported there by a `pub use`
+/// of its module, by glob or by name: `unified::audio::AudioEncoder`), else
+/// through the public child modules on the way
+/// (`unified::video_codec::pipeline::DecodedVideo`). `None` when no facade
+/// reaches it: outside every facaded module, or behind a private child
+/// module (`private`: every module declared without `pub`).
+fn facade_path(
+    module: &str,
+    name: &str,
+    reexports: &[Reexport],
+    private: &std::collections::BTreeSet<String>,
+) -> Option<String> {
+    reexports
+        .iter()
+        .filter(|r| is_facade(r))
+        .filter_map(|facade| {
+            let source = facade.from.as_str();
+            let at_source = module == source
+                || reexports.iter().any(|r| {
+                    r.at == source
+                        && r.from == module
+                        && r.item.as_deref().map_or(true, |item| item == name)
+                });
+            let relative = if at_source {
+                name.to_string()
+            } else {
+                let tail = module.strip_prefix(source)?.strip_prefix("::")?;
+                let mut on_the_way = source.to_string();
+                for segment in tail.split("::") {
+                    on_the_way = format!("{on_the_way}::{segment}");
+                    if private.contains(&on_the_way) {
+                        return None;
+                    }
+                }
+                format!("{tail}::{name}")
+            };
+            Some(format!("{}::{relative}", facade.at))
+        })
+        .min_by(|a, b| {
+            a.matches("::")
+                .count()
+                .cmp(&b.matches("::").count())
+                .then_with(|| a.cmp(b))
+        })
 }
 
 /// Parse a file to extract impl blocks for cross-file method attachment.
@@ -1218,8 +1970,9 @@ fn parse_file_for_cross_file_methods(
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
-    let syntax_tree: File = syn::parse_file(&content)
+    let mut syntax_tree: File = syn::parse_file(&content)
         .map_err(|e| format!("Failed to parse {}: {}", file_path.display(), e))?;
+    expand_local_item_macros(&mut syntax_tree);
 
     let mut all_methods: BTreeMap<String, Vec<MethodDef>> = BTreeMap::new();
 
@@ -1236,7 +1989,43 @@ fn parse_file_for_cross_file_methods(
         all_methods.entry(type_name).or_default().extend(methods);
     }
 
+    // The impls of a type THIS file defines are not cross-file: phase 1
+    // attached them to the type if it is indexed - and if it is not (a
+    // module-private type, a wasm32 stub) they belong to that type, never to
+    // an indexed type that happens to share its name.
+    let defined = defined_type_names(&syntax_tree.items);
+    all_methods.retain(|type_name, _| !defined.contains(type_name));
+
     Ok(all_methods)
+}
+
+/// Every struct, enum, union and type alias `items` define, inline modules
+/// included, whatever their visibility and cfg.
+fn defined_type_names(items: &[Item]) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for item in items {
+        match item {
+            Item::Struct(s) => {
+                names.insert(s.ident.to_string());
+            }
+            Item::Enum(e) => {
+                names.insert(e.ident.to_string());
+            }
+            Item::Union(u) => {
+                names.insert(u.ident.to_string());
+            }
+            Item::Type(t) => {
+                names.insert(t.ident.to_string());
+            }
+            Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    names.extend(defined_type_names(inner));
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 /// Extract methods from `impl Trait for Type` blocks.
@@ -1267,6 +2056,13 @@ fn extract_trait_impl_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec
                 continue;
             }
 
+            // The trait's name, so a standard trait's methods (`default`,
+            // `clone`, `drop`, ...) are known for what they are.
+            let trait_name = impl_item
+                .trait_
+                .as_ref()
+                .and_then(|(_, path, _)| path.segments.last().map(|s| s.ident.to_string()));
+
             // Extract methods from this impl block
             // Trait impl methods are always public (via the trait)
             for impl_item_fn in &impl_item.items {
@@ -1274,6 +2070,7 @@ fn extract_trait_impl_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec
                     if let Some(mut method_def) = extract_method_def(method, &type_name) {
                         // Trait impl methods are implicitly public
                         method_def.is_public = true;
+                        method_def.from_trait = trait_name.clone();
                         methods_map
                             .entry(type_name.clone())
                             .or_default()
@@ -1311,13 +2108,13 @@ fn extract_types_from_items(
         match item {
             Item::Use(_) => continue,
 
-            Item::Struct(s) => {
+            Item::Struct(s) if !is_module_private(&s.vis) => {
                 if let Some(typedef) = extract_struct(crate_name, module_path, file_path, s) {
                     types.push(typedef);
                 }
             }
 
-            Item::Enum(e) => {
+            Item::Enum(e) if !is_module_private(&e.vis) => {
                 if let Some(typedef) = extract_enum(crate_name, module_path, file_path, e) {
                     types.push(typedef);
                 }
@@ -3346,6 +4143,7 @@ pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> O
                 name: arg_name,
                 ty,
                 ref_kind,
+                source_ty: written_type_name(&pat_type.ty),
             });
         }
     }
@@ -3381,7 +4179,56 @@ pub(super) fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> O
         is_constructor,
         doc,
         is_public,
+        from_trait: None,
     })
+}
+
+/// The last path segment of a type as the source writes it (one reference
+/// stripped), without the Az-prefix stripping of [`extract_type_name`]:
+/// `&std::string::String` -> `String`, `AzString` -> `AzString`.
+fn written_type_name(ty: &syn::Type) -> String {
+    let ty = match ty {
+        syn::Type::Reference(r) => r.elem.as_ref(),
+        other => other,
+    };
+    written_type(ty)
+}
+
+/// A type as the source writes it, each path by its last segment and with
+/// its generic arguments (`Option<AzString>` vs `Option<String>`, `&str`):
+/// the index's own spelling strips the `Az` prefix and cannot tell an
+/// `Option` of a std `String` from one of an `AzString`.
+fn written_type(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Path(p) if p.qself.is_none() => match p.path.segments.last() {
+            Some(seg) => {
+                let ident = seg.ident.to_string();
+                let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+                    return ident;
+                };
+                let inner: Vec<String> = args
+                    .args
+                    .iter()
+                    .filter_map(|a| match a {
+                        syn::GenericArgument::Type(t) => Some(written_type(t)),
+                        _ => None,
+                    })
+                    .collect();
+                if inner.is_empty() {
+                    ident
+                } else {
+                    format!("{ident}<{}>", inner.join(", "))
+                }
+            }
+            None => String::new(),
+        },
+        syn::Type::Reference(r) => format!(
+            "&{}{}",
+            if r.mutability.is_some() { "mut " } else { "" },
+            written_type(&r.elem)
+        ),
+        other => clean_type_string(&other.to_token_stream().to_string()),
+    }
 }
 
 /// Attach methods to a TypeDefinition
@@ -3434,6 +4281,416 @@ fn clean_type_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `autofix add RawImage.from_text --fn azul_layout::cpurender::text_image`
+    /// (wave 6 wrote these by hand): the function is defined in
+    /// cpurender/text_raster.rs and re-exported by `pub use text_raster::*`;
+    /// `azul_core::xml::html::encode_text` lives in a `#[path]` module
+    /// (xml_html.rs). Both are found, the body keeps the path given.
+    #[test]
+    fn a_free_function_is_found_through_a_re_export_or_a_path_module() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("layout/src/cpurender/mod.rs", "pub mod text_raster;\npub use text_raster::*;\n");
+        write(
+            "layout/src/cpurender/text_raster.rs",
+            "pub fn text_image(text: AzString, style: TextRasterStyle) -> OptionRawImage { todo!() }\n\
+             fn private_helper() {}\n",
+        );
+        write("layout/src/other.rs", "fn text_image() {}\n");
+        write("core/src/xml.rs", "#[path = \"xml_html.rs\"]\npub mod html;\n");
+        write("core/src/xml_html.rs", "pub fn encode_text(s: &str) -> String { todo!() }\n");
+
+        let found = find_free_fn(root.path(), "azul_layout::cpurender::text_image", "RawImage")
+            .expect("found through the re-export");
+        assert_eq!(found.path, "azul_layout::cpurender::text_image");
+        assert_eq!(found.defined_in, "cpurender::text_raster");
+        let args: Vec<&str> = found.method.args.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(args, vec!["text", "style"]);
+        assert_eq!(found.method.return_type.as_deref(), Some("OptionRawImage"));
+        assert!(found.method.self_kind.is_none());
+
+        let found = find_free_fn(root.path(), "azul_core::xml::html::encode_text", "Xml")
+            .expect("found in the #[path] module");
+        assert_eq!(found.defined_in, "xml::html", "the declared module path");
+
+        assert!(find_free_fn(root.path(), "azul_layout::other::text_image", "RawImage").is_err(), "not public");
+        assert!(find_free_fn(root.path(), "azul_layout::cpurender::nope", "RawImage").is_err());
+        assert!(find_free_fn(root.path(), "nocrate::f", "RawImage").is_err());
+    }
+
+    /// `TextRasterStyle` is defined in `cpurender/text_raster.rs`, and
+    /// `cpurender` re-exported it (`mod text_raster; pub use text_raster::*;`):
+    /// api.json got the private path `azul_layout::cpurender::text_raster::
+    /// TextRasterStyle` and the dylib did not compile (15 E0603, wave 6) until
+    /// the module was made pub. A type behind a private module is indexed by
+    /// the path of the `pub use` that re-exports it (a glob of its module or
+    /// its name); one nothing re-exports keeps its path and the index names
+    /// the private module on the way.
+    #[test]
+    fn a_type_in_a_private_module_is_indexed_by_its_public_re_export_path() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("layout/src/lib.rs", "pub mod cpurender;\n");
+        write(
+            "layout/src/cpurender/mod.rs",
+            "mod text_raster;\npub use text_raster::*;\nmod named;\npub use self::named::{Only};\n\
+             mod internal;\npub mod open;\n",
+        );
+        write("layout/src/cpurender/text_raster.rs", "#[repr(C)] pub struct TextRasterStyle { pub size: f32 }\n");
+        write(
+            "layout/src/cpurender/named.rs",
+            "#[repr(C)] pub struct Only { pub a: u8 }\n#[repr(C)] pub struct NotNamed { pub a: u8 }\n",
+        );
+        write("layout/src/cpurender/internal.rs", "#[repr(C)] pub struct Internal { pub a: u8 }\n");
+        write("layout/src/cpurender/open.rs", "#[repr(C)] pub struct Open { pub a: u8 }\n");
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let path_of = |name: &str| index.resolve(name, None).expect(name).full_path.clone();
+
+        assert_eq!(path_of("TextRasterStyle"), "azul_layout::cpurender::TextRasterStyle");
+        assert!(index.get_by_path("azul_layout::cpurender::TextRasterStyle").is_some());
+        assert_eq!(path_of("Only"), "azul_layout::cpurender::Only");
+        assert_eq!(path_of("Open"), "azul_layout::cpurender::open::Open");
+        assert_eq!(index.private_module_on("azul_layout::cpurender::open::Open"), None);
+
+        assert_eq!(path_of("NotNamed"), "azul_layout::cpurender::named::NotNamed");
+        assert_eq!(
+            index.private_module_on("azul_layout::cpurender::named::NotNamed").as_deref(),
+            Some("azul_layout::cpurender::named")
+        );
+        assert_eq!(
+            index.private_module_on("azul_layout::cpurender::internal::Internal").as_deref(),
+            Some("azul_layout::cpurender::internal")
+        );
+    }
+
+    /// `azul_dll::desktop` does not exist on wasm32; the `azul_dll::unified`
+    /// facade (`dll/src/unified/<m>.rs`: `pub use crate::desktop::extra::<m>::*;`
+    /// off wasm, stubs on wasm) is the path every target names. Nine api.json
+    /// externals pointed at desktop paths (AudioEncoder, Mp4Muxer, ParsedPdf,
+    /// ...; integration 2026-10-05) because the index named every azul_dll
+    /// type by its definition. A type the facade re-exports takes the facade
+    /// path - through a module's own `pub use` (`AudioEncoder`), defined at the
+    /// module (`AudioSink`), or in a public child module (`pipeline::Decoded`)
+    /// - and the desktop path counts as not nameable, so the scan fixes it. A
+    /// type the facade cannot reach (a private child) keeps its path.
+    #[test]
+    fn a_desktop_extra_type_reexported_by_the_unified_facade_takes_the_facade_path() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("dll/src/lib.rs", "pub mod desktop;\npub mod unified;\n");
+        write("dll/src/desktop/mod.rs", "pub mod extra;\n");
+        write("dll/src/desktop/extra/mod.rs", "pub mod audio;\n");
+        write(
+            "dll/src/desktop/extra/audio/mod.rs",
+            "pub mod codec;\npub use codec::{AudioEncoder};\npub(crate) mod playback;\npub mod pipeline;\n\
+             #[repr(C)] pub struct AudioSink { pub ptr: *mut u8 }\n",
+        );
+        write("dll/src/desktop/extra/audio/codec.rs", "#[repr(C)] pub struct AudioEncoder { pub ptr: *mut u8 }\n");
+        write("dll/src/desktop/extra/audio/playback.rs", "#[repr(C)] pub struct Internal { pub a: u8 }\n");
+        write("dll/src/desktop/extra/audio/pipeline.rs", "#[repr(C)] pub struct Decoded { pub a: u8 }\n");
+        write("dll/src/unified/mod.rs", "pub mod audio;\n");
+        write(
+            "dll/src/unified/audio.rs",
+            "#[cfg(not(target_arch = \"wasm32\"))]\npub use crate::desktop::extra::audio::*;\n\
+             #[cfg(target_arch = \"wasm32\")]\n#[repr(C)] pub struct AudioSink { pub ptr: *mut u8 }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let path_of = |name: &str| index.resolve(name, None).expect(name).full_path.clone();
+
+        assert_eq!(path_of("AudioEncoder"), "azul_dll::unified::audio::AudioEncoder");
+        assert_eq!(path_of("AudioSink"), "azul_dll::unified::audio::AudioSink");
+        assert_eq!(path_of("Decoded"), "azul_dll::unified::audio::pipeline::Decoded");
+        assert_eq!(path_of("Internal"), "azul_dll::desktop::extra::audio::playback::Internal");
+
+        // The scan's path fix: the desktop path of a facaded type is not
+        // nameable on every target, its facade path is.
+        assert_eq!(
+            index
+                .private_module_on("azul_dll::desktop::extra::audio::codec::AudioEncoder")
+                .as_deref(),
+            Some("azul_dll::desktop::extra::audio")
+        );
+        assert_eq!(index.private_module_on("azul_dll::unified::audio::AudioEncoder"), None);
+    }
+
+    /// A module-private type can never be part of the C API (the generated
+    /// code lives in another module), but the index took it as one: the XML
+    /// tree builder's `enum NodeData` (core/src/xml_html_tree.rs) was a
+    /// "critical" duplicate of `azul_core::dom::NodeData`, and XML8's
+    /// private `Content` hijacked the CSS `Content` (2026-10-03 / 10-05).
+    /// Only types visible outside their module are indexed.
+    #[test]
+    fn a_module_private_type_does_not_shadow_a_public_one_of_the_same_name() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("core/src/lib.rs", "pub mod dom;\npub mod tree;\n");
+        write("core/src/dom.rs", "#[repr(C)] pub struct NodeData { pub a: u8 }\n");
+        write(
+            "core/src/tree.rs",
+            "enum NodeData { Document, Element { name: String } }\n\
+             struct Hidden;\n\
+             pub(crate) struct CrateWide { pub a: u8 }\n\
+             mod inner { struct AlsoHidden; pub struct Seen; }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let defs: Vec<String> = index
+            .iter_all()
+            .filter(|(name, _)| name.as_str() == "NodeData")
+            .flat_map(|(_, defs)| defs.iter().map(|d| d.full_path.clone()))
+            .collect();
+        assert_eq!(defs, vec!["azul_core::dom::NodeData".to_string()]);
+        assert!(index.resolve("Hidden", None).is_none());
+        assert!(index.resolve("AlsoHidden", None).is_none());
+        assert!(index.resolve("CrateWide", None).is_some(), "pub(crate) is visible to the crate's API code");
+        assert!(index.resolve("Seen", None).is_some());
+    }
+
+    /// Phase 2 attached the methods of every `impl X` block it found to EVERY
+    /// indexed type named X: it parses every file, the one defining a
+    /// module-private X too (the XML tree builder's `enum NodeData` lent its
+    /// helpers to `azul_core::dom::NodeData`), and an inherent impl in one
+    /// crate reached a type of that name in another - inherent impls live in
+    /// their type's crate (integration 2026-10-05). A cross-file impl of the
+    /// public type still attaches.
+    #[test]
+    fn a_private_types_impl_methods_stay_off_a_public_type_of_the_same_name() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("core/src/lib.rs", "pub mod dom;\npub mod dom_ext;\npub mod tree;\npub mod shared;\n");
+        write("core/src/dom.rs", "#[repr(C)] pub struct NodeData { pub a: u8 }\n");
+        write(
+            "core/src/dom_ext.rs",
+            "impl NodeData { pub fn public_method(&self) -> u8 { 0 } }\n",
+        );
+        write(
+            "core/src/tree.rs",
+            "enum NodeData { Document }\nimpl NodeData { pub fn private_helper(&self) -> u8 { 0 } }\n",
+        );
+        write("core/src/shared.rs", "#[repr(C)] pub struct Shared { pub a: u8 }\n");
+        write("layout/src/lib.rs", "pub mod a;\npub mod b;\n");
+        write("layout/src/a.rs", "#[repr(C)] pub struct Shared { pub b: u8 }\n");
+        write(
+            "layout/src/b.rs",
+            "impl Shared { pub fn layout_only(&self) -> u8 { 0 } }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let methods = |path: &str| -> Vec<String> {
+            index
+                .get_by_path(path)
+                .expect(path)
+                .methods
+                .iter()
+                .map(|m| m.name.clone())
+                .collect()
+        };
+        let node_data = methods("azul_core::dom::NodeData");
+        assert!(node_data.contains(&"public_method".to_string()), "{node_data:?}");
+        assert!(!node_data.contains(&"private_helper".to_string()), "{node_data:?}");
+        assert!(
+            !methods("azul_core::shared::Shared").contains(&"layout_only".to_string()),
+            "an inherent impl in azul_layout is not azul_core's"
+        );
+        assert!(methods("azul_layout::a::Shared").contains(&"layout_only".to_string()));
+    }
+
+    /// A method in an `impl T` block of another file (`impl CallbackInfo` in
+    /// widgets/form.rs, `impl RichTextDoc` in rich_text/html.rs) is attached
+    /// to the type found by NAME, but the type found by PATH kept the old
+    /// copy: both maps share one `Arc`, so `Arc::make_mut` cloned it. The
+    /// wave-6 gone-function scan looks the type up by path and called 10
+    /// existing methods gone (2026-10-03). Both lookups see the method.
+    #[test]
+    fn a_cross_file_method_is_seen_by_the_path_lookup_too() {
+        let mut index = TypeIndex::new();
+        index.add_type_for_test(TypeDefinition {
+            full_path: "azul_layout::callbacks::CallbackInfo".to_string(),
+            type_name: "CallbackInfo".to_string(),
+            file_path: std::path::PathBuf::from("/nonexistent/callbacks.rs"),
+            module_path: "callbacks".to_string(),
+            crate_name: "azul_layout".to_string(),
+            kind: TypeDefKind::Struct {
+                fields: IndexMap::new(),
+                repr: Some("C".to_string()),
+                repr_attr_count: 1,
+                generic_params: Vec::new(),
+                derives: Vec::new(),
+                custom_impls: Vec::new(),
+                is_tuple_struct: false,
+            },
+            source_code: String::new(),
+            methods: Vec::new(),
+        });
+        let method = MethodDef {
+            name: "get_form_data".to_string(),
+            self_kind: Some(SelfKind::RefMut),
+            args: Vec::new(),
+            return_type: None,
+            return_ref_kind: RefKind::Value,
+            is_constructor: false,
+            doc: Vec::new(),
+            is_public: true,
+            from_trait: None,
+        };
+        index.attach_methods_to_type("CallbackInfo", "azul_layout", vec![method]);
+
+        let by_path = index
+            .get_by_path("azul_layout::callbacks::CallbackInfo")
+            .expect("the type by path");
+        assert!(by_path.methods.iter().any(|m| m.name == "get_form_data"));
+        let by_name = &index.get_all_by_name("CallbackInfo").expect("by name")[0];
+        assert!(by_name.methods.iter().any(|m| m.name == "get_form_data"));
+    }
+
+    /// The console summaries (`autofix add`, `discover`, `debug api`) printed
+    /// a method as `(&self) -> ()` whatever its arguments, which read as "the
+    /// tool dropped the arguments" and had them written by hand (2026-09-30).
+    /// One formatter shows every argument with its reference kind.
+    #[test]
+    fn a_methods_summary_shows_every_argument_with_its_ref_kind() {
+        let m = MethodDef {
+            name: "toggle_text_format".to_string(),
+            self_kind: Some(SelfKind::RefMut),
+            args: vec![
+                MethodArg {
+                    name: "host".to_string(),
+                    ty: "DomNodeId".to_string(),
+                    ref_kind: RefKind::Value,
+                    source_ty: "DomNodeId".to_string(),
+                },
+                MethodArg {
+                    name: "format".to_string(),
+                    ty: "TextFormat".to_string(),
+                    ref_kind: RefKind::Ref,
+                    source_ty: "TextFormat".to_string(),
+                },
+            ],
+            return_type: None,
+            return_ref_kind: RefKind::Value,
+            is_constructor: false,
+            doc: Vec::new(),
+            is_public: true,
+            from_trait: None,
+        };
+        assert_eq!(
+            m.signature(),
+            "(&mut self, host: DomNodeId, format: &TextFormat) -> ()"
+        );
+        let ctor = MethodDef {
+            name: "create".to_string(),
+            self_kind: None,
+            args: Vec::new(),
+            return_type: Some("Tile".to_string()),
+            return_ref_kind: RefKind::Value,
+            is_constructor: true,
+            doc: Vec::new(),
+            is_public: true,
+            from_trait: None,
+        };
+        assert_eq!(ctor.signature(), "() -> Tile");
+    }
+
+    /// `impl Default for Tile { fn default() .. }` is not an API function:
+    /// api.json carries it as `custom_impls: ["Default"]` and the codegen
+    /// makes `Tile_default` from that. `autofix add Tile.*` listed it as a
+    /// constructor named `default` and `autofix list` as "missing in api.json"
+    /// (2026-09-30) - the type index merged trait-impl methods into the
+    /// inherent ones without saying where they came from. A method knows its
+    /// trait, and the standard traits are never API functions; a wrapper
+    /// trait that exposes free functions still is.
+    #[test]
+    fn a_standard_traits_impl_method_is_not_an_api_function() {
+        let mut m = MethodDef {
+            name: "default".to_string(),
+            self_kind: None,
+            args: Vec::new(),
+            return_type: Some("Tile".to_string()),
+            return_ref_kind: RefKind::Value,
+            is_constructor: true,
+            doc: Vec::new(),
+            is_public: true,
+            from_trait: Some("Default".to_string()),
+        };
+        assert!(m.is_std_trait_impl());
+        m.from_trait = Some("WrapperTrait".to_string());
+        assert!(!m.is_std_trait_impl(), "a wrapper trait's method stays an API candidate");
+        m.from_trait = None;
+        assert!(!m.is_std_trait_impl(), "an inherent method stays an API candidate");
+        m.from_trait = Some("HostOut".to_string());
+        assert!(!m.is_std_trait_impl(), "an internal trait is not a custom impl");
+        assert!(m.is_non_api_trait_impl(), "but its methods never become API functions");
+
+        let source = r#"
+            pub struct Tile { pub title: String }
+            impl Tile { pub fn create(title: String) -> Self { Tile { title } } }
+            impl Default for Tile { fn default() -> Self { Tile { title: String::new() } } }
+            impl Clone for Tile { fn clone(&self) -> Self { Tile { title: self.title.clone() } } }
+        "#;
+        let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
+        let mut methods = extract_inherent_methods_from_items(&syntax_tree.items);
+        for (ty, trait_methods) in extract_trait_impl_methods_from_items(&syntax_tree.items) {
+            methods.entry(ty).or_default().extend(trait_methods);
+        }
+        let from: Vec<(String, Option<String>)> = methods
+            .get("Tile")
+            .expect("Tile")
+            .iter()
+            .map(|m| (m.name.clone(), m.from_trait.clone()))
+            .collect();
+        assert!(from.contains(&("create".to_string(), None)));
+        assert!(from.contains(&("default".to_string(), Some("Default".to_string()))));
+        assert!(from.contains(&("clone".to_string(), Some("Clone".to_string()))));
+    }
+
+    /// Methods a file's own `macro_rules!` write are methods of the type
+    /// (the wizard pages' `dom`, the dialogs' `with_on_event`).
+    #[test]
+    fn methods_written_by_a_local_macro_are_seen() {
+        let source = r#"
+            pub struct Page { pub theme: u8 }
+            macro_rules! theme_and_dom {
+                ($page:ident, $default:expr) => {
+                    impl $page {
+                        pub fn with_theme(mut self, theme: u8) -> Self { self.theme = theme; self }
+                        pub fn dom(self) -> Dom { todo!() }
+                    }
+                    impl Default for $page { fn default() -> Self { $default } }
+                };
+            }
+            theme_and_dom!(Page, Page { theme: 0 });
+        "#;
+        let mut file: File = syn::parse_file(source).expect("parses");
+        expand_local_item_macros(&mut file);
+        let methods = extract_inherent_methods_from_items(&file.items);
+        let names: Vec<String> = methods.get("Page").expect("Page").iter().map(|m| m.name.clone()).collect();
+        assert!(names.contains(&"with_theme".to_string()) && names.contains(&"dom".to_string()), "{names:?}");
+        let traits = extract_trait_impl_methods_from_items(&file.items);
+        assert!(traits.get("Page").is_none(), "trait impls are not expanded");
+    }
 
     fn extract_types_from_source(source: &str) -> Vec<TypeDefinition> {
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");

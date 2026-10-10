@@ -25,6 +25,12 @@ struct AlsaFns {
     recover: unsafe extern "C" fn(*mut c_void, c_int, c_int) -> c_int,
     drain: unsafe extern "C" fn(*mut c_void) -> c_int,
     close: unsafe extern "C" fn(*mut c_void) -> c_int,
+    /// The player's seam (`OutputDevice::queued_frames` / `set_paused` /
+    /// `clear`); optional, so a libasound without one still plays.
+    delay: Option<unsafe extern "C" fn(*mut c_void, *mut c_long) -> c_int>,
+    pause: Option<unsafe extern "C" fn(*mut c_void, c_int) -> c_int>,
+    drop_queue: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
+    prepare: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
 }
 
 static ALSA: OnceLock<Option<(libloading::Library, AlsaFns)>> = OnceLock::new();
@@ -40,6 +46,10 @@ fn alsa() -> Option<&'static AlsaFns> {
             recover: *lib.get(b"snd_pcm_recover\0").ok()?,
             drain: *lib.get(b"snd_pcm_drain\0").ok()?,
             close: *lib.get(b"snd_pcm_close\0").ok()?,
+            delay: lib.get(b"snd_pcm_delay\0").ok().map(|s| *s),
+            pause: lib.get(b"snd_pcm_pause\0").ok().map(|s| *s),
+            drop_queue: lib.get(b"snd_pcm_drop\0").ok().map(|s| *s),
+            prepare: lib.get(b"snd_pcm_prepare\0").ok().map(|s| *s),
         };
         Some((lib, fns))
     })
@@ -58,75 +68,117 @@ pub struct AlsaPcm {
 unsafe impl Send for AlsaPcm {}
 unsafe impl Sync for AlsaPcm {}
 
+/// Open the `default` PCM in `stream` direction (playback or capture) for
+/// `rate` Hz x `channels`, interleaved f32, or a readable reason why not:
+/// ALSA not installed, no device, or the device refused the format. The one
+/// open behind both [`AlsaPcm`] and [`AlsaCapture`].
+fn open_pcm(rate: u32, channels: u32, stream: c_int) -> Result<*mut c_void, String> {
+    let what = if stream == SND_PCM_STREAM_PLAYBACK {
+        "output"
+    } else {
+        "input"
+    };
+    if channels == 0 || rate == 0 {
+        return Err(format!(
+            "{} Hz x {} channels is not a format an audio {} device can open",
+            rate, channels, what
+        ));
+    }
+    let f = alsa().ok_or_else(|| {
+        String::from("ALSA (libasound.so.2) is not installed, so there is no audio device")
+    })?;
+    unsafe {
+        let mut pcm: *mut c_void = core::ptr::null_mut();
+        let name = b"default\0";
+        let rc = (f.open)(&mut pcm, name.as_ptr() as *const c_char, stream, 0);
+        if rc < 0 || pcm.is_null() {
+            return Err(format!(
+                "no ALSA audio {} device (snd_pcm_open(\"default\") failed, rc={})",
+                what, rc
+            ));
+        }
+        // FLOAT_LE interleaved, allow resample, ~100 ms latency.
+        let rc = (f.set_params)(
+            pcm,
+            SND_PCM_FORMAT_FLOAT_LE,
+            SND_PCM_ACCESS_RW_INTERLEAVED,
+            channels,
+            rate,
+            1,
+            100_000,
+        );
+        if rc < 0 {
+            (f.close)(pcm);
+            return Err(format!(
+                "the ALSA audio {} device refused {} Hz x {} f32 (snd_pcm_set_params rc={})",
+                what, rate, channels, rc
+            ));
+        }
+        Ok(pcm)
+    }
+}
+
 impl AlsaPcm {
     /// Open the default playback device for `rate` Hz x `channels`, interleaved
-    /// f32. `None` if ALSA isn't loadable / no device / params rejected.
-    pub fn open(rate: u32, channels: u32) -> Option<AlsaPcm> {
-        if channels == 0 || rate == 0 {
-            return None;
-        }
-        let f = alsa()?;
-        unsafe {
-            let mut pcm: *mut c_void = core::ptr::null_mut();
-            let name = b"default\0";
-            let rc = (f.open)(
-                &mut pcm,
-                name.as_ptr() as *const c_char,
-                SND_PCM_STREAM_PLAYBACK,
-                0,
-            );
-            if rc < 0 || pcm.is_null() {
-                crate::plog_warn!(
-                    "[audio] snd_pcm_open(\"default\", PLAYBACK) failed (rc={}) — no ALSA output \
-                     device, audio playback unavailable",
-                    rc
-                );
-                return None;
-            }
-            // FLOAT_LE interleaved, allow resample, ~100 ms latency.
-            let rc = (f.set_params)(
-                pcm,
-                SND_PCM_FORMAT_FLOAT_LE,
-                SND_PCM_ACCESS_RW_INTERLEAVED,
-                channels,
-                rate,
-                1,
-                100_000,
-            );
-            if rc < 0 {
-                crate::plog_warn!(
-                    "[audio] snd_pcm_set_params({} Hz x{} f32) rejected (rc={}) — audio playback \
-                     unavailable",
-                    rate,
-                    channels,
-                    rc
-                );
-                (f.close)(pcm);
-                return None;
-            }
-            Some(AlsaPcm { pcm, channels })
-        }
+    /// f32, or a readable reason why not (see `open_pcm`).
+    pub fn open(rate: u32, channels: u32) -> Result<AlsaPcm, String> {
+        open_pcm(rate, channels, SND_PCM_STREAM_PLAYBACK).map(|pcm| AlsaPcm { pcm, channels })
     }
+}
 
+impl super::OutputDevice for AlsaPcm {
     /// Write interleaved f32 `samples` (blocking), recovering once from an
-    /// underrun. A partial/short write is acceptable for realtime audio.
-    pub fn write(&self, samples: &[f32]) {
+    /// underrun. Taken when ALSA accepted frames; a partial/short write is
+    /// acceptable for realtime audio.
+    fn play(&self, samples: &[f32]) -> bool {
         let f = match alsa() {
             Some(f) => f,
-            None => return,
+            None => return false,
         };
         let frames = (samples.len() / self.channels as usize) as c_ulong;
         if frames == 0 || self.pcm.is_null() {
-            return;
+            return false;
         }
         unsafe {
-            let n = (f.writei)(self.pcm, samples.as_ptr() as *const c_void, frames);
+            let mut n = (f.writei)(self.pcm, samples.as_ptr() as *const c_void, frames);
             if n < 0 {
                 // -EPIPE (underrun) / -ESTRPIPE (suspend): recover + retry once.
                 (f.recover)(self.pcm, n as c_int, 1);
-                let _ = (f.writei)(self.pcm, samples.as_ptr() as *const c_void, frames);
+                n = (f.writei)(self.pcm, samples.as_ptr() as *const c_void, frames);
             }
+            n > 0
         }
+    }
+
+    /// `snd_pcm_delay`: the frames written and not yet out of the speaker.
+    fn queued_frames(&self) -> Option<u64> {
+        let delay = alsa()?.delay?;
+        if self.pcm.is_null() {
+            return None;
+        }
+        let mut frames: c_long = 0;
+        let rc = unsafe { delay(self.pcm, &mut frames) };
+        (rc == 0).then(|| u64::try_from(frames.max(0)).unwrap_or(0))
+    }
+
+    /// `snd_pcm_pause` - only where the device supports it (dmix and the
+    /// PulseAudio / PipeWire plugins do); false otherwise.
+    fn set_paused(&self, paused: bool) -> bool {
+        let Some(pause) = alsa().and_then(|f| f.pause) else {
+            return false;
+        };
+        !self.pcm.is_null() && unsafe { pause(self.pcm, c_int::from(paused)) } == 0
+    }
+
+    /// `snd_pcm_drop` drops what is queued, `snd_pcm_prepare` makes the PCM
+    /// take writes again.
+    fn clear(&self) -> bool {
+        let Some((drop_queue, prepare)) = alsa().and_then(|f| f.drop_queue.zip(f.prepare)) else {
+            return false;
+        };
+        !self.pcm.is_null()
+            && unsafe { drop_queue(self.pcm) } == 0
+            && unsafe { prepare(self.pcm) } == 0
     }
 }
 
@@ -154,50 +206,15 @@ unsafe impl Sync for AlsaCapture {}
 
 impl AlsaCapture {
     /// Open the default capture device for `rate` Hz x `channels`, interleaved
-    /// f32. `None` if ALSA isn't loadable / no device / params rejected.
+    /// f32. `None` (and one warning with the reason) if ALSA isn't loadable /
+    /// no device / params rejected (see `open_pcm`).
     fn open(rate: u32, channels: u32) -> Option<AlsaCapture> {
-        if channels == 0 || rate == 0 {
-            return None;
-        }
-        let f = alsa()?;
-        unsafe {
-            let mut pcm: *mut c_void = core::ptr::null_mut();
-            let name = b"default\0";
-            let rc = (f.open)(
-                &mut pcm,
-                name.as_ptr() as *const c_char,
-                SND_PCM_STREAM_CAPTURE,
-                0,
-            );
-            if rc < 0 || pcm.is_null() {
-                crate::plog_warn!(
-                    "[audio] snd_pcm_open(\"default\", CAPTURE) failed (rc={}) — no ALSA input \
-                     device, microphone capture unavailable",
-                    rc
-                );
-                return None;
+        match open_pcm(rate, channels, SND_PCM_STREAM_CAPTURE) {
+            Ok(pcm) => Some(AlsaCapture { pcm, channels }),
+            Err(why) => {
+                crate::plog_warn!("[audio] microphone capture unavailable: {}", why);
+                None
             }
-            let rc = (f.set_params)(
-                pcm,
-                SND_PCM_FORMAT_FLOAT_LE,
-                SND_PCM_ACCESS_RW_INTERLEAVED,
-                channels,
-                rate,
-                1,
-                100_000,
-            );
-            if rc < 0 {
-                crate::plog_warn!(
-                    "[audio] snd_pcm_set_params({} Hz x{} f32, CAPTURE) rejected (rc={}) — \
-                     microphone capture unavailable",
-                    rate,
-                    channels,
-                    rc
-                );
-                (f.close)(pcm);
-                return None;
-            }
-            Some(AlsaCapture { pcm, channels })
         }
     }
 

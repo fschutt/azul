@@ -586,6 +586,26 @@ impl AnimationManager {
     pub fn cancel(&mut self, key: AnimKey) -> Option<ActiveAnim> {
         self.active.remove(&key)
     }
+
+    /// Drop every move and enter whose node is not in the current tree
+    /// (`placed(key)` is false). Returns the dropped keys.
+    ///
+    /// Such an animation has nothing to composite against - nothing writes
+    /// its transform anywhere - and it only kept the window asking for
+    /// frames. Exits are kept: a departing node is retained by its zombie
+    /// under the old identity, and a remount may still catch it.
+    pub fn drop_unplaced<F: Fn(AnimKey) -> bool>(&mut self, placed: F) -> Vec<AnimKey> {
+        let gone: Vec<AnimKey> = self
+            .active
+            .iter()
+            .filter(|(key, anim)| anim.class != AnimClass::Exit && !placed(**key))
+            .map(|(key, _)| *key)
+            .collect();
+        for key in &gone {
+            self.active.remove(key);
+        }
+        gone
+    }
 }
 
 /// Turn the diff's correspondence map into `(key, First, Last)` triples.

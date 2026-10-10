@@ -774,13 +774,18 @@ impl AutofixPatch {
                         external: Some(p.new_path.clone()),
                         ..Default::default()
                     };
-                    let (module_name, warn) = determine_module(&p.type_name);
-                    if warn {
-                        eprintln!(
-                            "Warning: Could not determine module for '{}', using 'misc'",
-                            p.type_name
-                        );
-                    }
+                    // Like a modify: the module the type is in, not a guess
+                    // from its name (a guess makes a second, empty class).
+                    let module_name = find_existing_module(&p.type_name).unwrap_or_else(|| {
+                        let (module, warn) = determine_module(&p.type_name);
+                        if warn {
+                            eprintln!(
+                                "Warning: Could not determine module for '{}', using 'misc'",
+                                p.type_name
+                            );
+                        }
+                        module
+                    });
                     insert_class_patch(
                         &mut api_patch,
                         API_VERSION,
@@ -891,7 +896,8 @@ impl AutofixPatch {
                         ..Default::default()
                     };
                     let module_name = a.module.clone().unwrap_or_else(|| {
-                        let (module, warn) = determine_module(&a.type_name);
+                        let (module, warn) =
+                            crate::autofix::module_map::new_type_module(&a.type_name, &a.external);
                         if warn {
                             eprintln!(
                                 "Warning: Could not determine module for '{}', using 'misc'",
@@ -913,13 +919,22 @@ impl AutofixPatch {
                         remove: Some(true),
                         ..Default::default()
                     };
-                    let (module_name, warn) = determine_module(&r.type_name);
-                    if warn {
-                        eprintln!(
-                            "Warning: Could not determine module for '{}', using 'misc'",
-                            r.type_name
-                        );
-                    }
+                    // The class is removed from the module it IS in. Guessing the
+                    // module from the name (as for a new class) missed every
+                    // class whose source file is gone: ModuleSwitcher and its
+                    // family lived in `widgets`, the guess said `misc`, the
+                    // remove found nothing and the scan proposed it again,
+                    // forever.
+                    let module_name = find_existing_module(&r.type_name).unwrap_or_else(|| {
+                        let (module, warn) = determine_module(&r.type_name);
+                        if warn {
+                            eprintln!(
+                                "Warning: Could not determine module for '{}', using 'misc'",
+                                r.type_name
+                            );
+                        }
+                        module
+                    });
                     insert_class_patch(
                         &mut api_patch,
                         API_VERSION,
@@ -1489,6 +1504,40 @@ mod tests {
             class_patch.derive,
             Some(vec!["Clone".to_string(), "Copy".to_string()])
         );
+    }
+
+    /// A class whose source file is gone is removed from the module it IS in.
+    /// The remove used to guess the module from the name, as for a new class:
+    /// the ModuleSwitcher family lived in `widgets`, the guess said `misc` /
+    /// `dom`, the remove found nothing and every scan proposed it again
+    /// (fixed in 178af99a9; this pins it).
+    #[test]
+    fn a_removal_targets_the_module_the_class_is_in() {
+        let api: crate::api::ApiData = serde_json::from_value(serde_json::json!({
+            "0.2.0": {"apiversion": 1, "git": "", "date": "", "api": {
+                "widgets": {"classes": {
+                    "ModuleSwitcher": {"external": "azul_layout::widgets::module_switcher::ModuleSwitcher"},
+                    "SwitcherModule": {"external": "azul_layout::widgets::module_switcher::SwitcherModule"}
+                }}
+            }}
+        }))
+        .expect("test api parses");
+        let mut patch = AutofixPatch::new("Remove the ModuleSwitcher family");
+        for name in ["ModuleSwitcher", "SwitcherModule"] {
+            patch.add_operation(PatchOperation::Remove(RemoveOperation {
+                type_name: name.to_string(),
+                path: Some(format!("azul_layout::widgets::module_switcher::{name}")),
+                reason: Some("Not reachable from public API".to_string()),
+            }));
+        }
+
+        let api_patch = patch.to_api_patch_with_context(Some(&api));
+        let modules = &api_patch.versions[API_VERSION].modules;
+        let names: Vec<&String> = modules.keys().collect();
+        assert_eq!(names, vec!["widgets"], "every removal targets `widgets`: {names:?}");
+        for name in ["ModuleSwitcher", "SwitcherModule"] {
+            assert!(modules["widgets"].classes[name].is_removal(), "{name}");
+        }
     }
 }
 

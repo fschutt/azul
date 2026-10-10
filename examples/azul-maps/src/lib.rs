@@ -1,48 +1,324 @@
+//! AzMaps: the `MapWidget` (layout/src/widgets/map.rs) in an app - the map is
+//! the window, everything else floats on it.
+//!
+//! ```text
+//! +----------------------------------------------------------------------+
+//! | o o o  [sidebar]           (drag the window here)         [settings] |  title area
+//! |  +- sidebar ---------+                                               |
+//! |  | o  From      [^v] |          the map, the whole window            |
+//! |  | v  To             |                     v                         |
+//! |  | [car][walk][bike] |                  +--------+                   |
+//! |  |   [transit] 412km |                  | popover|  a place's card   |
+//! |  | Recents     [del] |                  +--------+          [locate] |
+//! |  | v 37.77 N 122.4 W |                                       [+] [-] |
+//! |  +-------------------+                         (c) OpenStreetMap ... |
+//! +----------------------------------------------------------------------+
+//! ```
+//!
+//! A click on the map drops a pin; the pins are the RECENT places (newest
+//! first in the sidebar, a click centres the map on one and opens its card).
+//! A place's card is a transient popover anchored at its pin (Directions,
+//! Remove). The travel panel takes a start (empty: where you are, once the
+//! location is known) and a destination as `lat, lon`, a mode (drive, walk,
+//! cycle, public transport) and draws the straight line between them with its
+//! distance - the routing itself is not built yet (ROUTING.md).
+//!
+//! Pins are kept in the data tree (`maps/pins.json`, through azul-appkit's
+//! file jobs on a Thread); the last viewport and the sidebar in settings.json.
+//! azul-appkit gives the switches (`--theme`, `--mode`, `--size`, `--shot`,
+//! `--data-dir`) and the settings page (the gear, Mod+,). Arrows pan, `+` /
+//! `-` zoom (not while a travel field is being typed in). The tiles come from
+//! `--tiles <url template>`, else `AZMAPS_TILES`, else the shared Azlin
+//! config's `endpoints.tiles` (a local tile server for an offline run), else
+//! the map widget's own (OpenFreeMap's public planet tiles).
+//!
+//! stdout, for scripts (`scripts/azmaps_e2e.py`): `AZMAPS_VIEW <lat> <lon>
+//! <zoom>` on every viewport change, `AZMAPS_PINS <n>` when the pins change,
+//! `AZMAPS_PINS_LOADED <n>` / `AZMAPS_PINS_SAVED <n>` / `AZMAPS_PINS_ERROR`,
+//! `AZMAPS_PLACE <index>` when a place's card opens, `AZMAPS_TRAVEL <mode>
+//! <from> <to>` when the travel panel changes, `AZMAPS_ROUTE <mode> <km>
+//! <minutes> <compute_ms>` when its route comes back from the route worker,
+//! `AZMAPS_SIDEBAR open|closed`. With `--stats` (`args.rs`): `AZMAPS_LAYOUT
+//! <n>` for every window rebuild, and the map widget's `AZ_MAP_TILES` /
+//! `AZ_MAP_RENDER` / `AZ_MAP_TILE` counters.
+//!
+//! Nothing here blocks the UI thread: the tiles are fetched, decoded AND drawn
+//! on the map's workers, the pins file and settings.json go through
+//! azul-appkit's file thread, a route is worked out on the route worker
+//! (`route.rs`). A pan does not rebuild the window unless something AzMaps
+//! draws at a place (a pin, the travel line, where you are) is on the map.
+
+pub mod args;
+pub mod ids;
+pub mod model;
+pub mod route;
+
+use std::{
+    cell::Cell,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+};
+
 use azul::{
-    dom::GeolocationProbeConfig,
+    callbacks::{
+        ButtonOnClickCallbackType, PopoverOnToggleCallbackType, TextInputOnTextInputCallbackType,
+        TimerCallbackInfo, TimerCallbackReturn,
+    },
+    dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
     prelude::*,
     sensor::SensorKind,
-    task::TerminateTimer,
-    widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget},
+    shells::{ShellThemeAccent, ShellThemeScope},
+    str::String as AzString,
+    task::{TerminateTimer, Thread, ThreadId},
+    time::{Duration, SystemTimeDiff},
+    widgets::{
+        Button, ButtonType, MapLatLon, MapTileLayer, MapViewport, MapWidget, OnTextInputReturn,
+        Popover, PopoverState, TextInputState, TextInputValid,
+    },
 };
+use azul_appkit::{
+    about::AboutInfo,
+    args::AppSpec,
+    files::{FileJob, FileOutcome},
+    shortcuts::Shortcut,
+    ui as kit,
+};
+
+use crate::{
+    model::{
+        cardinal, clip_segment, distance_km, distance_text, duration_text, mark_visible,
+        overlay_shows, pan_tiles, parse_place, parse_view, pins_from_json, pins_to_json,
+        place_text, route_line as route_reply_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
+        MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
+    },
+    route::{RouteReply, RouteRequest},
+};
+
+/// What azul-appkit's switches know about AzMaps.
+pub const SPEC: AppSpec = AppSpec {
+    name: "AzMaps",
+    binary: "AzMaps",
+    summary: "a map with pins, on azul's MapWidget",
+    screens: &["map"],
+    files_help: "",
+};
+
+/// The About facts.
+pub const ABOUT: AboutInfo = AboutInfo {
+    name: "AzMaps",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A map with pins on azul's MapWidget: OpenStreetMap vector tiles, your pins kept \\
+              in your data folder.",
+    license: "MIT",
+    app_folder: "maps",
+};
+
+/// The keys AzMaps answers (the kit adds Mod+, / F1 / Escape).
+pub const SHORTCUTS: [Shortcut; 6] = [
+    Shortcut::new("Map", "Left", "Pan west"),
+    Shortcut::new("Map", "Right", "Pan east"),
+    Shortcut::new("Map", "Up", "Pan north"),
+    Shortcut::new("Map", "Down", "Pan south"),
+    Shortcut::new("Map", "+", "Zoom in"),
+    Shortcut::new("Map", "-", "Zoom out"),
+];
+
+/// The write-back tags of AzMaps' file jobs.
+const TAG_LOAD: u64 = 1;
+const TAG_SAVE: u64 = 2;
+
+/// How often the sensor / location / keep-the-viewport timer runs. It had no
+/// interval: it ran on every frame, and every magnetometer reading rebuilt the
+/// window.
+const TICK_MS: u64 = 100;
+
+/// Timer ticks without a viewport change before the viewport is kept (a
+/// drag or a held key is one write, not one per frame): half a second.
+const VIEW_SAVE_IDLE_TICKS: u32 = 5;
+
+/// `--stats`: count the window rebuilds on stdout (`AZMAPS_LAYOUT <n>`).
+static STATS: AtomicBool = AtomicBool::new(false);
+static LAYOUTS: AtomicU64 = AtomicU64::new(0);
+
+/// A tap on the map this soon after the user closed a place's card is the
+/// click that closed it, not a new pin.
+const DISMISS_TAP_MS: u128 = 600;
+
+/// The pin's head: a 20 px square, round but for its bottom-left corner,
+/// turned 45 degrees COUNTER-clockwise so that corner points straight down.
+/// (It was `rotate(45deg)`: CSS turns clockwise, which put the point on
+/// the left - every pin lay on its side.) The point is 10 * sqrt(2) px
+/// below the square's centre.
+const PIN_HEAD: &str = "width: 20px; height: 20px; border-radius: 10px 10px 10px 0px; background: \
+                        #e5322d; transform: rotate(-45deg); box-shadow: 0px 1px 3px \
+                        rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: \
+                        center; cursor: pointer; @theme(flora) { background: #7E4A42; box-shadow: \
+                        0px 1px 3px rgba(48, 45, 38, 0.45); @media (prefers-color-scheme: dark) { \
+                        background: #B3837A; box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.55); } }";
+const PIN_DOT: &str = "width: 7px; height: 7px; border-radius: 4px; background: #ffffff; \
+                       @theme(flora) { background: #F4F2EA; }";
+/// Where the pin's box sits relative to its place: half its width to the
+/// left, its centre 10 * sqrt(2) px above the point.
+const PIN_HALF_WIDTH: f32 = 10.0;
+const PIN_TIP_DEPTH: f32 = 24.1;
+
+/// The window's root: the positioning box everything floats in.
+const ROOT: &str =
+    "position: relative; flex-grow: 1; min-height: 0px; overflow: hidden; display: flex;";
+/// The map: the whole window. Ground under the tiles; the tiles follow the
+/// mode themselves.
+///
+/// Under flora (`@theme(flora)` blocks after the flat values here and below; flat is
+/// unchanged) the ground is flora's desk, the floating panels are leaves at flora's corners
+/// under its warm shadow, a section head is flora's label, the licence line and the toast
+/// are flora's paper and clay. The map's marks are flora's too, not Google's red and blue: a
+/// pin and the destination in flora's clay (its glow at night), the start, the travel line and
+/// where you are in the theme's accent (a spin's stone, the glow at night).
+const MAP_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
+                        background: #cbd2d8; overflow: hidden; @theme(flora) { background: \
+                        system:under-page-background; }";
+/// The title area over the map: the window's drag region; the traffic
+/// lights sit in its left end on macOS.
+#[cfg(target_os = "macos")]
+const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; height: 40px; \
+                          display: flex; flex-direction: row; align-items: center; gap: 6px; \
+                          padding: 0px 10px 0px 84px; -azul-app-region: drag;";
+#[cfg(not(target_os = "macos"))]
+const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; height: 40px; \
+                          display: flex; flex-direction: row; align-items: center; gap: 6px; \
+                          padding: 0px 10px 0px 10px; -azul-app-region: drag;";
+/// A control in the drag region keeps its clicks.
+const NO_DRAG: &str = "-azul-app-region: no-drag;";
+/// A floating group of map controls (Apple Maps' rounded pills).
+const CONTROL_GROUP: &str = "display: flex; flex-direction: column; background: \
+                             system:window-background; border-radius: 8px; box-shadow: 0px 1px \
+                             4px rgba(0,0,0,0.3); -azul-app-region: no-drag; @theme(flora) { \
+                             border-radius: 5px; box-shadow: 0px 1px 4px rgba(48, 45, 38, 0.3); \
+                             @media (prefers-color-scheme: dark) { box-shadow: 0px 1px 4px \
+                             rgba(0, 0, 0, 0.55); } }";
+/// The controls' column, bottom right.
+const CONTROLS: &str = "position: absolute; right: 12px; bottom: 30px; display: flex; \
+                        flex-direction: column; gap: 10px;";
+/// The floating sidebar, below the title area.
+const SIDEBAR: &str = "position: absolute; left: 10px; top: 44px; bottom: 26px; width: 290px; \
+                       display: flex; flex-direction: column; gap: 12px; padding: 12px; \
+                       background: system:window-background; color: system:text; \
+                       border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25); \
+                       @theme(flora) { border-radius: 5px; box-shadow: 0px 2px 10px rgba(48, \
+                       45, 38, 0.22); @media (prefers-color-scheme: dark) { box-shadow: 0px 2px \
+                       10px rgba(0, 0, 0, 0.5); } }";
+const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
+const TRAVEL_PANEL: &str = "display: flex; flex-direction: column; gap: 6px;";
+const ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px;";
+const FIELDS: &str =
+    "display: flex; flex-direction: column; gap: 6px; flex-grow: 1; min-width: 0px;";
+const FIELD_GROW: &str = "flex-grow: 1; min-width: 0px;";
+const FROM_MARK: &str = "width: 10px; height: 10px; border-radius: 6px; border: 2px solid \
+                         #1a73e8; background: #ffffff; @theme(flora) { border: 2px solid \
+                         system:accent; background: system:control-background; }";
+const TO_MARK: &str = "width: 10px; height: 10px; border-radius: 6px; border: 2px solid \
+                       #e5322d; background: #e5322d; @theme(flora) { border: 2px solid #7E4A42; \
+                       background: #7E4A42; @media (prefers-color-scheme: dark) { border: 2px \
+                       solid #B3837A; background: #B3837A; } }";
+const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color: \
+                        system:secondary-text; white-space: nowrap;";
+const RECENTS_SECTION: &str =
+    "display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-height: 0px;";
+const SECTION_HEAD: &str = "display: flex; flex-direction: row; align-items: center; \
+                            font-size: 12px; font-weight: bold; color: system:secondary-text; \
+                            @theme(flora) { font-size: 11px; text-transform: uppercase; \
+                            letter-spacing: 0.12em; }";
+const RECENTS_LIST: &str = "display: flex; flex-direction: column; gap: 2px; overflow-y: auto; \
+                            flex-grow: 1; min-height: 0px;";
+/// A place's card in its popover.
+const CARD: &str = "display: flex; flex-direction: column; gap: 6px; padding: 4px; min-width: \
+                    210px;";
+const CARD_TITLE: &str = "font-size: 15px; font-weight: bold;";
+const CARD_SUB: &str = "font-size: 12px; color: system:secondary-text;";
+/// The tiles' licence line - required (ODbL, CC BY), so it stays, small.
+const ATTRIBUTION: &str = "position: absolute; right: 4px; bottom: 3px; font-size: 10px; color: \
+                           #333333; background: rgba(255,255,255,0.7); padding: 1px 4px; \
+                           border-radius: 3px; @theme(flora) { color: #262521; background: \
+                           rgba(251, 250, 246, 0.8); @media (prefers-color-scheme: dark) { \
+                           color: #E7E7E7; background: rgba(29, 29, 29, 0.8); } }";
+/// A problem with the pins file, as a small toast.
+const NOTICE: &str = "position: absolute; left: 50%; bottom: 30px; width: 360px; margin-left: \
+                      -180px; text-align: center; font-size: 12px; color: #ffffff; background: \
+                      rgba(176,0,32,0.9); padding: 6px 10px; border-radius: 6px; @theme(flora) \
+                      { color: #F4F2EA; background: rgba(126, 74, 66, 0.94); border-radius: 3px; }";
+const LOCATION_DOT: &str = "position: absolute; width: 16px; height: 16px; margin-left: -8px; \
+                            margin-top: -8px; background: #4285f4; border-radius: 8px; \
+                            box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35); @theme(flora) { \
+                            background: system:accent; box-shadow: 0px 0px 0px 3px \
+                            system:selection-background; }";
+const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 50px; width: 44px; height: \
+                             44px; border-radius: 22px; background: rgba(20,20,28,0.85); border: \
+                             2px solid #6a7080; display: flex; align-items: center; \
+                             justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
+const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
+const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
+/// The travel preview's paint: a straight line from the start to the destination.
+const ROUTE_PAINT: &str = "background: #1a73e8; @theme(flora) { background: system:accent; }";
+
+// ==== State ====
+
+/// The travel panel: two places as typed, and how to go.
+#[derive(Default)]
+struct Travel {
+    from: String,
+    to: String,
+    mode: TravelMode,
+}
 
 struct MapState {
     viewport: MapViewport,
     layer: MapTileLayer,
     locating: bool,
     last_fix: Option<(f64, f64)>,
+    /// The recent places (dropped pins), oldest first as the pins file
+    /// keeps them; the sidebar shows them newest first.
     pins: Vec<(f64, f64)>,
-    view_px: Option<(f32, f32)>,
+    /// The place whose card is open (an index into `pins`).
+    selected: Option<usize>,
+    /// When the user last closed a place's card (see [`DISMISS_TAP_MS`]).
+    dismissed_at: Option<std::time::Instant>,
+    sidebar_open: bool,
+    travel: Travel,
     mag_x: f32,
     mag_y: f32,
     has_mag: bool,
     locate_failed: bool,
     locate_ticks: u32,
+    /// The viewport changed and is not kept yet; ticks since the change.
+    view_dirty: bool,
+    view_idle_ticks: u32,
+    /// azul-appkit's kit and the data root its file jobs run against.
+    kit: RefAny,
+    data_root: PathBuf,
+    /// The pins file's key in the data tree (`maps/pins.json`).
+    pins_key: String,
+    /// A pins write is in flight; another change waits for it (one writer).
+    saving: bool,
+    save_pending: bool,
+    /// What went wrong with the pins file, shown as a toast.
+    notice: String,
+    /// The window's size as the last build saw it - the map fills the window,
+    /// so this is the map's: where a place is on screen between builds.
+    size: Cell<(f32, f32)>,
+    /// The travel panel's route, as the route worker answered the newest
+    /// request (`route.rs`).
+    route: Option<RouteReply>,
+    /// What the newest route request asked: the ends and the mode.
+    route_asked: Option<((f64, f64), (f64, f64), TravelMode)>,
+    /// The newest route request's number, shared with the route workers: an
+    /// older one gives up, its reply is dropped.
+    route_latest: Arc<AtomicU64>,
 }
 
 impl MapState {
-    fn new() -> Self {
-        Self {
-            viewport: MapViewport {
-                centre_lat_deg: 37.7749,
-                centre_lon_deg: -122.4194,
-                zoom: 2.0,
-                bearing_deg: 0.0,
-                pitch_deg: 0.0,
-            },
-            layer: MapTileLayer::default(),
-            locating: false,
-            last_fix: None,
-            pins: Vec::new(),
-            view_px: None,
-            mag_x: 0.0,
-            mag_y: 0.0,
-            has_mag: false,
-            locate_failed: false,
-            locate_ticks: 0,
-        }
-    }
-
     fn heading(&self) -> Option<f32> {
         if !self.has_mag {
             return None;
@@ -50,18 +326,31 @@ impl MapState {
         Some((self.mag_y.atan2(self.mag_x).to_degrees() + 360.0) % 360.0)
     }
 
-    fn zoom_in(&mut self) {
-        self.viewport.zoom = (self.viewport.zoom + 1.0).min(self.layer.max_zoom as f32);
+    /// The viewport moved: announced, and kept once it rests.
+    fn moved(&mut self) {
+        println!(
+            "{}",
+            view_line(
+                self.viewport.centre_lat_deg,
+                self.viewport.centre_lon_deg,
+                self.viewport.zoom
+            )
+        );
+        self.view_dirty = true;
+        self.view_idle_ticks = 0;
     }
 
-    fn zoom_out(&mut self) {
-        self.viewport.zoom = (self.viewport.zoom - 1.0).max(self.layer.min_zoom as f32);
+    fn zoom_by(&mut self, delta: f32) {
+        let min = MIN_ZOOM.max(self.layer.min_zoom as f32);
+        let max = MAX_ZOOM.min(self.layer.max_zoom as f32);
+        self.viewport.zoom = (self.viewport.zoom + delta).clamp(min, max);
+        self.moved();
     }
 
-    fn recentre(&mut self) {
-        self.viewport.centre_lat_deg = 37.7749;
-        self.viewport.centre_lon_deg = -122.4194;
-        self.viewport.zoom = 2.0;
+    fn centre_on(&mut self, lat: f64, lon: f64) {
+        self.viewport.centre_lat_deg = lat;
+        self.viewport.centre_lon_deg = lon;
+        self.moved();
     }
 
     fn toggle_locate(&mut self) {
@@ -82,55 +371,1210 @@ impl MapState {
             dx / 2.0,
             dy / 2.0,
         );
-        self.viewport.centre_lon_deg = lon;
-        self.viewport.centre_lat_deg = lat;
+        self.centre_on(lat, lon);
+    }
+
+    /// The travel panel's ends as places: the start as typed, or - left
+    /// empty - where you are once that is known; the destination as typed.
+    fn travel_ends(&self) -> (Option<(f64, f64)>, Option<(f64, f64)>) {
+        let from = if self.travel.from.trim().is_empty() {
+            self.last_fix
+        } else {
+            parse_place(&self.travel.from)
+        };
+        (from, parse_place(&self.travel.to))
+    }
+
+    /// The travel panel changed: announced for scripts.
+    fn announce_travel(&self) {
+        let (from, to) = self.travel_ends();
+        println!("{}", travel_line(self.travel.mode, from, to));
+    }
+
+    /// Whether the window draws anything at a place on the map at `viewport`
+    /// (`model::overlay_shows`): a pin, the travel line, where you are.
+    fn overlay_shows(&self, viewport: MapViewport) -> bool {
+        let size = self.size.get();
+        let travel = match self.travel_ends() {
+            (Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        };
+        let here = if self.locating { self.last_fix } else { None };
+        overlay_shows(
+            |lat, lon| place_px(viewport, size, lat, lon),
+            size,
+            &self.pins,
+            travel,
+            here,
+        )
+    }
+
+    /// The route request for the travel panel as it is now - `None` when it
+    /// asks for the route already asked for, or an end is not a place. A new
+    /// request supersedes the one in flight (`route.rs`).
+    fn route_request(&mut self) -> Option<RouteRequest> {
+        let (Some(from), Some(to)) = self.travel_ends() else {
+            if self.route_asked.take().is_some() {
+                // Supersede what is still in flight: no answer for ends that
+                // are gone.
+                self.route_latest.fetch_add(1, Ordering::AcqRel);
+            }
+            self.route = None;
+            return None;
+        };
+        let asked = (from, to, self.travel.mode);
+        if self.route_asked == Some(asked) {
+            return None;
+        }
+        self.route_asked = Some(asked);
+        self.route = None;
+        let id = self.route_latest.fetch_add(1, Ordering::AcqRel) + 1;
+        Some(RouteRequest {
+            id,
+            from,
+            to,
+            mode: self.travel.mode,
+            latest: self.route_latest.clone(),
+            on_done: on_route_done,
+        })
     }
 }
 
-fn pan_tiles(
-    lon_deg: f64,
-    lat_deg: f64,
-    tile_count: f64,
-    dx_tiles: f64,
-    dy_tiles: f64,
-) -> (f64, f64) {
-    use std::f64::consts::PI;
-    let x = (lon_deg + 180.0) / 360.0 * tile_count + dx_tiles;
-    let lon = ((x / tile_count * 360.0 - 180.0) + 540.0).rem_euclid(360.0) - 180.0;
-    let lat_rad = lat_deg.to_radians();
-    let y = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / PI) / 2.0 * tile_count;
-    let y = (y + dy_tiles).clamp(0.0, tile_count);
-    let lat = (PI * (1.0 - 2.0 * y / tile_count))
-        .sinh()
-        .atan()
-        .to_degrees();
-    (lon, lat.clamp(-85.0, 85.0))
+/// Where `(lat, lon)` is in a `size` window showing the map at `viewport`
+/// (the map fills the window).
+fn place_px(viewport: MapViewport, size: (f32, f32), lat: f64, lon: f64) -> (f32, f32) {
+    let p = MapWidget::px_at_latlon(
+        viewport,
+        MapLatLon {
+            lat_deg: lat,
+            lon_deg: lon,
+        },
+        LogicalSize::create(size.0, size.1),
+    );
+    (p.x, p.y)
 }
 
-#[cfg(test)]
-mod pan_tests {
-    use super::pan_tiles;
+/// The travel panel may have changed: its route is asked of a route worker
+/// (`MapState::route_request`), never worked out here, on the UI thread.
+fn ask_route(app: &RefAny, info: &mut CallbackInfo) {
+    let mut state = app.clone();
+    let request = state
+        .downcast_mut::<MapState>()
+        .and_then(|mut s| s.route_request());
+    if let Some(request) = request {
+        info.add_thread(
+            ThreadId::unique(),
+            Thread::create(RefAny::new(request), app.clone(), route::route_worker),
+        );
+    }
+}
 
-    #[test]
-    fn up_goes_north_in_both_hemispheres() {
-        for lat in [37.7749, -33.8688, 0.0] {
-            let (_, north) = pan_tiles(0.0, lat, 4.0, 0.0, -0.5);
-            let (_, south) = pan_tiles(0.0, lat, 4.0, 0.0, 0.5);
-            assert!(north > lat, "↑ must go north: {lat} → {north}");
-            assert!(south < lat, "↓ must go south: {lat} → {south}");
+/// A route came back from the route worker: shown when it answers the newest
+/// request, dropped when the panel has asked for another since.
+extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = msg.downcast_ref::<RouteReply>().map(|r| *r) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    if s.route_latest.load(Ordering::Acquire) != reply.id {
+        return Update::DoNothing;
+    }
+    println!("{}", route_reply_line(reply.mode, reply.route, reply.compute_ms));
+    s.route = Some(reply);
+    Update::RefreshDom
+}
+
+// ==== Layout ====
+
+/// `37.7749° N 122.4194° W`.
+fn coords(lat: f64, lon: f64) -> String {
+    format!(
+        "{:.4}\u{b0} {} {:.4}\u{b0} {}",
+        lat.abs(),
+        if lat >= 0.0 { "N" } else { "S" },
+        lon.abs(),
+        if lon >= 0.0 { "E" } else { "W" }
+    )
+}
+
+/// An icon button: its icon, its accessible name, its id, its action.
+fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnClickCallbackType) -> Dom {
+    Button::create("")
+        .with_icon(icon)
+        .with_on_click(app.clone(), on_click)
+        .dom()
+        .with_id(id)
+        .with_accessibility_name(name)
+}
+
+/// The title area over the map: the window moves by it; the sidebar's
+/// button on the left, the settings on the right, no text.
+fn title_area(s: &MapState, app: &RefAny) -> Dom {
+    let toggle_name = if s.sidebar_open { "Hide sidebar" } else { "Show sidebar" };
+    Dom::create_div()
+        .with_css(TITLE_AREA)
+        .with_id(ids::TITLE)
+        .with_child(
+            Dom::create_div().with_css(NO_DRAG).with_child(
+                Button::create("")
+                    .with_icon("view_sidebar")
+                    .with_toggled(s.sidebar_open)
+                    .with_on_click(app.clone(), on_toggle_sidebar as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id(ids::SIDEBAR_TOGGLE)
+                    .with_accessibility_name(toggle_name),
+            ),
+        )
+        .with_child(Dom::create_div().with_css("flex-grow: 1; height: 100%;"))
+        .with_child(
+            Dom::create_div()
+                .with_css(NO_DRAG)
+                .with_child(tool(app, "settings", "Settings", ids::SETTINGS, on_settings_open)),
+        )
+}
+
+/// What a travel field is about.
+#[derive(Clone, Copy)]
+enum End {
+    From,
+    To,
+}
+
+/// One travel field: which one, and the app.
+struct FieldRef {
+    app: RefAny,
+    end: End,
+}
+
+/// One travel mode's button: which mode, and the app.
+struct ModeRef {
+    app: RefAny,
+    mode: TravelMode,
+}
+
+/// The travel panel (Google-Maps-like): start and destination with a swap
+/// button, the modes, the distance once both ends are places.
+fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
+    let field = |mark: &str, text: &str, placeholder: &str, name: &str, id: AzString, end: End| {
+        Dom::create_div()
+            .with_css(ROW)
+            .with_child(Dom::create_div().with_css(mark))
+            .with_child(
+                Dom::create_div().with_css(FIELD_GROW).with_child(
+                    TextInput::create()
+                        .with_text(text)
+                        .with_placeholder(placeholder)
+                        .with_accessibility_name(name)
+                        .with_on_text_input(
+                            RefAny::new(FieldRef {
+                                app: app.clone(),
+                                end,
+                            }),
+                            on_travel_text as TextInputOnTextInputCallbackType,
+                        )
+                        .dom()
+                        .with_id(id),
+                ),
+            )
+    };
+    let from_placeholder = if s.last_fix.is_some() { "My Location" } else { "From" };
+    let fields = Dom::create_div()
+        .with_css(FIELDS)
+        .with_child(field(
+            FROM_MARK,
+            &s.travel.from,
+            from_placeholder,
+            "Start",
+            ids::TRAVEL_FROM,
+            End::From,
+        ))
+        .with_child(field(
+            TO_MARK,
+            &s.travel.to,
+            "To",
+            "Destination",
+            ids::TRAVEL_TO,
+            End::To,
+        ));
+    let ends = Dom::create_div().with_css(ROW).with_child(fields).with_child(tool(
+        app,
+        "swap_vert",
+        "Swap start and destination",
+        ids::TRAVEL_SWAP,
+        on_travel_swap,
+    ));
+
+    let mut modes = Dom::create_div().with_css(ROW);
+    for mode in TravelMode::ALL {
+        modes.add_child(
+            Button::create("")
+                .with_icon(mode.icon())
+                .with_toggled(s.travel.mode == mode)
+                .with_on_click(
+                    RefAny::new(ModeRef {
+                        app: app.clone(),
+                        mode,
+                    }),
+                    on_travel_mode as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_id(ids::travel_mode(mode.key()))
+                .with_accessibility_name(mode.label()),
+        );
+    }
+    if let (Some(a), Some(b)) = s.travel_ends() {
+        // The distance as the crow flies at once; the route worker's time
+        // once it answers for these ends.
+        let mut text = distance_text(distance_km(a, b));
+        if let Some(reply) = s
+            .route
+            .filter(|r| r.from == a && r.to == b && r.mode == s.travel.mode)
+        {
+            text.push_str(" \u{b7} ");
+            text.push_str(&duration_text(reply.route.minutes));
+        }
+        modes.add_child(
+            Dom::create_div()
+                .with_css(DISTANCE)
+                .with_id(ids::TRAVEL_DISTANCE)
+                .with_child(Dom::create_span_with_text(text)),
+        );
+    }
+
+    Dom::create_div()
+        .with_css(TRAVEL_PANEL)
+        .with_id(ids::TRAVEL)
+        .with_accessibility_name("Directions")
+        .with_child(ends)
+        .with_child(modes)
+}
+
+/// One place of the recents / on the map: which place, and the app.
+struct PinRef {
+    app: RefAny,
+    index: usize,
+}
+
+/// The recent places, newest first; a click centres the map on one and
+/// opens its card. Nothing at all while there are none.
+fn recents(s: &MapState, app: &RefAny) -> Option<Dom> {
+    if s.pins.is_empty() {
+        return None;
+    }
+    let mut list = Dom::create_div()
+        .with_css(RECENTS_LIST)
+        .with_id(ids::RECENTS)
+        .with_accessibility_name("Recents");
+    for (index, &(lat, lon)) in s.pins.iter().enumerate().rev() {
+        list.add_child(
+            Button::create(coords(lat, lon))
+                .with_icon("place")
+                .with_toggled(s.selected == Some(index))
+                .with_on_click(
+                    RefAny::new(PinRef {
+                        app: app.clone(),
+                        index,
+                    }),
+                    on_place_row as ButtonOnClickCallbackType,
+                )
+                .dom()
+                .with_id(ids::indexed("place", index)),
+        );
+    }
+    Some(
+        Dom::create_div()
+            .with_css(RECENTS_SECTION)
+            .with_child(
+                Dom::create_div()
+                    .with_css(SECTION_HEAD)
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("flex-grow: 1;")
+                            .with_child(Dom::create_span_with_text("Recents")),
+                    )
+                    .with_child(tool(
+                        app,
+                        "delete_sweep",
+                        "Clear recents",
+                        ids::CLEAR_PINS,
+                        on_clear_pins,
+                    )),
+            )
+            .with_child(list),
+    )
+}
+
+/// The sidebar: travel, then the recent places. Nothing else.
+fn sidebar(s: &MapState, app: &RefAny) -> Dom {
+    let mut side = Dom::create_div()
+        .with_css(SIDEBAR)
+        .with_id(ids::SIDEBAR)
+        .with_accessibility_name("Sidebar")
+        .with_child(travel_panel(s, app));
+    if let Some(list) = recents(s, app) {
+        side.add_child(list);
+    }
+    side
+}
+
+/// A place's card, in the popover at its pin: what it is, where it is,
+/// directions to it, remove it.
+fn place_card(app: &RefAny, index: usize, lat: f64, lon: f64) -> Dom {
+    let pin = || {
+        RefAny::new(PinRef {
+            app: app.clone(),
+            index,
+        })
+    };
+    Dom::create_div()
+        .with_css(CARD)
+        .with_child(
+            Dom::create_div()
+                .with_css(CARD_TITLE)
+                .with_child(Dom::create_span_with_text("Dropped Pin")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(CARD_SUB)
+                .with_child(Dom::create_span_with_text(coords(lat, lon))),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(ROW)
+                .with_child(
+                    Button::with_type("Directions", ButtonType::Primary)
+                        .with_icon("directions")
+                        .with_on_click(pin(), on_place_directions as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::indexed("place-directions", index)),
+                )
+                .with_child(
+                    Button::create("")
+                        .with_icon("delete")
+                        .with_on_click(pin(), on_place_remove as ButtonOnClickCallbackType)
+                        .dom()
+                        .with_id(ids::indexed("place-remove", index))
+                        .with_accessibility_name("Remove"),
+                ),
+        )
+}
+
+/// A place on the map: its pin, the anchor of its card's popover, with the
+/// pin's point on the place.
+fn place_pin(s: &MapState, app: &RefAny, index: usize, x: f32, y: f32) -> Dom {
+    let (lat, lon) = s.pins[index];
+    let marker = Dom::create_div()
+        .with_css(PIN_HEAD)
+        .with_child(Dom::create_div().with_css(PIN_DOT))
+        .with_id(ids::indexed("place-pin", index))
+        .with_accessibility_name(coords(lat, lon));
+    let popover = Popover::create(marker, place_card(app, index, lat, lon))
+        .with_open(s.selected == Some(index))
+        .with_on_toggle(
+            RefAny::new(PinRef {
+                app: app.clone(),
+                index,
+            }),
+            on_place_toggle as PopoverOnToggleCallbackType,
+        )
+        .dom();
+    let at = format!(
+        "position: absolute; left: {:.1}px; top: {:.1}px;",
+        x - PIN_HALF_WIDTH,
+        y - PIN_TIP_DEPTH,
+    );
+    Dom::create_div().with_css(at.as_str()).with_child(popover)
+}
+
+/// The travel preview: the straight line from `a` to `b` (both in view
+/// pixels, already clipped to the view).
+fn route_line(a: (f32, f32), b: (f32, f32)) -> Dom {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let css = format!(
+        "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: 4px; \
+         margin-top: -2px; border-radius: 2px; opacity: 0.85; transform-origin: 0px 50%; \
+         transform: rotate({:.2}deg); {ROUTE_PAINT}",
+        a.0,
+        a.1,
+        dx.hypot(dy),
+        dy.atan2(dx).to_degrees(),
+    );
+    Dom::create_div().with_css(css.as_str())
+}
+
+/// A small round mark on the map (the start of a route).
+fn map_dot(x: f32, y: f32, css: &str) -> Dom {
+    let at = format!(
+        "position: absolute; left: {:.1}px; top: {:.1}px; margin-left: -7px; margin-top: -7px; \
+         {css}",
+        x, y
+    );
+    Dom::create_div().with_css(at.as_str())
+}
+
+/// The map: the whole window - the tiles, the travel preview, the places,
+/// where you are, the compass.
+fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
+    let map = MapWidget::create(s.layer.clone())
+        .with_viewport(s.viewport)
+        .with_on_viewport_changed(app.clone(), on_viewport_changed)
+        .with_on_pin_tap(app.clone(), on_pin_tap)
+        .dom();
+    let mut area = Dom::create_div()
+        .with_css(MAP_AREA)
+        .with_id(ids::MAP)
+        .with_child(map);
+
+    // The map fills the window, so the window's size is the map's: where a
+    // place is on screen. (The same rules decide whether a pan has to
+    // rebuild the window: `MapState::overlay_shows`.)
+    let (w, h) = size;
+    let at = |lat: f64, lon: f64| place_px(s.viewport, size, lat, lon);
+    let visible = |p: (f32, f32)| mark_visible(p, w, h);
+
+    // The travel preview, until there is routing: start to destination as
+    // the crow flies.
+    if let (Some(a), Some(b)) = s.travel_ends() {
+        let (pa, pb) = (at(a.0, a.1), at(b.0, b.1));
+        if let Some((p, q)) = clip_segment(pa, pb, w, h) {
+            area.add_child(route_line(p, q));
+        }
+        if visible(pa) {
+            area.add_child(map_dot(pa.0, pa.1, FROM_MARK));
+        }
+        if visible(pb) {
+            area.add_child(map_dot(pb.0, pb.1, TO_MARK));
         }
     }
 
-    #[test]
-    fn steps_are_exact_in_tile_space_and_east_is_positive() {
-        let (lon, lat) = pan_tiles(0.0, 0.0, 4.0, 0.5, 0.0);
-        assert!((lon - 45.0).abs() < 1e-9, "{lon}");
-        assert!(lat.abs() < 1e-9, "{lat}");
-        let (_, lat) = pan_tiles(0.0, 0.0, 2.0, 0.0, 1.0);
-        assert!((lat - -85.0).abs() < 1e-9, "{lat}");
-        let (lon, _) = pan_tiles(179.0, 0.0, 4.0, 0.5, 0.0);
-        assert!((lon - -136.0).abs() < 1e-9, "{lon}");
+    if s.locating {
+        area.add_child(Dom::create_geolocation_probe(GeolocationProbeConfig {
+            high_accuracy: true,
+            background: false,
+            max_accuracy_m: 0.0,
+            min_interval_ms: 0,
+        }));
+        if let Some((lat, lon)) = s.last_fix {
+            let (x, y) = at(lat, lon);
+            if visible((x, y)) {
+                let dot = format!("left: {x:.1}px; top: {y:.1}px; {LOCATION_DOT}");
+                area.add_child(
+                    Dom::create_div()
+                        .with_css(dot.as_str())
+                        .with_accessibility_name("You are here"),
+                );
+            }
+        }
     }
+
+    for (index, &(lat, lon)) in s.pins.iter().enumerate() {
+        let (x, y) = at(lat, lon);
+        if visible((x, y)) {
+            area.add_child(place_pin(s, app, index, x, y));
+        }
+    }
+
+    if let Some(heading) = s.heading() {
+        let needle = format!(
+            "width: 6px; height: 30px; display: flex; flex-direction: column; transform: \
+             rotate({:.1}deg);",
+            -heading,
+        );
+        area.add_child(
+            Dom::create_div()
+                .with_css(COMPASS_BADGE)
+                .with_accessibility_name(format!(
+                    "Heading {} {heading:03.0}\u{b0}",
+                    cardinal(heading)
+                ))
+                .with_child(
+                    Dom::create_div()
+                        .with_css(needle.as_str())
+                        .with_child(Dom::create_div().with_css(NEEDLE_N))
+                        .with_child(Dom::create_div().with_css(NEEDLE_S)),
+                ),
+        );
+    }
+    area
+}
+
+/// The floating controls, bottom right: where am I, zoom.
+fn map_controls(s: &MapState, app: &RefAny) -> Dom {
+    let (locate_icon, locate_name) = if s.locate_failed {
+        ("location_disabled", "Location unavailable")
+    } else {
+        ("my_location", "Show my location")
+    };
+    Dom::create_div()
+        .with_css(CONTROLS)
+        .with_child(
+            Dom::create_div().with_css(CONTROL_GROUP).with_child(
+                Button::create("")
+                    .with_icon(locate_icon)
+                    .with_toggled(s.locating)
+                    .with_on_click(app.clone(), on_locate as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id(ids::LOCATE)
+                    .with_accessibility_name(locate_name),
+            ),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css(CONTROL_GROUP)
+                .with_child(tool(app, "add", "Zoom in", ids::ZOOM_IN, on_zoom_in))
+                .with_child(tool(app, "remove", "Zoom out", ids::ZOOM_OUT, on_zoom_out)),
+        )
+}
+
+/// The map screen: the map, and what floats on it.
+fn screen(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
+    let mut root = Dom::create_div()
+        .with_css(ROOT)
+        .with_child(map_area(s, app, size))
+        .with_child(title_area(s, app));
+    if s.sidebar_open {
+        root.add_child(sidebar(s, app));
+    }
+    root.add_child(map_controls(s, app));
+    root.add_child(
+        Dom::create_div()
+            .with_css(ATTRIBUTION)
+            .with_child(Dom::create_span_with_text(s.layer.attribution.as_str())),
+    );
+    if !s.notice.is_empty() {
+        root.add_child(
+            Dom::create_div()
+                .with_css(NOTICE)
+                .with_child(Dom::create_span_with_text(s.notice.as_str())),
+        );
+    }
+    root
+}
+
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the mode makes a light / dark switch rebuild the window (the
+    // tiles' style follows it).
+    let _mode = info.get_mode();
+    let size = (info.get_window_width(), info.get_window_height());
+    if STATS.load(Ordering::Relaxed) {
+        println!("AZMAPS_LAYOUT {}", LAYOUTS.fetch_add(1, Ordering::Relaxed) + 1);
+    }
+    let app = data.clone();
+    let Some(s) = data.downcast_ref::<MapState>() else {
+        return Dom::create_body();
+    };
+    s.size.set(size);
+    let content = if kit::settings_open(&s.kit) {
+        // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
+        Dom::create_div()
+            .with_css(COLUMN)
+            .with_child(kit::title_row(SPEC.name))
+            .with_child(kit::settings_page(&s.kit, Vec::new()))
+    } else {
+        screen(&s, &app, size)
+    };
+    let column = Dom::create_div().with_css(COLUMN).with_child(content);
+    // The scope as the window's body: no UA margin, the full window height.
+    ShellThemeScope::create(column)
+        .with_accent(ShellThemeAccent::Leaf)
+        .body()
+        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+}
+
+// ==== Callbacks ====
+
+/// Runs `f` on the map's state; the window is rebuilt afterwards.
+fn with_map(data: &mut RefAny, f: impl FnOnce(&mut MapState)) -> Update {
+    match data.downcast_mut::<MapState>() {
+        Some(mut s) => {
+            f(&mut *s);
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// The pins changed: announced, and written to the pins file on a Thread
+/// (one write at a time; a change during a write is written after it).
+fn save_pins(state_ref: &RefAny, info: &mut CallbackInfo) {
+    let mut data = state_ref.clone();
+    let job = {
+        let Some(mut s) = data.downcast_mut::<MapState>() else {
+            return;
+        };
+        println!("AZMAPS_PINS {}", s.pins.len());
+        if s.saving {
+            s.save_pending = true;
+            return;
+        }
+        s.saving = true;
+        s.save_pending = false;
+        (
+            s.data_root.clone(),
+            FileJob::Put {
+                key: s.pins_key.clone(),
+                bytes: pins_to_json(&s.pins).into_bytes(),
+            },
+        )
+    };
+    kit::spawn_file_jobs(info, &job.0, vec![job.1], state_ref.clone(), TAG_SAVE, on_files_done);
+}
+
+extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let mut again = false;
+    let update = with_map(&mut app, |s| match reply.tag {
+        TAG_LOAD => {
+            for outcome in reply.outcomes {
+                match outcome {
+                    FileOutcome::Got { result: Ok(Some(bytes)), .. } => {
+                        match pins_from_json(&String::from_utf8_lossy(&bytes)) {
+                            Ok(mut loaded) => {
+                                // Pins dropped before the file arrived stay, after it.
+                                loaded.append(&mut s.pins);
+                                s.pins = loaded;
+                                // Indexes moved: no card stays open on another place.
+                                s.selected = None;
+                                println!("AZMAPS_PINS_LOADED {}", s.pins.len());
+                            }
+                            Err(why) => {
+                                println!("AZMAPS_PINS_ERROR {why}");
+                                s.notice = format!("The pins file could not be read: {why}");
+                            }
+                        }
+                    }
+                    FileOutcome::Got { result: Ok(None), .. } => println!("AZMAPS_PINS_LOADED 0"),
+                    other => {
+                        let why = other.error().unwrap_or_default();
+                        println!("AZMAPS_PINS_ERROR {why}");
+                        s.notice = format!("The pins file could not be read: {why}");
+                    }
+                }
+            }
+        }
+        _ => {
+            s.saving = false;
+            match reply.outcomes.iter().find_map(FileOutcome::error) {
+                None => {
+                    println!("AZMAPS_PINS_SAVED {}", s.pins.len());
+                    s.notice.clear();
+                }
+                Some(why) => {
+                    println!("AZMAPS_PINS_ERROR {why}");
+                    s.notice = format!("The pins could not be saved: {why}");
+                }
+            }
+            again = s.save_pending;
+        }
+    });
+    if again {
+        save_pins(&app, &mut info);
+    }
+    update
+}
+
+/// The map was panned / zoomed / turned by the user. It moves its tiles
+/// itself (its own view re-renders in place), so the window is rebuilt only
+/// to move what IT draws at a place - while there is something on the map,
+/// before or after this step. Every pointer move of a pan used to rebuild the
+/// whole window.
+extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: MapViewport) -> Update {
+    let Some(mut s) = data.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    let rebuild = s.overlay_shows(s.viewport) || s.overlay_shows(vp);
+    s.viewport = vp;
+    s.moved();
+    if rebuild {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// A tap on the map drops a pin - unless it is the click that just closed a
+/// place's card (that click also lands on the map under it).
+extern "C" fn on_pin_tap(mut data: RefAny, mut info: CallbackInfo, coord: MapLatLon) -> Update {
+    let mut dropped = false;
+    let update = with_map(&mut data, |s| {
+        let closing_click = s
+            .dismissed_at
+            .take()
+            .is_some_and(|t| t.elapsed().as_millis() < DISMISS_TAP_MS);
+        if closing_click || s.selected.is_some() {
+            s.selected = None;
+            return;
+        }
+        s.pins.push((coord.lat_deg, coord.lon_deg));
+        dropped = true;
+    });
+    if dropped {
+        save_pins(&data, &mut info);
+    }
+    update
+}
+
+/// The pin of a `PinRef` callback: the app and the place's index.
+fn pin_of(data: &mut RefAny) -> Option<(RefAny, usize)> {
+    data.downcast_ref::<PinRef>().map(|p| (p.app.clone(), p.index))
+}
+
+/// A recent place's row: the map centres on it and its card opens.
+extern "C" fn on_place_row(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = pin_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_map(&mut app, |s| {
+        if let Some((lat, lon)) = s.pins.get(index).copied() {
+            s.centre_on(lat, lon);
+            s.selected = Some(index);
+            println!("AZMAPS_PLACE {index}");
+        }
+    })
+}
+
+/// A place's card opened (its pin clicked) or closed (by the user: a click
+/// outside it, Escape, the pin again).
+extern "C" fn on_place_toggle(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: PopoverState,
+) -> Update {
+    let Some((mut app, index)) = pin_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_map(&mut app, |s| {
+        if state.open {
+            if s.selected != Some(index) {
+                println!("AZMAPS_PLACE {index}");
+            }
+            s.selected = Some(index);
+        } else if s.selected == Some(index) {
+            s.selected = None;
+            s.dismissed_at = Some(std::time::Instant::now());
+        }
+    })
+}
+
+/// Directions to a place: it becomes the destination, the sidebar shows the
+/// travel panel, the card closes; the route is asked of the route worker.
+extern "C" fn on_place_directions(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = pin_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let update = with_map(&mut app, |s| {
+        if let Some((lat, lon)) = s.pins.get(index).copied() {
+            s.travel.to = place_text(lat, lon);
+            s.sidebar_open = true;
+            s.selected = None;
+            s.announce_travel();
+        }
+    });
+    ask_route(&app, &mut info);
+    update
+}
+
+/// A place removed from the recents (and the map).
+extern "C" fn on_place_remove(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, index)) = pin_of(&mut data) else {
+        return Update::DoNothing;
+    };
+    let mut removed = false;
+    let update = with_map(&mut app, |s| {
+        if index < s.pins.len() {
+            s.pins.remove(index);
+            removed = true;
+        }
+        s.selected = None;
+    });
+    if removed {
+        save_pins(&app, &mut info);
+    }
+    update
+}
+
+extern "C" fn on_clear_pins(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let update = with_map(&mut data, |s| {
+        s.pins.clear();
+        s.selected = None;
+    });
+    save_pins(&data, &mut info);
+    update
+}
+
+/// Shows or hides the sidebar (kept in settings.json).
+extern "C" fn on_toggle_sidebar(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let mut kit_and_value = None;
+    let update = with_map(&mut data, |s| {
+        s.sidebar_open = !s.sidebar_open;
+        let value = if s.sidebar_open { "open" } else { "closed" };
+        println!("AZMAPS_SIDEBAR {value}");
+        kit_and_value = Some((s.kit.clone(), value));
+    });
+    if let Some((kit_ref, value)) = kit_and_value {
+        kit::set_value(&kit_ref, &mut info, SIDEBAR_KEY, value);
+    }
+    update
+}
+
+/// A travel field typed in: once both ends are places, the route is asked of
+/// the route worker (the newest request wins; an older one gives up).
+extern "C" fn on_travel_text(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let keep = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let Some((mut app, end)) = data.downcast_ref::<FieldRef>().map(|f| (f.app.clone(), f.end))
+    else {
+        return keep;
+    };
+    let text = state.get_text().as_str().to_string();
+    let update = with_map(&mut app, |s| {
+        match end {
+            End::From => s.travel.from = text,
+            End::To => s.travel.to = text,
+        }
+        s.announce_travel();
+    });
+    ask_route(&app, &mut info);
+    OnTextInputReturn {
+        update,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_travel_swap(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let update = with_map(&mut data, |s| {
+        // An empty start is "where you are": swapped, it is written out.
+        if s.travel.from.trim().is_empty() {
+            if let Some((lat, lon)) = s.last_fix {
+                s.travel.from = place_text(lat, lon);
+            }
+        }
+        std::mem::swap(&mut s.travel.from, &mut s.travel.to);
+        s.announce_travel();
+    });
+    ask_route(&data, &mut info);
+    update
+}
+
+extern "C" fn on_travel_mode(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, mode)) = data.downcast_ref::<ModeRef>().map(|m| (m.app.clone(), m.mode))
+    else {
+        return Update::DoNothing;
+    };
+    let update = with_map(&mut app, |s| {
+        s.travel.mode = mode;
+        s.announce_travel();
+    });
+    ask_route(&app, &mut info);
+    update
+}
+
+extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_map(&mut data, |s| s.zoom_by(1.0))
+}
+
+extern "C" fn on_zoom_out(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_map(&mut data, |s| s.zoom_by(-1.0))
+}
+
+extern "C" fn on_locate(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let fix = info
+        .get_location_fix()
+        .into_option()
+        .map(|f| (f.latitude_deg, f.longitude_deg));
+    let update = with_map(&mut data, |s| {
+        s.toggle_locate();
+        s.last_fix = fix;
+        if let (true, Some((lat, lon))) = (s.locating, fix) {
+            s.centre_on(lat, lon);
+        }
+    });
+    // An empty start is where you are: a new fix is a new route.
+    ask_route(&data, &mut info);
+    update
+}
+
+/// The kit's handle, out of the app's state.
+fn kit_of(data: &mut RefAny) -> Option<RefAny> {
+    data.downcast_ref::<MapState>().map(|s| s.kit.clone())
+}
+
+/// The gear: azul-appkit's settings page.
+extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        kit::open_settings(&kit_ref, None);
+    }
+    Update::RefreshDom
+}
+
+/// Whether the keyboard focus is in a travel field (or inside one): its
+/// arrows and its `-` are the field's, not the map's.
+fn typing(info: &CallbackInfo) -> bool {
+    let Some(focus) = info.get_focused_node().into_option() else {
+        return false;
+    };
+    let fields: Vec<usize> = [ids::TRAVEL_FROM, ids::TRAVEL_TO]
+        .into_iter()
+        .map(|id| info.get_node_id_by_id_attribute(DomId { inner: 0 }, id).inner)
+        .filter(|node| *node != 0)
+        .collect();
+    let mut node = Some(focus);
+    for _ in 0..4 {
+        let Some(n) = node else {
+            break;
+        };
+        if n.dom.inner == 0 && fields.contains(&n.node.inner) {
+            return true;
+        }
+        node = info.get_parent(n).into_option();
+    }
+    false
+}
+
+/// The kit's keys first (Mod+, settings, F1 shortcuts, Escape closes them);
+/// then the arrows pan and + / - zoom.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(kit_ref) = kit_of(&mut data) {
+        if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+            return update;
+        }
+        if kit::settings_open(&kit_ref) {
+            return Update::DoNothing;
+        }
+    }
+    if typing(&info) {
+        return Update::DoNothing;
+    }
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    let step: fn(&mut MapState) = match key {
+        Some(VirtualKeyCode::Left) => |s: &mut MapState| s.pan(-1.0, 0.0),
+        Some(VirtualKeyCode::Right) => |s: &mut MapState| s.pan(1.0, 0.0),
+        Some(VirtualKeyCode::Up) => |s: &mut MapState| s.pan(0.0, -1.0),
+        Some(VirtualKeyCode::Down) => |s: &mut MapState| s.pan(0.0, 1.0),
+        Some(VirtualKeyCode::Plus | VirtualKeyCode::Equals | VirtualKeyCode::NumpadAdd) => {
+            |s: &mut MapState| s.zoom_by(1.0)
+        }
+        Some(VirtualKeyCode::Minus | VirtualKeyCode::NumpadSubtract) => {
+            |s: &mut MapState| s.zoom_by(-1.0)
+        }
+        _ => return Update::DoNothing,
+    };
+    info.prevent_default();
+    with_map(&mut data, step)
+}
+
+/// The sensors and the location every [`TICK_MS`]; the viewport is kept in
+/// settings.json once it has rested `VIEW_SAVE_IDLE_TICKS` ticks. The window
+/// is rebuilt only for what shows: the compass when the heading turned by a
+/// degree, a new location fix.
+extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    // About 3.4 s without a fix: the location is unavailable.
+    const LOCATE_TIMEOUT_TICKS: u32 = 34;
+    let mag = info
+        .callback_info
+        .get_sensor_reading(SensorKind::Magnetometer)
+        .into_option();
+    let fix = info.callback_info.get_location_fix().into_option();
+    let mut changed = false;
+    let mut moved_fix = false;
+    let mut keep_view = None;
+    if let Some(mut s) = data.downcast_mut::<MapState>() {
+        if let Some(r) = mag {
+            // The compass shows whole degrees: a reading that moves the
+            // needle by less is no reason to rebuild the window (every
+            // reading used to be).
+            let shown = s.heading().map(|h| h.round() as i32);
+            if s.has_mag {
+                s.mag_x = s.mag_x * 0.8 + r.x * 0.2;
+                s.mag_y = s.mag_y * 0.8 + r.y * 0.2;
+            } else {
+                s.mag_x = r.x;
+                s.mag_y = r.y;
+                s.has_mag = true;
+            }
+            changed |= s.heading().map(|h| h.round() as i32) != shown;
+        }
+        if s.locating {
+            match fix {
+                Some(f) => {
+                    let here = (f.latitude_deg, f.longitude_deg);
+                    if s.last_fix != Some(here) {
+                        s.last_fix = Some(here);
+                        s.centre_on(here.0, here.1);
+                        changed = true;
+                        moved_fix = true;
+                    }
+                    s.locate_ticks = 0;
+                }
+                None => {
+                    s.locate_ticks = s.locate_ticks.saturating_add(1);
+                    if s.locate_ticks > LOCATE_TIMEOUT_TICKS {
+                        s.locating = false;
+                        s.locate_failed = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if s.view_dirty {
+            s.view_idle_ticks = s.view_idle_ticks.saturating_add(1);
+            if s.view_idle_ticks >= VIEW_SAVE_IDLE_TICKS {
+                s.view_dirty = false;
+                keep_view = Some((
+                    s.kit.clone(),
+                    view_value(s.viewport.centre_lat_deg, s.viewport.centre_lon_deg, s.viewport.zoom),
+                ));
+            }
+        }
+    }
+    if let Some((kit_ref, value)) = keep_view {
+        kit::set_value(&kit_ref, &mut info.callback_info, VIEW_KEY, &value);
+    }
+    if moved_fix {
+        // An empty start is where you are: it moved, so did the route.
+        ask_route(&data, &mut info.callback_info);
+    }
+    TimerCallbackReturn {
+        should_terminate: TerminateTimer::Continue,
+        should_update: if changed {
+            Update::RefreshDom
+        } else {
+            Update::DoNothing
+        },
+    }
+}
+
+/// The window exists: the `--shot` timer, the sensor tick, the pins file.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some((kit_ref, root, key)) = data
+        .downcast_ref::<MapState>()
+        .map(|s| (s.kit.clone(), s.data_root.clone(), s.pins_key.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    kit::on_window_created(&kit_ref, &mut info);
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS))),
+    );
+    kit::spawn_file_jobs(&mut info, &root, vec![FileJob::Get { key }], app, TAG_LOAD, on_files_done);
+    Update::DoNothing
+}
+
+// ==== Entry ====
+
+/// The map's tile layer: the widget's own, on `template`'s server when one is named
+/// ([`args::tile_template`]).
+fn tile_layer(template: Option<String>) -> MapTileLayer {
+    let mut layer = MapTileLayer::default();
+    if let Some(template) = template {
+        layer.url_template = AzString::from(template);
+    }
+    layer
+}
+
+pub fn start() {
+    let stats_env =
+        std::env::var("AZMAPS_STATS").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0");
+    let args = match args::parse(std::env::args().skip(1), stats_env) {
+        Ok(a) if a.help => {
+            println!("{}", args::usage());
+            std::process::exit(0);
+        }
+        Ok(a) => a,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    if args.stats {
+        STATS.store(true, Ordering::Relaxed);
+        // The map widget's own switch: its counters and its tile worker's.
+        // Set before the app starts a single thread.
+        std::env::set_var("AZ_MAP_STATS", "1");
+    }
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.kit);
+    let (data_root, pins_key, kept, sidebar_open) = {
+        let mut k = kit_ref.clone();
+        let read = match k.downcast_ref::<kit::Kit>() {
+            Some(k) => (
+                k.data_root.clone(),
+                k.key(PINS_FILE),
+                k.settings.get(VIEW_KEY).and_then(|text| parse_view(text)),
+                k.settings.get(SIDEBAR_KEY) != Some("closed"),
+            ),
+            None => (PathBuf::new(), String::new(), None, true),
+        };
+        read
+    };
+    // The tile server: `--tiles`, `AZMAPS_TILES`, the shared config's `endpoints.tiles` (the
+    // file the kit read; none for a `--shot` run), else the widget's own.
+    let shared_tiles = {
+        let mut k = kit_ref.clone();
+        let found = k
+            .downcast_ref::<kit::Kit>()
+            .and_then(|k| k.config_path.clone());
+        found
+    }
+    .and_then(|path| azul_appkit::shared_endpoint::in_file(&path, "tiles"));
+    let tiles = args::tile_template(
+        args.tiles.as_deref(),
+        std::env::var(args::TILES_VAR).ok().as_deref(),
+        shared_tiles.as_deref(),
+    );
+    // The map opens where it was left (settings.json), else on the start.
+    let (lat, lon, zoom) = kept.unwrap_or(HOME);
+    println!("{}", view_line(lat, lon, zoom));
+    let state = MapState {
+        viewport: MapViewport {
+            centre_lat_deg: lat,
+            centre_lon_deg: lon,
+            zoom,
+            bearing_deg: 0.0,
+            pitch_deg: 0.0,
+        },
+        layer: tile_layer(tiles),
+        locating: false,
+        last_fix: None,
+        pins: Vec::new(),
+        selected: None,
+        dismissed_at: None,
+        sidebar_open,
+        travel: Travel::default(),
+        mag_x: 0.0,
+        mag_y: 0.0,
+        has_mag: false,
+        locate_failed: false,
+        locate_ticks: 0,
+        view_dirty: false,
+        view_idle_ticks: 0,
+        kit: kit_ref.clone(),
+        data_root,
+        pins_key,
+        saving: false,
+        save_pending: false,
+        notice: String::new(),
+        size: Cell::new((0.0, 0.0)),
+        route: None,
+        route_asked: None,
+        route_latest: Arc::new(AtomicU64::new(0)),
+    };
+    let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
+    let window =
+        kit::window_options(&kit_ref, layout, (1100.0, 720.0), (640.0, 420.0), on_window_created);
+    app.run(window);
 }
 
 #[cfg(test)]
@@ -168,445 +1612,6 @@ mod engine_feature_tests {
             );
         }
     }
-}
-
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
-const HEADER: &str = "background: #2b2b2b; color: white; display: flex; padding: 10px 16px; \
-                      flex-direction: row; align-items: center; justify-content: space-between; \
-                      font-family: sans-serif; font-size: 14px; flex-shrink: 0;";
-const BTN: &str = "background: #4a90e2; color: white; padding: 6px 12px; border-radius: 4px; \
-                   cursor: pointer; margin-left: 6px; font-size: 13px;";
-const BTN_ON: &str = "background: #d0021b; color: white; padding: 6px 12px; border-radius: 4px; \
-                      cursor: pointer; margin-left: 6px; font-size: 13px;";
-const MAP_CONTAINER: &str =
-    "flex-grow: 1; position: relative; background: #cbd2d8; overflow: hidden;";
-const COMPASS_BADGE: &str = "position: absolute; right: 12px; top: 12px; width: 56px; height: \
-                             56px; border-radius: 28px; background: rgba(20,20,28,0.85); border: \
-                             2px solid #6a7080; display: flex; align-items: center; \
-                             justify-content: center; box-shadow: 0px 1px 4px rgba(0,0,0,0.4);";
-const NEEDLE_N: &str = "flex-grow: 1; background: #e74c3c; border-radius: 4px 4px 0px 0px;";
-const NEEDLE_S: &str = "flex-grow: 1; background: #cfd2d8; border-radius: 0px 0px 4px 4px;";
-const ATTRIB: &str = "position: absolute; right: 6px; bottom: 6px; background: \
-                      rgba(255,255,255,0.85); padding: 3px 6px; font-size: 10px; color: #444; \
-                      border-radius: 3px;";
-const LOCATION_DOT: &str = "position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; \
-                            margin-left: -8px; margin-top: -8px; background: #4285f4; \
-                            border-radius: 8px; box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";
-const LOCATION_READOUT: &str = "position: absolute; left: 50%; top: 12px; margin-left: -90px; \
-                                width: 180px; text-align: center; background: \
-                                rgba(66,133,244,0.92); color: white; padding: 4px 8px; \
-                                border-radius: 4px; font-size: 12px; font-family: sans-serif;";
-
-extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let snapshot: Option<(
-        MapViewport,
-        MapTileLayer,
-        bool,
-        Option<(f64, f64)>,
-        Vec<(f64, f64)>,
-        Option<(f32, f32)>,
-        bool,
-    )> = data.downcast_ref::<MapState>().map(|s| {
-        (
-            s.viewport,
-            s.layer.clone(),
-            s.locating,
-            s.last_fix,
-            s.pins.clone(),
-            s.view_px,
-            s.locate_failed,
-        )
-    });
-
-    let Some((viewport, layer, locating, last_fix, pins, view_px, locate_failed)) = snapshot else {
-        return Dom::create_body();
-    };
-
-    let heading = data.downcast_ref::<MapState>().and_then(|s| s.heading());
-
-    let attribution_text = layer.attribution.as_str().to_owned();
-    let mut header_text = format!(
-        "AzMaps — centre {:.4}°, {:.4}° · zoom {:.1}",
-        viewport.centre_lat_deg, viewport.centre_lon_deg, viewport.zoom
-    );
-    if let Some(h) = heading {
-        header_text.push_str(&format!(" · {} {:03.0}°", cardinal(h), h));
-    }
-
-    let header = Dom::create_div()
-        .with_css(HEADER)
-        .with_child(Dom::create_span_with_text(header_text.as_str()))
-        .with_child(
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: row;")
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("←"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_pan_left,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("→"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_pan_right,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("↑"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_pan_up,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("↓"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_pan_down,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("+"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_zoom_in,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("−"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_zoom_out,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("Recentre"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_recentre,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(if locating { BTN_ON } else { BTN })
-                        .with_child(Dom::create_span_with_text(if locating {
-                            "Locating…"
-                        } else if locate_failed {
-                            "Location N/A"
-                        } else {
-                            "Locate"
-                        }))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_locate,
-                        ),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css(BTN)
-                        .with_child(Dom::create_span_with_text("Clear pins"))
-                        .with_callback(
-                            EventFilter::Hover(HoverEventFilter::MouseUp),
-                            data.clone(),
-                            on_clear_pins,
-                        ),
-                ),
-        );
-
-    let map = MapWidget::create(layer)
-        .with_viewport(viewport)
-        .with_on_viewport_changed(
-            data.clone(),
-            on_viewport_changed,
-        )
-        .with_on_pin_tap(
-            data.clone(),
-            on_pin_tap,
-        )
-        .dom();
-
-    let mut map_container = Dom::create_div().with_css(MAP_CONTAINER).with_child(map);
-
-    if locating {
-        let readout = match last_fix {
-            Some((lat, lon)) => format!("You are here: {:.4}, {:.4}", lat, lon),
-            None => "Acquiring location…".to_string(),
-        };
-        map_container = map_container
-            .with_child(Dom::create_geolocation_probe(GeolocationProbeConfig {
-                high_accuracy: true,
-                background: false,
-                max_accuracy_m: 0.0,
-                min_interval_ms: 0,
-            }))
-            .with_child(Dom::create_div().with_css(LOCATION_DOT))
-            .with_child(
-                Dom::create_div()
-                    .with_css(LOCATION_READOUT)
-                    .with_child(Dom::create_span_with_text(readout.as_str())),
-            );
-    }
-
-    if let Some((w, h)) = view_px {
-        for (lat, lon) in &pins {
-            let p = MapWidget::px_at_latlon(
-                viewport,
-                MapLatLon {
-                    lat_deg: *lat,
-                    lon_deg: *lon,
-                },
-                LogicalSize::create(w, h),
-            );
-            let (px, py) = (p.x, p.y);
-            let style = format!(
-                "position: absolute; left: {:.1}px; top: {:.1}px; width: 14px; height: 14px; \
-                 margin-left: -7px; margin-top: -14px; background: #d0021b; border-radius: 7px \
-                 7px 7px 0px; transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
-                px, py,
-            );
-            map_container = map_container.with_child(Dom::create_div().with_css(style.as_str()));
-            let callout_style = format!(
-                "position: absolute; left: {:.1}px; top: {:.1}px; background: \
-                 rgba(255,255,255,0.95); color: #222; padding: 2px 6px; border-radius: 4px; \
-                 font-size: 11px; font-family: sans-serif; white-space: nowrap; box-shadow: 0px \
-                 1px 2px rgba(0,0,0,0.3);",
-                px + 10.0,
-                py - 30.0,
-            );
-            map_container = map_container.with_child(
-                Dom::create_div()
-                    .with_css(callout_style.as_str())
-                    .with_child(Dom::create_span_with_text(
-                        format!("{:.4}, {:.4}", lat, lon).as_str(),
-                    )),
-            );
-        }
-    }
-
-    if let Some(h) = heading {
-        let needle = format!(
-            "width: 8px; height: 42px; display: flex; flex-direction: column; transform: \
-             rotate({:.1}deg);",
-            -h,
-        );
-        map_container = map_container.with_child(
-            Dom::create_div().with_css(COMPASS_BADGE).with_child(
-                Dom::create_div()
-                    .with_css(needle.as_str())
-                    .with_child(Dom::create_div().with_css(NEEDLE_N))
-                    .with_child(Dom::create_div().with_css(NEEDLE_S)),
-            ),
-        );
-    }
-
-    map_container = map_container.with_child(
-        Dom::create_div()
-            .with_css(ATTRIB)
-            .with_child(Dom::create_span_with_text(attribution_text.as_str())),
-    );
-
-    Dom::create_body()
-        .with_css(ROOT)
-        .with_child(header)
-        .with_child(map_container)
-}
-
-extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
-        eprintln!("[map-demo] on_zoom_in FIRED");
-    }
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.zoom_in();
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_viewport_changed(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    vp: MapViewport,
-) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.viewport = vp;
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_zoom_out(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.zoom_out();
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_recentre(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.recentre();
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
-    let fix = info
-        .get_location_fix()
-        .into_option()
-        .map(|f| (f.latitude_deg, f.longitude_deg));
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.toggle_locate();
-        s.last_fix = fix;
-        if s.locating {
-            if let Some((lat, lon)) = fix {
-                s.viewport.centre_lat_deg = lat;
-                s.viewport.centre_lon_deg = lon;
-            }
-        }
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_clear_pins(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.pins.clear();
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_pan_left(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.pan(-1.0, 0.0);
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_pan_right(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.pan(1.0, 0.0);
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_pan_up(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.pan(0.0, -1.0);
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_pan_down(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.pan(0.0, 1.0);
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_pin_tap(mut data: RefAny, info: CallbackInfo, coord: MapLatLon) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        s.pins.push((coord.lat_deg, coord.lon_deg));
-        if let Some(rect) = info.get_hit_node_rect().into_option() {
-            s.view_px = Some((rect.size.width, rect.size.height));
-        }
-    }
-    Update::RefreshDom
-}
-
-fn cardinal(deg: f32) -> &'static str {
-    const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-    DIRS[((((deg + 22.5) % 360.0) / 45.0) as usize) % 8]
-}
-
-extern "C" fn compass_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
-    const LOCATE_TIMEOUT_TICKS: u32 = 200;
-    let mag = info
-        .callback_info
-        .get_sensor_reading(SensorKind::Magnetometer)
-        .into_option();
-    let fix = info.callback_info.get_location_fix().into_option();
-    let mut changed = false;
-    if let Some(mut s) = data.downcast_mut::<MapState>() {
-        if let Some(r) = mag {
-            if s.has_mag {
-                s.mag_x = s.mag_x * 0.8 + r.x * 0.2;
-                s.mag_y = s.mag_y * 0.8 + r.y * 0.2;
-            } else {
-                s.mag_x = r.x;
-                s.mag_y = r.y;
-                s.has_mag = true;
-            }
-            changed = true;
-        }
-        if s.locating {
-            match fix {
-                Some(f) => {
-                    s.viewport.centre_lat_deg = f.latitude_deg;
-                    s.viewport.centre_lon_deg = f.longitude_deg;
-                    s.last_fix = Some((f.latitude_deg, f.longitude_deg));
-                    s.locate_ticks = 0;
-                    changed = true;
-                }
-                None => {
-                    s.locate_ticks = s.locate_ticks.saturating_add(1);
-                    if s.locate_ticks > LOCATE_TIMEOUT_TICKS {
-                        s.locating = false;
-                        s.locate_failed = true;
-                        changed = true;
-                    }
-                }
-            }
-        }
-    }
-    TimerCallbackReturn {
-        should_terminate: TerminateTimer::Continue,
-        should_update: if changed {
-            Update::RefreshDom
-        } else {
-            Update::DoNothing
-        },
-    }
-}
-
-extern "C" fn startup(data: RefAny, mut info: CallbackInfo) -> Update {
-    info.add_timer(
-        TimerId::unique(),
-        Timer::create(
-            data.clone(),
-            compass_tick,
-            info.get_system_time_fn(),
-        ),
-    );
-    Update::DoNothing
-}
-
-pub fn start() {
-    let data = RefAny::new(MapState::new());
-    let config = AppConfig::create();
-    let app = App::create(data, config);
-    let mut window = WindowCreateOptions::create(layout);
-    window.create_callback = Some(Callback::create(startup)).into();
-    app.run(window);
 }
 
 #[cfg(target_os = "android")]

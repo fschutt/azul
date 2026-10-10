@@ -48,7 +48,7 @@
 //! conversion is a `const fn` doing at most two `f32` adds, so the vocabulary
 //! is free at runtime and ABI-identical to the bare position it replaces.
 
-use crate::geom::LogicalPosition;
+use crate::geom::{LogicalPosition, LogicalRect};
 
 /// A scroll offset, i.e. how far a scroll container's content has been moved
 /// UP/LEFT relative to its scrollport.
@@ -352,6 +352,52 @@ impl ScrolledContentPoint {
             y: self.0.y.clamp(0.0, height.max(0.0)),
         })
     }
+}
+
+/// Declare a `#[repr(transparent)]` rect newtype: the rect half of the
+/// vocabulary, for the text path's cursor -> screen direction.
+macro_rules! rect_space {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(transparent)]
+        pub struct $name(LogicalRect);
+
+        impl $name {
+            /// Assert that `r` is already in this space - only at the
+            /// PRODUCER boundary that measured it.
+            #[inline]
+            #[must_use]
+            pub const fn new(r: LogicalRect) -> Self {
+                Self(r)
+            }
+
+            /// Drop back to an untyped rect - only at a CONSUMER boundary
+            /// that documents which space it wants.
+            #[inline]
+            #[must_use]
+            pub const fn get(self) -> LogicalRect {
+                self.0
+            }
+        }
+    };
+}
+
+rect_space! {
+    /// A rect of a text block's INLINE LAYOUT: a caret or selection rect as
+    /// `UnifiedLayout::get_cursor_rect` / `get_selection_rects` measure it,
+    /// relative to the block's content box and UNSCROLLED (the `g` of the
+    /// module docs, as a rect). Only `TextTarget::rect_to_window` takes it
+    /// to the screen.
+    TextLayoutRect
+}
+
+rect_space! {
+    /// A rect in WINDOW coordinates: where something is painted on screen,
+    /// every scroll, transform and nested-dom placement applied - what a
+    /// platform input method is handed. The rect twin of [`WindowPoint`]; a
+    /// static layout rect can not be mistaken for one.
+    WindowRect
 }
 
 /// Whether a tree walk starts at the node itself or at its parent.

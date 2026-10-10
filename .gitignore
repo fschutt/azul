@@ -12,6 +12,8 @@ _build/
 **/*.rs.bk
 *.pdf
 *.bin
+# Built-in textures compiled into azul-layout (include_bytes!): source, not output.
+!layout/assets/textures/*.bin
 *.json.gz
 *.iso
 *.img
@@ -231,3 +233,8 @@ examples/c/*.ilk
 scripts/android/debug.keystore
 # editor / agent backup files, never commit
 *.bak
+
+# This repository is public. Agent prompts and progress logs live in the private azul-apps
+# repository (notes/azul-scripts/); scripts/check_public_tree.py fails CI on any that slips in.
+scripts/*.PROGRESS.md
+scripts/*_20[0-9][0-9]_[0-9][0-9]_[0-9][0-9].md

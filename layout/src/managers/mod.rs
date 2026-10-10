@@ -26,6 +26,9 @@
 //! classified) drives all of them from one place.
 
 pub mod a11y;
+/// Which window an app-level event (tray click, notification click, global
+/// hotkey) runs against: the most recently focused, else the oldest.
+pub mod app_target;
 /// Platform-neutral a11y element list for the shells `accesskit` does not
 /// cover (iOS / Android). Gated with the same feature as `a11y` itself.
 #[cfg(feature = "a11y")]
@@ -41,6 +44,9 @@ pub mod focus_cursor;
 pub mod gamepad;
 pub mod geolocation;
 pub mod gesture;
+/// System-wide hotkeys: the process-wide registry, the backend seam and the
+/// fire mailbox the run loop drains (the same route as the tray's menu clicks).
+pub mod global_hotkey;
 pub mod gpu_state;
 pub mod hid;
 pub mod hover;
@@ -48,6 +54,9 @@ pub mod keyring;
 pub mod media_keys;
 /// Media playback state machine (11c): the transport + the six media events.
 pub mod media_player;
+/// Native notifications: the request queue, the event mailbox, the routing
+/// of an event to its notification's callback, and the headless recorder.
+pub mod notification;
 pub mod permission;
 pub mod scroll_into_view;
 pub mod scroll_registration;
@@ -56,8 +65,17 @@ pub mod selection;
 pub mod sensors;
 pub mod text_edit;
 pub mod text_input;
+/// Which node a background thread belongs to; the workers of unmounted nodes.
+pub mod thread_owner;
+/// System-tray events that no menu item's own callback handles (a click on
+/// the icon, ...): the mailbox, the routing to the tray's callback, and the
+/// event a callback runs for.
+pub mod tray_event;
 pub mod undo_redo;
 pub mod virtual_view;
+/// `<webview>`: which native views a window has, where they are, what the
+/// shell's backend must do and what the app is told.
+pub mod webview;
 /// Cross-thread "raise this window" requests (9h-i-a-ii).
 pub mod window_activation;
 
@@ -223,7 +241,10 @@ mod preceding_sibling_remap_tests {
         drag::{DragContext, DragData},
         geom::LogicalPosition,
         hit_test::{FullHitTest, HitTest, HitTestItem},
-        selection::{CursorAffinity, GraphemeClusterId, MultiCursorState, TextCursor},
+        selection::{
+            CursorAffinity, GraphemeClusterId, MultiCursorState, TextBlock, TextBlockKey,
+            TextCursor,
+        },
         styled_dom::NodeHierarchyItemId,
         task::{Instant, SystemTick},
     };
@@ -475,12 +496,9 @@ mod preceding_sibling_remap_tests {
             },
             affinity: CursorAffinity::Leading,
         };
+        let block = |n: NodeId| TextBlock::from_resolved(ROOT, TextBlockKey::Element(n));
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(MultiCursorState::new_with_cursor(
-            cursor,
-            dom_node(C_OLD),
-            0,
-        ));
+        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, block(C_OLD), 0));
 
         m.remap_node_ids(ROOT, &delete_a());
 
@@ -489,8 +507,8 @@ mod preceding_sibling_remap_tests {
             .as_ref()
             .expect("the editing session survives");
         assert_eq!(
-            mc.node_id.node.into_crate_internal(),
-            Some(C_NEW),
+            mc.block,
+            block(C_NEW),
             "the caret must stay in the element the user is editing"
         );
         assert_eq!(
@@ -501,7 +519,7 @@ mod preceding_sibling_remap_tests {
 
         // Editing a node that gets deleted ends the session (no retarget).
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, dom_node(A), 0));
+        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, block(A), 0));
         m.remap_node_ids(ROOT, &delete_a());
         assert!(
             m.multi_cursor.is_none(),

@@ -158,6 +158,9 @@ if [[ -n "${AZ_ANDROID_PERMISSIONS:-}" ]]; then
     for p in "${_perms[@]}"; do
         p="$(echo "$p" | tr -d '[:space:]')"
         [[ -z "$p" ]] && continue
+        # Already declared by the template (notifications); a second
+        # <uses-permission> for it is a duplicate declaration.
+        [[ "$p" == "android.permission.POST_NOTIFICATIONS" ]] && continue
         EXTRA_PERMISSIONS_XML+="    <uses-permission android:name=\"$p\" />"$'\n'
     done
 fi
@@ -166,9 +169,37 @@ fi
 PERM_FILE="$BUILD_DIR/extra-permissions.xml"
 printf '%s' "$EXTRA_PERMISSIONS_XML" > "$PERM_FILE"
 
+# The redirect activity of sign-in sessions (AuthSession, scripts/android/AzulAuthSession.java):
+# an intent filter for the app's own scheme, AZ_ANDROID_AUTH_SCHEME (com.example.app for the
+# redirect URI com.example.app:/oauth2redirect). Only with the Java bridge in the APK.
+AUTH_REDIRECT_XML=""
+AUTH_SCHEME="$(echo "${AZ_ANDROID_AUTH_SCHEME:-}" | tr -d '[:space:]')"
+if [[ -n "$AUTH_SCHEME" && "${HAS_JAVA:-0}" == "1" ]]; then
+    if [[ ! "$AUTH_SCHEME" =~ ^[A-Za-z][A-Za-z0-9+.-]*$ ]]; then
+        echo "AZ_ANDROID_AUTH_SCHEME=$AUTH_SCHEME is no URL scheme" >&2
+        exit 7
+    fi
+    AUTH_REDIRECT_XML+="        <activity"$'\n'
+    AUTH_REDIRECT_XML+="            android:name=\"com.azul.auth.AzulAuthSession\$RedirectActivity\""$'\n'
+    AUTH_REDIRECT_XML+="            android:exported=\"true\""$'\n'
+    AUTH_REDIRECT_XML+="            android:noHistory=\"true\""$'\n'
+    AUTH_REDIRECT_XML+="            android:theme=\"@android:style/Theme.Translucent.NoTitleBar\">"$'\n'
+    AUTH_REDIRECT_XML+="            <intent-filter>"$'\n'
+    AUTH_REDIRECT_XML+="                <action android:name=\"android.intent.action.VIEW\" />"$'\n'
+    AUTH_REDIRECT_XML+="                <category android:name=\"android.intent.category.DEFAULT\" />"$'\n'
+    AUTH_REDIRECT_XML+="                <category android:name=\"android.intent.category.BROWSABLE\" />"$'\n'
+    AUTH_REDIRECT_XML+="                <data android:scheme=\"$AUTH_SCHEME\" />"$'\n'
+    AUTH_REDIRECT_XML+="            </intent-filter>"$'\n'
+    AUTH_REDIRECT_XML+="        </activity>"$'\n'
+fi
+AUTH_FILE="$BUILD_DIR/auth-redirect.xml"
+printf '%s' "$AUTH_REDIRECT_XML" > "$AUTH_FILE"
+
 sed \
     -e "/@EXTRA_PERMISSIONS@/r $PERM_FILE" \
     -e "/@EXTRA_PERMISSIONS@/d" \
+    -e "/@AUTH_REDIRECT_ACTIVITY@/r $AUTH_FILE" \
+    -e "/@AUTH_REDIRECT_ACTIVITY@/d" \
     -e "s|@PACKAGE@|$PACKAGE|g" \
     -e "s|@LABEL@|$LABEL|g" \
     -e "s|@LIB_NAME@|${LIB_NAME}|g" \

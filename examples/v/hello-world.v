@@ -91,7 +91,8 @@ fn main() {
 	data := my_data_upcast(model)
 
 	mut window := C.AzWindowCreateOptions_create(layout)
-	window.window_state.title = az_str('Hello World')
+	// The setter releases the old title; plain-data fields are assigned directly.
+	window.window_state.set_title('Hello World')
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
 

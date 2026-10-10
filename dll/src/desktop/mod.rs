@@ -115,12 +115,19 @@ pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
 /// These live behind `extra/` rather than in
 /// `azul-core` / `azul-layout` so the layout closure stays dep-light.
 pub mod extra;
+/// System-wide hotkeys: the OS backends (Carbon, Win32, X11, the Wayland
+/// portal) and the run-loop hook that delivers them like tray clicks.
+pub mod global_hotkey;
 /// File IO for C / C++ developers: the one `FilePath` API, on every target.
 pub mod file {
     pub use azul_layout::file::*;
 }
 /// Application / dock / taskbar icon, set at runtime from an icon-registry spec
 pub mod app_icon;
+/// The app's identity, read once: the id every shell projects its own name
+/// from (the toast AUMID, the `desktop-entry` hint, the Wayland `app_id`, the
+/// X11 `WM_CLASS`)
+pub mod app_identity;
 /// OpenGL texture cache for external image support
 pub mod gl_texture_cache;
 /// Integration layer for OpenGL texture management
@@ -142,6 +149,20 @@ pub mod shader_cache;
 pub mod shell2;
 /// System tray / status icon — NSStatusItem, Shell_NotifyIcon, StatusNotifierItem
 pub mod tray;
+/// Native notifications — UNUserNotificationCenter (macOS, iOS),
+/// org.freedesktop.Notifications, a WinRT toast (balloon fallback), Android's
+/// NotificationManager; the tray's sibling
+pub mod notifications;
+/// The run loops' wake-up line for the app-level sources: their fds for the
+/// Linux poll sets, a cross-thread wake, and the per-iteration service.
+pub mod loop_waker;
+/// The app-level event collector: tray, notification and hotkey callbacks,
+/// run against the most recently focused window, else the oldest.
+pub(crate) mod app_events;
+/// Source-text invariants for how the run loops wait on and deliver the
+/// app-level sources (tray, notifications, global hotkeys).
+#[cfg(test)]
+mod loop_wakeup_invariants;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
 /// Font & image resource handling, lookup and caching

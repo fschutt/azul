@@ -426,7 +426,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn app_config_add_route_replaces_same_pattern_and_orders_by_insertion() {
+    fn app_config_add_route_replaces_same_pattern_and_matches_the_most_specific() {
         extern "C" fn layout_a(
             _: RefAny,
             _: crate::callbacks::LayoutCallbackInfo,
@@ -441,12 +441,14 @@ mod autotest_generated {
         config.add_route(AzString::from_const_str("/dup"), cb);
         assert_eq!(config.routes.as_ref().len(), 1, "same pattern must replace");
 
-        // First matching route wins: a catch-all registered first shadows later routes.
+        // The most specific route wins, whatever the order the routes were
+        // registered in: a literal segment beats a parameter, so a catch-all
+        // registered first no longer shadows the routes after it.
         let mut config = AppConfig::create();
         config.add_route(AzString::from_const_str("/:anything"), cb);
         config.add_route(AzString::from_const_str("/about"), cb);
         let (route, _) = config.match_route_for_path("/about").expect("matches");
-        assert_eq!(route.pattern.as_str(), "/:anything");
+        assert_eq!(route.pattern.as_str(), "/about");
     }
 
     // =====================================================================
@@ -625,14 +627,12 @@ mod autotest_generated {
 
     #[test]
     fn app_config_with_mock_environment_sets_the_option() {
-        let config = AppConfig::create().with_mock_environment(CssMockEnvironment::dark_theme());
+        let config = AppConfig::create().with_mock_environment(CssMockEnvironment::dark_mode());
         match config.mock_css_environment {
             OptionCssMockEnvironment::Some(env) => {
                 assert!(matches!(
-                    env.theme,
-                    azul_css::dynamic_selector::OptionThemeCondition::Some(
-                        azul_css::dynamic_selector::ThemeCondition::Dark
-                    )
+                    env.mode,
+                    azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark)
                 ));
             }
             OptionCssMockEnvironment::None => panic!("mock env must be Some"),
@@ -652,6 +652,132 @@ mod autotest_generated {
         }
     }
 
+    /// The size of the value behind `_field`, so the padding check below
+    /// reads every field's size off the struct instead of re-spelling types.
+    const fn size_of_field<T>(_field: &T) -> usize {
+        core::mem::size_of::<T>()
+    }
+
+    #[test]
+    fn app_config_has_no_padding_between_its_fields() {
+        // AppConfig is repr(C) and crosses the FFI by value into every
+        // binding, so its field order decides its size. Interleaving the
+        // 1-, 2- and 4-byte fields with the 8-aligned ones cost 8 bytes of
+        // padding. The destructuring names EVERY field (no `..`), so a new
+        // one does not compile until it is added here - place it by
+        // decreasing alignment, like SystemAnimations.
+        let c = AppConfig::create();
+        let AppConfig {
+            icon_provider,
+            bundled_fonts,
+            font_loading,
+            mock_css_environment,
+            system_style,
+            component_libraries,
+            routes,
+            system_animations,
+            custom_e2e_op,
+            updates,
+            changelog_md,
+            report_problem,
+            localization,
+            fluent_locales,
+            notification_handler,
+            global_hotkeys,
+            global_hotkeys_callback,
+            theme,
+            app_id,
+            mode,
+            log_level,
+            natural_scroll,
+            termination_behavior,
+            remote_control,
+            enable_visual_panic_hook,
+            enable_logging_on_panic,
+            synthesize_pinch_from_ctrl_wheel,
+            expose_system_media_controls,
+        } = &c;
+        let fields = size_of_field(icon_provider)
+            + size_of_field(bundled_fonts)
+            + size_of_field(font_loading)
+            + size_of_field(mock_css_environment)
+            + size_of_field(system_style)
+            + size_of_field(component_libraries)
+            + size_of_field(routes)
+            + size_of_field(system_animations)
+            + size_of_field(custom_e2e_op)
+            + size_of_field(updates)
+            + size_of_field(changelog_md)
+            + size_of_field(report_problem)
+            + size_of_field(localization)
+            + size_of_field(fluent_locales)
+            + size_of_field(notification_handler)
+            + size_of_field(global_hotkeys)
+            + size_of_field(global_hotkeys_callback)
+            + size_of_field(theme)
+            + size_of_field(app_id)
+            + size_of_field(mode)
+            + size_of_field(log_level)
+            + size_of_field(natural_scroll)
+            + size_of_field(termination_behavior)
+            + size_of_field(remote_control)
+            + size_of_field(enable_visual_panic_hook)
+            + size_of_field(enable_logging_on_panic)
+            + size_of_field(synthesize_pinch_from_ctrl_wheel)
+            + size_of_field(expose_system_media_controls);
+        assert_eq!(
+            core::mem::size_of::<AppConfig>(),
+            fields,
+            "AppConfig carries {} bytes of padding",
+            core::mem::size_of::<AppConfig>().saturating_sub(fields)
+        );
+    }
+
+    /// The app theme (`@theme(<name>)` blocks, the widgets' flat / flora
+    /// looks) is a NAME, separate from the light / dark mode: `flat` unless
+    /// the app chooses another, and choosing one leaves the mode alone.
+    #[test]
+    fn the_app_theme_defaults_to_flat_and_with_theme_chooses_another() {
+        let config = AppConfig::create();
+        assert_eq!(config.theme.as_str(), "flat");
+        assert_eq!(
+            config.theme.as_str(),
+            azul_css::dynamic_selector::DEFAULT_APP_THEME,
+            "the default is the ONE constant, not a second spelling of it"
+        );
+
+        let flora = AppConfig::create().with_theme(AzString::from_const_str("flora"));
+        assert_eq!(flora.theme.as_str(), "flora");
+        assert!(
+            matches!(flora.mode, crate::window::OptionDarkLightMode::None),
+            "choosing a theme does not pin light / dark"
+        );
+
+        let mut config = AppConfig::create();
+        config.set_theme(AzString::from_const_str("monokai"));
+        assert_eq!(config.theme.as_str(), "monokai");
+    }
+
+    /// The app's own id (`AppConfig::app_id`) is empty - not declared - until
+    /// the app names itself, and naming it touches nothing else.
+    #[test]
+    fn an_app_config_declares_no_app_id_until_the_app_names_itself() {
+        let config = AppConfig::create();
+        assert_eq!(
+            config.app_id.as_str(),
+            "",
+            "empty = the platform's id, else com.azul.<executable>, as before"
+        );
+
+        let named = AppConfig::create().with_app_id(AzString::from_const_str("org.example.Editor"));
+        assert_eq!(named.app_id.as_str(), "org.example.Editor");
+        assert_eq!(named.theme.as_str(), config.theme.as_str());
+
+        let mut config = AppConfig::create();
+        config.set_app_id(AzString::from_const_str("org.example.Viewer"));
+        assert_eq!(config.app_id.as_str(), "org.example.Viewer");
+    }
+
     // =====================================================================
     // CssMockEnvironment
     // =====================================================================
@@ -669,20 +795,20 @@ mod autotest_generated {
         ] {
             assert!(matches!(mock.os, OptionOsCondition::Some(o) if o == os));
             // The other overrides stay unset (auto-detect).
-            assert!(matches!(mock.theme, OptionThemeCondition::None));
+            assert!(matches!(mock.mode, azul_css::system::OptionDarkLightMode::None));
             assert!(matches!(mock.viewport_width, azul_css::OptionF32::None));
         }
 
         assert!(matches!(
-            CssMockEnvironment::dark_theme().theme,
-            OptionThemeCondition::Some(ThemeCondition::Dark)
+            CssMockEnvironment::dark_mode().mode,
+            azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark)
         ));
         assert!(matches!(
-            CssMockEnvironment::light_theme().theme,
-            OptionThemeCondition::Some(ThemeCondition::Light)
+            CssMockEnvironment::light_mode().mode,
+            azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Light)
         ));
         assert!(matches!(
-            CssMockEnvironment::dark_theme().os,
+            CssMockEnvironment::dark_mode().os,
             OptionOsCondition::None
         ));
     }
@@ -708,7 +834,7 @@ mod autotest_generated {
         // adversarial floats (NaN viewport) which must not panic.
         let mock = CssMockEnvironment {
             os: OptionOsCondition::Some(OsCondition::Windows),
-            theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+            mode: azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark),
             language: azul_css::OptionString::Some(AzString::from_const_str("de-DE")),
             viewport_width: azul_css::OptionF32::Some(f32::NAN),
             viewport_height: azul_css::OptionF32::Some(f32::INFINITY),
@@ -719,7 +845,7 @@ mod autotest_generated {
         let mut ctx = DynamicSelectorContext::default();
         mock.apply_to(&mut ctx);
         assert_eq!(ctx.os, OsCondition::Windows);
-        assert_eq!(ctx.theme, ThemeCondition::Dark);
+        assert_eq!(ctx.mode, azul_css::system::DarkLightMode::Dark);
         assert_eq!(ctx.language.as_str(), "de-DE");
         assert!(ctx.viewport_width.is_nan());
         assert_eq!(ctx.viewport_height, f32::INFINITY);
@@ -730,7 +856,7 @@ mod autotest_generated {
         let mut ctx2 = ctx.clone();
         mock.apply_to(&mut ctx2);
         assert_eq!(ctx2.os, ctx.os);
-        assert_eq!(ctx2.theme, ctx.theme);
+        assert_eq!(ctx2.mode, ctx.mode);
     }
 
     // =====================================================================
@@ -2304,5 +2430,373 @@ mod autotest_generated {
             tag: Vec::new().into(),
         };
         assert!(img.into_loaded_image_source().is_none());
+    }
+
+    #[test]
+    fn app_config_match_route_specificity() {
+        let mut config = AppConfig::create();
+        let cb: crate::callbacks::LayoutCallbackType = autotest_layout;
+        extern "C" fn autotest_layout(_: RefAny, _: crate::callbacks::LayoutCallbackInfo) -> crate::dom::Dom {
+            crate::dom::Dom::create_body()
+        }
+        
+        // Register a catch-all first
+        config.add_route(AzString::from_const_str("/:type/:id"), cb);
+        // Register a more specific one second
+        config.add_route(AzString::from_const_str("/user/:id"), cb);
+        // Register an exact match last
+        config.add_route(AzString::from_const_str("/user/42"), cb);
+        
+        // /user/42 should match the exact route (specificity 2)
+        let (r1, _) = config.match_route_for_path("/user/42").unwrap();
+        assert_eq!(r1.pattern.as_str(), "/user/42");
+
+        // /user/99 should match /user/:id (specificity 1)
+        let (r2, _) = config.match_route_for_path("/user/99").unwrap();
+        assert_eq!(r2.pattern.as_str(), "/user/:id");
+
+        // /post/123 should match /:type/:id (specificity 0)
+        let (r3, _) = config.match_route_for_path("/post/123").unwrap();
+        assert_eq!(r3.pattern.as_str(), "/:type/:id");
+    }
+
+}
+
+/// NV12 (two-plane 4:2:0 YCbCr): the format cameras and hardware video
+/// decoders produce natively. Carrying it end to end means no per-frame
+/// YUV->RGB pass on the CPU: the GPU converts in its shader, the CPU
+/// rasterizer converts only the rows it paints.
+#[cfg(test)]
+mod nv12_tests {
+    use super::*;
+
+    #[test]
+    fn an_nv12_image_is_a_full_y_plane_then_a_half_size_interleaved_chroma_plane() {
+        let even = Nv12Layout::new(4, 2);
+        assert_eq!(even.y_len(), 8);
+        assert_eq!((even.chroma_width, even.chroma_height), (2, 1));
+        assert_eq!(even.uv_len(), 4, "one Cb,Cr pair per 2x2 block");
+        assert_eq!(even.checked_total_len(), Some(12));
+        // An odd size rounds the chroma plane UP: the last column / row still
+        // has a chroma sample.
+        let odd = Nv12Layout::new(5, 3);
+        assert_eq!((odd.chroma_width, odd.chroma_height), (3, 2));
+        assert_eq!(odd.uv_len(), 12);
+        assert_eq!(odd.checked_total_len(), Some(15 + 12));
+        assert_eq!(Nv12Layout::new(usize::MAX, 2).checked_total_len(), None);
+    }
+
+    #[test]
+    fn the_nv12_formats_name_their_matrix_and_range() {
+        assert_eq!(RawImageFormat::nv12(false, false), RawImageFormat::NV12Rec601Video);
+        assert_eq!(RawImageFormat::nv12(false, true), RawImageFormat::NV12Rec601Full);
+        assert_eq!(RawImageFormat::nv12(true, false), RawImageFormat::NV12Rec709Video);
+        assert_eq!(RawImageFormat::nv12(true, true), RawImageFormat::NV12Rec709Full);
+        for f in [
+            RawImageFormat::NV12Rec601Video,
+            RawImageFormat::NV12Rec601Full,
+            RawImageFormat::NV12Rec709Video,
+            RawImageFormat::NV12Rec709Full,
+        ] {
+            assert!(f.is_nv12(), "{f:?}");
+            assert_eq!(RawImageFormat::nv12(f.is_rec709(), f.is_full_range()), f);
+        }
+        for f in [RawImageFormat::RGBA8, RawImageFormat::BGRA8, RawImageFormat::R8] {
+            assert!(!f.is_nv12(), "{f:?} is not NV12");
+        }
+    }
+
+    #[test]
+    fn video_range_black_and_white_convert_exactly_in_both_matrices() {
+        for f in [RawImageFormat::NV12Rec601Video, RawImageFormat::NV12Rec709Video] {
+            assert_eq!(yuv_to_rgb(f, 16, 128, 128), [0, 0, 0], "{f:?} black");
+            assert_eq!(yuv_to_rgb(f, 235, 128, 128), [255, 255, 255], "{f:?} white");
+            assert_eq!(yuv_to_rgb(f, 0, 128, 128), [0, 0, 0], "{f:?} below black clamps");
+        }
+        for f in [RawImageFormat::NV12Rec601Full, RawImageFormat::NV12Rec709Full] {
+            assert_eq!(yuv_to_rgb(f, 0, 128, 128), [0, 0, 0], "{f:?} black");
+            assert_eq!(yuv_to_rgb(f, 255, 128, 128), [255, 255, 255], "{f:?} white");
+            assert_eq!(yuv_to_rgb(f, 128, 128, 128), [128, 128, 128], "{f:?} grey");
+        }
+    }
+
+    #[test]
+    fn a_saturated_red_comes_back_red_in_its_own_matrix_only() {
+        // Rec.601 video-range red is Y 81, Cb 90, Cr 240.
+        let red = yuv_to_rgb(RawImageFormat::NV12Rec601Video, 81, 90, 240);
+        assert!(red[0] >= 253 && red[1] <= 2 && red[2] <= 2, "601 red: {red:?}");
+        // The same samples read as Rec.709 are a visibly different colour:
+        // the matrix is part of the format, not a detail.
+        let wrong = yuv_to_rgb(RawImageFormat::NV12Rec709Video, 81, 90, 240);
+        assert!(wrong[1] > 20, "709 reads 601 red with green in it: {wrong:?}");
+    }
+
+    #[test]
+    fn nv12_to_rgba_gives_every_pixel_its_own_luma_and_its_blocks_chroma() {
+        // 2x2, one chroma pair: four luma steps over neutral chroma.
+        let bytes = [16u8, 235, 126, 235, 128, 128];
+        let rgba = nv12_to_rgba(&bytes, 2, 2, RawImageFormat::NV12Rec601Video)
+            .expect("a well-formed 2x2 NV12 image converts");
+        assert_eq!(rgba.len(), 16);
+        assert_eq!(&rgba[0..4], &[0, 0, 0, 255]);
+        assert_eq!(&rgba[4..8], &[255, 255, 255, 255]);
+        assert_eq!(rgba[8], rgba[9], "neutral chroma stays grey");
+        assert!(nv12_to_rgba(&bytes[..5], 2, 2, RawImageFormat::NV12Rec601Video).is_none());
+        assert!(nv12_to_rgba(&bytes, 2, 2, RawImageFormat::RGBA8).is_none());
+    }
+
+    #[test]
+    fn an_nv12_raw_image_loads_as_is_without_a_conversion_pass() {
+        let bytes: Vec<u8> = (0u8..12).collect();
+        let image = ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(bytes.clone().into()),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::NV12Rec709Video,
+            tag: Vec::new().into(),
+        })
+        .expect("a well-formed NV12 image loads");
+        let DecodedImage::Raw((descriptor, data)) = image.get_data() else {
+            panic!("an NV12 image is raw pixel data");
+        };
+        assert_eq!(descriptor.format, RawImageFormat::NV12Rec709Video);
+        assert_eq!((descriptor.width, descriptor.height), (4, 2));
+        assert!(descriptor.flags.is_opaque, "YCbCr has no alpha");
+        assert!(
+            !descriptor.flags.allow_mipmaps,
+            "a video frame is shown at its size: mipmaps are wasted work"
+        );
+        let ImageData::Raw(shared) = data else {
+            panic!("raw bytes");
+        };
+        assert_eq!(shared.as_ref(), &bytes[..], "no swizzle, no repacking");
+    }
+
+    #[test]
+    fn an_nv12_raw_image_of_the_wrong_length_is_rejected() {
+        let image = ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![0u8; 11].into()),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::NV12Rec601Video,
+            tag: Vec::new().into(),
+        });
+        assert!(image.is_none());
+    }
+
+    // ---- ImageDirtyRect: the part of an image the renderer must upload again ----
+
+    fn dirty(x: isize, y: isize, w: isize, h: isize) -> ImageDirtyRect {
+        use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
+        ImageDirtyRect::Partial(LayoutRect::new(
+            LayoutPoint::new(x, y),
+            LayoutSize::new(w, h),
+        ))
+    }
+
+    #[test]
+    fn two_dirty_rects_unite_to_their_bounding_box() {
+        assert_eq!(
+            dirty(10, 10, 5, 5).union(&dirty(20, 0, 2, 2)),
+            dirty(10, 0, 12, 15)
+        );
+        assert_eq!(
+            dirty(20, 0, 2, 2).union(&dirty(10, 10, 5, 5)),
+            dirty(10, 0, 12, 15),
+            "the union does not depend on the order"
+        );
+    }
+
+    #[test]
+    fn a_dirty_rect_united_with_the_whole_image_is_the_whole_image() {
+        assert_eq!(
+            dirty(1, 1, 1, 1).union(&ImageDirtyRect::All),
+            ImageDirtyRect::All
+        );
+        assert_eq!(
+            ImageDirtyRect::All.union(&dirty(1, 1, 1, 1)),
+            ImageDirtyRect::All
+        );
+    }
+
+    #[test]
+    fn an_empty_dirty_rect_adds_nothing_to_a_union() {
+        assert!(dirty(50, 50, 0, 0).is_empty());
+        assert!(dirty(50, 50, 7, 0).is_empty());
+        assert!(!dirty(50, 50, 1, 1).is_empty());
+        assert!(!ImageDirtyRect::All.is_empty());
+        assert_eq!(
+            dirty(50, 50, 0, 0).union(&dirty(1, 2, 3, 4)),
+            dirty(1, 2, 3, 4),
+            "the empty rect's position must not stretch the union"
+        );
+        assert_eq!(
+            dirty(1, 2, 3, 4).union(&dirty(50, 50, 0, 7)),
+            dirty(1, 2, 3, 4)
+        );
+    }
+
+    #[test]
+    fn a_dirty_rect_is_clipped_to_the_image_it_belongs_to() {
+        assert_eq!(
+            dirty(-4, 90, 20, 20).clipped_to(100, 100),
+            dirty(0, 90, 16, 10)
+        );
+        assert_eq!(
+            dirty(10, 10, 5, 5).clipped_to(100, 100),
+            dirty(10, 10, 5, 5),
+            "a rect inside the image stays as it is"
+        );
+        assert!(
+            dirty(200, 0, 5, 5).clipped_to(100, 100).is_empty(),
+            "a rect beside the image leaves nothing to upload"
+        );
+        assert_eq!(
+            ImageDirtyRect::All.clipped_to(100, 100),
+            ImageDirtyRect::All
+        );
+    }
+}
+
+/// RGB(A) frames into NV12: the conversion an NV12-only H.264 encoder
+/// (Vulkan Video) needs for a frame that is not NV12 already - the inverse
+/// of the one YCbCr table the decode side uses.
+#[cfg(test)]
+mod rgba_to_nv12_tests {
+    use super::*;
+
+    const FORMATS: [RawImageFormat; 4] = [
+        RawImageFormat::NV12Rec601Video,
+        RawImageFormat::NV12Rec601Full,
+        RawImageFormat::NV12Rec709Video,
+        RawImageFormat::NV12Rec709Full,
+    ];
+
+    fn flat(rgb: [u8; 3], width: usize, height: usize) -> Vec<u8> {
+        [rgb[0], rgb[1], rgb[2], 255].repeat(width * height)
+    }
+
+    #[test]
+    fn white_black_and_red_land_on_the_studio_values_of_each_matrix_and_range() {
+        // (format, colour) -> (Y, Cb, Cr): the reference values of BT.601 / BT.709.
+        let cases = [
+            (
+                RawImageFormat::NV12Rec601Video,
+                [255, 255, 255],
+                (235, 128, 128),
+            ),
+            (RawImageFormat::NV12Rec601Video, [0, 0, 0], (16, 128, 128)),
+            (RawImageFormat::NV12Rec601Video, [255, 0, 0], (81, 90, 240)),
+            (RawImageFormat::NV12Rec709Video, [255, 0, 0], (63, 102, 240)),
+            (
+                RawImageFormat::NV12Rec601Full,
+                [255, 255, 255],
+                (255, 128, 128),
+            ),
+            (RawImageFormat::NV12Rec601Full, [255, 0, 0], (76, 85, 255)),
+            (RawImageFormat::NV12Rec709Full, [0, 0, 0], (0, 128, 128)),
+        ];
+        for (format, rgb, (y, cb, cr)) in cases {
+            let nv12 = rgba_to_nv12(&flat(rgb, 4, 2), 4, 2, RawImageFormat::RGBA8, format)
+                .expect("an RGBA8 image converts");
+            assert_eq!(nv12.len(), 8 + 4, "4x2: eight luma bytes, two Cb,Cr pairs");
+            assert!(
+                nv12[..8].iter().all(|v| *v == y),
+                "{format:?} {rgb:?}: Y {:?}",
+                &nv12[..8]
+            );
+            assert_eq!(&nv12[8..], &[cb, cr, cb, cr], "{format:?} {rgb:?}: Cb,Cr");
+        }
+    }
+
+    #[test]
+    fn bgra_reads_its_own_channel_order() {
+        let red_bgra = [0u8, 0, 255, 255].repeat(4);
+        let from_bgra = rgba_to_nv12(
+            &red_bgra,
+            2,
+            2,
+            RawImageFormat::BGRA8,
+            RawImageFormat::NV12Rec601Video,
+        );
+        let from_rgba = rgba_to_nv12(
+            &flat([255, 0, 0], 2, 2),
+            2,
+            2,
+            RawImageFormat::RGBA8,
+            RawImageFormat::NV12Rec601Video,
+        );
+        assert_eq!(from_bgra, from_rgba);
+        assert!(from_bgra.is_some());
+    }
+
+    #[test]
+    fn a_picture_comes_back_through_the_decode_table_within_a_few_levels() {
+        // Colour ramps that step once per 2x2 block: 4:2:0 keeps one chroma
+        // pair per block, so what comes back differs only by the rounding of
+        // the two tables (a colour that changes inside a block loses that
+        // change to the block's average - 4:2:0 itself, not this function).
+        let (w, h) = (16usize, 8usize);
+        let mut rgba = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            for x in 0..w {
+                let (bx, by) = (x / 2, y / 2);
+                rgba.extend_from_slice(&[
+                    (bx * 24) as u8,
+                    (by * 48) as u8,
+                    200 - (bx * 12) as u8,
+                    255,
+                ]);
+            }
+        }
+        for format in FORMATS {
+            let nv12 = rgba_to_nv12(&rgba, w, h, RawImageFormat::RGBA8, format).expect("converts");
+            let back = nv12_to_rgba(&nv12, w, h, format).expect("decodes");
+            let worst = rgba
+                .iter()
+                .zip(back.iter())
+                .map(|(a, b)| (i32::from(*a) - i32::from(*b)).abs())
+                .max()
+                .unwrap_or(0);
+            // Video range quantizes to 219 / 224 levels: a level or two.
+            assert!(worst <= 2, "{format:?}: off by {worst} levels");
+        }
+    }
+
+    #[test]
+    fn an_odd_sized_picture_keeps_its_last_column_and_row() {
+        let nv12 = rgba_to_nv12(
+            &flat([0, 0, 255], 3, 3),
+            3,
+            3,
+            RawImageFormat::RGBA8,
+            RawImageFormat::NV12Rec601Full,
+        )
+        .expect("converts");
+        assert_eq!(Some(nv12.len()), Nv12Layout::new(3, 3).checked_total_len());
+        let back = nv12_to_rgba(&nv12, 3, 3, RawImageFormat::NV12Rec601Full).expect("decodes");
+        for px in back.chunks_exact(4) {
+            assert!(
+                px[0] <= 2 && px[1] <= 2 && px[2] >= 253,
+                "blue came back as {px:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_is_not_rgb_in_or_nv12_out_or_too_short_is_refused() {
+        let rgba = flat([1, 2, 3], 2, 2);
+        let to = RawImageFormat::NV12Rec709Video;
+        assert!(rgba_to_nv12(&rgba, 2, 2, RawImageFormat::R8, to).is_none());
+        assert!(rgba_to_nv12(&rgba, 2, 2, to, to).is_none(), "NV12 in");
+        assert!(rgba_to_nv12(&rgba, 2, 2, RawImageFormat::RGBA8, RawImageFormat::RGBA8).is_none());
+        assert!(rgba_to_nv12(&rgba[..15], 2, 2, RawImageFormat::RGBA8, to).is_none());
+        assert_eq!(
+            rgba_to_nv12(&[], 0, 0, RawImageFormat::RGBA8, to),
+            Some(Vec::new()),
+            "an empty image is an empty NV12 image"
+        );
     }
 }

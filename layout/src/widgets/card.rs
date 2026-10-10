@@ -13,7 +13,6 @@ use azul_core::{
 use azul_css::{
     css::BoxOrStatic,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option_inner,
     props::{
         basic::{ColorU, FloatValue, PixelValue, PixelValueNoPercent},
         layout::{
@@ -34,7 +33,7 @@ use azul_css::{
     AzString,
 };
 
-use crate::callbacks::CallbackInfo;
+use crate::{callbacks::CallbackInfo, widgets::themes::system_palette};
 
 /// Card border colour (#dee2e6).
 const CARD_BORDER_COLOR: ColorU = ColorU {
@@ -62,7 +61,9 @@ const CARD_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color
 const CARD_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(CARD_BG_ITEMS);
 
-/// Shared drop-shadow descriptor referenced by all four edge box-shadows.
+/// Shared drop-shadow descriptor, `box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15)`:
+/// the shorthand writes it into all four shadow slots, which hold ONE shadow
+/// and paint it once.
 static CARD_SHADOW: StyleBoxShadow = StyleBoxShadow {
     offset_x: PixelValueNoPercent {
         inner: PixelValue::const_px(0),
@@ -80,12 +81,23 @@ static CARD_SHADOW: StyleBoxShadow = StyleBoxShadow {
     color: CARD_SHADOW_COLOR,
 };
 
-const CARD_STYLE: &[CssPropertyWithConditions] = &[
+/// The card's structure, in every theme: a column of its content. [`build`]
+/// declares it right after the card's own `flex-grow`, before the theme's
+/// skin (R5: never inside a `@theme` block).
+pub(crate) const CARD_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
+];
+
+/// The flat card's skin: white, a #DEE2E6 hairline, an 8px radius and a soft
+/// drop shadow, with their night twins.
+pub(crate) const CARD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(CARD_BG)),
+    // Dark theme: the card is a panel on the desktop's window surface, so the
+    // application text inside it (which inherits the themed ink) stays legible.
+    system_palette::DARK_WINDOW_BACKGROUND,
     // padding: 12px
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         12,
@@ -144,6 +156,11 @@ const CARD_STYLE: &[CssPropertyWithConditions] = &[
             inner: CARD_BORDER_COLOR,
         },
     )),
+    // Dark theme: the outline is the desktop's separator.
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // border-radius: 8px
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(8),
@@ -157,7 +174,7 @@ const CARD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
         StyleBorderBottomRightRadius::const_px(8),
     )),
-    // soft drop shadow on all four edges
+    // box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15) - the shorthand's four slots
     CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
         BoxOrStatic::Static(&raw const CARD_SHADOW),
     ))),
@@ -183,7 +200,15 @@ pub struct Card {
     pub flex_grow: f32,
     /// Optional: Function to call when the card is clicked
     pub on_click: OptionCardOnClick,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// The class every card carries, in every theme.
+pub(crate) static CARD_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-card"))];
 
 /// Callback function type invoked when the card container is clicked.
 pub type CardOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
@@ -216,6 +241,7 @@ impl Card {
             content,
             flex_grow: 0.0,
             on_click: OptionCardOnClick::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -271,18 +297,64 @@ impl Card {
         self
     }
 
+    /// Pin the widget theme: the card keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this card into its DOM: one box around the content, classed
+    /// `__azul-native-card`. The look comes from the theme module
+    /// (`themes::flat::card` / `themes::flora::card`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{EventFilter, HoverEventFilter},
-        };
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::card(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::card(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            // The content is the caller's and alike in every theme: the two
+            // looks are built around a placeholder and it goes in once.
+            None => {
+                let mut shell = self;
+                let content = core::mem::replace(&mut shell.content, Dom::create_div());
+                crate::widgets::themes::theme_blocks::follow_app_theme(
+                    shell,
+                    crate::widgets::themes::flat::card,
+                    crate::widgets::themes::flora::card,
+                )
+                .with_children(alloc::vec![content].into())
+            }
+        }
+    }
+}
 
-        static CARD_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-card"))];
+/// The card's DOM with `style` - a theme's skin - as its box (after the
+/// card's own `flex-grow` and [`CARD_BASE`]), `classes` on it, and the click
+/// callback if it has one.
+pub(crate) fn build(
+    card: Card,
+    style: &[CssPropertyWithConditions],
+    classes: IdOrClassVec,
+) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{EventFilter, HoverEventFilter},
+    };
 
+    {
         // Optional click callback on the card's root container (same wiring
         // as button's on_click).
-        let callbacks = match self.on_click.into_option() {
+        let callbacks = match card.on_click.into_option() {
             Some(CardOnClick {
                 refany: data,
                 callback,
@@ -297,19 +369,21 @@ impl Card {
             None => Vec::new(),
         };
 
-        // Prepend the (param-dependent) flex-grow, then the static card style.
+        // Prepend the (param-dependent) flex-grow and the card's base, then
+        // the theme's skin.
         let mut props = vec![CssPropertyWithConditions::simple(CssProperty::FlexGrow(
             LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                inner: FloatValue::new(self.flex_grow),
+                inner: FloatValue::new(card.flex_grow),
             }),
         ))];
-        props.extend_from_slice(CARD_STYLE);
+        props.extend_from_slice(CARD_BASE);
+        props.extend_from_slice(style);
 
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CARD_CLASS))
+            .with_ids_and_classes(classes)
             .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
             .with_callbacks(callbacks.into())
-            .with_children(vec![self.content].into())
+            .with_children(vec![card.content].into())
     }
 }
 
@@ -386,9 +460,16 @@ mod autotest_generated {
 
     /// The declared properties of a rendered node's inline style, in declaration order.
     fn inline_props(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// The node's LIGHT face: its declarations that apply in every theme and
+    /// state (the dark-theme twins are left out).
+    fn unconditional_props(dom: &Dom) -> Vec<CssProperty> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
+            .filter(|(_, conds)| conds.as_ref().is_empty())
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -409,9 +490,7 @@ mod autotest_generated {
     /// The `flex-grow` factor as it actually lands in the style tree — i.e. *after* the
     /// lossy `f32 -> isize` encoding inside `FloatValue::new`.
     fn dom_flex_grow(dom: &Dom) -> Option<f32> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::FlexGrow(v) => v.get_property().map(|f| f.inner.get()),
                 _ => None,
@@ -1051,8 +1130,9 @@ mod autotest_generated {
 
         assert_eq!(
             props.len(),
-            1 + CARD_STYLE.len(),
-            "the card's inline style must be exactly flex-grow + the static card style",
+            1 + CARD_BASE.len() + CARD_STYLE.len(),
+            "the card's inline style must be exactly flex-grow + the card's base + the static \
+             card style",
         );
         assert!(
             matches!(props[0], CssProperty::FlexGrow(_)),
@@ -1070,7 +1150,8 @@ mod autotest_generated {
 
     #[test]
     fn dom_carries_the_static_card_geometry() {
-        let props = inline_props(&Card::default().dom());
+        // The light face; the dark-theme twins are pinned separately below.
+        let props = unconditional_props(&Card::default().dom());
 
         let mut paddings = Vec::new();
         let mut border_widths = Vec::new();
@@ -1193,11 +1274,36 @@ mod autotest_generated {
     }
 
     #[test]
+    fn dom_gives_the_card_a_dark_theme_surface_and_outline() {
+        // Without these the card stays a white box on a dark page, and the
+        // themed (light) text inside it becomes unreadable.
+        let dark = crate::widgets::theme_probe::dark(&Card::default().dom());
+        assert!(
+            dark.iter()
+                .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
+            "the card has no dark-theme surface"
+        );
+        let outlines = dark
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p,
+                    CssProperty::BorderTopColor(_)
+                        | CssProperty::BorderBottomColor(_)
+                        | CssProperty::BorderLeftColor(_)
+                        | CssProperty::BorderRightColor(_)
+                )
+            })
+            .count();
+        assert_eq!(outlines, 4, "every edge needs its dark-theme colour");
+    }
+
+    #[test]
     fn dom_box_shadows_dereference_the_shared_static_descriptor() {
         let dom = Card::default().dom();
 
         let mut shadows = 0_usize;
-        for (p, _) in dom.root.style.iter_inline_properties() {
+        for (p, _) in crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter() {
             let value = match p {
                 CssProperty::BoxShadowTop(v)
                 | CssProperty::BoxShadowBottom(v)
@@ -1247,10 +1353,7 @@ mod autotest_generated {
         );
         assert_eq!(CARD_SHADOW.color, CARD_SHADOW_COLOR);
 
-        let shadows = survivor
-            .root
-            .style
-            .iter_inline_properties()
+        let shadows = crate::widgets::themes::theme_blocks::checks::live_inline(&survivor).iter()
             .filter_map(|(p, _)| match p {
                 CssProperty::BoxShadowTop(v)
                 | CssProperty::BoxShadowBottom(v)
@@ -1326,5 +1429,201 @@ mod autotest_generated {
             classes(&outer.children.as_ref()[0]),
             vec!["__azul-native-card".to_string()]
         );
+    }
+}
+
+/// The theme option: which look a card renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    fn card(theme: UiTheme) -> Dom {
+        Card::create(Dom::create_p_with_text("Body text"))
+            .with_flex_grow(1.0)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn shadow(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    fn radius(p: &CssProperty) -> Option<PixelValue> {
+        match p {
+            CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner),
+            _ => None,
+        }
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_card_without_a_theme_renders_flat() {
+        let plain = Card::create(Dom::create_div());
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            theme_probe::unconditional(&plain.clone().dom()),
+            theme_probe::unconditional(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Card::create(Dom::create_div());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Card::create(Dom::create_div()).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_card_is_a_panel_on_the_window_surface_at_night() {
+        let dark = theme_probe::dark(&card(UiTheme::Flat));
+        assert_eq!(
+            last(&dark, bg),
+            Some(system_palette::WINDOW_BACKGROUND.as_ref().to_vec())
+        );
+        assert_eq!(last(&dark, top_edge), Some(system_palette::SEPARATOR));
+    }
+
+    #[test]
+    fn a_flora_card_is_a_leaf_on_the_page_in_a_hairline() {
+        let rest = theme_probe::unconditional(&card(UiTheme::Flora));
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::LIGHT_SUR)]),
+            "flora.css --fl-sur: 'a leaf laid on the page: cards, panels'"
+        );
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK));
+        assert_eq!(
+            last(&rest, radius),
+            Some(PixelValue::const_px(5)),
+            "--fl-r2: nothing is rounder than 5"
+        );
+        assert!(last(&rest, shadow).is_some(), "a leaf casts a shadow");
+    }
+
+    #[test]
+    fn a_flora_card_at_night_is_the_night_leaf() {
+        let dark = theme_probe::dark(&card(UiTheme::Flora));
+        assert_eq!(
+            last(&dark, bg),
+            Some(vec![StyleBackgroundContent::Color(flora::DARK_SUR)])
+        );
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK));
+        assert!(last(&dark, shadow).is_some(), "the night shadow");
+    }
+
+    #[test]
+    fn a_flora_card_keeps_its_content_its_flex_grow_and_its_click() {
+        let dom = Card::create(Dom::create_p_with_text("Body"))
+            .with_flex_grow(2.0)
+            .with_on_click(RefAny::new(0u8), noop as CardOnClickCallbackType)
+            .with_theme(UiTheme::Flora)
+            .dom();
+        assert_eq!(dom.children.as_ref().len(), 1, "the content is the card's child");
+        assert_eq!(dom.root.get_callbacks().as_ref().len(), 1, "the click still fires");
+        assert_eq!(
+            theme_probe::unconditional(&dom).first(),
+            Some(&CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::new(2.0)
+                }
+            ))),
+            "the card's own flex-grow leads its style"
+        );
+    }
+
+    #[test]
+    fn a_flora_card_carries_the_flora_theme_marker() {
+        let dom = card(UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-card"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_card_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "card",
+            || Card::create(Dom::create_div()).dom(),
+            |t: UiTheme| Card::create(Dom::create_div()).with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the card's growth and its column are its BASE, declared once
+    /// outside every `@theme` block. A card that hugs and one that grows.
+    #[test]
+    fn a_card_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for grow in [0.0, 2.0] {
+                let dom = checks::under(t, || {
+                    Card::create(Dom::create_p_with_text("body"))
+                        .with_flex_grow(grow)
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("card flex-grow {grow} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

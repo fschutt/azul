@@ -1548,7 +1548,7 @@ mod autotest_generated {
                         CssPropertyWithConditions::simple(CssProperty::const_text_color(
                             StyleTextColor { inner: light },
                         )),
-                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                        CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
                             StyleTextColor { inner: dark },
                         )),
                     ]))
@@ -1568,7 +1568,7 @@ mod autotest_generated {
                 .map(|c| c.inner)
         };
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         let sd = build(Some(ctx));
@@ -1581,7 +1581,7 @@ mod autotest_generated {
         assert_eq!(colour_of(&sd, 3), Some(dark), "…and so does the text");
 
         let light_ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: azul_css::system::DarkLightMode::Light,
             ..Default::default()
         };
         let sd = build(Some(light_ctx));
@@ -1589,6 +1589,68 @@ mod autotest_generated {
             colour_of(&sd, 3),
             Some(light),
             "under a light window the twin stays out"
+        );
+    }
+
+    /// `::placeholder` is a pseudo-ELEMENT: only declarations made for it
+    /// style the prompt; the host's own declarations - conditioned on the
+    /// mode or the app theme or not - reach it only where the prompt
+    /// declares nothing. A themed text input (its declarations all inside
+    /// `@theme(flat)` / `@theme(flora)`) declares the prompt's grey BEFORE
+    /// its resting ink; the resting ink, conditioned on the theme, used to
+    /// match the `::placeholder` tier too and win by source order, so every
+    /// placeholder of an app-themed field painted in the full ink (PIM6).
+    #[test]
+    fn a_placeholder_declaration_outranks_a_later_conditioned_resting_declaration() {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{basic::color::ColorU, style::StyleTextColor},
+        };
+
+        use crate::{dom::Dom, styled_dom::StyledDom};
+
+        let prompt = ColorU::rgb(155, 155, 155);
+        let ink = ColorU::rgb(76, 76, 76);
+        let dark_ink = ColorU::rgb(232, 232, 232);
+        let mut dom = Dom::create_body().with_child(Dom::create_div().with_css_props(
+            CssPropertyWithConditionsVec::from_vec(vec![
+                CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(
+                    StyleTextColor { inner: prompt },
+                )),
+                CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                    inner: ink,
+                })),
+                CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
+                    StyleTextColor { inner: dark_ink },
+                )),
+            ]),
+        ));
+        let ctx = DynamicSelectorContext {
+            mode: azul_css::system::DarkLightMode::Dark,
+            ..Default::default()
+        };
+        let sd = StyledDom::create_with_context(&mut dom, azul_css::css::Css::empty(), Some(ctx));
+        let node_data = sd.node_data.as_container();
+        let n = NodeId::new(1);
+        let colour_in = |state: &StyledNodeState| {
+            sd.get_css_property_cache()
+                .get_text_color(node_data.get(n).expect("node"), &n, state)
+                .and_then(|v| v.get_property().copied())
+                .map(|c| c.inner)
+        };
+        let prompt_state = StyledNodeState {
+            placeholder: true,
+            ..StyledNodeState::default()
+        };
+        assert_eq!(
+            colour_in(&prompt_state),
+            Some(prompt),
+            "the prompt's own colour, not the dark resting ink declared after it"
+        );
+        assert_eq!(
+            colour_in(&normal()),
+            Some(dark_ink),
+            "the value line keeps its resting ink"
         );
     }
 
@@ -1616,7 +1678,7 @@ mod autotest_generated {
                         CssPropertyWithConditions::simple(CssProperty::const_text_color(
                             StyleTextColor { inner: light },
                         )),
-                        CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(
+                        CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(
                             StyleTextColor { inner: dark },
                         )),
                     ]))
@@ -1638,7 +1700,7 @@ mod autotest_generated {
 
         let mut sd = build();
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: azul_css::system::DarkLightMode::Light,
             ..Default::default()
         };
         sd.set_dynamic_selector_context(ctx);
@@ -1650,7 +1712,7 @@ mod autotest_generated {
 
         let mut sd = build();
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         sd.set_dynamic_selector_context(ctx);

@@ -1,0 +1,17 @@
+project Azul_App is
+
+   for Languages use ("Ada");
+   for Source_Dirs use (".");
+   for Object_Dir use "obj";
+   for Exec_Dir use "obj";
+   for Main use ("main.adb");
+
+   package Compiler is
+      for Default_Switches ("Ada") use ("-gnat2012");
+   end Compiler;
+
+   package Linker is
+      for Default_Switches ("Ada") use ("-L.", "-lazul");
+   end Linker;
+
+end Azul_App;

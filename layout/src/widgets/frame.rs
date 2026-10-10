@@ -70,6 +70,9 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
             inner: BORDER_COLOR,
         }),
     )),
+    // Dark theme: the group-box lines are the desktop's separator.
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-before
     CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
         LayoutWidth::Px(PixelValue::const_px(5)),
@@ -88,6 +91,7 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
         LayoutFlexDirection::Column,
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_15775557796860201720: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15775557796860201720_PROPERTIES);
 
@@ -114,6 +118,7 @@ const CSS_MATCH_16739370686243728873_PROPERTIES: &[CssPropertyWithConditions] = 
         LayoutAlignItems::End,
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_16739370686243728873: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_16739370686243728873_PROPERTIES);
 
@@ -143,6 +148,7 @@ const CSS_MATCH_4236783900531286611_PROPERTIES: &[CssPropertyWithConditions] = &
         },
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_4236783900531286611: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4236783900531286611_PROPERTIES);
 
@@ -169,6 +175,7 @@ const CSS_MATCH_8602559445190067154_PROPERTIES: &[CssPropertyWithConditions] = &
         },
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_8602559445190067154: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_8602559445190067154_PROPERTIES);
 
@@ -213,6 +220,8 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
             inner: BORDER_COLOR,
         }),
     )),
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-after
     CssPropertyWithConditions::simple(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
         LayoutMarginTop {
@@ -228,6 +237,7 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
         LayoutFlexDirection::Column,
     ))),
 ];
+#[cfg(test)] // the tests compare against it; the build reads the slice
 const CSS_MATCH_9156589477016488419: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9156589477016488419_PROPERTIES);
 
@@ -321,6 +331,10 @@ const CSS_MATCH_CONTENT_AREA_PROPERTIES: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         }),
     )),
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
 ];
 
 /// A titled border container widget, similar to an HTML `<fieldset>` or
@@ -332,7 +346,50 @@ pub struct Frame {
     pub title: AzString,
     pub flex_grow: f32,
     pub content: Dom,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// What a theme decides about a frame: the style of each of its parts.
+/// [`build`] assembles them; `themes::flat::frame` and
+/// `themes::flora::frame` supply them.
+pub(crate) struct FrameLook {
+    /// The frame's outer box.
+    pub root: Vec<CssPropertyWithConditions>,
+    /// The header row that holds the title between its two rules.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// The rule left of the title (its top and left edges).
+    pub before: Vec<CssPropertyWithConditions>,
+    /// The title's `<p>`.
+    pub title: Vec<CssPropertyWithConditions>,
+    /// The rule right of the title (its top and right edges).
+    pub after: Vec<CssPropertyWithConditions>,
+    /// The bordered content area, after the frame's own `flex-grow`.
+    pub content: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the frame, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The established (flat) style of each part, for the theme modules.
+pub(crate) const FRAME_ROOT_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_8602559445190067154_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_HEADER_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_16739370686243728873_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_BEFORE_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_15775557796860201720_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_TITLE_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_4236783900531286611_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_AFTER_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_9156589477016488419_PROPERTIES;
+/// See [`FRAME_ROOT_STYLE`].
+pub(crate) const FRAME_CONTENT_STYLE: &[CssPropertyWithConditions] =
+    CSS_MATCH_CONTENT_AREA_PROPERTIES;
 
 impl Frame {
     /// Creates a new `Frame` with the given title and content DOM.
@@ -342,7 +399,21 @@ impl Frame {
             title,
             content,
             flex_grow: 0.0,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the frame keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Replaces `self` with a default frame and returns the original.
@@ -365,18 +436,66 @@ impl Frame {
         self
     }
 
+    /// Converts this frame into its DOM (classed `__azul-native-frame`). The
+    /// look comes from the theme module (`themes::flat::frame` /
+    /// `themes::flora::frame`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::frame(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::frame(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            // Built ONCE from the merged look: the caller's content goes in
+            // as it is, never cloned for a second build.
+            None => build(self, &follow_look(UiTheme::current())),
+        }
+    }
+}
+
+/// Both themes' frame looks in one, part by part
+/// (`themes::theme_blocks::follow_props`), with the `structure` theme's
+/// marker: the look an unpinned frame is built with.
+fn follow_look(structure: crate::widgets::themes::UiTheme) -> FrameLook {
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+    let (flat, flora) = (flat::frame_look(), flora::frame_look());
+    let both = |a: &[CssPropertyWithConditions], b: &[CssPropertyWithConditions]| {
+        follow_props(a, b).into_library_owned_vec()
+    };
+    FrameLook {
+        root: both(flat.root.as_slice(), flora.root.as_slice()),
+        header: both(flat.header.as_slice(), flora.header.as_slice()),
+        before: both(flat.before.as_slice(), flora.before.as_slice()),
+        title: both(flat.title.as_slice(), flora.title.as_slice()),
+        after: both(flat.after.as_slice(), flora.after.as_slice()),
+        content: both(flat.content.as_slice(), flora.content.as_slice()),
+        marker: match structure {
+            UiTheme::Flat => flat.marker,
+            UiTheme::Flora => flora.marker,
+        },
+    }
+}
+
+/// The frame's DOM in `look`: the header (a rule, the title, a rule) above
+/// the bordered content area.
+pub(crate) fn build(frame: Frame, look: &FrameLook) -> Dom {
+    let mut classes: Vec<IdOrClass> =
+        alloc::vec![Class(AzString::from_const_str("__azul-native-frame"))];
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let css = |v: &Vec<CssPropertyWithConditions>| {
+        CssPropertyWithConditionsVec::from_vec(v.clone())
+    };
+    {
         Dom::create_div()
-            .with_css_props(CSS_MATCH_8602559445190067154)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_14615537625743340639: &[IdOrClass] =
-                    &[Class(AzString::from_const_str("__azul-native-frame"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_14615537625743340639)
-            })
+            .with_css_props(css(&look.root))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_children(DomVec::from_vec(vec![
                 Dom::create_div()
-                    .with_css_props(CSS_MATCH_16739370686243728873)
+                    .with_css_props(css(&look.header))
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_17776797146874875377: &[IdOrClass] = &[Class(
                             AzString::from_const_str("__azul-native-frame-header"),
@@ -385,7 +504,7 @@ impl Frame {
                     })
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_div()
-                            .with_css_props(CSS_MATCH_15775557796860201720)
+                            .with_css_props(css(&look.before))
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_15264202958442287530: &[IdOrClass] =
                                     &[Class(AzString::from_const_str(
@@ -394,10 +513,10 @@ impl Frame {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15264202958442287530)
                             })
                             .with_children(DomVec::from_vec(vec![Dom::create_div()])),
-                        crate::widgets::widget_p_with_text(self.title)
-                            .with_css_props(CSS_MATCH_4236783900531286611),
+                        crate::widgets::widget_p_with_text(frame.title)
+                            .with_css_props(css(&look.title)),
                         Dom::create_div()
-                            .with_css_props(CSS_MATCH_9156589477016488419)
+                            .with_css_props(css(&look.after))
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_5689091102265932280: &[IdOrClass] = &[Class(
                                     AzString::from_const_str("__azul-native-frame-header-after"),
@@ -410,10 +529,10 @@ impl Frame {
                     .with_css_props({
                         let mut props = vec![CssPropertyWithConditions::simple(
                             CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                                inner: FloatValue::new(self.flex_grow),
+                                inner: FloatValue::new(frame.flex_grow),
                             })),
                         )];
-                        props.extend_from_slice(CSS_MATCH_CONTENT_AREA_PROPERTIES);
+                        props.extend_from_slice(&look.content);
                         CssPropertyWithConditionsVec::from_vec(props)
                     })
                     .with_ids_and_classes({
@@ -422,7 +541,7 @@ impl Frame {
                         )];
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9898887665724137124)
                     })
-                    .with_children(vec![self.content].into()),
+                    .with_children(vec![frame.content].into()),
             ]))
     }
 }
@@ -518,11 +637,12 @@ mod autotest_generated {
         &kids(header(dom))[2]
     }
 
-    /// The declared properties of a node's inline style, in declaration order.
+    /// The declared properties of a node's inline style, in declaration
+    /// order, as the app theme the test builds for sees them.
     fn props_of(node: &NodeData) -> Vec<CssProperty> {
-        node.style
-            .iter_inline_properties()
-            .map(|(p, _)| p.clone())
+        crate::widgets::themes::theme_blocks::checks::live_style(&node.style)
+            .into_iter()
+            .map(|(p, _)| p)
             .collect()
     }
 
@@ -567,9 +687,7 @@ mod autotest_generated {
     /// The `flex-grow` factor as it actually lands in a node's style — i.e. *after*
     /// the lossy `f32 -> isize` encoding inside `FloatValue::new`.
     fn flex_grow_of(dom: &Dom) -> Option<f32> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::FlexGrow(v) => v.get_property().map(|f| f.inner.get()),
                 _ => None,
@@ -1309,7 +1427,12 @@ mod autotest_generated {
         // wins depends on cascade order, so the widget would style differently per node.
         let dom = frame("t", Dom::create_div()).with_flex_grow(1.0).dom();
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
-            let props = inline_props(node);
+            // The light face: a dark-theme twin re-declares its colour under a
+            // theme condition, which is not a duplicate.
+            let props: Vec<CssProperty> = crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
+                .filter(|(_, conds)| conds.as_ref().is_empty())
+                .map(|(p, _)| p.clone())
+                .collect();
             let mut seen = HashSet::new();
             for p in &props {
                 assert!(
@@ -1322,14 +1445,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_declaration_is_unconditional() {
+    fn every_declaration_is_unconditional_or_a_dark_theme_colour() {
         // The frame chrome has no :hover/@media/@os variants — a stray condition would
-        // make part of the border render only in one state.
+        // make part of the border render only in one state. The only conditional
+        // declarations are the border colours' dark-theme twins.
         let dom = frame("t", Dom::create_div()).dom();
         for (i, node) in all_nodes(&dom).into_iter().enumerate() {
-            for (p, conditions) in node.root.style.iter_inline_properties() {
+            for (p, conditions) in crate::widgets::themes::theme_blocks::checks::live_inline(node).iter() {
+                if conditions.as_ref().is_empty() {
+                    continue;
+                }
                 assert!(
-                    conditions.as_ref().is_empty(),
+                    matches!(
+                        conditions.as_ref(),
+                        [azul_css::dynamic_selector::DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)]
+                    ) && border_color_of(p).is_some(),
                     "node {i} gates {:?} behind a dynamic selector",
                     p.get_type(),
                 );
@@ -1358,9 +1488,13 @@ mod autotest_generated {
     fn every_border_in_the_frame_uses_the_one_border_colour() {
         let dom = frame("t", Dom::create_div()).dom();
         let mut seen = 0_usize;
+        let mut dark = 0_usize;
         for node in all_nodes(&dom) {
-            for p in inline_props(node) {
-                if let Some(c) = border_color_of(&p) {
+            for (p, conds) in crate::widgets::themes::theme_blocks::checks::live_inline(node).iter() {
+                let Some(c) = border_color_of(p) else {
+                    continue;
+                };
+                if conds.as_ref().is_empty() {
                     assert_eq!(
                         c,
                         BORDER_COLOR,
@@ -1368,6 +1502,15 @@ mod autotest_generated {
                         p.get_type()
                     );
                     seen += 1;
+                } else {
+                    // Dark theme: every line is the desktop's separator.
+                    assert_eq!(
+                        c,
+                        crate::widgets::themes::system_palette::SEPARATOR,
+                        "{:?}: the dark-theme line is not the separator",
+                        p.get_type()
+                    );
+                    dark += 1;
                 }
             }
         }
@@ -1377,6 +1520,7 @@ mod autotest_generated {
             seen, 8,
             "the number of coloured borders in the frame changed"
         );
+        assert_eq!(dark, seen, "every coloured border needs its dark-theme twin");
     }
 
     #[test]
@@ -1490,8 +1634,10 @@ mod autotest_generated {
                 node.root.callbacks.as_ref().is_empty(),
                 "node {i} of a stateless frame carries a callback",
             );
-            // A <p> carries the UA-margin reset sheet (`widget_p_margin_reset`);
-            // nothing else in a frame attaches a stylesheet.
+            // A <p> carries the one widget-<p> sheet (the UA-margin reset, plus
+            // `user-select: none` when it is a chrome carrier — see
+            // `widget_p_margin_reset` / `widget_p_chrome_sheet`); nothing else
+            // in a frame attaches a stylesheet.
             let is_p = matches!(node.root.get_node_type(), azul_core::dom::NodeType::P);
             assert!(
                 node.css.as_ref().is_empty() || (is_p && node.css.as_ref().len() == 1),
@@ -1583,6 +1729,238 @@ mod autotest_generated {
                 dom.estimated_total_children, 9,
                 "the node count changed for {t:?}"
             );
+        }
+    }
+}
+
+/// The theme option: which look a frame renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, system_palette, OptionUiTheme, UiTheme},
+    };
+
+    fn frame(theme: UiTheme) -> Dom {
+        Frame::create(
+            AzString::from_const_str("Group"),
+            Dom::create_p_with_text("Body text"),
+        )
+        .with_flex_grow(1.0)
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn header(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[0]
+    }
+
+    fn before(dom: &Dom) -> &Dom {
+        &header(dom).children.as_ref()[0]
+    }
+
+    fn title(dom: &Dom) -> &Dom {
+        &header(dom).children.as_ref()[1]
+    }
+
+    fn after(dom: &Dom) -> &Dom {
+        &header(dom).children.as_ref()[2]
+    }
+
+    fn content(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn edges(props: &[CssProperty]) -> [Option<ColorU>; 4] {
+        [
+            last(props, top_edge),
+            last(props, |p| match p {
+                CssProperty::BorderRightColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            }),
+            last(props, |p| match p {
+                CssProperty::BorderBottomColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            }),
+            last(props, |p| match p {
+                CssProperty::BorderLeftColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            }),
+        ]
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_frame_without_a_theme_renders_flat() {
+        let plain = Frame::create(AzString::from_const_str("G"), Dom::create_div());
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        let flat = plain.clone().with_theme(UiTheme::Flat).dom();
+        let unset = plain.dom();
+        assert_eq!(
+            theme_probe::unconditional(content(&unset)),
+            theme_probe::unconditional(content(&flat))
+        );
+        assert_eq!(
+            theme_probe::unconditional(title(&unset)),
+            theme_probe::unconditional(title(&flat))
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Frame::create(AzString::from_const_str("G"), Dom::create_div());
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Frame::create(AzString::from_const_str("G"), Dom::create_div())
+                .with_theme(UiTheme::Flora)
+                .theme,
+            set.theme
+        );
+    }
+
+    #[test]
+    fn a_flat_frames_rules_are_the_desktop_separator_at_night() {
+        let dom = frame(UiTheme::Flat);
+        assert_eq!(
+            edges(&theme_probe::dark(content(&dom))),
+            [Some(system_palette::SEPARATOR); 4]
+        );
+        assert_eq!(
+            last(&theme_probe::dark(before(&dom)), top_edge),
+            Some(system_palette::SEPARATOR)
+        );
+    }
+
+    #[test]
+    fn a_flora_frame_titles_its_group_with_flora_s_small_caps_label() {
+        let dom = frame(UiTheme::Flora);
+        let t = title(&dom);
+        let rest = theme_probe::unconditional(t);
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_SOFT1), "`.fl-label`: --fl-soft1");
+        assert!(
+            rest.iter().any(|p| matches!(p, CssProperty::FontWeight(_))),
+            "`.fl-label`: font-weight 700"
+        );
+        assert!(
+            rest.iter().any(|p| matches!(p, CssProperty::LetterSpacing(_))),
+            "`.fl-label`: tracked out"
+        );
+        assert_eq!(last(&theme_probe::dark(t), ink), Some(flora::DARK_SOFT1));
+    }
+
+    #[test]
+    fn a_flora_frame_draws_its_rules_in_flora_s_rule_colour_day_and_night() {
+        let dom = frame(UiTheme::Flora);
+        assert_eq!(
+            edges(&theme_probe::unconditional(content(&dom))),
+            [Some(flora::LIGHT_BD); 4]
+        );
+        assert_eq!(
+            edges(&theme_probe::dark(content(&dom))),
+            [Some(flora::DARK_BD); 4]
+        );
+        for (name, rule) in [("before", before(&dom)), ("after", after(&dom))] {
+            assert_eq!(
+                last(&theme_probe::unconditional(rule), top_edge),
+                Some(flora::LIGHT_BD),
+                "{name}"
+            );
+            assert_eq!(
+                last(&theme_probe::dark(rule), top_edge),
+                Some(flora::DARK_BD),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_frame_keeps_its_content_and_flex_grow() {
+        let dom = frame(UiTheme::Flora);
+        assert_eq!(content(&dom).children.as_ref().len(), 1);
+        assert_eq!(
+            theme_probe::unconditional(content(&dom)).first(),
+            Some(&CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+                LayoutFlexGrow {
+                    inner: FloatValue::new(1.0)
+                }
+            )))
+        );
+    }
+
+    #[test]
+    fn a_flora_frame_carries_the_flora_theme_marker() {
+        let dom = frame(UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-frame"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_frame_without_a_theme_follows_the_app_theme() {
+        let frame = || Frame::create(azul_css::AzString::from("Group"), Dom::create_div());
+        checks::assert_follows_the_app_theme(
+            "frame",
+            || frame().dom(),
+            |t: UiTheme| frame().with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_frame_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            for grow in [0.0_f32, 1.0] {
+                let dom = checks::under(theme, || {
+                    Frame::create(azul_css::AzString::from("Group"), Dom::create_div())
+                        .with_flex_grow(grow)
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("frame (flex-grow {grow}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
         }
     }
 }

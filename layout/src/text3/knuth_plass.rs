@@ -8,9 +8,9 @@ use hyphenation::{Hyphenator, Standard};
 use crate::text3::cache::Standard;
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_no_break_space, is_word_separator,
-    is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
-    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem, ShapedItem, TextAlign,
-    UnifiedConstraints, UnifiedLayout,
+    is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError,
+    LineConstraints, LineSegment, LoadedFonts, LogicalItem, OverflowInfo, ParsedFontTrait, Point,
+    PositionedItem, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -80,6 +80,10 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     hyphenator: Option<&Standard>,
     fonts: &LoadedFonts<T>,
+    // Whether `items` start the paragraph (the cursor was at its start): only
+    // then is line 0 the first formatted line `text-indent` indents (CSS Text
+    // 3 8.1). A continuation fragment of a flow chain starts mid-paragraph.
+    starts_paragraph: bool,
 ) -> UnifiedLayout {
     if items.is_empty() {
         return UnifiedLayout {
@@ -96,11 +100,16 @@ pub(crate) fn kp_layout<T: ParsedFontTrait>(
     let nodes = convert_items_to_nodes(items, hyphenator, fonts, constraints, base_direction);
 
     // Dynamic Programming to find optimal breakpoints
-    let breaks = find_optimal_breakpoints(&nodes, constraints);
+    let breaks = find_optimal_breakpoints(&nodes, constraints, starts_paragraph);
 
     // Use breakpoints to build and position the final lines
-    let final_layout: UnifiedLayout =
-        position_lines_from_breaks(&nodes, &breaks, logical_items, constraints);
+    let final_layout: UnifiedLayout = position_lines_from_breaks(
+        &nodes,
+        &breaks,
+        logical_items,
+        constraints,
+        starts_paragraph,
+    );
 
     final_layout
 }
@@ -359,7 +368,11 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 // merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[allow(clippy::cognitive_complexity)] // cohesive Knuth-Plass DP: one branch per break class
-fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
+fn find_optimal_breakpoints(
+    nodes: &[LayoutNode],
+    constraints: &UnifiedConstraints,
+    starts_paragraph: bool,
+) -> Vec<usize> {
     // For MinContent (intrinsic min-content sizing), CSS wants the width of the
     // widest unbreakable unit (word). Break at EVERY legal opportunity so each
     // word lands on its own line; the widest resulting line then equals the
@@ -391,20 +404,6 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         // MinContent is handled by the early return above; keep a large width as
         // a defensive fallback so this arm never breaks after every character.
         AvailableSpace::MinContent => f32::MAX / 2.0,
-    };
-
-    // (and lines after forced breaks when each-line is set). The hanging keyword would
-    // invert this, indenting all lines EXCEPT the first.
-    let text_indent = constraints.text_indent;
-    let first_line_width = if constraints.text_indent_hanging {
-        line_width
-    } else {
-        line_width - text_indent
-    };
-    let non_first_line_width = if constraints.text_indent_hanging {
-        line_width - text_indent
-    } else {
-        line_width
     };
 
     // Prefix sums for O(1) range queries (eliminates O(n³) inner loop).
@@ -478,13 +477,22 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
             let stretch = prefix_stretch[i + 1] - prefix_stretch[j];
             let shrink = prefix_shrink[i + 1] - prefix_shrink[j];
 
-            let effective_line_width = if breakpoints[j].line == 0 {
-                first_line_width
-            } else if constraints.text_indent_hanging {
-                non_first_line_width
-            } else {
-                line_width
-            };
+            // The line box is the width less the line's `text-indent` (CSS Text 3
+            // 8.1; `text_indent_of_line`, the greedy breaker's choice): the first
+            // line, with `each-line` also a line after a forced break (node j - 1
+            // is the forced penalty the previous line broke at), all inverted by
+            // `hanging`.
+            let after_forced_break = j > 0
+                && matches!(
+                    nodes.get(j - 1),
+                    Some(LayoutNode::Penalty { penalty, .. }) if *penalty <= -INFINITY_BADNESS
+                );
+            let effective_line_width = line_width
+                - crate::text3::cache::text_indent_of_line(
+                    constraints,
+                    starts_paragraph && breakpoints[j].line == 0,
+                    after_forced_break,
+                );
 
             // Calculate adjustment ratio. If the line is wider than the available width
             // but has no glue to shrink, it is an invalid candidate.
@@ -572,14 +580,21 @@ fn position_lines_from_breaks(
     breaks: &[usize],
     logical_items: &[LogicalItem],
     constraints: &UnifiedConstraints,
+    starts_paragraph: bool,
 ) -> UnifiedLayout {
     let mut positioned_items = Vec::new();
     let mut start_node = 0;
     let mut cross_axis_pen = 0.0;
     let base_direction = get_base_direction_from_logical(logical_items);
+    let mut is_after_forced_break = false;
     for (line_index, &end_node) in breaks.iter().enumerate() {
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
+        let line_indent = crate::text3::cache::text_indent_of_line(
+            constraints,
+            starts_paragraph && line_index == 0,
+            is_after_forced_break,
+        );
 
         // A Penalty's item (the synthesized hyphen) renders ONLY when the
         // line actually breaks at that penalty - i.e. for the LAST node of
@@ -619,6 +634,7 @@ fn position_lines_from_breaks(
                 n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
             )
         });
+        is_after_forced_break = ends_with_forced_break;
         let effective_align = super::cache::resolve_effective_alignment(
             constraints.text_align,
             constraints.text_align_last,
@@ -650,6 +666,23 @@ fn position_lines_from_breaks(
             AvailableSpace::MaxContent => line_width,
             AvailableSpace::MinContent => line_width,
         };
+        // The line box: `text-indent` is a margin on its start edge (CSS Text 3
+        // 8.1), so justify spreads over, and the alignment places the line in,
+        // what is left - the greedy path's `indent_line_box`.
+        let mut line_box = LineConstraints {
+            segments: vec![LineSegment {
+                start_x: 0.0,
+                width: available_width_f32,
+                priority: 0,
+            }],
+            total_available: available_width_f32,
+            is_min_content: false,
+        };
+        crate::text3::cache::indent_line_box(&mut line_box, line_indent, base_direction);
+        let (line_box_start, available_width_f32) = line_box
+            .segments
+            .first()
+            .map_or((0.0, available_width_f32), |s| (s.start_x, s.width));
 
         if should_justify {
             let space_to_add = available_width_f32 - line_width;
@@ -688,41 +721,21 @@ fn position_lines_from_breaks(
         };
 
         // +spec:writing-modes:155a06 - resolve start/end edges of line box per bidi direction
-        let physical_align = match (effective_align, base_direction) {
-            (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
-            (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
-            (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
-            (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
-            (other, _) => other,
-        };
+        let physical_align =
+            crate::text3::cache::physical_text_align(effective_align, base_direction);
 
         // +spec:display-contents:5a1b30 - overflowing lines are start-aligned (overflow off end
-        // edge)
-        let mut main_axis_pen = if remaining_space < 0.0 {
-            0.0
-        } else {
-            match physical_align {
-                TextAlign::Center => remaining_space / 2.0,
-                TextAlign::Right => remaining_space,
-                _ => 0.0,
-            }
-        };
-
+        // edge): the one rule of both line positioners (it was offset 0 here
+        // in a right-to-left line too, where the start edge is the right one).
         // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line
         // as usual +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
-        if constraints.text_indent != 0.0 {
-            // TODO: with text-indent-each-line, also detect lines after forced breaks in the KP
-            // path
-            let is_indent_target = line_index == 0;
-            let should_indent = if constraints.text_indent_hanging {
-                !is_indent_target
-            } else {
-                is_indent_target
-            };
-            if should_indent {
-                main_axis_pen += constraints.text_indent;
-            }
-        }
+        // (the indent is in `line_box_start` / the narrowed width, see above)
+        let mut main_axis_pen = line_box_start
+            + crate::text3::cache::line_alignment_offset(
+                physical_align,
+                remaining_space,
+                base_direction,
+            );
 
         for item in line_items {
             let item_advance = get_item_measure(&item, false);
@@ -844,7 +857,7 @@ mod kp_fix_tests {
             available_width: AvailableSpace::Definite(60.0),
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert!(
             breaks.len() >= 2,
             "must break into >=2 lines, got {breaks:?}"
@@ -880,7 +893,7 @@ mod kp_fix_tests {
             available_width: AvailableSpace::Definite(60.0),
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert!(
             breaks.len() >= 2,
             "hyphenated token must wrap, got {breaks:?}"
@@ -895,7 +908,7 @@ mod kp_fix_tests {
             available_width: AvailableSpace::MinContent,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         // there must be a break after the first word's trailing space penalty,
         // i.e. more than one break -> not a single spanning line.
         assert!(
@@ -912,8 +925,8 @@ mod kp_fix_tests {
             available_width: AvailableSpace::Definite(60.0),
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         // The line-terminating space must not be positioned on line 0.
         let line0_spaces = layout
             .items
@@ -1241,7 +1254,7 @@ mod autotest_generated {
         };
         assert_eq!(zwsp, (true, 0.0, 0.0));
         // ...and it really is a break opportunity at a narrow width.
-        let breaks = find_optimal_breakpoints(&nodes, &definite(12.0));
+        let breaks = find_optimal_breakpoints(&nodes, &definite(12.0), true);
         assert_breaks_well_formed(&nodes, &breaks, "zwsp");
     }
 
@@ -1352,7 +1365,7 @@ mod autotest_generated {
             3,
             "two CJK inter-character opportunities plus the terminal break"
         );
-        let breaks = find_optimal_breakpoints(&nodes, &definite(20.0));
+        let breaks = find_optimal_breakpoints(&nodes, &definite(20.0), true);
         assert_breaks_well_formed(&nodes, &breaks, "cjk");
         // And the run actually wraps at 20px now.
         assert!(breaks.len() >= 2, "the CJK run must wrap: {breaks:?}");
@@ -1380,7 +1393,7 @@ mod autotest_generated {
                 .count(),
             items.len()
         );
-        let layout = kp_layout(&items, &[], &definite(30.0), None, &no_fonts());
+        let layout = kp_layout(&items, &[], &definite(30.0), None, &no_fonts(), true);
         assert_eq!(
             layout.items.len(),
             items.len(),
@@ -1394,8 +1407,8 @@ mod autotest_generated {
 
     #[test]
     fn breakpoints_of_an_empty_paragraph_are_empty() {
-        assert!(find_optimal_breakpoints(&[], &definite(100.0)).is_empty());
-        assert!(find_optimal_breakpoints(&[], &UnifiedConstraints::default()).is_empty());
+        assert!(find_optimal_breakpoints(&[], &definite(100.0), true).is_empty());
+        assert!(find_optimal_breakpoints(&[], &UnifiedConstraints::default(), true).is_empty());
     }
 
     #[test]
@@ -1410,6 +1423,7 @@ mod autotest_generated {
                 available_width: AvailableSpace::MinContent,
                 ..Default::default()
             },
+            true,
         );
         assert_breaks_well_formed(&[], &breaks, "empty min-content");
         let layout = position_lines_from_breaks(
@@ -1420,6 +1434,7 @@ mod autotest_generated {
                 available_width: AvailableSpace::MinContent,
                 ..Default::default()
             },
+            true,
         );
         assert!(layout.items.is_empty());
     }
@@ -1445,10 +1460,10 @@ mod autotest_generated {
                 available_width: w,
                 ..Default::default()
             };
-            let breaks = find_optimal_breakpoints(&nodes, &c);
+            let breaks = find_optimal_breakpoints(&nodes, &c, true);
             assert_breaks_well_formed(&nodes, &breaks, &format!("{w:?}"));
             // The positioner must survive whatever the DP produced.
-            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
             assert!(
                 layout.items.len() <= nodes.len(),
                 "{w:?}: cannot position more items than there are nodes"
@@ -1461,7 +1476,7 @@ mod autotest_generated {
         // Knuth-Plass may only break at a Penalty: `breaks[k]` is the index one
         // past the last node of a line, so nodes[breaks[k] - 1] must be one.
         let nodes = nodes_for("aa bb cccc");
-        let breaks = find_optimal_breakpoints(&nodes, &definite(60.0));
+        let breaks = find_optimal_breakpoints(&nodes, &definite(60.0), true);
         assert!(breaks.len() >= 2, "must wrap at 60px, got {breaks:?}");
         for &b in &breaks {
             assert!(
@@ -1482,11 +1497,11 @@ mod autotest_generated {
         ];
         let nodes = nodes_of(&items);
         let c = definite(50.0);
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert_breaks_well_formed(&nodes, &breaks, "NaN advances");
         // Positioning NaN geometry may yield NaN coordinates, but must not panic
         // and must not lose content.
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(
             layout
                 .items
@@ -1502,9 +1517,9 @@ mod autotest_generated {
         let items = vec![cl("a", f32::INFINITY)];
         let nodes = nodes_of(&items);
         let c = definite(100.0);
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert_breaks_well_formed(&nodes, &breaks, "infinite advance");
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(layout.items.len(), 1);
         // Overflowing lines are start-aligned, so the pen never moves off zero.
         assert_eq!(layout.items[0].position.x, 0.0);
@@ -1521,9 +1536,9 @@ mod autotest_generated {
                     text_indent_hanging: hanging,
                     ..Default::default()
                 };
-                let breaks = find_optimal_breakpoints(&nodes, &c);
+                let breaks = find_optimal_breakpoints(&nodes, &c, true);
                 assert_breaks_well_formed(&nodes, &breaks, &format!("indent {indent}"));
-                let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+                let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
                 assert!(layout.items.len() <= nodes.len());
             }
         }
@@ -1535,9 +1550,9 @@ mod autotest_generated {
         // every line overflows, but nothing may be dropped.
         let nodes = nodes_for("aa bb");
         let c = definite(0.0);
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert_breaks_well_formed(&nodes, &breaks, "zero width");
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         let letters = layout
             .items
             .iter()
@@ -1553,7 +1568,7 @@ mod autotest_generated {
             available_width: AvailableSpace::MinContent,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert_breaks_well_formed(&nodes, &breaks, "min-content");
         // One break per Penalty node (the terminal penalty's break IS nodes.len()).
         assert_eq!(breaks.len(), penalty_count(&nodes));
@@ -1569,7 +1584,7 @@ mod autotest_generated {
             available_width: AvailableSpace::MaxContent,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
         assert_eq!(
             breaks,
             vec![nodes.len()],
@@ -1584,7 +1599,7 @@ mod autotest_generated {
             available_width: AvailableSpace::MaxContent,
             ..Default::default()
         };
-        let layout = kp_layout(&items, &[], &c, None, &no_fonts());
+        let layout = kp_layout(&items, &[], &c, None, &no_fonts(), true);
         assert_eq!(line_count(&layout), 2, "a Break must force a second line");
         assert_eq!(line_text(&layout, 0), "a");
         assert_eq!(line_text(&layout, 1), "b");
@@ -1598,7 +1613,7 @@ mod autotest_generated {
         let items: Vec<ShapedItem> = (0..400).map(|_| cl("\u{200B}", 0.0)).collect();
         let nodes = nodes_of(&items);
         assert_eq!(penalty_count(&nodes), nodes.len());
-        let breaks = find_optimal_breakpoints(&nodes, &definite(100.0));
+        let breaks = find_optimal_breakpoints(&nodes, &definite(100.0), true);
         assert_breaks_well_formed(&nodes, &breaks, "all-penalty");
     }
 
@@ -1606,7 +1621,7 @@ mod autotest_generated {
     fn large_paragraph_keeps_every_glyph() {
         let text = "aaa ".repeat(300);
         let items = items_of(&text);
-        let layout = kp_layout(&items, &[], &definite(100.0), None, &no_fonts());
+        let layout = kp_layout(&items, &[], &definite(100.0), None, &no_fonts(), true);
         let letters = layout
             .items
             .iter()
@@ -1637,7 +1652,7 @@ mod autotest_generated {
         // reusing the badness constant as the sentinel.
         let text = "aaa ".repeat(8); // 8 words, 36px each + 5px spaces
         let items = items_of(&text);
-        let layout = kp_layout(&items, &[], &definite(100.0), None, &no_fonts());
+        let layout = kp_layout(&items, &[], &definite(100.0), None, &no_fonts(), true);
         let lines = line_count(&layout);
         assert!(
             lines >= 4,
@@ -1660,7 +1675,7 @@ mod autotest_generated {
     #[test]
     fn position_with_no_breaks_yields_an_empty_layout() {
         let nodes = nodes_for("ab");
-        let layout = position_lines_from_breaks(&nodes, &[], &[], &definite(100.0));
+        let layout = position_lines_from_breaks(&nodes, &[], &[], &definite(100.0), true);
         assert!(layout.items.is_empty());
         assert_eq!(layout.overflow.unclipped_bounds.width, 0.0);
     }
@@ -1670,7 +1685,7 @@ mod autotest_generated {
         // A degenerate empty line (start == end) must not panic or shift content.
         let nodes = nodes_for("aa bb cccc");
         let n = nodes.len();
-        let layout = position_lines_from_breaks(&nodes, &[8, 8, n], &[], &definite(100.0));
+        let layout = position_lines_from_breaks(&nodes, &[8, 8, n], &[], &definite(100.0), true);
         assert_eq!(line_text(&layout, 0), "aa bb");
         assert_eq!(line_text(&layout, 1), "", "the empty line holds nothing");
         assert_eq!(line_text(&layout, 2), "cccc");
@@ -1684,8 +1699,8 @@ mod autotest_generated {
             line_height: LineHeight::Px(20.0),
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(c.resolved_line_height(), 20.0);
         for it in &layout.items {
             assert_eq!(
@@ -1702,8 +1717,8 @@ mod autotest_generated {
     fn left_aligned_pen_starts_at_zero_and_never_moves_backwards() {
         let nodes = nodes_for("aa bb cccc");
         let c = definite(60.0);
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         for line in 0..line_count(&layout) {
             let xs: Vec<f32> = layout
                 .items
@@ -1735,8 +1750,8 @@ mod autotest_generated {
                 text_align: align,
                 ..Default::default()
             };
-            let breaks = find_optimal_breakpoints(&nodes, &c);
-            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+            let breaks = find_optimal_breakpoints(&nodes, &c, true);
+            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
             assert_eq!(
                 line_left(&layout, 0),
                 expected_left,
@@ -1757,8 +1772,8 @@ mod autotest_generated {
                 text_align: align,
                 ..Default::default()
             };
-            let breaks = find_optimal_breakpoints(&nodes, &c);
-            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+            let breaks = find_optimal_breakpoints(&nodes, &c, true);
+            let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
             assert_eq!(
                 line_left(&layout, 0),
                 0.0,
@@ -1781,18 +1796,21 @@ mod autotest_generated {
             text_align: TextAlign::End,
             ..c_start.clone()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c_start);
+        let breaks = find_optimal_breakpoints(&nodes, &c_start, true);
 
         // LTR paragraph: start = left, end = right.
         assert_eq!(
             line_left(
-                &position_lines_from_breaks(&nodes, &breaks, &[], &c_start),
+                &position_lines_from_breaks(&nodes, &breaks, &[], &c_start, true),
                 0
             ),
             0.0
         );
         assert_eq!(
-            line_left(&position_lines_from_breaks(&nodes, &breaks, &[], &c_end), 0),
+            line_left(
+                &position_lines_from_breaks(&nodes, &breaks, &[], &c_end, true),
+                0
+            ),
             64.0
         );
 
@@ -1801,14 +1819,14 @@ mod autotest_generated {
         assert_eq!(get_base_direction_from_logical(&rtl), BidiDirection::Rtl);
         assert_eq!(
             line_left(
-                &position_lines_from_breaks(&nodes, &breaks, &rtl, &c_start),
+                &position_lines_from_breaks(&nodes, &breaks, &rtl, &c_start, true),
                 0
             ),
             64.0
         );
         assert_eq!(
             line_left(
-                &position_lines_from_breaks(&nodes, &breaks, &rtl, &c_end),
+                &position_lines_from_breaks(&nodes, &breaks, &rtl, &c_end, true),
                 0
             ),
             0.0
@@ -1827,8 +1845,8 @@ mod autotest_generated {
             text_justify: JustifyContent::InterWord,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
         assert_eq!(line_text(&layout, 0), "aa bb");
         assert_eq!(line_text(&layout, 1), "cccc");
@@ -1933,8 +1951,8 @@ mod autotest_generated {
             text_justify: JustifyContent::InterWord,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
         assert_eq!(
             line_right(&layout, 0),
@@ -1981,8 +1999,8 @@ mod autotest_generated {
             available_width: AvailableSpace::Definite(120.0),
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(line_count(&layout), 1, "everything fits: breaks {breaks:?}");
         let text = line_text(&layout, 0);
         assert!(
@@ -2007,8 +2025,8 @@ mod autotest_generated {
             text_justify: JustifyContent::InterWord,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert!(!layout.items.is_empty());
         for it in &layout.items {
             assert!(
@@ -2032,11 +2050,43 @@ mod autotest_generated {
             text_indent: 10.0,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
         assert_eq!(line_left(&layout, 0), 10.0, "first line is indented");
         assert_eq!(line_left(&layout, 1), 0.0, "later lines are not");
+    }
+
+    /// `text-wrap: balance` through `perform_fragment_layout`, the engine's
+    /// entry: `items` from the cursor position `start` on.
+    fn balanced_fragment(items: &[ShapedItem], start: usize) -> UnifiedLayout {
+        let mut cursor = crate::text3::cache::BreakCursor::new(items);
+        cursor.next_item_index = start;
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(80.0),
+            text_indent: 10.0,
+            text_wrap: crate::text3::cache::TextWrap::Balance,
+            ..Default::default()
+        };
+        crate::text3::cache::perform_fragment_layout(&mut cursor, &[], &c, &mut None, &no_fonts())
+            .expect("the fragment lays out")
+    }
+
+    #[test]
+    fn a_balanced_continuation_fragment_is_not_indented() {
+        // A flow chain: an earlier fragment took "aa " (3 items), so this
+        // one starts mid-paragraph and holds no first formatted line (CSS
+        // Text 3 8.1) - the greedy breaker reads that from the cursor. "bb
+        // cccc" (77px) fits the 80px line unindented; it was indented by
+        // 10px (and wrapped).
+        let items = items_of("aa bb cccc");
+        let layout = balanced_fragment(&items, 3);
+        assert_eq!(line_count(&layout), 1, "one 77px line in 80px");
+        assert_eq!(line_left(&layout, 0), 0.0, "a continuation is not indented");
+
+        // From the paragraph's start the first line is indented (a pin).
+        let layout = balanced_fragment(&items, 0);
+        assert_eq!(line_left(&layout, 0), 10.0, "the first formatted line is");
     }
 
     #[test]
@@ -2048,8 +2098,8 @@ mod autotest_generated {
             text_indent_hanging: true,
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert_eq!(line_count(&layout), 2, "breaks: {breaks:?}");
         assert_eq!(line_left(&layout, 0), 0.0, "hanging: first line is flush");
         assert_eq!(line_left(&layout, 1), 10.0, "hanging: later lines indent");
@@ -2061,8 +2111,8 @@ mod autotest_generated {
         // and are not justification opportunities.
         let nodes = nodes_for("aaaa aaaa aaaa");
         let c = definite(60.0);
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         assert!(line_count(&layout) >= 2, "breaks: {breaks:?}");
         for line in 0..line_count(&layout) {
             let text = line_text(&layout, line);
@@ -2082,8 +2132,8 @@ mod autotest_generated {
             line_height: LineHeight::Px(20.0),
             ..Default::default()
         };
-        let breaks = find_optimal_breakpoints(&nodes, &c);
-        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
+        let breaks = find_optimal_breakpoints(&nodes, &c, true);
+        let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c, true);
         let b = layout.overflow.unclipped_bounds;
         assert!(
             layout.overflow.overflow_items.is_empty(),
@@ -2105,7 +2155,7 @@ mod autotest_generated {
 
     #[test]
     fn kp_layout_of_an_empty_paragraph_is_empty() {
-        let layout = kp_layout(&[], &[], &definite(100.0), None, &no_fonts());
+        let layout = kp_layout(&[], &[], &definite(100.0), None, &no_fonts(), true);
         assert!(layout.items.is_empty());
         assert!(layout.overflow.overflow_items.is_empty());
         assert_eq!(layout.overflow.unclipped_bounds.width, 0.0);
@@ -2115,7 +2165,7 @@ mod autotest_generated {
     #[test]
     fn kp_layout_round_trips_the_paragraph_text_minus_hanging_spaces() {
         let items = items_of("aa bb cccc");
-        let layout = kp_layout(&items, &[], &definite(60.0), None, &no_fonts());
+        let layout = kp_layout(&items, &[], &definite(60.0), None, &no_fonts(), true);
         let round_tripped: String = (0..line_count(&layout))
             .map(|l| line_text(&layout, l))
             .collect::<Vec<_>>()
@@ -2164,7 +2214,7 @@ mod autotest_generated {
         ];
         for items in &inputs {
             for c in &constraints {
-                let layout = kp_layout(items, &[], c, None, &no_fonts());
+                let layout = kp_layout(items, &[], c, None, &no_fonts(), true);
                 assert!(
                     layout.items.len() <= items.len() + 2,
                     "no item may be duplicated: {} positioned from {} shaped",

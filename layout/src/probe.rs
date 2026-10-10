@@ -63,13 +63,14 @@ mod imp {
     /// A 5 s resize drag alone is ~375 relayouts × hundreds of spans.
     ///
     /// 0 = uninitialized (resolve from `AZ_PROFILE` on first probe),
-    /// 1 = recording, 2 = off.
+    /// 1 = recording (asked for by `AZ_PROFILE`), 2 = off, 3 = recording
+    /// for a caller that drains the buffer itself (`set_recording(true)`).
     static RECORDING: AtomicU8 = AtomicU8::new(0);
 
     #[inline]
     fn recording() -> bool {
         match RECORDING.load(Ordering::Relaxed) {
-            1 => true,
+            1 | 3 => true,
             2 => false,
             _ => {
                 // First probe anywhere resolves the mode once. Any profile
@@ -86,7 +87,11 @@ mod imp {
     }
 
     pub(super) fn set_recording(on: bool) {
-        RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+        RECORDING.store(if on { 3 } else { 2 }, Ordering::Relaxed);
+    }
+
+    pub(super) fn drained_by_its_caller() -> bool {
+        RECORDING.load(Ordering::Relaxed) == 3
     }
 
     /// RAII guard that records its name + elapsed nanos on drop.
@@ -446,6 +451,11 @@ mod imp {
     pub(super) const fn set_recording(_on: bool) {}
 
     #[inline]
+    pub(super) const fn drained_by_its_caller() -> bool {
+        false
+    }
+
+    #[inline]
     pub(super) const fn sample_rss(_label: &'static str, _bytes: u64) {}
 
     #[inline]
@@ -520,11 +530,28 @@ impl Probe {
     /// resolution. Tests use this (they assert on drained events without
     /// setting env vars); a debug server could too. Flipping mid-span only
     /// perturbs the saturating depth counter, never memory safety.
+    ///
+    /// Switching it ON says the caller drains the buffer itself (a test, the
+    /// telemetry bridge): see [`Probe::drained_by_its_caller`].
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
     pub fn set_recording(on: bool) {
         imp::set_recording(on);
+    }
+
+    /// Whether recording is on because a caller switched it on
+    /// ([`Probe::set_recording`]) and drains the buffer itself - not because
+    /// `AZ_PROFILE` asked for it. A layout pass with no CPU report empties the
+    /// buffer at its end (nothing else would, with `AZ_PROFILE=memory`); it
+    /// must leave it to such a caller, whose spans it would otherwise throw
+    /// away before the caller can read them.
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    #[must_use]
+    pub fn drained_by_its_caller() -> bool {
+        imp::drained_by_its_caller()
     }
 
     /// Record an RSS checkpoint with the given label + byte count. The

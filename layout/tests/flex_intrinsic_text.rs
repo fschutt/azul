@@ -1440,18 +1440,21 @@ fn logical_overflow_properties_map_onto_physical_axes() {
 /// CSS Inline 3 §6: text-box-edge selects the metric text-box-trim cuts to.
 /// `cap alphabetic` must trim MORE than the default text edges: the over
 /// side additionally removes (ascent - cap-height), the under side the full
-/// descent. With font-size 20 / line-height 30 and the strut approximations
-/// (ascent .8em, cap .7em, descent .2em): text-edge trim-both removes
-/// 2 x 5px of half-leading; cap/alphabetic removes 10 + (16-14) + 4 = 16px.
+/// descent. The strut takes its ascent and descent from the container's
+/// first available font, so the arithmetic needs a font with known ones:
+/// `Azul Mock Mono` (ascent .8em, descent .2em; cap-height is still the
+/// .7em approximation). With font-size 20 / line-height 30: text-edge
+/// trim-both removes 2 x 5px of half-leading; cap/alphabetic removes
+/// 10 + (16-14) + 4 = 16px.
 #[test]
 fn text_box_edge_cap_alphabetic_trims_to_the_metrics() {
     const CSS_TEXT: &str = r#"
         body { display: flex; flex-direction: column; }
-        .t { font-size: 20px; line-height: 30px; text-box: trim-both text; }
+        .t { font-family: "Azul Mock Mono"; font-size: 20px; line-height: 30px; text-box: trim-both text; }
     "#;
     const CSS_CAP: &str = r#"
         body { display: flex; flex-direction: column; }
-        .t { font-size: 20px; line-height: 30px; text-box: trim-both cap alphabetic; }
+        .t { font-family: "Azul Mock Mono"; font-size: 20px; line-height: 30px; text-box: trim-both cap alphabetic; }
     "#;
     let build = || {
         Dom::create_body().with_child(
@@ -1644,9 +1647,14 @@ fn border_collapse_collapse_suppresses_border_spacing() {
 }
 
 /// Table-cell padding must surround the cell text symmetrically: with
-/// `padding: 8px` the text fragment starts 8px below the cell top (chrome
-/// centers it naturally; azul painted the text hugging the cell bottom in
-/// table-basic-001).
+/// `padding: 8px` the text starts 8px below the cell top - its first line
+/// sits exactly as far below the cell's top as below the top of a block
+/// with the same padding (chrome centers it naturally; azul painted the text
+/// hugging the cell bottom in table-basic-001).
+///
+/// Measured on the painted glyphs: a cell of loose text is ONE inline
+/// formatting context, and its text node has no box of its own - an inline
+/// text node's lines are its IFC root's, as a paragraph's are.
 #[test]
 fn table_cell_padding_offsets_text_from_the_cell_top() {
     const CSS: &str = r#"
@@ -1655,7 +1663,9 @@ fn table_cell_padding_offsets_text_from_the_cell_top() {
         .tbl { display: table; border-collapse: collapse; }
         .row { display: table-row; }
         .c { display: table-cell; padding: 8px; }
+        .blk { padding: 8px; }
     "#;
+    // body(0) > .tbl(1) > .row(2) > .c(3) > "Red 1"(4)
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(class("tbl"))
@@ -1673,13 +1683,45 @@ fn table_cell_padding_offsets_text_from_the_cell_top() {
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let cell = lw.get_node_layout_rect(node_id(3)).expect("cell");
-    let text = lw.get_node_layout_rect(node_id(4)).expect("text");
-    let top_inset = text.origin.y - cell.origin.y;
+    let in_cell = topmost_glyph_baseline(&lw) - cell.origin.y;
+
+    // body(0) > .blk(1) > "Red 1"(2): the same text under the same padding.
+    let reference = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_ids_and_classes(class("blk"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "Red 1",
+            )),
+    );
+    let lw_ref = layout_dom(reference, CSS, 800.0, 600.0);
+    let block = lw_ref.get_node_layout_rect(node_id(1)).expect("block");
+    let in_block = topmost_glyph_baseline(&lw_ref) - block.origin.y;
+
     assert!(
-        (top_inset - 8.0).abs() < 1.5,
-        "text must start ~8px below the cell top (padding), got {top_inset}px (cell h {})",
+        (in_cell - in_block).abs() < 1.5,
+        "the text's first baseline must sit as far below the cell top as below a block's \
+         with the same 8px padding: {in_cell}px in the cell, {in_block}px in the block (cell h \
+         {})",
         cell.size.height
     );
+}
+
+/// The topmost glyph pen `y` (a baseline) painted in the root DOM.
+fn topmost_glyph_baseline(lw: &LayoutWindow) -> f32 {
+    use azul_layout::solver3::display_list::DisplayListItem;
+    lw.get_layout_result(&DomId::ROOT_ID)
+        .expect("layout result")
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text { glyphs, .. } => {
+                glyphs.iter().map(|g| g.point.y).reduce(f32::min)
+            }
+            _ => None,
+        })
+        .reduce(f32::min)
+        .expect("no glyphs painted")
 }
 
 /// Collapsed-border painting must cover header rows too: the resolved
@@ -1845,9 +1887,9 @@ fn real_table_cells_center_their_text_vertically() {
          EVERY alignment gives ~0), got y_offset={y}"
     );
 
-    // End-to-end glyph check: the white header glyphs must start ~2px
-    // (border) + 10px (padding) + a small cap-vs-ascent gap below the cell
-    // top, like Chrome. The regression painted them ~9px lower.
+    // End-to-end glyph check: the white header glyphs' baseline sits the
+    // cell's top border + 10px (padding) + an ascent below the cell top,
+    // like Chrome. The regression painted them ~9px lower.
     use azul_layout::solver3::display_list::DisplayListItem;
     let th_rect = lw_rect_of(&layout_window, 4);
     let result = layout_window
@@ -1865,8 +1907,13 @@ fn real_table_cells_center_their_text_vertically() {
         }
     }
     let baseline_y = glyph_min_y.expect("no white glyphs in the display list");
-    // baseline sits at border(2) + padding(10) + ascent(~15.2 at 14px)
-    let expected = th_rect.origin.y + 2.0 + 10.0 + 15.2;
+    // The cell's top border is HALF of the collapsed 2px edge (CSS 2.2
+    // 17.6.2: the other half is the table's border, above the cell top -
+    // the cell starts at y=1), then 10px of padding, then the first line's
+    // baseline: an ascent plus the half-leading of `line-height: normal`,
+    // ~0.91 em at 14px for the default serif face (Times: 0.89 em ascent;
+    // DejaVu Serif 0.93 em).
+    let expected = th_rect.origin.y + 1.0 + 10.0 + 12.8;
     assert!(
         (baseline_y - expected).abs() < 3.0,
         "header glyph baseline must sit at the padding-box top plus the ascent ({expected:.1}), \

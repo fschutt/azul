@@ -1,0 +1,15 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Border-spacing: cell spanning multiple columns</title>
+<meta name="assert" content="The cell spans 3 columns and 2 gutters, each 20px wide.&#10;  The contents of the cell should be able to use the entire 100px, not just the 60px&#10;  of the columns."/>
+</head>
+<body><p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+<table cellpadding="0" style="border-spacing: 20px; margin: -20px">
+  <tbody><tr>
+    <td colspan="3" style="width: 100px; background: red">
+      <div style="height: 100px; background: green"></div>
+    </td>
+  </tr>
+</tbody></table>
+</body>
+</html>

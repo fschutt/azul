@@ -103,9 +103,9 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::{
-    codegen::format::GetHash,
     corety::LayoutDebugMessage,
     css::CssPropertyValue,
+    hash::GetHash,
     props::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
@@ -224,10 +224,14 @@ pub struct InlineItemMetrics {
 /// nothing.
 #[derive(Debug, Clone)]
 pub struct CachedInlineContent {
-    /// The collected inline content (text runs, atomics, markers).
-    pub content: Vec<crate::text3::cache::InlineContent>,
+    /// The collected inline content (text runs, atomics, markers). Shared:
+    /// every visit of the IFC that reuses the collection takes it, and a
+    /// deep clone per visit (flex probes visit each IFC several times) was
+    /// a share of a 300-contact list's layout.
+    pub content: Arc<Vec<crate::text3::cache::InlineContent>>,
     /// `ContentIndex` -> child layout-node index, as collection built it.
-    pub child_map: std::collections::HashMap<crate::text3::cache::ContentIndex, usize>,
+    pub child_map:
+        Arc<std::collections::HashMap<crate::text3::cache::ContentIndex, usize>>,
     /// Validity key: the fingerprints of the IFC root and its descendants,
     /// folded in tree order. Anything that changes text, style or structure
     /// changes a fingerprint, so an equal key means an identical collection.
@@ -241,6 +245,15 @@ pub struct CachedInlineContent {
     /// collection in the first place). Visits now fold only the seven
     /// constraint-level container properties on top of this base.
     pub content_hash_base: u64,
+    /// What the collection's atomic inlines (`InlineShape`s) were measured
+    /// against: the IFC root's content box and its width type
+    /// (`fc::atomic_inline_containing_block`). `None` when it holds none.
+    ///
+    /// The subtree fingerprint does not see it: a viewport resize keeps the
+    /// tree, and with it a `width: 25%` image's measurement from the old
+    /// width. A collection with atomics is reused only against the same box.
+    pub atomics_measured_against:
+        Option<(LogicalSize, AvailableSpace)>,
 }
 
 /// 3. **Final layout**: width = `Definite(actual_column_width)`
@@ -686,7 +699,7 @@ impl CachedInlineLayout {
         let Some(from_dense) = extract_item_metrics_dense(d, layout.items.len()) else {
             return Self::extract_item_metrics(layout);
         };
-        let verify = std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify");
+        let verify = env_flag!("AZ_DENSE_TEXT" == "verify");
         if verify {
             let reference = Self::extract_item_metrics(layout);
             assert_eq!(
@@ -1412,6 +1425,47 @@ impl Iterator for AncestorChain<'_> {
     }
 }
 
+#[cfg(test)]
+impl LayoutTree {
+    /// One unsized box per DOM node of `styled_dom` at layout index = node
+    /// index, parented like the DOM: the STRUCTURE a
+    /// `solver3::scroll_chain::ScrollChain` walks, for unit fixtures that
+    /// need no real layout (no font, no geometry - every `used_size` is
+    /// `None`, no warm or cold data).
+    pub(crate) fn mirroring_dom(styled_dom: &StyledDom) -> Self {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let count = styled_dom.node_data.as_container().len();
+        let mut dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>> = BTreeMap::new();
+        let mut nodes: Vec<LayoutNodeHot> = Vec::with_capacity(count);
+        for i in 0..count {
+            let node = NodeId::new(i);
+            dom_to_layout.insert(node, vec![LayoutNodeId::new(i)]);
+            nodes.push(LayoutNodeHot {
+                box_props: crate::solver3::geometry::PackedBoxProps::default(),
+                dom_node_id: Some(node),
+                used_size: None,
+                formatting_context: FormattingContext::Block {
+                    establishes_new_context: false,
+                },
+                parent: hierarchy
+                    .get(node)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                    .map(|p| p.index()),
+            });
+        }
+        Self {
+            nodes,
+            warm: Vec::new(),
+            cold: Vec::new(),
+            root: 0,
+            dom_to_layout,
+            children_arena: Vec::new(),
+            children_offsets: Vec::new(),
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+}
+
 impl LayoutTree {
     /// Approximate heap bytes retained by this `LayoutTree`.
     #[must_use]
@@ -1813,6 +1867,27 @@ impl LayoutTree {
     }
 
     #[must_use]
+    /// The node's CACHED inline layout - both representations - walking IFC
+    /// membership exactly as [`Self::get_inline_layout_for_node`] does.
+    ///
+    /// That sibling hands back only the SPARSE `UnifiedLayout`, which under
+    /// the default dense path is the shared empty retirement sentinel. A
+    /// caller that needs actual clusters has to materialise from the dense
+    /// side, and it cannot do that without the cache entry itself.
+    pub fn get_cached_inline_layout_for_node(
+        &self,
+        layout_index: usize,
+    ) -> Option<&CachedInlineLayout> {
+        let warm = self.warm.get(layout_index)?;
+        if let Some(cached) = &warm.inline_layout_result {
+            return Some(cached);
+        }
+        let ifc_membership = warm.ifc_membership.as_ref()?;
+        let ifc_root_warm = self.warm.get(ifc_membership.ifc_root_layout_index)?;
+        ifc_root_warm.inline_layout_result.as_deref()
+    }
+
+    #[must_use]
     pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
         let warm = self.warm.get(layout_index)?;
 
@@ -1873,6 +1948,138 @@ impl LayoutTree {
         layout_index
     }
 
+    /// The IFC root whose inline layout holds `layout_index`'s content - THE
+    /// ownership rule every text-block resolution goes through
+    /// ([`Self::text_block_at`], `LayoutWindow::text_block_of`):
+    ///
+    /// - the node itself, when it owns an inline layout (a paragraph, a list item, an
+    ///   `inline-block`, an anonymous block box);
+    /// - else its recorded IFC membership (a text node the root collected directly);
+    /// - else, for an INLINE-level box (text under a `<span>`, the `<b>` itself), the nearest
+    ///   layout ancestor that owns an inline layout. The walk only passes through inline-level
+    ///   boxes: a block, an inline-block or a flex item is never part of an ancestor's inline
+    ///   content, so it answers `None` instead of borrowing the ancestor's.
+    ///
+    /// `None` also for a block container that owns no inline layout of its own -
+    /// an editing host whose text sits in paragraphs - and for anything outside
+    /// an IFC.
+    #[must_use]
+    pub fn owning_ifc_root(&self, layout_index: usize) -> Option<usize> {
+        let owns_ifc = |i: usize| {
+            self.warm
+                .get(i)
+                .is_some_and(|w| w.inline_layout_result.is_some())
+        };
+        if owns_ifc(layout_index) {
+            return Some(layout_index);
+        }
+        let member_of = self
+            .warm
+            .get(layout_index)
+            .and_then(|w| w.ifc_membership.as_ref())
+            .map(|m| m.ifc_root_layout_index);
+        if let Some(root) = member_of.filter(|&root| owns_ifc(root)) {
+            return Some(root);
+        }
+        let mut cursor = layout_index;
+        for _ in 0..IFC_ANCESTOR_WALK_LIMIT {
+            let node = self.nodes.get(cursor)?;
+            if !matches!(node.formatting_context, FormattingContext::Inline) {
+                return None;
+            }
+            let parent = node.parent?;
+            if owns_ifc(parent) {
+                return Some(parent);
+            }
+            cursor = parent;
+        }
+        None
+    }
+
+    /// How the text block whose IFC root is at `ifc_root` is NAMED: its
+    /// element, or - for an anonymous block box, which has none - the element
+    /// holding it and the first DOM node inside it. `None` when `ifc_root`
+    /// owns no inline layout, or is a pseudo-element's box.
+    #[must_use]
+    pub fn text_block_key_at(&self, ifc_root: usize) -> Option<azul_core::selection::TextBlockKey> {
+        use azul_core::selection::TextBlockKey;
+
+        let warm = self.warm.get(ifc_root)?;
+        if warm.inline_layout_result.is_none() || warm.pseudo_element.is_some() {
+            return None;
+        }
+        if let Some(element) = self.nodes.get(ifc_root)?.dom_node_id {
+            return Some(TextBlockKey::Element(element));
+        }
+        let parent = self
+            .ancestor_chain(LayoutNodeId::new(ifc_root), Inclusivity::AncestorsOnly)
+            .find_map(|i| self.nodes.get(i.index()).and_then(|n| n.dom_node_id))?;
+        let first_child = self.first_dom_node_below(ifc_root)?;
+        Some(TextBlockKey::Anonymous {
+            parent,
+            first_child,
+        })
+    }
+
+    /// THE place a [`TextBlock`](azul_core::selection::TextBlock) is minted:
+    /// the text block of `dom` whose IFC root is at `ifc_root`
+    /// ([`Self::text_block_key_at`]).
+    #[must_use]
+    pub fn text_block_at(
+        &self,
+        dom: azul_core::dom::DomId,
+        ifc_root: usize,
+    ) -> Option<azul_core::selection::TextBlock> {
+        self.text_block_key_at(ifc_root)
+            .map(|key| azul_core::selection::TextBlock::from_resolved(dom, key))
+    }
+
+    /// The layout index of the IFC root of the text block named `key` - the
+    /// inverse of [`Self::text_block_key_at`]. `None` when this tree has no
+    /// such block (it was unmounted, or is not laid out yet).
+    #[must_use]
+    pub fn text_block_root(&self, key: azul_core::selection::TextBlockKey) -> Option<usize> {
+        use azul_core::selection::TextBlockKey;
+
+        match key {
+            TextBlockKey::Element(element) => self
+                .dom_to_layout
+                .get(&element)?
+                .iter()
+                .map(|idx| idx.index())
+                .find(|&idx| self.text_block_key_at(idx) == Some(key)),
+            // The first node of an anonymous block's run is a DIRECT child of
+            // the block's box: the run's nodes are what the box was built from.
+            TextBlockKey::Anonymous { first_child, .. } => {
+                self.dom_to_layout.get(&first_child)?.iter().find_map(|idx| {
+                    let parent = self.nodes.get(idx.index())?.parent?;
+                    (self.text_block_key_at(parent) == Some(key)).then_some(parent)
+                })
+            }
+        }
+    }
+
+    /// The first DOM node strictly below `index` in pre-order, skipping
+    /// pseudo-element boxes (a `::marker` names its list item, not content).
+    fn first_dom_node_below(&self, index: usize) -> Option<NodeId> {
+        let mut stack: Vec<usize> = self.children(index).iter().rev().copied().collect();
+        let mut budget = self.nodes.len();
+        while let Some(i) = stack.pop() {
+            if budget == 0 {
+                return None;
+            }
+            budget -= 1;
+            let is_pseudo = self.warm.get(i).is_some_and(|w| w.pseudo_element.is_some());
+            if !is_pseudo {
+                if let Some(n) = self.nodes.get(i).and_then(|n| n.dom_node_id) {
+                    return Some(n);
+                }
+            }
+            stack.extend(self.children(i).iter().rev().copied());
+        }
+        None
+    }
+
     /// Get the content size of a node (for scrollbar calculations).
     #[must_use]
     pub fn get_content_size(&self, index: LayoutNodeId) -> LogicalSize {
@@ -1904,6 +2111,98 @@ impl LayoutTree {
         }
 
         content_size
+    }
+
+    /// What a scroll container's bar has to reach: its content, and - for
+    /// the VIEWPORT's scroller (`is_viewport`, see
+    /// [`crate::solver3::scrollbar::is_viewport_scroller`]) - the root's
+    /// margin box as well ([`crate::solver3::scrollbar::viewport_scroll_extent`]).
+    ///
+    /// Any other scroll container's extent is measured in its PADDING box,
+    /// the box its scrollport is (CSS Overflow 3 §2.2): its in-flow
+    /// children's margin boxes and its END padding after them
+    /// ([`Self::in_flow_scrollable_extent`]). The content size alone is a
+    /// content-box extent in most formatting contexts, and measured against
+    /// the padding box it fell `padding-top + padding-bottom` short - a
+    /// scroll box could never be scrolled far enough to show its own bottom
+    /// padding, and a flex item's bottom margin was missing on top of that.
+    ///
+    /// A pure function of THIS layout. The painted thumb used to read the
+    /// extent the `ScrollManager` held instead, which is what the PREVIOUS
+    /// layout published - or nothing, on a window's first pass - so a
+    /// relayout and a fresh window of the same size painted two different
+    /// thumbs. Registration, painting and the GPU thumb offset all read this.
+    #[must_use]
+    pub fn scroll_extent(&self, index: LayoutNodeId, is_viewport: bool) -> LogicalSize {
+        let content = self.get_content_size(index);
+        if !is_viewport {
+            let flow = self.in_flow_scrollable_extent(index);
+            return LogicalSize {
+                width: content.width.max(flow.width),
+                height: content.height.max(flow.height),
+            };
+        }
+        self.nodes.get(index.index()).map_or(content, |node| {
+            crate::solver3::scrollbar::viewport_scroll_extent(
+                content,
+                node.used_size.unwrap_or_default(),
+                &node.box_props.unpack().margin,
+            )
+        })
+    }
+
+    /// The part of a scroll container's scrollable overflow its in-flow BOX
+    /// children span, in its PADDING box (CSS Overflow 3 §2.2): every child's
+    /// margin box, offset by the container's leading padding, and the
+    /// container's inline-end and block-end padding after the furthest one.
+    ///
+    /// Zero for a box without laid-out in-flow box children, and for an
+    /// inline formatting context root: its extent is its TEXT's
+    /// ([`Self::get_content_size`]), and a text field's scroll range is
+    /// sized by the caret reveal's own rule (`CARET_SCROLL_GUTTER_PX`).
+    /// Out-of-flow children are left out: their boxes are no in-flow
+    /// content, so no end padding follows them.
+    fn in_flow_scrollable_extent(&self, index: LayoutNodeId) -> LogicalSize {
+        let i = index.index();
+        let Some(node) = self.nodes.get(i) else {
+            return LogicalSize::default();
+        };
+        if self
+            .warm
+            .get(i)
+            .is_some_and(|w| w.inline_layout_result.is_some())
+        {
+            return LogicalSize::default();
+        }
+        let mut right: Option<f32> = None;
+        let mut bottom: Option<f32> = None;
+        for &child in self.children(i) {
+            let (Some(hot), Some(warm)) = (self.nodes.get(child), self.warm.get(child)) else {
+                continue;
+            };
+            if matches!(
+                warm.computed_style.position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) {
+                continue;
+            }
+            let (Some(pos), Some(size)) = (warm.relative_position, hot.used_size) else {
+                continue;
+            };
+            let margin = hot.box_props.unpack().margin;
+            let child_right = pos.x + size.width + margin.right;
+            let child_bottom = pos.y + size.height + margin.bottom;
+            right = Some(right.map_or(child_right, |r| r.max(child_right)));
+            bottom = Some(bottom.map_or(child_bottom, |b| b.max(child_bottom)));
+        }
+        let (Some(right), Some(bottom)) = (right, bottom) else {
+            return LogicalSize::default();
+        };
+        let padding = node.box_props.unpack().padding;
+        LogicalSize {
+            width: (padding.left + right + padding.right).max(0.0),
+            height: (padding.top + bottom + padding.bottom).max(0.0),
+        }
     }
 }
 
@@ -1990,7 +2289,18 @@ pub(crate) fn is_shrink_to_fit_context(
         // compute intrinsics for the auto-width case. Misses no work.
         return true;
     }
-    false
+    // A box sized by an intrinsic-size keyword (`width: min-content /
+    // max-content / fit-content`, css-sizing-3 3.2) reads its own min- and
+    // max-content: without them the static-DOM short-circuit of the
+    // intrinsic pass handed it zeros.
+    matches!(
+        get_css_width(styled_dom, dom_id, node_state),
+        MultiValue::Exact(
+            azul_css::props::layout::LayoutWidth::MinContent
+                | azul_css::props::layout::LayoutWidth::MaxContent
+                | azul_css::props::layout::LayoutWidth::FitContent(_)
+        )
+    )
 }
 
 /// Per-node bitmap of "this node or any descendant establishes a shrink-to-fit
@@ -2258,10 +2568,18 @@ impl LayoutTreeBuilder {
         }
 
         match display_type {
+            // A table cell is a block container like the others (CSS 2.2
+            // 17.4): loose text beside a block child (`<td>Label<div>..</div>`,
+            // Outlook's `<td>text<p class=MsoNormal>`) goes into an anonymous
+            // block box. Built by the catch-all below, the cell's text node sat
+            // bare next to the block and had no line box - and the reconciled
+            // tree (`cache::reconcile_recursive`), which wraps every block
+            // container's inline runs, disagreed with the fresh one.
             LayoutDisplay::Block
             | LayoutDisplay::InlineBlock
             | LayoutDisplay::FlowRoot
-            | LayoutDisplay::ListItem => {
+            | LayoutDisplay::ListItem
+            | LayoutDisplay::TableCell => {
                 self.process_block_children(styled_dom, dom_id, node_idx, debug_messages)?;
             }
             // +spec:table-layout:d52e09 - display:table/inline-table cause element to behave like a
@@ -2413,10 +2731,15 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         // Filter out display: none children - they don't participate in layout
-        let children: Vec<NodeId> = layout_children(styled_dom, parent_dom_id)
-            .into_iter()
-            .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
-            .collect();
+        // ... and an inline box holding a block is split around it (CSS 2.2
+        // s9.2.1.1): its children take its place.
+        let children: Vec<NodeId> = split_inlines_around_blocks(
+            styled_dom,
+            layout_children(styled_dom, parent_dom_id)
+                .into_iter()
+                .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+                .collect(),
+        );
 
         // Debug: log which children we found
         if let Some(msgs) = debug_messages.as_mut() {
@@ -2428,7 +2751,10 @@ impl LayoutTreeBuilder {
             )));
         }
 
-        let has_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
+        // CSS 2.2 s9.2.1.1: only in-flow block-level children split the
+        // inline content (`in_flow_block_level_mask`).
+        let block_level = in_flow_block_level_mask(styled_dom, &children);
+        let has_block_child = block_level.iter().any(|&b| b);
 
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
@@ -2436,9 +2762,9 @@ impl LayoutTreeBuilder {
                 has_block_child,
                 children
                     .iter()
-                    .map(|c| {
+                    .zip(&block_level)
+                    .map(|(c, is_block)| {
                         let dt = get_display_type(styled_dom, *c);
-                        let is_block = is_block_level(styled_dom, *c);
                         format!("{}:{:?}(block={})", c.index(), dt, is_block)
                     })
                     .collect::<Vec<_>>()
@@ -2462,8 +2788,8 @@ impl LayoutTreeBuilder {
         // Mixed block and inline content requires anonymous wrappers.
         let mut inline_run = Vec::new();
 
-        for child_id in children {
-            if is_block_level(styled_dom, child_id) {
+        for (child_id, is_block) in children.into_iter().zip(block_level) {
+            if is_block {
                 // +spec:display-contents:02a534 - contiguous text sequences with no text don't
                 // generate boxes End the current inline run — but skip if all nodes
                 // are whitespace-only text. +spec:display-property:7d1570 -
@@ -2515,22 +2841,26 @@ impl LayoutTreeBuilder {
         let parent_display = get_display_type(styled_dom, parent_dom_id);
         let mut non_matching_children = Vec::new();
 
-        for child_id in layout_children(styled_dom, parent_dom_id) {
-            if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
-                continue;
-            }
-
+        // CSS 2.2 17.2.1 rule 1: whitespace between table-internal boxes is
+        // irrelevant, beside inline content it is kept (the reconciler's rule).
+        for child_id in table_relevant_children(
+            styled_dom,
+            parent_display,
+            layout_children(styled_dom, parent_dom_id),
+        ) {
             let child_display = get_display_type(styled_dom, child_id);
 
             if is_expected_child(child_display) {
                 if !non_matching_children.is_empty() {
                     let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
-                    #[allow(clippy::iter_with_drain)]
-                    // accumulator Vec reused across runs; drain(..) empties it while retaining the
-                    // allocation
-                    for np_id in non_matching_children.drain(..) {
-                        self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
-                    }
+                    self.process_anonymous_table_box_children(
+                        styled_dom,
+                        &non_matching_children,
+                        anon_type,
+                        anon_idx,
+                        debug_messages,
+                    )?;
+                    non_matching_children.clear();
                 }
                 self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             } else {
@@ -2540,12 +2870,85 @@ impl LayoutTreeBuilder {
 
         if !non_matching_children.is_empty() {
             let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
-            for np_id in non_matching_children {
-                self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
-            }
+            self.process_anonymous_table_box_children(
+                styled_dom,
+                &non_matching_children,
+                anon_type,
+                anon_idx,
+                debug_messages,
+            )?;
         }
 
         Ok(())
+    }
+
+    /// The children of an anonymous table box made by
+    /// [`Self::process_table_level_children`] (CSS 2.2 17.2.1 rule 2), as
+    /// the reconciler (`cache::reconcile_table_children`) builds them: in an
+    /// anonymous ROW the cells as they are and every run of other boxes in an
+    /// anonymous cell; in an anonymous CELL, a block container, the
+    /// block-level children as they are and every inline run in an anonymous
+    /// inline wrapper.
+    fn process_anonymous_table_box_children(
+        &mut self,
+        styled_dom: &StyledDom,
+        children: &[NodeId],
+        anon_type: AnonymousBoxType,
+        anon_idx: usize,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<()> {
+        if anon_type == AnonymousBoxType::TableRow {
+            let mut non_cells: Vec<NodeId> = Vec::new();
+            for &child_id in children {
+                if get_display_type(styled_dom, child_id) == LayoutDisplay::TableCell {
+                    if !non_cells.is_empty() {
+                        let cell_idx = self.create_anonymous_node(
+                            anon_idx,
+                            AnonymousBoxType::TableCell,
+                            FormattingContext::TableCell,
+                        );
+                        self.process_anonymous_table_box_children(
+                            styled_dom,
+                            &non_cells,
+                            AnonymousBoxType::TableCell,
+                            cell_idx,
+                            debug_messages,
+                        )?;
+                        non_cells.clear();
+                    }
+                    self.process_node(styled_dom, child_id, Some(anon_idx), debug_messages)?;
+                } else {
+                    non_cells.push(child_id);
+                }
+            }
+            if !non_cells.is_empty() {
+                let cell_idx = self.create_anonymous_node(
+                    anon_idx,
+                    AnonymousBoxType::TableCell,
+                    FormattingContext::TableCell,
+                );
+                self.process_anonymous_table_box_children(
+                    styled_dom,
+                    &non_cells,
+                    AnonymousBoxType::TableCell,
+                    cell_idx,
+                    debug_messages,
+                )?;
+            }
+            return Ok(());
+        }
+        let mut inline_run: Vec<NodeId> = Vec::new();
+        let children = split_inlines_around_blocks(styled_dom, children.to_vec());
+        let block_level = in_flow_block_level_mask(styled_dom, &children);
+        for (&child_id, is_block) in children.iter().zip(block_level) {
+            if is_block {
+                self.flush_inline_run(styled_dom, anon_idx, &mut inline_run, debug_messages)?;
+                self.process_node(styled_dom, child_id, Some(anon_idx), debug_messages)?;
+            } else {
+                inline_run.push(child_id);
+            }
+        }
+        self.flush_inline_run(styled_dom, anon_idx, &mut inline_run, debug_messages)
     }
 
     fn process_table_children(
@@ -2597,9 +3000,8 @@ impl LayoutTreeBuilder {
             parent_idx,
             |d| d == LayoutDisplay::TableCell,
             AnonymousBoxType::TableCell,
-            FormattingContext::Block {
-                establishes_new_context: true,
-            },
+            // A cell the grid (`fc::analyze_table_row`) counts as one.
+            FormattingContext::TableCell,
             debug_messages,
         )
     }
@@ -2730,12 +3132,23 @@ impl LayoutTreeBuilder {
     ///
     /// The `::marker` references the same DOM node as its parent list-item,
     /// but is marked as a pseudo-element for proper counter resolution and styling.
+    ///
+    /// A marker with no content generates no box (CSS Lists 3 s3.1: its
+    /// `content: normal` computes from `list-style-image`, which azul does
+    /// not support, and `list-style-type`): `list-style-type: none` - the
+    /// `RichTextEditor`'s check items - gets none, and `None` is returned.
+    /// The type is the item's own computed (inherited) value.
     pub fn create_marker_pseudo_element(
         &mut self,
         styled_dom: &StyledDom,
         list_item_dom_id: NodeId,
         list_item_idx: usize,
-    ) -> usize {
+    ) -> Option<usize> {
+        if crate::solver3::getters::get_list_style_type(styled_dom, Some(list_item_dom_id))
+            == azul_css::props::style::lists::StyleListStyleType::None
+        {
+            return None;
+        }
         let index = self.nodes.len();
 
         // The marker references the same DOM node as the list-item
@@ -2785,7 +3198,7 @@ impl LayoutTreeBuilder {
             .or_default()
             .push(index);
 
-        index
+        Some(index)
     }
 
     // M12.7: returns `usize`, NOT `Result<usize>` — this fn has no error path
@@ -3369,9 +3782,10 @@ impl LayoutTreeBuilder {
     /// Reuse an old node's cached layout under a NEW DOM identity.
     ///
     /// `new_dom_id` is what the node IS; the clone only carries what it
-    /// COSTS (used size, taffy cache, inline layout result). Reconciliation
-    /// matches an old child to a new one by DOM id where it can, but falls
-    /// back to POSITION when the id is absent from the old child list — and
+    /// COSTS (used size, taffy cache and flex measurements, inline layout
+    /// result). Reconciliation matches an old child to a new one by DOM id
+    /// where it can, but falls back to POSITION when the id is absent from
+    /// the old child list — and
     /// a positional match pairs nodes with different ids. Copying the old
     /// id through then produced a layout node claiming to be a DOM node
     /// that has moved, or (when the DOM shrank) one that no longer exists:
@@ -3394,28 +3808,34 @@ impl LayoutTreeBuilder {
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         new_node.children = Vec::new();
         new_node.dirty_flag = DirtyFlag::None;
-        // The measurement cache does NOT survive the clone.
+        // The flex measurements (`taffy_cache`, `measured_content_sizes`)
+        // SURVIVE the clone, like every other cache it carries.
         //
-        // A clone is taken because the node's own data is unchanged — but
-        // "unchanged" says nothing about its SURROUNDINGS. Its cached
-        // (available space -> computed size) entries were measured against
-        // the previous frame's siblings, and a clone is taken precisely when
-        // a sibling changed enough to re-lay the parent out. `layout_document`
-        // clears this cache for `intrinsic_dirty` nodes; the clean clones
-        // beside them kept theirs.
+        // They are a function of the node's subtree and of the inputs they
+        // are keyed by - nothing else - and everything that can change them
+        // without changing their key is invalidated elsewhere: a changed
+        // subtree puts its node in `intrinsic_dirty` and `layout_document`
+        // clears the caches of that node and of every ancestor (Step 1.2), a
+        // restyle under which INHERITED values may have moved clears them in
+        // `reconcile_recursive` (the clone is under a restyled node), and a
+        // memoised FINAL layout is served only while its subtree still holds
+        // what it wrote (`NodeCache::final_layout_current`).
         //
-        // Symptom: clicking ribbon tab 1 left tab 2 — the tab that never
-        // changed state — drawing its label 1.5px lower than a fresh render
-        // of the same state, with an IDENTICAL header box. The cached entry
-        // was answering with a measurement taken while tab 0 was active.
+        // Clearing them here made every relayout - every animation frame,
+        // every restyle, every RefreshDom - lay out every flex item of the
+        // window again, because every clean node IS a clone: the AzWidgets
+        // switch knob's 16 px slide re-flowed 2853 text runs and laid out
+        // 12181 flex items per frame (157-309 ms) for a box inside a 36x20
+        // track (layout/tests/a_one_box_slide_does_not_re_lay_out_the_page.rs).
         //
-        // What the clone is FOR is still preserved: the tree structure, the
-        // fingerprint, and `inline_layout_result` — so the text is not
-        // re-shaped, only re-measured. Measured flat on
-        // layout/tests/frame_perf.rs (idle 19.21 vs 19.70 ms, cold 75.96 vs
-        // 74.57 ms, edit 22.72 vs 25.39 ms — all inside run-to-run noise).
-        new_node.taffy_cache.clear();
-        new_node.measured_content_sizes = (None, None);
+        // The clear was added for a ribbon tab that kept a label 1.5 px low
+        // after a switch (deac0bebb, "measured beside old siblings"): a final
+        // layout served from the cache after a MEASURE of the same tab had
+        // re-placed its children. That memo-with-side-effects is guarded at
+        // its point of use since c60844cab (`final_layout_current`), and a
+        // measure hands the node's size back (`compute_non_flex_layout`);
+        // `switching_tabs_does_not_shift_the_other_tabs_text` (dll headless
+        // tests) stays the negative control.
         new_node.dom_node_id = new_dom_id;
         self.nodes.push(new_node);
         if let Some(p) = parent {
@@ -3507,6 +3927,13 @@ fn ordinal_map(
 // elements, flex containers)
 #[must_use]
 pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    // The table-internal boxes are here for what the callers ask - "may this
+    // child be wrapped in an anonymous inline box?" - not because CSS calls
+    // them block-level: a table's `<colgroup>` / `<col>` were missing, so the
+    // reconciler (`cache::reconcile_recursive`) saw a table's [colgroup, tr]
+    // as mixed content and wrapped the column group in an anonymous inline
+    // box under the table, where the table grid never found it (no box, no
+    // column widths from `<col>`).
     matches!(
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Block
@@ -3519,9 +3946,168 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
             | LayoutDisplay::TableRowGroup
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableColumnGroup
+            | LayoutDisplay::TableColumn
             | LayoutDisplay::TableCell
             | LayoutDisplay::ListItem
     )
+}
+
+/// Whether a DOM node is taken out of the flow by its `position`
+/// (`absolute` / `fixed`, CSS 2.2 s9.6). Text nodes and `display: none`
+/// nodes never are.
+#[must_use]
+pub(crate) fn is_out_of_flow_positioned(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let node_data_container = styled_dom.node_data.as_container();
+    let Some(node_data) = node_data_container.get(node_id) else {
+        return false;
+    };
+    if matches!(node_data.get_node_type(), NodeType::Text(_))
+        || get_display_type(styled_dom, node_id) == LayoutDisplay::None
+    {
+        return false;
+    }
+    styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node_id)
+        .is_some_and(|n| {
+            get_position(styled_dom, node_id, &n.styled_node_state).is_absolute_or_fixed()
+        })
+}
+
+/// For each of a block container's `children` (in order): whether it is
+/// placed as a block-level box of the container (`true`) or goes into the
+/// container's inline content (`false`) - THE rule every builder of
+/// anonymous block boxes follows (the fresh tree's `process_block_children`
+/// and anonymous table cells, the reconciler's `reconcile_recursive` and
+/// `reconcile_table_children`, and `has_only_inline_children`).
+///
+/// CSS 2.2 s9.2.1.1: only IN-FLOW block-level boxes make a block container
+/// wrap its inline content in anonymous block boxes. An absolutely
+/// positioned box is out of flow: `<li>text<div style="position: absolute">`
+/// stays ONE line (the `RichTextEditor`'s check item was two - WRITER6 N1).
+/// Such a box goes with the inline content around it (as in Blink, where an
+/// out-of-flow child joins its parent's current inline run); only where
+/// there is none - between two blocks, or beside nothing but collapsible
+/// white space - it stays a direct child of the container, so it never
+/// makes an anonymous block of white space.
+#[must_use]
+pub(crate) fn in_flow_block_level_mask(styled_dom: &StyledDom, children: &[NodeId]) -> Vec<bool> {
+    let out_of_flow: Vec<bool> = children
+        .iter()
+        .map(|&c| is_out_of_flow_positioned(styled_dom, c))
+        .collect();
+    let mut mask: Vec<bool> = children
+        .iter()
+        .zip(&out_of_flow)
+        .map(|(&c, &oof)| !oof && is_block_level(styled_dom, c))
+        .collect();
+    // Each stretch between two in-flow block-level children is one inline
+    // run: its out-of-flow block boxes join it only if it has content.
+    let mut start = 0;
+    for end in 0..=children.len() {
+        if end < children.len() && !mask[end] {
+            continue;
+        }
+        let has_inline_content = (start..end).any(|k| {
+            !out_of_flow[k]
+                && get_display_type(styled_dom, children[k]) != LayoutDisplay::None
+                && !is_whitespace_only_text(styled_dom, children[k])
+        });
+        if !has_inline_content {
+            for k in start..end {
+                if out_of_flow[k] && is_block_level(styled_dom, children[k]) {
+                    mask[k] = true;
+                }
+            }
+        }
+        start = end + 1;
+    }
+    mask
+}
+
+/// Whether a DOM node is floated (`float` not `none`).
+fn is_floated(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    styled_dom
+        .styled_nodes
+        .as_container()
+        .get(node_id)
+        .is_some_and(|n| !get_float(styled_dom, node_id, &n.styled_node_state).is_none())
+}
+
+/// CSS 2.2 s9.2.1.1 block-in-inline: whether `node_id` is an inline box (an
+/// element with `display: inline`, not replaced, in flow, not floated) that
+/// holds an in-flow block-level box - as a child, or inside another such
+/// inline box (`<a href><img style="display: block"></a>`, every linked
+/// picture of a newsletter; `<span><a><div>..</div></a></span>`).
+#[must_use]
+pub(crate) fn inline_holds_a_block(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let node_data_container = styled_dom.node_data.as_container();
+    let Some(node_data) = node_data_container.get(node_id) else {
+        return false;
+    };
+    if matches!(node_data.get_node_type(), NodeType::Text(_))
+        || is_replaced_element(node_data)
+        || get_display_type(styled_dom, node_id) != LayoutDisplay::Inline
+        || is_out_of_flow_positioned(styled_dom, node_id)
+        || is_floated(styled_dom, node_id)
+    {
+        return false;
+    }
+    layout_children(styled_dom, node_id)
+        .into_iter()
+        .any(|child| {
+            get_display_type(styled_dom, child) != LayoutDisplay::None
+                && ((is_block_level(styled_dom, child)
+                    && !is_out_of_flow_positioned(styled_dom, child)
+                    && !is_floated(styled_dom, child))
+                    || inline_holds_a_block(styled_dom, child))
+        })
+}
+
+/// A block container's `children` (in order, `display: none` already gone)
+/// with every inline box that holds a block ([`inline_holds_a_block`])
+/// replaced by its own children, recursively - the boxes the container's box
+/// tree is built from, by the fresh tree (`process_block_children`, anonymous
+/// table cells) and the reconciler (`reconcile_recursive`,
+/// `reconcile_table_children`) alike.
+///
+/// CSS 2.2 s9.2.1.1: such an inline box "is broken around the block-level
+/// box": the inline content before and after it goes into anonymous block
+/// boxes (`in_flow_block_level_mask` then makes them), the block becomes
+/// their sibling. The inline box keeps no box of its own here - its style
+/// reaches the content around the block through the cascade (colour, font,
+/// text decoration), but its own background, border and padding are not
+/// drawn on the fragments (the split inline's fragment boxes are not built).
+/// Before, the block was "inlinified" into the line and had no box at all.
+#[must_use]
+pub(crate) fn split_inlines_around_blocks(
+    styled_dom: &StyledDom,
+    children: Vec<NodeId>,
+) -> Vec<NodeId> {
+    fn push_split(styled_dom: &StyledDom, node_id: NodeId, out: &mut Vec<NodeId>) {
+        if inline_holds_a_block(styled_dom, node_id) {
+            for child in layout_children(styled_dom, node_id) {
+                if get_display_type(styled_dom, child) != LayoutDisplay::None {
+                    push_split(styled_dom, child, out);
+                }
+            }
+        } else {
+            out.push(node_id);
+        }
+    }
+    if !children
+        .iter()
+        .any(|&child| inline_holds_a_block(styled_dom, child))
+    {
+        return children;
+    }
+    let mut out = Vec::with_capacity(children.len());
+    for child in children {
+        push_split(styled_dom, child, &mut out);
+    }
+    out
 }
 
 // +spec:display-property:23f111 - Inline-level elements: inline, inline-block, inline-table,
@@ -3564,33 +4150,35 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
         return false;
     };
 
-    // Get the first child
+    // Collect the children (sibling walk)
+    let mut children = Vec::new();
     let mut current_child = node_hier.first_child_id(node_id);
+    while let Some(child_id) = current_child {
+        children.push(child_id);
+        current_child = hierarchy
+            .get(child_id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+    }
 
     // If there are no children, it's not an IFC (it's empty)
-    if current_child.is_none() {
+    if children.is_empty() {
         return false;
     }
 
-    // Check all children
-    while let Some(child_id) = current_child {
-        let is_inline = is_inline_level(styled_dom, child_id);
-
-        if !is_inline {
-            // Found a block-level child
-            return false;
-        }
-
-        // Move to next sibling
-        if let Some(child_hier) = hierarchy.get(child_id) {
-            current_child = child_hier.next_sibling_id();
-        } else {
-            break;
-        }
-    }
-
-    // All children are inline-level
-    true
+    // Every child inline-level - or an out-of-flow box that goes with the
+    // inline content (`in_flow_block_level_mask`: CSS 2.2 s9.2.1.1, an
+    // absolutely positioned child does not make its parent a block
+    // container of blocks).
+    // An inline box that holds a block is split around it (CSS 2.2
+    // s9.2.1.1, `split_inlines_around_blocks`): its container is a block
+    // container of anonymous blocks and that block.
+    let mask = in_flow_block_level_mask(styled_dom, &children);
+    children.iter().zip(mask).all(|(&child_id, block_level)| {
+        !block_level
+            && !inline_holds_a_block(styled_dom, child_id)
+            && (is_inline_level(styled_dom, child_id)
+                || is_out_of_flow_positioned(styled_dom, child_id))
+    })
 }
 
 /// Pre-computes all CSS properties needed during layout for a single node.
@@ -3619,10 +4207,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
 
     // Get overflow properties
     // +spec:overflow:48890c - overflow:hidden treated as overflow:clip on replaced elements
-    let is_replaced = matches!(
-        styled_dom.node_data.as_container()[dom_id].get_node_type(),
-        NodeType::Image(_) | NodeType::VirtualView
-    );
+    let is_replaced = styled_dom.node_data.as_container()[dom_id].is_sized_replaced_node();
     let overflow_x = {
         let v = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
         if is_replaced && v == LayoutOverflow::Hidden {
@@ -3942,8 +4527,7 @@ fn collect_box_props(
     // +spec:box-model:17c0e0 - computed border-width is 0 if border-style is none or hidden
     // +spec:box-model:5d2b66 - border-style none/hidden means no border
     // CSS 2.2 §8.5.1: "Computed value: absolute length; '0' if the border style is 'none' or
-    // 'hidden'"
-    let style_zeroes_width = |s: BorderStyle| matches!(s, BorderStyle::None | BorderStyle::Hidden);
+    // 'hidden'" - applied by `getters::used_border_width` below.
 
     // Read border styles to check if widths should be zeroed.
     // FAST PATH: compact cache returns styles directly for normal state — no
@@ -4004,28 +4588,15 @@ fn collect_box_props(
         }
     };
 
-    // Build unresolved border, zeroing width when style is none or hidden
+    // Build unresolved border: zero when the style is none or hidden, the
+    // declared width, else `medium` (a style alone has a 3px border) - the one
+    // rule the painter's `get_border_info` uses too.
+    let used_border_width = used_border_width;
     let unresolved_border = UnresolvedEdge {
-        top: if style_zeroes_width(bs_top) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_top_mv)
-        },
-        right: if style_zeroes_width(bs_right) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_right_mv)
-        },
-        bottom: if style_zeroes_width(bs_bottom) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_bottom_mv)
-        },
-        left: if style_zeroes_width(bs_left) {
-            PixelValue::const_px(0)
-        } else {
-            to_pixel_value(border_left_mv)
-        },
+        top: used_border_width(border_top_mv, bs_top),
+        right: used_border_width(border_right_mv, bs_right),
+        bottom: used_border_width(border_bottom_mv, bs_bottom),
+        left: used_border_width(border_left_mv, bs_left),
     };
     {
         let _ = (0xC0_000007u32);
@@ -4055,10 +4626,7 @@ fn collect_box_props(
         // have rendering dictated by CSS model "These properties apply to all elements, but
         // vertical margins will not have  any effect on non-replaced inline elements."
         LayoutDisplay::Inline => {
-            let is_replaced = matches!(
-                node_data.get_node_type(),
-                NodeType::Image(_) | NodeType::VirtualView
-            );
+            let is_replaced = node_data.is_sized_replaced_node();
             if is_replaced {
                 unresolved_margin
             } else {
@@ -4085,6 +4653,9 @@ fn collect_box_props(
                     | azul_css::props::layout::wrapping::LayoutWritingMode::VerticalLr
             )
         ),
+        // CSS `zoom` scales the absolute box lengths (LAYOUT7).
+        zoom: get_effective_zoom(styled_dom, dom_id),
+        root_zoom: get_effective_zoom(styled_dom, NodeId::new(0)),
     };
 
     // Create initial resolution params (with viewport as containing block for now)
@@ -4249,10 +4820,70 @@ fn should_skip_for_table_structure(
     ) && is_whitespace_only_text(styled_dom, node_id)
 }
 
+/// The children of a table-structural parent (table, row group, row) that
+/// take part in its box tree, in order (CSS 2.2 17.2.1 rule 1): a
+/// whitespace-only text child is "irrelevant" and dropped only when its
+/// nearest non-whitespace siblings on BOTH sides (where there are any) are
+/// table-internal boxes or captions - the newlines between `<tr>`s and
+/// `<td>`s. Between inline-level children it is a space of the anonymous
+/// cell that wraps them, kept (WPT css-tables whitespace-001,
+/// anonymous-table-ws-001). Any other parent's list comes back as it is.
+///
+/// The one rule for both tree builders: the reconciler
+/// (`cache::reconcile_recursive`) and [`LayoutTreeBuilder`]'s
+/// `process_table_level_children`.
+pub(crate) fn table_relevant_children(
+    styled_dom: &StyledDom,
+    parent_display: LayoutDisplay,
+    children: Vec<NodeId>,
+) -> Vec<NodeId> {
+    if !matches!(
+        parent_display,
+        LayoutDisplay::Table
+            | LayoutDisplay::InlineTable
+            | LayoutDisplay::TableRowGroup
+            | LayoutDisplay::TableHeaderGroup
+            | LayoutDisplay::TableFooterGroup
+            | LayoutDisplay::TableRow
+    ) {
+        return children;
+    }
+    // (For a table-structural parent: "whitespace-only text".)
+    let is_ws = |id: NodeId| should_skip_for_table_structure(styled_dom, id, parent_display);
+    let internal_or_caption = |id: NodeId| {
+        matches!(
+            get_display_type(styled_dom, id),
+            LayoutDisplay::TableRowGroup
+                | LayoutDisplay::TableHeaderGroup
+                | LayoutDisplay::TableFooterGroup
+                | LayoutDisplay::TableRow
+                | LayoutDisplay::TableCell
+                | LayoutDisplay::TableColumn
+                | LayoutDisplay::TableColumnGroup
+                | LayoutDisplay::TableCaption
+        )
+    };
+    let keep: Vec<bool> = (0..children.len())
+        .map(|i| {
+            if !is_ws(children[i]) {
+                return true;
+            }
+            let before = children[..i].iter().rev().copied().find(|&s| !is_ws(s));
+            let after = children[i + 1..].iter().copied().find(|&s| !is_ws(s));
+            !(before.is_none_or(internal_or_caption) && after.is_none_or(internal_or_caption))
+        })
+        .collect();
+    children
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(id, keep)| keep.then_some(id))
+        .collect()
+}
+
 /// Returns true if the given display type is a "proper table child" of a table/inline-table box.
 /// Per CSS 2.2 §17.2.1, proper table children are: table-row-group, table-header-group,
 /// table-footer-group, table-row, table-column-group, table-column, table-caption.
-const fn is_proper_table_child(display: LayoutDisplay) -> bool {
+pub(crate) const fn is_proper_table_child(display: LayoutDisplay) -> bool {
     matches!(
         display,
         LayoutDisplay::TableRowGroup
@@ -4415,13 +5046,15 @@ fn blockify_flex_item_if_table_internal(nodes: &mut [LayoutNode], node_idx: usiz
 
 /// Returns true if the node is a replaced element per CSS Display 3 Appendix B.
 /// Replaced elements (img, canvas, embed, object, audio, video, input, textarea,
-/// select, br, wbr, meter, progress, virtual views) cannot be un-boxed by
-/// `display: contents` and always establish an independent formatting context.
+/// select, br, wbr, meter, progress, virtual views, web views) cannot be
+/// un-boxed by `display: contents` and always establish an independent
+/// formatting context.
 pub(crate) const fn is_replaced_element(node_data: &NodeData) -> bool {
     matches!(
         node_data.get_node_type(),
         NodeType::Image(_)
             | NodeType::VirtualView
+            | NodeType::WebView(_)
             | NodeType::Br
             | NodeType::Wbr
             | NodeType::Meter
@@ -4866,6 +5499,7 @@ mod autotest_generated {
                     units_per_em: 0,
                     x_height: None,
                     cap_height: None,
+                    browser_ascent_boost: false,
                 },
             })
             .collect();

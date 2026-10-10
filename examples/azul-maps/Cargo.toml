@@ -5,18 +5,20 @@ edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzMaps — the P3 goal app from SUPER_PLAN_2. Demonstrates the
-    `MapWidget` (layout/src/widgets/map.rs) end-to-end on desktop:
-    Web Mercator tile grid, viewport state, GPU-translated tile
-    divs, `MapTileCache` `RefAny` dataset that survives relayout via
-    a `DatasetMergeCallback`. Tile fetch + MVT decode + MapCSS-to-SVG
-    pipeline land in follow-up ticks; this demo shows the grid math
-    + viewport bookkeeping working today.
+    AzMaps — the P3 goal app from SUPER_PLAN_2. The `MapWidget`
+    (layout/src/widgets/map.rs) as a full-window map: OpenStreetMap
+    vector tiles (MVT -> MapCSS -> SVG, labels as real text), a slim
+    sidebar with the travel panel and the recent places, a place's
+    card in a popover at its pin. Routing: see ROUTING.md.
 """
 publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic", "map-tiles"] }
+# The shared app skeleton (switches, data root, settings.json, About, file jobs on a Thread)
+# and the pins file's JSON (both already in the tree).
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+serde_json = "1"
 
 [target.'cfg(target_os = "android")'.dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity", "map-tiles"] }

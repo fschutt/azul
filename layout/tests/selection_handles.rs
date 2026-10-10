@@ -299,13 +299,17 @@ fn spanning_p1_to_p3() -> LayoutWindow {
     let mut lw = three_paragraphs();
     // The session sits in P1 the way a press there would leave it.
     lw.process_mouse_click_for_selection(LogicalPosition::new(2.0, 6.0), 0);
-    assert!(lw.set_cross_block_selection(
-        azul_core::dom::DomId::ROOT_ID,
-        azul_core::dom::NodeId::new(P1),
-        text_cursor(6),
-        azul_core::dom::NodeId::new(P3),
-        text_cursor(5),
-    ));
+    let block = |lw: &LayoutWindow, n: usize| {
+        lw.text_block_of(azul_core::dom::DomNodeId {
+            dom: azul_core::dom::DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                azul_core::dom::NodeId::new(n),
+            )),
+        })
+        .expect("a paragraph is a text block")
+    };
+    let (p1, p3) = (block(&lw, P1), block(&lw, P3));
+    assert!(lw.set_cross_block_selection(p1, text_cursor(6), p3, text_cursor(5)));
     lw
 }
 
@@ -313,7 +317,12 @@ fn spanned_blocks(lw: &LayoutWindow) -> Vec<usize> {
     lw.text_edit_manager
         .cross_block
         .as_ref()
-        .map(|s| s.affected_nodes.keys().map(|n| n.index()).collect())
+        .map(|s| {
+            s.affected_blocks
+                .keys()
+                .map(|b| b.first_node().index())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -355,7 +364,7 @@ fn dragging_the_end_handle_of_a_cross_block_selection_moves_the_far_end() {
     );
     let sel = lw.text_edit_manager.cross_block.as_ref().unwrap();
     assert_eq!(
-        sel.anchor.ifc_root_node_id.index(),
+        sel.anchor.block.first_node().index(),
         P1,
         "the start is the anchor and stayed"
     );
@@ -401,7 +410,7 @@ fn dragging_the_start_handle_of_a_cross_block_selection_re_anchors_at_the_end() 
     );
     let sel = lw.text_edit_manager.cross_block.as_ref().unwrap();
     assert_eq!(
-        sel.anchor.ifc_root_node_id.index(),
+        sel.anchor.block.first_node().index(),
         P3,
         "the end is the anchor now"
     );

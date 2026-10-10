@@ -60,6 +60,7 @@ use super::{
     },
 };
 use crate::solver3::layout_tree::LayoutNodeId;
+use azul_css::system::DarkLightMode;
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
 
@@ -130,6 +131,17 @@ struct Runner {
     /// frame left behind, so `scrollbar_fade_active` was still true when the
     /// scenario asked whether the window had settled.
     pending_redraw: bool,
+    /// The APP raised `flags.close_requested` (`close_window`, the e2e
+    /// `close` op, a pushed window state) and the close protocol has not run
+    /// for it yet - `CommonWindowState::close_unconfirmed`. Served at the end
+    /// of the frame ([`Runner::confirm_app_close`]), where the headless loop
+    /// serves it.
+    close_unconfirmed: bool,
+    /// The web view "browser" - the same recorder the headless backend
+    /// drives (`managers::webview::WebViewRecorder`): it loads nothing, and
+    /// reports every load it is asked for as a navigation request, so a
+    /// scenario plays the rest (`simulate_webview_*`).
+    webview_recorder: crate::managers::webview::WebViewRecorder,
 }
 
 impl Runner {
@@ -149,6 +161,9 @@ impl Runner {
         let (app_fc_cache, font_registry) = {
             // `FcFontRegistry::new()` already returns an `Arc<Self>`.
             let registry = azul_layout::FcFontRegistry::new();
+            // As `AppInternal::create`: the generic families as Chrome
+            // resolves them (macOS `sans-serif` = Helvetica).
+            azul_layout::font::loading::use_browser_generic_families(&registry.cache);
             let had_cache = registry.load_from_disk_cache();
             registry.spawn_scout_and_builders();
             // DETERMINISM: block until the scout has published the font set
@@ -189,6 +204,9 @@ impl Runner {
                 } else {
                     azul_core::resources::SystemAnimations::disabled()
                 });
+                // A recording web view backend, as the headless shell has.
+                lw.webviews
+                    .set_platform(crate::managers::webview::WebViewPlatform::Backend);
                 lw
             },
             renderer_resources: RendererResources::default(),
@@ -204,6 +222,8 @@ impl Runner {
             dpi_pending: false,
             unsupported_changes: Vec::new(),
             pending_redraw: false,
+            close_unconfirmed: false,
+            webview_recorder: crate::managers::webview::WebViewRecorder::new(),
         }
     }
 
@@ -351,10 +371,7 @@ impl Runner {
                 scroll_manager.get_current_offset(d, n)
             };
             let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
-                gpu.caches
-                    .get(&d)
-                    .and_then(|c| c.css_current_transform_values.get(&n))
-                    .copied()
+                gpu.painted_transform_of(d, n)
             };
             let hits = self
                 .cpu_hit_tester
@@ -404,10 +421,7 @@ impl Runner {
                     scroll_manager.get_current_offset(d, n)
                 };
                 let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
-                    gpu.caches
-                        .get(&d)
-                        .and_then(|c| c.css_current_transform_values.get(&n))
-                        .copied()
+                    gpu.painted_transform_of(d, n)
                 };
                 let hits =
                     self.cpu_hit_tester
@@ -530,6 +544,10 @@ impl Runner {
         // here, after their requesting activation returned - the same
         // ordering the DLL shells give them.
         result = result.max(self.pump_completed_requests());
+        // The web views: the ops of this pass's layouts and commands reach
+        // the recorder, and what it (or a `simulate_webview_*` op) reported
+        // runs the views' callbacks - the dll's web view pump, ported.
+        result = result.max(self.pump_webviews());
         // The ops above committed text through `apply_user_change` (a
         // `text_input` op is `CreateTextInput`), never through the event
         // pass - the post-commit notifications they owe are drained here.
@@ -572,6 +590,66 @@ impl Runner {
         self.layout_window.sync_frame_report();
         self.layout_window.frame_report.terminal_result = result as u8;
 
+        self.run_frame(result);
+
+        self.arm_tween_timer();
+
+        // Keep servicing the redraws the frames themselves ask for, until the
+        // window stops changing. The platform loops do this across turns of the
+        // event loop; here it has to happen INSIDE one `service()`, because the
+        // next thing the pump runs is the scenario's next step — and if that
+        // step is an idleness assertion, it reads whatever this call left
+        // behind. The scrollbar fade is 700 ms of WALL CLOCK (`fade_delay` 500 +
+        // `fade_duration` 200) and each headless frame costs about a
+        // millisecond, so this is a real-time-paced loop, exactly like a shell
+        // redrawing at the display's rate — not a spin that fabricates time.
+        self.pump_pending_redraws();
+
+        // A close the app asked for during this frame: the protocol runs
+        // now, against the DOM this frame built - where the headless loop
+        // runs it (phase 2b, after events, timers and frames).
+        self.confirm_app_close();
+
+        // The frame is now final for this op. Re-derive the pointer→node map
+        // from it so the NEXT op's hit test cannot read geometry that a
+        // display-list-only path (the render-only arms above) just moved. See
+        // [`Runner::rebuild_hit_tester`].
+        self.rebuild_hit_tester();
+        self.purge_ended_touch_points();
+    }
+
+    /// THE close protocol for a close the APP raised - port of the dll's
+    /// `PlatformWindow::confirm_app_close` / `run_close_protocol` /
+    /// `request_window_close`: the flag is lowered and that state taken as
+    /// the event-diff baseline, raised again, and one pass runs, so
+    /// `EventType::WindowClose` fires and the app's
+    /// `WindowEventFilter::CloseRequested` callbacks hear it. A callback that
+    /// called `prevent_window_close()` lowered the flag: the close is vetoed,
+    /// and what the vetoing pass asked for (the "Save changes?" question) is
+    /// framed. Otherwise the flag stands - the window is closing. The
+    /// rebuild `run_close_protocol` builds first is already built here: this
+    /// runs after the frame.
+    fn confirm_app_close(&mut self) {
+        if !core::mem::take(&mut self.close_unconfirmed) {
+            return;
+        }
+        // `request_window_close`: lower a flag that is already up and take
+        // that as the baseline (the dll's `discard_input_delta`), so the pass
+        // sees a false -> true transition.
+        self.window_state.flags.close_requested = false;
+        self.previous_window_state = Some(self.window_state.clone());
+        self.window_state.flags.close_requested = true;
+        let result = self.process_window_events(0);
+        let confirmed = self.window_state.flags.close_requested;
+        if !confirmed && result != ProcessEventResult::DoNothing {
+            self.run_frame(result);
+            self.pump_pending_redraws();
+        }
+    }
+
+    /// Frame one `ProcessEventResult` the way the platform loop does: the
+    /// regeneration, relayout, display-list rebuild or repaint it asks for.
+    fn run_frame(&mut self, result: ProcessEventResult) {
         match result {
             ProcessEventResult::DoNothing => {}
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
@@ -602,26 +680,6 @@ impl Runner {
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => self.render_and_record(),
         }
-
-        self.arm_tween_timer();
-
-        // Keep servicing the redraws the frames themselves ask for, until the
-        // window stops changing. The platform loops do this across turns of the
-        // event loop; here it has to happen INSIDE one `service()`, because the
-        // next thing the pump runs is the scenario's next step — and if that
-        // step is an idleness assertion, it reads whatever this call left
-        // behind. The scrollbar fade is 700 ms of WALL CLOCK (`fade_delay` 500 +
-        // `fade_duration` 200) and each headless frame costs about a
-        // millisecond, so this is a real-time-paced loop, exactly like a shell
-        // redrawing at the display's rate — not a spin that fabricates time.
-        self.pump_pending_redraws();
-
-        // The frame is now final for this op. Re-derive the pointer→node map
-        // from it so the NEXT op's hit test cannot read geometry that a
-        // display-list-only path (the render-only arms above) just moved. See
-        // [`Runner::rebuild_hit_tester`].
-        self.rebuild_hit_tester();
-        self.purge_ended_touch_points();
     }
 
     /// Arm the caret / selection tween driver if the display-list pass this
@@ -797,6 +855,54 @@ impl Runner {
         result
     }
 
+    /// The web view pump - port of the dll's (`common::webview::pump`) with
+    /// the recorder as its backend: placements synced, the ops applied, and
+    /// every report (the recorder's, a scenario's simulated ones) dispatched
+    /// at its view's node, the answer to a navigation request going back.
+    /// Rounds, because a callback's command (`webview_navigate`) makes ops
+    /// that make reports; the cap keeps a callback that navigates forever
+    /// from hanging the run.
+    fn pump_webviews(&mut self) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+
+        const MAX_WEBVIEW_ROUNDS: usize = 64;
+
+        let mut result = ProcessEventResult::DoNothing;
+        for _ in 0..MAX_WEBVIEW_ROUNDS {
+            self.layout_window.sync_webview_placements();
+            for op in self.layout_window.webviews.take_ops() {
+                self.webview_recorder.apply(&op);
+            }
+            let mut reports = self.webview_recorder.take_reports();
+            reports.extend(self.layout_window.webviews.take_simulated());
+            if reports.is_empty() {
+                break;
+            }
+            for report in reports {
+                let now = self.now();
+                let event = self.layout_window.webviews.begin_report(&report, &now);
+                let dispatched = event.is_some();
+                let mut prevented = false;
+                if let Some(event) = event {
+                    let (r, update, any_prevented, _) = self.dispatch_events_propagated(&[event]);
+                    result = result.max(r);
+                    if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    }
+                    prevented = any_prevented;
+                }
+                let allowed = self
+                    .layout_window
+                    .webviews
+                    .finish_report(&report, dispatched, prevented);
+                if let (Some(allow), true) = (allowed, report.request != 0) {
+                    self.webview_recorder.decide(report.id, report.request, allow);
+                }
+            }
+        }
+        result
+    }
+
     /// Service the redraws a rendered frame asked for (`pending_redraw`), until
     /// the window stops changing.
     ///
@@ -811,6 +917,172 @@ impl Runner {
         while self.pending_redraw && frames < MAX_REDRAW_FRAMES {
             self.render_and_record();
             frames += 1;
+        }
+    }
+
+    /// Port of the DLL's `dismiss_on_escape` and `dismiss_outside_on_press`
+    /// (`process_transient_dismissal`) + the owed focus restore, for the
+    /// runner's popups.
+    ///
+    /// The runner never reconciles transient windows, so a popup a widget
+    /// opened (`set_transient_window_open`) is only a FORCED-OPEN node here -
+    /// and nothing closed it on Escape: the key ran the default `ClearFocus`
+    /// and the next Tab restarted from the first stop. Now a fresh Escape
+    /// dismisses every forced-open popup whose policy allows it (the manager
+    /// records the focus it owes back), the Escape is SPENT like the DLL's
+    /// `consume_keyboard_delta` (no ClearFocus), and the owed focus - with
+    /// its ring - is handed back at once, unless the user has moved it
+    /// (the runner has no "next pass" hook to defer it to).
+    ///
+    /// A fresh mouse press closes every forced-open popup whose policy is
+    /// `outside` / `outside-only`, unless it landed on the popup's ANCHOR
+    /// (its parent: the invoker decides about a press on itself, or its
+    /// release would re-open it). A popup is laid out as its own window
+    /// (`display: none` in its parent), so any other press in this window is
+    /// outside it - as in the dll, where the parent sees the press. An inline-
+    /// docked or torn-off one is content / a window of its own and stays. The
+    /// press is NOT spent: it goes on to whatever it landed on.
+    ///
+    /// Each dismissed node then gets `ComponentEventFilter::Dismissed`, the
+    /// lifecycle event `LayoutWindow::dismiss_transient_window` queues in the
+    /// dll (built by the same `create_dismiss_event`, anchored on the node's
+    /// parent like a placement), so a widget clears its own `open` flag here
+    /// too. Dispatched at once: the runner never drains
+    /// `pending_lifecycle_events`. Returns what that dispatch asks for.
+    fn dismiss_popups_on_escape_or_outside_press(&mut self) -> ProcessEventResult {
+        use azul_core::{
+            dom::NodeType,
+            transient::{TransientDismiss, TransientDock},
+            window::{CursorPosition, VirtualKeyCode},
+        };
+
+        let esc = |s: &FullWindowState| {
+            s.keyboard_state
+                .pressed_virtual_keycodes
+                .as_ref()
+                .contains(&VirtualKeyCode::Escape)
+        };
+        let a_button_is_down = |s: &FullWindowState| {
+            s.mouse_state.left_down || s.mouse_state.right_down || s.mouse_state.middle_down
+        };
+        let Some(previous) = self.previous_window_state.as_ref() else {
+            return ProcessEventResult::DoNothing;
+        };
+        let by_escape = esc(&self.window_state) && !esc(previous);
+        let by_press = a_button_is_down(&self.window_state) && !a_button_is_down(previous);
+        if !by_escape && !by_press {
+            return ProcessEventResult::DoNothing;
+        }
+        let press_at = match self.window_state.mouse_state.cursor_position {
+            CursorPosition::InWindow(p) => Some(p),
+            _ => None,
+        };
+        // Each popup's anchor: its parent's rect, the anchor a placement
+        // would have had (the dll reports `placement.anchor_rect`). Read
+        // before the nodes close, while the parent still has its rect.
+        let anchor_of = |lw: &LayoutWindow, node: NodeId| {
+            lw.layout_results
+                .get(&DomId::ROOT_ID)
+                .and_then(|lr| {
+                    lr.styled_dom
+                        .node_hierarchy
+                        .as_container()
+                        .get(node)
+                        .and_then(|item| item.parent_id())
+                })
+                .and_then(|parent| {
+                    lw.get_node_rect_in_viewport(DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
+                    })
+                })
+                .unwrap_or_else(LogicalRect::zero)
+        };
+        let on = |rect: LogicalRect| {
+            press_at.is_some_and(|p| {
+                p.x >= rect.origin.x
+                    && p.x <= rect.origin.x + rect.size.width
+                    && p.y >= rect.origin.y
+                    && p.y <= rect.origin.y + rect.size.height
+            })
+        };
+        let targets: Vec<(NodeId, LogicalRect)> = {
+            let lw = &self.layout_window;
+            let Some(lr) = lw.layout_results.get(&DomId::ROOT_ID) else {
+                return ProcessEventResult::DoNothing;
+            };
+            let nodes = lr.styled_dom.node_data.as_container();
+            lw.transient_windows
+                .forced_open_nodes()
+                .iter()
+                .copied()
+                .filter_map(|n| {
+                    let Some(NodeType::TransientWindow(cfg)) =
+                        nodes.get(n).map(|nd| nd.get_node_type())
+                    else {
+                        return None;
+                    };
+                    let anchor = anchor_of(lw, n);
+                    let escape_closes = by_escape
+                        && matches!(cfg.dismiss, TransientDismiss::Outside | TransientDismiss::Escape);
+                    let press_closes = by_press
+                        && matches!(
+                            cfg.dismiss,
+                            TransientDismiss::Outside | TransientDismiss::OutsideOnly
+                        )
+                        && cfg.dock != TransientDock::Inline
+                        && !cfg.torn
+                        && !on(anchor);
+                    (escape_closes || press_closes).then_some((n, anchor))
+                })
+                .collect()
+        };
+        if targets.is_empty() {
+            return ProcessEventResult::DoNothing;
+        }
+        // ==== E1: the `Dismissed` event ====
+        let now = self.now();
+        let dismissed_events: Vec<azul_core::events::SyntheticEvent> = targets
+            .iter()
+            .map(|(node, anchor)| {
+                azul_core::diff::create_dismiss_event(*node, DomId::ROOT_ID, &now, *anchor)
+            })
+            .collect();
+        for (node, _) in targets {
+            // No window is open in the runner, so `dismiss` returns None - its
+            // bookkeeping (forced-open released, focus owed, node held
+            // dismissed) is what counts.
+            let _ = self.layout_window.transient_windows.dismiss(node);
+        }
+        // The Escape is spent (a press is not: it goes on to its target).
+        if by_escape {
+            let keyboard = self.window_state.keyboard_state.clone();
+            if let Some(previous) = self.previous_window_state.as_mut() {
+                previous.keyboard_state = keyboard;
+            }
+        }
+        if let Some((target, visible)) = self
+            .layout_window
+            .transient_windows
+            .take_pending_focus_restore()
+        {
+            let now = self.layout_window.focus_manager.get_focused_node().copied();
+            if now.is_none() || now == Some(target) {
+                self.layout_window
+                    .focus_manager
+                    .set_focused_node_with_visibility(Some(target), visible);
+            }
+        }
+        // The widgets hear it (a `Dismissed` handler clears its `open` flag).
+        let (result, update, _, _) = self.dispatch_events_propagated(&dismissed_events);
+        if matches!(
+            update,
+            azul_core::callbacks::Update::RefreshDom
+                | azul_core::callbacks::Update::RefreshDomAllWindows
+        ) {
+            result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow)
+        } else {
+            result
         }
     }
 
@@ -851,6 +1123,16 @@ impl Runner {
             self.layout_window.frame_report.hit_depth_cap = true;
             return ProcessEventResult::DoNothing;
         }
+
+        // ── 0. ESCAPE / AN OUTSIDE PRESS DISMISSES POPUPS (port of the DLL's
+        // `dismiss_on_escape` / `dismiss_outside_on_press` in
+        // `process_transient_dismissal`, which runs before determination).
+        // What the popups' `Dismissed` handlers ask for is this pass's too.
+        let dismissal = if depth == 0 {
+            self.dismiss_popups_on_escape_or_outside_press()
+        } else {
+            ProcessEventResult::DoNothing
+        };
 
         // ── 1. EVENT DETERMINATION ───────────────────────────────────────
         //
@@ -951,14 +1233,15 @@ impl Runner {
             lw.keyring_manager.clear_pending_event();
             lw.gesture_drag_manager.clear_pen_event_pending();
             lw.gesture_drag_manager.clear_native_gesture();
+            lw.gesture_drag_manager.note_pinch_dispatched();
             lw.media_player_manager.clear_pending_event();
         }
 
         if synthetic_events.is_empty() {
-            return ProcessEventResult::DoNothing;
+            return dismissal;
         }
 
-        let mut result = ProcessEventResult::DoNothing;
+        let mut result = dismissal;
 
         // ── 2. INCREMENTAL `:hover` RESTYLE ──────────────────────────────
         // Enter/leave targets of THIS pass, restyled now so pure-CSS `:hover`
@@ -1066,6 +1349,23 @@ impl Runner {
                                 })
                             })
                             .unwrap_or(false),
+                        // Mirrors the dll shell: a focus with a Paste
+                        // callback (a terminal) asks for the paste chord.
+                        focus_hears_paste: lw
+                            .focus_manager
+                            .get_focused_node()
+                            .and_then(|f| {
+                                let node = f.node.into_crate_internal()?;
+                                let lr = lw.layout_results.get(&f.dom)?;
+                                Some(crate::solver3::getters::node_has_callback_for(
+                                    &lr.styled_dom,
+                                    node,
+                                    azul_core::dom::EventFilter::Focus(
+                                        azul_core::events::FocusEventFilter::Paste,
+                                    ),
+                                ))
+                            })
+                            .unwrap_or(false),
                     },
                 };
                 azul_core::events::default_input_interpreter(&info)
@@ -1131,6 +1431,22 @@ impl Runner {
                                 .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                         }
                     }
+                    // The dll's `UndoTextEdit` / `RedoTextEdit` arms, through
+                    // the same `LayoutWindow` body (EVENTS7). The primary's
+                    // undo keys are default actions now (below); this is the
+                    // change for whatever still asks for it directly.
+                    SystemChange::UndoTextEdit { target } => {
+                        if self.layout_window.undo_text_edit(*target) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
+                    SystemChange::RedoTextEdit { target } => {
+                        if self.layout_window.redo_text_edit(*target) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
                     // Still unported (dropped, as the whole set was before):
                     // AddCursorAtClick (Cmd+click multi-cursor), the clipboard
                     // trio (deferred post-callback in the DLL), auto-scroll
@@ -1142,12 +1458,26 @@ impl Runner {
 
         // ── 3. USER CALLBACK DISPATCH (W3C capture → target → bubble) ────
         let old_focus = self.layout_window.focus_manager.get_focused_node().copied();
-        let (changes_result, callback_update, prevent_default) =
+        let (changes_result, callback_update, prevent_default, scroll_prevented) =
             self.dispatch_events_propagated(&synthetic_events);
         result = result.max(changes_result);
 
         // The wheel delta has now been delivered; clear it so no later pass
         // re-fires a stale Scroll event.
+        //
+        // THE WHEEL HAS ONE CONSUMER (the DLL does the same, shell2/common/
+        // event.rs): a `Scroll` callback that vetoed the default claimed the
+        // gesture, so the container scroll queued at ingress must be taken
+        // back — otherwise the widget's answer is ADDED to the page scroll
+        // instead of replacing it.
+        if scroll_prevented {
+            self.layout_window
+                .scroll_manager
+                .cancel_queued_scroll_input();
+        }
+        self.layout_window
+            .scroll_manager
+            .forget_queued_scroll_input();
         self.layout_window.scroll_manager.pending_wheel_event = None;
 
         let mut should_recurse = false;
@@ -1190,18 +1520,10 @@ impl Runner {
                 .iter()
                 .any(|c| matches!(c, SystemChange::ApplyPendingTextInput))
             {
-                let changeset_result = self.layout_window.apply_text_changeset();
-                if !changeset_result.dirty_nodes.is_empty() {
-                    result = result.max(if changeset_result.needs_relayout {
-                        ProcessEventResult::ShouldIncrementalRelayout
-                    } else {
-                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                    });
-                    self.layout_window.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    );
-                }
+                // The shells' tail, not a port of it: land the pending
+                // edits and reveal the caret only when one landed.
+                let landed = self.layout_window.apply_pending_text_and_reveal();
+                result = result.max(landed.event_result());
             } else if prevent_default {
                 // A vetoed edit must DIE, not wait: the pending record would
                 // otherwise survive into the next pass, whose unconditional
@@ -1222,10 +1544,11 @@ impl Runner {
                 .any(|e| e.event_type == azul_core::events::EventType::MouseDown)
         {
             // ONE rule, shared with the dll (9g-ii-e-ii): the nearest focusable
-            // ancestor of the FRONT-MOST hit, in that hit's own DOM. This used
-            // to walk every hit DOM and let the last focusable win, so a
-            // focusable host node under a VirtualView page took a click meant
-            // for the page.
+            // ancestor of the FRONT-MOST hit, along its event path - its own
+            // DOM, then on through the node hosting a VirtualView page (user
+            // ruling 2026-10-03). This used to walk every hit DOM and let the
+            // last focusable win, so a focusable node merely UNDER a
+            // VirtualView page took a click meant for the page.
             // The hit test of the seat that PRESSED (9b-ii-c): a second
             // cursor's press focuses what is under the second cursor, not
             // what the primary happens to hover.
@@ -1248,6 +1571,7 @@ impl Runner {
             };
             let clicked_focusable_node = hit_for_focus.as_ref().and_then(|hit_test| {
                 let results = &self.layout_window.layout_results;
+                let virtual_views = &self.layout_window.virtual_view_manager;
                 crate::managers::hover::focusable_under_pointer(
                     hit_test,
                     |dom_id, nid| {
@@ -1268,6 +1592,9 @@ impl Runner {
                                 .and_then(|h| h.parent_id())
                         })
                     },
+                    // Past a `VirtualView` page's root the walk goes on at
+                    // its host (user ruling 2026-10-03).
+                    |dom_id| virtual_views.host_of_nested_dom(dom_id),
                 )
             });
 
@@ -1364,7 +1691,7 @@ impl Runner {
                 ));
             }
             if !focus_events.is_empty() {
-                let (focus_result, focus_update, _) =
+                let (focus_result, focus_update, _, _) =
                     self.dispatch_events_propagated(&focus_events);
                 result = result.max(focus_result);
                 if matches!(
@@ -1509,7 +1836,7 @@ impl Runner {
                     )
                 })
                 .collect();
-            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            let (dispatch_result, update, _, _) = self.dispatch_events_propagated(&events);
             result = result.max(dispatch_result);
             if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                 result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
@@ -1521,7 +1848,7 @@ impl Runner {
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
-    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool, bool) {
         use azul_core::{
             callbacks::{CoreCallbackData, Update},
             events::EventFilter,
@@ -1532,6 +1859,12 @@ impl Runner {
             dom_id: DomId,
             node_id: NodeId,
             callback_data: CoreCallbackData,
+            /// Which event this callback answers: a `preventDefault` vetoes
+            /// THIS event's default action and nothing else in the pass.
+            event_type: azul_core::events::EventType,
+            /// The event's index in `events`: propagation is controlled per
+            /// event (the dll's dispatcher does the same).
+            event_index: usize,
         }
 
         // Phase 1 — build the dispatch plan (read-only over the layout window).
@@ -1540,84 +1873,60 @@ impl Runner {
             let focused_node = lw.focus_manager.get_focused_node().copied();
             let mut planned = Vec::new();
 
-            for event in events {
+            for (event_index, event) in events.iter().enumerate() {
                 let event_filters =
                     azul_core::events::event_type_to_filters(event.event_type, &event.data);
 
                 for filter in &event_filters {
                     match filter {
                         EventFilter::Hover(_) => {
-                            let dom_id = event.target.dom;
-                            let Some(layout_result) = lw.layout_results.get(&dom_id) else {
-                                continue;
-                            };
-
-                            let node_hierarchy = {
-                                let items = layout_result.styled_dom.node_hierarchy.as_container();
-                                let nodes: Vec<azul_core::id::Node> = (0..items.len())
-                                    .map(|i| {
-                                        let item = &items.internal[i];
-                                        azul_core::id::Node {
-                                            parent: CoreNodeId::from_usize(item.parent),
-                                            previous_sibling: CoreNodeId::from_usize(
-                                                item.previous_sibling,
-                                            ),
-                                            next_sibling: CoreNodeId::from_usize(item.next_sibling),
-                                            last_child: CoreNodeId::from_usize(item.last_child),
-                                        }
-                                    })
-                                    .collect();
-                                azul_core::id::NodeHierarchy::new(nodes)
-                            };
-
-                            let node_data_container =
-                                layout_result.styled_dom.node_data.as_container();
-                            let mut callback_map: BTreeMap<CoreNodeId, Vec<EventFilter>> =
-                                BTreeMap::new();
-                            for node_idx in 0..node_data_container.len() {
-                                let node_id = CoreNodeId::new(node_idx);
-                                if let Some(nd) = node_data_container.get(node_id) {
-                                    let matching: Vec<EventFilter> = nd
-                                        .get_callbacks()
-                                        .as_ref()
-                                        .iter()
-                                        .filter(|cb| cb.event == *filter)
-                                        .map(|cb| cb.event)
-                                        .collect();
-                                    if !matching.is_empty() {
-                                        callback_map.insert(node_id, matching);
-                                    }
-                                }
-                            }
-                            if callback_map.is_empty() {
-                                continue;
-                            }
-
-                            let mut event_clone = event.clone();
-                            let prop_result = azul_core::events::propagate_event(
-                                &mut event_clone,
-                                &node_hierarchy,
-                                &callback_map,
+                            // The shell's plan (core's, one for both): along the
+                            // path that goes on past a `VirtualView` page's root
+                            // at its host.
+                            let layout_results = &lw.layout_results;
+                            let virtual_views = &lw.virtual_view_manager;
+                            let reached = azul_core::events::hover_callbacks_along_path(
+                                event,
+                                *filter,
+                                &|dom| layout_results.get(&dom).map(|lr| &lr.styled_dom),
+                                &|dom| virtual_views.host_of_nested_dom(dom),
                             );
-
-                            for (node_id, matched_filter) in &prop_result.callbacks_to_invoke {
-                                let Some(nd) = node_data_container.get(*node_id) else {
+                            for (at, callback_data) in reached {
+                                let Some(node_id) = at.node.into_crate_internal() else {
                                     continue;
                                 };
-                                for cb in nd.get_callbacks().as_ref() {
-                                    if cb.event == *matched_filter {
-                                        planned.push(PlannedInvocation {
-                                            dom_id,
-                                            node_id: *node_id,
-                                            callback_data: cb.clone(),
-                                        });
-                                    }
-                                }
+                                planned.push(PlannedInvocation {
+                                    dom_id: at.dom,
+                                    node_id,
+                                    callback_data,
+                                    event_type: event.event_type,
+                                    event_index,
+                                });
                             }
                         }
                         EventFilter::Focus(_) => {
-                            // Focus events fire on the focused node only.
-                            let Some(focused) = focused_node else {
+                            // Focus events fire on the focused node only -
+                            // except the focus TRANSITION itself, which names
+                            // its node: `Blur` / `FocusOut` / `Change` are aimed
+                            // at the node that just LOST focus, `Focus` /
+                            // `FocusIn` at the one that gained it, and by the
+                            // time they are dispatched the focus manager
+                            // already points at the new node. (Mirror of the
+                            // shell's `dispatch_events_propagated`.)
+                            let is_transition = matches!(
+                                event.event_type,
+                                azul_core::events::EventType::Blur
+                                    | azul_core::events::EventType::FocusOut
+                                    | azul_core::events::EventType::Change
+                                    | azul_core::events::EventType::Focus
+                                    | azul_core::events::EventType::FocusIn
+                            );
+                            let focused = if is_transition {
+                                Some(event.target)
+                            } else {
+                                focused_node
+                            };
+                            let Some(focused) = focused else {
                                 continue;
                             };
                             let Some(node_id) = focused.node.into_crate_internal() else {
@@ -1634,6 +1943,8 @@ impl Runner {
                                         dom_id: focused.dom,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
+                                        event_index,
                                     });
                                 }
                             }
@@ -1657,6 +1968,8 @@ impl Runner {
                                                 dom_id: *dom_id,
                                                 node_id,
                                                 callback_data: cb.clone(),
+                                                event_type: event.event_type,
+                                                event_index,
                                             });
                                         }
                                     }
@@ -1681,6 +1994,8 @@ impl Runner {
                                         dom_id,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        event_type: event.event_type,
+                                        event_index,
                                     });
                                 }
                             }
@@ -1692,7 +2007,7 @@ impl Runner {
         };
 
         if planned_callbacks.is_empty() {
-            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false, false);
         }
 
         // Phase 2 — invoke.
@@ -1704,17 +2019,33 @@ impl Runner {
         let mut all_updates: Vec<Update> = Vec::new();
         let mut all_changes: Vec<CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
+        // WHICH event was vetoed (the dll does the same): a key handler's
+        // `preventDefault` must not take back the scroll a wheel earned.
+        let mut prevented_event_types: std::collections::BTreeSet<azul_core::events::EventType> =
+            std::collections::BTreeSet::new();
+        // Propagation control is PER EVENT: a release carries a Click and a
+        // DoubleClick, and a click handler's stopPropagation ends the click's
+        // propagation only (the dll's `dispatch_events_propagated`).
         let mut propagation_stopped = false;
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
+        let mut immediately_stopped = false;
+        let mut current_event: Option<usize> = None;
 
         for planned in planned_callbacks {
+            if current_event != Some(planned.event_index) {
+                current_event = Some(planned.event_index);
+                propagation_stopped = false;
+                propagation_stopped_node = None;
+                immediately_stopped = false;
+            }
             // W3C stopPropagation: remaining handlers on the SAME node still
-            // run; the first handler on a different node ends the dispatch.
-            if propagation_stopped
-                && propagation_stopped_node
-                    .is_none_or(|(dom, nid)| dom != planned.dom_id || nid != planned.node_id)
+            // run; the event's handlers on other nodes do not.
+            if immediately_stopped
+                || (propagation_stopped
+                    && propagation_stopped_node
+                        .is_none_or(|(dom, nid)| dom != planned.dom_id || nid != planned.node_id))
             {
-                break;
+                continue;
             }
 
             let mut callback =
@@ -1746,7 +2077,10 @@ impl Runner {
             let mut should_stop_propagation = false;
             for change in &changes {
                 match change {
-                    CallbackChange::PreventDefault => any_prevent_default = true,
+                    CallbackChange::PreventDefault => {
+                        any_prevent_default = true;
+                        prevented_event_types.insert(planned.event_type);
+                    }
                     CallbackChange::StopImmediatePropagation => should_stop_immediate = true,
                     CallbackChange::StopPropagation => should_stop_propagation = true,
                     _ => {}
@@ -1759,7 +2093,7 @@ impl Runner {
                 propagation_stopped_node = Some((planned.dom_id, planned.node_id));
             }
             if should_stop_immediate {
-                break;
+                immediately_stopped = true;
             }
         }
 
@@ -1773,7 +2107,14 @@ impl Runner {
             .copied()
             .fold(Update::DoNothing, Update::max);
 
-        (changes_result, merged_update, any_prevent_default)
+        let scroll_prevented =
+            prevented_event_types.contains(&azul_core::events::EventType::Scroll);
+        (
+            changes_result,
+            merged_update,
+            any_prevent_default,
+            scroll_prevented,
+        )
     }
 
     /// Port of `PlatformWindow::apply_user_change`
@@ -1784,6 +2125,9 @@ impl Runner {
     #[allow(clippy::too_many_lines)]
     fn apply_user_change(&mut self, change: &CallbackChange) -> ProcessEventResult {
         match change {
+            CallbackChange::StartHttpServer { .. } | CallbackChange::StopHttpServer => {
+                ProcessEventResult::DoNothing
+            }
             // A script asking to run a script. The headless runner is ALREADY
             // executing a scenario when it gets here, and `E2eSession` has one
             // continuation slot per window — accepting this would overwrite
@@ -1809,6 +2153,17 @@ impl Runner {
             // so an e2e scenario can pin the six media events.
             CallbackChange::MediaTransport { node, op } => {
                 self.layout_window.media_player_manager.apply(*node, *op);
+                ProcessEventResult::DoNothing
+            }
+            // Engine state too: the command is queued on the manager, where
+            // a scenario's `list_webviews` sees what the backend would do.
+            CallbackChange::WebViewCommand { node, command } => {
+                let _ = self.layout_window.webviews.queue_command(*node, command);
+                ProcessEventResult::DoNothing
+            }
+            // Delivered by `pump_webviews`, after this pass's changes.
+            CallbackChange::SimulateWebViewReport { report } => {
+                self.layout_window.webviews.push_simulated(report.clone());
                 ProcessEventResult::DoNothing
             }
 
@@ -1869,19 +2224,13 @@ impl Runner {
                 for ch in &track_changes {
                     extra = extra.max(self.apply_user_change(ch));
                 }
-                // A layout-affecting `animation` transition (width, margins)
-                // must re-solve, not just repaint — the display-list rebuild
-                // reads geometry the solver has not recomputed yet.
-                extra.max(if self.layout_window.take_transition_relayout() {
-                    ProcessEventResult::ShouldIncrementalRelayout
-                } else if self.layout_window.take_transition_patched() {
-                    // Every transitioning value was PATCHED into the DL in
-                    // place: no rebuild, just re-render — the DL diff turns
-                    // the patched items into bounded damage.
-                    ProcessEventResult::ShouldReRenderCurrentWindow
-                } else {
-                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                })
+                // The one decision every frame driver takes after a tick: a
+                // layout-affecting `animation` transition (width, margins)
+                // re-solves; values patched into the DL in place or bound by
+                // key (a transform tween, a FLIP slide) only re-render - the
+                // DL / GPU-value diff turns them into bounded damage; anything
+                // else rebuilds the display list.
+                extra.max(self.layout_window.take_animation_frame_work())
             }
 
             CallbackChange::StopE2eJson { .. } => ProcessEventResult::DoNothing,
@@ -1898,7 +2247,26 @@ impl Runner {
 
             // === Window State ===
             CallbackChange::ModifyWindowState { state } => {
-                let old = std::mem::replace(&mut self.window_state, state.clone());
+                // A pushed state that RAISES the close flag (the CSD
+                // titlebar's close button) asks for a close, like
+                // `close_window` - port of the dll arm.
+                if state.flags.close_requested && !self.window_state.flags.close_requested {
+                    self.close_unconfirmed = true;
+                }
+                let mut old = std::mem::replace(&mut self.window_state, state.clone());
+                // THE PRESS ROUTER, port of the DLL's arm: a scripted press,
+                // move or release of the primary pointer (`mouse_down`,
+                // `click`, a callback's push) reaches the same scrollbar-first
+                // arbitration a physical one does. What the scrollbar layer
+                // takes is folded into `old`, the baseline the pass diffs
+                // against, so the press does not ALSO become a `MouseDown` on
+                // the content under the bar.
+                let pointer_to_scrollbar = self.window_state.mouse_state != old.mouse_state && {
+                    let now = self.now();
+                    let current = self.window_state.mouse_state;
+                    self.layout_window
+                        .route_pointer_transition(&mut old.mouse_state, &current, now)
+                };
                 let size_changed = self.window_state.size.dimensions != old.size.dimensions;
                 let dpi_changed = self.window_state.size.dpi != old.size.dpi;
                 let mouse_state_changed = self.window_state.mouse_state != old.mouse_state;
@@ -1954,11 +2322,12 @@ impl Runner {
                     || self.window_state.position != old.position;
 
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
-                if anything_changed {
+                if anything_changed || pointer_to_scrollbar {
                     // Advance the sync baseline BEFORE the pass — it is what
                     // `determine_all_events` diffs `current` against, so
                     // forgetting it makes every event pass see a zero delta
-                    // and produce nothing.
+                    // and produce nothing. A push the scrollbar took whole
+                    // advances it too: its delta is spent.
                     self.previous_window_state = Some(old);
                 }
                 // Mouse state changed → re-resolve the pointer target before
@@ -2122,39 +2491,26 @@ impl Runner {
                 let Some(internal_node_id) = node_id.node.into_crate_internal() else {
                     return ProcessEventResult::DoNothing;
                 };
-                let lw = &mut self.layout_window;
-
-                // NO-OP SHORT CIRCUIT. Setting the text to the byte-identical
-                // string used to throw away the ENTIRE incremental shaped-text
-                // cache and re-shape every run in the DOM, then relayout the
-                // whole root — the maximum work in the engine, for a write that
-                // changed nothing. It also went green: the re-shape reproduces
-                // identical glyphs, so the display list is identical, so the
-                // damage is `none` and `assert_damage {"kind":"none"}` passed
-                // while the engine did everything. That IS over-invalidation,
-                // and it was invisible to every assertion the harness had.
-                let unchanged = lw.layout_results.get(&dom_id).is_some_and(|lr| {
-                    let nodes = lr.styled_dom.node_data.as_container();
-                    nodes.get(internal_node_id).is_some_and(|node| {
-                        matches!(
-                            node.get_node_type(),
-                            azul_core::dom::NodeType::Text(existing)
-                                if existing.as_str() == text.as_str()
-                        )
-                    })
-                });
-                if unchanged {
+                // The text AND what the user typed over it (the app's text
+                // wins, as `input.value = ..` does): `set_node_text`, shared
+                // with the shells.
+                //
+                // NO-OP SHORT CIRCUIT (inside it). Setting the text to the
+                // byte-identical string used to throw away the ENTIRE
+                // incremental shaped-text cache and re-shape every run in the
+                // DOM, then relayout the whole root — the maximum work in the
+                // engine, for a write that changed nothing. It also went green:
+                // the re-shape reproduces identical glyphs, so the display list
+                // is identical, so the damage is `none` and
+                // `assert_damage {"kind":"none"}` passed while the engine did
+                // everything. That IS over-invalidation, and it was invisible
+                // to every assertion the harness had. (Unless the user typed
+                // there: then the DOM agrees and the screen does not.)
+                if !self
+                    .layout_window
+                    .set_node_text(dom_id, internal_node_id, text)
+                {
                     return ProcessEventResult::DoNothing;
-                }
-
-                if let Some(layout_result) = lw.layout_results.get_mut(&dom_id) {
-                    let idx = internal_node_id.index();
-                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                        layout_result.styled_dom.node_data.as_container_mut()[internal_node_id]
-                            .set_node_type(azul_core::dom::NodeType::Text(
-                                azul_css::css::BoxOrStatic::heap(text.clone()),
-                            ));
-                    }
                 }
                 // NO cache reset (USER mandate: per-IFC text patching). The
                 // reconcile fingerprints node CONTENT, so the changed text
@@ -2202,6 +2558,7 @@ impl Runner {
                 node_id,
                 image,
                 update_type: _,
+                dirty_rect,
             } => {
                 // The content chokepoint: overlay write + journal + in-place DL
                 // patch (paint tier) or incremental-cache reset (relayout
@@ -2212,6 +2569,7 @@ impl Runner {
                             dom_id: *dom_id,
                             node_id: *node_id,
                             image: image.clone(),
+                            dirty_rect: *dirty_rect,
                         });
                 result.tier.to_process_event_result()
             }
@@ -2263,6 +2621,21 @@ impl Runner {
                 .tier
                 .to_process_event_result(),
 
+            // Same one-line delegation as the DLL host.
+            CallbackChange::SetNodeStyle {
+                dom_id,
+                node_id,
+                style,
+            } => self
+                .layout_window
+                .apply_content_change(crate::overlay::ContentChange::NodeStyle {
+                    dom_id: *dom_id,
+                    node_id: *node_id,
+                    style: style.clone(),
+                })
+                .tier
+                .to_process_event_result(),
+
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
                 let mut updates = BTreeMap::new();
                 let mut set = azul_core::FastBTreeSet::new();
@@ -2277,8 +2650,14 @@ impl Runner {
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
-            CallbackChange::UpdateImageCallback { .. }
-            | CallbackChange::UpdateAllImageCallbacks => {
+            // A frame invokes a canvas only when its inputs changed; these are
+            // the app's explicit "draw again" (as in the shells).
+            CallbackChange::UpdateImageCallback { dom_id, node_id } => {
+                self.layout_window.invalidate_image_callback(*dom_id, *node_id);
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::UpdateAllImageCallbacks => {
+                self.layout_window.invalidate_all_image_callbacks();
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
@@ -2443,6 +2822,24 @@ impl Runner {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            // Port of the DLL arm: a roving tab stop moved. The Tab order is
+            // read from the node data on every Tab press, so the flag write is
+            // the whole change.
+            CallbackChange::SetNodeTabIndex {
+                dom_id,
+                node_id,
+                tab_index,
+            } => {
+                if let Some(layout_result) = self.layout_window.layout_results.get_mut(dom_id) {
+                    let idx = node_id.index();
+                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                            .set_tab_index(*tab_index);
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::RemountDom { xml } => {
                 // The E2E `mount` / `unmount` document is per-window state, not
                 // a process-global sink: store it on the window and let
@@ -2579,6 +2976,12 @@ impl Runner {
 
             // === Window lifetime ===
             CallbackChange::CloseWindow => {
+                // A REQUEST, like the window manager's (port of the dll arm):
+                // the close protocol runs for it at the end of the frame
+                // (`confirm_app_close`), so CloseRequested can veto it.
+                if !self.window_state.flags.close_requested {
+                    self.close_unconfirmed = true;
+                }
                 self.window_state.flags.close_requested = true;
                 ProcessEventResult::DoNothing
             }
@@ -2628,17 +3031,15 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetSelection {
-                dom_id: _,
-                node_id: _,
+                dom_id,
+                node_id,
                 selection,
             } => {
-                use azul_core::selection::Selection;
-                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
-                    match selection {
-                        Selection::Cursor(cursor) => mc.set_single_cursor(*cursor),
-                        Selection::Range(range) => mc.set_single_range(*range),
-                    }
-                }
+                let node = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                self.layout_window.set_app_selection(node, *selection);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetTextChangeset { changeset } => {
@@ -2647,89 +3048,39 @@ impl Runner {
                     .set_changeset(changeset.clone());
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::ToggleTextFormat { host, format } => {
+                let _ = self.layout_window.toggle_text_format(*host, *format);
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ResetEditorContent { host, caret_at_end } => {
+                let _ = self
+                    .layout_window
+                    .reset_editor_content(*host, *caret_at_end);
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            }
+            CallbackChange::PlaceCaretAfterRebuild {
+                host,
+                node_path,
+                position,
+            } => {
+                let _ = self.layout_window.place_caret_after_rebuild(
+                    *host,
+                    node_path.clone(),
+                    *position,
+                );
+                ProcessEventResult::DoNothing
+            }
 
             // === Cursor movement ===
-            CallbackChange::MoveCursorLeft {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_left(*cursor, &mut None)
-            }),
-            CallbackChange::MoveCursorRight {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_right(*cursor, &mut None)
-            }),
-            CallbackChange::MoveCursorUp {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_up(*cursor, &mut None, &mut None)
-            }),
-            CallbackChange::MoveCursorDown {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_down(*cursor, &mut None, &mut None)
-            }),
-            CallbackChange::MoveCursorToLineStart {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_to_line_start(*cursor, &mut None)
-            }),
-            CallbackChange::MoveCursorToLineEnd {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                layout.move_cursor_to_line_end(*cursor, &mut None)
-            }),
-            // Document start/end are NOT a `move_cursor_in_node` movement in the
-            // DLL either — they read the first/last cluster straight off the
-            // inline layout.
-            CallbackChange::MoveCursorToDocumentStart {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                use azul_core::selection::{CursorAffinity, TextCursor};
-                let lw = &mut self.layout_window;
-                let first = lw
-                    .get_inline_layout_for_node(*dom_id, *node_id)
-                    .and_then(|layout| layout.items.first().and_then(|i| i.item.as_cluster()))
-                    .map(|c| TextCursor {
-                        cluster_id: c.source_cluster_id,
-                        affinity: CursorAffinity::Leading,
-                    });
-                if let Some(doc_start) = first {
-                    lw.handle_cursor_movement(*dom_id, *node_id, doc_start, *extend_selection);
-                }
-                ProcessEventResult::ShouldReRenderCurrentWindow
-            }
-            CallbackChange::MoveCursorToDocumentEnd {
-                dom_id,
-                node_id,
-                extend_selection,
-            } => {
-                use azul_core::selection::{CursorAffinity, TextCursor};
-                let lw = &mut self.layout_window;
-                let last = lw
-                    .get_inline_layout_for_node(*dom_id, *node_id)
-                    .and_then(|layout| layout.items.last().and_then(|i| i.item.as_cluster()))
-                    .map(|c| TextCursor {
-                        cluster_id: c.source_cluster_id,
-                        affinity: CursorAffinity::Trailing,
-                    });
-                if let Some(doc_end) = last {
-                    lw.handle_cursor_movement(*dom_id, *node_id, doc_end, *extend_selection);
-                }
+            CallbackChange::MoveCursorLeft { .. }
+            | CallbackChange::MoveCursorRight { .. }
+            | CallbackChange::MoveCursorUp { .. }
+            | CallbackChange::MoveCursorDown { .. }
+            | CallbackChange::MoveCursorToLineStart { .. }
+            | CallbackChange::MoveCursorToLineEnd { .. }
+            | CallbackChange::MoveCursorToDocumentStart { .. }
+            | CallbackChange::MoveCursorToDocumentEnd { .. } => {
+                self.layout_window.apply_app_cursor_move(change);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
@@ -2739,19 +3090,11 @@ impl Runner {
                 node_id,
                 cursor,
             } => {
-                use azul_core::selection::MultiCursorState;
-                let lw = &mut self.layout_window;
-                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
-                    let _ = mc.add_cursor(*cursor);
-                } else {
-                    let dom_node_id = DomNodeId {
-                        dom: *dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                    };
-                    lw.text_edit_manager.multi_cursor =
-                        Some(MultiCursorState::new_with_cursor(*cursor, dom_node_id, 0));
-                }
-                lw.text_edit_manager.mark_dirty();
+                let node = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                self.layout_window.add_app_cursor(node, *cursor);
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
             CallbackChange::AddSelectionRange {
@@ -2759,20 +3102,11 @@ impl Runner {
                 node_id,
                 range,
             } => {
-                use azul_core::selection::MultiCursorState;
-                let lw = &mut self.layout_window;
-                if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
-                    let _ = mc.add_selection(*range);
-                } else {
-                    let dom_node_id = DomNodeId {
-                        dom: *dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                    };
-                    let mut mc = MultiCursorState::new_with_cursor(range.start, dom_node_id, 0);
-                    mc.set_single_range(*range);
-                    lw.text_edit_manager.multi_cursor = Some(mc);
-                }
-                lw.text_edit_manager.mark_dirty();
+                let node = DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                };
+                self.layout_window.add_app_selection_range(node, *range);
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
             CallbackChange::RemoveSelectionById { selection_id } => {
@@ -2783,10 +3117,9 @@ impl Runner {
                 }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
-            CallbackChange::SetSelectAllRange { target: _, range } => {
-                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
-                    mc.set_single_range(*range);
-                }
+            CallbackChange::SetSelectAllRange { target, range } => {
+                self.layout_window
+                    .set_app_selection(*target, azul_core::selection::Selection::Range(*range));
                 ProcessEventResult::DoNothing
             }
             CallbackChange::ProcessTextSelectionClick { position, time_ms } => {
@@ -2795,10 +3128,8 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::ScrollActiveCursorIntoView => {
-                self.layout_window.scroll_selection_into_view(
-                    azul_layout::window::SelectionScrollType::Cursor,
-                    azul_layout::window::ScrollMode::Instant,
-                );
+                self.layout_window
+                    .reveal_for_input(crate::managers::scroll_state::RevealRequest::Caret);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
@@ -2897,7 +3228,18 @@ impl Runner {
             CallbackChange::QueueWindowStateSequence { states } => {
                 let mut result = ProcessEventResult::DoNothing;
                 for queued_state in states {
-                    let old = self.window_state.clone();
+                    let mut old = self.window_state.clone();
+                    // THE PRESS ROUTER for each queued state, as in
+                    // `ModifyWindowState`: the `click` op queues move / down /
+                    // up, and a down on a scrollbar is the scrollbar's.
+                    let pointer_to_scrollbar = old.mouse_state != queued_state.mouse_state && {
+                        let now = self.now();
+                        self.layout_window.route_pointer_transition(
+                            &mut old.mouse_state,
+                            &queued_state.mouse_state,
+                            now,
+                        )
+                    };
                     self.previous_window_state = Some(old.clone());
 
                     // The DLL copies exactly these fields (not the whole
@@ -2923,11 +3265,19 @@ impl Runner {
                         self.dpi_pending = true;
                     }
 
-                    if let Some(pos) = queued_state.mouse_state.cursor_position.get_position() {
-                        self.update_hit_test_at(pos);
+                    // A pointer the scrollbar took is not over the content:
+                    // no hover re-resolve for it, as on a physical thumb drag.
+                    if !pointer_to_scrollbar {
+                        if let Some(pos) = queued_state.mouse_state.cursor_position.get_position()
+                        {
+                            self.update_hit_test_at(pos);
+                        }
                     }
 
                     result = result.max(self.process_window_events(0));
+                    if pointer_to_scrollbar {
+                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    }
                 }
                 result
             }
@@ -3023,7 +3373,7 @@ impl Runner {
                     // the frame is stale even when it mapped to no callback.
                     let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
                     if !events.is_empty() {
-                        let (r, _update, _) = self.dispatch_events_propagated(&events);
+                        let (r, _update, _, _) = self.dispatch_events_propagated(&events);
                         result = result.max(r);
                     }
                     result
@@ -3106,6 +3456,10 @@ impl Runner {
                 self.unsupported("RemoveThread", "no thread pump")
             }
 
+            // The e2e `paste` op: the content is handed in, so no OS
+            // clipboard is needed - the rest is the dll's paste.
+            CallbackChange::Paste { content } => self.apply_paste(content),
+
             // No OS integration.
             CallbackChange::SetCopyContent { .. } => {
                 self.unsupported("SetCopyContent", "no OS clipboard")
@@ -3118,6 +3472,19 @@ impl Runner {
             }
             CallbackChange::SetSystemAudioTakeover { .. } => {
                 self.unsupported("SetSystemAudioTakeover", "no system audio")
+            }
+            // Raising changes window stacking, which nothing in a headless
+            // scenario can observe - the DOM, the layout and the state are
+            // the same either way - so honouring it as a no-op IS faithful
+            // (unlike the arms above, whose effect a scenario would miss).
+            CallbackChange::RaiseWindow => ProcessEventResult::DoNothing,
+            // Pure manager state: forget the failure and ask again now, the
+            // way the dll's pump does on its next turn.
+            CallbackChange::RetryGlobalHotkey { hotkey } => {
+                let hotkeys = self.layout_window.global_hotkeys.shared();
+                hotkeys.retry(*hotkey);
+                let _ = hotkeys.sync();
+                ProcessEventResult::DoNothing
             }
             CallbackChange::SetPointerLock { locked } => {
                 // No pointer to grab headlessly, but the FLAG is the thing
@@ -3155,11 +3522,34 @@ impl Runner {
                 if node.dom != DomId::ROOT_ID {
                     return ProcessEventResult::DoNothing;
                 }
+                // FOCUS RETURN, the same bookkeeping as the desktop shell's
+                // arm: remember where focus is as the popup opens, hand it
+                // back (with its ring) when the callback closes it. Without
+                // it no scenario could cover focus return at all.
+                let focus_now = self.layout_window.focus_manager.get_focused_node().copied();
+                let restore_to = if *open {
+                    if let Some(focused) = focus_now {
+                        let visible = self.layout_window.focus_manager.focus_is_visible;
+                        self.layout_window
+                            .transient_windows
+                            .remember_focus_before_open(node_id, focused, visible);
+                    }
+                    None
+                } else {
+                    self.layout_window
+                        .transient_windows
+                        .take_focus_before_open(node_id)
+                };
                 if self
                     .layout_window
                     .transient_windows
                     .set_forced_open(node_id, *open)
                 {
+                    if let Some((target, visible)) = restore_to {
+                        self.layout_window
+                            .focus_manager
+                            .set_focused_node_with_visibility(Some(target), visible);
+                    }
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing
@@ -3342,7 +3732,7 @@ impl Runner {
                     .collect();
 
                 let mut result = ProcessEventResult::DoNothing;
-                let (text_changes_result, text_update, text_prevent_default) =
+                let (text_changes_result, text_update, text_prevent_default, _) =
                     self.dispatch_events_propagated(&text_events);
                 // A callback veto kills the recorded edit — same as the DLL:
                 // clearing it also stops any later apply from landing it late.
@@ -3359,19 +3749,8 @@ impl Runner {
                     result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                 }
 
-                let changeset_result = self.layout_window.apply_text_changeset();
-                if !changeset_result.dirty_nodes.is_empty() {
-                    result = result.max(if changeset_result.needs_relayout {
-                        ProcessEventResult::ShouldIncrementalRelayout
-                    } else {
-                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                    });
-                    self.layout_window.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    );
-                }
-                result
+                let landed = self.layout_window.apply_pending_text_and_reveal();
+                result.max(landed.event_result())
             }
 
             // The runner mounts XML documents; it never invokes a layout
@@ -3379,7 +3758,117 @@ impl Runner {
             CallbackChange::SwitchRoute { .. } => {
                 self.unsupported("SwitchRoute", "no layout callback — the runner mounts XML")
             }
+            CallbackChange::SetLocale { locale } => {
+                // The runner mounts XML and runs no `layout()` callback, so
+                // nothing here can depend on the locale beyond its strings:
+                // re-localize the mounted text in place (the shell's path for
+                // a `layout()` that never read the locale).
+                let _ = self.layout_window.set_locale(locale.as_str());
+                if self.layout_window.relocalize_laid_out_text() {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+            CallbackChange::SetMode { mode } => {
+                // One window and no `layout()` callback: the mode is this
+                // window's, and a flip of what it shows is a restyle of the
+                // mounted DOM. The runner never publishes the app-global
+                // mode - scenarios run side by side in one process. Its
+                // "desktop" is its system style.
+                let desktop = match self.layout_window.system_style.as_deref().map(|s| s.mode)
+                {
+                    Some(DarkLightMode::Dark) => azul_core::window::DarkLightMode::Dark,
+                    _ => azul_core::window::DarkLightMode::Light,
+                };
+                self.layout_window.mode = *mode;
+                let target = self.layout_window.window_mode_for(desktop);
+                if self.window_state.mode == target {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.window_state.mode = target;
+                    ProcessEventResult::ShouldIncrementalRelayout
+                }
+            }
+            CallbackChange::SetTheme { theme } => {
+                // One window, and the choice is this window's: the runner
+                // never publishes the app-global theme (scenarios run side by
+                // side in one process). A theme switch is a DOM RECREATION,
+                // and the runner's DOM source is its mounted document: mount
+                // it again, so the next pass rebuilds it under the new theme
+                // (any DOM mutation an earlier op made to it is dropped, as a
+                // rebuilt `layout()` would drop it).
+                // `AZ_THEME` outranks the switch here too.
+                let theme = azul_core::app_theme::resolve_app_theme(Some(theme.as_str()));
+                if self.layout_window.app_theme == theme {
+                    ProcessEventResult::DoNothing
+                } else {
+                    self.layout_window.app_theme = theme;
+                    let mounted = self.layout_window.e2e_mount.xml().map(str::to_string);
+                    if mounted.is_some() {
+                        self.layout_window.e2e_mount.set(mounted);
+                    }
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                }
+            }
         }
+    }
+
+    /// The `CallbackChange::Paste` arm - the same arm as the dll's
+    /// (`dll/src/desktop/shell2/common/event.rs::apply_user_change`), which is
+    /// the dll's deferred clipboard block for a Ctrl+V with the content handed
+    /// in: stage it as the paste content (what a `Paste` callback reads
+    /// through `get_clipboard_content`), dispatch `Paste` at the focus, and
+    /// unless a callback vetoed it run the engine's paste
+    /// (`LayoutWindow::paste_clipboard_content`) and land what it recorded.
+    /// The staged content is cleared afterwards either way.
+    fn apply_paste(
+        &mut self,
+        content: &azul_layout::managers::selection::ClipboardContent,
+    ) -> ProcessEventResult {
+        use azul_core::{
+            callbacks::Update,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+        use azul_layout::window::PasteOutcome;
+
+        let target = self
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .unwrap_or(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+            });
+        self.layout_window
+            .clipboard_manager
+            .set_paste_content(content.clone());
+        let now = self.now();
+        let paste_event = SyntheticEvent::new(
+            EventType::Paste,
+            EventSource::User,
+            target,
+            now,
+            EventData::None,
+        );
+        let (mut result, update, prevented, _) = self.dispatch_events_propagated(&[paste_event]);
+        if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        if !prevented {
+            result = result.max(match self.layout_window.paste_clipboard_content(content) {
+                PasteOutcome::Nothing => ProcessEventResult::DoNothing,
+                PasteOutcome::Text => ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+                PasteOutcome::Structural => ProcessEventResult::ShouldIncrementalRelayout,
+            });
+            // A plain paste RECORDS its text (`process_text_input`); a shell
+            // lands it with the rest of the pass, an op has no pass after it.
+            let landed = self.layout_window.apply_pending_text_and_reveal();
+            result = result.max(landed.event_result());
+        }
+        self.layout_window.clipboard_manager.clear_paste();
+        result
     }
 
     /// Port of `PlatformWindow::apply_capi_delete`
@@ -3410,25 +3899,6 @@ impl Runner {
         }
         lw.text_edit_manager.blink.reset_blink_on_input(now);
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-    }
-
-    /// Shared body of the eight `MoveCursor*` arms (port of the DLL's, which are
-    /// the same call with a different closure).
-    fn move_cursor(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        extend_selection: bool,
-        f: impl FnOnce(
-            &azul_layout::text3::cache::UnifiedLayout,
-            &azul_core::selection::TextCursor,
-        ) -> azul_core::selection::TextCursor,
-    ) -> ProcessEventResult {
-        let lw = &mut self.layout_window;
-        if let Some(new_cursor) = lw.move_cursor_in_node(dom_id, node_id, f) {
-            lw.handle_cursor_movement(dom_id, node_id, new_cursor, extend_selection);
-        }
-        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 
     /// Record a `CallbackChange` this host cannot apply faithfully, and FAIL the
@@ -3740,12 +4210,7 @@ impl Runner {
     /// drain owns that; 9b-ii-a-i-d-iii is the open styling/a11y half).
     fn run_keyboard_default_action_for_seat(&mut self, seat: u64) -> (ProcessEventResult, bool) {
         use azul_core::events::DefaultAction;
-        use azul_layout::{
-            default_actions::{
-                default_action_to_focus_target, determine_keyboard_default_action_with_editing,
-            },
-            managers::focus_cursor::resolve_focus_target,
-        };
+        use azul_layout::default_actions::default_action_to_focus_target;
 
         let is_primary = seat == azul_core::window::PRIMARY_POINTER_SEAT;
         let ks = if is_primary {
@@ -3760,10 +4225,11 @@ impl Runner {
         let editing_state = self
             .layout_window
             .build_editing_query_state_for_seat(seat, focused);
-        let action = determine_keyboard_default_action_with_editing(
+        // LIVE spatial navigation (scroll offsets, transforms, focus scope),
+        // the same call the dll shell makes.
+        let action = self.layout_window.keyboard_default_action(
             &ks,
             focused,
-            &self.layout_window.layout_results,
             false,
             editing_state.as_ref(),
         );
@@ -3799,12 +4265,10 @@ impl Runner {
                 let Some(target) = default_action_to_focus_target(&action.action) else {
                     return (ProcessEventResult::DoNothing, false);
                 };
-                let Ok(resolved) = resolve_focus_target(
-                    &target,
-                    &self.layout_window.layout_results,
-                    focused,
-                    &self.layout_window.focus_out_of_scope_doms(),
-                ) else {
+                let Ok(resolved) = self
+                    .layout_window
+                    .resolve_focus_target_live(&target, focused)
+                else {
                     return (ProcessEventResult::DoNothing, false);
                 };
                 // Tab with nothing tabbable is a MISS, not a clear — keep the
@@ -3858,19 +4322,10 @@ impl Runner {
                         old_text,
                         TextInputSource::Keyboard,
                     );
-                    let changeset_result = self.layout_window.apply_text_changeset();
-                    let mut r = ProcessEventResult::DoNothing;
-                    if !changeset_result.dirty_nodes.is_empty() {
-                        r = if changeset_result.needs_relayout {
-                            ProcessEventResult::ShouldIncrementalRelayout
-                        } else {
-                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-                        };
-                        self.layout_window.scroll_selection_into_view(
-                            azul_layout::window::SelectionScrollType::Cursor,
-                            azul_layout::window::ScrollMode::Instant,
-                        );
-                    }
+                    let r = self
+                        .layout_window
+                        .apply_pending_text_and_reveal()
+                        .event_result();
                     // Applied outside the record pipeline's event window —
                     // owe the host its Input dispatch (drained at pass tail).
                     self.layout_window
@@ -3913,8 +4368,104 @@ impl Runner {
                     self.now(),
                     azul_core::events::EventData::None,
                 );
-                let (r, _update, _) = self.dispatch_events_propagated(&[click]);
+                let (r, _update, _, _) = self.dispatch_events_propagated(&[click]);
                 (r, false)
+            }
+            // An arrow key that spatial navigation turned into a SCROLL of a
+            // named container. Port of the dll arm, through the same
+            // `LayoutWindow` helper, except that the runner applies the offset
+            // at once (its `ScrollTo` arm does the same): scenario time is
+            // virtual, and an eased scroll would make the offset depend on
+            // frame pacing.
+            DefaultAction::ScrollContainer {
+                container,
+                direction,
+                amount,
+            } => {
+                let now = self.now();
+                let scrolled = self.layout_window.scroll_container_by_keyboard(
+                    *container,
+                    *direction,
+                    *amount,
+                    std::time::Duration::from_millis(0).into(),
+                    now,
+                );
+                if scrolled {
+                    self.layout_window.scroll_manager.calculate_scrollbar_states();
+                    (ProcessEventResult::ShouldReRenderCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            // Ctrl/Cmd+B / I / U: the typing style at the caret, as the dll
+            // shell sets it.
+            //
+            // The toggle changes nothing on screen, so the editing host hears
+            // it: `TypingStyleChanged`, after the toggle (EVENTS7) - the
+            // shell's dispatch, ported.
+            DefaultAction::ToggleTextFormat { target, format } => {
+                if !(is_primary && self.layout_window.toggle_text_format(*target, *format)) {
+                    return (ProcessEventResult::DoNothing, false);
+                }
+                let changed = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::TypingStyleChanged,
+                    azul_core::events::EventSource::User,
+                    *target,
+                    self.now(),
+                    azul_core::events::EventData::None,
+                );
+                let (r, update, _, _) = self.dispatch_events_propagated(&[changed]);
+                if matches!(
+                    update,
+                    azul_core::callbacks::Update::RefreshDom
+                        | azul_core::callbacks::Update::RefreshDomAllWindows
+                ) {
+                    return (
+                        r.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow),
+                        false,
+                    );
+                }
+                (r, false)
+            }
+            // ==== E1: `ScrollFocusedContainer` ====
+            // PgUp / PgDn / Space / Home / End, and an arrow with nowhere to
+            // go: the nearest overflowing box around this seat's focus (or
+            // the node under the pointer), through the helper the dll arm
+            // calls - applied at once, like `ScrollContainer` above.
+            DefaultAction::ScrollFocusedContainer { direction, amount } => {
+                let now = self.now();
+                let scrolled = self.layout_window.scroll_focused_container_by_keyboard(
+                    focused,
+                    *direction,
+                    *amount,
+                    std::time::Duration::from_millis(0).into(),
+                    now,
+                );
+                if scrolled {
+                    self.layout_window.scroll_manager.calculate_scrollbar_states();
+                    (ProcessEventResult::ShouldReRenderCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            // Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z / Y after the callbacks: the
+            // editing host's text undo / redo unless an editor with its own
+            // history vetoed it - the dll's arms, through the same
+            // `LayoutWindow` body (EVENTS7). The primary's only: a second
+            // seat's key is its `SeatShortcut`.
+            DefaultAction::UndoTextEdit { target } => {
+                if is_primary && self.layout_window.undo_text_edit(*target) {
+                    (ProcessEventResult::ShouldUpdateDisplayListCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
+            }
+            DefaultAction::RedoTextEdit { target } => {
+                if is_primary && self.layout_window.redo_text_edit(*target) {
+                    (ProcessEventResult::ShouldUpdateDisplayListCurrentWindow, false)
+                } else {
+                    (ProcessEventResult::DoNothing, false)
+                }
             }
             _ => (ProcessEventResult::DoNothing, false),
         }
@@ -4024,6 +4575,8 @@ fn apply_focus_restyle_in_dom(
 ) -> ProcessEventResult {
     use azul_core::{diff::ChangeAccumulator, styled_dom::FocusChange};
 
+    // The states before the flip: a declared `animation` fades from them.
+    let before = layout_window.node_states(dom_id, old_focus.into_iter().chain(new_focus));
     let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
@@ -4036,8 +4589,12 @@ fn apply_focus_restyle_in_dom(
         None, // hover
         None, // active
     );
+    let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
 
     if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        // Nothing the cascade calls a change, but the caret and the
+        // `:focus`-conditional paint are built FROM focus state.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     }
 
@@ -4046,6 +4603,12 @@ fn apply_focus_restyle_in_dom(
     if accumulator.needs_layout() {
         ProcessEventResult::ShouldIncrementalRelayout
     } else if accumulator.needs_paint_only() {
+        // THE SAME LAW AS THE SHELL (33d875e27): a producer of the
+        // ShouldUpdateDisplayList tier rebuilds its own list; the tier only
+        // asks to present. This copy of the function had the same hole, so
+        // `pressing_tab_leaves_a_visible_focus_ring` below could not see the
+        // defect it exists to catch - a gate with the wrong premise.
+        layout_window.regenerate_display_list_for_dom(dom_id);
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
     } else {
         ProcessEventResult::ShouldReRenderCurrentWindow
@@ -4109,6 +4672,15 @@ fn apply_hover_restyle(
 
     let mut result = ProcessEventResult::DoNothing;
     for (dom_id, hover_change) in changes_per_dom {
+        // The states before the flip: a declared `animation` fades from them.
+        let before = layout_window.node_states(
+            dom_id,
+            hover_change
+                .left_nodes
+                .iter()
+                .chain(hover_change.entered_nodes.iter())
+                .copied(),
+        );
         let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
             continue;
         };
@@ -4116,6 +4688,9 @@ fn apply_hover_restyle(
             layout_result
                 .styled_dom
                 .restyle_on_state_change(None, Some(hover_change), None);
+        // Before the empty check, as in the shell: a property in mid-fade is
+        // invisible to the restyle's diff, and its reversal is still owed.
+        let _faded = layout_window.seed_state_change_transitions(dom_id, &before);
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }
@@ -4187,6 +4762,7 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
     E2eTestResult {
         name: test.name.clone(),
         status: "fail".into(),
+        skip_reason: None,
         duration_ms: 0,
         step_count: test.steps.len(),
         steps_passed: 0,
@@ -4276,7 +4852,9 @@ fn run_e2e_test_keeping_runner(
         response_tx: tx,
     };
     let mut app_data = RefAny::new(());
-    let component_map = Arc::new(Mutex::new(ComponentMap::default()));
+    // The app's debug server starts with the builtin library (the palette's
+    // HTML elements); the in-crate runner must see the same map.
+    let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
     let callback_changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
 
     // First dispatch: RunE2eTests sets up the continuation and runs it until the
@@ -4342,6 +4920,9 @@ fn run_e2e_test_keeping_runner(
             fail_result(test, "RunE2eTests returned a non-E2eResults response")
         }
         Ok(DebugResponseData::Err(e)) => fail_result(test, &e),
+        Ok(DebugResponseData::PendingScreenshot(_)) => {
+            fail_result(test, "RunE2eTests returned a screenshot")
+        }
         Err(_) => fail_result(test, "RunE2eTests produced no response"),
     };
 
@@ -4436,18 +5017,34 @@ mod tests {
     /// A runner with one contenteditable div laid out and an editing session on
     /// it — the shape every text scenario mounts.
     fn editor_runner(content: &str, animations: bool, on_key_down: Option<CallbackType>) -> Runner {
+        let listeners = on_key_down
+            .map(|cb| {
+                (
+                    EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                    RefAny::new(()),
+                    cb,
+                )
+            })
+            .into_iter()
+            .collect();
+        editor_runner_with(content, animations, listeners)
+    }
+
+    /// [`editor_runner`] whose editor carries `listeners` (filter, data,
+    /// callback).
+    fn editor_runner_with(
+        content: &str,
+        animations: bool,
+        listeners: Vec<(EventFilter, RefAny, CallbackType)>,
+    ) -> Runner {
         reset_test_clock();
         freeze_test_clock();
 
         let mut editor = Dom::create_div().with_contenteditable(true).with_child(
             Dom::create_text_do_not_use_without_block_level_wrapper(content),
         );
-        if let Some(cb) = on_key_down {
-            editor = editor.with_callback(
-                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
-                RefAny::new(()),
-                cb as usize,
-            );
+        for (filter, data, cb) in listeners {
+            editor = editor.with_callback(filter, data, cb as usize);
         }
         let mut dom = Dom::create_body().with_child(editor);
         let (css, _) = azul_css::parser2::new_from_str(CSS);
@@ -4459,12 +5056,14 @@ mod tests {
             .layout_window
             .focus_manager
             .set_focused_node(Some(editor_node()));
-        runner.layout_window.text_edit_manager.initialize_editing(
-            cursor(0),
-            DomId::ROOT_ID,
-            NodeId::new(EDITOR),
-            0,
-        );
+        let block = runner
+            .layout_window
+            .text_block_of(editor_node())
+            .expect("the editor is a text block");
+        runner
+            .layout_window
+            .text_edit_manager
+            .initialize_editing(cursor(0), block, 0);
         runner
             .layout_window
             .text_edit_manager
@@ -4801,6 +5400,248 @@ mod tests {
         );
     }
 
+    /// What `get_key_modifiers().shift` returned inside the last
+    /// `record_shift` call: 0 = never called, 1 = no Shift, 2 = Shift.
+    static SHIFT_SEEN: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    extern "C" fn record_shift(_data: RefAny, info: CallbackInfo) -> Update {
+        let seen = if info.get_key_modifiers().shift { 2 } else { 1 };
+        SHIFT_SEEN.store(seen, std::sync::atomic::Ordering::SeqCst);
+        Update::DoNothing
+    }
+
+    /// AzCalculator E2E (2026-10-02): `7 Shift+8 6 Enter` gave 786, not 42.
+    /// The `key_down` op puts `LShift` into the pressed set, but a callback's
+    /// `get_key_modifiers()` reads the STORED `KeyboardState::modifiers`, which
+    /// every native backend re-derives with `sync_modifiers()` after touching
+    /// the set. `tap_key` syncs on its own, so only the op path shows it.
+    #[test]
+    fn a_key_down_callback_sees_the_shift_the_key_down_op_holds() {
+        let mut runner = editor_runner("ab", false, Some(record_shift));
+        let mut session = E2eSession::new();
+        let mut app_data = RefAny::new(());
+        let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut op = |runner: &mut Runner, event: DebugEvent| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let request = DebugRequest {
+                request_id: 1,
+                event,
+                window_id: None,
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            };
+            let needs_update = runner.with_callback_info(&changes, |ci| {
+                process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
+            });
+            runner.service(&changes, needs_update);
+        };
+        let shift = super::super::full::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+
+        op(
+            &mut runner,
+            DebugEvent::KeyDown {
+                key: "8".into(),
+                modifiers: shift,
+                text: None,
+                seat: 0,
+            },
+        );
+        assert_eq!(
+            SHIFT_SEEN.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the KeyDown callback must see the Shift the op holds (0 = not called, 1 = no Shift)"
+        );
+        assert!(runner.window_state.keyboard_state.modifiers.shift);
+
+        op(
+            &mut runner,
+            DebugEvent::KeyUp {
+                key: "8".into(),
+                modifiers: Default::default(),
+                seat: 0,
+            },
+        );
+        assert!(
+            !runner.window_state.keyboard_state.modifiers.shift,
+            "a key_up without Shift releases it"
+        );
+    }
+
+    /// What `get_key_modifiers().shift` returned in the last
+    /// `record_shift_after_a_tap` call: 0 = never called, 1 = no Shift, 2 = Shift.
+    static SHIFT_AFTER_TAP: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    extern "C" fn record_shift_after_a_tap(_data: RefAny, info: CallbackInfo) -> Update {
+        let seen = if info.get_key_modifiers().shift { 2 } else { 1 };
+        SHIFT_AFTER_TAP.store(seen, std::sync::atomic::Ordering::SeqCst);
+        Update::DoNothing
+    }
+
+    /// AzCalculator E2E (2026-10-02), after the sync fix: `7 Shift+8 6 Enter`
+    /// gave `7 x 7 = 49`. A script's Shift+8 tap is `key_down 8 {shift}` +
+    /// `key_up 8 {shift}`; the key_up keeps Shift down (its modifiers are the
+    /// state at release) and the next `key_down 6 {}` only ever ADDED
+    /// modifiers, so 6 typed with Shift still held - `^`, not 6.
+    #[test]
+    fn a_key_down_without_shift_releases_a_shift_an_earlier_op_held() {
+        let mut runner = editor_runner("ab", false, Some(record_shift_after_a_tap));
+        let mut session = E2eSession::new();
+        let mut app_data = RefAny::new(());
+        let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut op = |runner: &mut Runner, event: DebugEvent| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let request = DebugRequest {
+                request_id: 1,
+                event,
+                window_id: None,
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            };
+            let needs_update = runner.with_callback_info(&changes, |ci| {
+                process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
+            });
+            runner.service(&changes, needs_update);
+        };
+        let shift = || super::super::full::Modifiers {
+            shift: true,
+            ..Default::default()
+        };
+        let key = |key: &str, down: bool, modifiers: super::super::full::Modifiers| {
+            if down {
+                DebugEvent::KeyDown {
+                    key: key.into(),
+                    modifiers,
+                    text: None,
+                    seat: 0,
+                }
+            } else {
+                DebugEvent::KeyUp {
+                    key: key.into(),
+                    modifiers,
+                    seat: 0,
+                }
+            }
+        };
+
+        op(&mut runner, key("8", true, shift()));
+        op(&mut runner, key("8", false, shift()));
+        op(&mut runner, key("6", true, Default::default()));
+        assert_eq!(
+            SHIFT_AFTER_TAP.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the 6 comes without Shift: the op says Shift is not held (1 = no Shift, 2 = Shift)"
+        );
+        assert!(!runner.window_state.keyboard_state.is_key_down(VirtualKeyCode::LShift));
+
+        // A modifier pressed as the key itself stays down.
+        op(&mut runner, key("6", false, Default::default()));
+        op(&mut runner, key("LShift", true, Default::default()));
+        assert!(
+            runner.window_state.keyboard_state.is_key_down(VirtualKeyCode::LShift),
+            "key_down LShift presses Shift even without a shift modifier"
+        );
+    }
+
+    /// Every key a window-level `VirtualKeyDown` callback saw, in order.
+    static WINDOW_KEYS: std::sync::Mutex<Vec<VirtualKeyCode>> = std::sync::Mutex::new(Vec::new());
+
+    extern "C" fn record_window_key(_data: RefAny, info: CallbackInfo) -> Update {
+        if let Some(vk) = info.get_current_keyboard_state().current_virtual_keycode.into_option() {
+            WINDOW_KEYS.lock().unwrap().push(vk);
+        }
+        Update::DoNothing
+    }
+
+    /// AzCalculator E2E (2026-10-02): `1 2 3 Backspace` left `123` - its
+    /// window-level key handler (as every app's) must see Backspace like
+    /// any other key, through the same ops, also while a NON-editable element
+    /// has the focus (the `=` key the mouse clicked last): the input
+    /// interpreter claimed Backspace/Delete for a text edit wherever focus was
+    /// and swallowed them (`AddAndSkip`), as it once did the arrows.
+    #[test]
+    fn a_window_key_handler_sees_backspace_like_any_other_key() {
+        for focused in [false, true] {
+            WINDOW_KEYS.lock().unwrap().clear();
+            window_key_handler_sees_backspace(focused);
+        }
+    }
+
+    fn window_key_handler_sees_backspace(focused: bool) {
+        let mut key = Dom::create_div()
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("="));
+        key.set_tab_index(azul_core::dom::TabIndex::Auto);
+        let body = Dom::create_body()
+            .with_child(key)
+            .with_callback(
+                EventFilter::Window(azul_core::events::WindowEventFilter::VirtualKeyDown),
+                RefAny::new(()),
+                record_window_key as usize,
+            );
+        let mut dom = body;
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut runner = Runner::new(800.0, 600.0, 96, false);
+        runner.layout(styled_dom, true);
+        if focused {
+            // body = 0, the "=" key = 1.
+            runner.layout_window.focus_manager.set_focused_node(Some(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            }));
+        }
+        let mut session = E2eSession::new();
+        let mut app_data = RefAny::new(());
+        let component_map = Arc::new(Mutex::new(ComponentMap::with_builtin()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut op = |runner: &mut Runner, event: DebugEvent| {
+            let (tx, _rx) = std::sync::mpsc::channel();
+            let request = DebugRequest {
+                request_id: 1,
+                event,
+                window_id: None,
+                wait_for_render: false,
+                dom_id: None,
+                response_tx: tx,
+            };
+            let needs_update = runner.with_callback_info(&changes, |ci| {
+                process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
+            });
+            runner.service(&changes, needs_update);
+        };
+        for key in ["1", "2", "3", "backspace"] {
+            op(
+                &mut runner,
+                DebugEvent::KeyDown {
+                    key: key.into(),
+                    modifiers: Default::default(),
+                    text: None,
+                    seat: 0,
+                },
+            );
+            op(
+                &mut runner,
+                DebugEvent::KeyUp {
+                    key: key.into(),
+                    modifiers: Default::default(),
+                    seat: 0,
+                },
+            );
+        }
+        let seen = WINDOW_KEYS.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            [VirtualKeyCode::Key1, VirtualKeyCode::Key2, VirtualKeyCode::Key3, VirtualKeyCode::Back],
+            "the window handler sees every key, Backspace included (focused: {focused})"
+        );
+    }
+
     #[test]
     fn a_keydown_veto_kills_the_recorded_text() {
         let mut runner = editor_runner("ab", false, Some(veto_key_down));
@@ -5018,7 +5859,8 @@ mod tests {
         // THE DEVICE BUG (2026-08-31): tabbing into the filled NumberInput
         // showed '4|2' - the mid-pass finalize burned its retry budget on
         // transient layout absence and locked in the (0,0)+Trailing seed.
-        // End-of-text for "42" is the last cluster (byte 1), Trailing.
+        // End-of-text for "42": the resolved caret byte 2 (`get_cursor_state`
+        // reports the resolved position, not the cluster start), Trailing.
         let test: super::E2eTest = serde_json::from_value(serde_json::json!({
             "name": "tab_seats_caret_at_end",
             "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
@@ -5027,7 +5869,7 @@ mod tests {
                 { "op": "key_down", "key": "Tab" },
                 { "op": "wait_frame" },
                 { "op": "get_cursor_state" },
-                { "op": "assert_response", "contains": "\"position\":1" },
+                { "op": "assert_response", "contains": "\"position\":2" },
                 { "op": "get_cursor_state" },
                 { "op": "assert_response", "contains": "\"affinity\":\"trailing\"" }
             ]
@@ -5118,7 +5960,7 @@ mod tests {
                 { "op": "key_down", "key": "Tab" },
                 { "op": "wait_frame" },
                 { "op": "get_cursor_state" },
-                { "op": "assert_response", "contains": "\"position\":1" },
+                { "op": "assert_response", "contains": "\"position\":2" },
                 { "op": "get_cursor_state" },
                 { "op": "assert_response", "contains": "\"affinity\":\"trailing\"" }
             ]
@@ -5301,6 +6143,96 @@ mod tests {
             filters.contains(&EventFilter::Hover(HoverEventFilter::Click)),
             "the a11y default action must resolve to the same activation filter keyboard \
              activation reaches, got {filters:?}",
+        );
+    }
+
+    /// FocusLost goes to the node that LOST focus.
+    ///
+    /// The focus transition is dispatched after the focus manager already
+    /// points at the new node. Planning the `Blur` on "whatever is focused
+    /// now" handed FocusLost to the NEW node (which has no such handler) and
+    /// never to the old one - so a widget's `on_focus_lost` hook never ran
+    /// and the `RefreshDom` it asked for never happened (AzWidgets' TextArea
+    /// after a Tab).
+    #[test]
+    fn focus_lost_reaches_the_node_that_lost_it() {
+        use azul_core::{
+            dom::{IdOrClass, TabIndex},
+            events::FocusEventFilter,
+        };
+
+        #[derive(Debug)]
+        struct Seen {
+            lost_on_a: u32,
+            received_on_b: u32,
+        }
+
+        extern "C" fn lost_on_a(mut data: RefAny, _: CallbackInfo) -> Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.lost_on_a += 1;
+            }
+            Update::RefreshDom
+        }
+        extern "C" fn received_on_b(mut data: RefAny, _: CallbackInfo) -> Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.received_on_b += 1;
+            }
+            Update::DoNothing
+        }
+
+        let mut seen = RefAny::new(Seen {
+            lost_on_a: 0,
+            received_on_b: 0,
+        });
+        let field = |class: &str| {
+            let mut d = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class(class.into())].into());
+            d.set_tab_index(TabIndex::Auto);
+            d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                class,
+            ))
+        };
+        let a = field("a").with_callback(
+            EventFilter::Focus(FocusEventFilter::FocusLost),
+            seen.clone(),
+            lost_on_a as usize,
+        );
+        let b = field("b").with_callback(
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            seen.clone(),
+            received_on_b as usize,
+        );
+        let mut dom = Dom::create_body().with_child(a).with_child(b);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; } \
+             .a, .b { display: block; width: 120px; height: 30px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "focus_lost_target",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".a" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "div.a" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "div.b" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let s = seen.downcast_ref::<Seen>().expect("the counter");
+        assert_eq!(s.received_on_b, 1, "premise: focus arrived at B and B was told");
+        assert_eq!(
+            s.lost_on_a, 1,
+            "the node that LOST focus must get its FocusLost callback"
         );
     }
 
@@ -5676,6 +6608,226 @@ mod tests {
         );
     }
 
+    // ── 5. The app's text beats the user's typing when the app sets it ───────
+
+    /// The text leaf of the value line of the text field hosted at `host`
+    /// (`container > p > text`).
+    fn value_leaf(runner: &Runner, dom: DomId, host: NodeId) -> DomNodeId {
+        let lr = runner
+            .layout_window
+            .get_layout_result(&dom)
+            .expect("laid out");
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let line = hierarchy[host]
+            .first_child_id(host)
+            .expect("the field has its value line");
+        let leaf = hierarchy[line]
+            .first_child_id(line)
+            .expect("the value line has its text leaf");
+        DomNodeId {
+            dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(leaf)),
+        }
+    }
+
+    /// `change`, queued the way a callback queues it, and the pass that
+    /// applies it (relayout included).
+    fn apply_as_callback(runner: &mut Runner, change: CallbackChange) {
+        let changes = Arc::new(Mutex::new(vec![change]));
+        runner.service(&changes, false);
+    }
+
+    /// HTML's `input.value = ..` after the user typed: the app's text is what
+    /// the field shows. `ChangeNodeText` used to write only the DOM's text
+    /// node, which the engine's overlay of the user's uncommitted typing
+    /// outranks - so a widget could set its field's text from a callback only
+    /// while nobody had typed into it.
+    #[test]
+    fn change_node_text_replaces_the_text_the_user_typed() {
+        let (mut runner, focused, node_id) = text_input_runner_typed_abc();
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "premise: the user typed into the field"
+        );
+        let leaf = value_leaf(&runner, focused.dom, node_id);
+
+        apply_as_callback(
+            &mut runner,
+            CallbackChange::ChangeNodeText {
+                node_id: leaf,
+                text: "xyz".into(),
+            },
+        );
+
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "xyz",
+            "the text the app set must replace what the user typed"
+        );
+    }
+
+    /// The form-reset shape: the field was BUILT empty, so its DOM text node
+    /// already holds the value the app sets. A write the DOM already agrees
+    /// with was skipped as a no-op, and the typed text stayed on screen.
+    #[test]
+    fn change_node_text_to_the_text_the_dom_already_holds_still_replaces_the_typing() {
+        let (mut runner, focused, node_id) = text_input_runner_typed_abc();
+        let leaf = value_leaf(&runner, focused.dom, node_id);
+
+        apply_as_callback(
+            &mut runner,
+            CallbackChange::ChangeNodeText {
+                node_id: leaf,
+                text: "".into(),
+            },
+        );
+
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "",
+            "the field must show the app's (empty) text, not the typing"
+        );
+        let caret = runner
+            .layout_window
+            .text_edit_manager
+            .get_primary_cursor()
+            .expect("setting the text does not end the editing session");
+        assert_eq!(
+            caret.cluster_id.start_byte_in_run, 0,
+            "the caret sat at the end of the typed text; it must land inside the new one"
+        );
+    }
+
+    /// A form reset, end to end through the ops: every text field of the form
+    /// - named or not, a text area too - goes back to the value it was built
+    /// with, although the user typed into each of them.
+    #[test]
+    fn a_form_reset_puts_every_typed_field_back_named_or_not() {
+        use azul_layout::widgets::{
+            button::Button, form::Form, text_area::TextArea, text_input::TextInput,
+        };
+
+        let form = Form::create(azul_core::dom::DomVec::from_vec(vec![
+            TextInput::create()
+                .with_name("user".into())
+                .with_text("ann".into())
+                .dom()
+                .with_id("user".into()),
+            TextInput::create()
+                .with_text("free".into())
+                .dom()
+                .with_id("free".into()),
+            TextArea::create()
+                .with_text("hi".into())
+                .dom()
+                .with_id("notes".into()),
+            Button::create_reset("Clear".into()).dom(),
+        ]))
+        .dom();
+        let mut dom = Dom::create_body().with_child(form);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // Tab seats the caret at the END of a filled field, so each typed
+        // letter is appended.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "form_reset_puts_typed_fields_back",
+            "setup": { "window_width": 400, "window_height": 400, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "c", "text": "c" }, { "op": "key_up", "key": "c" },
+                { "op": "wait_frame" },
+                { "op": "assert_text", "selector": "#user", "expected": "anna" },
+                { "op": "assert_text", "selector": "#free", "expected": "freeb" },
+                { "op": "assert_text", "selector": "#notes", "expected": "hic" },
+                { "op": "click", "selector": ".__azul-native-button" },
+                { "op": "wait_frame" },
+                { "op": "wait_frame" },
+                { "op": "assert_text", "selector": "#user", "expected": "ann" },
+                { "op": "assert_text", "selector": "#free", "expected": "free" },
+                { "op": "assert_text", "selector": "#notes", "expected": "hi" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "a reset must put every field of its form back, typed into or not: {:#?}",
+            result.steps
+        );
+    }
+
+    /// A PASSWORD field keeps no undo history, as in GTK and Qt: its engine
+    /// buffer holds the mask, so an undo restores BULLETS the widget cannot
+    /// map back onto the real value - the screen and the value part ways (the
+    /// undo shortcut is consumed before any callback, so the widget cannot
+    /// refuse it) - and a history of a secret is a leak waiting to happen. A
+    /// plain field keeps its history.
+    #[test]
+    fn a_password_field_keeps_no_undo_history() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        /// `widget` alone in a window, focused by Tab and typed into.
+        fn typed_into(widget: Dom) -> (Runner, NodeId) {
+            let mut dom = Dom::create_body().with_child(widget);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "type_into_a_field",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "key_down", "key": "Tab" }, { "op": "key_up", "key": "Tab" },
+                    { "op": "wait_frame" },
+                    { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                    { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            let host = runner
+                .layout_window
+                .focus_manager
+                .get_focused_node()
+                .copied()
+                .expect("Tab focuses the field")
+                .node
+                .into_crate_internal()
+                .expect("the field has a node id");
+            (runner, host)
+        }
+
+        let (plain, plain_host) = typed_into(TextInput::create().dom());
+        assert!(
+            plain.layout_window.undo_redo_manager.can_undo(plain_host),
+            "premise: typing into a plain field is undoable"
+        );
+
+        let (password, host) = typed_into(TextInput::create_password().dom());
+        assert!(
+            !password.layout_window.undo_redo_manager.can_undo(host),
+            "a password field must record no undo history"
+        );
+    }
+
     /// The placeholder must not FLICKER while the window is slowly resized.
     ///
     /// User report: "Type something..." blinks during a slow drag-resize. The
@@ -5786,14 +6938,18 @@ mod tests {
         .expect("scenario json");
 
         let (_r, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
-        let states = runner
-            .layout_window
-            .scroll_manager
-            .get_scroll_states_for_dom(DomId::ROOT_ID);
-        let node = *states
-            .keys()
-            .next()
-            .expect("the overflowing box must register as a scroll node");
+        // THE BOX (the body's first child), not the first registered scroll
+        // node: the body's 8px default margins overflow the 300px window by
+        // 16px, so the root viewport is a scroll node too - and sorts first.
+        let node = NodeId::new(1);
+        assert!(
+            runner
+                .layout_window
+                .scroll_manager
+                .get_scroll_states_for_dom(DomId::ROOT_ID)
+                .contains_key(&node),
+            "the overflowing box must register as a scroll node"
+        );
         let st = runner
             .layout_window
             .scroll_manager
@@ -5973,4 +7129,1003 @@ mod tests {
             scroll.current_offset.x,
         );
     }
+
+    /// P1-7 / C11: the runner's `SetTransientWindowOpen` arm keeps the
+    /// desktop shell's focus-return bookkeeping - remember where focus was
+    /// as the popup opens, hand it back WITH its ring when the callback
+    /// closes it - so an E2E scenario can cover focus return at all.
+    #[test]
+    fn a_callback_closed_popup_hands_focus_and_ring_back_in_the_runner() {
+        use azul_core::{
+            dom::{NodeData, NodeType, TabIndex},
+            transient::TransientWindowConfig,
+        };
+
+        // body = 0, swatch = 1, <transient-window> = 2, its content = 3.
+        let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_child(Dom::create_div());
+        let mut swatch = Dom::create_div().with_child(popup);
+        swatch.set_tab_index(TabIndex::Auto);
+        let mut dom = Dom::create_body().with_child(swatch);
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut runner = Runner::new(800.0, 600.0, 96, false);
+        runner.layout(styled_dom, true);
+
+        let node = |i: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        };
+        runner
+            .layout_window
+            .focus_manager
+            .set_focused_node_with_visibility(Some(node(1)), true);
+        let _ = runner.apply_user_change(&CallbackChange::SetTransientWindowOpen {
+            node: node(2),
+            open: true,
+        });
+        // Focus went elsewhere while the popup was open (into it, or away).
+        runner
+            .layout_window
+            .focus_manager
+            .set_focused_node_with_visibility(None, false);
+        let _ = runner.apply_user_change(&CallbackChange::SetTransientWindowOpen {
+            node: node(2),
+            open: false,
+        });
+
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(node(1)),
+            "closing the popup hands focus back to the swatch that opened it"
+        );
+        assert!(
+            runner.layout_window.focus_manager.focus_is_visible,
+            "with the ring it had when the popup opened"
+        );
+    }
+
+    /// The first node whose classes contain `needle`, in the root dom.
+    pub(super) fn node_with_class(runner: &Runner, needle: &str) -> DomNodeId {
+        let lr = runner
+            .layout_window
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("root laid out");
+        let idx = lr
+            .styled_dom
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| format!("{:?}", n.get_ids_and_classes()).contains(needle))
+            .unwrap_or_else(|| panic!("no node with class {needle}"));
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    /// One key down and up through `ModifyWindowState`, as the `key_down` /
+    /// `key_up` ops drive it.
+    pub(super) fn tap_key(runner: &mut Runner, key: VirtualKeyCode, held: &[VirtualKeyCode]) {
+        let mut pressed: Vec<VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        let mut state = runner.window_state.clone();
+        state.keyboard_state.current_virtual_keycode = Some(key).into();
+        state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed);
+        state.keyboard_state.sync_modifiers();
+        let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+        let mut state = runner.window_state.clone();
+        state.keyboard_state.current_virtual_keycode =
+            azul_core::window::OptionVirtualKeyCode::None;
+        state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
+        state.keyboard_state.sync_modifiers();
+        let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+    }
+
+    /// USER RULING (open question 2), the runner half: Escape CLOSES a
+    /// picker the widget opened (no colour restore) and focus - with its
+    /// ring - stays on the swatch, so the next Tab continues from it. The
+    /// runner had no Escape dismissal at all: the key ran the default
+    /// `ClearFocus`, and the next Tab restarted from the FIRST stop.
+    #[test]
+    fn escape_closes_a_widget_opened_picker_and_tab_continues_from_its_swatch() {
+        use azul_core::dom::{IdOrClass, TabIndex};
+        use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+
+        let stop = |class: &str| {
+            let mut d = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    class,
+                ));
+            d.set_tab_index(TabIndex::Auto);
+            d
+        };
+        let mut dom = Dom::create_body()
+            .with_child(stop("stop-before"))
+            .with_child(ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom())
+            .with_child(stop("stop-after"));
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "escape_closes_the_picker",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "key_up", "key": "Tab" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "key_up", "key": "Tab" },
+                { "op": "key_down", "key": "Space" },
+                { "op": "key_up", "key": "Space" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let swatch = node_with_class(&runner, "native_color_input");
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(swatch),
+            "premise: two Tabs reached the swatch"
+        );
+        assert_eq!(
+            runner.layout_window.transient_windows.forced_open_nodes().len(),
+            1,
+            "premise: Space opened the picker"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::Escape, &[]);
+        assert!(
+            runner
+                .layout_window
+                .transient_windows
+                .forced_open_nodes()
+                .is_empty(),
+            "Escape closed the picker"
+        );
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(swatch),
+            "focus stays on the swatch"
+        );
+        assert!(
+            runner.layout_window.focus_manager.focus_is_visible,
+            "as KEYBOARD focus, ringed"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::Tab, &[]);
+        assert_eq!(
+            runner.layout_window.focus_manager.get_focused_node().copied(),
+            Some(node_with_class(&runner, "stop-after")),
+            "Tab continues from the swatch to the stop after it"
+        );
+    }
+
+    /// Engine backlog 11: the runner closed a widget's popup on Escape only.
+    /// The real path (the dll's `dismiss_outside_on_press`) also closes an
+    /// `outside` popup on a fresh press anywhere but its anchor (the invoker
+    /// decides about a press on itself), so a scenario that clicks away from
+    /// an open picker saw it stay open.
+    #[test]
+    fn a_press_outside_a_popup_in_a_scenario_dismisses_it() {
+        use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+
+        // Tab to the swatch, Space opens its picker; then (or not) a press
+        // far from the swatch, on bare body.
+        let open_the_picker = |then_press_outside: bool| {
+            let mut dom = Dom::create_body().with_child(
+                ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom(),
+            );
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let mut steps = vec![
+                serde_json::json!({ "op": "wait_frame" }),
+                serde_json::json!({ "op": "key_down", "key": "Tab" }),
+                serde_json::json!({ "op": "key_up", "key": "Tab" }),
+                serde_json::json!({ "op": "key_down", "key": "Space" }),
+                serde_json::json!({ "op": "key_up", "key": "Space" }),
+                serde_json::json!({ "op": "wait_frame" }),
+            ];
+            if then_press_outside {
+                steps.push(serde_json::json!({ "op": "click", "x": 390.0, "y": 190.0 }));
+                steps.push(serde_json::json!({ "op": "wait_frame" }));
+            }
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "a_press_outside_closes_the_picker",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": steps
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            runner
+                .layout_window
+                .transient_windows
+                .forced_open_nodes()
+                .len()
+        };
+
+        assert_eq!(open_the_picker(false), 1, "premise: Space opened the picker");
+        assert_eq!(
+            open_the_picker(true),
+            0,
+            "the press outside the picker closed it"
+        );
+    }
+
+    /// Engine backlog 10: the e2e protocol has no paste op, so no scenario can
+    /// drive a paste (the runner has no OS clipboard, and a Ctrl+V reads the
+    /// real one in the dll). `{"op": "paste", "text", "html"}` must run what a
+    /// user's paste runs: the `Paste` callbacks (their `prevent_default`
+    /// vetoes it), then `LayoutWindow::paste_clipboard_content` - so a rich
+    /// editor keeps the HTML's bold.
+    #[test]
+    fn a_scenarios_paste_op_pastes_bold_html_into_the_focused_editor() {
+        use azul_core::dom::IdOrClass;
+
+        let mut host = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("editor".into())].into())
+            .with_child(
+                Dom::create_p()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("foo")),
+            );
+        host.set_contenteditable(true);
+        let mut dom = Dom::create_body().with_child(host);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "paste_bold_html",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "focus_node", "selector": ".editor" },
+                { "op": "wait_frame" },
+                { "op": "paste", "text": "bold", "html": "<b>bold</b>" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let edit = runner
+            .layout_window
+            .unsynced_text_edits()
+            .into_iter()
+            .find(|e| e.text.as_str().contains("bold"))
+            .expect("the paste reached the editor's text");
+        #[allow(clippy::cast_possible_truncation)]
+        let at = edit.text.as_str().find("bold").expect("pasted") as u32;
+        assert!(
+            edit.runs
+                .as_ref()
+                .iter()
+                .any(|r| r.formats.bold && r.start <= at && r.end >= at + 4),
+            "the pasted word is bold: {:?} in {:?}",
+            edit.runs,
+            edit.text
+        );
+    }
+
+    /// The paste op is a user's paste, veto included: the focused node's
+    /// `Paste` callbacks run FIRST, and one that calls `prevent_default`
+    /// keeps the engine's paste out of the editor (the app pastes itself, or
+    /// refuses) - exactly what the dll's deferred clipboard block does for a
+    /// Ctrl+V. Without the veto the same scenario lands the text, so the
+    /// assertion cannot pass on a paste that never ran at all.
+    #[test]
+    fn a_paste_callback_that_prevents_default_keeps_the_scenarios_paste_out_of_the_editor() {
+        use azul_core::{
+            dom::IdOrClass,
+            events::{EventFilter, FocusEventFilter},
+        };
+
+        let pasted_lands = |vetoed: bool| -> bool {
+            let mut host = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("editor".into())].into())
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("foo"),
+                ));
+            host.set_contenteditable(true);
+            if vetoed {
+                host = host.with_callback(
+                    EventFilter::Focus(FocusEventFilter::Paste),
+                    RefAny::new(()),
+                    veto_key_down as usize,
+                );
+            }
+            let mut dom = Dom::create_body().with_child(host);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "paste_vetoed_by_a_callback",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "focus_node", "selector": ".editor" },
+                    { "op": "wait_frame" },
+                    { "op": "paste", "text": "pasted" },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            runner
+                .layout_window
+                .unsynced_text_edits()
+                .iter()
+                .any(|e| e.text.as_str().contains("pasted"))
+        };
+
+        assert!(
+            pasted_lands(false),
+            "premise: without a veto the paste op lands its text"
+        );
+        assert!(
+            !pasted_lands(true),
+            "a Paste callback's prevent_default vetoes the engine's paste"
+        );
+    }
+
+    /// User decision D2 (2026-10-05): the debug server's `focus_node` focuses
+    /// like the engine's `FocusTarget::Id` (FIX9-INPUT 3.2) - a node that
+    /// cannot hold focus (the row an app named around a widget's field) hands
+    /// it to its first focusable descendant, and the op answers with the node
+    /// that took it. It refused the row ("cannot hold focus") while
+    /// `set_focus` on the same id focused the field. Only a subtree with
+    /// nothing focusable in it is still an error.
+    #[test]
+    fn focus_node_on_an_unfocusable_row_focuses_its_first_focusable_descendant() {
+        use azul_core::dom::IdOrClass;
+
+        let focus_scenario = |selector: &str| {
+            let mut field = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("field".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
+            field.set_contenteditable(true);
+            let row = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("row".into())].into())
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(vec![IdOrClass::Class("label".into())].into())
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Search",
+                        )),
+                )
+                .with_child(field);
+            let mut dom = Dom::create_body().with_child(row);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "focus_node_delegates",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "focus_node", "selector": selector },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            run_e2e_test_keeping_runner(&test, Some(styled_dom))
+        };
+
+        let (result, runner) = focus_scenario(".row");
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .and_then(|f| f.node.into_crate_internal())
+            .expect("focus_node on the row focused a node");
+        let node_data = runner.layout_window.layout_results[&DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container();
+        assert!(
+            node_data[focused].has_class("field"),
+            "the focus went to the row's first focusable descendant, the field"
+        );
+        let answer = serde_json::to_string(&result.steps[1].response).expect("json");
+        assert!(
+            answer.contains(&format!("\"node_id\":{}", focused.index())),
+            "focus_node answers with the node that took the focus: {answer}"
+        );
+
+        // A subtree with nothing focusable in it still refuses by name.
+        let (result, _) = focus_scenario(".label");
+        assert_eq!(result.status, "fail", "{:#?}", result.steps);
+    }
+
+    /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
+    /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
+    /// bar or a `scrollbar-width: none` bar exists at all is the
+    /// scrollbar-presence question, not the press router's.
+    fn classic_scroll_box() -> StyledDom {
+        let mut rows = Dom::create_div().with_css(
+            "width: 200px; height: 100px; overflow-y: scroll; \
+             -azul-scrollbar-visibility: always; scrollbar-width: auto;",
+        );
+        for _ in 0..20 {
+            rows = rows.with_child(Dom::create_div().with_css("height: 30px;"));
+        }
+        let dom = Dom::create_body()
+            .with_css("width: 300px; height: 300px;")
+            .with_child(rows);
+        StyledDom::create_from_dom(dom)
+    }
+
+    /// The classic box's scroll node, its vertical bar and its scroll range,
+    /// read off what the scroll manager built for it.
+    fn classic_bar(
+        runner: &Runner,
+    ) -> (
+        DomId,
+        NodeId,
+        azul_layout::managers::scroll_state::ScrollbarState,
+        f32,
+    ) {
+        use azul_core::dom::ScrollbarOrientation;
+
+        let sm = &runner.layout_window.scroll_manager;
+        // THE BOX (the body's first child), not merely the first scroll node
+        // with a bar: the body's 8px default margins overflow the 300px
+        // window by 16px, so the root viewport scrolls and carries a bar too.
+        let (dom, node) = (DomId::ROOT_ID, NodeId::new(1));
+        assert!(
+            sm.get_scrollbar_state(dom, node, ScrollbarOrientation::Vertical)
+                .is_some(),
+            "the overflowing box must carry a vertical scrollbar"
+        );
+        let bar = *sm
+            .get_scrollbar_state(dom, node, ScrollbarOrientation::Vertical)
+            .expect("found above");
+        let max_scroll_y = sm
+            .get_scroll_node_info(dom, node)
+            .expect("a box with a bar has scroll state")
+            .max_scroll_y;
+        (dom, node, bar, max_scroll_y)
+    }
+
+    /// A SCRIPTED press on a scrollbar thumb must reach the same arbitration
+    /// as a physical one: scrollbar first, then content.
+    ///
+    /// The `mouse_down` op ends in `modify_window_state`, and this runner's
+    /// `ModifyWindowState` arm went straight to the event pass - there was no
+    /// scrollbar routing here at all, so the press became a `MouseDown` on
+    /// the box and the following `mouse_move` scrolled nothing. On a device
+    /// the same press grabs the thumb (the shell asks the scrollbars first).
+    /// That split is why no scenario could reproduce a press a scrollbar
+    /// stole from a text field.
+    #[test]
+    fn a_scripted_drag_on_a_scrollbar_thumb_scrolls_the_box_like_a_physical_drag() {
+        use azul_layout::managers::scroll_state::ScrollbarComponent;
+
+        const DRAG_PX: f32 = 20.0;
+
+        // Where the thumb is: lay the box out once and read the bar.
+        let settle: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "classic_scrollbar_settle",
+            "setup": { "window_width": 300, "window_height": 300, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+        let (_settled, laid_out) = run_e2e_test_keeping_runner(&settle, Some(classic_scroll_box()));
+        let (dom, node, bar, max_scroll_y) = classic_bar(&laid_out);
+        let x = bar.track_rect.origin.x + bar.track_rect.size.width / 2.0;
+        let y = bar.track_rect.origin.y + bar.button_size + bar.thumb_offset + bar.thumb_length / 2.0;
+        assert!(
+            matches!(
+                laid_out
+                    .layout_window
+                    .scroll_manager
+                    .hit_test_scrollbars(LogicalPosition::new(x, y))
+                    .map(|h| h.component),
+                Some(ScrollbarComponent::Thumb)
+            ),
+            "premise: ({x}, {y}) is on the thumb of the classic bar {bar:?}"
+        );
+        assert!(max_scroll_y > 0.0, "premise: the box overflows");
+
+        // The same layout again, driven by the ops a script uses.
+        let drag: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "classic_scrollbar_scripted_drag",
+            "setup": { "window_width": 300, "window_height": 300, "dpi": 96 },
+            "steps": [
+                { "op": "mouse_move", "x": x, "y": y },
+                { "op": "mouse_down", "x": x, "y": y, "button": "left" },
+                { "op": "mouse_move", "x": x, "y": y + DRAG_PX },
+                { "op": "mouse_up", "x": x, "y": y + DRAG_PX, "button": "left" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&drag, Some(classic_scroll_box()));
+        assert_eq!(
+            result.status, "pass",
+            "the scripted drag itself must run: {:?}",
+            result.steps
+        );
+
+        // What a physical thumb drag scrolls: the pointer's travel over the
+        // thumb's free travel, times the scroll range.
+        let track = bar.track_rect.size.height;
+        let expected = (DRAG_PX / (track - bar.thumb_size_ratio * track)) * max_scroll_y;
+        let offset = runner
+            .layout_window
+            .scroll_manager
+            .get_current_offset(dom, node)
+            .unwrap_or_default();
+        assert!(
+            (offset.y - expected).abs() < 0.5,
+            "dragging the thumb {DRAG_PX}px by script must scroll the box by {expected:.1}px, as \
+             the same drag does on a device; the offset is {:.1} (the press went to the content, \
+             not to the scrollbar)",
+            offset.y,
+        );
+        assert!(
+            runner.layout_window.scrollbar_drag().is_none(),
+            "the scripted release must let go of the thumb"
+        );
+    }
+
+    /// `SetNodeTabIndex` - the roving tab stop of a composite widget - is
+    /// applied to the node data the Tab order is collected from, so the very
+    /// next Tab press sees it. body = 0 > a = 1 (stop), b = 2 (not a stop),
+    /// c = 3 (stop); then the stop moves from a to b.
+    #[test]
+    fn a_tab_index_written_by_a_callback_moves_the_tab_stop() {
+        use std::collections::BTreeSet;
+
+        use azul_core::{callbacks::FocusTarget, dom::TabIndex};
+        use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+
+        reset_test_clock();
+        freeze_test_clock();
+        let item = |t: TabIndex| Dom::create_div().with_tab_index(t);
+        let mut dom = Dom::create_body()
+            .with_child(item(TabIndex::Auto))
+            .with_child(item(TabIndex::NoKeyboardFocus))
+            .with_child(item(TabIndex::Auto));
+        let (css, _) = azul_css::parser2::new_from_str(CSS);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut runner = Runner::new(800.0, 600.0, 96, false);
+        runner.layout(styled_dom, true);
+
+        let node = |i: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(i))),
+        };
+        let tab_from = |runner: &Runner, from: Option<usize>| {
+            resolve_focus_target(
+                &FocusTarget::Next,
+                &runner.layout_window.layout_results,
+                from.map(node),
+                &BTreeSet::new(),
+            )
+        };
+
+        assert_eq!(
+            tab_from(&runner, None),
+            Ok(FocusResolution::Resolved(node(1))),
+            "precondition: a is the first tab stop",
+        );
+        assert_eq!(
+            tab_from(&runner, Some(1)),
+            Ok(FocusResolution::Resolved(node(3))),
+            "precondition: b starts outside the Tab order",
+        );
+
+        let _ = runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(1),
+            tab_index: TabIndex::NoKeyboardFocus,
+        });
+        let _ = runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(2),
+            tab_index: TabIndex::Auto,
+        });
+
+        assert_eq!(
+            tab_from(&runner, None),
+            Ok(FocusResolution::Resolved(node(2))),
+            "the stop moved to b, so Tab from nowhere lands on b",
+        );
+        assert_eq!(
+            tab_from(&runner, Some(2)),
+            Ok(FocusResolution::Resolved(node(3))),
+            "from b, Tab leaves for c",
+        );
+        assert_eq!(
+            tab_from(&runner, Some(3)),
+            Ok(FocusResolution::Resolved(node(2))),
+            "from c, Tab wraps to b - a is no longer a stop",
+        );
+
+        // A node id past the end of the DOM is ignored rather than panicking.
+        let _ = runner.apply_user_change(&CallbackChange::SetNodeTabIndex {
+            dom_id: DomId::ROOT_ID,
+            node_id: NodeId::new(10_000),
+            tab_index: TabIndex::Auto,
+        });
+    }
+
+    /// Arrow keys walk a scroll box the css-nav-1 way in the HEADLESS runner,
+    /// driven through `key_down`, with the live scroll state.
+    ///
+    /// `body(0) > [scroller(1) > [a0(2), a1(3), a2(4), a3(5)], outside(6)]`:
+    /// the scroller is 80px tall (`overflow-y: auto`) and holds four 40px
+    /// items, so two are visible at a time; `outside` sits right under it.
+    ///
+    /// Down from the top: move to the next VISIBLE item; when the next one is
+    /// scrolled out of view, SCROLL the box instead; once the box is at its
+    /// bottom, leave it for `outside`. Ten presses are more than the eight the
+    /// walk needs, and the two spare ones must change nothing.
+    #[test]
+    fn arrow_down_walks_a_scroll_box_scrolling_it_and_then_leaves_it() {
+        use azul_core::dom::TabIndex;
+
+        let item = |h: u32| {
+            Dom::create_div()
+                .with_tab_index(TabIndex::OverrideInParent(0))
+                .with_css(
+                    format!("display: block; width: 100px; height: {h}px; margin: 0; padding: 0;")
+                        .as_str(),
+                )
+        };
+        let dom = Dom::create_body()
+            .with_css("margin: 0; padding: 0;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: block; width: 200px; height: 80px; margin: 0; padding: 0; \
+                         overflow-y: auto;",
+                    )
+                    .with_child(item(40))
+                    .with_child(item(40))
+                    .with_child(item(40))
+                    .with_child(item(40)),
+            )
+            .with_child(item(20));
+        let styled_dom = StyledDom::create_from_dom(dom);
+
+        let mut steps = vec![
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "key_down", "key": "Tab" }),
+            serde_json::json!({ "op": "key_up", "key": "Tab" }),
+            serde_json::json!({ "op": "wait_frame" }),
+        ];
+        for _ in 0..10 {
+            steps.push(serde_json::json!({ "op": "key_down", "key": "Down" }));
+            steps.push(serde_json::json!({ "op": "key_up", "key": "Down" }));
+            steps.push(serde_json::json!({ "op": "wait_frame" }));
+        }
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "arrow_down_walks_a_scroll_box",
+            "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+            "steps": steps,
+        }))
+        .expect("scenario json");
+
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let outside = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(6))),
+        };
+        assert_eq!(
+            runner.layout_window.focus_manager.focused_node,
+            Some(outside),
+            "Down must walk the list, scrolling it, and leave it for the box underneath once the \
+             list is at its bottom",
+        );
+        let offset = runner
+            .layout_window
+            .scroll_manager
+            .get_current_offset(DomId::ROOT_ID, NodeId::new(1))
+            .unwrap_or_default();
+        assert!(
+            offset.y >= 60.0,
+            "the arrow keys must have scrolled the box to (near) its 80px maximum, got {:.1}",
+            offset.y,
+        );
+    }
+
+    // ── The undo keys in a scenario (EVENTS7) ────────────────────────────────
+
+    /// The key the platform's shortcuts are held with: Cmd under the Mac's
+    /// conventions, Ctrl elsewhere (`KeyModifiers::primary_down`).
+    fn primary_key() -> VirtualKeyCode {
+        if azul_core::window::mac_shortcut_conventions() {
+            VirtualKeyCode::LWin
+        } else {
+            VirtualKeyCode::LControl
+        }
+    }
+
+    /// An editor that owns its undo history: it vetoes the undo keys' default
+    /// action (and lets every other key through).
+    extern "C" fn veto_the_undo_keys(_data: RefAny, mut info: CallbackInfo) -> Update {
+        let keyboard = info.get_current_keyboard_state();
+        let key = keyboard.current_virtual_keycode.into_option();
+        if keyboard.primary_down() && matches!(key, Some(VirtualKeyCode::Z | VirtualKeyCode::Y)) {
+            info.prevent_default();
+        }
+        Update::DoNothing
+    }
+
+    /// WRITER6 / HEADLESS6: the runner had no arm for the undo keys' default
+    /// actions (`DefaultAction::UndoTextEdit` / `RedoTextEdit`) - and had never
+    /// applied `SystemChange::UndoTextEdit` either, its body lived in the dll -
+    /// so a JSON scenario's Ctrl/Cmd+Z undid nothing. The one body is
+    /// `LayoutWindow::undo_text_edit` now, which both hosts call.
+    #[test]
+    fn a_scenarios_undo_key_undoes_the_typing_and_the_redo_key_redoes_it() {
+        let mut runner = editor_runner("abc", false, None);
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "x");
+        let typed = text_of(&runner);
+        assert_ne!(typed, "abc", "premise: the keystroke types into the editor");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        assert_eq!(text_of(&runner), "abc", "primary + Z undoes the typing");
+
+        tap_key(
+            &mut runner,
+            VirtualKeyCode::Z,
+            &[primary_key(), VirtualKeyCode::LShift],
+        );
+        assert_eq!(text_of(&runner), typed, "primary + Shift + Z redoes it");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        tap_key(&mut runner, VirtualKeyCode::Y, &[primary_key()]);
+        assert_eq!(text_of(&runner), typed, "primary + Y redoes too");
+    }
+
+    /// The other half of the browser keydown model in a scenario: an editor
+    /// that vetoes the undo key keeps the engine's text undo from running.
+    #[test]
+    fn a_scenarios_undo_key_vetoed_by_the_editor_undoes_nothing() {
+        let mut runner = editor_runner("abc", false, Some(veto_the_undo_keys));
+        press_key_with_text(&mut runner, VirtualKeyCode::X, "x");
+        let typed = text_of(&runner);
+        assert_ne!(typed, "abc", "premise: the keystroke types into the editor");
+
+        tap_key(&mut runner, VirtualKeyCode::Z, &[primary_key()]);
+        assert_eq!(text_of(&runner), typed, "the editor's veto stands");
+    }
+
+    /// The same through a JSON scenario's ops - click into an editable, type,
+    /// then `key_down z` with the primary modifier - the way a corpus
+    /// scenario drives it.
+    #[test]
+    fn a_json_scenarios_undo_key_undoes_the_typing() {
+        use azul_core::dom::IdOrClass;
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ed".into())].into())
+                .with_contenteditable(true)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "abc",
+                )),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; } \
+             .ed { height: 40px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let mac = azul_core::window::mac_shortcut_conventions();
+        let primary = serde_json::json!({ "ctrl": !mac, "meta": mac });
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "undo_key",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".ed" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "x", "text": "x" }, { "op": "key_up", "key": "x" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "z", "modifiers": primary.clone() },
+                { "op": "key_up", "key": "z", "modifiers": primary.clone() },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("the click focuses the editable");
+        let node_id = focused.node.into_crate_internal().expect("focused node id");
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "the scenario's primary + Z undoes the typed x"
+        );
+    }
+
+    // ── Ctrl+B with no selection reaches the app (EVENTS7) ──────────────────
+
+    /// What a toolbar's listener read on each `TypingStyleChanged`: whether
+    /// the caret's pending format is bold.
+    type SeenBold = Arc<Mutex<Vec<Option<bool>>>>;
+
+    extern "C" fn record_typing_bold(mut data: RefAny, info: CallbackInfo) -> Update {
+        let bold = info
+            .get_typing_formats(editor_node())
+            .into_option()
+            .map(|formats| formats.bold);
+        if let Some(seen) = data.downcast_ref::<SeenBold>() {
+            seen.lock().unwrap().push(bold);
+        }
+        Update::DoNothing
+    }
+
+    /// DEDUP_EDITORS D1 / the ledger's "Ctrl+B with no selection is not
+    /// reported to the app": the engine's Ctrl/Cmd+B at a collapsed caret
+    /// toggles the typing style (the next typed text is bold) as the key's
+    /// default action - AFTER the KeyDown callbacks ran - and told the app
+    /// nothing, so a toolbar's B showed the old state until its next render.
+    /// TEXTENG put the formats into the text-edit report; the toggle itself
+    /// is now `FocusEventFilter::TypingStyleChanged` at the editing host.
+    #[test]
+    fn ctrl_b_at_a_caret_tells_the_editor_its_typing_style_changed() {
+        let seen: SeenBold = Arc::default();
+        let mut runner = editor_runner_with(
+            "abc",
+            false,
+            vec![(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::TypingStyleChanged),
+                RefAny::new(seen.clone()),
+                record_typing_bold as CallbackType,
+            )],
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::B, &[primary_key()]);
+        assert_eq!(
+            seen.lock().unwrap().clone(),
+            vec![Some(true)],
+            "one TypingStyleChanged, after the toggle: the caret now types bold"
+        );
+
+        tap_key(&mut runner, VirtualKeyCode::B, &[primary_key()]);
+        assert_eq!(
+            seen.lock().unwrap().last().copied(),
+            Some(Some(false)),
+            "toggled back: plain again"
+        );
+    }
 }
+
+// ==== E2E tooling follow-ups (E1): tests ====
+// The platform gate, the notification op, `ScrollFocusedContainer` and the
+// transient `Dismissed` event. A child of this module, so a test can keep the
+// finished `Runner` (`run_e2e_test_keeping_runner`).
+#[cfg(test)]
+#[path = "tooling_tests.rs"]
+mod tooling_tests;
+
+// ==== WEBVIEW17: a `<webview>` sign-in flow, headless ====
+// `list_webviews` / `simulate_webview_*` and the app's navigation callback
+// catching the loopback redirect. A child of this module for
+// `run_e2e_test_keeping_runner`.
+#[cfg(test)]
+#[path = "webview_tests.rs"]
+mod webview_tests;
+
+// The close protocol (INFRA6, user ruling 2026-10-02): a close the APP asks
+// for (`close_window`, the e2e `close` op, the CSD titlebar's close button)
+// is a REQUEST - `WindowEventFilter::CloseRequested` runs first, and
+// `prevent_window_close()` vetoes it - exactly as the headless backend runs
+// it (`PlatformWindow::confirm_app_close`).
+#[cfg(test)]
+mod close_protocol_tests {
+    use azul_core::{
+        callbacks::Update,
+        dom::Dom,
+        events::{EventFilter, WindowEventFilter},
+        refany::RefAny,
+        styled_dom::StyledDom,
+    };
+    use azul_layout::callbacks::CallbackInfo;
+
+    use super::run_e2e_test_keeping_runner;
+
+    /// How often the window was asked, and whether its answer is "no".
+    #[derive(Debug)]
+    struct Asked {
+        times: u32,
+        veto: bool,
+    }
+
+    extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+        let veto = match data.downcast_mut::<Asked>() {
+            Some(mut asked) => {
+                asked.times += 1;
+                asked.veto
+            }
+            None => return Update::DoNothing,
+        };
+        if veto {
+            info.prevent_window_close();
+        }
+        Update::DoNothing
+    }
+
+    /// Run `close` against a window whose CloseRequested callback vetoes or
+    /// not: (how often it was asked, whether the close still stands).
+    fn close_once(veto: bool) -> (u32, bool) {
+        let mut asked = RefAny::new(Asked { times: 0, veto });
+        let mut dom = Dom::create_body().with_child(Dom::create_div().with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            asked.clone(),
+            on_close_requested as usize,
+        ));
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "close_protocol",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "close" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let times = asked.downcast_ref::<Asked>().expect("the probe").times;
+        (times, runner.window_state.flags.close_requested)
+    }
+
+    #[test]
+    fn a_close_the_app_asks_for_runs_close_requested_and_a_veto_keeps_the_window() {
+        let (asked, closing) = close_once(true);
+        assert_eq!(asked, 1, "CloseRequested ran exactly once before anything closed");
+        assert!(!closing, "prevent_window_close() kept the window open");
+    }
+
+    #[test]
+    fn an_unvetoed_close_asks_once_and_stands() {
+        let (asked, closing) = close_once(false);
+        assert_eq!(asked, 1, "CloseRequested ran exactly once");
+        assert!(closing, "nobody vetoed: the close stands");
+    }
+}
+
+// ==== RULINGS8: a press focuses the nearest focusable ancestor ====
+// ...continuing past a `VirtualView` page's root at its host (user ruling
+// 2026-10-03). A child of this module for `run_e2e_test_keeping_runner`.
+#[cfg(test)]
+#[path = "focus_across_virtual_view_tests.rs"]
+mod focus_across_virtual_view_tests;

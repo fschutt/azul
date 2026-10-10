@@ -1500,6 +1500,16 @@ fn extract_types_from_file(parsed_file: &ParsedFile) -> Result<Vec<ParsedTypeInf
                         doc: None,
                     },
                 );
+                fields.insert(
+                    "flags".to_string(),
+                    FieldInfo {
+                        name: "flags".to_string(),
+                        ty: "u8".to_string(),
+                        ref_kind: crate::api::RefKind::Value,
+                        doc: None,
+                    },
+                );
+
                 if let Some(destructor) = &gen_type.destructor_name {
                     fields.insert(
                         "destructor".to_string(),

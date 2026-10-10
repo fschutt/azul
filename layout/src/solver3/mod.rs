@@ -12,13 +12,21 @@ pub mod getters;
 pub mod layout_tree;
 pub use layout_tree::LayoutNodeId;
 pub mod break_token;
+/// CSS Multi-column Layout 1: column geometry and the column breaks of a
+/// multi-column block container.
+pub mod multicol;
 pub mod page_breaks;
 pub mod paged_layout;
 pub mod pagination;
 pub mod positioning;
+pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;
+pub mod svg;
 pub mod taffy_bridge;
+/// The automatic table layout's width half: column constraints, the table's
+/// min/max-content, the width distribution (shared by sizing and layout).
+pub mod table_width;
 
 /// Lazy `debug_info` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
@@ -226,6 +234,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut HashMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
+    /// The surface the CANVAS background covers (CSS 2.2 §14.2): for a root
+    /// document the whole window, the safe-area strips included, while
+    /// `viewport_size` is only the part the root is laid out in. Everywhere
+    /// else - a child DOM, a page, a test - it is the viewport at the origin.
+    pub canvas_rect: LogicalRect,
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
@@ -321,6 +334,7 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
             overlay: self.content_overlay,
             styled_dom: self.styled_dom,
             dom_id: self.styled_dom.dom_id,
+            image_cache: Some(self.image_cache),
         }
     }
 
@@ -528,6 +542,56 @@ pub fn set_skip_display_list(skip: bool) {
     SKIP_DISPLAY_LIST.store(skip, core::sync::atomic::Ordering::Relaxed);
 }
 
+/// The layout indices a css-dirty pass on the RETAINED tree must re-emit
+/// instead of splicing from the previous display list: every box of a
+/// restyled node, and every box below one. Its own items were painted from
+/// its old style, and a value it changed can be inherited by what it
+/// contains. Empty when the pass carries no css dirt (a resize).
+fn css_dirty_reemit_set(
+    tree: &LayoutTree,
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+) -> std::collections::BTreeSet<usize> {
+    let mut out = std::collections::BTreeSet::new();
+    if css_dirty.is_empty() {
+        return out;
+    }
+    let dirty: std::collections::BTreeSet<NodeId> = css_dirty.iter().map(|(n, _)| *n).collect();
+    // Per layout index: 0 = not decided yet, 1 = re-emits, 2 = splices. Each
+    // walk up stops at the first decided ancestor, so the whole tree costs
+    // one visit per node and edge.
+    let mut verdict = vec![0_u8; tree.nodes.len()];
+    let mut chain: Vec<usize> = Vec::new();
+    for start in 0..tree.nodes.len() {
+        chain.clear();
+        let mut answer = 2_u8;
+        let mut cur = Some(start);
+        while let Some(i) = cur {
+            let Some(node) = tree.nodes.get(i) else {
+                break;
+            };
+            if verdict[i] != 0 {
+                answer = verdict[i];
+                break;
+            }
+            chain.push(i);
+            if node.dom_node_id.is_some_and(|d| dirty.contains(&d)) {
+                answer = 1;
+                break;
+            }
+            cur = node.parent;
+        }
+        for &i in &chain {
+            verdict[i] = answer;
+        }
+    }
+    for (i, v) in verdict.iter().enumerate() {
+        if *v == 1 {
+            out.insert(i);
+        }
+    }
+    out
+}
+
 // M12.7: keep this out-of-line so the web lift sees it as its own wasm fn
 // (not inlined into layout_dom_recursive). An opt-folded infinite loop in the
 // solver (a mis-lifted loop exit) is otherwise hidden inside the giant inlined
@@ -546,6 +610,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     text_cache: &mut TextLayoutCache,
     new_dom: &StyledDom,
     viewport: LogicalRect,
+    // What the canvas background covers - see `LayoutContext::canvas_rect`.
+    canvas_rect: LogicalRect,
     font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     text_selections: &BTreeMap<DomId, TextSelection>,
@@ -639,6 +705,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect,
         fragmentation_context: None,
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
@@ -694,14 +761,31 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // against a stale hint meeting a swapped DOM.
     drop(doc_setup_span);
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
+    // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
+    // node - only the user override the tween walks (`tick_animations` arms
+    // the latch, stamped with the DOM it describes). The reconcile reads node
+    // data and interaction states, never overrides, so it would rebuild
+    // exactly the retained tree: take it as it is, like the resize path. The
+    // css dirt of this pass (Step 1.15) names the boxes to lay out again, and
+    // its nodes re-emit in the display-list patch (Step 4). A stamp that no
+    // longer matches (a node added, a restyle, a hover moved since the tick)
+    // reconciles as before.
+    let overrides_only = cache
+        .overrides_only_hint
+        .take()
+        .is_some_and(|stamp| stamp == cache::OverridesOnlyStamp::of(new_dom));
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
-    let (new_tree_val, mut recon_result) = if resize_only
+    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only)
         && cache.tree.as_ref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
                 .is_none_or(|(max_id, _)| max_id.index() < dom_len_for_hint)
         }) {
-        let _p = crate::probe::Probe::span("reconcile_skipped_resize_only");
+        let _p = crate::probe::Probe::span(if resize_only {
+            "reconcile_skipped_resize_only"
+        } else {
+            "reconcile_skipped_overrides_only"
+        });
         cache.last_reconcile_was_skipped = true;
         let tree = cache.tree.take().expect("checked is_some above");
         // DL-patching input: the sizes the PREVIOUS pass computed — the
@@ -709,7 +793,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // object), so this is the only moment they can be captured.
         cache.previous_sizes = tree.nodes.iter().map(|n| n.used_size).collect();
         let mut r = cache::ReconciliationResult::default();
-        r.layout_roots.insert(tree.root);
+        // A resize re-runs the top-down pass from the root at the new size;
+        // an override frame lays out only what its css dirt names.
+        if resize_only {
+            r.layout_roots.insert(tree.root);
+        }
         r.reused_nodes = tree.nodes.len();
         r.fresh_nodes = 0;
         (tree, r)
@@ -722,7 +810,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.previous_sizes = t.nodes.iter().map(|n| n.used_size).collect();
         }
         let dom_diff_clean = cache.dom_diff_clean.take();
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, dom_diff_clean)?
+        // The CSS diff goes in too: a node it restyled is built fresh, with
+        // the new cascade's box props (LAYOUTPERF8 bug B).
+        cache::reconcile_and_invalidate_restyled(
+            &mut ctx_temp,
+            cache,
+            viewport,
+            dom_diff_clean,
+            css_dirty,
+        )?
     };
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
@@ -818,7 +914,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
-            if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+            if env_flag!("AZ_ANIM_DEBUG") {
                 eprintln!(
                     "[dlcache] HIT fp={gpu_fp:x} items={}",
                     cached_dl.items.len()
@@ -832,6 +928,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // expected no damage, got rects).
             cache.last_build_was_patched = false;
             cache.last_patch_damage = None;
+            // The census describes THIS pass, as the early exit's does: it
+            // sized nothing. Left in place, the count of the last pass that
+            // laid out (the cold one: every node) made a relayout of an
+            // unchanged page read as a whole-page re-measure.
+            cache.last_intrinsic_dirty = 0;
             return Ok(dl);
         }
     }
@@ -852,33 +953,70 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
-            let mut dom_to_tree: HashMap<NodeId, usize> =
-                HashMap::with_capacity(new_tree.nodes.len());
-            for (idx, node) in new_tree.nodes.iter().enumerate() {
-                if let Some(d) = node.dom_node_id {
-                    dom_to_tree.insert(d, idx);
-                }
-            }
+            let any_columns = multicol::dom_declares_columns(new_dom);
+            let node_of = |idx: usize| {
+                new_tree.nodes.get(idx).map(|n| {
+                    (
+                        n.parent,
+                        n.formatting_context,
+                        any_columns && multicol::is_multicol_box(new_dom, n.dom_node_id),
+                    )
+                })
+            };
             let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
                     continue;
                 }
-                if let Some(&idx) = dom_to_tree.get(dom_id_dirty) {
-                    recon_result.intrinsic_dirty.insert(idx);
-                    dirty_roots.insert(idx);
-                }
+                // The element's own box: the FIRST layout node of its DOM
+                // node (a list item's `::marker` carries the item's id too,
+                // and a last-wins map named the marker).
+                let Some(idx) = new_tree
+                    .dom_to_layout
+                    .get(dom_id_dirty)
+                    .and_then(|v| v.first())
+                    .map(|id| id.index())
+                else {
+                    continue;
+                };
+                recon_result.intrinsic_dirty.insert(idx);
+                // A box of BLOCK flow is laid out by its PARENT, whatever
+                // the scope. A `Full` change (margins, position, float,
+                // display) moves it in its parent's flow; a `SizingOnly` one
+                // (width, height, padding, borders - and `IfcOnly`, read as
+                // it above) changes its size, which moves the siblings after
+                // it and changes what its parent holds: a scroll box's
+                // extent and bar, an auto height. Re-solved on its own, a
+                // block keeps the slot its parent's last pass gave it
+                // (LAYOUTPERF8 bug B), and the parent - a clean clone -
+                // keeps the overflow and the scrollbar of the old size: a
+                // scroll box whose content grew from 400 to 800 px kept the
+                // thumb of 400 (a_grown_scroll_box_paints_its_thumb_from_
+                // the_layout_that_grew_it). A flex / grid item or an
+                // inline-level box is lifted to its container below anyway.
+                let root = if cache::lift_to_slot_container(idx, &node_of) == idx {
+                    new_tree
+                        .nodes
+                        .get(idx)
+                        .and_then(|n| n.parent)
+                        .unwrap_or(idx)
+                } else {
+                    idx
+                };
+                dirty_roots.insert(root);
             }
             // Same lift as the reconcile's own roots get: a flex item or an
             // inline-level box is re-solved by its container, or its
-            // siblings keep the slots they had.
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, |idx| {
-                new_tree
-                    .nodes
-                    .get(idx)
-                    .map(|n| (n.parent, n.formatting_context))
-            });
+            // siblings keep the slots they had; a box in a multi-column
+            // flow by the multi-column container.
+            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, node_of);
             recon_result.layout_roots.extend(promoted);
+            // A root below another one is laid out by that one's pass (the
+            // reconcile's own roots were cleaned the same way).
+            recon_result.layout_roots =
+                cache::outermost_layout_roots(&recon_result.layout_roots, |idx| {
+                    new_tree.nodes.get(idx).and_then(|n| n.parent)
+                });
         }
     }
 
@@ -902,6 +1040,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         let closure =
             sizing::compute_dirty_ancestor_closure(&new_tree, &recon_result.intrinsic_dirty);
         for &node_idx in &closure {
+            if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                warm.taffy_cache.clear();
+                warm.measured_content_sizes = (None, None);
+            }
+        }
+    }
+    // ...and every node's, when the viewport changed under a document that
+    // uses viewport units. A `vw` / `vh` length resolves against the viewport,
+    // which no measurement key carries, so a clean node's measurement may be
+    // stale at its old key. A reconciled tree's clones keep their
+    // measurements (`clone_node_from_old`); the reconcile used to throw them
+    // all away, and this keeps that for exactly the case the keys cannot
+    // see. The resize fast path (`resize_only`) is left as it was. Same gate
+    // as the inline-collection cache's viewport fold (`layout_ifc`).
+    let viewport_units_moved = !resize_only
+        && cache.viewport.is_some_and(|v| v.size != viewport.size)
+        && new_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.uses_viewport_units);
+    if viewport_units_moved {
+        for node_idx in 0..new_tree.nodes.len() {
             if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
                 warm.taffy_cache.clear();
                 warm.measured_content_sizes = (None, None);
@@ -1018,11 +1180,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     }
     drop(probe_cache_remap);
     crate::probe::sample_peak_rss("rss:after_cache_remap");
-    for &node_idx in &recon_result.intrinsic_dirty {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
-    for &node_idx in &recon_result.layout_roots {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    cache_map.mark_dirty_all(
+        recon_result
+            .intrinsic_dirty
+            .iter()
+            .chain(recon_result.layout_roots.iter())
+            .copied(),
+        &new_tree.nodes,
+    );
+    // ...and EVERY node's size / layout slots when the viewport moved under a
+    // document that uses viewport units (the Step 1.2 gate): a slot is keyed
+    // by the box's available size, which a `vh` length does not move - a
+    // paragraph in an auto-height block sees the same 300 x indefinite after
+    // an 800 x 600 -> 800 x 800 resize, and its `line-height: 5vh` lines were
+    // served at their 30px pitch instead of laid out at 40px again.
+    if viewport_units_moved {
+        for entry in &mut cache_map.entries {
+            entry.clear();
+        }
     }
 
     // Now create the real context with computed counters
@@ -1047,6 +1222,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect,
         fragmentation_context: None,
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
@@ -1090,6 +1266,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
 
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+            cache.cache_map = std::mem::take(&mut ctx.cache_map);
             cache.record_full_emission();
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
@@ -1131,6 +1308,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // renderers' damage override cannot replay stale patch rects, and
         // retire the patch log: the renderers' item diff against the list
         // they last presented covers everything from here.
+        // The per-node cache was MOVED into `ctx` for this pass (Step 1.4) and
+        // is moved back at the end of the function - which this early exit
+        // never reaches. Returning without it left the window holding an
+        // empty cache after every idle frame: the next pass re-measured the
+        // whole tree, and a dirty subtree re-solved on its own lost the
+        // containing block its parent's pass had handed it.
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
         cache.record_full_emission();
         return Ok(dl);
     }
@@ -1143,24 +1327,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     unsafe {
         crate::az_mark(0x60704_u32, (0x80u32));
     }
-    // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the
-    // HEAP-backed cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree).
-    // cache is the stable &mut arg (read correctly throughout), so cache.tree is NOT a
-    // deep-SP-relative stack local. At the sizing call we read BOTH: stack new_tree (expect
-    // 0=corrupted) vs heap cache.tree (expect 2 if path B sidesteps the SP-drift/wild-store).
-    // If heap=2, the full cache.tree refactor will fix it.
-    cache.tree = Some((*new_tree).clone());
-    // [az-diag g66] disambiguate the g65 heap=1: read BOTH right after the clone. 0x407C0 = stack
-    // new_tree.nodes.len() (source), 0x407C4 = clone cache.tree.nodes.len(). If src=2 & clone=1 →
-    // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do
-    // it). If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
-    unsafe {
-        crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
-        crate::az_mark(
-            0x607C4_u32,
-            (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
-        );
-    }
+    // The new tree is stored into `cache.tree` once, after the pass (Step
+    // 3's write-back). A whole-tree CLONE used to be stored here as well -
+    // a wasm-lift diagnostic (g65 / g66) that nothing between here and the
+    // store reads - and cost a full LayoutTree copy per relayout. The old
+    // tree stays in the cache meanwhile; the two error returns below drop it
+    // (it no longer matches the remapped per-node caches).
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
@@ -1211,22 +1383,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // proved it: 0x90 marker store → `brk #0x1` → no `bl
             // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check
             // was wrong — panic_immediate_abort strips the message string.)
-            // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
-            // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
-            unsafe {
-                crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
-                crate::az_mark(
-                    0x6074C_u32,
-                    (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
-                );
-            }
             cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
-            calculate_intrinsic_sizes(
+            if let Err(e) = calculate_intrinsic_sizes(
                 &mut ctx,
                 &mut new_tree,
                 text_cache,
                 &recon_result.intrinsic_dirty,
-            )?;
+            ) {
+                // The pass never stored its tree: the cached one is stale.
+                cache.tree = None;
+                return Err(e);
+            }
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
@@ -1555,7 +1722,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 .dynamic_context
                 .as_deref();
             #[cfg(feature = "std")]
-            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            if env_flag!("AZ_PATCH_DEBUG") {
                 match (cur, cache.last_dynamic_context.as_ref()) {
                     (Some(a), Some(b)) if a != b => {
                         eprintln!(
@@ -1565,7 +1732,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                             b.viewport_width,
                             a.viewport_height,
                             b.viewport_height,
-                            a.theme == b.theme,
+                            a.mode == b.mode,
                             a.media_type == b.media_type,
                             a.pseudo_state == b.pseudo_state,
                             a.language == b.language,
@@ -1611,8 +1778,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             || (cache.last_reconcile_structure_preserved
                 && css_dirty.is_empty()
                 && cascade_ctx_unchanged);
+        // On the retained tree a pass may carry css dirt (an override-only
+        // frame: a layout-property tween): its restyled boxes, and what they
+        // contain, re-emit; everything else splices. Empty for a resize.
+        let css_dirty_reemit = if cache.last_reconcile_was_skipped {
+            css_dirty_reemit_set(&new_tree, css_dirty)
+        } else {
+            std::collections::BTreeSet::new()
+        };
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if env_flag!("AZ_PATCH_DEBUG") {
             eprintln!(
                 "[PATCHGATE] skipped={} preserved={} css_dirty={} structure_ok={} disabled={} \
                  prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} \
@@ -1654,6 +1829,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     // PatchState's own size diff).
                     let mut reemit = ctx.reflowed_ifcs.clone();
                     reemit.extend(recon_result.fresh_indices.iter().copied());
+                    reemit.extend(css_dirty_reemit.iter().copied());
                     display_list::PatchState::build(
                         prev_dl,
                         &cache.calculated_positions, // last pass's positions (replaced later)
@@ -1692,6 +1868,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut rects: Vec<LogicalRect> = Vec::new();
             let mut changed: std::collections::BTreeSet<usize> = ctx.reflowed_ifcs.clone();
             changed.extend(recon_result.fresh_indices.iter().copied());
+            changed.extend(css_dirty_reemit.iter().copied());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 let old_pos = pos_get(&cache.calculated_positions, idx);
                 let new_pos = pos_get(&calculated_positions, idx);
@@ -1720,6 +1897,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 new_tree.nodes.iter().map(|n| n.used_size).collect();
             let mut reemit_full = ctx.reflowed_ifcs.clone();
             reemit_full.extend(recon_result.fresh_indices.iter().copied());
+            reemit_full.extend(css_dirty_reemit.iter().copied());
             for (i, (prev, new)) in cache
                 .previous_sizes
                 .iter()
@@ -1755,7 +1933,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         } else {
             cache.last_patch_move = None;
         }
-        display_list::generate_display_list_impl(
+        match display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,
             &calculated_positions,
@@ -1766,7 +1944,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             id_namespace,
             dom_id,
             patch,
-        )?
+        ) {
+            Ok(dl) => dl,
+            Err(e) => {
+                // The pass never stored its tree: the cached one is stale.
+                cache.tree = None;
+                return Err(e);
+            }
+        }
     };
     crate::probe::sample_phase_peak("rss:peak_during_display_list");
 
@@ -1794,7 +1979,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // correctly misses once and re-seeds.
     let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
     #[cfg(feature = "std")]
-    if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+    if env_flag!("AZ_ANIM_DEBUG") {
         eprintln!(
             "[dlcache] STORE fp={gpu_fp:x} items={}",
             display_list.items.len()
@@ -1823,8 +2008,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             add_items(&display_list);
         }
+        // ...and every SCROLLBAR the build changed. Bars are untagged
+        // (stacking-context walk items), so the pass above never sees them,
+        // and they change without their node: the viewport's bar runs along
+        // the window, outside the root's box, and any thumb follows the
+        // content extent under it. See `changed_scrollbar_damage`.
+        if let Some((_, _, _, _, _, old_dl)) = cache.cached_display_list.as_ref() {
+            rects.extend(display_list::changed_scrollbar_damage(
+                old_dl,
+                &display_list,
+            ));
+        }
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if env_flag!("AZ_PATCH_DEBUG") {
             eprintln!("[PATCHDMG] rects={rects:?}");
         }
         // Onto the LOG, not just the slot: a second patched build before the
@@ -2935,6 +3131,7 @@ mod autotest_generated {
                     debug_messages: &mut self.debug_messages,
                     counters: &mut self.counters,
                     viewport_size: size(800.0, 600.0),
+                    canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), size(800.0, 600.0)),
                     fragmentation_context: None,
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     cursor_is_visible: true,
@@ -3197,6 +3394,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3244,6 +3442,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3293,6 +3492,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3619,7 +3819,7 @@ mod cascade_epoch_in_the_dl_key {
     fn the_theme_still_keys_on_its_own() {
         let light = azul_css::dynamic_selector::DynamicSelectorContext::default();
         let dark = azul_css::dynamic_selector::DynamicSelectorContext {
-            theme: azul_css::dynamic_selector::ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         assert_ne!(fp(1, Some(&light)), fp(1, Some(&dark)));

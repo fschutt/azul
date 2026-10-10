@@ -50,6 +50,11 @@
 // `syn` 1.0.x ↔ 2.0.x (the proc-macro ecosystem is mid-migration; both are
 // pulled in transitively). Documented allow — re-audit when the dep tree aligns.
 #![allow(clippy::multiple_crate_versions)]
+// `redundant_pub_crate` (nursery) wants `pub(crate)` items in private modules
+// spelled `pub`, which is exactly what the `unreachable_pub` rustc lint above
+// flags - the two fight each other (clippy documents the conflict). The crate
+// keeps `unreachable_pub` and `pub(crate)`.
+#![allow(clippy::redundant_pub_crate)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,
@@ -80,14 +85,11 @@ extern crate alloc;
 #[macro_use]
 extern crate azul_css;
 
-// clippy reports `too_long_first_doc_paragraph` here with a span that starts
-// in the crate-level `//!` doc far above and ends on this one-line `///`,
-// measuring the two as a single paragraph. The doc below is one short line;
-// re-paragraphing the crate doc does not move it, and a crate-level allow does
-// not apply to it. A genuine instance of this lint — a doc comment cut in half
-// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
-#[allow(clippy::too_long_first_doc_paragraph)]
+// rustdoc joins a `pub mod`'s `///` lines here with the `//!` docs at the top
+// of its file. Where both are long, an empty `///` line ends the summary, so
+// it stays a paragraph of its own (clippy::too_long_first_doc_paragraph).
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
+///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
@@ -212,34 +214,43 @@ pub mod hash {
     pub use std::hash::DefaultHasher;
 
     #[cfg(not(feature = "std"))]
-    pub use self::nostd::DefaultHasher;
+    pub use self::fast::FastHasher as DefaultHasher;
 
-    #[cfg(not(feature = "std"))]
-    mod nostd {
+    pub use self::fast::FastHasher;
+
+    mod fast {
         use core::hash::Hasher;
 
         const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
         const ROTATE: u32 = 5;
 
-        /// FxHasher-style `no_std` hasher. Not DoS-resistant; used purely for
-        /// in-process change detection.
-        #[derive(Default)]
-        pub struct DefaultHasher {
+        /// FxHasher-style hasher, in every build.
+        ///
+        /// Not DoS-resistant: for in-process change detection and cache keys
+        /// over the app's own data. A layout fingerprints every inline
+        /// formatting context it visits, and `SipHash` (`std`'s
+        /// `DefaultHasher`) was a visible share of a 300-contact list's layout
+        /// (`AzContacts`, 2026-10-06).
+        // Not Copy, like std's hashers: a copy would silently fork the state.
+        #[allow(missing_copy_implementations)]
+        #[derive(Debug, Default)]
+        pub struct FastHasher {
             hash: u64,
         }
 
-        impl DefaultHasher {
-            pub fn new() -> Self {
-                DefaultHasher { hash: 0 }
+        impl FastHasher {
+            #[must_use]
+            pub const fn new() -> Self {
+                Self { hash: 0 }
             }
 
             #[inline]
-            fn add(&mut self, word: u64) {
+            const fn add(&mut self, word: u64) {
                 self.hash = (self.hash.rotate_left(ROTATE) ^ word).wrapping_mul(SEED);
             }
         }
 
-        impl Hasher for DefaultHasher {
+        impl Hasher for FastHasher {
             #[inline]
             fn finish(&self) -> u64 {
                 self.hash
@@ -247,16 +258,27 @@ pub mod hash {
 
             #[inline]
             fn write(&mut self, bytes: &[u8]) {
-                for chunk in bytes.chunks(8) {
+                let mut chunks = bytes.chunks_exact(8);
+                for chunk in &mut chunks {
                     let mut buf = [0u8; 8];
-                    buf[..chunk.len()].copy_from_slice(chunk);
+                    buf.copy_from_slice(chunk);
+                    self.add(u64::from_le_bytes(buf));
+                }
+                let rest = chunks.remainder();
+                if !rest.is_empty() {
+                    let mut buf = [0u8; 8];
+                    buf[..rest.len()].copy_from_slice(rest);
                     self.add(u64::from_le_bytes(buf));
                 }
             }
 
             #[inline]
             fn write_u8(&mut self, i: u8) {
-                self.add(i as u64);
+                self.add(u64::from(i));
+            }
+            #[inline]
+            fn write_u32(&mut self, i: u32) {
+                self.add(u64::from(i));
             }
             #[inline]
             fn write_u64(&mut self, i: u64) {
@@ -272,6 +294,10 @@ pub mod hash {
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
+/// The app theme (`@theme(<name>)`): the app's choice, and the theme a DOM
+/// is being built for.
+///
+pub mod app_theme;
 /// Host-language callback invoker registry.
 ///
 /// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one
@@ -332,14 +358,17 @@ pub mod gamepad;
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
-// clippy reports `too_long_first_doc_paragraph` here with a span that starts
-// in the crate-level `//!` doc far above and ends on this one-line `///`,
-// measuring the two as a single paragraph. The doc below is one short line;
-// re-paragraphing the crate doc does not move it, and a crate-level allow does
-// not apply to it. A genuine instance of this lint — a doc comment cut in half
-// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
-#[allow(clippy::too_long_first_doc_paragraph)]
+/// System-wide ("global") hotkey POD types and the accelerator parser.
+///
+/// `GlobalHotkey`, `HotkeyModifiers`, `GlobalHotkeyError` and the declaration
+/// vocabulary (`GlobalHotkeyCallbackData`, `GlobalHotkeyInfo`).
+///
+/// The App-owned manager that reconciles the declared set against the OS
+/// lives in `azul_layout::managers::global_hotkey`, the OS backends in
+/// `azul-dll` (`desktop/global_hotkey`).
+pub mod global_hotkey;
 /// OpenGL context wrappers, shader compilation, and texture cache.
+///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -351,15 +380,13 @@ pub mod gpu;
 pub mod haptics;
 /// Raw HID device access (game controllers, tablets, custom peripherals).
 pub mod hid;
-// clippy reports `too_long_first_doc_paragraph` here with a span that starts
-// in the crate-level `//!` doc far above and ends on this one-line `///`,
-// measuring the two as a single paragraph. The doc below is one short line;
-// re-paragraphing the crate doc does not move it, and a crate-level allow does
-// not apply to it. A genuine instance of this lint — a doc comment cut in half
-// by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
-#[allow(clippy::too_long_first_doc_paragraph)]
+/// HVIF, the Haiku Vector Icon Format: tiny vector icons with per-size
+/// detail and pixel hinting (read here, drawn by azul-layout's renderer).
+///
+pub mod hvif;
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
+///
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -394,14 +421,23 @@ pub mod menu;
 pub mod paged;
 /// SVG `d=""` path data parser.
 pub mod path_parser;
+/// A PDF's interactive form (AcroForm) as data: fields, values, stamps.
+///
+pub mod pdf_form;
 /// CSS property cache for efficient per-node style resolution.
 pub mod physical_key;
 /// Per-node resolved CSS property cache, the layout engine's read path.
 pub mod prop_cache;
+/// Cascade-level custom properties: every node's `--name` variables and its
+/// `var()` / `env()` references, resolved under the live context.
+///
+pub mod custom_property_cascade;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
+/// Scaling of raw images and video frames (thumbnails, consumer cuts).
+pub mod image_scale;
 /// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
 ///
 /// Symmetric to the camera surface (a "dumb widget" in
@@ -435,6 +471,12 @@ pub mod transient;
 /// Icon bitmaps, category/status and the tray event kinds. The OS plumbing
 /// lives in `azul-dll` (`desktop/tray`).
 pub mod tray;
+/// Native desktop notification POD types.
+///
+/// The notification, its buttons and sound, and the events it reports back.
+/// The queues live in `azul-layout` (`managers::notification`), the OS
+/// plumbing in `azul-dll` (`desktop/notifications`) - the tray's split.
+pub mod notification;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.
@@ -446,10 +488,21 @@ pub mod url;
 /// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
 /// via vk-video into the shared GL texture.
 pub mod video;
+/// `<webview>` POD types: the node's configuration, the events a web view
+/// reports and the commands an app sends it.
+///
+/// The engine half lives in `azul_layout::managers::webview`, the native
+/// views in `azul-dll` (`shell2/common/webview.rs` and each backend).
+pub mod webview;
 /// Window configuration, input state, and platform-specific options.
 pub mod window;
 /// XML and XHTML parsing for declarative UI definitions.
 pub mod xml;
+/// Markup, a DOM and component libraries → source code in every binding
+/// language (the DOM half of the code generator; azul-css has the CSS half).
+/// Only with the `codegen` feature.
+#[cfg(feature = "codegen")]
+pub mod codegen;
 
 /// Ordered map alias used throughout `azul-core`.
 ///

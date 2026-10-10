@@ -4,15 +4,11 @@ use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        TabIndex,
-    },
+    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     geom::{LogicalPosition, LogicalSize},
     menu::{Menu, OptionMenu},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::css::BoxOrStatic;
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -29,599 +25,158 @@ use azul_css::{
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
-    widgets::themes::flat,
+    widgets::themes::{decl, OptionUiTheme, UiTheme},
 };
 
-const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
-const STYLE_BACKGROUND_CONTENT_661302523448178568_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 209,
-        g: 232,
-        b: 255,
-        a: 255,
-    })];
-const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 252,
-        g: 252,
-        b: 252,
-        a: 255,
-    })];
-const STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(
-            LINEAR_COLOR_STOP_513857305091467054_ITEMS,
-        ),
-    })];
-const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::Color(ColorU {
-        r: 240,
-        g: 240,
-        b: 240,
-        a: 255,
-    })];
-const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
-    &[StyleFontFamily::System(STRING_16146701490593874959)];
-const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(50),
-        color: ColorOrSystem::color(ColorU {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(51),
-        color: ColorOrSystem::color(ColorU {
-            r: 247,
-            g: 248,
-            b: 250,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 243,
-            g: 244,
-            b: 246,
-            a: 255,
-        }),
-    },
+// ---- R5: the parts' BASE - the structure every theme's list shares ----
+//
+// A theme's part is its base below, THEN its skin (paint and metrics:
+// `themes::flat::list_view_look`, `themes::flora::list_view_look`). The base
+// comes first in every theme, so a list that follows the app theme declares
+// it once, outside every `@theme` block, and it holds under any theme.
+
+/// The list: it takes the room its parent gives it.
+pub(crate) static LIST_BASE: &[CssPropertyWithConditions] = &[decl::grow(1)];
+
+/// The header band: the column titles side by side.
+pub(crate) static HEADER_BASE: &[CssPropertyWithConditions] = &[decl::display_flex()];
+
+/// A column title's box: the title (and, on the sorted column, its arrow) on
+/// the band's midline, at least as wide as a cell, so a title stands over its
+/// column.
+pub(crate) static COLUMN_BASE: &[CssPropertyWithConditions] = &[
+    decl::display_flex(),
+    decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    decl::position(LayoutPosition::Relative),
+    decl::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(100))),
 ];
 
-const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // A flex container: `flex-direction` / `justify-content` / `align-items`
-    // below do nothing without it (this rule had none, so the box laid out as
-    // a block and its children stacked vertically).
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Flex,
-    ))),
-    // .__azul_native-list-header-item:hover and :active, light AND dark.
-    // Declared in the theme module — see `themes::flat::LIST_HEADER_HOVER_BG`
-    // — because the dark half of each pair needs a palette this file cannot
-    // see; declared here they could only ever name the light-mode colour,
-    // which is how a hovered header kept its light face on a dark surface.
-    // Each light rule is followed by its dark twin so the twin wins in dark
-    // mode (inline CSS is last-wins).
-    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH,
-    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH_DARK,
-    flat::LIST_HOVER_BORDER_BOTTOM_STYLE,
-    flat::LIST_HOVER_BORDER_BOTTOM_STYLE_DARK,
-    flat::LIST_HEADER_HOVER_LINE_COLOR,
-    flat::LIST_HEADER_HOVER_LINE_COLOR_DARK,
-    flat::LIST_HEADER_HOVER_BG,
-    flat::LIST_HEADER_HOVER_BG_DARK,
-    // .__azul_native-list-header-item:active
-    flat::LIST_HEADER_ACTIVE_SHADOW_BOTTOM,
-    flat::LIST_HEADER_ACTIVE_SHADOW_BOTTOM_DARK,
-    flat::LIST_HEADER_ACTIVE_SHADOW_TOP,
-    flat::LIST_HEADER_ACTIVE_SHADOW_TOP_DARK,
-    flat::LIST_HEADER_ACTIVE_SHADOW_RIGHT,
-    flat::LIST_HEADER_ACTIVE_SHADOW_RIGHT_DARK,
-    flat::LIST_HEADER_ACTIVE_SHADOW_LEFT,
-    flat::LIST_HEADER_ACTIVE_SHADOW_LEFT_DARK,
-    flat::LIST_ACTIVE_BORDER_BOTTOM_WIDTH,
-    flat::LIST_ACTIVE_BORDER_BOTTOM_WIDTH_DARK,
-    flat::LIST_ACTIVE_BORDER_LEFT_WIDTH,
-    flat::LIST_ACTIVE_BORDER_LEFT_WIDTH_DARK,
-    flat::LIST_ACTIVE_BORDER_RIGHT_WIDTH,
-    flat::LIST_ACTIVE_BORDER_RIGHT_WIDTH_DARK,
-    flat::LIST_ACTIVE_BORDER_TOP_WIDTH,
-    flat::LIST_ACTIVE_BORDER_TOP_WIDTH_DARK,
-    flat::LIST_ACTIVE_BORDER_BOTTOM_STYLE,
-    flat::LIST_ACTIVE_BORDER_BOTTOM_STYLE_DARK,
-    flat::LIST_ACTIVE_BORDER_LEFT_STYLE,
-    flat::LIST_ACTIVE_BORDER_LEFT_STYLE_DARK,
-    flat::LIST_ACTIVE_BORDER_RIGHT_STYLE,
-    flat::LIST_ACTIVE_BORDER_RIGHT_STYLE_DARK,
-    flat::LIST_ACTIVE_BORDER_TOP_STYLE,
-    flat::LIST_ACTIVE_BORDER_TOP_STYLE_DARK,
-    flat::LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR,
-    flat::LIST_HEADER_ACTIVE_BORDER_BOTTOM_COLOR_DARK,
-    flat::LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR,
-    flat::LIST_HEADER_ACTIVE_BORDER_LEFT_COLOR_DARK,
-    flat::LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR,
-    flat::LIST_HEADER_ACTIVE_BORDER_RIGHT_COLOR_DARK,
-    flat::LIST_HEADER_ACTIVE_BORDER_TOP_COLOR,
-    flat::LIST_HEADER_ACTIVE_BORDER_TOP_COLOR_DARK,
-    flat::LIST_HEADER_ACTIVE_BG,
-    flat::LIST_HEADER_ACTIVE_BG_DARK,
-    // .__azul_native-list-header-item
-    // Centre the label in the header's height: without it the text sat on the
-    // top edge and the gradient's grey half read as an empty band under it.
-    CssPropertyWithConditions::simple(CssProperty::JustifyContent(
-        LayoutJustifyContentValue::Exact(LayoutJustifyContent::Center),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
-        LayoutPosition::Relative,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(7),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(100),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 243,
-                g: 244,
-                b: 246,
-                a: 255,
-            },
-        }),
-    )),
+/// A column's title: the rest of its box, on one line.
+pub(crate) static TITLE_BASE: &[CssPropertyWithConditions] = &[
+    decl::grow(1),
+    decl::nowrap(),
+    decl::overflow_x_hidden(),
 ];
-const CSS_MATCH_12498280255863106397: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_12498280255863106397_PROPERTIES);
 
-const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-rows-row-cell
-    // A cell holds one line of a record, like a table cell: it clips rather
-    // than wrapping, so a row keeps the height the list gave it and a long
-    // value cannot push the rows below it out of place.
-    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
-        StyleWhiteSpace::Nowrap,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
-        LayoutOverflow::Hidden,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(7),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-        LayoutMinWidth {
-            inner: PixelValue::const_px(100),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-    ))),
-    // Same reason as the tree's label: a conditional inline value is not
-    // inherited, so the cell states its own dark colour.
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
-        StyleTextColor {
-            inner: ColorU {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-        },
-    ))),
+/// The sort arrow keeps its glyph's width and never competes with the title.
+pub(crate) static SORT_ARROW_BASE: &[CssPropertyWithConditions] = &[decl::grow(0)];
+
+/// The rows: a column of rows.
+pub(crate) static ROWS_BASE: &[CssPropertyWithConditions] = &[
+    decl::display_flex(),
+    decl::flex_direction(LayoutFlexDirection::Column),
 ];
-const CSS_MATCH_12980082330151137475: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_12980082330151137475_PROPERTIES);
 
-const CSS_MATCH_15295293133676720691_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-header-dragwidth-drag
-    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-        LayoutWidth::Px(PixelValue::const_px(2)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
-        LayoutPosition::Absolute,
-    ))),
+/// A row: its cells side by side.
+pub(crate) static ROW_BASE: &[CssPropertyWithConditions] = &[
+    decl::display_flex(),
+    decl::flex_direction(LayoutFlexDirection::Row),
+    decl::grow(1),
 ];
-const CSS_MATCH_15295293133676720691: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15295293133676720691_PROPERTIES);
 
-const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // A flex container: `flex-direction` / `justify-content` / `align-items`
-    // below do nothing without it (this rule had none, so the box laid out as
-    // a block and its children stacked vertically).
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Flex,
-    ))),
-    // .__azul_native-list-header
-    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight::Px(PixelValue::const_px(25)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS,
-        )),
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
-            StyleBackgroundContent::Color(ColorU {
-                r: 43,
-                g: 43,
-                b: 43,
-                a: 255,
-            }),
-        ])),
-    )),
+/// A cell holds one line of a record, like a table cell: it clips rather than
+/// wrapping, so a row keeps the height the list gave it and a long value
+/// cannot push the rows below it out of place; at least as wide as its
+/// column's title box.
+pub(crate) static CELL_BASE: &[CssPropertyWithConditions] = &[
+    decl::nowrap(),
+    decl::overflow_x_hidden(),
+    decl::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(100))),
 ];
-const CSS_MATCH_15315949193378715186: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15315949193378715186_PROPERTIES);
 
-const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-header .__azul_native-list-header-item p
-    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
-        StyleFontSize {
-            inner: PixelValue::const_px(11),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::TextColor(StyleTextColorValue::Exact(
-        StyleTextColor {
-            inner: ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
-        LayoutAlignItems::Center,
-    ))),
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
-        StyleTextColor {
-            inner: ColorU {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-        },
-    ))),
-];
-const CSS_MATCH_15673486787900743642: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15673486787900743642_PROPERTIES);
+// ---- the look: what a theme decides about a list ----
 
-const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native_list-container
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS,
-        )),
-    )),
-    // Dark defaults. Inline CSS takes `@theme dark` conditions and the last
-    // matching property wins, so each dark value sits after the light one it
-    // replaces. A list is a FIELD: in a dark window it must not stay white.
-    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
-            StyleBackgroundContent::Color(ColorU {
-                r: 31,
-                g: 31,
-                b: 31,
-                a: 255,
-            }),
-        ])),
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
-        StyleTextColor {
-            inner: ColorU {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-        },
-    ))),
-];
-const CSS_MATCH_17553577885456905601: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17553577885456905601_PROPERTIES);
+/// What a theme decides about a list: the SKIN of each part (its paint and
+/// metrics), laid over the part's base by [`ListView::dom`]; built by
+/// `themes::flat::list_view_look` and `themes::flora::list_view_look`.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ListViewLook {
+    /// The list: its ground and its ink (the caller's cells inherit the ink).
+    pub list: Vec<CssPropertyWithConditions>,
+    /// The header band: its face, its height, the rule under it.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// A column title's box: its padding, the separator on its right, its
+    /// faces under the pointer and while pressed.
+    pub column: Vec<CssPropertyWithConditions>,
+    /// A column's title: its face and size, its ink.
+    pub title: Vec<CssPropertyWithConditions>,
+    /// Stacked on the title of the column the rows are sorted by.
+    pub title_sorted: Vec<CssPropertyWithConditions>,
+    /// The sorted column's arrow.
+    pub sort_arrow: Vec<CssPropertyWithConditions>,
+    /// A row: its padding, the ring slot, its wash under the pointer, the
+    /// focus ring.
+    pub row: Vec<CssPropertyWithConditions>,
+    /// Stacked on every other row: the stripe.
+    pub row_alternate: Vec<CssPropertyWithConditions>,
+    /// Stacked on the selected row: the selection.
+    pub row_selected: Vec<CssPropertyWithConditions>,
+    /// A cell: its padding, face and size, the rule on its right.
+    pub cell: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the list, if it has one.
+    pub marker: Option<&'static str>,
+}
 
-const CSS_MATCH_2883986488332352590_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // body
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
-        LayoutPaddingBottom {
-            inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-        LayoutPaddingTop {
-            inner: PixelValue::const_px(5),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-            STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS,
-        )),
-    )),
-];
-const CSS_MATCH_2883986488332352590: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_2883986488332352590_PROPERTIES);
+/// The look a list with the theme option `theme` is built with: the pinned
+/// theme's own, or - following the app theme - both looks merged part by
+/// part (`theme_blocks::follow_props`), each theme's declarations in its
+/// `@theme(<name>)` block. The DOM is built ONCE from it: the caller's cells
+/// are never cloned or walked.
+pub(crate) fn look_for(theme: OptionUiTheme) -> ListViewLook {
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::list_view_look(),
+        Some(UiTheme::Flora) => flora::list_view_look(),
+        None => {
+            let (a, b) = (flat::list_view_look(), flora::list_view_look());
+            let both = |x: &[CssPropertyWithConditions], y: &[CssPropertyWithConditions]| {
+                follow_props(x, y).into_library_owned_vec()
+            };
+            ListViewLook {
+                list: both(&a.list, &b.list),
+                header: both(&a.header, &b.header),
+                column: both(&a.column, &b.column),
+                title: both(&a.title, &b.title),
+                title_sorted: both(&a.title_sorted, &b.title_sorted),
+                sort_arrow: both(&a.sort_arrow, &b.sort_arrow),
+                row: both(&a.row, &b.row),
+                row_alternate: both(&a.row_alternate, &b.row_alternate),
+                row_selected: both(&a.row_selected, &b.row_selected),
+                cell: both(&a.cell, &b.cell),
+                marker: match UiTheme::current() {
+                    UiTheme::Flat => a.marker,
+                    UiTheme::Flora => b.marker,
+                },
+            }
+        }
+    }
+}
 
-const CSS_MATCH_4852927511892172364_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // A flex container: `flex-direction` / `justify-content` / `align-items`
-    // below do nothing without it (this rule had none, so the box laid out as
-    // a block and its children stacked vertically).
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Flex,
-    ))),
-    // .__azul_native-list-rows
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Column,
-    ))),
-];
-const CSS_MATCH_4852927511892172364: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4852927511892172364_PROPERTIES);
+/// A part's declarations: its base (the structure), then the look's skin.
+fn part(
+    base: &[CssPropertyWithConditions],
+    skin: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(decl::on_base(base, skin))
+}
 
-const CSS_MATCH_6002662151290653203_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-header-dragwidth
-    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-        LayoutWidth::Px(PixelValue::const_px(0)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
-        LayoutPosition::Relative,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
-];
-const CSS_MATCH_6002662151290653203: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6002662151290653203_PROPERTIES);
+/// `extra` stacked onto `base` (`theme_blocks::stack_parts`): a state part (a
+/// stripe, the selection, the sorted title) after the part it modifies,
+/// overriding it under every app theme.
+fn stacked(
+    base: CssPropertyWithConditionsVec,
+    extra: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::theme_blocks::stack_parts(
+        &base,
+        &CssPropertyWithConditionsVec::from_vec(extra.to_vec()),
+    )
+}
 
-const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // A flex container: `flex-direction` / `justify-content` / `align-items`
-    // below do nothing without it (this rule had none, so the box laid out as
-    // a block and its children stacked vertically).
-    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-        LayoutDisplay::Flex,
-    ))),
-    // .__azul_native-list-rows-row.focused, light AND dark. Declared in the
-    // theme module — see `themes::flat::LIST_ROW_FOCUS_BG` — because the dark
-    // half of each pair needs a palette this file cannot see; declared here it
-    // could only ever name the light-mode colour, which is how the focused row
-    // kept its light ring on a dark surface. Each light rule is followed by
-    // its dark twin so the twin wins in dark mode (inline CSS is last-wins).
-    flat::LIST_FOCUS_BORDER_BOTTOM_WIDTH,
-    flat::LIST_FOCUS_BORDER_BOTTOM_WIDTH_DARK,
-    flat::LIST_FOCUS_BORDER_LEFT_WIDTH,
-    flat::LIST_FOCUS_BORDER_LEFT_WIDTH_DARK,
-    flat::LIST_FOCUS_BORDER_RIGHT_WIDTH,
-    flat::LIST_FOCUS_BORDER_RIGHT_WIDTH_DARK,
-    flat::LIST_FOCUS_BORDER_TOP_WIDTH,
-    flat::LIST_FOCUS_BORDER_TOP_WIDTH_DARK,
-    flat::LIST_FOCUS_BORDER_BOTTOM_STYLE,
-    flat::LIST_FOCUS_BORDER_BOTTOM_STYLE_DARK,
-    flat::LIST_FOCUS_BORDER_LEFT_STYLE,
-    flat::LIST_FOCUS_BORDER_LEFT_STYLE_DARK,
-    flat::LIST_FOCUS_BORDER_RIGHT_STYLE,
-    flat::LIST_FOCUS_BORDER_RIGHT_STYLE_DARK,
-    flat::LIST_FOCUS_BORDER_TOP_STYLE,
-    flat::LIST_FOCUS_BORDER_TOP_STYLE_DARK,
-    flat::LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR,
-    flat::LIST_ROW_FOCUS_BORDER_BOTTOM_COLOR_DARK,
-    flat::LIST_ROW_FOCUS_BORDER_LEFT_COLOR,
-    flat::LIST_ROW_FOCUS_BORDER_LEFT_COLOR_DARK,
-    flat::LIST_ROW_FOCUS_BORDER_RIGHT_COLOR,
-    flat::LIST_ROW_FOCUS_BORDER_RIGHT_COLOR_DARK,
-    flat::LIST_ROW_FOCUS_BORDER_TOP_COLOR,
-    flat::LIST_ROW_FOCUS_BORDER_TOP_COLOR_DARK,
-    flat::LIST_ROW_FOCUS_BG,
-    flat::LIST_ROW_FOCUS_BG_DARK,
-    // .__azul_native-list-rows-row:hover, light AND dark. Declared in the
-    // theme module — see `themes::flat::LIST_ROW_HOVER_BG` — because the dark
-    // half of each pair needs a palette this file cannot see. Each light rule
-    // is followed by its dark twin so the twin wins in dark mode.
-    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH,
-    flat::LIST_HOVER_BORDER_BOTTOM_WIDTH_DARK,
-    flat::LIST_HOVER_BORDER_LEFT_WIDTH,
-    flat::LIST_HOVER_BORDER_LEFT_WIDTH_DARK,
-    flat::LIST_HOVER_BORDER_RIGHT_WIDTH,
-    flat::LIST_HOVER_BORDER_RIGHT_WIDTH_DARK,
-    flat::LIST_HOVER_BORDER_TOP_WIDTH,
-    flat::LIST_HOVER_BORDER_TOP_WIDTH_DARK,
-    flat::LIST_HOVER_BORDER_BOTTOM_STYLE,
-    flat::LIST_HOVER_BORDER_BOTTOM_STYLE_DARK,
-    flat::LIST_HOVER_BORDER_LEFT_STYLE,
-    flat::LIST_HOVER_BORDER_LEFT_STYLE_DARK,
-    flat::LIST_HOVER_BORDER_RIGHT_STYLE,
-    flat::LIST_HOVER_BORDER_RIGHT_STYLE_DARK,
-    flat::LIST_HOVER_BORDER_TOP_STYLE,
-    flat::LIST_HOVER_BORDER_TOP_STYLE_DARK,
-    flat::LIST_ROW_HOVER_BORDER_BOTTOM_COLOR,
-    flat::LIST_ROW_HOVER_BORDER_BOTTOM_COLOR_DARK,
-    flat::LIST_ROW_HOVER_BORDER_LEFT_COLOR,
-    flat::LIST_ROW_HOVER_BORDER_LEFT_COLOR_DARK,
-    flat::LIST_ROW_HOVER_BORDER_RIGHT_COLOR,
-    flat::LIST_ROW_HOVER_BORDER_RIGHT_COLOR_DARK,
-    flat::LIST_ROW_HOVER_BORDER_TOP_COLOR,
-    flat::LIST_ROW_HOVER_BORDER_TOP_COLOR_DARK,
-    flat::LIST_ROW_HOVER_BG,
-    flat::LIST_ROW_HOVER_BG_DARK,
-    // .__azul_native-list-rows-row
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(0),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
-        LayoutPaddingBottom {
-            inner: PixelValue::const_px(2),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-        LayoutPaddingTop {
-            inner: PixelValue::const_px(2),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
-        LayoutFlexGrow {
-            inner: FloatValue::const_new(1),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-        LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-        LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-        LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-        LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-            inner: PixelValue::const_px(1),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-        StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-        StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-        StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-        StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-        StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-        StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-        StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-        StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-            inner: ColorU {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 0,
-            },
-        }),
-    )),
-];
-const CSS_MATCH_7894335449545988724: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7894335449545988724_PROPERTIES);
-
-const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul_native-list-rows-row",
-))];
+/// The class every row carries: how the arrow-key handler finds the rows.
+const ROW_CLASS_NAME: &str = "__azul_native-list-rows-row";
+const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] =
+    &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
 const ROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605);
 
 const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -640,11 +195,9 @@ const IDS_AND_CLASSES_10742579426112804392: &[IdOrClass] =
 const HEADER_CONTAINER_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10742579426112804392);
 
-const IDS_AND_CLASSES_9205819539370539587: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul_native_list-container",
-))];
-const LIST_VIEW_CONTAINER_CLASS: IdOrClassVec =
-    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9205819539370539587);
+/// The class of the list's root (the theme's marker, when it has one, goes
+/// beside it).
+const LIST_CLASS_NAME: &str = "__azul_native_list-container";
 
 const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul_native-list-header-item",
@@ -665,30 +218,13 @@ const SORT_ARROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CL
 /// rotated square with two shadowed edges — a CSS triangle — and rendering it
 /// produced a filled grey SQUARE, because nothing clips the rotated box. The
 /// indicator is a glyph instead, the same way the tree view draws its
-/// disclosure chevrons, so it is a triangle at any size and inherits the
-/// header's own colour.
-fn sort_arrow() -> Dom {
+/// disclosure chevrons, so it is a triangle at any size, in the look's ink
+/// (the accent, as the sorted column's title).
+fn sort_arrow(look: &ListViewLook) -> Dom {
     Dom::create_icon(AzString::from_const_str("arrow_drop_up"))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-            SORT_ARROW_STYLE,
-        ))
+        .with_css_props(part(SORT_ARROW_BASE, &look.sort_arrow))
         .with_ids_and_classes(SORT_ARROW_CLASS)
 }
-
-/// A small glyph, vertically centred by the header item's own flex box, that
-/// never competes with the label for width.
-static SORT_ARROW_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: ColorU {
-            r: 0x67,
-            g: 0x67,
-            b: 0x67,
-            a: 255,
-        },
-    })),
-];
 
 pub type ListViewOnLazyLoadScrollCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState) -> Update;
@@ -806,6 +342,17 @@ pub struct ListView {
     /// What to do when the user left-clicks a row
     /// (usually used for selecting the row depending on the state)
     pub on_row_click: OptionListViewOnRowClick,
+    /// The selected row, if any (default = None).
+    ///
+    /// The list is ONE stop in the Tab order (WAI-ARIA listbox): Tab lands on
+    /// this row, or on the first row when none is selected, and the arrow keys
+    /// move between the rows from there. Up/Down/Home/End report the row they
+    /// land on through `on_row_click`, like a click - store it here on rebuild.
+    pub selected_row: OptionUsize,
+    /// The widget theme this list is PINNED to (`with_theme`), or `None` to
+    /// follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: OptionUiTheme,
 }
 
 impl Default for ListView {
@@ -822,6 +369,8 @@ impl Default for ListView {
             on_lazy_load_scroll: None.into(),
             on_column_click: None.into(),
             on_row_click: None.into(),
+            selected_row: None.into(),
+            theme: OptionUiTheme::None,
         }
     }
 }
@@ -896,7 +445,7 @@ impl ListView {
     /// `(total, total)` once scrolled past the end.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     #[must_use]
-    pub fn visible_row_range(
+    pub(crate) fn visible_row_range(
         scroll_y: f32,
         viewport_height: f32,
         row_height: f32,
@@ -932,6 +481,32 @@ impl ListView {
 
     pub const fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
         self.sorted_by = sorted_by;
+    }
+
+    /// Builder form of [`Self::set_selected_row`].
+    #[must_use]
+    pub const fn with_selected_row(mut self, selected_row: OptionUsize) -> Self {
+        self.set_selected_row(selected_row);
+        self
+    }
+
+    /// Which row is selected: the row Tab lands on (the list is one Tab stop).
+    /// `None` - or an index past the last row - puts the stop on the first row.
+    pub const fn set_selected_row(&mut self, selected_row: OptionUsize) {
+        self.selected_row = selected_row;
+    }
+
+    /// Pin the widget theme: the list keeps this look whatever the app theme
+    /// is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     #[must_use]
@@ -1008,8 +583,45 @@ impl ListView {
         .into();
     }
 
+    /// Builder form of [`Self::set_on_lazy_load_scroll`].
+    #[must_use]
+    pub fn with_on_lazy_load_scroll<C: Into<ListViewOnLazyLoadScrollCallback>>(
+        mut self,
+        refany: RefAny,
+        on_lazy_load_scroll: C,
+    ) -> Self {
+        self.set_on_lazy_load_scroll(refany, on_lazy_load_scroll);
+        self
+    }
+
+    /// The lazy-load hook: hears every SETTLED scroll of the row box (the
+    /// `ListViewState` it gets carries the live scroll position and the
+    /// box's size, so `visible_row_range` tells which rows came into view
+    /// and the app loads them and rebuilds). A settled gesture, not the
+    /// wheel: the list never takes the wheel from the page.
+    pub fn set_on_lazy_load_scroll<C: Into<ListViewOnLazyLoadScrollCallback>>(
+        &mut self,
+        refany: RefAny,
+        on_lazy_load_scroll: C,
+    ) {
+        self.on_lazy_load_scroll = Some(ListViewOnLazyLoadScroll {
+            refany,
+            callback: on_lazy_load_scroll.into(),
+        })
+        .into();
+    }
+
+    /// The list's DOM: [header [column [title, arrow?]..], rows [row
+    /// [cell..]..]].
+    ///
+    /// The look comes from the theme module (`themes::flat::list_view_look` /
+    /// `themes::flora::list_view_look`); with no theme pinned every part
+    /// carries both looks, each in its `@theme(<name>)` block, and the app
+    /// theme picks. The rows, the roving Tab stop, the clicks, the arrow keys
+    /// and the lazy-load hook are the same in every theme.
     #[must_use]
     pub fn dom(self) -> Dom {
+        let look = look_for(self.theme);
         // Snapshot the state handed to row/column click callbacks. Runtime-only
         // fields (scroll position / content height) aren't known at build time,
         // so they default to zero; columns/sorted_by/row-count/scroll-offset are.
@@ -1023,29 +635,60 @@ impl ListView {
         };
         let on_column_click = self.on_column_click.clone();
         let on_row_click = self.on_row_click.clone();
+        let on_lazy_load_scroll = self.on_lazy_load_scroll.clone();
+        // WAI-ARIA listbox: the rows are ONE Tab stop - the selected row, or
+        // the first when none is. The arrow keys move within them.
+        let row_stop = crate::widgets::roving::stop_index(
+            self.selected_row.into_option(),
+            self.rows.as_ref().len(),
+        );
+        // The row the list announces as selected.
+        let selected_row = self.selected_row.into_option();
+
+        // Each part's declarations, once: its base, then the look's skin.
+        let column_style = part(COLUMN_BASE, &look.column);
+        let title_style = part(TITLE_BASE, &look.title);
+        let sorted_title_style = stacked(title_style.clone(), &look.title_sorted);
+        // A row is plain or a stripe (every other one), the selection over
+        // either: the four styles, stacked once rather than per row.
+        let row_style = part(ROW_BASE, &look.row);
+        let stripe_style = stacked(row_style.clone(), &look.row_alternate);
+        let selected_style = stacked(row_style.clone(), &look.row_selected);
+        let selected_stripe_style = stacked(stripe_style.clone(), &look.row_selected);
+        let cell_style = part(CELL_BASE, &look.cell);
+
+        let mut list_classes = vec![Class(AzString::from_const_str(LIST_CLASS_NAME))];
+        if let Some(marker) = look.marker {
+            list_classes.push(Class(AzString::from_const_str(marker)));
+        }
 
         Dom::create_div()
-            .with_css_props(CSS_MATCH_17553577885456905601)
-            .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS)
+            .with_css_props(part(LIST_BASE, &look.list))
+            .with_ids_and_classes(IdOrClassVec::from_vec(list_classes))
             .with_children(DomVec::from_vec(vec![
                 // header
                 Dom::create_div()
-                    .with_css_props(CSS_MATCH_15315949193378715186)
+                    .with_css_props(part(HEADER_BASE, &look.header))
                     .with_ids_and_classes(HEADER_CONTAINER_CLASS)
                     .with_children(
                         self.columns
                             .iter()
                             .enumerate()
                             .map(|(col_index, col)| {
+                                let sorted = self.sorted_by.into_option() == Some(col_index);
                                 let mut col_dom = Dom::create_div()
-                                    .with_css_props(CSS_MATCH_12498280255863106397)
+                                    .with_css_props(column_style.clone())
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
                                         crate::widgets::widget_p_with_text(col.clone())
-                                            .with_css_props(CSS_MATCH_15673486787900743642)
+                                            .with_css_props(if sorted {
+                                                sorted_title_style.clone()
+                                            } else {
+                                                title_style.clone()
+                                            })
                                     });
-                                if self.sorted_by.into_option() == Some(col_index) {
-                                    col_dom = col_dom.with_child(sort_arrow());
+                                if sorted {
+                                    col_dom = col_dom.with_child(sort_arrow(&look));
                                 }
                                 // Wire the click only when the app set a handler.
                                 match &on_column_click {
@@ -1071,55 +714,97 @@ impl ListView {
                             .into(),
                     ),
                 // rows
-                Dom::create_div()
-                    .with_css_props(CSS_MATCH_4852927511892172364)
-                    .with_ids_and_classes(ROW_CONTAINER_CLASS)
-                    .with_children(
+                lazy_rows(
+                    on_lazy_load_scroll,
+                    &state,
+                    Dom::create_div()
+                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ROWS_BASE))
+                        .with_ids_and_classes(ROW_CONTAINER_CLASS),
+                )
+                .with_children(
                         self.rows
                             .into_iter()
                             .enumerate()
                             .map(|(row_index, row)| {
+                                let style = match (row_index % 2 == 1, selected_row == Some(row_index)) {
+                                    (false, false) => &row_style,
+                                    (true, false) => &stripe_style,
+                                    (false, true) => &selected_style,
+                                    (true, true) => &selected_stripe_style,
+                                };
                                 let row_dom = Dom::create_div()
-                                    .with_css_props(CSS_MATCH_7894335449545988724)
+                                    .with_css_props(style.clone())
                                     .with_ids_and_classes(ROW_CLASS)
-                                    .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // a list, so a reader can say "3 of 12". The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::List,
-                ..Default::default()
-            })
+                                    .with_tab_index(crate::widgets::roving::item_tab_index(
+                                        row_index, row_stop,
+                                    ))
+                                    // An ITEM of the list, so a reader can say
+                                    // "3 of 12", and whether it is the selected
+                                    // one. The NAME comes from the row's own text.
+                                    .with_accessibility_info(
+                                        azul_core::a11y::AccessibilityInfo {
+                                            role: azul_core::a11y::AccessibilityRole::ListItem,
+                                            states: if selected_row == Some(row_index) {
+                                                azul_core::a11y::AccessibilityStateVec::from_vec(
+                                                    vec![
+                                                        azul_core::a11y::AccessibilityState::Selected,
+                                                    ],
+                                                )
+                                            } else {
+                                                azul_core::a11y::AccessibilityStateVec::from_const_slice(&[])
+                                            },
+                                            ..Default::default()
+                                        },
+                                    )
                                     .with_children(
                                         row.cells
                                             .as_ref()
                                             .iter()
                                             .map(|cell| {
                                                 Dom::create_div()
-                                                    .with_css_props(CSS_MATCH_12980082330151137475)
+                                                    .with_css_props(cell_style.clone())
                                                     .with_ids_and_classes(CELL_CLASS)
                                                     .with_child(cell.clone())
                                             })
                                             .collect::<Vec<_>>()
                                             .into(),
                                     );
+                                let row_data = RefAny::new(RowClickData {
+                                    row_index,
+                                    state: state.clone(),
+                                    on_row_click: on_row_click.clone(),
+                                });
+                                // The arrow keys work on every list (focus moves
+                                // even when nobody listens for the selection);
+                                // the click is wired only when the app set a hook.
+                                let key = CoreCallbackData {
+                                    event: EventFilter::Focus(
+                                        azul_core::events::FocusEventFilter::VirtualKeyDown,
+                                    ),
+                                    refany: row_data.clone(),
+                                    callback: CoreCallback {
+                                        cb: on_list_view_row_key as usize,
+                                        ctx: OptionRefAny::None,
+                                    },
+                                };
                                 match &on_row_click {
                                     OptionListViewOnRowClick::Some(_) => row_dom.with_callbacks(
-                                        vec![CoreCallbackData {
-                                            event: EventFilter::Hover(HoverEventFilter::Click),
-                                            refany: RefAny::new(RowClickData {
-                                                row_index,
-                                                state: state.clone(),
-                                                on_row_click: on_row_click.clone(),
-                                            }),
-                                            callback: CoreCallback {
-                                                cb: on_list_view_row_click as usize,
-                                                ctx: OptionRefAny::None,
+                                        vec![
+                                            CoreCallbackData {
+                                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                                refany: row_data,
+                                                callback: CoreCallback {
+                                                    cb: on_list_view_row_click as usize,
+                                                    ctx: OptionRefAny::None,
+                                                },
                                             },
-                                        }]
+                                            key,
+                                        ]
                                         .into(),
                                     ),
-                                    OptionListViewOnRowClick::None => row_dom,
+                                    OptionListViewOnRowClick::None => {
+                                        row_dom.with_callbacks(vec![key].into())
+                                    }
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -1158,6 +843,73 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
     }
 }
 
+/// Arrow keys on the focused row (WAI-ARIA APG single-select listbox): Up and
+/// Down move to the neighbouring row and hold at the ends, Home and End jump to
+/// the first / last row. The target row is focused, becomes the list's one Tab
+/// stop and is SELECTED - reported through `on_row_click` exactly like a click
+/// on it (selection follows focus). Every handled key is `prevent_default`-ed,
+/// an arrow at the end of the list included, so spatial navigation cannot walk
+/// out of the list. Left/Right, every other key and any key held with Alt,
+/// Ctrl, Cmd or Shift keep their default.
+extern "C" fn on_list_view_row_key(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up) => Step::Previous,
+        Some(K::Down) => Step::Next,
+        Some(K::Home) => Step::First,
+        Some(K::End) => Step::Last,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(container) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let rows = roving::items_of(&info, container, ROW_CLASS_NAME);
+    let Some(current) = rows.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, rows.len(), step, false) else {
+        return Update::DoNothing;
+    };
+    let (state, on_row_click) = {
+        let Some(data) = refany.downcast_ref::<RowClickData>() else {
+            return Update::DoNothing;
+        };
+        (data.state.clone(), data.on_row_click.clone())
+    };
+
+    info.prevent_default();
+    if target == current {
+        // Already at that end: the key is the list's, but nothing moves.
+        return Update::DoNothing;
+    }
+    // Moved BEFORE the app hears the selection, so a focus it asks for wins.
+    roving::move_stop(&mut info, &rows, target);
+    // Selection follows focus: the target row is the selected one from now
+    // on, announced live - the app's rebuild (if it rebuilds) publishes it
+    // again from `selected_row`.
+    roving::announce_chosen(
+        &mut info,
+        &rows,
+        target,
+        azul_core::a11y::AccessibilityState::Selected,
+        None,
+    );
+    // The rows are the row container's children in order, so the target's
+    // position IS its row index.
+    match on_row_click.as_ref() {
+        Some(ListViewOnRowClick {
+            refany: user_data,
+            callback,
+        }) => callback.invoke(user_data.clone(), info, state, target),
+        None => Update::DoNothing,
+    }
+}
+
 /// `MouseUp` on a column header → invoke the app's `on_column_click(state, col_index)`.
 extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) -> Update {
     let Some(data) = refany.downcast_ref::<ColumnClickData>() else {
@@ -1170,6 +922,93 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
         }) => callback.invoke(user_data.clone(), info, data.state.clone(), data.col_index),
         None => Update::DoNothing,
     }
+}
+
+// ---- the scroll window of a virtualised list ----
+//
+// A list that shows thousands of rows renders only the ones in view and asks
+// the app for the rest as the user scrolls. What it needs from the engine is
+// WHERE its scroll box stands once a gesture settles - never the wheel
+// itself, which stays the page's (`widgets::wheel_ownership`): the box
+// listens for `ScrollEnd`, reads its offset and size, and the app maps them
+// to rows (`ListView::visible_row_range`). Shared by every virtualised
+// list (the `ListView`'s lazy-load hook, the mail `SummaryList`).
+
+/// The hook a virtualised list's scroll box registers: `cb` runs with
+/// `refany` when a scroll gesture over the box SETTLES.
+pub(crate) fn scroll_settled_hook(
+    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+    refany: RefAny,
+) -> CoreCallbackData {
+    CoreCallbackData {
+        event: EventFilter::Hover(HoverEventFilter::ScrollEnd),
+        callback: CoreCallback {
+            cb: cb as usize,
+            ctx: OptionRefAny::None,
+        },
+        refany,
+    }
+}
+
+/// Where the scroll box `node` stands: its scroll offset and its size -
+/// zero where the engine keeps no scroll state for it yet (a box that never
+/// scrolled, a test harness), so the app still hears the settled gesture.
+#[must_use]
+pub(crate) fn scroll_window_of(
+    info: &CallbackInfo,
+    node: azul_core::dom::DomNodeId,
+) -> (LogicalPosition, LogicalSize) {
+    let offset = node
+        .node
+        .into_crate_internal()
+        .and_then(|n| info.get_scroll_offset_for_node(node.dom, n))
+        .unwrap_or_else(LogicalPosition::zero);
+    let size = info.get_node_size(node).unwrap_or_else(LogicalSize::zero);
+    (offset, size)
+}
+
+/// The row box `rows`, listening for a settled scroll when the list has a
+/// lazy-load hook.
+fn lazy_rows(hook: OptionListViewOnLazyLoadScroll, state: &ListViewState, rows: Dom) -> Dom {
+    match hook.into_option() {
+        Some(on_lazy_load_scroll) => rows.with_callbacks(
+            vec![scroll_settled_hook(
+                on_list_view_scroll_settled,
+                RefAny::new(LazyLoadData {
+                    state: state.clone(),
+                    on_lazy_load_scroll,
+                }),
+            )]
+            .into(),
+        ),
+        None => rows,
+    }
+}
+
+/// The row box's payload: the list state at build time plus the app's
+/// lazy-load hook.
+struct LazyLoadData {
+    state: ListViewState,
+    on_lazy_load_scroll: ListViewOnLazyLoadScroll,
+}
+
+/// A scroll over the row box settled: hand the app the state with the live
+/// scroll position and box size filled in.
+extern "C" fn on_list_view_scroll_settled(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let (mut state, hook) = {
+        let Some(data) = refany.downcast_ref::<LazyLoadData>() else {
+            return Update::DoNothing;
+        };
+        (data.state.clone(), data.on_lazy_load_scroll.clone())
+    };
+    let (offset, size) = scroll_window_of(&info, info.get_hit_node());
+    state.current_scroll_position = offset;
+    state.current_content_height = size;
+    let ListViewOnLazyLoadScroll {
+        refany: user_data,
+        callback,
+    } = hook;
+    callback.invoke(user_data, info, state)
 }
 
 #[cfg(test)]
@@ -1226,26 +1065,126 @@ mod list_view_click_tests {
         let on_row_click: ListViewOnRowClickCallbackType = noop_row;
         lv.set_on_row_click(RefAny::new(()), on_row_click);
         let dom = lv.dom();
+        let clicks = |row: &Dom| {
+            row.root
+                .callbacks
+                .as_ref()
+                .iter()
+                .filter(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+                .count()
+        };
         // children = [header, rows]; each row div carries the MouseUp callback.
         let rows = dom.children.as_ref()[1].children.as_ref();
         assert_eq!(rows.len(), 2);
         for row in rows {
             assert_eq!(
-                row.root.callbacks.as_ref().len(),
+                clicks(row),
                 1,
                 "row must carry the click callback when on_row_click is set"
             );
         }
 
-        // Without the hook → no callbacks (opt-in, no wasted dispatch).
+        // Without the hook → no click callback (opt-in, no wasted dispatch).
+        // The arrow-key handler stays: focus still moves between the rows.
         let mut bare = ListView::default();
         bare.rows = ListViewRowVec::from_vec(vec![empty_row()]);
         let dom2 = bare.dom();
         let rows2 = dom2.children.as_ref()[1].children.as_ref();
         assert_eq!(rows2.len(), 1);
+        assert_eq!(clicks(&rows2[0]), 0, "no click callback when on_row_click is unset");
+        assert_eq!(rows2[0].root.callbacks.as_ref().len(), 1, "only the key handler");
+    }
+}
+
+#[cfg(test)]
+mod lazy_load_tests {
+    //! The lazy-load hook: a list that loads rows as the user scrolls must
+    //! HEAR the scroll. The hook sat on the struct but `dom()` never wired
+    //! it, so no app could ever be told to load more.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::roving::test_support as rv;
+
+    type Log = Arc<Mutex<Vec<usize>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: ListViewState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.current_row_count);
+        }
+        Update::RefreshDom
+    }
+
+    fn rows(n: usize) -> ListViewRowVec {
+        ListViewRowVec::from_vec(
+            (0..n)
+                .map(|_| ListViewRow {
+                    cells: DomVec::from_const_slice(&[]),
+                    height: None.into(),
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_lazily_loaded_list_hears_a_settled_scroll_and_a_plain_one_does_not() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = ListView::default()
+            .with_rows(rows(3))
+            .with_on_lazy_load_scroll(
+                RefAny::new(log.clone()),
+                record as ListViewOnLazyLoadScrollCallbackType,
+            )
+            .dom();
+        let row_box = &dom.children.as_ref()[1];
+        let events: Vec<EventFilter> = row_box
+            .root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .map(|cb| cb.event)
+            .collect();
+        assert_eq!(
+            events,
+            vec![EventFilter::Hover(HoverEventFilter::ScrollEnd)],
+            "the row box reports a scroll once it settles - never the wheel itself, which the \
+             page keeps"
+        );
+        let plain = ListView::default().with_rows(rows(3)).dom();
         assert!(
-            rows2[0].root.callbacks.as_ref().is_empty(),
-            "no callback when on_row_click is unset"
+            plain.children.as_ref()[1]
+                .root
+                .get_callbacks()
+                .as_ref()
+                .is_empty(),
+            "no hook, no listener"
+        );
+
+        // root (0) > header (no columns: no children) > row box.
+        let styled = StyledDom::create_from_dom(dom);
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let header = hierarchy[0]
+            .first_child_id(NodeId::new(0))
+            .expect("the header");
+        let row_box = hierarchy[header.index()]
+            .next_sibling_id()
+            .expect("the row box");
+        let target = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(row_box)),
+        };
+        let (update, _) = rv::fire(&styled, target, EventFilter::Hover(HoverEventFilter::ScrollEnd))
+            .expect("the hook runs");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec![3],
+            "the app hears how many rows are loaded"
         );
     }
 }
@@ -1486,6 +1425,7 @@ mod autotest_generated {
         assert!(lv.on_lazy_load_scroll.is_none());
         assert!(lv.on_column_click.is_none());
         assert!(lv.on_row_click.is_none());
+        assert!(lv.selected_row.is_none());
         assert_eq!(lv.scroll_offset, PixelValueNoPercent::zero());
 
         // An empty column list is accepted, not rejected or defaulted.
@@ -1862,7 +1802,7 @@ mod autotest_generated {
 
         for (i, row) in rows.children.as_ref().iter().enumerate() {
             let cbs = row.root.callbacks.as_ref();
-            assert_eq!(cbs.len(), 1);
+            assert_eq!(cbs.len(), 2, "the click and the arrow-key callback");
             assert!(matches!(
                 cbs[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -1898,9 +1838,20 @@ mod autotest_generated {
             .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
             .with_on_row_click(RefAny::new(()), rcb)
             .dom();
+        let is_click =
+            |cb: &CoreCallbackData| cb.event == EventFilter::Hover(HoverEventFilter::Click);
         let (h, r) = header_and_rows(&row_only);
         assert!(h.children.as_ref()[0].root.callbacks.as_ref().is_empty());
-        assert_eq!(r.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
+        assert_eq!(
+            r.children.as_ref()[0]
+                .root
+                .callbacks
+                .as_ref()
+                .iter()
+                .filter(|&cb| is_click(cb))
+                .count(),
+            1
+        );
 
         let col_only = ListView::create(cols(&["a"]))
             .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
@@ -1908,7 +1859,15 @@ mod autotest_generated {
             .dom();
         let (h, r) = header_and_rows(&col_only);
         assert_eq!(h.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
-        assert!(r.children.as_ref()[0].root.callbacks.as_ref().is_empty());
+        assert!(
+            !r.children.as_ref()[0]
+                .root
+                .callbacks
+                .as_ref()
+                .iter()
+                .any(is_click),
+            "a column hook must not attach a row click"
+        );
     }
 
     /// A wrong-typed payload must make the internal handlers bail out rather
@@ -1960,7 +1919,7 @@ mod autotest_generated {
         assert_eq!(r.children.as_ref().len(), N_ROWS);
         for row in r.children.as_ref() {
             assert_eq!(row.children.as_ref().len(), N_COLS);
-            assert_eq!(row.root.callbacks.as_ref().len(), 1);
+            assert_eq!(row.root.callbacks.as_ref().len(), 2, "click + arrow keys");
         }
     }
 
@@ -1990,7 +1949,7 @@ mod autotest_generated {
             }
             let dark_gated = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if dark_gated {
                 dark.push((p.get_type(), i));
             } else {
@@ -2002,68 +1961,761 @@ mod autotest_generated {
         (light, dark)
     }
 
-    /// The hover / pressed / focus rules moved OUT of this file and into the
-    /// theme module — a move nothing else in this suite would notice: no
-    /// compiler error, and every other assertion still passes if a slice
-    /// silently drops a rule or a dark twin. So this counts what a rendered
-    /// column header and row actually carry, per state, light and dark.
+    /// The hover / pressed / focus rules live in the theme modules
+    /// (`themes::flat::list_view_look`, `themes::flora::list_view_look`),
+    /// light AND dark - nothing else in this suite would notice if a look
+    /// silently dropped a state or its dark twin. So this asks what a
+    /// rendered column title and row actually carry in each theme, per state,
+    /// light and dark.
     #[test]
-    fn dom_carries_the_themes_header_and_row_states_with_dark_twins() {
-        let dom = ListView::create(cols(&["a"]))
-            .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
-            .dom();
-        let (header, rows) = header_and_rows(&dom);
-        let header_item = &header.children.as_ref()[0];
-        let row = &rows.children.as_ref()[0];
+    fn every_header_and_row_state_carries_its_dark_twin_in_both_themes() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = ListView::create(cols(&["a"]))
+                .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
+                .with_theme(theme)
+                .dom();
+            let (header, rows) = header_and_rows(&dom);
+            let header_item = &header.children.as_ref()[0];
+            let row = &rows.children.as_ref()[0];
 
-        // (what, node, state, how many light rules it declares in that state)
-        let expected = [
-            // a hovered header: the bottom edge (width, style, colour) + the face
-            ("header item", header_item, PseudoStateType::Hover, 4),
-            // a pressed header: four inset shadows, four edges x (width, style,
-            // colour), + the face
-            ("header item", header_item, PseudoStateType::Active, 17),
-            // a header does not take focus
-            ("header item", header_item, PseudoStateType::Focus, 0),
-            // a hovered row: four edges x (width, style, colour) + the fill
-            ("row", row, PseudoStateType::Hover, 13),
-            // the focused row: the same ring and fill in stronger colours
-            ("row", row, PseudoStateType::Focus, 13),
-            // a row is chosen on release, not on press
-            ("row", row, PseudoStateType::Active, 0),
-        ];
+            // (what, node, state, whether it declares rules in that state)
+            let expected = [
+                // a hovered title lights up
+                ("header item", header_item, PseudoStateType::Hover, true),
+                // a pressed one sinks
+                ("header item", header_item, PseudoStateType::Active, true),
+                // a header does not take focus
+                ("header item", header_item, PseudoStateType::Focus, false),
+                // a hovered row washes
+                ("row", row, PseudoStateType::Hover, true),
+                // the focused row is ringed
+                ("row", row, PseudoStateType::Focus, true),
+                // a row is chosen on release, not on press
+                ("row", row, PseudoStateType::Active, false),
+            ];
 
-        for (what, node, state, want) in expected {
-            let (light, dark) = state_halves(node, state);
-            assert_eq!(
-                light.len(),
-                want,
-                "{what} {state:?}: expected {want} light rule(s), got {light:?}",
+            for (what, node, state, declares) in expected {
+                let (light, dark) = state_halves(node, state);
+                assert_eq!(
+                    !light.is_empty(),
+                    declares,
+                    "{theme:?} {what} {state:?}: light rules {light:?}",
+                );
+                let types = |half: &[(CssPropertyType, usize)]| {
+                    half.iter().map(|(t, _)| *t).collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    types(light.as_slice()),
+                    types(dark.as_slice()),
+                    "{theme:?} {what} {state:?}: every light rule needs a dark twin on the same \
+                     property, or the {what} keeps its light-mode look on a dark surface",
+                );
+                // Inline CSS is last-wins, so a twin must FOLLOW its light rule
+                // or dark mode would never see it.
+                for ((t, light_at), (_, dark_at)) in light.iter().zip(&dark) {
+                    assert!(
+                        light_at < dark_at,
+                        "{theme:?} {what} {state:?} {t}: the dark twin is declared before its \
+                         light rule, so the light rule wins in dark mode",
+                    );
+                }
+            }
+
+            // And the dark declarations really are gated, not unconditional.
+            assert!(
+                !theme_probe::dark(row).is_empty() && !theme_probe::dark(header_item).is_empty(),
+                "{theme:?}: the theme contributed no dark-mode declarations at all"
             );
-            let types = |half: &[(CssPropertyType, usize)]| {
-                half.iter().map(|(t, _)| *t).collect::<Vec<_>>()
+        }
+    }
+}
+
+/// WAI-ARIA APG single-select listbox (P2-12): the rows are ONE Tab stop and
+/// the arrow keys move focus - and the selection - between them.
+#[cfg(test)]
+mod roving_tabindex_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId, TabIndex},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode,
+    };
+
+    use super::*;
+    use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+    /// Every row index an `on_row_click` hears.
+    struct RowLog {
+        seen: Vec<usize>,
+    }
+
+    extern "C" fn record_row(
+        mut data: RefAny,
+        _: CallbackInfo,
+        _: ListViewState,
+        row: usize,
+    ) -> Update {
+        if let Some(mut log) = data.downcast_mut::<RowLog>() {
+            log.seen.push(row);
+        }
+        Update::RefreshDom
+    }
+
+    fn rows_heard(log: &mut RefAny) -> Vec<usize> {
+        log.downcast_ref::<RowLog>()
+            .expect("payload must still be a RowLog")
+            .seen
+            .clone()
+    }
+
+    fn empty_rows(n: usize) -> ListViewRowVec {
+        ListViewRowVec::from_vec(
+            (0..n)
+                .map(|_| ListViewRow {
+                    cells: DomVec::from_const_slice(&[]),
+                    height: None.into(),
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// A one-column list of `n` cell-less rows, with `on_row_click` logging
+    /// into `log` when one is given.
+    fn list(n: usize, log: Option<&RefAny>) -> ListView {
+        let lv = ListView::create(StringVec::from_vec(vec![AzString::from("name")]))
+            .with_rows(empty_rows(n));
+        match log {
+            Some(log) => {
+                let rcb: ListViewOnRowClickCallbackType = record_row;
+                lv.with_on_row_click(log.clone(), rcb)
+            }
+            None => lv,
+        }
+    }
+
+    /// A plain tab stop, the list, another plain tab stop. Flattened: root 0,
+    /// before 1, list container 2, header 3, column 4 (> label `<p>` 5 > text
+    /// 6), rows container 7, row `i` at `8 + i`, after at `8 + n`.
+    fn page(lv: ListView) -> StyledDom {
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), lv.dom(), stop()].into());
+        StyledDom::create_from_dom(page)
+    }
+
+    fn node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn before() -> DomNodeId {
+        node(1)
+    }
+
+    fn row(i: usize) -> DomNodeId {
+        node(8 + i)
+    }
+
+    fn after(n: usize) -> DomNodeId {
+        node(8 + n)
+    }
+
+    fn press_row(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, row(i), key, held)
+            .expect("every list row must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn with_no_row_selected_tab_lands_on_the_first_row_and_the_next_tab_leaves_the_list() {
+        let styled = page(list(4, None));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(0), after(4)],
+            "the list is ONE tab stop, not one per row",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after(4)), false, 2),
+            vec![row(0), before()],
+        );
+    }
+
+    #[test]
+    fn tab_lands_on_the_selected_row_and_an_out_of_range_selection_falls_back_to_the_first() {
+        let styled = page(list(4, None).with_selected_row(Some(2_usize).into()));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(2), after(4)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after(4)), false, 2),
+            vec![row(2), before()],
+        );
+
+        let styled = page(list(4, None).with_selected_row(Some(9_usize).into()));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(0), after(4)],
+        );
+    }
+
+    #[test]
+    fn set_selected_row_and_with_selected_row_agree() {
+        let mut lv = list(3, None);
+        lv.set_selected_row(Some(1_usize).into());
+        assert_eq!(lv.selected_row.as_ref().copied(), Some(1));
+        let lv = lv.with_selected_row(None.into());
+        assert!(lv.selected_row.is_none());
+    }
+
+    #[test]
+    fn arrow_down_on_a_row_focuses_and_selects_the_next_row() {
+        let mut log = RefAny::new(RowLog { seen: Vec::new() });
+        let styled = page(list(4, Some(&log)));
+
+        let (update, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+
+        assert_eq!(rows_heard(&mut log), vec![1], "selection follows focus");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(rv::focus_request(&changes), Some(row(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_ends_and_up_and_down_hold_there() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (focused row, key, selected row - or None when nothing moves)
+        for (from, key, to) in [
+            (2, K::Up, Some(1)),
+            (1, K::Down, Some(2)),
+            (2, K::Home, Some(0)),
+            (1, K::End, Some(3)),
+            (0, K::Up, None),
+            (3, K::Down, None),
+            (0, K::Home, None),
+            (3, K::End, None),
+        ] {
+            let mut log = RefAny::new(RowLog { seen: Vec::new() });
+            let styled = page(list(4, Some(&log)));
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on row {from} must stay inside the list"
+            );
+            match to {
+                Some(to) => {
+                    assert_eq!(rows_heard(&mut log), vec![to], "{key:?} on row {from}");
+                    assert_eq!(rv::focus_request(&changes), Some(row(to)));
+                }
+                None => {
+                    assert!(
+                        rows_heard(&mut log).is_empty(),
+                        "{key:?} at the end re-selected row {from}"
+                    );
+                    assert_eq!(rv::focus_request(&changes), None);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_row_is_the_only_tab_stop() {
+        let log = RefAny::new(RowLog { seen: Vec::new() });
+        let mut styled = page(list(4, Some(&log)));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(3), after(4)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(row(3)), false, 1),
+            vec![before()],
+        );
+    }
+
+    #[test]
+    fn a_list_without_on_row_click_still_moves_focus_with_the_arrows() {
+        let styled = page(list(3, None));
+        let (update, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(rv::focus_request(&changes), Some(row(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn sideways_modified_and_unused_keys_on_a_row_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Left, None),
+            (K::Right, None),
+            (K::Tab, None),
+            (K::Down, Some(K::LAlt)),
+            (K::Up, Some(K::LControl)),
+            (K::Down, Some(K::LShift)),
+            (K::End, Some(K::LWin)),
+        ] {
+            let mut log = RefAny::new(RowLog { seen: Vec::new() });
+            let styled = page(list(3, Some(&log)));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_row(&styled, 1, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                rows_heard(&mut log).is_empty(),
+                "{held:?}+{key:?} selected a row"
+            );
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Accessibility: every row is an ITEM of the list (each row declared the
+    // `List` role itself) and the selected one says so - also LIVE when an
+    // arrow moves the selection, before the app rebuilds.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_row_is_a_list_item_and_the_selected_one_says_so() {
+        use azul_core::a11y::{AccessibilityRole::ListItem, AccessibilityState::Selected};
+
+        let styled = page(list(3, None).with_selected_row(Some(1_usize).into()));
+        for i in 0..3 {
+            assert_eq!(
+                rv::declared(&styled, row(i)),
+                Some((ListItem, if i == 1 { vec![Selected] } else { Vec::new() })),
+                "row {i}",
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_announces_the_row_it_selects() {
+        use azul_core::a11y::AccessibilityState::Selected;
+
+        let log = RefAny::new(RowLog { seen: Vec::new() });
+        let styled = page(list(3, Some(&log)));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (row(0), Vec::new()),
+                (row(1), vec![Selected]),
+                (row(2), Vec::new()),
+            ],
+        );
+    }
+}
+
+/// The list FOLLOWS the app theme (the user, 2026-10-08: "the list view in
+/// AzDrive (and in general?) doesn't follow the theme"). It painted one
+/// hard-coded look under every theme - a #FCFCFC field, a white-to-grey
+/// header, black titles, no stripes and no selection - so under flora it was
+/// a flat island, and under flat it was not even flat's (Office 2010's)
+/// paper. Now each theme paints the whole list in its own colours, by day
+/// and by night: the ground, the header band and its titles, the stripes,
+/// the selection; and every text reads.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, system::DarkLightMode};
+
+    use super::*;
+    use crate::widgets::themes::{
+        decl, flat, flora,
+        theme_blocks::checks::{under, BOTH},
+        theme_checks as tc, UiTheme,
+    };
+
+    fn cols(names: &[&str]) -> StringVec {
+        StringVec::from_vec(names.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
+    }
+
+    /// One row of the caller's own cells (spans, as the C example builds them).
+    fn row(cells: &[&str]) -> ListViewRow {
+        ListViewRow {
+            cells: DomVec::from_vec(
+                cells
+                    .iter()
+                    .map(|t| Dom::create_span_with_text(AzString::from(*t)))
+                    .collect::<Vec<_>>(),
+            ),
+            height: None.into(),
+        }
+    }
+
+    /// Four files sorted by their size, the fourth selected: rows 1 and 3 are
+    /// the stripes, row 3 is the selection AND the list's Tab stop.
+    fn files() -> ListView {
+        ListView::create(cols(&["Name", "Size", "Type"]))
+            .with_rows(ListViewRowVec::from_vec(vec![
+                row(&["report.pdf", "2 MB", "PDF"]),
+                row(&["photo.png", "4 MB", "Image"]),
+                row(&["notes.txt", "1 KB", "Text"]),
+                row(&["budget.xlsx", "340 KB", "Sheet"]),
+            ]))
+            .with_sorted_by(Some(1_usize).into())
+            .with_selected_row(Some(3_usize).into())
+    }
+
+    fn header(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[0]
+    }
+
+    fn rows(dom: &Dom) -> &[Dom] {
+        dom.children.as_ref()[1].children.as_ref()
+    }
+
+    /// A column header's title (`<p>`).
+    fn title(column: &Dom) -> &Dom {
+        &column.children.as_ref()[0]
+    }
+
+    fn fill(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).as_ref().and_then(tc::bg_color)
+    }
+
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn property(node: &Dom, ty: CssPropertyType) -> Option<CssProperty> {
+        tc::resolve(node, ty, false, None)
+    }
+
+    fn right_rule(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::resolve(node, CssPropertyType::BorderRightColor, dark, None)
+            .as_ref()
+            .and_then(tc::border_color)
+    }
+
+    #[test]
+    fn under_either_theme_an_empty_list_is_that_themes_field_in_its_ink() {
+        for theme in BOTH {
+            let (paper, ink) = match theme {
+                UiTheme::Flat => ([flat::LIGHT_PG, flat::DARK_PG], [flat::LIGHT_INK, flat::DARK_INK]),
+                UiTheme::Flora => (
+                    [flora::LIGHT_FLD, flora::DARK_FLD],
+                    [flora::LIGHT_INK, flora::DARK_INK],
+                ),
             };
-            assert_eq!(
-                types(light.as_slice()),
-                types(dark.as_slice()),
-                "{what} {state:?}: every light rule needs a dark twin on the same property, or \
-                 the {what} keeps its light-mode look on a dark surface",
-            );
-            // Inline CSS is last-wins, so a twin must FOLLOW its light rule or
-            // dark mode would never see it.
-            for ((t, light_at), (_, dark_at)) in light.iter().zip(&dark) {
+            under(theme, || {
+                let dom = ListView::create(cols(&["Name"])).dom();
+                for (i, dark) in [false, true].into_iter().enumerate() {
+                    assert_eq!(
+                        fill(&dom, dark),
+                        Some(paper[i]),
+                        "{theme:?} (dark: {dark}): the list's ground"
+                    );
+                    assert_eq!(
+                        tc::text_color(&dom, dark),
+                        Some(ink[i]),
+                        "{theme:?} (dark: {dark}): the list's ink"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn every_colour_a_list_paints_is_one_of_its_themes() {
+        for theme in BOTH {
+            under(theme, || {
+                let foreign = tc::foreign_colours(&files().dom(), theme);
                 assert!(
-                    light_at < dark_at,
-                    "{what} {state:?} {t}: the dark twin is declared before its light rule, so \
-                     the light rule wins in dark mode",
+                    foreign.is_empty(),
+                    "a list built for {theme:?} paints colours its theme does not have:\n  {}",
+                    foreign.join("\n  ")
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn a_selected_row_wears_its_themes_selection_by_day_and_by_night() {
+        for theme in BOTH {
+            under(theme, || {
+                let dom = files().dom();
+                let picked = &rows(&dom)[3];
+                for dark in [false, true] {
+                    match theme {
+                        UiTheme::Flat => {
+                            let (top, foot, rim) = if dark {
+                                (
+                                    flat::DARK_SELECTION_TOP,
+                                    flat::DARK_SELECTION_BOTTOM,
+                                    flat::DARK_SELECTION_BORDER,
+                                )
+                            } else {
+                                (
+                                    flat::LIGHT_SELECTION_TOP,
+                                    flat::LIGHT_SELECTION_BOTTOM,
+                                    flat::LIGHT_SELECTION_BORDER,
+                                )
+                            };
+                            assert_eq!(
+                                layers(picked, dark),
+                                vec![decl::face(top, foot)],
+                                "flat (dark: {dark}): Office 2010's light-blue selection face"
+                            );
+                            assert_eq!(
+                                tc::border_top_color(picked, dark, None),
+                                Some(rim),
+                                "flat (dark: {dark}): in its blue rim"
+                            );
+                        }
+                        UiTheme::Flora => {
+                            let (wash, ink) = if dark {
+                                (flora::DARK_ACC, flora::DARK_ON_ACC)
+                            } else {
+                                (flora::LIGHT_SOFT, flora::LIGHT_DEEP)
+                            };
+                            assert_eq!(
+                                fill(picked, dark),
+                                Some(wash),
+                                "flora (dark: {dark}): the accent's wash (flora.css ::selection)"
+                            );
+                            assert_eq!(
+                                tc::text_color(picked, dark),
+                                Some(ink),
+                                "flora (dark: {dark}): written in the wash's own ink"
+                            );
+                        }
+                    }
+                    assert_ne!(
+                        layers(&rows(&dom)[2], dark),
+                        layers(picked, dark),
+                        "{theme:?} (dark: {dark}): an unselected row is not the selection"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn every_other_row_is_striped_in_its_themes_band() {
+        for theme in BOTH {
+            let band = match theme {
+                UiTheme::Flat => [flat::LIGHT_SUR, flat::DARK_SUR],
+                UiTheme::Flora => [flora::LIGHT_SUR, flora::DARK_SUR],
+            };
+            under(theme, || {
+                let dom = files().dom();
+                for (i, dark) in [false, true].into_iter().enumerate() {
+                    assert_eq!(
+                        fill(&rows(&dom)[1], dark),
+                        Some(band[i]),
+                        "{theme:?} (dark: {dark}): the second row is a stripe"
+                    );
+                    for plain in [0, 2] {
+                        assert_eq!(
+                            fill(&rows(&dom)[plain], dark),
+                            None,
+                            "{theme:?} (dark: {dark}): row {plain} lies on the list's ground"
+                        );
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn the_header_is_its_themes_band_and_flora_titles_the_columns_in_garamond_capitals() {
+        for theme in BOTH {
+            under(theme, || {
+                let dom = files().dom();
+                let band = header(&dom);
+                let name = &band.children.as_ref()[0];
+                let size = &band.children.as_ref()[1];
+                for dark in [false, true] {
+                    let (face, ink, rule, accent) = match (theme, dark) {
+                        (UiTheme::Flat, false) => (
+                            decl::face(flat::LIGHT_RT, flat::LIGHT_RB),
+                            flat::LIGHT_INK2,
+                            flat::LIGHT_SEP,
+                            flat::LIGHT_ACC,
+                        ),
+                        (UiTheme::Flat, true) => (
+                            decl::face(flat::DARK_RT, flat::DARK_RB),
+                            flat::DARK_INK2,
+                            flat::DARK_SEP,
+                            flat::DARK_SOFT,
+                        ),
+                        (UiTheme::Flora, false) => (
+                            flora::RAISED_FACE_LIGHT,
+                            flora::LIGHT_INTRO,
+                            flora::LIGHT_SEP,
+                            flora::LIGHT_ACC,
+                        ),
+                        (UiTheme::Flora, true) => (
+                            flora::RAISED_FACE_DARK,
+                            flora::DARK_INTRO,
+                            flora::DARK_SEP,
+                            flora::DARK_GLOW,
+                        ),
+                    };
+                    assert_eq!(layers(band, dark), vec![face], "{theme:?} (dark: {dark}): the band");
+                    assert_eq!(
+                        tc::text_color(title(name), dark),
+                        Some(ink),
+                        "{theme:?} (dark: {dark}): a column's title"
+                    );
+                    assert_eq!(
+                        right_rule(name, dark),
+                        Some(rule),
+                        "{theme:?} (dark: {dark}): the separator between two columns"
+                    );
+                    assert_eq!(
+                        tc::text_color(title(size), dark),
+                        Some(accent),
+                        "{theme:?} (dark: {dark}): the sorted column's title is the accent"
+                    );
+                    assert_eq!(
+                        tc::text_color(&size.children.as_ref()[1], dark),
+                        Some(accent),
+                        "{theme:?} (dark: {dark}): and so is its sort arrow"
+                    );
+                }
+                if theme == UiTheme::Flora {
+                    assert_eq!(
+                        property(title(name), CssPropertyType::FontFamily),
+                        Some(CssProperty::const_font_family(flora::FONT_CAPS)),
+                        "flora sets its chrome in EB Garamond"
+                    );
+                    assert_eq!(
+                        property(title(name), CssPropertyType::TextTransform),
+                        Some(CssProperty::TextTransform(StyleTextTransform::Uppercase.into())),
+                        "in capitals"
+                    );
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn every_text_of_a_list_reads_at_least_two_to_one_in_both_themes_by_day_and_by_night() {
+        let mut bad = Vec::new();
+        for theme in BOTH {
+            for mode in [DarkLightMode::Light, DarkLightMode::Dark] {
+                bad.extend(crate::widgets::theme_contrast::findings_under(
+                    theme,
+                    mode,
+                    "list_view",
+                    || files().dom(),
+                ));
+                bad.extend(crate::widgets::theme_contrast::findings_under(
+                    theme,
+                    mode,
+                    "list_view (empty)",
+                    || ListView::create(cols(&["Name", "Size"])).dom(),
+                ));
+            }
+        }
+        assert!(bad.is_empty(), "{} text(s) do not read:\n  {}", bad.len(), bad.join("\n  "));
+    }
+
+    fn layers_in(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_list_without_a_theme_follows_the_app_theme_and_set_theme_pins_it() {
+        assert_eq!(files().theme, OptionUiTheme::None, "a fresh list follows the app");
+        let mut pinned = files();
+        pinned.set_theme(UiTheme::Flora);
+        assert_eq!(pinned.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            files().with_theme(UiTheme::Flora).theme,
+            pinned.theme,
+            "set_theme and with_theme agree"
+        );
+    }
+
+    #[test]
+    fn a_list_that_follows_the_app_theme_is_the_pinned_list_of_that_theme() {
+        use crate::widgets::themes::theme_blocks::checks::assert_follows_the_app_theme;
+        assert_follows_the_app_theme(
+            "list_view",
+            || files().dom(),
+            |t: UiTheme| files().with_theme(t).dom(),
+        );
+        assert_follows_the_app_theme(
+            "list_view (empty)",
+            || ListView::create(cols(&["Name"])).dom(),
+            |t: UiTheme| ListView::create(cols(&["Name"])).with_theme(t).dom(),
+        );
+    }
+
+    #[test]
+    fn a_pinned_list_carries_no_other_themes_block_whatever_the_app_theme() {
+        use crate::widgets::themes::{style_kit::FLORA_CLASS, theme_blocks::checks::theme_names};
+        for app in BOTH {
+            for pin in BOTH {
+                let dom = under(app, || files().with_theme(pin).dom());
+                assert!(
+                    theme_names(&dom).is_empty(),
+                    "pinned to {pin:?} under {app:?}: carries the blocks {:?}",
+                    theme_names(&dom)
+                );
+                assert_eq!(
+                    tc::has_class(&dom, FLORA_CLASS),
+                    pin == UiTheme::Flora,
+                    "pinned to {pin:?} under {app:?}: the marker is the pin's"
                 );
             }
         }
+    }
 
-        // And the dark declarations really are gated, not unconditional.
-        assert!(
-            !theme_probe::dark(row).is_empty() && !theme_probe::dark(header_item).is_empty(),
-            "the theme contributed no dark-mode declarations at all"
-        );
+    #[test]
+    fn a_list_declares_its_structure_once_for_every_theme() {
+        for theme in BOTH {
+            let dom = under(theme, || files().dom());
+            tc::assert_structure_is_shared(
+                &alloc::format!("list view, built for {}", theme.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
+
+    #[test]
+    fn a_lists_rows_wash_under_the_pointer_and_its_tab_stop_rings_on_focus_in_both_themes() {
+        for theme in BOTH {
+            under(theme, || {
+                let dom = files().dom();
+                tc::assert_theme_invariants(&alloc::format!("list view ({})", theme.name()), &dom);
+                let stop = &rows(&dom)[3];
+                for dark in [false, true] {
+                    assert!(
+                        tc::has_focus_ring(stop, dark),
+                        "{theme:?} (dark: {dark}): the Tab stop rings on focus"
+                    );
+                    for plain in [0, 1] {
+                        let node = &rows(&dom)[plain];
+                        assert_ne!(
+                            layers_in(node, dark, Some(PseudoStateType::Hover)),
+                            layers_in(node, dark, None),
+                            "{theme:?} (dark: {dark}): row {plain} answers the pointer"
+                        );
+                    }
+                    assert_eq!(
+                        layers_in(stop, dark, Some(PseudoStateType::Hover)),
+                        layers_in(stop, dark, None),
+                        "{theme:?} (dark: {dark}): the selection keeps its face under the pointer"
+                    );
+                }
+            });
+        }
     }
 }

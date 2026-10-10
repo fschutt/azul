@@ -38,6 +38,12 @@ const MANIFEST_FN: &str = "pub(super) fn every_widget_dom()";
 /// re-checked by `the_exemption_list_has_no_stale_entries`.
 const EXEMPT: &[(&str, &str)] = &[
     (
+        "dialog_kit",
+        "the look and the shared parts (button row, check row, match highlight) of the dialog-shaped \
+         widgets: no widget type of its own; its parts render inside the wizard_pages, \
+         standard_dialogs and settings_dialog entries",
+    ),
+    (
         "map_themes",
         "MapCSS palette constants for MapWidget: declares no widget type and no dom()",
     ),
@@ -63,6 +69,17 @@ const EXEMPT: &[(&str, &str)] = &[
         "single replaced node, zero create_text_* calls; screencap.rs pins children == 0",
     ),
     ("video", "single replaced node, zero create_text_* calls"),
+    (
+        "list_selection",
+        "the selection MODEL of a list (ListSelection: click / Ctrl / Shift rules over u64 keys): \
+         declares no widget type with a dom() and builds no DOM",
+    ),
+    (
+        "rich_text",
+        "the rich-text document MODEL (RichTextDoc, its edits, history and Markdown / HTML / \
+         plain-text forms; html.rs only READS a pasted DOM): no dom() of its own - the editor \
+         that renders it is registered as rich_text_editor",
+    ),
 ];
 
 /// Every `pub mod x;` / `mod x;` declared in `widgets/mod.rs`.
@@ -110,6 +127,10 @@ fn manifest_body() -> &'static str {
 fn is_registered(body: &str, module: &str) -> bool {
     body.contains(format!("\"{module}\"").as_str())
         || body.contains(format!("\"{module} ").as_str())
+        // A module with many widgets of its own (the app shells) hands the
+        // manifest its entries through a fixtures function:
+        // `all.extend(super::shells::fixtures::every_shell())`.
+        || body.contains(format!("super::{module}::fixtures::").as_str())
 }
 
 #[test]

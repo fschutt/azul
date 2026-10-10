@@ -1,0 +1,1082 @@
+{
+ "source": "editing/data/indent.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 147,
+ "eligible_cases": 90,
+ "left_out": {
+  "attribute dir": 4,
+  "attribute id": 5,
+  "markup outside the mail subset": 44,
+  "over the cap of 60": 30,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 4
+ },
+ "cases": [
+  {
+   "id": "indent-30c61228",
+   "initial": "foo[]bar<p>extra",
+   "initial_xhtml": "foo[]bar<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[]bar</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[]bar</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[]bar</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-80cb09b8",
+   "initial": "<span>foo</span>{}<span>bar</span><p>extra",
+   "initial_xhtml": "<span>foo</span>{}<span>bar</span><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><span>foo</span>{}<span>bar</span></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><span>foo</span>{}<span>bar</span></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><span>foo</span>{}<span>bar</span></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-077bcadd",
+   "initial": "<span>foo[</span><span>]bar</span><p>extra",
+   "initial_xhtml": "<span>foo[</span><span>]bar</span><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><span>foo[</span><span>]bar</span></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><span>foo[</span><span>]bar</span></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><span>foo[</span><span>]bar</span></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-efcdaf78",
+   "initial": "foo[bar]baz<p>extra",
+   "initial_xhtml": "foo[bar]baz<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar]baz</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[bar]baz</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar]baz</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-36cf0bfb",
+   "initial": "foo]bar[baz<p>extra",
+   "initial_xhtml": "foo]bar[baz<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar]baz</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[bar]baz</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar]baz</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-e46b1c82",
+   "initial": "{<p><p> <p>foo</p>}<p>extra",
+   "initial_xhtml": "{<p></p><p> </p><p>foo</p>}<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>{<p></p><p> </p><p>foo</p>}</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">{<p></p><p> </p><p>foo</p>}</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>{<p></p><p> </p><p>foo</p>}</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-e10e9bb0",
+   "initial": "foo[bar<i>baz]qoz</i>quz<p>extra",
+   "initial_xhtml": "foo[bar<i>baz]qoz</i>quz<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar<i>baz]qoz</i>quz</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[bar<i>baz]qoz</i>quz</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar<i>baz]qoz</i>quz</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-38f837ea",
+   "initial": "[]foo<p>extra",
+   "initial_xhtml": "[]foo<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>[]foo</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">[]foo</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>[]foo</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-ff236550",
+   "initial": "foo[]<p>extra",
+   "initial_xhtml": "foo[]<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[]</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[]</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[]</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-6b8bcc79",
+   "initial": "<p>[]foo<p>extra",
+   "initial_xhtml": "<p>[]foo</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>[]foo</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>[]foo</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>[]foo</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-8c6e5d58",
+   "initial": "<p>foo[]<p>extra",
+   "initial_xhtml": "<p>foo[]</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo[]</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo[]</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo[]</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-49acf863",
+   "initial": "<p>{}<br>foo</p><p>extra",
+   "initial_xhtml": "<p>{}<br/>foo</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>{}<br></blockquote><p>foo</p><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">{}<br></blockquote><p>foo</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>{}<br/></blockquote><p>foo</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-0fd600b1",
+   "initial": "<p>foo<br>{}</p><p>extra",
+   "initial_xhtml": "<p>foo<br/>{}</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo{}</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo{}</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo{}</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-3f613889",
+   "initial": "<span>{}<br>foo</span>bar<p>extra",
+   "initial_xhtml": "<span>{}<br/>foo</span>bar<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>{}<br></blockquote><span>foo</span>bar<p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">{}<br></blockquote><span>foo</span>bar<p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>{}<br/></blockquote><span>foo</span>bar<p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-cdd3969b",
+   "initial": "<span>foo<br>{}</span>bar<p>extra",
+   "initial_xhtml": "<span>foo<br/>{}</span>bar<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo{}</span><blockquote>bar</blockquote><p>extra</p>",
+    "<span>foo{}</span><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">bar</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<span>foo{}</span><blockquote>bar</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-267f7220",
+   "initial": "<p>foo</p>{}<p>bar</p>",
+   "initial_xhtml": "<p>foo</p>{}<p>bar</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p>{}<p>bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p>{}<p>bar</p>"
+   ]
+  },
+  {
+   "id": "indent-22c190b3",
+   "initial": "<p>foo[bar]</p><p>baz</p><p>extra",
+   "initial_xhtml": "<p>foo[bar]</p><p>baz</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo[bar]</p></blockquote><p>baz</p><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo[bar]</p></blockquote><p>baz</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo[bar]</p></blockquote><p>baz</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-fe8e757e",
+   "initial": "<p>[foobar</p><p>ba]z</p><p>extra",
+   "initial_xhtml": "<p>[foobar</p><p>ba]z</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>[foobar</p><p>ba]z</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>[foobar</p><p>ba]z</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>[foobar</p><p>ba]z</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-50efb37f",
+   "initial": "foo[bar]<br>baz<p>extra",
+   "initial_xhtml": "foo[bar]<br/>baz<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar]</blockquote>baz<p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[bar]</blockquote>baz<p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar]</blockquote>baz<p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-fa9deb45",
+   "initial": "foo[bar]<br><br><br><br>baz<p>extra",
+   "initial_xhtml": "foo[bar]<br/><br/><br/><br/>baz<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar]</blockquote><br><br><br>baz<p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[bar]</blockquote><br><br><br>baz<p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar]</blockquote><br/><br/><br/>baz<p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-d0b57f88",
+   "initial": "foobar<br>[ba]z<p>extra",
+   "initial_xhtml": "foobar<br/>[ba]z<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "foobar<blockquote>[ba]z</blockquote><p>extra</p>",
+    "foobar<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">[ba]z</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "foobar<blockquote>[ba]z</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-96f69ff3",
+   "initial": "foobar<br><br><br><br>[ba]z<p>extra",
+   "initial_xhtml": "foobar<br/><br/><br/><br/>[ba]z<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "foobar<br><br><br><br><blockquote>[ba]z</blockquote><p>extra</p>",
+    "foobar<br><br><br><br><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">[ba]z</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "foobar<br/><br/><br/><br/><blockquote>[ba]z</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-42c76bc9",
+   "initial": "foo[bar<br>ba]z<p>extra",
+   "initial_xhtml": "foo[bar<br/>ba]z<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar<br>ba]z</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo[bar<br>ba]z</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar<br/>ba]z</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-deadff01",
+   "initial": "<div>foo<p>[bar]</p>baz</div><p>extra",
+   "initial_xhtml": "<div>foo<p>[bar]</p>baz</div><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo<blockquote><p>[bar]</p></blockquote>baz</div><p>extra</p>",
+    "<div>foo<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"<p>[bar]</p></blockquote>baz</div><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<div>foo<blockquote><p>[bar]</p></blockquote>baz</div><p>extra</p>",
+    "<div>foo<blockquote>[bar]<p></p></blockquote>baz</div><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-eb454037",
+   "initial": "<blockquote><p>foo[bar]</p><p>baz</p></blockquote><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar]</p><p>baz</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote><p>foo[bar]</p></blockquote><p>baz</p></blockquote><p>extra</p>",
+    "<blockquote><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo[bar]</p></blockquote><p>baz</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote><p>foo[bar]</p></blockquote><p>baz</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-d71d9cf2",
+   "initial": "<blockquote><p>foo[bar</p><p>b]az</p></blockquote><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar</p><p>b]az</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote><p>foo[bar</p><p>b]az</p></blockquote></blockquote><p>extra</p>",
+    "<blockquote><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo[bar</p><p>b]az</p></blockquote></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote><p>foo[bar</p><p>b]az</p></blockquote></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-736ef3a6",
+   "initial": "<blockquote><p>foo[bar]</p></blockquote><p>baz</p><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar]</p></blockquote><p>baz</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote><p>foo[bar]</p></blockquote></blockquote><p>baz</p><p>extra</p>",
+    "<blockquote><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo[bar]</p></blockquote></blockquote><p>baz</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote><p>foo[bar]</p></blockquote></blockquote><p>baz</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-e63b7eca",
+   "initial": "<blockquote><p>foo[bar</p></blockquote><p>b]az</p><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar</p></blockquote><p>b]az</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote><p>foo[bar</p></blockquote><p>b]az</p></blockquote><p>extra</p>",
+    "<blockquote><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo[bar</p></blockquote><p>b]az</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote><p>foo[bar</p></blockquote><p>b]az</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-a2588df6",
+   "initial": "<p>[foo]<blockquote><p>bar</blockquote><p>extra",
+   "initial_xhtml": "<p>[foo]</p><blockquote><p>bar</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>[foo]</p><p>bar</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>[foo]</p><p>bar</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>[foo]</p><p>bar</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-b35e56f5",
+   "initial": "<p>[foo<blockquote><p>b]ar</blockquote><p>extra",
+   "initial_xhtml": "<p>[foo</p><blockquote><p>b]ar</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>[foo</p><blockquote><p>b]ar</p></blockquote></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>[foo</p><blockquote><p>b]ar</p></blockquote></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>[foo</p><blockquote><p>b]ar</p></blockquote></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-88da9dfe",
+   "initial": "<p>foo<blockquote><p>bar</blockquote><p>[baz]<p>extra",
+   "initial_xhtml": "<p>foo</p><blockquote><p>bar</p></blockquote><p>[baz]</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><blockquote><p>bar</p><p>[baz]</p></blockquote><p>extra</p>",
+    "<p>foo</p><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>bar</p><p>[baz]</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><blockquote><p>bar</p><p>[baz]</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-d2724a5f",
+   "initial": "<p>foo<blockquote><p>[bar</blockquote><p>baz]<p>extra",
+   "initial_xhtml": "<p>foo</p><blockquote><p>[bar</p></blockquote><p>baz]</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><blockquote><blockquote><p>[bar</p></blockquote><p>baz]</p></blockquote><p>extra</p>",
+    "<p>foo</p><blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><blockquote><p>[bar</p></blockquote><p>baz]</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><blockquote><blockquote><p>[bar</p></blockquote><p>baz]</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-9a2dadd6",
+   "initial": "<p>[foo<blockquote><p>bar</blockquote><p>baz]<p>extra",
+   "initial_xhtml": "<p>[foo</p><blockquote><p>bar</p></blockquote><p>baz]</p><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>[foo</p><blockquote><p>bar</p></blockquote><p>baz]</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>[foo</p><blockquote><p>bar</p></blockquote><p>baz]</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>[foo</p><blockquote><p>bar</p></blockquote><p>baz]</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-1436d088",
+   "initial": "<blockquote><p>foo</blockquote><p>[bar]<blockquote><p>baz</blockquote><p>extra",
+   "initial_xhtml": "<blockquote><p>foo</p></blockquote><p>[bar]</p><blockquote><p>baz</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo</p><p>[bar]</p><p>baz</p></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><p>foo</p><p>[bar]</p><p>baz</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo</p><p>[bar]</p><p>baz</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-4927b199",
+   "initial": "<blockquote>foo[bar]<br>baz</blockquote><p>extra",
+   "initial_xhtml": "<blockquote>foo[bar]<br/>baz</blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote>foo[bar]</blockquote>baz</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><blockquote>foo[bar]</blockquote>baz</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote>foo[bar]</blockquote>baz</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-309e2824",
+   "initial": "<blockquote>foo[bar<br>b]az</blockquote><p>extra",
+   "initial_xhtml": "<blockquote>foo[bar<br/>b]az</blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote>foo[bar<br>b]az</blockquote></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><blockquote>foo[bar<br>b]az</blockquote></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote>foo[bar<br/>b]az</blockquote></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-29b0a423",
+   "initial": "<blockquote>foo[bar]</blockquote>baz<p>extra",
+   "initial_xhtml": "<blockquote>foo[bar]</blockquote>baz<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote>foo[bar]</blockquote></blockquote>baz<p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><blockquote>foo[bar]</blockquote></blockquote>baz<p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote>foo[bar]</blockquote></blockquote>baz<p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-280b656f",
+   "initial": "<blockquote>foo[bar</blockquote>b]az<p>extra",
+   "initial_xhtml": "<blockquote>foo[bar</blockquote>b]az<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote>foo[bar</blockquote>b]az</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><blockquote>foo[bar</blockquote>b]az</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote>foo[bar</blockquote>b]az</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-55eb0a71",
+   "initial": "[foo]<blockquote>bar</blockquote><p>extra",
+   "initial_xhtml": "[foo]<blockquote>bar</blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>[foo]<br>bar</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">[foo]<br>bar</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>[foo]<br/>bar</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-fd2d29aa",
+   "initial": "[foo<blockquote>b]ar</blockquote><p>extra",
+   "initial_xhtml": "[foo<blockquote>b]ar</blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>[foo<blockquote>b]ar</blockquote></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">[foo<blockquote>b]ar</blockquote></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>[foo<blockquote>b]ar</blockquote></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-8e453d8d",
+   "initial": "foo<blockquote>bar</blockquote>[baz]<p>extra",
+   "initial_xhtml": "foo<blockquote>bar</blockquote>[baz]<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<blockquote>bar<br>[baz]</blockquote><p>extra</p>",
+    "foo<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">bar<br>[baz]</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "foo<blockquote>bar<br/>[baz]</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-cd5f6ff4",
+   "initial": "[foo<blockquote>bar</blockquote>baz]<p>extra",
+   "initial_xhtml": "[foo<blockquote>bar</blockquote>baz]<p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>[foo<blockquote>bar</blockquote>baz]</blockquote><p>extra</p>",
+    "<blockquote>[foo<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">bar</blockquote>baz]</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>[foo<blockquote>bar</blockquote>baz]</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-3e8cb0d7",
+   "initial": "<blockquote>foo</blockquote>[bar]<blockquote>baz</blockquote><p>extra",
+   "initial_xhtml": "<blockquote>foo</blockquote>[bar]<blockquote>baz</blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo<br>[bar]<br>baz</blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\">foo<br>[bar]<br>baz</blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo<br/>[bar]<br/>baz</blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-289e900b",
+   "initial": "<blockquote>f[oo<blockquote>b]ar</blockquote></blockquote><p>extra",
+   "initial_xhtml": "<blockquote>f[oo<blockquote>b]ar</blockquote></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><blockquote>f[oo<blockquote>b]ar</blockquote></blockquote></blockquote><p>extra</p>",
+    "<blockquote style=\"margin:0 0 0 40px; border:none; padding:0px\"><blockquote>f[oo<blockquote>b]ar</blockquote></blockquote></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<blockquote><blockquote>f[oo<blockquote>b]ar</blockquote></blockquote></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "indent-2c5a19d3",
+   "initial": "<ol><li>foo<li>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>[bar]</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>[bar]</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-ac762883",
+   "initial": "<ol><li>foo</ol>[bar]",
+   "initial_xhtml": "<ol><li>foo</li></ol>[bar]",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><blockquote>[bar]</blockquote>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><blockquote>[bar]</blockquote>"
+   ]
+  },
+  {
+   "id": "indent-aa53bafe",
+   "initial": "<ol><li>[foo]<br>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<br/>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><ol><li>[foo]<br>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><ol><li>[foo]<br/>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-98da67ea",
+   "initial": "<ol><li>foo<br>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<br/>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><ol><li>foo<br>[bar]</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><ol><li>foo<br/>[bar]</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-b5c113f7",
+   "initial": "<ol><li><div>[foo]</div>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li><div>[foo]</div>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><ol><li><div>[foo]</div>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><ol><li><div>[foo]</div>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-1d4766a8",
+   "initial": "<ol><li>foo<ol><li>[bar]<li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>[bar]</li><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><ol><li>[bar]</li></ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><ol><li>[bar]</li></ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-74205959",
+   "initial": "<ol><li>foo<ol><li>bar<li>[baz]</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li><li>[baz]</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li><ol><li>[baz]</li></ol></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li><ol><li>[baz]</li></ol></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-e9c1b651",
+   "initial": "<ol><li>foo</li><ol><li>[bar]<li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>[bar]</li><li>baz</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><ol><li>[bar]</li></ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><ol><li>[bar]</li></ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-102486d1",
+   "initial": "<ol><li>foo</li><ol><li>bar<li>[baz]</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>bar</li><li>[baz]</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li><ol><li>[baz]</li></ol></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li><ol><li>[baz]</li></ol></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-3a645c14",
+   "initial": "<ol><li>foo<ol><li>b[a]r</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>b[a]r</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><ol><li>b[a]r</li></ol></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><ol><li>b[a]r</li></ol></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-768861a1",
+   "initial": "<ol><li>foo</li><ol><li>b[a]r</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>b[a]r</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><ol><li>b[a]r</li></ol></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><ol><li>b[a]r</li></ol></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-a5a89334",
+   "initial": "<ol><li>foo{<ol><li>bar</ol>}<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo{<ol><li>bar</li></ol>}</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol>{<ol><li>bar</li></ol>}</ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol>{<ol><li>bar</li></ol>}</ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-2e9aca13",
+   "initial": "<ol><li>foo</li>{<ol><li>bar</ol>}<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li>{<ol><li>bar</li></ol>}<li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol>{<ol><li>bar</li></ol>}</ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol>{<ol><li>bar</li></ol>}</ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-dd59752f",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><ol><li>[foo]</li><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><ol><li>[foo]</li><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-d65bc6bc",
+   "initial": "<ol><li>[foo]</li><ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><ol><li>bar</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><ol><li>[foo]</li><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><ol><li>[foo]</li><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "indent-951eb6e8",
+   "initial": "<ol><li>foo<li>[bar]<ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]<ol><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "indent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>[bar]</li><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>[bar]</li><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  }
+ ]
+}

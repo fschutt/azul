@@ -1,0 +1,24 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Gradient Background aligned to Content Box</title>
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-2500"/>
+<meta name="assert" content="The background-origin: border-box; statement is understood."/>
+<style>
+#x {
+  background-origin: border-box;
+  width: 200px;
+  height: 200px;
+  border-style: solid;
+  border-width: 40px;
+  border-color: transparent;
+  background-image: repeating-linear-gradient(to bottom right, white, black, white 30px);
+}
+  
+</style>
+</head>
+<body>
+  <div id="x"></div>
+
+
+</body>
+</html>

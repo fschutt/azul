@@ -1,0 +1,19 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Vertical-align: baseline of an inline-block depends on 'overflow'</title>
+<meta name="assert" content="The baseline of an 'inline-block’ whose ‘overflow’ property has a computed value of ‘visible’ is the baseline of its last line box in the normal flow, unless it has no in-flow line boxes, in which case the baseline is the bottom margin edge."/>
+<style>
+  body {background: white; color: black; font-size: 15px}
+  p {white-space: nowrap; line-height: 5}
+  span {display: inline-block; overflow: visible; line-height: 1}
+  
+</style>
+</head>
+<body>
+   <p>
+     All the <span> <br/>words</span> are aligned on the same baseline.
+   </p>
+ 
+
+</body>
+</html>

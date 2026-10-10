@@ -24,8 +24,26 @@
 //! → `RibbonArrow::Split`/`Menu`, `box`/`buttonGroup` → `Row`/`Column`,
 //! `comboBox` → `Combo`, `dropDown` → `Drop`, `checkBox` → `Check`,
 //! `gallery` → `Gallery`, `separator` → `Separator`,
-//! `dialogBoxLauncher` → [`RibbonGroup::launcher`]. Contextual tabs, KeyTips,
-//! the backstage view and automatic size collapsing are out of scope.
+//! `dialogBoxLauncher` → [`RibbonGroup::launcher`]. Contextual tabs, KeyTips
+//! and the backstage view are out of scope.
+//!
+//! A tab wider than the ribbon scales down as Office's does (its "ribbon
+//! scaling"), step by step and the rightmost group first: large buttons
+//! become small ones (the label beside a 16 px icon, three to a column),
+//! galleries show fewer cells, buttons show their icons alone - and only
+//! then does a group collapse into one button (its icon over its label and
+//! ▾) that opens the whole group in a popup. Every control stays reachable
+//! at any width. The width is that of the window the DOM is built for,
+//! asked through the recorded size queries (a resize across a step rebuilds
+//! the ribbon, any other re-flows it), or [`Ribbon::available_width`].
+//!
+//! The controls are laid out as Office 2010 lays them out: a large button's
+//! label of two words or more is set on two balanced lines with a menu's ▾
+//! after the last word ("New / Items ▾"); a split button with
+//! [`RibbonButton::on_arrow_click`] is two hit targets (the icon, the label
+//! and ▾); small items at a group's top level stack three to a column; a
+//! gallery with [`RibbonGallery::columns`] is a list of commands (Outlook's
+//! Quick Steps).
 //!
 //! Buttons are not re-implemented: every ribbon button (including the group
 //! dialog launcher and the gallery spinner buttons) expands to the existing
@@ -39,12 +57,15 @@
 //! to re-theme without touching widget code.
 
 use azul_core::{
+    a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec,
+        ComponentEventFilter, Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass,
+        IdOrClass::Class, IdOrClassVec, NodeData, NodeType, OptionDom, TabIndex,
     },
     refany::RefAny,
+    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
+    window::WindowBackgroundMaterial,
 };
 use azul_css::{
     dynamic_selector::OptionCssPropertyWithConditionsVec,
@@ -72,11 +93,12 @@ use azul_css::{
 };
 
 use super::{
-    button::{Button, OptionButtonOnClick},
+    button::{styled_button, ButtonOnClickCallbackType, OptionButtonOnClick},
     check_box::CheckBox,
     combobox::ComboBox,
     drop_down::DropDown,
-    themes::flat,
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
+    titlebar::{OptionTabsInTitlebar, TabsInTitlebar},
 };
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -241,6 +263,20 @@ const W13_FIELD_BORDER: ColorU = ColorU {
     a: 255,
 };
 
+// -- the Office 2010 palette (seeds RibbonTheme::office_2010) --
+//
+// Sampled from Outlook 2010 (Silver): the rest of it is the flat theme's
+// tokens, which ARE Office 2010.
+
+/// The ribbon's foot and the tab strip's rule (#BAC0C9): a shade darker than
+/// the panes' hairline, as the band's edge against the window.
+const O10_BORDER: ColorU = ColorU {
+    r: 186,
+    g: 192,
+    b: 201,
+    a: 255,
+};
+
 // -- Theme --
 
 /// Color palette from which a full [`RibbonStyle`] is derived via
@@ -315,6 +351,45 @@ impl RibbonTheme {
             selected_bg: W13_SELECTED_BG,
             field_border: W13_FIELD_BORDER,
         }
+    }
+
+    /// The Office 2010 palette (Silver), the flat theme's ribbon and the
+    /// default: white paper fading to silver in the band, Outlook's orange
+    /// File tab, grey captions, the warm yellow hover in a gold rim, the
+    /// orange pressed face, the deeper yellow of a toggled-on command. A
+    /// palette that keeps these hover and pressed colours is painted with
+    /// Office 2010's two-stop faces (the band's fade, the yellow / orange
+    /// gradients); any other is painted in its plain colours.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self {
+            chrome_bg: WHITE,
+            content_bg: WHITE,
+            accent: flat::FILE_TAB,
+            accent_hover: flat::FILE_TAB_HOVER,
+            accent_text: WHITE,
+            text: flat::LIGHT_INK,
+            label: flat::LIGHT_SOFT1,
+            icon: flat::LIGHT_ICON,
+            border: O10_BORDER,
+            separator: flat::LIGHT_BD,
+            hover_bg: flat::LIGHT_HB,
+            hover_border: flat::LIGHT_HOVER_BORDER,
+            pressed_bg: flat::LIGHT_PT,
+            checked_bg: flat::LIGHT_CHECKED_BOTTOM,
+            selected_bg: flat::LIGHT_CHECKED_BOTTOM,
+            field_border: flat::LIGHT_BD,
+        }
+    }
+
+    /// Whether this palette carries Office 2010's states (its hover and
+    /// pressed colours), so its parts take Office 2010's faces.
+    #[must_use]
+    pub(crate) const fn has_office_2010_faces(&self) -> bool {
+        const fn same(a: ColorU, b: ColorU) -> bool {
+            a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a
+        }
+        same(self.hover_bg, flat::LIGHT_HB) && same(self.pressed_bg, flat::LIGHT_PT)
     }
 
     /// Extracts a ribbon palette from the OS theme (accent color, selection
@@ -410,7 +485,7 @@ impl RibbonTheme {
 
 impl Default for RibbonTheme {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -731,7 +806,7 @@ fn push_border_colors_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&Ribbon
         v.push(Cond::simple(edge_color(edge, light)));
     }
     for edge in EDGES {
-        v.push(Cond::dark_theme(edge_color(edge, dark)));
+        v.push(Cond::dark_mode(edge_color(edge, dark)));
     }
 }
 
@@ -768,15 +843,58 @@ fn push_bottom_border_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&Ribbon
 //     genuine per-mode value in both palettes, so their twins are `DARK_ACC` (`theme_tab`,
 //     `theme_combo_field`).
 
-/// Hover fill of a control on the neutral chrome, light and dark.
+/// Hover fill of a control on the neutral chrome, light and dark: Office
+/// 2010's yellow face for a palette with its states
+/// ([`RibbonTheme::has_office_2010_faces`]), else the palette's colour.
 fn push_chrome_hover_fill(v: &mut Vec<Cond>, t: &RibbonTheme) {
-    v.extend(flat::hover_bg_both(t.hover_bg, flat::DARK_HT));
+    if t.has_office_2010_faces() {
+        v.extend(flat::hover_face_both());
+    } else {
+        v.extend(flat::hover_bg_both(t.hover_bg, flat::DARK_HT));
+    }
 }
 
 /// Hover border of a control on the neutral chrome, all four edges, light and
-/// dark.
+/// dark (by night Office 2010's rim is the amber one).
 fn push_chrome_hover_border(v: &mut Vec<Cond>, t: &RibbonTheme) {
-    v.extend(flat::hover_border_both(t.hover_border, flat::DARK_BD));
+    let dark = if t.has_office_2010_faces() {
+        flat::DARK_HOVER_BORDER
+    } else {
+        flat::DARK_BD
+    };
+    v.extend(flat::hover_border_both(t.hover_border, dark));
+}
+
+/// Pressed fill of a control on the neutral chrome, light and dark: Office
+/// 2010's orange face, or the palette's colour.
+fn push_chrome_pressed_fill(v: &mut Vec<Cond>, t: &RibbonTheme) {
+    if t.has_office_2010_faces() {
+        v.extend(flat::active_face_both());
+    } else {
+        v.extend(flat::active_bg_both(t.pressed_bg, flat::DARK_PT));
+    }
+}
+
+/// The resting face of a toggled-on command or a picked gallery cell, and
+/// its rim: Office 2010's deeper yellow in its own rim, or the palette's
+/// `fill` in its hover border.
+fn push_checked_face(v: &mut Vec<Cond>, t: &RibbonTheme, fill: fn(&RibbonTheme) -> ColorU) {
+    if t.has_office_2010_faces() {
+        v.extend(flat::checked_face_both());
+        v.extend(super::themes::decl::themed_border_color(
+            flat::LIGHT_CHECKED_BORDER,
+            flat::DARK_CHECKED_BORDER,
+        ));
+    } else {
+        v.extend(bg_both(t, fill));
+        push_border_colors_both(v, t, |p| p.hover_border);
+    }
+    // The states again: this face is APPENDED after the part's own states,
+    // and a resting face after them would shadow them (last match wins) - a
+    // toggled button lit no hover and no press.
+    push_chrome_hover_fill(v, t);
+    push_chrome_hover_border(v, t);
+    push_chrome_pressed_fill(v, t);
 }
 
 /// Bottom border only (tab underline / ribbon bottom edge).
@@ -806,11 +924,15 @@ fn push_button_chassis(v: &mut Vec<Cond>, t: &RibbonTheme) {
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(v, TRANSPARENT);
+    // Office 2010's lit buttons are softly rounded (2 px); 2013's are square.
+    if t.has_office_2010_faces() {
+        v.extend(super::themes::decl::radius(2));
+    }
     push_chrome_hover_fill(v, t);
     push_chrome_hover_border(v, t);
     // Pressed: page-neutral chrome, so the dark twin is the theme's pressed
     // face — see the `Interactive states` note above.
-    v.extend(flat::active_bg_both(t.pressed_bg, flat::DARK_PT));
+    push_chrome_pressed_fill(v, t);
 }
 
 fn theme_container(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -952,7 +1074,13 @@ fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         })),
         Cond::simple(P::const_height(LayoutHeight::const_px(92))),
     ];
-    v.extend(bg_both(t, |p| p.content_bg));
+    // Office 2010's band is paper at its top (where the active tab merges in)
+    // fading to silver at its foot.
+    if t.has_office_2010_faces() {
+        v.extend(flat::band_face_both());
+    } else {
+        v.extend(bg_both(t, |p| p.content_bg));
+    }
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1145,8 +1273,8 @@ fn theme_arrow_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 /// Appended to a button's container style when [`RibbonButton::toggled`] is
 /// set. Inline properties resolve last-wins, so these override the base.
 fn theme_checked(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v: Vec<Cond> = bg_both(t, |p| p.checked_bg).to_vec();
-    push_border_colors_both(&mut v, t, |p| p.hover_border);
+    let mut v: Vec<Cond> = Vec::new();
+    push_checked_face(&mut v, t, |p| p.checked_bg);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1197,8 +1325,8 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 /// Appended to [`RibbonStyle::gallery_cell_style`] for the selected cell.
 fn theme_gallery_cell_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v: Vec<Cond> = bg_both(t, |p| p.selected_bg).to_vec();
-    push_border_colors_both(&mut v, t, |p| p.hover_border);
+    let mut v: Vec<Cond> = Vec::new();
+    push_checked_face(&mut v, t, |p| p.selected_bg);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1262,6 +1390,29 @@ fn theme_gallery_panel(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_wrap(LayoutFlexWrap::Wrap)),
     ];
     v.extend(bg_both(t, |p| p.chrome_bg));
+    push_box_border_both(&mut v, t, |p| p.border);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The panel a collapsed group's popup shows the group on: a piece of the
+/// content band - its face, Office 2010's fade for a palette with Office
+/// 2010's states - closed by the chrome's border, the group laid on it as it
+/// is in the band. The ribbon's font is declared again: the popup is a
+/// window of its own, and its root inherits nothing from the ribbon.
+fn theme_group_popup(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
+    let mut v = vec![
+        cond_border_box(),
+        Cond::simple(P::const_display(LayoutDisplay::Flex)),
+        Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+        Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+        Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
+    ];
+    if t.has_office_2010_faces() {
+        v.extend(flat::band_face_both());
+    } else {
+        v.extend(bg_both(t, |p| p.content_bg));
+    }
     push_box_border_both(&mut v, t, |p| p.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -1737,14 +1888,14 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub footer_spacer_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into the dialog-launcher [`Button`].
+    /// Container style injected into the dialog-launcher [`Button`](crate::widgets::button::Button).
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub launcher_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into the dialog-launcher [`Button`].
+    /// Icon style injected into the dialog-launcher [`Button`](crate::widgets::button::Button).
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
@@ -1772,42 +1923,42 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub separator_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into large-button [`Button`]s.
+    /// Container style injected into large-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub large_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into large-button [`Button`]s.
+    /// Icon style injected into large-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub large_icon_style: OptionCssPropertyWithConditionsVec,
-    /// Label style injected into large-button [`Button`]s.
+    /// Label style injected into large-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub large_label_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into small-button [`Button`]s.
+    /// Container style injected into small-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub small_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into small-button [`Button`]s.
+    /// Icon style injected into small-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub small_icon_style: OptionCssPropertyWithConditionsVec,
-    /// Label style injected into small-button [`Button`]s.
+    /// Label style injected into small-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
@@ -1940,27 +2091,42 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub mobile_group_list_item_selected_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into the three spinner [`Button`]s.
+    /// Container style injected into the three spinner [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub gallery_spinner_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into the three spinner [`Button`]s.
+    /// Icon style injected into the three spinner [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub gallery_spinner_icon_style: OptionCssPropertyWithConditionsVec,
+    /// The panel a collapsed group's popup shows the whole group on (a tab
+    /// too wide for the ribbon collapses its groups, see [`Ribbon`]).
+    ///
+    /// `None` means "no opinion": the part is derived from [`Self::theme`] at
+    /// render time. `Some` is an override the caller chose, and `Some(empty)` is
+    /// a real answer — "no properties at all" — which the pre-filled field could
+    /// not express.
+    pub group_popup_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl RibbonStyle {
-    /// The the Office-2013-era look look (white chrome, #2B579A accents) - the default.
+    /// The the Office-2013-era look look (white chrome, #2B579A accents).
     #[must_use]
     pub const fn office_2013() -> Self {
         Self::from_theme(RibbonTheme::office_2013())
+    }
+
+    /// The Office 2010 look (see [`RibbonTheme::office_2010`]) - the default,
+    /// and the flat theme's ribbon.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self::from_theme(RibbonTheme::office_2010())
     }
 
     /// Derives every part style from the given palette. This is the styling
@@ -2022,6 +2188,7 @@ impl RibbonStyle {
             mobile_group_list_item_selected_style: OptionCssPropertyWithConditionsVec::None,
             gallery_spinner_button_style: OptionCssPropertyWithConditionsVec::None,
             gallery_spinner_icon_style: OptionCssPropertyWithConditionsVec::None,
+            group_popup_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -2463,6 +2630,16 @@ impl RibbonStyle {
             .unwrap_or_else(|| theme_gallery_spinner_icon(&self.theme))
     }
 
+    /// The `group_popup_style` this bundle renders with: the caller's override if there is one,
+    /// else derived from [`Self::theme`].
+    #[must_use]
+    pub fn resolved_group_popup_style(&self) -> CssPropertyWithConditionsVec {
+        self.group_popup_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| theme_group_popup(&self.theme))
+    }
+
     /// Derives the ribbon style from the OS theme (see
     /// [`RibbonTheme::from_system`]). Pass `SystemStyle::detect()` for the
     /// live system look, e.g. to render a "system native" ribbon.
@@ -2499,7 +2676,7 @@ impl RibbonStyle {
 
 impl Default for RibbonStyle {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -2580,10 +2757,24 @@ pub struct Ribbon {
     pub active_tab: usize,
     /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
-    /// All part styles (defaults to the the Office-2013-era look look).
+    /// The tab strip as the window's title bar ([`TabsInTitlebar`]), or
+    /// `None` for a ribbon under a title row of its own.
+    pub tabs_in_titlebar: OptionTabsInTitlebar,
+    /// All part styles (defaults to the Office 2010 look).
     pub style: RibbonStyle,
     /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
     pub behavior: RibbonBehavior,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's paper, hairlines and stones on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
+    /// The width the ribbon is laid out in, px, which the active tab's
+    /// groups scale down to when they do not fit (Office's ribbon scaling,
+    /// see the module docs). 0 = the width of the window the DOM is built
+    /// for, asked of the window so a resize across a scaling step rebuilds
+    /// the ribbon; set it for a ribbon in a narrower box than its window.
+    pub available_width: f32,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -2594,6 +2785,13 @@ pub struct RibbonAppButton {
     pub label: AzString,
     /// Optional click callback.
     pub on_click: OptionButtonOnClick,
+    /// The drop-down the button opens - Windows 8 Explorer's File menu
+    /// ([`crate::widgets::ribbon_file_menu::RibbonFileMenu::dom`]), or any
+    /// DOM, which then shows in a window of its own: hung on the button, it
+    /// opens under the File tab and its click opens and closes it (next to
+    /// `on_click`, if any). `None`: the button only runs `on_click` (Office's
+    /// full-window backstage is the app's to show).
+    pub menu: OptionDom,
 }
 
 /// A single tab within a [`Ribbon`], containing a label and groups.
@@ -2633,6 +2831,11 @@ pub struct RibbonGroup {
     /// When set, this group absorbs the remaining ribbon width (the classic office-suite
     /// Styles gallery group stretches; the other groups are content-sized).
     pub fills_space: bool,
+    /// The icon of the one button the group becomes when its tab is too
+    /// wide for the ribbon and the group collapses (Office's group image):
+    /// the button opens the whole group in a popup. Empty = the icon of the
+    /// group's first button.
+    pub icon: AzString,
 }
 
 /// One control slot inside a [`RibbonGroup`].
@@ -2682,7 +2885,7 @@ pub struct RibbonRow {
 }
 
 /// Declarative description of one ribbon button; expands to the existing
-/// [`Button`] widget with ribbon styles injected.
+/// [`Button`](crate::widgets::button::Button) widget with ribbon styles injected.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RibbonButton {
@@ -2697,6 +2900,24 @@ pub struct RibbonButton {
     pub toggled: bool,
     /// Optional click callback (same family as [`Button::on_click`]).
     pub on_click: OptionButtonOnClick,
+    /// Why the command cannot run now ("Select a file to rename"); empty =
+    /// enabled. A disabled button keeps its place and its keyboard stop, is
+    /// dimmed, never runs `on_click`, is announced unavailable with this
+    /// reason as its description, and shows the reason as a tooltip on hover
+    /// and on click (Office's greyed commands and their tooltips).
+    pub disabled_reason: AzString,
+    /// The name of an icon-only button (empty `label`): what a screen reader
+    /// says ("Bold"). Office's Font and Alignment groups are rows of such
+    /// buttons; without a name each was announced as "button". Empty = the
+    /// label names the button.
+    pub alt: AzString,
+    /// The ARROW part of a split button (`RibbonArrow::Split`): what a click
+    /// on the ▾ runs - the app opens the button's menu there - while
+    /// [`Self::on_click`] stays the primary command (Office's Paste: the
+    /// clipboard icon pastes, "Paste ▾" under it opens the paste options).
+    /// With this set a split button is two hit targets, each with its own
+    /// hover; unset it is one button with an arrow, like `Menu`.
+    pub on_arrow_click: OptionButtonOnClick,
 }
 
 /// Drop-down decoration of a [`RibbonButton`].
@@ -2706,10 +2927,13 @@ pub enum RibbonArrow {
     /// Plain button without an arrow.
     #[default]
     None,
-    /// The whole button opens a menu (`RibbonX` `menu`).
+    /// The whole button opens a menu (`RibbonX` `menu`): its `on_click`
+    /// opens it. A large one draws the ▾ under its label, a small one after.
     Menu,
-    /// Primary action + separate arrow region (`RibbonX` `splitButton`).
-    /// Rendered identically to `Menu`; the split behavior is the caller's.
+    /// Primary action + separate arrow region (`RibbonX` `splitButton`). With
+    /// [`RibbonButton::on_arrow_click`] set the two are separate buttons (a
+    /// large one: the icon over the label and ▾; a small one: icon and label
+    /// beside the ▾); without it, it renders like `Menu`.
     Split,
 }
 
@@ -2723,6 +2947,19 @@ pub struct RibbonGallery {
     pub selected: usize,
     /// Optional callback fired when a cell is clicked (receives cell index).
     pub on_select: OptionRibbonGalleryOnSelect,
+    /// How many cells the in-ribbon strip shows (0: every cell). Office's
+    /// galleries show one row of a few cells - the row holding the selected
+    /// one - and "More" opens all of them; a gallery of every cell inline
+    /// pushed the groups after it off a 1280 px window (`AzShow`'s Layout).
+    pub visible: usize,
+    /// 0: the classic strip - preview cells over their names, one row (Word's
+    /// Styles). N: a LIST gallery of commands in N columns three rows high,
+    /// each cell its preview (an icon) beside its name - Outlook's Quick Steps
+    /// ("Move to: ?", "Team E-mail", "Reply & Delete" | "To Manager", "Done",
+    /// "Create New"). A list gallery keeps no selection: a cell is a command
+    /// (`on_select` runs it), so no cell stays lit. `visible` 0 shows N x 3
+    /// cells; the rest are behind "More".
+    pub columns: usize,
 }
 
 /// One gallery cell: an arbitrary preview [`Dom`] over a name label.
@@ -2812,7 +3049,20 @@ impl RibbonAppButton {
         Self {
             label,
             on_click: None.into(),
+            menu: OptionDom::None,
         }
+    }
+
+    /// Sets the drop-down the button opens (see [`Self::menu`]).
+    pub fn set_menu(&mut self, menu: Dom) {
+        self.menu = OptionDom::Some(menu);
+    }
+
+    /// Builder method: sets the drop-down the button opens and returns `self`.
+    #[must_use]
+    pub fn with_menu(mut self, menu: Dom) -> Self {
+        self.set_menu(menu);
+        self
     }
 
     /// Sets the click callback.
@@ -2875,6 +3125,20 @@ impl RibbonTab {
         self.add_group(group);
         self
     }
+
+    /// Appends every group of `groups`, in order.
+    pub fn add_groups(&mut self, groups: RibbonGroupVec) {
+        for group in groups.as_ref() {
+            self.groups.push(group.clone());
+        }
+    }
+
+    /// Builder method: appends every group of `groups` and returns `self`.
+    #[must_use]
+    pub fn with_groups(mut self, groups: RibbonGroupVec) -> Self {
+        self.add_groups(groups);
+        self
+    }
 }
 
 impl RibbonGroup {
@@ -2886,6 +3150,7 @@ impl RibbonGroup {
             items: RibbonItemVec::from_const_slice(&[]),
             launcher: OptionButtonOnClick::None,
             fills_space: false,
+            icon: AzString::from_const_str(""),
         }
     }
 
@@ -2893,6 +3158,19 @@ impl RibbonGroup {
     #[must_use]
     pub const fn with_fills_space(mut self, fills_space: bool) -> Self {
         self.fills_space = fills_space;
+        self
+    }
+
+    /// Sets the icon the group's button shows when the group collapses
+    /// (see [`Self::icon`]).
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// Builder method: [`Self::set_icon`].
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
         self
     }
 
@@ -2908,17 +3186,28 @@ impl RibbonGroup {
         self
     }
 
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
+
     /// Sets the dialog-box-launcher callback (renders the launcher button).
     pub fn set_launcher<C: Into<super::button::ButtonOnClickCallback>>(
         &mut self,
         data: RefAny,
         on_click: C,
     ) {
-        self.launcher = Some(super::button::ButtonOnClick {
-            refany: data,
-            callback: on_click.into(),
-        })
-        .into();
+        self.launcher = Some(super::button::ButtonOnClick::create(data, on_click)).into();
     }
 
     /// Builder method: sets the launcher callback and returns `self`.
@@ -2953,6 +3242,21 @@ impl RibbonColumn {
         self.add_item(item);
         self
     }
+
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
 }
 
 impl Default for RibbonColumn {
@@ -2981,6 +3285,21 @@ impl RibbonRow {
         self.add_item(item);
         self
     }
+
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
 }
 
 impl Default for RibbonRow {
@@ -2999,7 +3318,73 @@ impl RibbonButton {
             arrow: RibbonArrow::None,
             toggled: false,
             on_click: OptionButtonOnClick::None,
+            disabled_reason: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
+            on_arrow_click: OptionButtonOnClick::None,
         }
+    }
+
+    /// Makes this a split button: `on_arrow_click` runs when its arrow part
+    /// is clicked (see [`Self::on_arrow_click`]); the arrow becomes
+    /// [`RibbonArrow::Split`].
+    pub fn set_on_arrow_click<C: Into<super::button::ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_arrow_click: C,
+    ) {
+        self.arrow = RibbonArrow::Split;
+        self.on_arrow_click =
+            Some(super::button::ButtonOnClick::create(data, on_arrow_click)).into();
+    }
+
+    /// Builder method: [`Self::set_on_arrow_click`].
+    #[must_use]
+    pub fn with_on_arrow_click<C: Into<super::button::ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_arrow_click: C,
+    ) -> Self {
+        self.set_on_arrow_click(data, on_arrow_click);
+        self
+    }
+
+    /// Whether this button is drawn as two parts (a split button with its
+    /// own arrow callback).
+    #[must_use]
+    pub fn is_split(&self) -> bool {
+        self.arrow == RibbonArrow::Split && self.on_arrow_click.is_some()
+    }
+
+    /// Names an icon-only button for assistive technology (see
+    /// [`Self::alt`]).
+    pub fn set_alt(&mut self, alt: AzString) {
+        self.alt = alt;
+    }
+
+    /// Builder method: [`Self::set_alt`].
+    #[must_use]
+    pub fn with_alt(mut self, alt: AzString) -> Self {
+        self.set_alt(alt);
+        self
+    }
+
+    /// Disables the button: `reason` says why the command cannot run now
+    /// (an empty reason enables it again). See [`Self::disabled_reason`].
+    pub fn set_disabled(&mut self, reason: AzString) {
+        self.disabled_reason = reason;
+    }
+
+    /// Builder method: disables the button with `reason` and returns `self`.
+    #[must_use]
+    pub fn with_disabled(mut self, reason: AzString) -> Self {
+        self.set_disabled(reason);
+        self
+    }
+
+    /// Whether the button is disabled (it has a reason).
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        !self.disabled_reason.as_str().is_empty()
     }
 
     /// Builder method: sets the arrow decoration and returns `self`.
@@ -3049,7 +3434,35 @@ impl RibbonGallery {
             cells,
             selected: 0,
             on_select: None.into(),
+            visible: 0,
+            columns: 0,
         }
+    }
+
+    /// Lays the gallery out as a list of commands in `columns` columns
+    /// (0: the classic strip); see [`Self::columns`].
+    pub const fn set_columns(&mut self, columns: usize) {
+        self.columns = columns;
+    }
+
+    /// Builder method: [`Self::set_columns`].
+    #[must_use]
+    pub const fn with_columns(mut self, columns: usize) -> Self {
+        self.set_columns(columns);
+        self
+    }
+
+    /// Shows `visible` cells in the ribbon (0: every cell); see
+    /// [`Self::visible`].
+    pub const fn set_visible(&mut self, visible: usize) {
+        self.visible = visible;
+    }
+
+    /// Builder method: [`Self::set_visible`].
+    #[must_use]
+    pub const fn with_visible(mut self, visible: usize) -> Self {
+        self.set_visible(visible);
+        self
     }
 
     /// Builder method: sets the selected cell index and returns `self`.
@@ -3094,7 +3507,7 @@ impl RibbonGalleryCell {
 
 impl Ribbon {
     /// Creates a new ribbon with the given tabs, the first tab active and the
-    /// the Office-2013-era look default style.
+    /// Office 2010 default style ([`RibbonStyle::office_2010`]).
     #[must_use]
     pub fn new(tabs: RibbonTabVec) -> Self {
         Self {
@@ -3102,9 +3515,45 @@ impl Ribbon {
             tabs,
             active_tab: 0,
             on_tab_click: None.into(),
-            style: RibbonStyle::office_2013(),
+            tabs_in_titlebar: OptionTabsInTitlebar::None,
+            style: RibbonStyle::office_2010(),
             behavior: RibbonBehavior::office_2013(),
+            theme: OptionUiTheme::None,
+            available_width: 0.0,
         }
+    }
+
+    /// The width the ribbon is laid out in, px (see
+    /// [`Self::available_width`]); 0 or a width that is not a number: the
+    /// window's.
+    pub const fn set_available_width(&mut self, width: f32) {
+        self.available_width = if width.is_finite() {
+            width.max(0.0)
+        } else {
+            0.0
+        };
+    }
+
+    /// [`Self::set_available_width`] for the builder chain.
+    #[must_use]
+    pub const fn with_available_width(mut self, width: f32) -> Self {
+        self.set_available_width(width);
+        self
+    }
+
+    /// Pick the widget theme: the ribbon, its buttons and every embedded
+    /// widget without a theme of its own keep this look whatever the app
+    /// theme is. Unset (`None`), the ribbon follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the application button ("FILE").
@@ -3116,6 +3565,24 @@ impl Ribbon {
     #[must_use]
     pub fn with_app_button(mut self, app_button: RibbonAppButton) -> Self {
         self.set_app_button(app_button);
+        self
+    }
+
+    /// Makes the tab strip the window's title bar (Firefox's tabs in the
+    /// titlebar): the strip runs up to the window's top edge and holds its
+    /// tabs `chrome`'s offsets in from it, clear of the window controls, and
+    /// everything around the tabs moves the window - a double click
+    /// maximizes it (zooms it on macOS). The tabs and the application button
+    /// stay controls. For a `WindowDecorations::NoTitle` window that shows no
+    /// title row above the ribbon.
+    pub const fn set_tabs_in_titlebar(&mut self, chrome: TabsInTitlebar) {
+        self.tabs_in_titlebar = OptionTabsInTitlebar::Some(chrome);
+    }
+
+    /// [`Self::set_tabs_in_titlebar`] for the builder chain.
+    #[must_use]
+    pub const fn with_tabs_in_titlebar(mut self, chrome: TabsInTitlebar) -> Self {
+        self.set_tabs_in_titlebar(chrome);
         self
     }
 
@@ -3183,7 +3650,7 @@ impl Ribbon {
     /// `layout()` logic.
     #[must_use]
     pub fn dom(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Adaptive)
+        self.themed(RibbonChromeMode::Adaptive)
     }
 
     /// Builds ONLY the desktop chrome (tab strip + content band), with no
@@ -3194,7 +3661,7 @@ impl Ribbon {
     /// breakpoint swaps the structure.
     #[must_use]
     pub fn dom_desktop(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Desktop)
+        self.themed(RibbonChromeMode::Desktop)
     }
 
     /// Builds ONLY the touch chrome: the full-width active-tab button (tap
@@ -3204,17 +3671,99 @@ impl Ribbon {
     /// relayout). See [`Self::dom_desktop`] for the pairing contract.
     #[must_use]
     pub fn dom_mobile(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Mobile)
+        self.themed(RibbonChromeMode::Mobile)
     }
 
-    fn build_chrome(self, mode: RibbonChromeMode) -> Dom {
+    /// `mode`'s chrome in the ribbon's theme: a pinned theme is that look;
+    /// no theme follows the app theme - the ribbon built in both looks and
+    /// merged into ONE tree in the structure of the theme the DOM is built
+    /// for (`UiTheme::current()`), every node carrying each look's
+    /// declarations in its `@theme(<name>)` block.
+    ///
+    /// The active tab's scaling is decided once, before either look is
+    /// built: both lay their parts out on the same metrics, so both build the
+    /// same structure - and the window is asked about each width once.
+    fn themed(self, mode: RibbonChromeMode) -> Dom {
+        let scales = self.scales_for(mode);
+        if let Some(theme) = self.theme.into_option() { self.build_in(theme, mode, &scales) } else {
+            let flat = self.clone().build_in(UiTheme::Flat, mode, &scales);
+            let flora = self.build_in(UiTheme::Flora, mode, &scales);
+            crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
+        }
+    }
+
+    /// How the active tab's groups are drawn (Office's ribbon scaling,
+    /// [`walk_scaling_steps`]): the first step - every group as the app built
+    /// it, then narrower and narrower - whose width fits the ribbon's. The
+    /// width is [`Self::available_width`] when the app set one, else the
+    /// window's the DOM is built for, asked through the recorded size queries
+    /// (`build_window_width_less_than`): only the widths of the steps tried,
+    /// widest first, so a resize rebuilds the ribbon exactly when it crosses
+    /// one of them. Outside a window's build, with no width set, every group
+    /// is drawn as built. The touch chrome shows one group at a time and is
+    /// never scaled.
+    fn scales_for(&self, mode: RibbonChromeMode) -> Vec<GroupScale> {
+        let Some(tab) = self.tabs.as_slice().get(self.active_tab) else {
+            return Vec::new();
+        };
+        let groups = tab.groups.as_slice();
+        if matches!(mode, RibbonChromeMode::Mobile) {
+            return vec![GroupScale::FULL; groups.len()];
+        }
+        let available = self.available_width;
+        if available > 0.0 {
+            chosen_scales(groups, |total| total + FIT_SLACK_PX <= available)
+        } else {
+            chosen_scales(groups, |total| {
+                !matches!(
+                    azul_core::callbacks::build_window_width_less_than(total + FIT_SLACK_PX),
+                    Some(true)
+                )
+            })
+        }
+    }
+
+    /// `mode`'s chrome in exactly `theme`'s look: flat is the palette's own
+    /// parts; flora fills every part the caller left `None` with flora's
+    /// paint on the same geometry (`themes::flora::ribbon_style`) - and its
+    /// own tab row, which it cuts as Firefox's (Australis): its application
+    /// button and selected tab carry curves, unless the caller's part
+    /// replaced flora's. The active tab's groups are drawn at `scales`.
+    fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode, scales: &[GroupScale]) -> Dom {
+        let mut curves = TabRowCurves::default();
+        if theme == UiTheme::Flora {
+            use crate::widgets::themes::flora;
+            if self.style.app_button_style.is_none() {
+                curves.app_button = Some(flora::tab_curves(true));
+            }
+            if self.style.tab_active_style.is_none() {
+                curves.selected_tab = Some(flora::tab_curves(false));
+            }
+            self.style = flora::ribbon_style(self.style);
+        }
+        self.build_chrome(mode, theme, &curves, scales)
+    }
+
+    fn build_chrome(
+        self,
+        mode: RibbonChromeMode,
+        theme: UiTheme,
+        curves: &TabRowCurves,
+        scales: &[GroupScale],
+    ) -> Dom {
         let Self {
             app_button,
             tabs,
             active_tab,
             on_tab_click,
+            tabs_in_titlebar,
             style,
             behavior,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `themed`.
+            theme: _,
+            // Already turned into `scales` by `themed`.
+            available_width: _,
         } = self;
         let has_callback = on_tab_click.is_some();
 
@@ -3233,15 +3782,31 @@ impl Ribbon {
             .unwrap_or_default();
 
         let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
+        // The first tab stands right after the application button when there
+        // is one: a stone of its own, over the strip's rule.
+        let after_the_app_button = app_button.is_some();
 
         if let Some(ab) = app_button.into_option() {
+            let RibbonAppButton {
+                label,
+                on_click,
+                menu,
+            } = ab;
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
-                .with_css_props(style.resolved_app_button_style())
+                .with_css_props(as_control(
+                    style.resolved_app_button_style(),
+                    tabs_in_titlebar,
+                ))
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
-                    ab.label,
+                    label,
                 )]));
-            if let Some(oc) = ab.on_click.into_option() {
+            if let Some(look) = curves.app_button.as_ref() {
+                for curve in crate::widgets::tabs::australis_curves(look) {
+                    d.add_child(curve);
+                }
+            }
+            if let Some(oc) = on_click.into_option() {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::Click),
@@ -3253,6 +3818,12 @@ impl Ribbon {
                     }]
                     .into(),
                 );
+            }
+            // The File menu: hung on the button (its anchor) as a window the
+            // button's click opens and closes - after its other parts, so the
+            // label stays the button's first child.
+            if let Some(menu) = menu.into_option() {
+                crate::widgets::ribbon_file_menu::hang_on_app_button(&mut d, menu);
             }
             bar_children.push(d);
         }
@@ -3288,10 +3859,26 @@ impl Ribbon {
             };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
-                .with_css_props(part_style)
+                .with_css_props(as_control(part_style, tabs_in_titlebar))
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                     tab.label.clone(),
                 )]));
+            // The selected tab's curves go after its label: the label stays
+            // the tab's first child in every look. Right after the
+            // application button it hangs no run-out on that side: the
+            // button's stone covers the rule there.
+            if idx == active_tab {
+                if let Some(look) = curves.selected_tab.as_ref() {
+                    let parts = if idx == 0 && after_the_app_button {
+                        crate::widgets::tabs::australis_curves(&look.after_a_stone())
+                    } else {
+                        crate::widgets::tabs::australis_curves(look)
+                    };
+                    for curve in parts {
+                        d.add_child(curve);
+                    }
+                }
+            }
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
@@ -3347,9 +3934,15 @@ impl Ribbon {
                 .with_css_props(style.resolved_tab_filler_style()),
         );
 
+        // In the titlebar the strip runs up to the window's edges, holds its
+        // tabs clear of the window controls and moves the window.
+        let tab_bar_style = match tabs_in_titlebar.into_option() {
+            Some(chrome) => chrome.strip_style(&style.resolved_tab_bar_style()),
+            None => style.resolved_tab_bar_style(),
+        };
         let tab_bar = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_BAR))
-            .with_css_props(style.resolved_tab_bar_style())
+            .with_css_props(tab_bar_style)
             .with_children(DomVec::from_vec(bar_children));
 
         let mut group_doms: Vec<Dom> =
@@ -3358,7 +3951,11 @@ impl Ribbon {
                     .groups
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|g| group_dom(g, &style, behavior))
+                    .enumerate()
+                    .map(|(i, g)| {
+                        let scale = scales.get(i).copied().unwrap_or(GroupScale::FULL);
+                        group_dom(g, &style, behavior, theme, scale)
+                    })
                     .collect(),
                 None => Vec::new(),
             };
@@ -3388,7 +3985,7 @@ impl Ribbon {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
             .with_css_props(style.resolved_mobile_tab_button_style())
             .with_children(DomVec::from_vec(vec![
-                crate::widgets::widget_p()
+                crate::widgets::widget_p_chrome()
                     .with_css_props(style.resolved_mobile_tab_label_style())
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(active_label),
@@ -3564,8 +4161,13 @@ impl Ribbon {
                 vec![mobile_tab_button, mobile_tab_overlay, band]
             }
         };
+        // The root carries the theme marker (`__azul-theme-<name>`), like
+        // every themed widget: the look it was BUILT in.
         let mut container = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_RIBBON[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(style.resolved_container_style())
             .with_children(DomVec::from_vec(children));
         // The chrome state (collapse flag) lives on the container as a
@@ -3593,44 +4195,369 @@ impl Ribbon {
 
 // -- DOM assembly helpers --
 
+/// The Australis curves a look hangs off the tab row's stones: flora's own
+/// application button and selected tab (`themes::flora::tab_curves`).
+/// `None` where the look draws none - flat's Office tabs are boxes - or
+/// where the caller's own part replaced the look's.
+#[derive(Debug, Clone, Default)]
+struct TabRowCurves {
+    app_button: Option<crate::widgets::tabs::TabCurveLook>,
+    selected_tab: Option<crate::widgets::tabs::TabCurveLook>,
+}
+
+/// A tab's or the application button's part, with
+/// [`TabsInTitlebar::control`] appended when the strip is the window's title
+/// bar: pressing the control presses it, and dragging it does not move the
+/// window.
+fn as_control(
+    part: CssPropertyWithConditionsVec,
+    chrome: OptionTabsInTitlebar,
+) -> CssPropertyWithConditionsVec {
+    if chrome.is_none() {
+        return part;
+    }
+    let mut v = part.into_library_owned_vec();
+    v.push(TabsInTitlebar::control());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
 /// `base` with `extra` appended (inline CSS resolves last-wins, so `extra`
 /// overrides `base` where they collide).
 fn merged_style(
     base: &CssPropertyWithConditionsVec,
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    if extra.as_ref().is_empty() {
-        return base.clone();
+    crate::widgets::themes::theme_blocks::stack_parts(base, extra)
+}
+
+/// Added to a disabled ribbon button ([`RibbonButton::disabled_reason`]),
+/// next to the Button's own `BUTTON_DISABLED_CLASS`: the disabled state
+/// itself (dimmed, inert, unavailable, the reason as tooltip) is the
+/// Button's (`Button::with_disabled`).
+pub const RIBBON_DISABLED_CLASS: &str = "__azul-native-ribbon-button-disabled";
+
+// -- Office's control kinds --
+//
+// A large button is Office's 32 px icon over its label. A label of two or
+// more words is set on two balanced lines ("New / E-mail", "Send/Receive /
+// All Folders") and a menu's ▾ follows its last word on the second line; a
+// one-word label stays on one line with the ▾ under it ("Move / ▾"). A split
+// button with its own arrow callback is two buttons: a large one the icon
+// over "Paste ▾", a small one the icon and label beside the ▾. Small items -
+// small buttons, check boxes, combo and drop-down boxes - stack three to a
+// column. A list gallery (`RibbonGallery::columns`) is Outlook's Quick
+// Steps: its commands, icon beside name, in columns of three.
+
+/// The class of a split button's wrapper (its main part and its arrow part).
+pub const RIBBON_SPLIT_CLASS: &str = "__azul-native-ribbon-split";
+/// Added to a split button's main part.
+pub const RIBBON_SPLIT_MAIN_CLASS: &str = "__azul-native-ribbon-split-main";
+/// Added to a split button's arrow part.
+pub const RIBBON_SPLIT_ARROW_CLASS: &str = "__azul-native-ribbon-split-arrow";
+static CLS_SPLIT: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_SPLIT_CLASS))];
+static CLS_LARGE_CONTENT: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-large-content",
+))];
+static CLS_LARGE_LABEL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-large-label",
+))];
+static CLS_GALLERY_COLUMN: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-column",
+))];
+static CLS_GALLERY_CELL_ICON: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-cell-icon",
+))];
+/// Added to the strip of a list gallery (`RibbonGallery::columns` > 0).
+pub const RIBBON_GALLERY_LIST_CLASS: &str = "__azul-native-ribbon-gallery-list";
+
+/// Added to a group the ribbon collapsed into one button (a tab too wide for
+/// the ribbon, see the module docs), next to the group's own class.
+pub const RIBBON_GROUP_COLLAPSED_CLASS: &str = "__azul-native-ribbon-group-collapsed";
+/// The button a collapsed group is: its icon over its label and ▾.
+pub const RIBBON_GROUP_BUTTON_CLASS: &str = "__azul-native-ribbon-group-button";
+/// The `<transient-window>` a collapsed group's button opens: the group's
+/// last child, so the group is its anchor.
+pub const RIBBON_GROUP_POPUP_WINDOW_CLASS: &str = "__azul-native-ribbon-group-popup-window";
+/// The panel inside it that holds the whole group.
+pub const RIBBON_GROUP_POPUP_CLASS: &str = "__azul-native-ribbon-group-popup";
+static CLS_GROUP_POPUP_WINDOW: &[IdOrClass] = &[Class(AzString::from_const_str(
+    RIBBON_GROUP_POPUP_WINDOW_CLASS,
+))];
+static CLS_GROUP_POPUP: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_GROUP_POPUP_CLASS))];
+
+/// How many small items Office stacks in one column, and how many rows a
+/// list gallery has: three 22 px rows fill the 68 px item area.
+const ROWS_PER_COLUMN: usize = 3;
+
+/// The no-break space that joins the words of one line of a large label.
+const NO_BREAK_SPACE: char = '\u{a0}';
+
+/// A large button's content when its label wraps: the icon over the label
+/// block, centred.
+static LARGE_CONTENT_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The 32 px icon of a wrapped large button: one icon tall, so the icon and
+/// two label lines fit the 66 px button.
+static LARGE_ICON_LINE_STYLE: &[Cond] = &[Cond::simple(P::const_line_height(
+    StyleLineHeight::Length(PixelValue::const_px(32)),
+))];
+
+/// The block around a wrapped label: a block formatting context, so the
+/// label inside it can be as wide as its longer line (a flex item cannot
+/// be `width: min-content`). Its own line is the label's 13 px, so its strut
+/// adds nothing under the label.
+static LARGE_LABEL_BLOCK_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Block)),
+    Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+    Cond::simple(P::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(13),
+    ))),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// APPENDED to the large label style for a wrapped label: the label is as
+/// wide as its longer line (its words are joined by no-break spaces but at
+/// the one break) and its lines are 13 px, two of them under the 32 px icon:
+/// 58 px, the content box of the 66 px button.
+static LARGE_LABEL_LINES_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::InlineBlock)),
+    Cond::simple(P::const_width(LayoutWidth::MinContent)),
+    Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+    Cond::simple(P::const_vertical_align(StyleVerticalAlign::Top)),
+    Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(0))),
+    Cond::simple(P::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(13),
+    ))),
+];
+
+/// A split button's wrapper: the two parts stacked (large) or side by side
+/// (small), each part a full button with its own hover.
+static SPLIT_LARGE_STYLE: &[Cond] = &[
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    Cond::simple(P::const_height(LayoutHeight::const_px(66))),
+    Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(1))),
+];
+
+static SPLIT_SMALL_STYLE: &[Cond] = &[
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+];
+
+/// APPENDED to the large button style for a split button's main part: the
+/// icon alone, the top 38 px of the 66 px button.
+static SPLIT_LARGE_MAIN_STYLE: &[Cond] = &[
+    Cond::simple(P::const_height(LayoutHeight::const_px(38))),
+    Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(0))),
+    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+];
+
+/// APPENDED to the large button style for a split button's arrow part: the
+/// label and ▾ in the rest of the button.
+static SPLIT_LARGE_ARROW_STYLE: &[Cond] = &[
+    Cond::simple(P::const_height(LayoutHeight::Auto)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(0))),
+    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(0))),
+    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(3))),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(3))),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Start)),
+];
+
+/// APPENDED to the small button style for a split button's main part.
+static SPLIT_SMALL_MAIN_STYLE: &[Cond] = &[Cond::simple(P::const_padding_right(
+    LayoutPaddingRight::const_px(2),
+))];
+
+/// APPENDED to the small button style for a split button's arrow part: a
+/// 14 px column for the ▾.
+static SPLIT_SMALL_ARROW_STYLE: &[Cond] = &[
+    Cond::simple(P::const_width(LayoutWidth::const_px(14))),
+    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(0))),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(0))),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+];
+
+/// One column of a list gallery: three cells, as wide as the widest.
+static GALLERY_LIST_COLUMN_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// APPENDED to the gallery cell style for a list gallery's cell: a 22 px
+/// row, the icon beside the name, no rule between the cells.
+static GALLERY_LIST_CELL_STYLE: &[Cond] = &[
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Start)),
+    Cond::simple(P::const_width(LayoutWidth::Auto)),
+    Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(1))),
+    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
+    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(3))),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(8))),
+    Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(0))),
+];
+
+/// The 16 px box a list gallery cell's preview (its icon) sits in.
+static GALLERY_LIST_ICON_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+    Cond::simple(P::const_width(LayoutWidth::const_px(16))),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The word a balanced two-line label breaks before: the boundary that makes
+/// the longer line shortest - a tie keeps the longer FIRST line, as Office's
+/// "Run Rules / Now". `None` for a label of one word.
+fn balanced_break(words: &[&str]) -> Option<usize> {
+    if words.len() < 2 {
+        return None;
     }
-    let mut v: Vec<Cond> = base.as_ref().to_vec();
-    v.extend_from_slice(extra.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    let widths: Vec<usize> = words.iter().map(|w| w.chars().count()).collect();
+    let total = widths.iter().sum::<usize>() + words.len() - 1;
+    let mut best: Option<(usize, usize)> = None;
+    let mut first = 0_usize;
+    for k in 1..words.len() {
+        first += widths[k - 1] + usize::from(k > 1);
+        let longer = first.max(total - first - 1);
+        if best.is_none_or(|(b, _)| longer <= b) {
+            best = Some((longer, k));
+        }
+    }
+    best.map(|(_, k)| k)
 }
 
-/// Expands ribbon button config to the existing [`Button`] widget with the
-/// given part styles injected through `Button`'s public style fields.
-fn styled_button(
-    icon: AzString,
-    label: AzString,
-    trailing_icon: AzString,
-    container_style: CssPropertyWithConditionsVec,
-    icon_style: CssPropertyWithConditionsVec,
-    label_style: CssPropertyWithConditionsVec,
-    trailing_icon_style: CssPropertyWithConditionsVec,
-    on_click: OptionButtonOnClick,
-) -> Dom {
-    let mut b = Button::create(label);
-    b.icon = icon;
-    b.trailing_icon = trailing_icon;
-    b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
-    b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
-    b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
-    b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
-    b.on_click = on_click;
-    b.dom()
+/// A large button's label text as Office sets it: the one break of
+/// [`balanced_break`] a plain space and every other space a no-break one, so
+/// the label's min-content width IS its longer line; with a menu, a
+/// no-break space glues the ▾ (the next inline) to the last word - or, for
+/// a one-word label, a plain space puts it on a line of its own.
+fn large_label_text(label: &str, arrow: bool) -> String {
+    let words: Vec<&str> = label.split_whitespace().collect();
+    let nbsp = NO_BREAK_SPACE.to_string();
+    let mut out = String::with_capacity(label.len() + 2);
+    if let Some(k) = balanced_break(&words) {
+        out.push_str(&words[..k].join(&nbsp));
+        out.push(' ');
+        out.push_str(&words[k..].join(&nbsp));
+        if arrow {
+            out.push(NO_BREAK_SPACE);
+        }
+    } else {
+        out.push_str(label.trim());
+        if arrow {
+            out.push(' ');
+        }
+    }
+    out
 }
 
-fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
+/// Whether a large button's label is set on two lines (two or more words).
+fn label_wraps(label: &str) -> bool {
+    label.split_whitespace().nth(1).is_some()
+}
+
+/// A large button's label block: a centred inline-block `<p>` as wide as its
+/// longer line ([`large_label_text`]), the ▾ inline at its end.
+fn large_label_block(label: &str, arrow: bool, s: &RibbonStyle) -> Dom {
+    let lines = merged_style(
+        &s.resolved_large_label_style(),
+        &CssPropertyWithConditionsVec::from_const_slice(LARGE_LABEL_LINES_STYLE),
+    );
+    let mut children = vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+        AzString::from(large_label_text(label, arrow)),
+    )];
+    if arrow {
+        children.push(
+            Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
+                .with_css_props(s.resolved_arrow_icon_style()),
+        );
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_LARGE_LABEL))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            LARGE_LABEL_BLOCK_STYLE,
+        ))
+        .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_chrome()
+            .with_css_props(lines)
+            .with_children(DomVec::from_vec(children))]))
+}
+
+/// The content of a large button whose label wraps: the 32 px icon over the
+/// label block. Handed to the Button as its icon DOM; the Button's own label
+/// stays empty and its name is the label (`alt`).
+fn large_content(icon: &AzString, label: &str, arrow: bool, s: &RibbonStyle) -> Dom {
+    let mut children = Vec::with_capacity(2);
+    if !icon.as_str().is_empty() {
+        children.push(Dom::create_icon(icon.clone()).with_css_props(merged_style(
+            &s.resolved_large_icon_style(),
+            &CssPropertyWithConditionsVec::from_const_slice(LARGE_ICON_LINE_STYLE),
+        )));
+    }
+    children.push(large_label_block(label, arrow, s));
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_LARGE_CONTENT))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LARGE_CONTENT_STYLE))
+        .with_children(DomVec::from_vec(children))
+}
+
+/// The name a button is announced by: its `alt`, else its label.
+fn button_name(rb: &RibbonButton) -> AzString {
+    if rb.alt.as_str().is_empty() {
+        rb.label.clone()
+    } else {
+        rb.alt.clone()
+    }
+}
+
+/// A built button node, marked disabled for the ribbon's own class.
+fn finish_button(button: crate::widgets::button::Button, disabled: bool) -> Dom {
+    let mut dom = button.dom();
+    if disabled {
+        dom.root.add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
+    }
+    dom
+}
+
+fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
+    if rb.is_split() {
+        return split_button_dom(rb, large, s, theme);
+    }
+    let disabled = rb.is_disabled();
     let base = if large {
         &s.resolved_large_button_style()
     } else {
@@ -3641,9 +4568,11 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
     } else {
         base.clone()
     };
-    let trailing = match rb.arrow {
-        RibbonArrow::None => AzString::from_const_str(""),
-        RibbonArrow::Menu | RibbonArrow::Split => AzString::from_const_str("arrow_drop_down"),
+    let has_arrow = rb.arrow != RibbonArrow::None;
+    let trailing = if has_arrow {
+        AzString::from_const_str("arrow_drop_down")
+    } else {
+        AzString::from_const_str("")
     };
     let (icon_style, label_style) = if large {
         (
@@ -3656,22 +4585,152 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
             s.resolved_small_label_style(),
         )
     };
-    styled_button(
-        rb.icon,
-        rb.label,
-        trailing,
-        container,
-        icon_style,
-        label_style,
-        s.resolved_arrow_icon_style(),
-        rb.on_click,
+    // A large label of two or more words is set on two lines (and its ▾ on
+    // the second): the Button carries the icon and label block as its icon
+    // DOM, and the label as its name.
+    if large && label_wraps(rb.label.as_str()) {
+        let name = button_name(&rb);
+        let content = large_content(&rb.icon, rb.label.as_str(), has_arrow, s);
+        let mut button = styled_button(
+            rb.icon,
+            AzString::from_const_str(""),
+            AzString::from_const_str(""),
+            container,
+            icon_style,
+            label_style,
+            s.resolved_arrow_icon_style(),
+            rb.on_click,
+            rb.disabled_reason,
+            name,
+            OptionUiTheme::Some(theme),
+        );
+        button.icon_dom = OptionDom::Some(content);
+        return finish_button(button, disabled);
+    }
+    // The Button drops a disabled command's click, dims it and says why.
+    finish_button(
+        styled_button(
+            rb.icon,
+            rb.label,
+            trailing,
+            container,
+            icon_style,
+            label_style,
+            s.resolved_arrow_icon_style(),
+            rb.on_click,
+            rb.disabled_reason,
+            rb.alt,
+            OptionUiTheme::Some(theme),
+        ),
+        disabled,
     )
 }
 
-fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+/// A split button with its own arrow callback: two Buttons in a wrapper. A
+/// large one is the icon (the primary command) over its label and ▾ (the
+/// arrow); a small one is the icon and label beside a 14 px ▾. A disabled
+/// split button is disabled in both parts; a toggled one lights its main
+/// part.
+fn split_button_dom(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
+    let disabled = rb.is_disabled();
+    let name = button_name(&rb);
+    let arrow_name = AzString::from(alloc::format!("{} options", name.as_str()));
+    let (base, part_main, part_arrow) = if large {
+        (
+            s.resolved_large_button_style(),
+            SPLIT_LARGE_MAIN_STYLE,
+            SPLIT_LARGE_ARROW_STYLE,
+        )
+    } else {
+        (
+            s.resolved_small_button_style(),
+            SPLIT_SMALL_MAIN_STYLE,
+            SPLIT_SMALL_ARROW_STYLE,
+        )
+    };
+    let mut main_style =
+        merged_style(&base, &CssPropertyWithConditionsVec::from_const_slice(part_main));
+    if rb.toggled {
+        main_style = merged_style(&main_style, &s.resolved_checked_style());
+    }
+    let arrow_style =
+        merged_style(&base, &CssPropertyWithConditionsVec::from_const_slice(part_arrow));
+    let (icon_style, label_style) = if large {
+        (s.resolved_large_icon_style(), s.resolved_large_label_style())
+    } else {
+        (s.resolved_small_icon_style(), s.resolved_small_label_style())
+    };
+    let label = rb.label.as_str().to_string();
+    let main = styled_button(
+        rb.icon,
+        if large {
+            AzString::from_const_str("")
+        } else {
+            rb.label.clone()
+        },
+        AzString::from_const_str(""),
+        main_style,
+        icon_style.clone(),
+        label_style.clone(),
+        s.resolved_arrow_icon_style(),
+        rb.on_click,
+        rb.disabled_reason.clone(),
+        name,
+        OptionUiTheme::Some(theme),
+    );
+    let mut arrow = styled_button(
+        if large {
+            AzString::from_const_str("")
+        } else {
+            AzString::from_const_str("arrow_drop_down")
+        },
+        AzString::from_const_str(""),
+        AzString::from_const_str(""),
+        arrow_style,
+        if large {
+            icon_style
+        } else {
+            s.resolved_arrow_icon_style()
+        },
+        label_style,
+        s.resolved_arrow_icon_style(),
+        rb.on_arrow_click,
+        rb.disabled_reason,
+        arrow_name,
+        OptionUiTheme::Some(theme),
+    );
+    if large {
+        arrow.icon_dom = OptionDom::Some(large_label_block(&label, true, s));
+    }
+    let mut main = finish_button(main, disabled);
+    main.root.add_class(AzString::from_const_str(RIBBON_SPLIT_MAIN_CLASS));
+    let mut arrow = finish_button(arrow, disabled);
+    arrow.root.add_class(AzString::from_const_str(RIBBON_SPLIT_ARROW_CLASS));
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SPLIT))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(if large {
+            SPLIT_LARGE_STYLE
+        } else {
+            SPLIT_SMALL_STYLE
+        }))
+        .with_children(DomVec::from_vec(vec![main, arrow]))
+}
+
+/// One item in the ribbon's theme. An embedded widget the caller left
+/// without a theme (`None`) is part of the ribbon's look and is built in
+/// `theme`; one the caller pinned keeps its pin. A gallery shows at most
+/// `cells` cells in the ribbon (`None`: as many as the app asked for), the
+/// cap a tab too wide for the ribbon puts on its group's galleries.
+fn item_dom(
+    item: RibbonItem,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    cells: Option<usize>,
+) -> Dom {
     match item {
-        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s),
-        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s),
+        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s, theme),
+        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s, theme),
         RibbonItem::Column(col) => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_COLUMN))
             .with_css_props(s.resolved_column_style())
@@ -3679,7 +4738,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
                 col.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b))
+                    .map(|it| item_dom(it, s, b, theme, cells))
                     .collect(),
             )),
         RibbonItem::Row(row) => Dom::create_div()
@@ -3689,18 +4748,89 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
                 row.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b))
+                    .map(|it| item_dom(it, s, b, theme, cells))
                     .collect(),
             )),
-        RibbonItem::Combo(combo) => combo.dom(),
-        RibbonItem::Drop(drop) => drop.dom(),
-        RibbonItem::Check(check) => check.dom(),
-        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b),
+        RibbonItem::Combo(mut combo) => {
+            if combo.theme.is_none() {
+                combo.set_theme(theme);
+            }
+            combo.dom()
+        }
+        RibbonItem::Drop(mut drop) => {
+            if drop.theme.is_none() {
+                drop.set_theme(theme);
+            }
+            drop.dom()
+        }
+        RibbonItem::Check(mut check) => {
+            if check.theme.is_none() {
+                check.set_theme(theme);
+            }
+            check.dom()
+        }
+        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b, theme, cells),
         RibbonItem::Separator => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEPARATOR))
             .with_css_props(s.resolved_separator_style()),
         RibbonItem::Custom(dom) => dom,
     }
+}
+
+/// Whether Office stacks `item` with its neighbours: a small button, a check
+/// box, a combo or a drop-down box - or a row of them, which is one control
+/// tall (`RibbonX`'s `box`): Explorer's Show/hide is three check boxes, each
+/// with its label, over each other.
+const fn is_small_item(item: &RibbonItem) -> bool {
+    matches!(
+        item,
+        RibbonItem::SmallButton(_)
+            | RibbonItem::Check(_)
+            | RibbonItem::Combo(_)
+            | RibbonItem::Drop(_)
+            | RibbonItem::Row(_)
+    )
+}
+
+/// A group's top-level items with every run of two or more small items
+/// ([`is_small_item`]) packed into [`RibbonColumn`]s of three, top first -
+/// Office's Delete group (Ignore / Clean Up / Junk over each other), its
+/// Find group (the contact box, Address Book, Filter E-mail). A small item
+/// alone stays as it is (it sits at the top either way); a row keeps its
+/// items side by side and the columns a caller built are its own.
+fn stack_small_items(items: Vec<RibbonItem>) -> Vec<RibbonItem> {
+    fn flush(run: &mut Vec<RibbonItem>, out: &mut Vec<RibbonItem>) {
+        if run.len() < 2 {
+            out.append(run);
+            return;
+        }
+        let mut column: Vec<RibbonItem> = Vec::with_capacity(ROWS_PER_COLUMN);
+        for item in run.drain(..) {
+            column.push(item);
+            if column.len() == ROWS_PER_COLUMN {
+                out.push(RibbonItem::Column(RibbonColumn {
+                    items: RibbonItemVec::from_vec(core::mem::take(&mut column)),
+                }));
+            }
+        }
+        if !column.is_empty() {
+            out.push(RibbonItem::Column(RibbonColumn {
+                items: RibbonItemVec::from_vec(column),
+            }));
+        }
+    }
+    let mut out = Vec::with_capacity(items.len());
+    let mut run: Vec<RibbonItem> = Vec::new();
+    for item in items {
+        if is_small_item(&item) {
+            run.push(item);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(item);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
 }
 
 /// Appended to the group style when [`RibbonGroup::fills_space`] is set:
@@ -3717,18 +4847,35 @@ static GROUP_FILL_STYLE: &[Cond] = &[
     Cond::simple(P::const_min_width(LayoutMinWidth::const_px(160))),
 ];
 
-fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+/// One group of the active tab, drawn at `scale` (Office's ribbon scaling,
+/// [`walk_scaling_steps`]): as the app built it, with its buttons small or
+/// their icons alone ([`scaled_items`]) and its galleries showing fewer
+/// cells - or collapsed into one button that opens the whole group in a
+/// popup ([`collapsed_group_dom`]).
+fn group_dom(
+    group: RibbonGroup,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    scale: GroupScale,
+) -> Dom {
+    if scale.size == GroupSize::Collapsed {
+        return collapsed_group_dom(group, s, b, theme);
+    }
     let RibbonGroup {
         label,
         items,
         launcher,
         fills_space,
+        // The collapsed group's button shows the icon; a group drawn whole
+        // shows its items.
+        icon: _,
     } = group;
 
-    let item_doms: Vec<Dom> = items
-        .into_library_owned_vec()
+    let items = scaled_items(items.into_library_owned_vec(), scale.size);
+    let item_doms: Vec<Dom> = stack_small_items(items)
         .into_iter()
-        .map(|it| item_dom(it, s, b))
+        .map(|it| item_dom(it, s, b, theme, scale.gallery_cells))
         .collect();
 
     let items_row = Dom::create_div()
@@ -3747,7 +4894,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         );
     }
     footer_children.push(
-        crate::widgets::widget_p()
+        crate::widgets::widget_p_chrome()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
             .with_css_props(s.resolved_group_label_style())
             .with_children(DomVec::from_vec(vec![
@@ -3764,7 +4911,10 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
             s.resolved_small_label_style(),
             s.resolved_arrow_icon_style(),
             Some(l).into(),
-        ));
+            AzString::from_const_str(""),
+            AzString::from_const_str("More options"),
+            OptionUiTheme::Some(theme),
+        ).dom());
     }
     let footer = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_FOOTER))
@@ -3786,41 +4936,133 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         .with_children(DomVec::from_vec(vec![items_row, footer]))
 }
 
-fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+/// The cells the in-ribbon strip shows: the row of `visible` cells holding
+/// `selected` (the last row filled from the end; no selection - an index
+/// past the cells - is the first row), or every cell when `visible` is 0 or
+/// covers them all.
+fn gallery_window(len: usize, selected: usize, visible: usize) -> core::ops::Range<usize> {
+    if visible == 0 || visible >= len {
+        return 0..len;
+    }
+    let selected = if selected < len { selected } else { 0 };
+    let start = ((selected / visible) * visible).min(len - visible);
+    start..start + visible
+}
+
+/// How many cells a gallery's in-ribbon strip shows: a classic strip the
+/// `visible` cells around the selected one (every cell when `visible` is 0
+/// or covers them all), a list gallery its first `columns` x 3 commands (or
+/// its `visible` ones) - and at most `cap` of them, the cap a tab too wide
+/// for the ribbon puts on its group's galleries.
+fn gallery_shown(gallery: &RibbonGallery, cap: Option<usize>) -> usize {
+    let len = gallery.cells.len();
+    let asked = if gallery.columns > 0 {
+        let shown = if gallery.visible == 0 {
+            gallery.columns.saturating_mul(ROWS_PER_COLUMN)
+        } else {
+            gallery.visible
+        };
+        shown.min(len)
+    } else if gallery.visible == 0 || gallery.visible >= len {
+        len
+    } else {
+        gallery.visible
+    };
+    cap.map_or(asked, |cap| asked.min(cap))
+}
+
+fn gallery_dom(
+    gallery: RibbonGallery,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    cap: Option<usize>,
+) -> Dom {
+    let shown = gallery_shown(&gallery, cap);
     let RibbonGallery {
         cells,
         selected,
         on_select,
+        // Counted into `shown`.
+        visible: _,
+        columns,
     } = gallery;
+    // A list gallery is commands (Quick Steps): no cell stays selected, and
+    // its strip is the first `columns` x 3 cells.
+    let list = columns > 0;
     let has_callback = on_select.is_some();
+    let auto_select = b.auto_select_gallery && !list;
     let cells = cells.into_library_owned_vec();
+    let (strip_cells, selected) = if list {
+        (0..shown, usize::MAX)
+    } else {
+        (gallery_window(cells.len(), selected, shown), selected)
+    };
+    let cell_base = if list {
+        merged_style(
+            &s.resolved_gallery_cell_style(),
+            &CssPropertyWithConditionsVec::from_const_slice(GALLERY_LIST_CELL_STYLE),
+        )
+    } else {
+        s.resolved_gallery_cell_style()
+    };
 
     // The cells are built twice: once for the in-ribbon strip and once for
     // the expansion panel, so "More" can show every cell without a relayout.
     let build_cells = |in_panel: bool| -> Vec<Dom> {
         let mut out: Vec<Dom> = Vec::with_capacity(cells.len());
         for (idx, cell) in cells.iter().enumerate() {
+            // The strip shows its window of cells; the panel every cell.
+            if !in_panel && !strip_cells.contains(&idx) {
+                continue;
+            }
             let (classes, cell_style) = if idx == selected {
                 (
                     CLS_GALLERY_CELL_SELECTED,
-                    merged_style(
-                        &s.resolved_gallery_cell_style(),
-                        &s.resolved_gallery_cell_selected_style(),
-                    ),
+                    merged_style(&cell_base, &s.resolved_gallery_cell_selected_style()),
                 )
             } else {
-                (CLS_GALLERY_CELL, s.resolved_gallery_cell_style())
+                (CLS_GALLERY_CELL, cell_base.clone())
             };
-            let label = crate::widgets::widget_p()
-                .with_css_props(s.resolved_gallery_cell_label_style())
-                .with_children(DomVec::from_vec(vec![
-                    Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone()),
-                ]));
+            let children = if list {
+                // Quick Steps: the icon beside the name, a small button's.
+                vec![
+                    Dom::create_div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                            CLS_GALLERY_CELL_ICON,
+                        ))
+                        .with_css_props(merged_style(
+                            &s.resolved_small_icon_style(),
+                            &CssPropertyWithConditionsVec::from_const_slice(
+                                GALLERY_LIST_ICON_STYLE,
+                            ),
+                        ))
+                        .with_children(DomVec::from_vec(vec![cell.preview.clone()])),
+                    crate::widgets::widget_p_chrome()
+                        .with_css_props(s.resolved_small_label_style())
+                        .with_children(DomVec::from_vec(vec![
+                            Dom::create_text_do_not_use_without_block_level_wrapper(
+                                cell.label.clone(),
+                            ),
+                        ])),
+                ]
+            } else {
+                vec![
+                    cell.preview.clone(),
+                    crate::widgets::widget_p_chrome()
+                        .with_css_props(s.resolved_gallery_cell_label_style())
+                        .with_children(DomVec::from_vec(vec![
+                            Dom::create_text_do_not_use_without_block_level_wrapper(
+                                cell.label.clone(),
+                            ),
+                        ])),
+                ]
+            };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(cell_style)
-                .with_children(DomVec::from_vec(vec![cell.preview.clone(), label]));
-            if has_callback || b.auto_select_gallery {
+                .with_children(DomVec::from_vec(children));
+            if has_callback || auto_select {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::Click),
@@ -3831,10 +5073,13 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                         refany: RefAny::new(GalleryCellClickData {
                             cell_idx: idx,
                             on_select: on_select.clone(),
-                            auto_select: b.auto_select_gallery,
+                            auto_select,
                             in_panel,
-                            selected_style: s.resolved_gallery_cell_selected_style(),
-                            base_style: s.resolved_gallery_cell_style(),
+                            selected_style: merged_style(
+                                &cell_base,
+                                &s.resolved_gallery_cell_selected_style(),
+                            ),
+                            base_style: cell_base.clone(),
                         }),
                     }]
                     .into(),
@@ -3845,10 +5090,41 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
         out
     };
 
-    let strip = Dom::create_div()
+    // A list gallery's strip is its columns of three; a classic one is one
+    // row of cells.
+    let strip_children = if list {
+        let mut columns_out: Vec<Dom> = Vec::new();
+        let mut column: Vec<Dom> = Vec::with_capacity(ROWS_PER_COLUMN);
+        let list_column = |cells: Vec<Dom>| {
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_COLUMN))
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                    GALLERY_LIST_COLUMN_STYLE,
+                ))
+                .with_children(DomVec::from_vec(cells))
+        };
+        for cell in build_cells(false) {
+            column.push(cell);
+            if column.len() == ROWS_PER_COLUMN {
+                columns_out.push(list_column(core::mem::take(&mut column)));
+            }
+        }
+        if !column.is_empty() {
+            columns_out.push(list_column(column));
+        }
+        columns_out
+    } else {
+        build_cells(false)
+    };
+    let mut strip = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_STRIP))
         .with_css_props(s.resolved_gallery_strip_style())
-        .with_children(DomVec::from_vec(build_cells(false)));
+        .with_children(DomVec::from_vec(strip_children));
+    if list {
+        strip
+            .root
+            .add_class(AzString::from_const_str(RIBBON_GALLERY_LIST_CLASS));
+    }
 
     // Spinner column: scroll-up, scroll-down, and the "More" button that
     // toggles the expansion panel (the classic office-suite "More" chevron-over-bar).
@@ -3866,7 +5142,10 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                 s.resolved_small_label_style(),
                 s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
-            );
+                AzString::from_const_str(""),
+                AzString::from_const_str(["Previous row", "Next row", "More"][i]),
+                OptionUiTheme::Some(theme),
+            ).dom();
             // The third button is "More": it expands the panel.
             if i == 2 && b.expandable_gallery {
                 btn = btn.with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_MORE));
@@ -3911,6 +5190,1060 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_WRAPPER))
         .with_css_props(s.resolved_gallery_wrapper_style())
         .with_children(DomVec::from_vec(vec![frame, panel]))
+}
+
+// -- Ribbon scaling --
+//
+// Office scales a tab that does not fit its ribbon down step by step (its
+// "ribbon scaling": the size definitions and scaling policy of Windows'
+// Ribbon framework). First the large buttons become small ones, the label
+// beside a 16 px icon, three to a column with the group's small items; then
+// the galleries show fewer cells; then every button shows its icon alone,
+// still three to a column; and only then does a group collapse into one
+// large button - its icon over its label and ▾ - that opens the whole group
+// in a popup. Each step is one group's, the rightmost group first (Office's
+// order when a tab names none), and a group takes it only where it makes the
+// group narrower: three large buttons with short labels are narrower than a
+// column of small ones.
+//
+// Choosing a step needs every group's width at every step BEFORE anything is
+// laid out, so the ribbon measures its parts from the metrics their styles
+// declare - the paddings, borders and gaps of `theme_large_button`,
+// `theme_small_button`, `theme_group` and the gallery's parts, the 32 px and
+// 16 px icons, the 120 px gallery cells - and a label from its characters'
+// advances in a sans-serif UI face at the part's font size. The estimate
+// errs wide (`TEXT_WIDTH_FACTOR`, `FIT_SLACK_PX`): a group gives way a
+// little early rather than overflowing its window. Flora repaints the ribbon
+// on the same metrics, so one measure serves both looks.
+
+/// A large button's border box across its content: padding 7 + 7 and the
+/// chassis' 1 px border on each side (`theme_large_button`).
+const LARGE_BUTTON_FRAME_PX: f32 = 16.0;
+/// A large button's minimum width (`theme_large_button`).
+const LARGE_BUTTON_MIN_PX: f32 = 44.0;
+/// The margin after a large button (`theme_large_button`).
+const LARGE_BUTTON_GAP_PX: f32 = 1.0;
+/// A large button's icon (`theme_large_icon`).
+const LARGE_ICON_PX: f32 = 32.0;
+/// A large split button's arrow part across its label: padding 3 + 3 and
+/// its border (`SPLIT_LARGE_ARROW_STYLE`).
+const SPLIT_LARGE_ARROW_FRAME_PX: f32 = 8.0;
+/// A small button's padding 3 + 3 and border 1 + 1 (`theme_small_button`).
+const SMALL_BUTTON_FRAME_PX: f32 = 8.0;
+/// A small button's icon (`theme_small_icon`).
+const SMALL_ICON_PX: f32 = 16.0;
+/// The space before a small button's label (`theme_small_label`).
+const SMALL_LABEL_GAP_PX: f32 = 5.0;
+/// A small split button's arrow part (`SPLIT_SMALL_ARROW_STYLE`).
+const SPLIT_SMALL_ARROW_PX: f32 = 14.0;
+/// A menu's ▾ (`theme_arrow_icon`).
+const ARROW_PX: f32 = 14.0;
+/// A button label's font size (`theme_large_label`, `theme_small_label`).
+const LABEL_FONT_PX: f32 = 12.0;
+/// A group caption's font size (`theme_group_label`).
+const CAPTION_FONT_PX: f32 = 11.0;
+/// A drop-down box's font size (the drop-down widget's own).
+const DROP_DOWN_FONT_PX: f32 = 13.0;
+/// What a drop-down box puts around its longest choice: its padding, its
+/// border and its ▾.
+const DROP_DOWN_FRAME_PX: f32 = 34.0;
+/// The margin after a ribbon combo box (`theme_combo_wrapper_base`).
+const COMBO_GAP_PX: f32 = 2.0;
+/// A check box: 14 px, padding 2 + 2 and border 1 + 1 (`check_box`).
+const CHECK_BOX_PX: f32 = 20.0;
+/// A separator and its margins (`theme_separator`).
+const SEPARATOR_PX: f32 = 7.0;
+/// What an app's own control is taken to put around its texts and icons.
+const CUSTOM_FRAME_PX: f32 = 8.0;
+/// A group's padding 2 + 2 and its 1 px separator (`theme_group`).
+const GROUP_FRAME_PX: f32 = 5.0;
+/// A dialog launcher and the spacer that balances it
+/// (`theme_launcher_button`, `FOOTER_SPACER_STYLE`).
+const LAUNCHER_PX: f32 = 34.0;
+/// A group that fills the space shrinks to its floor: `GROUP_FILL_STYLE`'s
+/// min-width and the group's frame.
+const FILL_GROUP_MIN_PX: f32 = 165.0;
+/// A classic gallery cell (`theme_gallery_cell`).
+const GALLERY_CELL_PX: f32 = 120.0;
+/// A gallery's spinner column - 15 px and its 1 px rule - and its frame's
+/// border (`theme_gallery_spinner`, `theme_gallery_frame`).
+const GALLERY_FRAME_PX: f32 = 18.0;
+/// A gallery frame's minimum width (`theme_gallery_frame`).
+const GALLERY_MIN_PX: f32 = 137.0;
+/// A list gallery cell around its name: its border, its padding 3 + 8 and
+/// its 16 px icon box (`GALLERY_LIST_CELL_STYLE`, `GALLERY_LIST_ICON_STYLE`).
+const GALLERY_LIST_CELL_FRAME_PX: f32 = 28.0;
+/// The fewest cells a classic gallery shows in the ribbon as its tab
+/// narrows (a list gallery keeps one column): Office's in-ribbon galleries
+/// keep a few, and More shows them all.
+const GALLERY_MIN_CELLS: usize = 2;
+/// How much wider than Helvetica's advances a label is taken to be: the UI
+/// faces (San Francisco, Segoe UI, Cantarell) run a little wider.
+const TEXT_WIDTH_FACTOR: f32 = 1.1;
+/// Room left at the ribbon's edge for what the estimate misses.
+const FIT_SLACK_PX: f32 = 4.0;
+/// A collapsed group's button: the group's item area and its caption row
+/// (`GROUP_ITEMS_STYLE`, `GROUP_FOOTER_STYLE`) - Office's spans the group.
+const COLLAPSED_BUTTON_HEIGHT_PX: isize = 86;
+/// The icon of a collapsed group none of whose buttons has one.
+const GROUP_FALLBACK_ICON: &str = "apps";
+
+/// A character's advance in a sans-serif UI face, in thousandths of an em:
+/// Helvetica's, which the UI faces of macOS, Windows and Linux are close to
+/// (`TEXT_WIDTH_FACTOR` covers the rest). Ideographs, kana and hangul are an
+/// em wide; any other character is taken to be a wide letter.
+const fn advance_milli_em(c: char) -> u32 {
+    match c {
+        '\'' => 191,
+        'i' | 'j' | 'l' => 222,
+        '|' => 260,
+        ' ' | '\u{a0}' | '!' | ',' | '.' | '/' | ':' | ';' | '[' | '\\' | ']' | 'I' | 'f' | 't' => {
+            278
+        }
+        'r' | '(' | ')' | '-' | '`' => 333,
+        '{' | '}' => 334,
+        '"' => 355,
+        '*' => 389,
+        '^' => 469,
+        'J' | 'c' | 'k' | 's' | 'v' | 'x' | 'y' | 'z' => 500,
+        '0'..='9'
+        | '#'
+        | '$'
+        | '?'
+        | '_'
+        | 'L'
+        | 'a'
+        | 'b'
+        | 'd'
+        | 'e'
+        | 'g'
+        | 'h'
+        | 'n'..='q'
+        | 'u' => 556,
+        '+' | '<' | '=' | '>' | '~' => 584,
+        'F' | 'T' | 'Z' => 611,
+        '&' | 'A' | 'B' | 'E' | 'K' | 'P' | 'S' | 'V' | 'X' | 'Y' => 667,
+        'C' | 'D' | 'H' | 'N' | 'R' | 'U' | 'w' => 722,
+        'G' | 'O' | 'Q' => 778,
+        'M' | 'm' => 833,
+        '%' => 889,
+        'W' => 944,
+        '@' => 1015,
+        '\u{1100}'..='\u{11ff}'
+        | '\u{2e80}'..='\u{a4cf}'
+        | '\u{ac00}'..='\u{d7a3}'
+        | '\u{f900}'..='\u{faff}'
+        | '\u{ff00}'..='\u{ff60}' => 1000,
+        _ => 600,
+    }
+}
+
+/// The width of `text` set at `font_px`, as the ribbon estimates it.
+fn text_px(text: &str, font_px: f32) -> f32 {
+    let milli: u64 = text.chars().map(|c| u64::from(advance_milli_em(c))).sum();
+    milli as f32 / 1000.0 * font_px * TEXT_WIDTH_FACTOR
+}
+
+/// The tracking of a group caption in flora's capitals
+/// (`themes::flora::CAPS_TITLE`), in em.
+const CAPTION_CAPS_TRACKING_EM: f32 = 0.12;
+
+/// A group caption's width in the wider of the two looks, flora's capitals:
+/// every letter its capital's advance, tracked by
+/// [`CAPTION_CAPS_TRACKING_EM`]. Capitals are never narrower than flat's
+/// mixed case, so one measure still serves both looks.
+fn caption_px(caption: &str) -> f32 {
+    let capitals: String = caption.chars().flat_map(char::to_uppercase).collect();
+    let tracking = caption.chars().count() as f32 * CAPTION_CAPS_TRACKING_EM * CAPTION_FONT_PX;
+    text_px(&capitals, CAPTION_FONT_PX) + tracking
+}
+
+/// A button label's width.
+fn label_px(text: &str) -> f32 {
+    text_px(text, LABEL_FONT_PX)
+}
+
+/// A large button's label block as [`large_label_text`] sets it: the longer
+/// of its two balanced lines, the ▾ glued to the last word - or its one
+/// word over the ▾.
+fn large_label_px(label: &str, arrow: bool) -> f32 {
+    let words: Vec<&str> = label.split_whitespace().collect();
+    if let Some(k) = balanced_break(&words) {
+        let glued = if arrow {
+            label_px("\u{a0}") + ARROW_PX
+        } else {
+            0.0
+        };
+        label_px(&words[..k].join(" ")).max(label_px(&words[k..].join(" ")) + glued)
+    } else {
+        let word = label_px(label.trim());
+        if arrow {
+            word.max(ARROW_PX)
+        } else {
+            word
+        }
+    }
+}
+
+/// A large button across, its margin included.
+fn large_button_px(rb: &RibbonButton) -> f32 {
+    if rb.is_split() {
+        // The icon over the label and its ▾: two parts, as wide as the wider.
+        let main = LARGE_ICON_PX + LARGE_BUTTON_FRAME_PX;
+        let arrow_part = large_label_px(rb.label.as_str(), true) + SPLIT_LARGE_ARROW_FRAME_PX;
+        return main.max(arrow_part).max(LARGE_BUTTON_MIN_PX) + LARGE_BUTTON_GAP_PX;
+    }
+    let icon = if rb.icon.as_str().is_empty() {
+        0.0
+    } else {
+        LARGE_ICON_PX
+    };
+    let label = large_label_px(rb.label.as_str(), rb.arrow != RibbonArrow::None);
+    (icon.max(label) + LARGE_BUTTON_FRAME_PX).max(LARGE_BUTTON_MIN_PX) + LARGE_BUTTON_GAP_PX
+}
+
+/// A small button across; `icon_only` drops the label of a button that has
+/// an icon ([`icon_only`]).
+fn small_button_px(rb: &RibbonButton, icon_only: bool) -> f32 {
+    let has_icon = !rb.icon.as_str().is_empty();
+    let icon = if has_icon { SMALL_ICON_PX } else { 0.0 };
+    let label = if (icon_only && has_icon) || rb.label.as_str().is_empty() {
+        0.0
+    } else {
+        SMALL_LABEL_GAP_PX + label_px(rb.label.as_str())
+    };
+    if rb.is_split() {
+        // The main part - padded 2 on its right, not 3 - beside the ▾'s part.
+        return SMALL_BUTTON_FRAME_PX - 1.0 + icon + label + SPLIT_SMALL_ARROW_PX;
+    }
+    let arrow = if rb.arrow == RibbonArrow::None {
+        0.0
+    } else {
+        ARROW_PX
+    };
+    SMALL_BUTTON_FRAME_PX + icon + label + arrow
+}
+
+/// A combo box across: the width the app gave its wrapper
+/// ([`RibbonStyle::styled_combo_box`]), else the combo box's own minimum.
+fn combo_px(combo: &ComboBox) -> f32 {
+    let declared = combo.wrapper_style.as_ref().and_then(|style| {
+        style.as_ref().iter().rev().find_map(|declaration| {
+            if !declaration.apply_if.as_ref().is_empty() {
+                return None;
+            }
+            match &declaration.property {
+                P::Width(css::CssPropertyValue::Exact(LayoutWidth::Px(px))) => {
+                    px.to_pixels_absolute().into_option()
+                }
+                _ => None,
+            }
+        })
+    });
+    declared.unwrap_or(super::combobox::MIN_WIDTH as f32) + COMBO_GAP_PX
+}
+
+/// A drop-down box across: its longest choice and what it puts around it.
+fn drop_px(drop: &DropDown) -> f32 {
+    drop.choices
+        .as_ref()
+        .iter()
+        .map(|choice| text_px(choice.as_str(), DROP_DOWN_FONT_PX))
+        .fold(0.0, f32::max)
+        + DROP_DOWN_FRAME_PX
+}
+
+/// An app's own control across, roughly: its texts at a label's size and its
+/// icons side by side, and a little room around them.
+fn custom_px(dom: &Dom) -> f32 {
+    fn content(dom: &Dom) -> f32 {
+        let own = match dom.root.get_node_type() {
+            NodeType::Text(text) => label_px(text.as_str()),
+            NodeType::Icon(_) => SMALL_ICON_PX,
+            _ => 0.0,
+        };
+        own + dom.children.as_ref().iter().map(content).sum::<f32>()
+    }
+    content(dom) + CUSTOM_FRAME_PX
+}
+
+/// A gallery across: its strip of cells - at most `fit.cells` of them, or
+/// as narrow as its frame lets it in a group that fills the space - its
+/// spinner and its frame.
+fn gallery_px(gallery: &RibbonGallery, fit: Fit) -> f32 {
+    if fit.elastic {
+        return GALLERY_MIN_PX;
+    }
+    let shown = gallery_shown(gallery, fit.cells);
+    let strip = if gallery.columns > 0 {
+        // Columns of three commands, each as wide as its widest.
+        let cells: Vec<f32> = gallery
+            .cells
+            .as_ref()
+            .iter()
+            .take(shown)
+            .map(|cell| {
+                GALLERY_LIST_CELL_FRAME_PX + SMALL_LABEL_GAP_PX + label_px(cell.label.as_str())
+            })
+            .collect();
+        cells
+            .chunks(ROWS_PER_COLUMN)
+            .map(|column| column.iter().copied().fold(0.0, f32::max))
+            .sum::<f32>()
+    } else {
+        shown as f32 * GALLERY_CELL_PX
+    };
+    (strip + GALLERY_FRAME_PX).max(GALLERY_MIN_PX)
+}
+
+/// How far a group is scaled down, in the order a tab that does not fit
+/// takes the sizes (Office's group sizes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum GroupSize {
+    /// As the app built it.
+    Large,
+    /// Its large buttons are small ones - the label beside a 16 px icon -
+    /// stacked three to a column with its small items.
+    Medium,
+    /// Every button is its icon alone, named by its label, three to a
+    /// column.
+    Small,
+    /// One button - the group's icon over its label and ▾ - that opens the
+    /// whole group in a popup.
+    Collapsed,
+}
+
+/// One group's scaling: its size, and the most cells its galleries show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct GroupScale {
+    size: GroupSize,
+    /// The most cells a gallery of the group shows in the ribbon; `None`:
+    /// as many as the app asked for.
+    gallery_cells: Option<usize>,
+}
+
+impl GroupScale {
+    /// The group as the app built it.
+    const FULL: Self = Self {
+        size: GroupSize::Large,
+        gallery_cells: None,
+    };
+}
+
+/// How a group at a scale lays out one of its items ([`item_extent`]).
+#[derive(Debug, Clone, Copy)]
+struct Fit {
+    size: GroupSize,
+    /// The cap on the group's galleries.
+    cells: Option<usize>,
+    /// The group fills the space: its galleries clip, down to their frame's
+    /// minimum.
+    elastic: bool,
+}
+
+/// One item as a group at `fit` lays it out: whether Office stacks it three
+/// to a column with its neighbours (one control tall: [`is_small_item`] once
+/// [`scaled_items`] made it small) and how wide it is.
+fn item_extent(item: &RibbonItem, fit: Fit) -> (bool, f32) {
+    match item {
+        RibbonItem::LargeButton(rb) if fit.size == GroupSize::Large => (false, large_button_px(rb)),
+        RibbonItem::LargeButton(rb) | RibbonItem::SmallButton(rb) => {
+            (true, small_button_px(rb, fit.size >= GroupSize::Small))
+        }
+        RibbonItem::Column(col) => (
+            false,
+            col.items
+                .as_ref()
+                .iter()
+                .map(|it| item_extent(it, fit).1)
+                .fold(0.0, f32::max),
+        ),
+        RibbonItem::Row(row) => (
+            true,
+            row.items
+                .as_ref()
+                .iter()
+                .map(|it| item_extent(it, fit).1)
+                .sum::<f32>(),
+        ),
+        RibbonItem::Combo(combo) => (true, combo_px(combo)),
+        RibbonItem::Drop(drop) => (true, drop_px(drop)),
+        RibbonItem::Check(_) => (true, CHECK_BOX_PX),
+        RibbonItem::Gallery(gallery) => (false, gallery_px(gallery, fit)),
+        RibbonItem::Separator => (false, SEPARATOR_PX),
+        RibbonItem::Custom(dom) => (false, custom_px(dom)),
+    }
+}
+
+/// A group's item row across: its items side by side, every run of two or
+/// more that stack packed three to a column, as [`stack_small_items`] packs
+/// them.
+fn items_px(items: &[RibbonItem], fit: Fit) -> f32 {
+    fn flush(run: &mut Vec<f32>, total: &mut f32) {
+        if run.len() < 2 {
+            *total += run.iter().sum::<f32>();
+        } else {
+            for column in run.chunks(ROWS_PER_COLUMN) {
+                *total += column.iter().copied().fold(0.0, f32::max);
+            }
+        }
+        run.clear();
+    }
+    let mut total = 0.0;
+    let mut run: Vec<f32> = Vec::new();
+    for item in items {
+        let (stacks, width) = item_extent(item, fit);
+        if stacks {
+            run.push(width);
+        } else {
+            flush(&mut run, &mut total);
+            total += width;
+        }
+    }
+    flush(&mut run, &mut total);
+    total
+}
+
+/// A group across at `scale`, its padding and its separator included: its
+/// item row or its caption, whichever is wider - a group that fills the
+/// space no narrower than its floor - or its one button, collapsed.
+fn group_px(group: &RibbonGroup, scale: GroupScale) -> f32 {
+    if scale.size == GroupSize::Collapsed {
+        return GROUP_FRAME_PX + large_button_px(&collapsed_button(group));
+    }
+    let fit = Fit {
+        size: scale.size,
+        cells: scale.gallery_cells,
+        elastic: group.fills_space,
+    };
+    let items = items_px(group.items.as_ref(), fit);
+    let launcher = if group.launcher.is_some() {
+        LAUNCHER_PX
+    } else {
+        0.0
+    };
+    let caption = caption_px(group.label.as_str()) + launcher;
+    let width = GROUP_FRAME_PX + items.max(caption);
+    if group.fills_space {
+        width.max(FILL_GROUP_MIN_PX)
+    } else {
+        width
+    }
+}
+
+/// The most and the fewest cells the galleries among `items` show in the
+/// ribbon - the range a tab too wide for it steps them through, a cell at a
+/// time: a classic gallery keeps [`GALLERY_MIN_CELLS`], a list gallery one
+/// column. `None` for items without a gallery.
+fn gallery_cell_range(items: &[RibbonItem]) -> Option<(usize, usize)> {
+    let mut range: Option<(usize, usize)> = None;
+    for item in items {
+        let found = match item {
+            RibbonItem::Gallery(gallery) => {
+                let most = gallery_shown(gallery, None);
+                let fewest = if gallery.columns > 0 {
+                    ROWS_PER_COLUMN
+                } else {
+                    GALLERY_MIN_CELLS
+                };
+                Some((most, fewest.min(most)))
+            }
+            RibbonItem::Column(col) => gallery_cell_range(col.items.as_ref()),
+            RibbonItem::Row(row) => gallery_cell_range(row.items.as_ref()),
+            _ => None,
+        };
+        if let Some((most, fewest)) = found {
+            range = Some(match range {
+                Some((m, f)) => (m.max(most), f.max(fewest)),
+                None => (most, fewest),
+            });
+        }
+    }
+    range
+}
+
+/// A tab's groups while the scaling walk ([`walk_scaling_steps`]) scales
+/// them down: each group's scale, and its width there.
+struct ScalingWalk<'a> {
+    groups: &'a [RibbonGroup],
+    scales: Vec<GroupScale>,
+    widths: Vec<f32>,
+}
+
+impl<'a> ScalingWalk<'a> {
+    fn new(groups: &'a [RibbonGroup]) -> Self {
+        Self {
+            groups,
+            scales: vec![GroupScale::FULL; groups.len()],
+            widths: groups
+                .iter()
+                .map(|g| group_px(g, GroupScale::FULL))
+                .collect(),
+        }
+    }
+
+    /// The tab across at the groups' scales.
+    fn total(&self) -> f32 {
+        self.widths.iter().sum()
+    }
+
+    /// Scales group `i` to `candidate` if that makes it narrower (by more
+    /// than a rounding error); whether it did.
+    fn take(&mut self, i: usize, candidate: GroupScale) -> bool {
+        let width = group_px(&self.groups[i], candidate);
+        if width + 0.5 < self.widths[i] {
+            self.scales[i] = candidate;
+            self.widths[i] = width;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Walks Office's ribbon scaling for a tab of `groups`, widest first: every
+/// group as the app built it, then one group's step at a time - every step
+/// that makes a group narrower, the rightmost group first, in four rounds:
+/// (1) its large buttons small, (2) its galleries a cell narrower each, down
+/// to their fewest cells, (3) every button its icon alone, (4) the group
+/// collapsed into one button. `stop` sees the groups' scales and the tab's
+/// width at each step and says whether to stop there.
+fn walk_scaling_steps(groups: &[RibbonGroup], mut stop: impl FnMut(&[GroupScale], f32) -> bool) {
+    let mut walk = ScalingWalk::new(groups);
+    if stop(&walk.scales, walk.total()) {
+        return;
+    }
+    let right_to_left = (0..groups.len()).rev();
+    for i in right_to_left.clone() {
+        let medium = GroupScale {
+            size: GroupSize::Medium,
+            ..walk.scales[i]
+        };
+        if walk.take(i, medium) && stop(&walk.scales, walk.total()) {
+            return;
+        }
+    }
+    for i in right_to_left.clone() {
+        // A group that fills the space clips its gallery as it shrinks.
+        if groups[i].fills_space {
+            continue;
+        }
+        let Some((most, fewest)) = gallery_cell_range(groups[i].items.as_ref()) else {
+            continue;
+        };
+        let mut cells = most;
+        while cells > fewest {
+            cells -= 1;
+            let fewer = GroupScale {
+                gallery_cells: Some(cells),
+                ..walk.scales[i]
+            };
+            if walk.take(i, fewer) && stop(&walk.scales, walk.total()) {
+                return;
+            }
+        }
+    }
+    for i in right_to_left.clone() {
+        let small = GroupScale {
+            size: GroupSize::Small,
+            ..walk.scales[i]
+        };
+        if walk.take(i, small) && stop(&walk.scales, walk.total()) {
+            return;
+        }
+    }
+    for i in right_to_left {
+        let collapsed = GroupScale {
+            size: GroupSize::Collapsed,
+            ..walk.scales[i]
+        };
+        if walk.take(i, collapsed) && stop(&walk.scales, walk.total()) {
+            return;
+        }
+    }
+}
+
+/// The groups' scales at the first step of [`walk_scaling_steps`] whose
+/// width `fits` - or at the narrowest step, when none does.
+fn chosen_scales(groups: &[RibbonGroup], mut fits: impl FnMut(f32) -> bool) -> Vec<GroupScale> {
+    let mut chosen = vec![GroupScale::FULL; groups.len()];
+    walk_scaling_steps(groups, |scales, total| {
+        chosen.clear();
+        chosen.extend_from_slice(scales);
+        fits(total)
+    });
+    chosen
+}
+
+/// `items` as a group at `size` draws them (Office's group sizes): from
+/// medium on every large button a small one, at small every button its icon
+/// alone - in the app's own rows and columns too.
+fn scaled_items(items: Vec<RibbonItem>, size: GroupSize) -> Vec<RibbonItem> {
+    if size == GroupSize::Large {
+        return items;
+    }
+    items
+        .into_iter()
+        .map(|item| scaled_item(item, size))
+        .collect()
+}
+
+fn scaled_item(item: RibbonItem, size: GroupSize) -> RibbonItem {
+    match item {
+        RibbonItem::LargeButton(rb) | RibbonItem::SmallButton(rb) => {
+            RibbonItem::SmallButton(if size >= GroupSize::Small {
+                icon_only(rb)
+            } else {
+                rb
+            })
+        }
+        RibbonItem::Column(col) => RibbonItem::Column(RibbonColumn {
+            items: RibbonItemVec::from_vec(scaled_items(col.items.into_library_owned_vec(), size)),
+        }),
+        RibbonItem::Row(row) => RibbonItem::Row(RibbonRow {
+            items: RibbonItemVec::from_vec(scaled_items(row.items.into_library_owned_vec(), size)),
+        }),
+        other => other,
+    }
+}
+
+/// A button as its icon alone, named by its label - what a screen reader
+/// says, as for any icon-only button. A button without an icon keeps its
+/// label.
+fn icon_only(mut rb: RibbonButton) -> RibbonButton {
+    if rb.icon.as_str().is_empty() || rb.label.as_str().is_empty() {
+        return rb;
+    }
+    if rb.alt.as_str().is_empty() {
+        rb.alt = rb.label.clone();
+    }
+    rb.label = AzString::from_const_str("");
+    rb
+}
+
+// -- A collapsed group and its popup --
+
+/// The button a collapsed group is (Office's group button): the group's
+/// icon - its own, else its first button's - over its label and ▾.
+fn collapsed_button(group: &RibbonGroup) -> RibbonButton {
+    let icon = if group.icon.as_str().is_empty() {
+        first_icon(group.items.as_ref())
+            .unwrap_or_else(|| AzString::from_const_str(GROUP_FALLBACK_ICON))
+    } else {
+        group.icon.clone()
+    };
+    RibbonButton::new(icon, group.label.clone()).with_arrow(RibbonArrow::Menu)
+}
+
+/// The icon of the first button among `items` that has one, depth first.
+fn first_icon(items: &[RibbonItem]) -> Option<AzString> {
+    items.iter().find_map(|item| match item {
+        RibbonItem::LargeButton(rb) | RibbonItem::SmallButton(rb)
+            if !rb.icon.as_str().is_empty() =>
+        {
+            Some(rb.icon.clone())
+        }
+        RibbonItem::Column(col) => first_icon(col.items.as_ref()),
+        RibbonItem::Row(row) => first_icon(row.items.as_ref()),
+        _ => None,
+    })
+}
+
+/// A collapsed group (module docs): one large button spanning the group -
+/// its icon over its label and ▾ - whose click opens the whole group, as a
+/// window wide enough draws it, in a popup under it
+/// ([`group_popup_window`], the group's last child: the group is the
+/// popup's anchor).
+fn collapsed_group_dom(
+    group: RibbonGroup,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+) -> Dom {
+    let shared = RefAny::new(GroupPopupShared { pending: None });
+    let mut button = collapsed_button(&group);
+    let on_click: ButtonOnClickCallbackType = on_ribbon_group_button_click;
+    button.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
+        shared.clone(),
+        on_click,
+    ));
+    let mut button = expand_ribbon_button(button, true, s, theme);
+    button
+        .root
+        .add_class(AzString::from_const_str(RIBBON_GROUP_BUTTON_CLASS));
+    // The button is the whole group - its item area and its caption row -
+    // and its label is the group's caption.
+    button
+        .root
+        .upsert_inline_css_property(P::const_height(LayoutHeight::const_px(
+            COLLAPSED_BUTTON_HEIGHT_PX,
+        )));
+    let popup = group_popup_window(group, s, b, theme, shared);
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+            CLS_GROUP[0].clone(),
+            Class(AzString::from_const_str(RIBBON_GROUP_COLLAPSED_CLASS)),
+        ]))
+        .with_css_props(s.resolved_group_style())
+        .with_children(DomVec::from_vec(vec![button, popup]))
+}
+
+/// The window a collapsed group's button opens: closed, under the group,
+/// closed by a press outside or Escape, with per-pixel alpha so a look's
+/// rounded panel keeps its corners.
+const fn group_popup_config() -> TransientWindowConfig {
+    TransientWindowConfig::closed()
+        .with_anchor(TransientAnchor::Bottom)
+        .with_dismiss(TransientDismiss::Outside)
+        .with_material(WindowBackgroundMaterial::Transparent)
+}
+
+/// A collapsed group's popup: the `<transient-window>` holding the whole
+/// group - drawn as a window wide enough draws it - on the look's popup
+/// panel. A command there (a button, a split button's main part, a gallery
+/// cell) is noted and closes the popup, and the app runs it in its own
+/// window once the popup has closed ([`deferred_in_popup`],
+/// [`on_ribbon_group_popup_dismissed`]), as the File menu hands over its
+/// picks; everything else runs where it is clicked, a rebuild it asks for
+/// reaching the app's window too ([`run_in_popup_window`]).
+fn group_popup_window(
+    group: RibbonGroup,
+    s: &RibbonStyle,
+    b: RibbonBehavior,
+    theme: UiTheme,
+    shared: RefAny,
+) -> Dom {
+    let label = group.label.clone();
+    let mut whole = group_dom(
+        deferred_in_popup(group, &shared),
+        s,
+        b,
+        theme,
+        GroupScale::FULL,
+    );
+    // Alone on its panel, the group wants no separator to its right.
+    whole
+        .root
+        .upsert_inline_css_property(P::const_border_right_width(
+            LayoutBorderRightWidth::const_px(0),
+        ));
+    let mut panel = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_POPUP))
+        .with_css_props(s.resolved_group_popup_style())
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Grouping,
+            accessibility_name: Some(label).into(),
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(vec![whole]));
+    run_in_popup_window(&mut panel);
+    let mut window = NodeData::create_node(NodeType::TransientWindow(group_popup_config()));
+    // The popup's root holds no Tab stop of its own: its first control takes
+    // the focus.
+    window.set_tab_index(TabIndex::NoKeyboardFocus);
+    // The shared part as the window's dataset, carried over the app's
+    // rebuilds by `merge_group_popup_shared`.
+    window.set_dataset(azul_core::refany::OptionRefAny::Some(shared.clone()));
+    window.set_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+        merge_group_popup_shared,
+    ));
+    window.add_callback(
+        EventFilter::Component(ComponentEventFilter::Dismissed),
+        shared,
+        Callback::from_ptr(on_ribbon_group_popup_dismissed).to_core(),
+    );
+    Dom::create_from_data(window)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_POPUP_WINDOW))
+        .with_children(DomVec::from_vec(vec![panel]))
+}
+
+/// `group` as its popup holds it: the click of each command - a plain or a
+/// toggled button, a split button's main part, a gallery cell - is noted
+/// ([`on_ribbon_group_popup_command`], [`on_ribbon_group_popup_select`])
+/// rather than run, and the app runs it in its own window once the popup has
+/// closed: run in the popup's window, a command's thread, timer or new
+/// window would belong to a window about to close. A button whose whole face
+/// opens a menu keeps its click, for its menu to open beside it.
+fn deferred_in_popup(mut group: RibbonGroup, shared: &RefAny) -> RibbonGroup {
+    let items = core::mem::replace(&mut group.items, RibbonItemVec::from_const_slice(&[]));
+    group.items = RibbonItemVec::from_vec(deferred_items(items.into_library_owned_vec(), shared));
+    group
+}
+
+fn deferred_items(items: Vec<RibbonItem>, shared: &RefAny) -> Vec<RibbonItem> {
+    items
+        .into_iter()
+        .map(|item| deferred_item(item, shared))
+        .collect()
+}
+
+fn deferred_item(item: RibbonItem, shared: &RefAny) -> RibbonItem {
+    match item {
+        RibbonItem::LargeButton(rb) => RibbonItem::LargeButton(deferred_button(rb, shared)),
+        RibbonItem::SmallButton(rb) => RibbonItem::SmallButton(deferred_button(rb, shared)),
+        RibbonItem::Column(col) => RibbonItem::Column(RibbonColumn {
+            items: RibbonItemVec::from_vec(deferred_items(
+                col.items.into_library_owned_vec(),
+                shared,
+            )),
+        }),
+        RibbonItem::Row(row) => RibbonItem::Row(RibbonRow {
+            items: RibbonItemVec::from_vec(deferred_items(
+                row.items.into_library_owned_vec(),
+                shared,
+            )),
+        }),
+        RibbonItem::Gallery(mut gallery) => {
+            let on_select =
+                core::mem::replace(&mut gallery.on_select, OptionRibbonGalleryOnSelect::None);
+            if let Some(on_select) = on_select.into_option() {
+                let in_popup: RibbonGalleryOnSelectCallbackType = on_ribbon_group_popup_select;
+                gallery.on_select =
+                    OptionRibbonGalleryOnSelect::Some(RibbonGalleryOnSelect::create(
+                        RefAny::new(PopupSelect {
+                            shared: shared.clone(),
+                            on_select,
+                        }),
+                        in_popup,
+                    ));
+            }
+            RibbonItem::Gallery(gallery)
+        }
+        other => other,
+    }
+}
+
+fn deferred_button(mut rb: RibbonButton, shared: &RefAny) -> RibbonButton {
+    // A Menu - or a split button without an arrow part, drawn like one -
+    // opens its menu with its whole face: it runs in the popup, beside it.
+    if rb.arrow != RibbonArrow::None && !rb.is_split() {
+        return rb;
+    }
+    let on_click = core::mem::replace(&mut rb.on_click, OptionButtonOnClick::None);
+    if let Some(on_click) = on_click.into_option() {
+        let in_popup: ButtonOnClickCallbackType = on_ribbon_group_popup_command;
+        rb.on_click = OptionButtonOnClick::Some(super::button::ButtonOnClick::create(
+            RefAny::new(PopupCommand {
+                shared: shared.clone(),
+                on_click,
+            }),
+            in_popup,
+        ));
+    }
+    rb
+}
+
+/// What a callback of a collapsed group's popup was built with.
+struct InPopupWindow {
+    callback: CoreCallback,
+    refany: RefAny,
+}
+
+/// Every callback under `dom` through [`on_ribbon_group_popup_event`].
+fn run_in_popup_window(dom: &mut Dom) {
+    let callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
+    if !callbacks.is_empty() {
+        let wrapped: Vec<CoreCallbackData> = callbacks
+            .into_iter()
+            .map(|c| CoreCallbackData {
+                event: c.event,
+                callback: CoreCallback {
+                    cb: on_ribbon_group_popup_event as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(InPopupWindow {
+                    callback: c.callback,
+                    refany: c.refany,
+                }),
+            })
+            .collect();
+        dom.root.set_callbacks(wrapped.into());
+    }
+    let children: &mut [Dom] = dom.children.as_mut();
+    for child in children {
+        run_in_popup_window(child);
+    }
+}
+
+/// What a collapsed group's popup and its `<transient-window>` share: the
+/// command a click in the popup picked, waiting for the popup to close.
+struct GroupPopupShared {
+    pending: Option<PopupPick>,
+}
+
+/// A command picked in a collapsed group's popup.
+enum PopupPick {
+    /// A button's click.
+    Click(super::button::ButtonOnClick),
+    /// A gallery cell, by its index.
+    Select(RibbonGalleryOnSelect, usize),
+}
+
+/// A command button of a collapsed group's popup: the popup's shared part
+/// and the app's click.
+struct PopupCommand {
+    shared: RefAny,
+    on_click: super::button::ButtonOnClick,
+}
+
+/// A gallery of a collapsed group's popup: the popup's shared part and the
+/// app's pick.
+struct PopupSelect {
+    shared: RefAny,
+    on_select: RibbonGalleryOnSelect,
+}
+
+/// A rebuild asked for in a popup's window must reach the app's window too:
+/// the popup shows a subtree of the app's DOM, which only the app's window
+/// rebuilds.
+const fn everywhere(update: Update) -> Update {
+    match update {
+        Update::RefreshDom => Update::RefreshDomAllWindows,
+        other => other,
+    }
+}
+
+/// A collapsed group's button was clicked: its popup opens - or closes, when
+/// it shows. The engine knows whether it shows: a press outside or Escape
+/// closes it too, and a rebuild of the app keeps it up.
+extern "C" fn on_ribbon_group_button_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let Some(group) = ancestor_with_class(&info, hit, RIBBON_GROUP_COLLAPSED_CLASS) else {
+        return Update::DoNothing;
+    };
+    let Some(popup) = info.get_last_child(group) else {
+        return Update::DoNothing;
+    };
+    let open = !info.is_transient_window_open(popup);
+    if open {
+        // A fresh showing forgets a pick an earlier one left.
+        if let Some(mut shared) = data.downcast_mut::<GroupPopupShared>() {
+            shared.pending = None;
+        }
+    }
+    info.set_transient_window_open(popup, open);
+    Update::DoNothing
+}
+
+/// A callback of a collapsed group's popup - a check box, a combo box, a
+/// button that opens a menu, the app's own control - run where it was
+/// clicked, in the popup's window, with a rebuild it asks for widened to
+/// every window ([`everywhere`]).
+extern "C" fn on_ribbon_group_popup_event(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((callback, refany)) = data
+        .downcast_ref::<InPopupWindow>()
+        .map(|p| (p.callback.clone(), p.refany.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    everywhere(Callback::from_core(callback).invoke(refany, info))
+}
+
+/// A command of a collapsed group's popup was clicked: it is noted and the
+/// popup closes; the app runs it in its own window once the popup has
+/// closed ([`on_ribbon_group_popup_dismissed`]).
+extern "C" fn on_ribbon_group_popup_command(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let Some((mut shared, on_click)) = data
+        .downcast_ref::<PopupCommand>()
+        .map(|c| (c.shared.clone(), c.on_click.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    note_and_close(&mut shared, PopupPick::Click(on_click), &mut info);
+    Update::DoNothing
+}
+
+/// A gallery cell of a collapsed group's popup was clicked: noted, as a
+/// command is ([`on_ribbon_group_popup_command`]).
+extern "C" fn on_ribbon_group_popup_select(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    cell_index: usize,
+) -> Update {
+    let Some((mut shared, on_select)) = data
+        .downcast_ref::<PopupSelect>()
+        .map(|c| (c.shared.clone(), c.on_select.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    note_and_close(
+        &mut shared,
+        PopupPick::Select(on_select, cell_index),
+        &mut info,
+    );
+    Update::DoNothing
+}
+
+/// Notes `pick` in the popup's shared part and closes the popup the click
+/// was in.
+fn note_and_close(shared: &mut RefAny, pick: PopupPick, info: &mut CallbackInfo) {
+    if let Some(mut s) = shared.downcast_mut::<GroupPopupShared>() {
+        s.pending = Some(pick);
+    }
+    let hit = info.get_hit_node();
+    if let Some(window) = popup_window_of(info, hit) {
+        info.set_transient_window_open(window, false);
+    }
+}
+
+/// The `<transient-window>` of the collapsed group whose popup `node` is in:
+/// in the popup's own window its root (the window node, its classes kept),
+/// in the app's window the window node itself. The walk is bounded so a
+/// malformed tree cannot spin.
+fn popup_window_of(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
+    let mut current = Some(node);
+    for _ in 0..64 {
+        let n = current?;
+        if info
+            .get_node_classes(n)
+            .as_ref()
+            .iter()
+            .any(|c| c.as_str() == RIBBON_GROUP_POPUP_WINDOW_CLASS)
+        {
+            return Some(n);
+        }
+        current = info.get_parent(n);
+    }
+    None
+}
+
+/// Reconcile: a command picked in a collapsed group's popup survives the
+/// app's rebuild between the pick and the popup's close. The popup closes
+/// itself from its own window, which wakes every window - the app's window
+/// rebuilds its DOM (a fresh popup, a fresh shared part) before it hears the
+/// `Dismissed`, and the command was left in the old shared part. The new
+/// build's shared part (the one its `Dismissed` handler holds) takes the old
+/// one's pick over.
+extern "C" fn merge_group_popup_shared(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    let pending = old_data
+        .downcast_mut::<GroupPopupShared>()
+        .and_then(|mut old| old.pending.take());
+    if let Some(mut new) = new_data.downcast_mut::<GroupPopupShared>() {
+        if new.pending.is_none() {
+            new.pending = pending;
+        }
+    }
+    new_data
+}
+
+/// A collapsed group's popup closed - a command closed it, or a press
+/// outside, or Escape - in the app's window: the command it noted, if any,
+/// runs now, once.
+extern "C" fn on_ribbon_group_popup_dismissed(mut data: RefAny, info: CallbackInfo) -> Update {
+    let pick = match data.downcast_mut::<GroupPopupShared>() {
+        Some(mut shared) => shared.pending.take(),
+        None => return Update::DoNothing,
+    };
+    match pick {
+        Some(PopupPick::Click(super::button::ButtonOnClick { refany, callback })) => {
+            callback.invoke(refany, info)
+        }
+        Some(PopupPick::Select(RibbonGalleryOnSelect { refany, callback }, cell)) => {
+            callback.invoke(refany, info, cell)
+        }
+        None => Update::DoNothing,
+    }
 }
 
 // -- Trampolines --
@@ -4248,7 +6581,10 @@ struct GalleryCellClickData {
     auto_select: bool,
     /// Cells in the expansion panel also close the panel when picked.
     in_panel: bool,
+    /// A picked cell's whole style, as the gallery builds it (the base and
+    /// the picked overlay, with their dark twins and pointer states).
     selected_style: CssPropertyWithConditionsVec,
+    /// Every other cell's whole style.
     base_style: CssPropertyWithConditionsVec,
 }
 
@@ -4268,6 +6604,9 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
     // Default behavior: move the highlight to the clicked cell immediately,
     // so the gallery feels live even if the app does not re-render. The hit
     // node may be the cell's preview or label, so resolve the cell by class.
+    // Every cell takes the style it would be BUILT with (`set_node_style`):
+    // the cascade picks the mode's face and the pointer states, now and
+    // after a light / dark switch - a pinned value would outrank them.
     let cell = ancestor_with_class(&info, hit, GALLERY_CELL_CLASS).unwrap_or(hit);
     if auto_select {
         if let Some(strip) = info.get_parent(cell) {
@@ -4278,19 +6617,16 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
                 } else {
                     &base_style
                 };
-                for prop in style.as_ref() {
-                    if prop.apply_if.as_ref().is_empty() {
-                        info.set_css_property(cell_node, prop.property.clone());
-                    }
-                }
+                info.set_node_style(cell_node, style.clone().into());
                 sibling = info.get_next_sibling(cell_node);
             }
         }
-        // Picking from the expansion panel closes it.
-        if in_panel {
-            if let Some(panel) = info.get_parent(cell) {
-                info.set_css_property(panel, P::const_display(LayoutDisplay::None));
-            }
+    }
+    // Picking from the expansion panel closes it - a list gallery's command
+    // (which moves no highlight) too.
+    if in_panel {
+        if let Some(panel) = info.get_parent(cell) {
+            info.set_css_property(panel, P::const_display(LayoutDisplay::None));
         }
     }
 
@@ -4572,20 +6908,20 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn ribbon_new_defaults_to_office_2013_with_tab_zero_active() {
+    fn ribbon_new_defaults_to_office_2010_with_tab_zero_active() {
         for count in [0usize, 1, 2, 9] {
             let r = Ribbon::new(tabs(count));
             assert_eq!(r.tabs.len(), count);
             assert_eq!(r.active_tab, 0);
             assert!(r.on_tab_click.is_none());
             assert!(r.app_button.is_none());
-            assert_eq!(r.style, RibbonStyle::office_2013());
+            assert_eq!(r.style, RibbonStyle::office_2010());
         }
     }
 
     #[test]
-    fn ribbon_style_default_is_office_2013() {
-        assert_eq!(RibbonStyle::default(), RibbonStyle::office_2013());
+    fn ribbon_style_default_is_office_2010() {
+        assert_eq!(RibbonStyle::default(), RibbonStyle::office_2010());
     }
 
     #[test]
@@ -4719,6 +7055,7 @@ mod tests {
     #[test]
     fn dom_renders_app_button_tabs_and_filler_in_order() {
         let r = Ribbon::new(tabs(3))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .with_active_tab(1);
         let dom = r.dom();
@@ -4743,7 +7080,7 @@ mod tests {
         assert!(has_class(&ch[4], "__azul-native-ribbon-tab-filler"));
 
         // the active tab carries the active style, the others the plain style
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         assert_eq!(inline_props(&ch[1]), style_props(&s.resolved_tab_style()));
         assert_eq!(
             inline_props(&ch[2]),
@@ -4954,7 +7291,9 @@ mod tests {
     fn render_item(item: RibbonItem) -> Dom {
         let tab = RibbonTab::new(AzString::from("t"))
             .with_group(RibbonGroup::new(AzString::from("g")).with_item(item));
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_theme(UiTheme::Flat)
+            .dom();
         let (_, content) = parts(&dom);
         let (items, _) = group_parts(content, 0);
         assert_eq!(items.children.as_ref().len(), 1);
@@ -4978,7 +7317,7 @@ mod tests {
         assert_eq!(text_of(&ch[1]), Some("Paste"));
         assert_eq!(icon_name_of(&ch[2]), Some("arrow_drop_down"));
 
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         // Verbatim, states included: the ribbon injects a complete part style
         // (its hover/pressed pairs now come from `flat::hover_bg_both` etc.),
         // and `Button::dom` appends nothing over an injected container style —
@@ -5001,6 +7340,16 @@ mod tests {
         );
     }
 
+    /// AzSheets' Font and Alignment groups become rows of icon-only buttons
+    /// (Excel's); each must still say what it is.
+    #[test]
+    fn an_icon_only_button_is_named_by_its_alt() {
+        let rb = small_btn("format_bold", "").with_alt(AzString::from_const_str("Bold"));
+        let node = render_item(RibbonItem::SmallButton(rb));
+        let info = node.root.get_accessibility_info().expect("a button role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("Bold"));
+    }
+
     #[test]
     fn icon_only_small_button_skips_the_empty_label() {
         let node = render_item(RibbonItem::SmallButton(small_btn("format_bold", "")));
@@ -5014,7 +7363,7 @@ mod tests {
         let rb = small_btn("format_align_left", "").with_toggled(true);
         let node = render_item(RibbonItem::SmallButton(rb));
 
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         let mut expected = style_props(&s.resolved_small_button_style());
         expected.extend(style_props(&s.resolved_checked_style()));
         // Verbatim: the injected style is the whole inline style (see
@@ -5024,6 +7373,91 @@ mod tests {
             expected,
             "checked props must come last so they win (inline CSS is last-wins)"
         );
+    }
+
+    /// Office greys a command that cannot run and its tooltip says why
+    /// ("Paste: copy or cut something first"). A disabled ribbon button keeps
+    /// its place and its keyboard stop, never runs the app's callback, drops
+    /// the hover / pressed paint, is dimmed, is announced as unavailable with
+    /// the reason as its description, and shows the reason as a tooltip when
+    /// the pointer rests on it or it is clicked.
+    #[test]
+    fn a_disabled_button_is_dimmed_inert_and_says_why() {
+        extern "C" fn app_click(_: RefAny, _: CallbackInfo) -> Update {
+            Update::RefreshDom
+        }
+        let reason = "Nothing to paste: copy or cut something first";
+        let rb = small_btn("content_paste", "Paste")
+            .with_on_click(RefAny::new(7u32), app_click as crate::widgets::button::ButtonOnClickCallbackType)
+            .with_disabled(AzString::from(reason));
+        assert!(rb.is_disabled());
+        assert_eq!(rb.disabled_reason.as_str(), reason);
+        assert!(!small_btn("content_paste", "Paste").is_disabled());
+
+        let node = render_item(RibbonItem::SmallButton(rb));
+        assert!(has_class(&node, "__azul-native-button"), "still the Button widget");
+        assert!(has_class(&node, RIBBON_DISABLED_CLASS));
+
+        let a11y = node
+            .root
+            .get_accessibility_info()
+            .expect("a ribbon button is announced");
+        assert!(
+            a11y.states
+                .as_ref()
+                .contains(&azul_core::a11y::AccessibilityState::Unavailable),
+            "announced as unavailable"
+        );
+        assert_eq!(
+            a11y.description.as_ref().map(|d| d.as_str()),
+            Some(reason),
+            "the reason is the description"
+        );
+
+        // Dimmed, and no hover / pressed paint left.
+        let mut dimmed = false;
+        for (prop, conditions) in node.root.style.iter_inline_properties() {
+            let states: Vec<&DynamicSelector> = conditions
+                .as_ref()
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Hover | PseudoStateType::Active)
+                    )
+                })
+                .collect();
+            assert!(states.is_empty(), "a disabled button has no {states:?} paint: {prop:?}");
+            if let CssProperty::Opacity(o) = prop {
+                if o.get_property().is_some_and(|o| o.inner.normalized() < 0.75) {
+                    dimmed = true;
+                }
+            }
+        }
+        assert!(dimmed, "a disabled button is dimmed");
+
+        // The app's callback is gone; what is left shows the reason.
+        let callbacks = node.root.get_callbacks().as_ref();
+        assert!(!callbacks.is_empty(), "hover and click show the reason");
+        for cb in callbacks {
+            let mut data = cb.refany.clone();
+            assert!(
+                data.downcast_ref::<u32>().is_none(),
+                "the app's click data is not attached to a disabled button"
+            );
+            assert!(
+                data.downcast_ref::<crate::widgets::button::DisabledReason>().is_some(),
+                "every callback of a disabled button carries its reason"
+            );
+        }
+        let events: Vec<EventFilter> = callbacks.iter().map(|cb| cb.event).collect();
+        for wanted in [
+            EventFilter::Hover(HoverEventFilter::MouseEnter),
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            EventFilter::Hover(HoverEventFilter::Click),
+        ] {
+            assert!(events.contains(&wanted), "{wanted:?} in {events:?}");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -5054,7 +7488,7 @@ mod tests {
             let Some(state) = state else { continue };
             let is_dark = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if is_dark {
                 dark.push((p.get_type(), state));
             } else {
@@ -5087,7 +7521,7 @@ mod tests {
                     .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
                 let is_dark = conds
                     .iter()
-                    .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                    .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
                 matches!(p, CssProperty::BackgroundContent(_))
                     && gated_on_state
                     && is_dark == want_dark
@@ -5101,6 +7535,7 @@ mod tests {
         use azul_css::StringVec;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -5133,7 +7568,7 @@ mod tests {
                 matches!(p, CssProperty::TextColor(_))
                     && conds
                         .iter()
-                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                        .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                     && conds
                         .iter()
                         .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
@@ -5163,14 +7598,22 @@ mod tests {
             "gallery cell",
             cell.root.style.iter_inline_properties(),
         );
+        // The default palette is Office 2010's: the hover is its yellow face,
+        // and by night the theme's amber one.
         assert_eq!(
             state_fill(cell, PseudoStateType::Hover, false),
-            P::const_background_content(bg_vec(RibbonTheme::office_2013().hover_bg)),
-            "the light half is the palette's own value, unchanged by the move"
+            super::super::themes::decl::layers(vec![super::super::themes::decl::face(
+                flat::LIGHT_HT,
+                flat::LIGHT_HB
+            )]),
+            "the light half is Office 2010's hover face"
         );
         assert_eq!(
             state_fill(cell, PseudoStateType::Hover, true),
-            P::const_background_content(bg_vec(flat::DARK_HT)),
+            super::super::themes::decl::layers(vec![super::super::themes::decl::face(
+                flat::DARK_HT,
+                flat::DARK_HB
+            )]),
             "a cell sits on the neutral chrome, so its dark hover is the theme's hover face"
         );
 
@@ -5209,6 +7652,41 @@ mod tests {
         let row_ch = ch[1].children.as_ref();
         assert_eq!(row_ch.len(), 2);
         assert!(has_class(&row_ch[1], "__azul-native-ribbon-separator"));
+    }
+
+    /// `with_items` / `with_groups` append a whole list, in order - what
+    /// six apps folded `with_item` over (DEDUP_OFFICE D9 / A4).
+    #[test]
+    fn with_items_appends_the_list_in_order() {
+        let items = || {
+            RibbonItemVec::from_vec(vec![
+                RibbonItem::SmallButton(small_btn("content_cut", "Cut")),
+                RibbonItem::Separator,
+            ])
+        };
+        let column = RibbonColumn::new()
+            .with_item(RibbonItem::SmallButton(small_btn("content_copy", "Copy")))
+            .with_items(items());
+        let labels: Vec<&str> = column
+            .items
+            .as_ref()
+            .iter()
+            .map(|it| match it {
+                RibbonItem::SmallButton(b) => b.label.as_str(),
+                RibbonItem::Separator => "|",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(labels, vec!["Copy", "Cut", "|"]);
+        assert_eq!(RibbonRow::new().with_items(items()).items.len(), 2);
+        let group = RibbonGroup::new(AzString::from("Clipboard")).with_items(items());
+        assert_eq!(group.items.len(), 2);
+        let tab = RibbonTab::new(AzString::from("Home")).with_groups(RibbonGroupVec::from_vec(vec![
+            group.clone(),
+            RibbonGroup::new(AzString::from("Font")),
+        ]));
+        let names: Vec<&str> = tab.groups.as_ref().iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(names, vec!["Clipboard", "Font"]);
     }
 
     #[test]
@@ -5280,7 +7758,7 @@ mod tests {
         }
 
         // selected cell style = base + selected extras appended
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         let mut expected = style_props(&s.resolved_gallery_cell_style());
         expected.extend(style_props(&s.resolved_gallery_cell_selected_style()));
         assert_eq!(inline_props(&cells[2]), expected);
@@ -5293,6 +7771,41 @@ mod tests {
             assert!(matches!(b.root.get_node_type(), NodeType::Button));
             assert_eq!(icon_name_of(&b.children.as_ref()[0]), Some(expected_icon));
         }
+    }
+
+    /// AzShow's HOME put all seven layouts inline (863 px) and pushed Font,
+    /// Paragraph and Editing off a 1280 px window. A gallery shows one row
+    /// of `visible` cells - the row holding the selected cell - and "More"
+    /// every cell; a click still reports the cell's own index.
+    #[test]
+    fn a_gallery_shows_the_row_of_the_selected_cell_and_more_shows_every_cell() {
+        let wrapper = render_item(RibbonItem::Gallery(gallery(7).with_selected(4).with_visible(3)));
+        let frame = &wrapper.children.as_ref()[0];
+        let strip = &frame.children.as_ref()[0];
+        let labels: Vec<String> = strip
+            .children
+            .as_ref()
+            .iter()
+            .map(|c| text_of(&c.children.as_ref()[1]).unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(labels, vec!["Style 3", "Style 4", "Style 5"], "the row of cell 4");
+        let panel = &wrapper.children.as_ref()[1];
+        assert_eq!(panel.children.as_ref().len(), 7, "More shows every cell");
+
+        // The last row is filled from the end, not left short.
+        let last = render_item(RibbonItem::Gallery(gallery(7).with_selected(6).with_visible(3)));
+        let strip = &last.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 4"));
+        assert_eq!(strip.children.as_ref().len(), 3);
+
+        // No selection (AzShow's New Slide gallery): the first row.
+        let none = render_item(RibbonItem::Gallery(gallery(7).with_selected(usize::MAX).with_visible(3)));
+        let strip = &none.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 0"));
+
+        // 0 (the default) shows every cell.
+        let all = render_item(RibbonItem::Gallery(gallery(5)));
+        assert_eq!(all.children.as_ref()[0].children.as_ref()[0].children.as_ref().len(), 5);
     }
 
     #[test]
@@ -5333,7 +7846,8 @@ mod tests {
             RibbonGroup::new(AzString::from("g"))
                 .with_item(RibbonItem::SmallButton(small_btn("format_bold", ""))),
         );
-        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_theme(UiTheme::Flat);
         r.style.small_button_style = OptionCssPropertyWithConditionsVec::Some(injected.clone());
         let dom = r.dom();
         let (_, content) = parts(&dom);
@@ -5892,6 +8406,9 @@ mod tests {
         use crate::widgets::theme_probe::unconditional;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013())
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, content) = parts(&dom);
@@ -5949,6 +8466,9 @@ mod tests {
         use CssPropertyType as T;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013())
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -6057,7 +8577,7 @@ mod tests {
         conds
             .as_ref()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+            .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
     }
 
     /// Invariant I8 for the ribbon's RESTING colours: every opaque colour a
@@ -6072,7 +8592,8 @@ mod tests {
         use std::collections::BTreeSet;
 
         let mut twins_seen = 0usize;
-        for (name, part) in every_builder(&RibbonTheme::office_2013()) {
+        let palettes = [RibbonTheme::office_2013(), RibbonTheme::office_2010()];
+        for (name, part) in palettes.iter().flat_map(every_builder) {
             let mut light: Vec<(CssPropertyType, usize)> = Vec::new();
             let mut dark: Vec<(CssPropertyType, usize)> = Vec::new();
             for (i, c) in part.as_ref().iter().enumerate() {
@@ -6184,6 +8705,9 @@ mod tests {
         use crate::widgets::theme_probe::dark;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013())
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -6235,7 +8759,9 @@ mod tests {
     fn the_chrome_goes_dark_with_the_window() {
         use crate::widgets::theme_probe::dark;
 
-        let dom = Ribbon::new(tabs(2)).dom();
+        let dom = Ribbon::new(tabs(2)).with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013()).dom();
         let (bar, content) = parts(&dom);
         let colours = |node: &Dom| dark(node).iter().filter_map(colour_of).collect::<Vec<_>>();
         assert_eq!(
@@ -6258,3 +8784,987 @@ mod tests {
         }
     }
 }
+
+/// The ribbon's flora look (W5a): flora's toolbar strip over a leaf, the
+/// selected tab cut as the sunken accent stone, controls that are bare paper
+/// until the pointer lifts them - on exactly the flat ribbon's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType, StringVec};
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    /// A ribbon with every part a look paints: the application button, a
+    /// selected and an unselected tab, a large, a small and a toggled button,
+    /// a separator, a dialog launcher and a gallery with a selected cell.
+    fn fixture() -> Ribbon {
+        let cells: Vec<RibbonGalleryCell> = (0..3)
+            .map(|i| RibbonGalleryCell::new(Dom::create_div(), AzString::from(format!("Style {i}"))))
+            .collect();
+        let clipboard = RibbonGroup::new("Clipboard".into())
+            .with_item(RibbonItem::LargeButton(
+                RibbonButton::new("content_paste".into(), "Paste".into())
+                    .with_arrow(RibbonArrow::Split),
+            ))
+            .with_item(RibbonItem::Column(
+                RibbonColumn::new()
+                    .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "content_cut".into(),
+                        "Cut".into(),
+                    )))
+                    .with_item(RibbonItem::SmallButton(
+                        RibbonButton::new("format_bold".into(), "".into()).with_toggled(true),
+                    )),
+            ))
+            .with_item(RibbonItem::Separator)
+            .with_launcher(
+                RefAny::new(0u8),
+                noop as crate::widgets::button::ButtonOnClickCallbackType,
+            );
+        let styles = RibbonGroup::new("Styles".into()).with_item(RibbonItem::Gallery(
+            RibbonGallery::new(cells.into()).with_selected(1),
+        ));
+        Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new("HOME".into())
+                .with_group(clipboard)
+                .with_group(styles),
+            RibbonTab::new("INSERT".into()),
+        ]))
+        .with_app_button(RibbonAppButton::new("FILE".into()))
+    }
+
+    fn ribbon(theme: UiTheme) -> Dom {
+        fixture().with_theme(theme).dom()
+    }
+
+    /// The adaptive, desktop and touch chromes of the fixture in `theme`.
+    fn every_chrome(theme: UiTheme) -> [(&'static str, Dom); 3] {
+        [
+            ("adaptive", fixture().with_theme(theme).dom()),
+            ("desktop", fixture().with_theme(theme).dom_desktop()),
+            ("mobile", fixture().with_theme(theme).dom_mobile()),
+        ]
+    }
+
+    fn node<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        tc::find(dom, class).unwrap_or_else(|| panic!("the ribbon renders a {class}"))
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    /// Every button of the fixture, in tree order: Paste, Cut, the toggled
+    /// Bold, the launcher, then the gallery's three spinner buttons.
+    fn buttons(dom: &Dom) -> Vec<&Dom> {
+        tc::find_all(dom, "__azul-native-button")
+    }
+
+    #[test]
+    fn a_flora_ribbon_is_flora_s_toolbar_strip_over_a_leaf_in_both_modes() {
+        let dom = ribbon(UiTheme::Flora);
+        let bar = node(&dom, "__azul-native-ribbon-tabbar");
+        let content = node(&dom, "__azul-native-ribbon-content");
+        for (dark, strip, leaf) in [
+            (false, flora::LIGHT_STRIP, flora::LIGHT_SUR),
+            (true, flora::DARK_STRIP, flora::DARK_SUR),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(strip), "the chrome (dark: {dark})");
+            // The tab strip is closed by the website's rule (`.navbar::after`,
+            // `--fl-rule-metal-bg`), seen through its transparent 2px foot
+            // under the strip's paper on the padding box.
+            assert_eq!(
+                face(bar, dark, None),
+                vec![tc::flora_css_rule_metal(), StyleBackgroundContent::Color(strip)],
+                "the tab strip (dark: {dark})"
+            );
+            assert_eq!(
+                tc::background_clips(bar, dark, None),
+                vec![StyleBackgroundClip::BorderBox, StyleBackgroundClip::PaddingBox],
+                "the rule on the border box, the paper on the padding box (dark: {dark})"
+            );
+            assert_eq!(
+                tc::resolve(bar, CssPropertyType::BorderBottomColor, dark, None)
+                    .as_ref()
+                    .and_then(tc::border_color),
+                Some(ColorU::TRANSPARENT),
+                "the strip's foot is transparent, so the metal shows (dark: {dark})"
+            );
+            assert_eq!(face(content, dark, None), fill(leaf), "the content leaf (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn a_flora_ribbon_s_selected_tab_is_the_sunken_accent_stone_and_the_others_lift_under_the_pointer(
+    ) {
+        let dom = ribbon(UiTheme::Flora);
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        let tabs = tc::find_all(&dom, "__azul-native-ribbon-tab");
+        let other = tabs
+            .iter()
+            .find(|t| !tc::has_class(t, "__azul-native-ribbon-tab-active"))
+            .expect("an unselected tab");
+        for (dark, soft, hover) in [
+            (false, flora::LIGHT_SOFT1, flora::HOVER_FACE_LIGHT),
+            (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
+        ] {
+            let mut cut = vec![tc::flora_css_rolled_tab()];
+            cut.extend(flora::australis_face(flora::STONE_STREAK));
+            assert_eq!(
+                face(active, dark, None),
+                cut,
+                "the selected tab is the sunken stone stood upright over the rolled metal, its \
+                 own colour (dark: {dark})"
+            );
+            assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
+            assert_eq!(tc::text_color(other, dark), Some(soft), "an unselected tab (dark: {dark})");
+            assert_eq!(
+                face(other, dark, Some(PseudoStateType::Hover)),
+                vec![hover],
+                "an unselected tab lifts to the hover face (dark: {dark})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flora_application_button_is_the_accent_stone_written_on_accent() {
+        let dom = ribbon(UiTheme::Flora);
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        for dark in [false, true] {
+            let layers = face(app, dark, None);
+            assert_eq!(
+                layers.first(),
+                Some(&tc::flora_css_rolled_tab()),
+                "the stone is set in the rolled metal (dark: {dark})"
+            );
+            assert_eq!(
+                layers.get(1),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "a stone is its own colour in both modes (dark: {dark})"
+            );
+            assert_eq!(tc::text_color(app, dark), Some(flora::LIGHT_ON_ACC));
+        }
+    }
+
+    #[test]
+    fn a_flora_ribbon_button_is_bare_paper_that_lifts_under_the_pointer_and_rings_on_focus() {
+        let dom = ribbon(UiTheme::Flora);
+        let paste = buttons(&dom)[0];
+        for (dark, hover, pressed) in [
+            (false, flora::HOVER_FACE_LIGHT, flora::PRESSED_FACE_LIGHT),
+            (true, flora::HOVER_FACE_DARK, flora::PRESSED_FACE_DARK),
+        ] {
+            assert_eq!(
+                face(paste, dark, None),
+                fill(ColorU::TRANSPARENT),
+                "at rest the strip shows through (dark: {dark})"
+            );
+            assert_eq!(face(paste, dark, Some(PseudoStateType::Hover)), vec![hover]);
+            assert_eq!(face(paste, dark, Some(PseudoStateType::Active)), vec![pressed]);
+            assert!(tc::has_focus_ring(paste, dark), "a Tab stop is ringed (dark: {dark})");
+        }
+        assert_eq!(tc::focus_ring_color(paste, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(paste, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn a_toggled_flora_button_is_pushed_in_paper() {
+        let dom = ribbon(UiTheme::Flora);
+        let bold = buttons(&dom)[2];
+        assert_eq!(face(bold, false, None), vec![flora::PRESSED_FACE_LIGHT]);
+        assert_eq!(face(bold, true, None), vec![flora::PRESSED_FACE_DARK]);
+    }
+
+    #[test]
+    fn the_flora_ribbon_keeps_every_theme_invariant_in_every_chrome() {
+        for (chrome, dom) in every_chrome(UiTheme::Flora) {
+            tc::assert_theme_invariants(&format!("flora ribbon ({chrome})"), &dom);
+        }
+    }
+
+    /// `dom` without its tab strip: the ribbon's root with every other child.
+    fn without_tab_strip(dom: &Dom) -> Dom {
+        let mut d = dom.clone();
+        d.children = DomVec::from_vec(
+            dom.children
+                .as_ref()
+                .iter()
+                .filter(|c| !tc::has_class(c, "__azul-native-ribbon-tabbar"))
+                .cloned()
+                .collect(),
+        );
+        d
+    }
+
+    /// Flora repaints the ribbon; it does not re-measure it. The ribbon's
+    /// layout was measured for its heights, paddings and borders (the 68px
+    /// item row), so the flora look keeps every one of them - except in the
+    /// tab strip, which flora cuts as Firefox's tab row (the Australis tab,
+    /// `themes::flora`): taller, the tabs standing on its rule, the selected
+    /// tab and the application button hung with curves.
+    #[test]
+    fn a_flora_ribbon_keeps_every_metric_of_the_flat_ribbon_below_its_tab_strip() {
+        let flat = every_chrome(UiTheme::Flat);
+        let flora_chromes = every_chrome(UiTheme::Flora);
+        for ((chrome, a), (_, b)) in flat.iter().zip(flora_chromes.iter()) {
+            let moved =
+                flora::chrome_metric_findings(&without_tab_strip(a), &without_tab_strip(b));
+            assert!(
+                moved.is_empty(),
+                "the flora ribbon ({chrome}) moves:\n  {}",
+                moved.join("\n  ")
+            );
+        }
+    }
+
+    #[test]
+    fn a_part_the_caller_set_wins_over_the_flora_look() {
+        let own = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_font_size(
+            StyleFontSize::const_px(99),
+        ))]);
+        let mut r = fixture().with_theme(UiTheme::Flora);
+        r.style.large_button_style = OptionCssPropertyWithConditionsVec::Some(own);
+        let dom = r.dom();
+        let paste = buttons(&dom)[0];
+        assert_eq!(
+            paste
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, _)| p.clone())
+                .collect::<Vec<_>>(),
+            vec![P::const_font_size(StyleFontSize::const_px(99))],
+            "the caller's part reaches the button verbatim"
+        );
+    }
+
+    #[test]
+    fn a_pinned_ribbon_builds_its_buttons_and_its_unpinned_embedded_widgets_in_its_theme() {
+        let marker = |t: UiTheme| match t {
+            UiTheme::Flat => style_kit::FLAT_CLASS,
+            UiTheme::Flora => style_kit::FLORA_CLASS,
+        };
+        let combo = |label: &str| ComboBox::new(StringVec::from_vec(vec![AzString::from(label)]));
+        for (theme, other) in [(UiTheme::Flat, UiTheme::Flora), (UiTheme::Flora, UiTheme::Flat)] {
+            let tab = RibbonTab::new("t".into()).with_group(
+                RibbonGroup::new("g".into())
+                    .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "format_bold".into(),
+                        "".into(),
+                    )))
+                    .with_item(RibbonItem::Combo(combo("a")))
+                    .with_item(RibbonItem::Combo(combo("b").with_theme(other))),
+            );
+            let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+                .with_theme(theme)
+                .dom();
+            assert!(tc::has_class(&dom, marker(theme)), "the root carries its theme marker");
+            assert!(
+                tc::has_class(buttons(&dom)[0], marker(theme)),
+                "a ribbon button is built in the ribbon's theme"
+            );
+            let combos = tc::find_all(&dom, "__azul-native-combobox");
+            assert_eq!(combos.len(), 2);
+            assert!(
+                tc::has_class(combos[0], marker(theme)),
+                "an embedded widget with no theme of its own is built in the ribbon's"
+            );
+            assert!(
+                tc::has_class(combos[1], marker(other)),
+                "an embedded widget the caller pinned keeps its pin"
+            );
+        }
+    }
+
+    /// R5: the ribbon's structure is its base - the flat part's geometry,
+    /// which the flora look keeps (`themes::flora::ribbon_style`) - declared
+    /// once for every app theme, never inside a `@theme(<name>)` block. The
+    /// fixture embeds no foreign widget (a combo box, a drop-down, a check
+    /// box): built in the ribbon's look, those carry their OWN widget's
+    /// structure, which their own tests hold to this rule.
+    #[test]
+    fn a_ribbon_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            // Every chrome, with the first tab selected (its groups, the
+            // toggled button and the picked gallery cell shown) and with the
+            // second one selected (an empty tab).
+            for active in [0, 1] {
+                let chromes = under(t, || {
+                    [
+                        ("adaptive", fixture().with_active_tab(active).dom()),
+                        ("desktop", fixture().with_active_tab(active).dom_desktop()),
+                        ("mobile", fixture().with_active_tab(active).dom_mobile()),
+                    ]
+                });
+                for (chrome, dom) in chromes {
+                    assert_structure_is_shared(
+                        &format!("ribbon ({chrome}, tab {active}) built for {}", t.name()),
+                        &dom,
+                        &[
+                            (
+                                "__azul-native-ribbon-tab-active",
+                                CssPropertyType::Position,
+                                "flora hangs the Australis curves off its selected tab",
+                            ),
+                            (
+                                "__azul-native-ribbon-appbutton",
+                                CssPropertyType::Position,
+                                "flora hangs the Australis curves off its application button",
+                            ),
+                        ],
+                    );
+                }
+            }
+        }
+    }
+
+    /// `node`'s resting border-top colour in the light mode.
+    fn top_edge(node: &Dom) -> Option<ColorU> {
+        match tc::resolve(node, CssPropertyType::BorderTopColor, false, None)? {
+            P::BorderTopColor(azul_css::css::CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        }
+    }
+
+    /// `node`'s `-azul-app-region`, if it declares one.
+    fn app_region(node: &Dom) -> Option<azul_css::props::style::transform::StyleAppRegion> {
+        match tc::resolve(node, CssPropertyType::AppRegion, false, None)? {
+            P::AppRegion(azul_css::css::CssPropertyValue::Exact(r)) => Some(r),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn flora_cuts_its_selected_tab_and_application_button_as_australis_tabs_in_the_rule_s_metal() {
+        use azul_core::dom::SvgNodeData;
+
+        use crate::widgets::tabs::{
+            CURVE_FILL_CLASS, CURVE_LEFT_CLASS, CURVE_RIGHT_CLASS, CURVE_STROKE_CLASS,
+        };
+
+        let dom = ribbon(UiTheme::Flora);
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        // The fixture's selected tab is its first, right after the
+        // application button: that side has no rule to ease (the button's
+        // stone stands over it), so it hangs only the right run-out.
+        let tab_runouts: &[(usize, &str, bool)] = &[(3, "__azul-native-tab-runout-right", false)];
+        let app_runouts: &[(usize, &str, bool)] = &[
+            (3, "__azul-native-tab-runout-left", true),
+            (4, "__azul-native-tab-runout-right", false),
+        ];
+        for (what, stone, runouts) in [
+            ("the selected tab", active, tab_runouts),
+            ("the application button", app, app_runouts),
+        ] {
+            assert_eq!(
+                stone.children.as_ref().len(),
+                3 + runouts.len(),
+                "{what}: its label, its two curves, the run-outs beside its feet"
+            );
+            for (i, side) in [(1, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
+                let curve = &stone.children.as_ref()[i];
+                assert!(tc::has_class(curve, side), "{what}: child {i} is its {side}");
+                assert!(
+                    matches!(curve.root.get_svg_data(), Some(SvgNodeData::ViewBox { .. })),
+                    "{what}: a curve is a user space of its own, one unit per px"
+                );
+                let fill = tc::find(curve, CURVE_FILL_CLASS).expect("the face inside the S");
+                let metal = tc::find(curve, CURVE_STROKE_CLASS).expect("the S");
+                assert!(matches!(fill.root.get_svg_data(), Some(SvgNodeData::Path(_))));
+                assert!(matches!(metal.root.get_svg_data(), Some(SvgNodeData::Path(_))));
+                assert_eq!(
+                    face(metal, false, None),
+                    vec![tc::flora_css_rolled_tab()],
+                    "{what}: the S is cut from the rolled metal its head is cut from"
+                );
+            }
+            for &(i, side, left) in runouts {
+                let runout = &stone.children.as_ref()[i];
+                assert!(tc::has_class(runout, side), "{what}: child {i} is its {side}");
+                assert_eq!(face(runout, false, None), vec![tc::flora_css_runout(left)]);
+            }
+            assert_eq!(
+                top_edge(stone),
+                Some(ColorU::TRANSPARENT),
+                "{what}: its head is transparent, the rolled metal under the stone shows there"
+            );
+            assert_eq!(
+                face(stone, false, None).first(),
+                Some(&tc::flora_css_rolled_tab()),
+                "{what}: the metal on its border box"
+            );
+        }
+        let unselected = tc::find_all(&dom, "__azul-native-ribbon-tab")
+            .into_iter()
+            .find(|t| !tc::has_class(t, "__azul-native-ribbon-tab-active"))
+            .expect("an unselected tab");
+        assert_eq!(unselected.children.as_ref().len(), 1, "an unselected tab is its label");
+    }
+
+    #[test]
+    fn a_flat_ribbon_keeps_its_office_tabs_square() {
+        let dom = ribbon(UiTheme::Flat);
+        assert!(tc::find(&dom, crate::widgets::tabs::CURVE_LEFT_CLASS).is_none());
+        assert!(tc::find(&dom, crate::widgets::tabs::CURVE_RIGHT_CLASS).is_none());
+    }
+
+    #[test]
+    fn a_selected_tab_the_caller_styled_keeps_its_own_shape() {
+        let mut r = fixture().with_theme(UiTheme::Flora);
+        r.style.tab_active_style =
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(
+                vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(15)))],
+            ));
+        let dom = r.dom();
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        assert_eq!(active.children.as_ref().len(), 1, "no curves on the caller's tab");
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        assert_eq!(
+            app.children.as_ref().len(),
+            5,
+            "flora's own application button keeps its curves and run-outs"
+        );
+    }
+
+    #[test]
+    fn a_flora_tab_is_set_in_the_ui_hand_s_capitals() {
+        let dom = ribbon(UiTheme::Flora);
+        for tab in tc::find_all(&dom, "__azul-native-ribbon-tab") {
+            assert_eq!(
+                tc::resolve(tab, CssPropertyType::FontFamily, false, None),
+                Some(P::const_font_family(flora::FONT_CAPS))
+            );
+            assert_eq!(
+                tc::resolve(tab, CssPropertyType::TextTransform, false, None),
+                Some(P::TextTransform(azul_css::props::property::StyleTextTransformValue::Exact(
+                    StyleTextTransform::Uppercase
+                )))
+            );
+        }
+    }
+
+    #[test]
+    fn a_tab_strip_in_the_titlebar_moves_the_window_and_its_tabs_do_not() {
+        use azul_css::props::style::transform::StyleAppRegion;
+
+        let chrome = TabsInTitlebar::create(8.0, 78.0, 0.0);
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = fixture()
+                .with_theme(theme)
+                .with_tabs_in_titlebar(chrome)
+                .dom_desktop();
+            assert_eq!(
+                app_region(node(&dom, "__azul-native-ribbon-tabbar")),
+                Some(StyleAppRegion::Drag),
+                "{theme:?}: the strip around the tabs moves the window"
+            );
+            for tab in tc::find_all(&dom, "__azul-native-ribbon-tab") {
+                assert_eq!(
+                    app_region(tab),
+                    Some(StyleAppRegion::NoDrag),
+                    "{theme:?}: a tab stays a tab"
+                );
+            }
+            assert_eq!(
+                app_region(node(&dom, "__azul-native-ribbon-appbutton")),
+                Some(StyleAppRegion::NoDrag),
+                "{theme:?}: FILE stays a button"
+            );
+            let before_first = tc::resolve(
+                node(&dom, "__azul-native-ribbon-tabbar"),
+                CssPropertyType::PaddingLeft,
+                false,
+                None,
+            )
+            .and_then(|p| match p {
+                P::PaddingLeft(azul_css::css::CssPropertyValue::Exact(pad)) => {
+                    Some(pad.inner.number.get())
+                }
+                _ => None,
+            });
+            assert!(
+                before_first.is_some_and(|px| px >= 78.0),
+                "{theme:?}: the first tab starts past the window controls ({before_first:?})"
+            );
+        }
+        let plain = fixture().with_theme(UiTheme::Flat).dom_desktop();
+        assert_eq!(
+            app_region(node(&plain, "__azul-native-ribbon-tabbar")),
+            None,
+            "a ribbon under its own title row moves nothing"
+        );
+    }
+
+    /// A group's caption is its title - flora.css's `.fl-label`: Garamond
+    /// capitals in the label ink (the face is the ribbon's system UI face,
+    /// Garamond in a flora window) - and the fit walk measures the
+    /// group at least as wide as those capitals (it measured the mixed-case
+    /// caption, so a flora group whose caption is its widest part overflowed
+    /// the width it was given).
+    #[test]
+    fn a_flora_group_caption_is_floras_title_in_capitals_and_the_group_is_measured_wide_enough() {
+        use azul_css::props::style::text::StyleTextTransform;
+
+        let dom = ribbon(UiTheme::Flora);
+        let caption = node(&dom, "__azul-native-ribbon-group-label");
+        assert!(
+            matches!(
+                tc::resolve(caption, CssPropertyType::TextTransform, false, None),
+                Some(P::TextTransform(v)) if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "the caption is set in capitals"
+        );
+        assert!(
+            tc::resolve(caption, CssPropertyType::LetterSpacing, false, None).is_some()
+                && tc::resolve(caption, CssPropertyType::FontWeight, false, None).is_some(),
+            "flora's capitals are bold and tracked out"
+        );
+        assert_eq!(tc::text_color(caption, false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(tc::text_color(caption, true), Some(flora::DARK_SOFT1));
+
+        // A group whose caption is wider than its one small button.
+        let caption = "Arrange and organise";
+        let group = RibbonGroup::new(caption.into()).with_item(RibbonItem::SmallButton(
+            RibbonButton::new("format_bold".into(), "".into()),
+        ));
+        let capitals = text_px(&caption.to_uppercase(), CAPTION_FONT_PX)
+            + caption.chars().count() as f32 * 0.12 * CAPTION_FONT_PX;
+        assert!(
+            group_px(&group, GroupScale::FULL) >= GROUP_FRAME_PX + capitals,
+            "{} < {}",
+            group_px(&group, GroupScale::FULL),
+            GROUP_FRAME_PX + capitals
+        );
+    }
+
+    /// The last resting `background` of `style` by day or at night (`dark`):
+    /// unconditional or under that mode only, no pointer state.
+    fn resting_fill(style: &azul_css::css::Css, dark: bool) -> Option<ColorU> {
+        use azul_css::dynamic_selector::ModeCondition;
+        style
+            .iter_inline_properties()
+            .filter(|(p, conditions)| {
+                p.get_type() == CssPropertyType::BackgroundContent
+                    && conditions.as_ref().iter().all(|c| match c {
+                        DynamicSelector::Mode(ModeCondition::Dark) => dark,
+                        DynamicSelector::Mode(ModeCondition::Light) => !dark,
+                        _ => false,
+                    })
+            })
+            .map(|(p, _)| p.clone())
+            .last()
+            .and_then(|p| tc::bg_color(&p))
+    }
+
+    /// A click on a gallery cell restyles the strip as a rebuild would build
+    /// it - night faces and pointer states included. It used to pin each
+    /// cell's DAY values as overrides, which outrank the dark twins and the
+    /// hover: at night the picked cell kept the day's soft wash under the
+    /// night ink.
+    #[test]
+    fn a_gallery_click_restyles_its_cells_with_their_night_faces_and_hover() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::callbacks::CallbackChange;
+
+        let styled = StyledDom::create_from_dom(ribbon(UiTheme::Flora));
+        let cells: Vec<NodeId> = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| {
+                n.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(name) if name.as_str() == GALLERY_CELL_CLASS))
+            })
+            .map(|(i, _)| NodeId::new(i))
+            .collect();
+        // The strip's cells come first (the expansion panel's after them):
+        // cell 1 is the picked one, a click picks cell 0.
+        let (first, picked_before) = (cells[0], cells[1]);
+        let id = |n: NodeId| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+        };
+        let (_, changes) = crate::widgets::roving::test_support::fire(
+            &styled,
+            id(first),
+            EventFilter::Hover(HoverEventFilter::Click),
+        )
+        .expect("a gallery cell takes clicks");
+        assert!(
+            !changes.iter().any(|c| matches!(
+                c,
+                CallbackChange::ChangeNodeCssProperties { .. }
+                    | CallbackChange::OverrideNodeCssProperties { .. }
+            )),
+            "the restyle pins no value: {changes:?}"
+        );
+        let style_of = |node: NodeId| {
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if *node_id == node => {
+                    Some(style.clone())
+                }
+                _ => None,
+            })
+        };
+        let picked = style_of(first).expect("the clicked cell is restyled");
+        assert_eq!(resting_fill(&picked, false), Some(flora::LIGHT_SOFT), "picked, by day");
+        assert_eq!(resting_fill(&picked, true), Some(flora::DARK_HT), "picked, at night");
+        let left = style_of(picked_before).expect("the cell picked before is restyled");
+        assert_eq!(resting_fill(&left, true), Some(ColorU::TRANSPARENT), "no longer picked");
+        assert!(
+            left.iter_inline_properties().any(|(_, conditions)| conditions
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))),
+            "the cell keeps its hover"
+        );
+    }
+}
+
+/// Office 2010's control kinds: two-line large labels, split buttons with
+/// their own arrow part, small items stacked three to a column and the list
+/// gallery of Quick Steps.
+#[cfg(test)]
+mod office_2010_kinds_tests {
+    use azul_core::dom::NodeType;
+
+    use super::*;
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// Every non-empty text node under `node`, depth first.
+    fn texts(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            if !t.as_str().is_empty() {
+                out.push(t.as_str().to_string());
+            }
+        }
+        for c in node.children.as_ref() {
+            out.extend(texts(c));
+        }
+        out
+    }
+
+    /// Every icon name under `node`, depth first.
+    fn icons(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Icon(i) = node.root.get_node_type() {
+            out.push(i.as_ref().as_str().to_string());
+        }
+        for c in node.children.as_ref() {
+            out.extend(icons(c));
+        }
+        out
+    }
+
+    fn name_of(node: &Dom) -> Option<String> {
+        node.root
+            .get_accessibility_info()
+            .and_then(|i| i.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+    }
+
+    /// The items row of the only group of a one-tab flat ribbon.
+    fn items_of(group: RibbonGroup) -> Dom {
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Home")).with_group(group),
+        ]))
+        .with_theme(UiTheme::Flat)
+        .dom_desktop();
+        let content = dom
+            .children
+            .as_ref()
+            .iter()
+            .find(|c| has_class(c, "__azul-native-ribbon-content"))
+            .expect("the content band")
+            .clone();
+        content.children.as_ref()[0].children.as_ref()[0].clone()
+    }
+
+    fn button(icon: &str, label: &str) -> RibbonButton {
+        RibbonButton::new(AzString::from(icon), AzString::from(label))
+    }
+
+    #[test]
+    fn a_large_label_breaks_where_its_longer_line_is_shortest() {
+        let split = |label: &str| {
+            let words: Vec<&str> = label.split_whitespace().collect();
+            balanced_break(&words).map(|k| (words[..k].join(" "), words[k..].join(" ")))
+        };
+        let pair = |a: &str, b: &str| Some((a.to_string(), b.to_string()));
+        assert_eq!(split("New E-mail"), pair("New", "E-mail"));
+        assert_eq!(split("Send/Receive All Folders"), pair("Send/Receive", "All Folders"));
+        assert_eq!(split("Recover Deleted Items"), pair("Recover", "Deleted Items"));
+        assert_eq!(split("Mark All as Read"), pair("Mark All", "as Read"));
+        assert_eq!(split("Clean Up Folder"), pair("Clean Up", "Folder"));
+        // A tie keeps the longer first line (Outlook's "Run Rules / Now").
+        assert_eq!(split("Run Rules Now"), pair("Run Rules", "Now"));
+        assert_eq!(split("Delete"), None);
+    }
+
+    #[test]
+    fn a_large_labels_one_break_is_a_plain_space_and_the_rest_no_break_ones() {
+        assert_eq!(large_label_text("New E-mail", false), "New E-mail");
+        assert_eq!(
+            large_label_text("Send/Receive All Folders", false),
+            "Send/Receive All\u{a0}Folders"
+        );
+        // A menu's arrow is glued to the last word; a one-word label puts it
+        // on a line of its own.
+        assert_eq!(large_label_text("New Items", true), "New Items\u{a0}");
+        assert_eq!(large_label_text("Move", true), "Move ");
+    }
+
+    #[test]
+    fn a_two_word_large_button_keeps_its_label_whole_and_named() {
+        let items = items_of(
+            RibbonGroup::new(AzString::from("New"))
+                .with_item(RibbonItem::LargeButton(button("mail", "New E-mail"))),
+        );
+        let node = &items.children.as_ref()[0];
+        assert!(matches!(node.root.get_node_type(), NodeType::Button));
+        // One text node, the label as the user reads it: scripts find the
+        // button by "New E-mail".
+        assert_eq!(texts(node), vec!["New E-mail".to_string()]);
+        assert_eq!(name_of(node).as_deref(), Some("New E-mail"));
+        let content = &node.children.as_ref()[0];
+        assert!(has_class(content, "__azul-native-ribbon-large-content"));
+        assert_eq!(icons(content), vec!["mail".to_string()]);
+        assert!(has_class(
+            &content.children.as_ref()[1],
+            "__azul-native-ribbon-large-label"
+        ));
+    }
+
+    #[test]
+    fn a_large_menu_button_puts_its_arrow_after_the_last_word() {
+        let items = items_of(RibbonGroup::new(AzString::from("New")).with_item(
+            RibbonItem::LargeButton(button("mail", "New Items").with_arrow(RibbonArrow::Menu)),
+        ));
+        let node = &items.children.as_ref()[0];
+        assert_eq!(
+            icons(node),
+            vec!["mail".to_string(), "arrow_drop_down".to_string()]
+        );
+        assert_eq!(texts(node), vec!["New Items\u{a0}".to_string()]);
+        // A one-word menu keeps the Button's own column: icon, label, arrow.
+        let items = items_of(RibbonGroup::new(AzString::from("Move")).with_item(
+            RibbonItem::LargeButton(
+                button("drive_file_move", "Move").with_arrow(RibbonArrow::Menu),
+            ),
+        ));
+        let ch = items.children.as_ref()[0].children.as_ref();
+        assert_eq!(ch.len(), 3, "[icon, label, arrow]");
+    }
+
+    #[test]
+    fn a_split_button_with_an_arrow_callback_is_two_buttons() {
+        type Cb = crate::widgets::button::ButtonOnClickCallbackType;
+        for large in [true, false] {
+            let rb = button("content_paste", "Paste")
+                .with_on_click(RefAny::new(1u8), noop as Cb)
+                .with_on_arrow_click(RefAny::new(2u8), noop as Cb);
+            assert_eq!(rb.arrow, RibbonArrow::Split);
+            let item = if large {
+                RibbonItem::LargeButton(rb)
+            } else {
+                RibbonItem::SmallButton(rb)
+            };
+            let items = items_of(RibbonGroup::new(AzString::from("Clipboard")).with_item(item));
+            let split = &items.children.as_ref()[0];
+            assert!(has_class(split, RIBBON_SPLIT_CLASS), "large: {large}");
+            let parts = split.children.as_ref();
+            assert_eq!(parts.len(), 2, "[main, arrow]");
+            assert!(has_class(&parts[0], RIBBON_SPLIT_MAIN_CLASS));
+            assert!(has_class(&parts[1], RIBBON_SPLIT_ARROW_CLASS));
+            for part in parts {
+                assert!(matches!(part.root.get_node_type(), NodeType::Button));
+                assert_eq!(
+                    part.root.get_callbacks().as_ref().len(),
+                    1,
+                    "each part its own click"
+                );
+            }
+            assert_eq!(name_of(&parts[0]).as_deref(), Some("Paste"));
+            assert_eq!(name_of(&parts[1]).as_deref(), Some("Paste options"));
+            assert!(icons(&parts[1]).contains(&"arrow_drop_down".to_string()));
+        }
+        // Without an arrow callback a split button is still one button.
+        let items = items_of(RibbonGroup::new(AzString::from("Clipboard")).with_item(
+            RibbonItem::LargeButton(
+                button("content_paste", "Paste").with_arrow(RibbonArrow::Split),
+            ),
+        ));
+        assert!(matches!(
+            items.children.as_ref()[0].root.get_node_type(),
+            NodeType::Button
+        ));
+    }
+
+    #[test]
+    fn small_items_at_a_groups_top_level_stack_three_to_a_column() {
+        let small = |label: &str| RibbonItem::SmallButton(button("label", label));
+        let group = RibbonGroup::new(AzString::from("Delete"))
+            .with_item(small("Ignore"))
+            .with_item(small("Clean Up"))
+            .with_item(small("Junk"))
+            .with_item(small("Spam"))
+            .with_item(RibbonItem::LargeButton(button("delete", "Delete")))
+            .with_item(small("Alone"));
+        let items = items_of(group);
+        let ch = items.children.as_ref();
+        assert_eq!(ch.len(), 4, "[column of 3, column of 1, large, small]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-column"));
+        assert_eq!(ch[0].children.as_ref().len(), 3);
+        assert!(has_class(&ch[1], "__azul-native-ribbon-column"));
+        assert_eq!(ch[1].children.as_ref().len(), 1);
+        assert!(matches!(ch[2].root.get_node_type(), NodeType::Button));
+        assert!(
+            matches!(ch[3].root.get_node_type(), NodeType::Button),
+            "one small item alone stays"
+        );
+        assert_eq!(texts(&ch[0]), vec!["Ignore", "Clean Up", "Junk"]);
+    }
+
+    /// A row at a group's top level is one control tall - RibbonX's `box` -
+    /// and Office stacks it three to a column with the small items, as
+    /// Explorer's Show/hide stacks its three check boxes. AzDrive's three
+    /// check rows stood side by side and pushed Options out of a 1280 px
+    /// window.
+    #[test]
+    fn a_row_at_a_groups_top_level_stacks_with_the_small_items() {
+        let check_row = |label: &str| {
+            RibbonItem::Row(
+                RibbonRow::new()
+                    .with_item(RibbonItem::Check(CheckBox::create(false)))
+                    .with_item(RibbonItem::Custom(crate::widgets::widget_p_with_text(
+                        AzString::from(label),
+                    ))),
+            )
+        };
+        let group = RibbonGroup::new(AzString::from("Show/hide"))
+            .with_item(check_row("Item check boxes"))
+            .with_item(check_row("File name extensions"))
+            .with_item(check_row("Hidden items"))
+            .with_item(RibbonItem::LargeButton(button(
+                "visibility_off",
+                "Hide selected items",
+            )));
+        let items = items_of(group);
+        let ch = items.children.as_ref();
+        assert_eq!(
+            ch.len(),
+            2,
+            "[the three rows in a column, the large button]"
+        );
+        assert!(has_class(&ch[0], "__azul-native-ribbon-column"));
+        let rows = ch[0].children.as_ref();
+        assert_eq!(rows.len(), 3);
+        assert!(
+            rows.iter()
+                .all(|r| has_class(r, "__azul-native-ribbon-row")),
+            "each row as the app built it, one under the other"
+        );
+        assert_eq!(
+            texts(&ch[0]),
+            vec!["Item check boxes", "File name extensions", "Hidden items"]
+        );
+        assert!(matches!(ch[1].root.get_node_type(), NodeType::Button));
+    }
+
+    #[test]
+    fn a_list_gallery_shows_its_commands_icon_beside_name_in_columns_of_three() {
+        let names = [
+            "Move to: ?",
+            "Team E-mail",
+            "Reply & Delete",
+            "To Manager",
+            "Done",
+            "Create New",
+            "Hidden",
+        ];
+        let cells: Vec<RibbonGalleryCell> = names
+            .iter()
+            .map(|n| RibbonGalleryCell::new(Dom::create_icon("label"), AzString::from(*n)))
+            .collect();
+        let gallery = RibbonGallery::new(RibbonGalleryCellVec::from_vec(cells))
+            .with_columns(2)
+            .with_on_select(RefAny::new(0u8), pick as RibbonGalleryOnSelectCallbackType);
+        let items = items_of(
+            RibbonGroup::new(AzString::from("Quick Steps"))
+                .with_item(RibbonItem::Gallery(gallery)),
+        );
+        let wrapper = &items.children.as_ref()[0];
+        let frame = &wrapper.children.as_ref()[0];
+        let strip = &frame.children.as_ref()[0];
+        assert!(has_class(strip, RIBBON_GALLERY_LIST_CLASS));
+        let columns = strip.children.as_ref();
+        assert_eq!(columns.len(), 2, "two columns of three; the seventh is behind More");
+        assert_eq!(
+            texts(&columns[0]),
+            vec!["Move to: ?", "Team E-mail", "Reply & Delete"]
+        );
+        assert_eq!(texts(&columns[1]), vec!["To Manager", "Done", "Create New"]);
+        for column in columns {
+            for cell in column.children.as_ref() {
+                assert!(
+                    !has_class(cell, "__azul-native-ribbon-gallery-cell-selected"),
+                    "a command stays unlit"
+                );
+                assert!(has_class(
+                    &cell.children.as_ref()[0],
+                    "__azul-native-ribbon-gallery-cell-icon"
+                ));
+                assert_eq!(cell.root.get_callbacks().as_ref().len(), 1);
+            }
+        }
+        // More shows every command.
+        let panel = &wrapper.children.as_ref()[1];
+        assert_eq!(panel.children.as_ref().len(), names.len());
+    }
+}
+
+/// Office's ribbon scaling: the steps a tab too wide for its ribbon takes,
+/// the collapsed group's popup and the width the ribbon asks its window.
+#[cfg(test)]
+#[path = "ribbon_scaling_tests.rs"]
+mod ribbon_scaling_tests;

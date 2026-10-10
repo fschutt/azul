@@ -53,6 +53,7 @@ use super::{
         managed_host_invoker::{
             callback_ctx_field, has_callback_wrapper_arg, layout_callback_factory_info,
         },
+        upper_first,
     },
     camel, d_type_name,
     model::{ClassInfo, EnumInfo, Field, Kind, Model, Prim, Shape, Ty, Variant},
@@ -1344,23 +1345,30 @@ impl<'m, 'a> Emitter<'m, 'a> {
             _ => None,
         };
         let (ret, attrs, expr) = getter?;
-        if !taken.is_free(prop, "") {
+        // An api.json method that already owns the name (`get_text` is
+        // `text()`) wins the zero-argument overload, but the field must
+        // stay writable: the setter is a different overload
+        // (`text(uint[] v)`) and is still emitted below. Dropping both made
+        // `TextInputState.text` unreachable.
+        let getter_free = taken.is_free(prop, "");
+        if getter_free {
+            taken.take(prop, "");
+            if let Some(d) = &f.doc {
+                w.doc(1, &self.rw(std::slice::from_ref(d)));
+            }
+            w.l(1, &format!("{} {}(){}", ret, prop, attrs));
+            w.l(1, "{");
+            if let Some(g) = guard {
+                w.l(2, g);
+            }
+            w.l(2, &format!("return {};", expr));
+            w.l(1, "}");
+            w.l(0, "");
+            self.stats.members += 1;
+            checks.push(vec![format!("auto __g = __s.{};", prop)]);
+        } else if !setter {
             return None;
         }
-        taken.take(prop, "");
-        if let Some(d) = &f.doc {
-            w.doc(1, &self.rw(std::slice::from_ref(d)));
-        }
-        w.l(1, &format!("{} {}(){}", ret, prop, attrs));
-        w.l(1, "{");
-        if let Some(g) = guard {
-            w.l(2, g);
-        }
-        w.l(2, &format!("return {};", expr));
-        w.l(1, "}");
-        w.l(0, "");
-        self.stats.members += 1;
-        checks.push(vec![format!("auto __g = __s.{};", prop)]);
 
         if !setter {
             return Some(checks);
@@ -2131,23 +2139,38 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 Recv::Native => {
                     // The receiver is an ordinary parameter of the native
                     // type, and the C value built from it belongs to this
-                    // call. A `&mut self` would have to write the result back
-                    // into that parameter, which a native value cannot carry,
-                    // so there is no member for one.
-                    if is_mut {
-                        return None;
-                    }
+                    // call.
                     let nat = m.owned(class);
-                    self_param = Some(format!("{} self", restriction(&nat)?));
-                    let built = m.in_expr(&nat, "self")?;
-                    if own {
-                        built
-                    } else {
-                        body.push(format!("{} __self = {};", raw, built));
-                        if let Some(free) = m.cleanup(&nat, "&__self") {
-                            body.push(format!("scope (exit) {}", free));
+                    if is_mut {
+                        // A `&mut self` works like a `&mut` argument of a
+                        // native type (above): a `ref` parameter, the C
+                        // value built from it, and the value the call left
+                        // behind written back (`String::set_localizable` ->
+                        // `stringLocalizable(ref string self, bool)`). What
+                        // the native type cannot carry (the localizable
+                        // flag) is lost on the way back, as for any argument.
+                        let ex = exact(&nat)?;
+                        if restriction(&nat)? != ex && !matches!(nat, Ty::Vec { .. }) {
+                            return None;
                         }
+                        let built = m.in_expr(&nat, "self")?;
+                        let back = m.take_expr(&nat, "__self")?;
+                        self_param = Some(format!("ref {} self", ex));
+                        body.push(format!("{} __self = {};", raw, built));
+                        post.push(format!("self = {};", back));
                         "&__self".to_string()
+                    } else {
+                        self_param = Some(format!("{} self", restriction(&nat)?));
+                        let built = m.in_expr(&nat, "self")?;
+                        if own {
+                            built
+                        } else {
+                            body.push(format!("{} __self = {};", raw, built));
+                            if let Some(free) = m.cleanup(&nat, "&__self") {
+                                body.push(format!("scope (exit) {}", free));
+                            }
+                            "&__self".to_string()
+                        }
                     }
                 }
             };
@@ -2891,14 +2914,6 @@ fn case_names(variants: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn upper_first(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
-        None => String::new(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2968,5 +2983,80 @@ mod tests {
         }
         assert!(!reserved_member("withCss"));
         assert!(!reserved_member("open"));
+    }
+}
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for D.
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            super::super::generate(super::super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("D generates")
+        })
+    }
+
+    /// The body of `struct {name}`.
+    fn struct_body(name: &str) -> &'static str {
+        let out = output();
+        let head = format!("\nstruct {}\n{{\n", name);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no struct {} in the D output", name));
+        let rest = &out[start + 1..];
+        let end = rest.find("\n}\n").expect("struct ends");
+        &rest[..end]
+    }
+
+    /// The member starting at `head`, up to its closing brace.
+    fn member<'a>(body: &'a str, head: &str) -> &'a str {
+        let start = body
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{}` in:\n{}", head, body));
+        let rest = &body[start..];
+        let end = rest.find("\n    }\n").expect("member ends");
+        &rest[..end]
+    }
+
+    #[test]
+    fn the_text_field_of_text_input_state_is_still_settable_next_to_the_get_text_method() {
+        let body = struct_body("TextInputState");
+        // The api.json method keeps the name `text()` ...
+        assert!(body.contains("AzTextInputState_getText("), "{}", body);
+        // ... and the field still gets its setter, which releases the old Vec.
+        let set = member(body, "    void text(");
+        assert!(set.contains("auto __f = &_ptr().text;"), "{}", set);
+        assert!(set.contains("AzU32Vec_delete(__f);"), "{}", set);
+        assert!(set.contains("*__f = __v;"), "{}", set);
+    }
+
+    #[test]
+    fn a_string_field_setter_releases_the_old_string_before_storing_the_new_one() {
+        let set = member(struct_body("FullWindowState"), "    void title(string v)");
+        let del = set.find("AzString_delete(__f);").expect("releases");
+        let store = set.find("*__f = __v;").expect("stores");
+        assert!(del < store, "{}", set);
+    }
+
+    #[test]
+    fn a_struct_field_getter_is_a_view_and_its_setter_consumes_the_new_value() {
+        let body = struct_body("WindowCreateOptions");
+        let get = member(body, "    FullWindowState windowState()");
+        assert!(get.contains("FullWindowState._viewOf(&_ptr().window_state, _rc)"), "{}", get);
+        let set = member(body, "    void windowState(FullWindowState v)");
+        assert!(set.contains("v._take()"), "{}", set);
+        assert!(set.contains("AzFullWindowState_delete(__f);"), "{}", set);
+    }
+
+    #[test]
+    fn a_bool_field_reads_and_writes_in_place() {
+        let body = struct_body("CheckBoxState");
+        assert!(body.contains("return _ptr().checked;"), "{}", body);
+        assert!(body.contains("_ptr().checked = v;"), "{}", body);
     }
 }

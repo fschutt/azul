@@ -199,12 +199,15 @@ impl CpuBackend {
         let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
         let (gpu_transforms, gpu_opacities) =
             cpurender::extract_gpu_values(gpu_cache_early, dom_id);
+        // In VIEWPORT space, like the shell's: an item inside a scrolled frame
+        // is repainted where the frame paints it.
         let gpu_damage = cpurender::gpu_value_damage(
             display_list,
             &self.previous_gpu_transforms,
             &self.previous_gpu_opacities,
             &gpu_transforms,
             &gpu_opacities,
+            &scroll_offsets,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         if has_gpu_damage && std::env::var_os("AZ_PATCH_DEBUG").is_some() {
@@ -306,13 +309,6 @@ impl CpuBackend {
             .filter(|(id, _)| id.inner != dom_id.inner)
             .map(|(id, r)| (*id, r.display_list.clone()))
             .collect();
-        let vview_damage = cpurender::compute_virtual_view_damage(
-            display_list,
-            &vview_dls,
-            &self.previous_vview_dls,
-        );
-        let has_vview_damage = !vview_damage.is_empty();
-        self.previous_vview_dls = vview_dls.clone();
 
         // Scroll: the display list is UNCHANGED on scroll, so the diff above
         // only ever catches the scrollbar. Collect (clip, delta) per frame whose
@@ -347,6 +343,19 @@ impl CpuBackend {
                 }
             })
             .collect();
+
+        // The views' damage lands where this frame PAINTS them: an incremental
+        // frame rasterises at `next_scroll_baseline`, and a view inside a
+        // scrolled box is painted at its content box minus that offset (same
+        // as the shell's `render_frame`).
+        let vview_damage = cpurender::compute_virtual_view_damage(
+            display_list,
+            &vview_dls,
+            &self.previous_vview_dls,
+            &next_scroll_baseline,
+        );
+        let has_vview_damage = !vview_damage.is_empty();
+        self.previous_vview_dls = vview_dls.clone();
 
         // Determine render path.
         let mut all_damage: Vec<LogicalRect>;
@@ -508,7 +517,6 @@ impl CpuBackend {
                     &mover_rects,
                     display_list,
                     dpi_factor,
-                    false, // e2e twin renders owned pixmaps, never pool-order
                 );
                 all_damage.extend(blit.damage);
                 present_extra.extend(blit.present_extra);
@@ -524,7 +532,8 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    false, // e2e twin renders owned pixmaps, never pool-order
+                    // The offsets the clip was projected with.
+                    &scroll_offsets,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
@@ -549,26 +558,35 @@ impl CpuBackend {
                 .with_system_style(layout_window.system_style.clone())
                 .with_virtual_view_display_lists(vview_dls);
 
-        if is_incremental && !all_damage.is_empty() {
-            drop(cpurender::render_display_list_damaged(
-                display_list,
-                &mut output,
-                dpi_factor,
-                renderer_resources,
-                &layout_window.font_manager,
-                &mut self.glyph_cache,
-                &render_state,
-                &all_damage,
-            ));
-            // Exits paint ON TOP of the restored live pixels; their current
-            // rects are inside `all_damage` by construction.
-            if zombies_active {
-                layout_window.composite_zombies_cpu(
+        // An INCREMENTAL frame paints exactly its damage - and nothing when it
+        // has none (the twin of the shell renderer's law: a frame that reports
+        // no damage must not rewrite the target).
+        if is_incremental {
+            if !all_damage.is_empty() {
+                if let Ok(painted) = cpurender::render_display_list_damaged(
+                    display_list,
                     &mut output,
                     dpi_factor,
                     renderer_resources,
+                    &layout_window.font_manager,
                     &mut self.glyph_cache,
-                );
+                    &render_state,
+                    &all_damage,
+                ) {
+                    // What was WRITTEN, which is what must be presented:
+                    // overlapping requests are painted as their bounding box.
+                    all_damage = painted;
+                }
+                // Exits paint ON TOP of the restored live pixels; their current
+                // rects are inside `all_damage` by construction.
+                if zombies_active {
+                    layout_window.composite_zombies_cpu(
+                        &mut output,
+                        dpi_factor,
+                        renderer_resources,
+                        &mut self.glyph_cache,
+                    );
+                }
             }
         } else {
             output.fill(255, 255, 255, 255);

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>The Feed Show</title>
+    <link>https://podcast.example.org/</link>
+    <description>A show about feeds.</description>
+    <itunes:author>Emil Vogel</itunes:author>
+    <itunes:image href="https://podcast.example.org/artwork.jpg"/>
+    <item>
+      <title>Episode 12: OPML</title>
+      <description>&lt;p&gt;We talk about &lt;em&gt;OPML&lt;/em&gt;.&lt;/p&gt;</description>
+      <pubDate>Wed, 30 Sep 2026 01:42:00 PDT</pubDate>
+      <enclosure url="https://podcast.example.org/ep12.mp3" length="34216300" type="audio/mpeg"/>
+      <guid isPermaLink="true">https://podcast.example.org/12</guid>
+      <itunes:duration>00:42:17</itunes:duration>
+      <itunes:image href="https://podcast.example.org/ep12.jpg"/>
+    </item>
+  </channel>
+</rss>

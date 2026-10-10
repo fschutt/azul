@@ -25,7 +25,8 @@ static PENDING_MENU_ACTIONS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 static NEXT_MENU_TAG: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(1);
 
 /// Allocate `count` globally-unique consecutive tags, returning the first.
-pub(super) fn alloc_menu_tags(count: isize) -> isize {
+/// Also used by the tray for its status item button (`tray/macos.rs`).
+pub(crate) fn alloc_menu_tags(count: isize) -> isize {
     NEXT_MENU_TAG.fetch_add(count.max(1), std::sync::atomic::Ordering::Relaxed)
 }
 

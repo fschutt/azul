@@ -1,0 +1,36 @@
+[package]
+name = "AzPlayer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzPlayer - a media center on the public azul API, in the look of
+    Windows Media Center: the start strip, music (a gapless queue on azul's
+    AudioPlayer, now playing), pictures (thumbnails on a worker, a viewer, a
+    slide show with Ken Burns' pan and zoom), videos and movies from files or
+    web addresses (azul's VideoWidget: MP4 / MOV with H.264 decoded on its
+    worker in NV12 - VideoToolbox on Apple, Vulkan Video on x86_64 Linux /
+    Windows), opened behind a curtain so picture and sound start together;
+    flora's light shafts on Media Center's blue, springs in the foreground.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), the --shot timer.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The history file (already in the tree).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azplayer"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzPlayer"
+path = "src/main.rs"

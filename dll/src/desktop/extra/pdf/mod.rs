@@ -18,6 +18,13 @@ use azul_core::{dom::Dom, json::Json};
 use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
+/// PDF -> page count, page sizes, page N as SVG, page text, outline (PDF9).
+pub mod parsed;
+pub use parsed::*;
+/// A stamp's SVG (a signature) as the paths printpdf draws onto a page.
+#[cfg(feature = "pdf")]
+mod stamp;
+
 /// Say once per process that the `pdf` feature is compiled out. Every stub
 /// arm below returns an empty/none result that is byte-for-byte
 /// indistinguishable from "the document rendered to nothing" — the same
@@ -235,6 +242,33 @@ impl Pdf {
         font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
         image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
     ) -> azul_layout::resource_handles::PaginationSnapshot {
+        self.compute_pagination_with_policy(
+            styled_dom,
+            page_width_px,
+            page_height_px,
+            font_cache,
+            image_cache,
+            azul_layout::solver3::page_breaks::BreakPolicy::default(),
+        )
+    }
+
+    /// [`Self::compute_pagination`] with the break-awareness `policy`:
+    /// `atomic_lines` never ends a page inside a line of text,
+    /// `widows_orphans` honours CSS `widows` / `orphans`, `honor_break_inside`
+    /// keeps a `break-inside: avoid` box whole, `atomic_table_rows` a table
+    /// row. The default policy (all off) is the plain interval slicing, which
+    /// cuts through whatever lies on the page edge - right for a page view
+    /// that only needs page COUNTS, wrong for a reader or a print whose page
+    /// edges must fall between lines (AzReader).
+    pub fn compute_pagination_with_policy(
+        &self,
+        styled_dom: azul_core::styled_dom::StyledDom,
+        page_width_px: f32,
+        page_height_px: f32,
+        font_cache: &azul_layout::resource_handles::FontCacheSnapshot,
+        image_cache: &azul_layout::resource_handles::ImageCacheSnapshot,
+        policy: azul_layout::solver3::page_breaks::BreakPolicy,
+    ) -> azul_layout::resource_handles::PaginationSnapshot {
         #[cfg(feature = "pdf")]
         {
             let mut font_manager = match font_cache.as_font_manager() {
@@ -251,12 +285,13 @@ impl Pdf {
             };
             let empty_images = azul_core::resources::ImageCache::default();
             let images = image_cache.as_image_cache().unwrap_or(&empty_images);
-            engine::styled_dom_pagination(
+            engine::styled_dom_pagination_with_policy(
                 &styled_dom,
                 page_width_px,
                 page_height_px,
                 &mut font_manager,
                 images,
+                policy,
             )
             .map_or_else(
                 azul_layout::resource_handles::PaginationSnapshot::empty,
@@ -272,6 +307,7 @@ impl Pdf {
                 page_height_px,
                 font_cache,
                 image_cache,
+                policy,
             );
             azul_layout::resource_handles::PaginationSnapshot::empty()
         }
@@ -279,8 +315,12 @@ impl Pdf {
 
     /// REVERSE path: PDF bytes -> one standalone SVG string per page.
     /// Empty without the `pdf` feature or on parse failure.
-    pub fn to_svg_pages(&self, bytes: &[u8]) -> Vec<String> {
+    pub fn to_svg_pages(&self, bytes: &[u8]) -> azul_css::StringVec {
         pdf_to_svg_pages(bytes)
+            .into_iter()
+            .map(azul_css::AzString::from)
+            .collect::<Vec<_>>()
+            .into()
     }
 
     /// Turn one page-SVG (from [`Pdf::to_svg_pages`]) into a `Dom` subtree,
@@ -290,18 +330,17 @@ impl Pdf {
     }
 }
 
-/// PDF bytes -> per-page SVG strings (see [`Pdf::to_svg_pages`]).
+/// PDF bytes -> per-page SVG strings (see [`Pdf::to_svg_pages`]). Renders
+/// EVERY page: a viewer parses once with [`ParsedPdf`] and renders only the
+/// pages it shows. Same render path (`ParsedPdf::page_to_svg`); empty without
+/// the `pdf` feature (`ParsedPdf::create_from_bytes` announces that) or on a parse
+/// failure.
 pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
-    #[cfg(feature = "pdf")]
-    {
-        engine::pdf_to_svg_pages(bytes)
-    }
-    #[cfg(not(feature = "pdf"))]
-    {
-        announce_pdf_stub("pdf_to_svg_pages");
-        let _ = bytes;
-        Vec::new()
-    }
+    let pdf = ParsedPdf::create_from_bytes(bytes);
+    (0..pdf.page_count())
+        .filter_map(|index| pdf.page_to_svg(index).into_option())
+        .map(azul_css::AzString::into_library_owned_string)
+        .collect()
 }
 
 /// One page-SVG -> Dom (see [`Pdf::svg_page_to_dom`]).
@@ -384,15 +423,33 @@ mod engine {
                 };
                 let key = alloc::format!("rawimg-{:016x}", image.get_hash().inner);
                 if !images.contains_key(&key) {
-                    let pixels = match raw.pixels {
-                        RawImageData::U8(v) => printpdf::RawImageData::U8(v.as_ref().to_vec()),
+                    let (pixels, format) = match raw.pixels {
+                        // A video frame (NV12) goes into the PDF as RGBA8.
+                        RawImageData::U8(ref v) if raw.data_format.is_nv12() => {
+                            match azul_core::resources::nv12_to_rgba(
+                                v.as_ref(),
+                                raw.width,
+                                raw.height,
+                                raw.data_format,
+                            ) {
+                                Some(rgba) => (
+                                    printpdf::RawImageData::U8(rgba),
+                                    azul_core::resources::RawImageFormat::RGBA8,
+                                ),
+                                None => continue,
+                            }
+                        }
+                        RawImageData::U8(ref v) => (
+                            printpdf::RawImageData::U8(v.as_ref().to_vec()),
+                            raw.data_format,
+                        ),
                         _ => continue, // U16/F32 raws: not produced by the Dom API today
                     };
                     let pp_raw = printpdf::RawImage {
                         pixels,
                         width: raw.width,
                         height: raw.height,
-                        data_format: convert_image_format(raw.data_format),
+                        data_format: convert_image_format(format),
                         tag: Vec::new(),
                     };
                     images.insert(
@@ -423,23 +480,12 @@ mod engine {
             A::RGBA16 => P::RGBA16,
             A::RGBF32 => P::RGBF32,
             A::RGBAF32 => P::RGBAF32,
+            // `resolve_raw_images` converts NV12 to RGBA8 before it gets
+            // here; the arm only keeps the match exhaustive.
+            A::NV12Rec601Video | A::NV12Rec601Full | A::NV12Rec709Video | A::NV12Rec709Full => {
+                P::RGBA8
+            }
         }
-    }
-
-    /// REVERSE path: parse PDF bytes and render every page to a standalone
-    /// SVG string (printpdf's `page_to_svg`; pages are 1-indexed there).
-    /// Each SVG can then be turned into a Dom via
-    /// `azul_layout::widgets::map::svg_string_to_dom` (the same svg-to-dom
-    /// path the map tiles use) — see `Pdf::svg_page_to_dom`.
-    pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
-        let mut warnings: Vec<PdfWarnMsg> = Vec::new();
-        let Ok(doc) = PdfDocument::parse(bytes, &PdfParseOptions::default(), &mut warnings) else {
-            return Vec::new();
-        };
-        let opts = printpdf::PdfToSvgOptions::default();
-        (1..=doc.pages.len())
-            .filter_map(|n| doc.page_to_svg(n, &opts, &mut warnings))
-            .collect()
     }
 
     /// Walk one page's display list into printpdf draw ops via printpdf's own
@@ -608,12 +654,15 @@ mod engine {
     /// resolved.
     /// The precalculation twin of [`styled_dom_to_bytes_with`]: same layout
     /// pipeline, stops after the break analysis (no page is sliced).
-    pub fn styled_dom_pagination(
+    /// `policy`: the break-awareness of the analysis (see
+    /// `Pdf::compute_pagination_with_policy`; the default is plain slicing).
+    pub fn styled_dom_pagination_with_policy(
         styled_dom: &azul_core::styled_dom::StyledDom,
         page_w_px: f32,
         page_h_px: f32,
         font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
         image_cache: &azul_core::resources::ImageCache,
+        policy: azul_layout::solver3::page_breaks::BreakPolicy,
     ) -> Option<azul_layout::resource_handles::PaginationAnalysis> {
         use std::collections::BTreeMap;
 
@@ -641,7 +690,10 @@ mod engine {
         let mut debug_messages = None;
         let loader = PathLoader::new();
         let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
-        let page_config = FakePageConfig::new();
+        let page_config = FakePageConfig {
+            break_policy: policy,
+            ..FakePageConfig::new()
+        };
 
         let info = compute_document_pagination(
             &mut layout_cache,
@@ -932,3 +984,8 @@ mod tests {
         );
     }
 }
+
+/// `ParsedPdf` (PDF9): page count, page sizes, page N as SVG, page text, outline.
+#[cfg(all(test, feature = "pdf"))]
+#[path = "parsed_tests.rs"]
+mod parsed_tests;

@@ -1,0 +1,27 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Reference case for table bordercolor attribute behaving like border-color property</title>
+<style>
+  table { margin: 5px }
+</style>
+</head>
+<body><table>
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table>
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table>
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table>
+  <tbody><tr><td>I should not have a border.</td>
+</tr></tbody></table>
+<table style="border-color: lime; border-style: solid">
+  <tbody><tr><td>I should have a border.</td>
+</tr></tbody></table>
+<table style="border-color: lime; border-style: solid">
+  <tbody><tr><td>I should have a border.</td>
+</tr></tbody></table>
+</body>
+</html>

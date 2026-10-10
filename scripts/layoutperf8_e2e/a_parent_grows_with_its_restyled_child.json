@@ -1,0 +1,20 @@
+{
+ "name": "a_parent_grows_with_its_restyled_child",
+ "description": "LAYOUTPERF8 (latent bug C, NOT fixed - expected failure). A stylesheet change of an empty block child's height (20 -> 60px) must grow its auto-height parent to 60 and move the parent's next sibling to y=60, as a fresh layout does. On the wave-7 build the child is 60 tall, the parent stays 20 and #after stays at y=20 (it overlaps): the child is re-solved as its own layout root (a block in a block is not lifted), reposition_clean_subtrees only re-stacks the root's own siblings, and nothing re-sizes the ancestors. A child that holds text is lifted to its parent (its formatting context is Inline), which hides this. Plan in scripts/LAYOUTPERF8_2026_10_03.md. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
+ "expect": "fail",
+ "setup": {"window_width": 400, "window_height": 300, "dpi": 96},
+ "steps": [
+  {"op": "mount",
+   "html": ["<div id=\"root\">", "  <div id=\"parent\"><div id=\"child\"></div></div>", "  <div id=\"after\">after</div>", "</div>"],
+   "css": ["html, body { margin: 0; padding: 0; width: 100%; height: 100%; }", "#root { width: 100%; }", "#parent { background: #eee; }", "#child { width: 50px; height: 20px; }", "#after { height: 20px; }"]},
+  {"op": "wait_frame"},
+  {"op": "mount",
+   "html": ["<div id=\"root\">", "  <div id=\"parent\"><div id=\"child\"></div></div>", "  <div id=\"after\">after</div>", "</div>"],
+   "css": ["html, body { margin: 0; padding: 0; width: 100%; height: 100%; }", "#root { width: 100%; }", "#parent { background: #eee; }", "#child { width: 50px; height: 60px; }", "#after { height: 20px; }"]},
+  {"op": "wait_frame"},
+  {"op": "get_node_layout", "selector": "#parent"},
+  {"op": "assert_response", "type": "node_layout", "contains": "\"height\":60.0"},
+  {"op": "get_node_layout", "selector": "#after"},
+  {"op": "assert_response", "type": "node_layout", "contains": "\"y\":60.0"}
+ ]
+}

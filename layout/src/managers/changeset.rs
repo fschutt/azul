@@ -28,7 +28,7 @@ use azul_core::{
     task::Instant,
     window::CursorPosition,
 };
-use azul_css::{impl_option, impl_option_inner, AzString};
+use azul_css::{impl_option, AzString};
 
 use crate::managers::selection::ClipboardContent;
 
@@ -668,6 +668,7 @@ mod autotest_generated {
         ClipboardContent {
             plain_text: AzString::from(text),
             styled_runs: Vec::<StyledTextRun>::new().into(),
+            html: azul_css::OptionString::None,
         }
     }
 

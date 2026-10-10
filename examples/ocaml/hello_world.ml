@@ -1,6 +1,6 @@
 type my_data_model = { mutable counter : int }
 
-(* Converts between my_data_model and Azul.RefAny.t in both directions *)
+(* Convert between my_data_model and Azul.RefAny.t in both directions *)
 let model : my_data_model Azul.RefAny.key = Azul.RefAny.key "my_data_model"
 
 let on_click (m : my_data_model) (_info : Azul.CallbackInfo.t) : Azul.Update.t =
@@ -21,6 +21,12 @@ let layout (m : my_data_model) (_info : Azul.LayoutCallbackInfo.t) : Azul.Dom.t 
 let () =
   let data = Azul.RefAny.upcast model { counter = 5 } in
   let window = Azul.WindowCreateOptions.create ~layout:(Azul.RefAny.lift model layout) () in
+  (* `update_window_state` edits the options' own window state: the setters
+     release the old title, plain data is copied in. *)
+  Azul.WindowCreateOptions.update_window_state window (fun ws ->
+    Azul.FullWindowState.set_title ws "Hello World";
+    Azul.FullWindowState.update_size ws (fun size ->
+      Azul.WindowSize.set_dimensions size (Azul.LogicalSize.create 400.0 300.0)));
   let app_config = Azul.AppConfig.create () in
   let app = Azul.App.create ~data ~app_config () in
 

@@ -132,7 +132,9 @@ mod autotest_generated {
         fn ua(&mut self, node_type: &NodeType) {
             apply_ua_css_to_compact(
                 &crate::dom::NodeData::create_node(node_type.clone()),
-                false,
+                // Not the document root, and no VirtualView host to inherit from.
+                1,
+                &[],
                 None,
                 &mut self.tier1,
                 &mut self.dims,
@@ -573,9 +575,11 @@ mod autotest_generated {
     }
 
     fn line_height_prop(pct: f32) -> CssProperty {
-        CssProperty::LineHeight(CssPropertyValue::Exact(StyleLineHeight {
-            inner: PercentageValue::new(pct),
-        }))
+        line_height_of(StyleLineHeight::Percentage(PercentageValue::new(pct)))
+    }
+
+    fn line_height_of(lh: StyleLineHeight) -> CssProperty {
+        CssProperty::LineHeight(CssPropertyValue::Exact(lh))
     }
 
     #[test]
@@ -1019,38 +1023,51 @@ mod autotest_generated {
     }
 
     #[test]
-    fn apply_line_height_round_trips_and_saturates_at_both_ends() {
+    fn apply_line_height_encodes_numbers_lengths_and_normal() {
+        // A number as its factor x 1000: it is inherited as the number.
         let mut s = Sink::new();
-        s.apply(&line_height_prop(120.0));
-        assert_eq!(s.text.line_height, 1200, "120% must encode as % x 10");
-
-        // Absurd values must saturate - no wrap-around. The two signs land
-        // differently by design: a huge POSITIVE (unitless multiple) falls to
-        // the sentinel ("normal" - a 10^7x multiple is meaningless), while a
-        // huge NEGATIVE (= absolute px per the parser convention) CLAMPS to
-        // the largest representable px (-32768 = 3276.8px) instead of being
-        // silently reinterpreted as "normal".
-        let mut big = Sink::new();
-        big.apply(&line_height_prop(1.0e9f32));
+        s.apply(&line_height_of(StyleLineHeight::Number(FloatValue::new(1.2))));
+        assert_eq!(s.text.line_height, 1200, "1.2 encodes as the factor x 1000");
         assert_eq!(
-            big.text.line_height, I16_SENTINEL,
-            "a huge unitless multiple saturates to the sentinel"
-        );
-        let mut neg = Sink::new();
-        neg.apply(&line_height_prop(-1.0e9f32));
-        assert_eq!(
-            neg.text.line_height, -32768,
-            "a huge absolute px line-height clamps instead of dropping to normal"
+            decode_line_height(s.text.line_height),
+            CompactLineHeight::Factor(1.2)
         );
 
-        // The split scale itself: 48px (normalized -48) stores as -480 and
-        // decodes back to 48px - the old x1000 scale overflowed at 32.76px.
+        // An absolute length as -px x 100: to the hundredth of a pixel (the
+        // old tenths pitched `line-height: 14pt` lines 18.7px apart), and far
+        // past the old x1000 scale's 32.76px.
         let mut px48 = Sink::new();
-        px48.apply(&line_height_prop(-4800.0));
+        px48.apply(&line_height_of(StyleLineHeight::Length(PixelValue::px(48.0))));
+        assert_eq!(px48.text.line_height, -4800, "48px stores as -px x 100");
         assert_eq!(
-            px48.text.line_height, -480,
-            "line-height: 48px stores as -px x 10"
+            decode_line_height(px48.text.line_height),
+            CompactLineHeight::Px(48.0)
         );
+        let mut pt14 = Sink::new();
+        pt14.apply(&line_height_of(StyleLineHeight::Length(PixelValue::pt(14.0))));
+        assert_eq!(pt14.text.line_height, -1867, "14pt = 18.67px");
+
+        // `normal` is the sentinel, whatever the slot held before.
+        let mut normal = Sink::new();
+        normal.text.line_height = 1200;
+        normal.apply(&line_height_of(StyleLineHeight::Normal));
+        assert_eq!(normal.text.line_height, I16_SENTINEL);
+
+        // The viewport units (unknown here) and values beyond the range are
+        // left to the cascade - never dropped to `normal`, never clamped.
+        for lh in [
+            StyleLineHeight::Length(PixelValue::from_metric(SizeMetric::Vh, 5.0)),
+            StyleLineHeight::Number(FloatValue::new(1.0e6)),
+            StyleLineHeight::Length(PixelValue::px(1.0e6)),
+        ] {
+            let mut s = Sink::new();
+            s.apply(&line_height_of(lh));
+            assert_eq!(
+                decode_line_height(s.text.line_height),
+                CompactLineHeight::Uncached,
+                "{lh:?}"
+            );
+        }
     }
 
     #[test]

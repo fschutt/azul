@@ -1,0 +1,157 @@
+[package]
+name = "azul-storage"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The storage layer the azul apps share: AzDrive browses with it, AzMail exports
+    with it. One blocking `Drive` trait (list / get / get_range / put / delete /
+    head) with two backends, a folder on disk (`LocalDrive`) and an S3-compatible
+    bucket (`S3Drive`: AWS S3, Cloudflare R2, MinIO; SigV4-signed). The apps call
+    it from an azul `Thread`, never from a callback. Durable data is files, one
+    bucket per user; see the azlin cloud storage split.
+"""
+publish = false
+
+[dependencies]
+# No new crates in the tree: sha2 0.10 and hmac 0.12 already come in through
+# rustls-rustcrypto (the TLS stack of azul's `http` feature) and azul-layout,
+# roxmltree 0.21 through azul-layout's `xml` feature, serde / serde_json
+# through azul-layout and AzCalendar. See scripts/DRIVE1_AZDRIVE_2026_09_30.md.
+sha2 = "0.10"
+hmac = "0.12"
+roxmltree = { version = "0.21.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Only for `AzulTransport` (feature `azul`), which sends the requests through
+# azul's `HttpRequestConfig`. The apps turn it on; the unit tests need no
+# libazul.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
+
+# ---- feature `opendal`: data sources through Apache OpenDAL (OpendalDrive) ----
+# No default features: no reqwest, no HTTP transport of OpenDAL's own - its HTTP
+# goes through azul-storage's `Transport` (azul's HTTP client in the apps), no
+# services registered before main. The services: the ones that build on macOS,
+# Windows and Linux from Rust alone (see src/catalog.rs for the ones left out).
+opendal = { version = "0.59.3", default-features = false, optional = true, features = [
+    "executors-tokio",
+    "services-webdav",
+    "services-http",
+    "services-ftp",
+    "services-webhdfs",
+    "services-gcs",
+    "services-azblob",
+    "services-azdls",
+    "services-azfile",
+    "services-b2",
+    "services-swift",
+    "services-oss",
+    "services-cos",
+    "services-obs",
+    "services-upyun",
+    "services-gdrive",
+    "services-dropbox",
+    "services-onedrive",
+    "services-koofr",
+    "services-pcloud",
+    "services-seafile",
+    "services-yandex-disk",
+    "services-github",
+    "services-lakefs",
+    "services-vercel-blob",
+    "services-dbfs",
+    "services-ipfs",
+    "services-redis",
+] }
+# OpenDAL's HTTP transport trait speaks `http` 1.x requests and responses and
+# streams its bodies (the versions OpenDAL 0.59 itself pins).
+http = { version = "1.4", optional = true }
+futures = { version = "0.3", default-features = false, features = ["std"], optional = true }
+# ---- feature `sql`: databases browsed as files (DatabaseDrive) ----
+# sqlx 0.8 is the driver OpenDAL's postgresql / mysql / sqlite services use; no
+# macros, no migrations; rustls with ring and the webpki roots; SQLite bundled
+# (compiled from its C source by `cc`: no system library).
+sqlx = { version = "0.8.6", default-features = false, optional = true, features = [
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+    "sqlite",
+    "postgres",
+    "mysql",
+] }
+# The one runtime of both (src/runtime.rs).
+tokio = { version = "1.52", default-features = false, optional = true, features = ["rt", "rt-multi-thread"] }
+# ---- feature `encryption`: client-side encryption (src/crypto/, src/encrypted.rs) ----
+# Every crate here is in Cargo.lock already (AzKeys, AzMeet, azcloud-kit, zip): no new crate.
+# XChaCha20-Poly1305; `stream` is aead's STREAM construction (StreamBE32: nonce = prefix ||
+# segment index || last-segment flag), no further crate. Zeroizes its key on drop.
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc", "stream"], optional = true }
+# X25519: the drive key sealed to a member's key (AzMeet's features; keys from getrandom bytes).
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"], optional = true }
+# BLAKE3: the plaintext hash, the key commitment and every key derived from another; the
+# start of a file a resumable upload checks (src/multipart.rs). Not optional: azul's tree has
+# 1.8.7 already (azcloud-kit, the encryption).
+blake3 = "1.8"
+# zstd level 3 per 1 MiB segment (the C library, as zip builds it); level 19 in the
+# recompression pass.
+zstd = { version = "0.13.3", default-features = false, optional = true }
+# brotli quality 11 per segment in the recompression pass (pure Rust; brotli 8 is in Cargo.lock
+# already through webrender and the dll's `web` feature).
+brotli = { version = "8", optional = true }
+# Argon2id: the key of a recovery code (AzKeys' features).
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"], optional = true }
+# The OS random source: file keys, nonces, object ids, salts.
+getrandom = { version = "0.2", optional = true }
+# Wiping keys and plaintext buffers.
+zeroize = { version = "1.8", features = ["alloc"], optional = true }
+# The drive's policy file, `.azlin/policy.toml` in the drive index (src/meta/policy.rs);
+# toml 0.9 is in Cargo.lock already (azul-doc).
+toml = { version = "0.9", optional = true }
+# ---- feature `index-cache`: the drive index's local query cache (src/meta/cache.rs) ----
+# The SQLite azul's own `Db` runs on (the dll's `db-sqlite`): turso, pure Rust, as the
+# published fork `turso-azul` 0.7.2 with default features off (no mimalloc, no FTS, no
+# io_uring); aegis with `pure-rust`, so its build script compiles no C. Both are in
+# Cargo.lock already (through the dll). Like the dll, not for 32-bit Linux (turso's sync
+# engine does not compile there).
+turso = { package = "turso-azul", version = "0.7.2", default-features = false, optional = true }
+aegis = { version = "0.9", features = ["pure-rust"], optional = true }
+# AZD1, the drops of incoming mail (src/crypto/drops.rs): the customer's Email Worker has Web
+# Crypto only, so X25519 + HKDF-SHA256 + AES-256-GCM. Both in Cargo.lock already (aes-gcm 0.10.3
+# through noq-proto, the QUIC stack; hkdf 0.12 through azcloud-kit, AzMeet, AzCalendar).
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"], optional = true }
+hkdf = { version = "0.12", optional = true }
+
+[features]
+default = []
+azul = ["dep:azul"]
+# `testing::TempDir` for the apps' tests (a dev-dependency turns it on).
+testing = []
+# Data sources through Apache OpenDAL (OpendalDrive; the catalog's OpenDAL entries).
+opendal = ["dep:opendal", "dep:http", "dep:futures", "dep:tokio"]
+# Databases browsed as files (DatabaseDrive; the catalog's database entries).
+sql = ["dep:sqlx", "dep:tokio"]
+# Client-side encryption: the AZL1 object format, the drive's keys, EncryptedDrive.
+encryption = [
+    "dep:chacha20poly1305",
+    "dep:x25519-dalek",
+    "dep:zstd",
+    "dep:brotli",
+    "dep:argon2",
+    "dep:getrandom",
+    "dep:zeroize",
+    "dep:aes-gcm",
+    "dep:hkdf",
+    "dep:toml",
+]
+# The drive index's query cache (search, largest, recent, totals) in a local SQLite.
+index-cache = ["encryption", "dep:turso", "dep:aegis"]
+
+[lib]
+name = "azul_storage"
+path = "src/lib.rs"
+
+# git's remote helper for a drive index: `git clone azlin::folder://<path>` (src/meta/git.rs).
+[[bin]]
+name = "git-remote-azlin"
+path = "src/bin/git-remote-azlin.rs"
+required-features = ["encryption"]

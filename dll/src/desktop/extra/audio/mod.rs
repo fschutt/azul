@@ -8,18 +8,22 @@
 //! received over UDP for azul-meet).
 //!
 //! `AudioSink::open(config) -> AudioSink`; `sink.play(AudioFrame)`;
-//! `sink.is_open()`; dropping the handle (or `close`) stops playback.
+//! `sink.is_open()`; `sink.error_message()`; dropping the handle (or `close`)
+//! stops playback.
 //!
-//! The actual output (rodio / cpal on the desktop, AVAudioEngine / AAudio on
-//! mobile) is the on-device backend - same as the mic capture worker. This
-//! tick ships the handle + a **stub** engine (counts frames, no sound) so the
-//! API surface + ownership are real and codegen-exposed; the real backend
-//! swaps in behind a feature later.
+//! The output is the platform backend behind the `OutputDevice` seam: ALSA
+//! (dlopen'd) on Linux, WASAPI through cpal on Windows, AAudio (dlopen'd) on
+//! Android, AVAudioEngine on macOS / iOS (the `objc2-avf-audio` feature). A
+//! handle is open only if its device opened: no device, no backend in this
+//! build, or a device that refuses the format gives a CLOSED handle whose
+//! `error_message()` says why - never an open-looking one that "plays" into
+//! nothing. A headless run never reaches the platform (see
+//! [`AudioSink::open`]).
 
 use core::ffi::c_void;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
-use azul_css::{impl_option_inner, AzString, StringVec};
+use azul_css::{AzString, OptionString, StringVec};
 
 #[cfg(target_os = "android")]
 mod aaudio;
@@ -37,28 +41,161 @@ mod cpal_mic;
 #[cfg(target_os = "windows")]
 mod cpal_sink;
 
-/// Internal playback state behind the `AudioSink` handle. The stub tracks the
-/// config + how many frames were submitted; the real backend replaces it with
-/// a live output stream + queue.
+// Opus voice coding: the `AudioEncoder` / `AudioDecoder` handles. Always
+// present (codegen exposes them); open only where the platform ships an Opus
+// engine (AudioToolbox on Apple).
+pub mod codec;
+pub use codec::{AudioDecoder, AudioEncoder};
+// The AudioToolbox Opus engine behind them (dlopen'd, like VideoToolbox).
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+mod opus_apple;
+// Acoustic echo cancellation: the `EchoCanceller` handle (pure Rust, every
+// target).
+pub mod echo;
+pub use echo::EchoCanceller;
+// The arithmetic of playing decoded audio (chunks, rates, channels, gain,
+// levels, which track is heard): pure, every target.
+pub(crate) mod playback;
+// Audio FILES decoded (MP3 / AAC / FLAC / ...): the `AudioFileDecoder` handle,
+// on Symphonia (feature `audio-decode`).
+pub mod decode;
+pub use decode::{AudioFileDecoder, AudioFileInfo, OptionAudioFileInfo};
+// Playing audio files (gapless queue, seek, pause, volume, what is heard):
+// the `AudioPlayer` handle, a decode thread feeding an `AudioSink`.
+pub mod player;
+pub use player::{AudioPlayer, AudioPlayerState};
+
+/// Internal playback state behind an open `AudioSink` handle.
 struct AudioSinkInner {
-    #[allow(dead_code)]
-    config: AudioConfig,
+    /// The platform output; `None` for a headless run's synthetic sink, which
+    /// takes every frame and plays nothing.
+    device: Option<Box<dyn OutputDevice>>,
+    /// Frames the output took (see [`AudioSink::frames_played`]).
     frames_played: u64,
-    /// The live ALSA playback stream on Linux (`None` if ALSA / no device).
+    /// The format the sink was opened for.
+    config: AudioConfig,
+    /// Sample frames (per channel) the output took and did not drop
+    /// ([`AudioSink::clear`] takes the dropped ones back off).
+    samples_taken: u64,
+    /// The synthetic sink plays what it takes in real time, by this clock
+    /// (a real device reports what it has queued itself).
+    clock: playback::RealTimeClock,
+    /// The monotonic origin of `clock`'s times.
+    epoch: std::time::Instant,
+}
+
+impl AudioSinkInner {
+    fn new(device: Option<Box<dyn OutputDevice>>, config: AudioConfig) -> Self {
+        Self {
+            device,
+            frames_played: 0,
+            config,
+            samples_taken: 0,
+            clock: playback::RealTimeClock::new(config.sample_rate),
+            epoch: std::time::Instant::now(),
+        }
+    }
+
+    /// Seconds since the sink opened (the synthetic clock's time).
+    fn now_s(&self) -> f64 {
+        self.epoch.elapsed().as_secs_f64()
+    }
+
+    /// Sample frames taken and not heard yet: the device's word, or the
+    /// synthetic sink's real-time clock; a device that cannot tell has none.
+    fn queued(&self) -> u64 {
+        match &self.device {
+            Some(device) => device
+                .queued_frames()
+                .unwrap_or(0)
+                .min(self.samples_taken),
+            None => self
+                .samples_taken
+                .saturating_sub(self.clock.played(self.samples_taken, self.now_s())),
+        }
+    }
+}
+
+/// One open platform output stream (ALSA, cpal / WASAPI, AAudio,
+/// AVAudioEngine): the seam between the `AudioSink` handle and the device.
+/// Each backend's `open` returns one of these, or a readable reason why not.
+trait OutputDevice {
+    /// Hands interleaved f32 `samples` to the device. False when the device
+    /// did not take them (its queue is full, the write failed): that frame
+    /// was never heard, so `frames_played` does not count it.
+    fn play(&self, samples: &[f32]) -> bool;
+
+    /// Sample frames (per channel) handed to the device and not heard yet;
+    /// `None` when the device cannot tell (a blocking write that returns once
+    /// the frames are nearly out): the sink then counts them as heard.
+    fn queued_frames(&self) -> Option<u64> {
+        None
+    }
+
+    /// Holds (`true`) or resumes (`false`) playback, keeping what is queued.
+    /// False when this device cannot pause (the caller stops feeding it).
+    fn set_paused(&self, paused: bool) -> bool {
+        let _ = paused;
+        false
+    }
+
+    /// Drops what is queued and not heard yet (a seek). False when this
+    /// device cannot (what it has queued plays out).
+    fn clear(&self) -> bool {
+        false
+    }
+}
+
+/// This build's output device for `config`, or a readable reason there is
+/// none (no device, no backend, or the device refuses the format).
+fn platform_output(config: AudioConfig) -> Result<Box<dyn OutputDevice>, String> {
     #[cfg(target_os = "linux")]
-    pcm: Option<alsa::AlsaPcm>,
-    /// The live cpal output stream on macOS/Windows (`None` if no device).
+    {
+        alsa::AlsaPcm::open(config.sample_rate, u32::from(config.channels))
+            .map(|pcm| Box::new(pcm) as Box<dyn OutputDevice>)
+    }
     #[cfg(target_os = "windows")]
-    sink: Option<cpal_sink::CpalSink>,
-    /// The live AAudio output stream on Android (`None` if no device).
+    {
+        cpal_sink::CpalSink::open(config.sample_rate, config.channels)
+            .map(|sink| Box::new(sink) as Box<dyn OutputDevice>)
+    }
     #[cfg(target_os = "android")]
-    android_sink: Option<aaudio::AAudioSink>,
-    /// The live AVAudioEngine playback graph on iOS (`None` if it failed).
+    {
+        aaudio::AAudioSink::open(config.sample_rate, config.channels)
+            .map(|sink| Box::new(sink) as Box<dyn OutputDevice>)
+    }
     #[cfg(all(
         any(target_os = "ios", target_os = "macos"),
         feature = "objc2-avf-audio"
     ))]
-    ios_sink: Option<avfoundation_sink::AvfSink>,
+    {
+        avfoundation_sink::AvfSink::open(config.sample_rate, config.channels)
+            .map(|sink| Box::new(sink) as Box<dyn OutputDevice>)
+    }
+    #[cfg(all(
+        any(target_os = "ios", target_os = "macos"),
+        not(feature = "objc2-avf-audio")
+    ))]
+    {
+        let _ = config;
+        Err(String::from(
+            "this build has no audio output (the dll was built without the objc2-avf-audio \
+             feature)",
+        ))
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android",
+        target_os = "ios",
+        target_os = "macos"
+    )))]
+    {
+        let _ = config;
+        Err(String::from(
+            "this platform has no audio output backend in azul yet",
+        ))
+    }
 }
 
 /// An audio output handle. Open one with [`AudioSink::open`], feed it
@@ -70,6 +207,10 @@ pub struct AudioSink {
     /// Opaque pointer to the engine-side `AudioSinkInner` (or null when not
     /// open / on failure).
     pub ptr: *mut c_void,
+    /// Why the sink did not open ([`AudioSink::error_message`]); `None` while
+    /// open, after `close` and on a default handle. Sits before the 1-byte
+    /// `run_destructor` so the struct has no padding between fields.
+    pub error: OptionString,
     /// Whether this handle owns (and on drop frees) the engine resource.
     pub run_destructor: bool,
 }
@@ -77,9 +218,10 @@ pub struct AudioSink {
 impl Clone for AudioSink {
     fn clone(&self) -> Self {
         // Non-owning shallow handle copy - only the original frees the engine
-        // (the FFI handle convention).
+        // (the FFI handle convention). The reason is plain data: copied.
         AudioSink {
             ptr: self.ptr,
+            error: self.error.clone(),
             run_destructor: false,
         }
     }
@@ -89,129 +231,230 @@ impl Default for AudioSink {
     fn default() -> Self {
         AudioSink {
             ptr: core::ptr::null_mut(),
+            error: OptionString::None,
             run_destructor: false,
         }
     }
 }
 
 impl AudioSink {
-    /// Open an audio output for `config` (sample rate + channels). Returns an
-    /// invalid handle (`is_open()` false) on failure. The stub engine always
-    /// "opens"; the real rodio / AVAudio backend may fail (no device).
+    /// Open an audio output for `config` (sample rate + channels). The handle
+    /// is open (`is_open()`) only if an output device opened; otherwise it is
+    /// closed and [`error_message`](Self::error_message) says why: no output
+    /// device, no audio backend in this build, or a device that refuses the
+    /// format. Playing into a closed handle does nothing.
+    ///
+    /// A headless / e2e run never opens the real output: it gets a sink that
+    /// counts frames and plays nothing if it asked for one
+    /// (`AZ_SYNTHETIC_DEVICES=audio_sink`, or the `mock` op), else a closed
+    /// handle, recorded as "not available in a headless run".
     pub fn open(config: AudioConfig) -> AudioSink {
-        crate::plog_info!(
-            "[audio] opening sink: {}Hz x{}ch (f32 interleaved)",
-            config.sample_rate,
-            config.channels
-        );
-        #[cfg(target_os = "linux")]
-        let pcm = alsa::AlsaPcm::open(config.sample_rate, config.channels as u32);
-        #[cfg(target_os = "windows")]
-        let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
-        #[cfg(target_os = "android")]
-        let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
-        #[cfg(all(
-            any(target_os = "ios", target_os = "macos"),
-            feature = "objc2-avf-audio"
-        ))]
-        let ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
+        use azul_layout::request::mock::{self, DeviceKind, MockDevice};
+        let device = mock::device(DeviceKind::AudioSink);
+        if device == MockDevice::Unavailable {
+            mock::record_unavailable_device(DeviceKind::AudioSink);
+        }
+        Self::open_as(config, device)
+    }
 
-        // A sink whose engine failed to open still returns a valid-looking
-        // handle (is_open() = true) and play() then counts + DISCARDS every
-        // frame. That must not be silent — it is indistinguishable from
-        // "playing but muted".
-        {
-            #[cfg(target_os = "linux")]
-            let engine_ok = pcm.is_some();
-            #[cfg(target_os = "windows")]
-            let engine_ok = sink.is_some();
-            #[cfg(target_os = "android")]
-            let engine_ok = android_sink.is_some();
-            #[cfg(all(
-                any(target_os = "ios", target_os = "macos"),
-                feature = "objc2-avf-audio"
-            ))]
-            let engine_ok = ios_sink.is_some();
-            #[cfg(not(any(
-                target_os = "linux",
-                target_os = "windows",
-                target_os = "android",
-                all(
-                    any(target_os = "ios", target_os = "macos"),
-                    feature = "objc2-avf-audio"
-                )
-            )))]
-            let engine_ok = false;
-            if !engine_ok {
-                crate::plog_warn!(
-                    "[audio] no playback engine opened for this sink (backend unavailable or \
-                     device open failed — see lines above) — the handle reports is_open()=true \
-                     but frames will be counted and DISCARDED, no audio will play"
+    /// [`open`](Self::open) once the mock store has decided what `open`
+    /// resolves to (split out so tests need not arm the process-wide store).
+    fn open_as(config: AudioConfig, device: azul_layout::request::mock::MockDevice) -> AudioSink {
+        use azul_layout::request::mock::{DeviceKind, MockDevice};
+        match device {
+            MockDevice::Real => Self::open_on(config, platform_output(config)),
+            MockDevice::Unavailable => Self::closed(DeviceKind::AudioSink.unavailable_message()),
+            MockDevice::Synthetic => {
+                crate::plog_info!(
+                    "[audio] headless run: a synthetic sink that counts frames, no device \
+                     ({}Hz x{}ch)",
+                    config.sample_rate,
+                    config.channels
                 );
+                Self::from_inner(AudioSinkInner::new(None, config))
             }
         }
+    }
 
-        let inner = Box::new(AudioSinkInner {
-            config,
-            frames_played: 0,
-            #[cfg(target_os = "linux")]
-            pcm,
-            #[cfg(target_os = "windows")]
-            sink,
-            #[cfg(target_os = "android")]
-            android_sink,
-            #[cfg(all(
-                any(target_os = "ios", target_os = "macos"),
-                feature = "objc2-avf-audio"
-            ))]
-            ios_sink,
-        });
+    /// A sink on `output`: the platform device, or why there is none. The
+    /// seam the tests open sinks through (a real device cannot be made to
+    /// fail on demand).
+    fn open_on(config: AudioConfig, output: Result<Box<dyn OutputDevice>, String>) -> AudioSink {
+        match output {
+            Ok(device) => {
+                crate::plog_info!(
+                    "[audio] sink open: {}Hz x{}ch (f32 interleaved)",
+                    config.sample_rate,
+                    config.channels
+                );
+                Self::from_inner(AudioSinkInner::new(Some(device), config))
+            }
+            Err(why) => {
+                crate::plog_warn!(
+                    "[audio] AudioSink::open ({}Hz x{}ch): {} - the handle is closed \
+                     (is_open() false), nothing will play",
+                    config.sample_rate,
+                    config.channels,
+                    why
+                );
+                Self::closed(why)
+            }
+        }
+    }
+
+    /// A closed handle that says `why`.
+    fn closed(why: String) -> AudioSink {
         AudioSink {
-            ptr: Box::into_raw(inner) as *mut c_void,
+            ptr: core::ptr::null_mut(),
+            error: OptionString::Some(AzString::from(why)),
+            run_destructor: false,
+        }
+    }
+
+    fn from_inner(inner: AudioSinkInner) -> AudioSink {
+        AudioSink {
+            ptr: Box::into_raw(Box::new(inner)) as *mut c_void,
+            error: OptionString::None,
             run_destructor: true,
         }
     }
 
-    /// Whether the sink opened successfully.
+    /// Whether the sink is open: an output device opened (or a headless run
+    /// asked for the synthetic sink) and `close` has not been called.
     pub fn is_open(&self) -> bool {
         !self.ptr.is_null()
     }
 
-    /// Queue `frame` for playback. Interleaved `f32` samples in the frame's
-    /// format are sent to the output. (Stub: counts the frame; the on-device
-    /// backend plays the samples.)
-    pub fn play(&self, frame: AudioFrame) {
-        if let Some(inner) = unsafe { (self.ptr as *mut AudioSinkInner).as_mut() } {
+    /// Hands `frame` (interleaved `f32` samples in the sink's format) to the
+    /// output and says whether it took it: false on a closed handle and when
+    /// the device's queue is full (offer the same frame again a moment later:
+    /// a player paces itself with [`queued_frames`](Self::queued_frames)).
+    pub fn try_play(&self, frame: AudioFrame) -> bool {
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return false;
+        };
+        let samples: &[f32] = frame.samples.as_ref();
+        let frames = (samples.len() / usize::from(inner.config.channels.max(1))) as u64;
+        let taken = match &inner.device {
+            Some(device) => device.play(samples),
+            // A headless run's synthetic sink: takes every frame and plays
+            // it in real time (nothing is heard).
+            None => {
+                let now = inner.now_s();
+                inner.clock.on_take(inner.samples_taken, now);
+                true
+            }
+        };
+        if taken {
             inner.frames_played = inner.frames_played.wrapping_add(1);
-            #[cfg(target_os = "linux")]
-            if let Some(pcm) = &inner.pcm {
-                pcm.write(frame.samples.as_ref());
+            inner.samples_taken = inner.samples_taken.saturating_add(frames);
+        }
+        taken
+    }
+
+    /// Sample frames (per channel) the output took and has not played yet:
+    /// how far ahead of the listener the app is. `0` on a closed handle, and
+    /// for a device that cannot tell (its writes block until the frames are
+    /// nearly out). The headless synthetic sink plays in real time, so its
+    /// queue empties as the wall clock runs.
+    pub fn queued_frames(&self) -> u64 {
+        unsafe { (self.ptr as *const AudioSinkInner).as_ref() }.map_or(0, AudioSinkInner::queued)
+    }
+
+    /// Sample frames (per channel) the listener has heard so far: what the
+    /// output took minus what it still has queued. A media clock: divide by
+    /// the sample rate for seconds (an audio track is the master clock a
+    /// video follows). `0` on a closed handle.
+    pub fn samples_played(&self) -> u64 {
+        unsafe { (self.ptr as *const AudioSinkInner).as_ref() }
+            .map_or(0, |inner| inner.samples_taken.saturating_sub(inner.queued()))
+    }
+
+    /// Holds playback where it is, keeping what is queued (the position
+    /// stops). False when the device cannot pause: stop feeding it instead,
+    /// what is queued plays out.
+    pub fn pause(&self) -> bool {
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return false;
+        };
+        match &inner.device {
+            Some(device) => device.set_paused(true),
+            None => {
+                let now = inner.now_s();
+                inner.clock.pause(inner.samples_taken, now);
+                true
             }
-            #[cfg(target_os = "windows")]
-            if let Some(sink) = &inner.sink {
-                sink.play(frame.samples.as_ref());
-            }
-            #[cfg(target_os = "android")]
-            if let Some(sink) = &inner.android_sink {
-                sink.play(frame.samples.as_ref());
-            }
-            #[cfg(all(
-                any(target_os = "ios", target_os = "macos"),
-                feature = "objc2-avf-audio"
-            ))]
-            if let Some(sink) = &inner.ios_sink {
-                sink.play(frame.samples.as_ref());
-            }
-            let _ = frame;
         }
     }
 
-    /// Number of frames submitted via [`play`](Self::play) so far (`0` if not
-    /// open). Mostly a stub progress signal until the real backend lands.
+    /// Plays on after [`pause`](Self::pause).
+    pub fn resume(&self) {
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return;
+        };
+        match &inner.device {
+            Some(device) => {
+                let _ = device.set_paused(false);
+            }
+            None => {
+                let now = inner.now_s();
+                inner.clock.resume(now);
+            }
+        }
+    }
+
+    /// Drops what is queued and not heard yet (a seek: the old position must
+    /// not play on); [`samples_played`](Self::samples_played) stays where the
+    /// listener is. False when the device cannot drop its queue.
+    pub fn clear(&self) -> bool {
+        let Some(inner) = (unsafe { (self.ptr as *mut AudioSinkInner).as_mut() }) else {
+            return false;
+        };
+        let queued = inner.queued();
+        let dropped = match &inner.device {
+            Some(device) => device.clear(),
+            None => true,
+        };
+        if dropped {
+            // The dropped frames were never heard: what remains taken is
+            // exactly what was played, so `samples_played` does not move.
+            inner.samples_taken = inner.samples_taken.saturating_sub(queued);
+            if inner.device.is_none() {
+                inner.clock.clear(inner.samples_taken);
+            }
+        }
+        dropped
+    }
+
+    /// The format the sink was opened for (`AudioConfig::default()` on a
+    /// closed handle).
+    pub fn config(&self) -> AudioConfig {
+        unsafe { (self.ptr as *const AudioSinkInner).as_ref() }
+            .map_or_else(AudioConfig::default, |inner| inner.config)
+    }
+
+    /// Hands `frame` (interleaved `f32` samples in the frame's format) to the
+    /// output device. Does nothing on a closed handle.
+    pub fn play(&self, frame: AudioFrame) {
+        let _ = self.try_play(frame);
+    }
+
+    /// Frames the output device took from [`play`](Self::play) so far. A
+    /// frame the device did not take (its queue full, the write failed) is
+    /// not counted, and a closed handle counts nothing (`0`). A headless
+    /// run's synthetic sink counts every frame.
     pub fn frames_played(&self) -> u64 {
         unsafe { (self.ptr as *const AudioSinkInner).as_ref() }
             .map(|i| i.frames_played)
             .unwrap_or(0)
+    }
+
+    /// Why this sink is not open, readable enough to show the user: no output
+    /// device, no audio backend in this build, the device refused the
+    /// format, or a headless run without the synthetic sink. `None` while the
+    /// sink is open, after an explicit `close`, and on a default handle.
+    pub fn error_message(&self) -> OptionString {
+        self.error.clone()
     }
 
     /// Stop playback + release the output. (Dropping the handle does this too;
@@ -604,6 +847,259 @@ fn coreaudio_device_names() -> (StringVec, StringVec) {
         }
     }
     (StringVec::from_vec(outputs), StringVec::from_vec(inputs))
+}
+
+#[cfg(test)]
+mod headless_sink_tests {
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    };
+
+    use azul_core::audio::{AudioConfig, AudioFrame};
+    use azul_css::{F32Vec, OptionString};
+    use azul_layout::request::mock::MockDevice;
+
+    use super::{AudioSink, OutputDevice};
+
+    const CONFIG: AudioConfig = AudioConfig {
+        sample_rate: 48_000,
+        channels: 1,
+    };
+
+    fn chunk() -> AudioFrame {
+        AudioFrame {
+            sample_rate: 48_000,
+            channels: 1,
+            samples: F32Vec::from_vec(vec![0.25; 960]),
+        }
+    }
+
+    /// A headless run that did not ask for a synthetic audio output opens
+    /// none: the handle says so (`is_open()` false), and playing into it is a
+    /// no-op, never a sound.
+    #[test]
+    fn a_headless_audio_sink_opens_no_device_and_is_not_open() {
+        let sink = AudioSink::open_as(CONFIG, MockDevice::Unavailable);
+        assert!(!sink.is_open());
+        sink.play(chunk());
+        assert_eq!(sink.frames_played(), 0);
+    }
+
+    /// A headless run that asked for one gets a sink that counts what it is
+    /// given and plays nothing.
+    #[test]
+    fn a_synthetic_audio_sink_counts_the_frames_it_is_given() {
+        let mut sink = AudioSink::open_as(CONFIG, MockDevice::Synthetic);
+        assert!(sink.is_open());
+        for _ in 0..3 {
+            sink.play(chunk());
+        }
+        assert_eq!(sink.frames_played(), 3);
+        sink.close();
+        assert!(!sink.is_open());
+    }
+
+    /// The reason a sink gives for not being open, as plain text.
+    fn reason(sink: &AudioSink) -> Option<String> {
+        match sink.error_message() {
+            OptionString::Some(why) => Some(why.as_str().to_string()),
+            OptionString::None => None,
+        }
+    }
+
+    /// A stand-in output device: takes every other frame (its queue is full
+    /// for the rest) and counts every frame it is handed.
+    struct TakesEveryOther {
+        handed: Arc<AtomicU32>,
+    }
+
+    impl OutputDevice for TakesEveryOther {
+        fn play(&self, samples: &[f32]) -> bool {
+            assert_eq!(samples.len(), 960, "the frame's samples reach the device");
+            let n = self.handed.fetch_add(1, Ordering::SeqCst) + 1;
+            n % 2 == 1
+        }
+    }
+
+    /// An output that does not open (no device, no backend in this build, or
+    /// the device refuses the format) gives a CLOSED handle that says why -
+    /// never an open-looking one that plays into nothing.
+    #[test]
+    fn a_device_that_does_not_open_gives_a_closed_handle_that_says_why() {
+        let why = "the output device refused 48000 Hz x 1 f32";
+        let sink = AudioSink::open_on(CONFIG, Err(String::from(why)));
+        assert!(!sink.is_open());
+        assert_eq!(reason(&sink).as_deref(), Some(why));
+        sink.play(chunk());
+        assert_eq!(sink.frames_played(), 0);
+        // A copy of the handle carries the reason too.
+        assert_eq!(reason(&sink.clone()).as_deref(), Some(why));
+    }
+
+    /// `frames_played` counts only the frames a device TOOK: a frame the
+    /// device did not take (its queue full, the write failed) was never
+    /// heard, so it is not counted.
+    #[test]
+    fn frames_played_counts_only_the_frames_the_device_took() {
+        let handed = Arc::new(AtomicU32::new(0));
+        let device: Box<dyn OutputDevice> = Box::new(TakesEveryOther {
+            handed: handed.clone(),
+        });
+        let mut sink = AudioSink::open_on(CONFIG, Ok(device));
+        assert!(sink.is_open());
+        assert_eq!(reason(&sink), None);
+        for _ in 0..4 {
+            sink.play(chunk());
+        }
+        assert_eq!(
+            handed.load(Ordering::SeqCst),
+            4,
+            "every frame reached the device"
+        );
+        assert_eq!(sink.frames_played(), 2, "only the two it took count");
+        sink.close();
+        assert!(!sink.is_open());
+        assert_eq!(reason(&sink), None, "closing on purpose is not an error");
+    }
+
+    /// `try_play` says whether the output took the frame: a full device queue
+    /// is "not taken", so a player offers the same frame again.
+    #[test]
+    fn try_play_says_whether_the_output_took_the_frame() {
+        let handed = Arc::new(AtomicU32::new(0));
+        let device: Box<dyn OutputDevice> = Box::new(TakesEveryOther {
+            handed: handed.clone(),
+        });
+        let sink = AudioSink::open_on(CONFIG, Ok(device));
+        assert!(sink.try_play(chunk()));
+        assert!(!sink.try_play(chunk()));
+        assert!(sink.try_play(chunk()));
+        assert!(!AudioSink::default().try_play(chunk()), "a closed sink takes nothing");
+        assert_eq!(sink.config(), CONFIG);
+    }
+
+    /// The headless synthetic sink plays what it takes in real time: right
+    /// after a frame it is queued, once the wall clock ran past it it is
+    /// heard - so a headless player's position moves like a real one's.
+    #[test]
+    fn a_synthetic_sink_plays_what_it_takes_in_real_time() {
+        let sink = AudioSink::open_as(CONFIG, MockDevice::Synthetic);
+        // 4800 frames: 100 ms at 48 kHz.
+        let frame = AudioFrame {
+            sample_rate: 48_000,
+            channels: 1,
+            samples: F32Vec::from_vec(vec![0.25; 4800]),
+        };
+        assert!(sink.try_play(frame));
+        assert!(
+            sink.queued_frames() >= 2400,
+            "most of it is still queued: {}",
+            sink.queued_frames()
+        );
+        assert!(sink.samples_played() <= 2400);
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        assert_eq!(sink.queued_frames(), 0);
+        assert_eq!(sink.samples_played(), 4800);
+    }
+
+    /// Paused, the synthetic sink's position holds; cleared, what was queued
+    /// is gone and the position stays where the listener was.
+    #[test]
+    fn a_paused_synthetic_sink_holds_and_a_cleared_one_drops_its_queue() {
+        let sink = AudioSink::open_as(CONFIG, MockDevice::Synthetic);
+        let second = AudioFrame {
+            sample_rate: 48_000,
+            channels: 1,
+            samples: F32Vec::from_vec(vec![0.25; 48_000]),
+        };
+        assert!(sink.try_play(second));
+        assert!(sink.pause());
+        let held = sink.samples_played();
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        assert_eq!(sink.samples_played(), held, "paused: the position holds");
+        assert!(sink.clear());
+        assert_eq!(sink.queued_frames(), 0, "cleared: nothing queued");
+        assert_eq!(sink.samples_played(), held, "cleared: the listener is where they were");
+        sink.resume();
+    }
+
+    /// A device that reports its queue: the sink reports the same queue, a
+    /// pause and a clear reach the device, and a clear takes the dropped
+    /// frames back off what was taken, so the played count never jumps.
+    #[test]
+    fn a_device_queue_pause_and_clear_reach_the_device_and_played_never_jumps() {
+        let state = Arc::new(Mutex::new(QueueState::default()));
+        let device: Box<dyn OutputDevice> = Box::new(Queueing {
+            state: state.clone(),
+        });
+        let sink = AudioSink::open_on(CONFIG, Ok(device));
+        assert!(sink.try_play(chunk()));
+        assert!(sink.try_play(chunk()));
+        // 1920 frames taken; the device has played 500 of them.
+        state.lock().unwrap().queued = 1420;
+        assert_eq!(sink.queued_frames(), 1420);
+        assert_eq!(sink.samples_played(), 500);
+        assert!(sink.pause());
+        assert_eq!(state.lock().unwrap().paused, Some(true));
+        sink.resume();
+        assert_eq!(state.lock().unwrap().paused, Some(false));
+        assert!(sink.clear());
+        assert!(state.lock().unwrap().cleared);
+        assert_eq!(sink.queued_frames(), 0);
+        assert_eq!(sink.samples_played(), 500, "the dropped frames were never heard");
+        assert!(sink.try_play(chunk()));
+        state.lock().unwrap().queued = 960;
+        assert_eq!(sink.samples_played(), 500);
+    }
+
+    #[derive(Default)]
+    struct QueueState {
+        queued: u64,
+        paused: Option<bool>,
+        cleared: bool,
+    }
+
+    /// A stand-in device that reports a queue the test sets, and records a
+    /// pause and a clear.
+    struct Queueing {
+        state: Arc<Mutex<QueueState>>,
+    }
+
+    impl OutputDevice for Queueing {
+        fn play(&self, samples: &[f32]) -> bool {
+            self.state.lock().unwrap().queued += samples.len() as u64;
+            true
+        }
+        fn queued_frames(&self) -> Option<u64> {
+            Some(self.state.lock().unwrap().queued)
+        }
+        fn set_paused(&self, paused: bool) -> bool {
+            self.state.lock().unwrap().paused = Some(paused);
+            true
+        }
+        fn clear(&self) -> bool {
+            let mut s = self.state.lock().unwrap();
+            s.queued = 0;
+            s.cleared = true;
+            true
+        }
+    }
+
+    /// A headless run that opens no audio output says why and how to get the
+    /// synthetic stand-in; the stand-in is open and has nothing to report.
+    #[test]
+    fn a_headless_sink_that_opens_nothing_says_why() {
+        let sink = AudioSink::open_as(CONFIG, MockDevice::Unavailable);
+        let why = reason(&sink).expect("an unavailable sink says why");
+        assert!(why.contains("not available in a headless run"), "{why}");
+        assert!(why.contains("AZ_SYNTHETIC_DEVICES=audio_sink"), "{why}");
+
+        let synthetic = AudioSink::open_as(CONFIG, MockDevice::Synthetic);
+        assert!(synthetic.is_open());
+        assert_eq!(reason(&synthetic), None);
+        assert_eq!(reason(&AudioSink::default()), None);
+    }
 }
 
 #[cfg(test)]

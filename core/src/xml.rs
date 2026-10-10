@@ -20,18 +20,13 @@
 
 use alloc::{
     boxed::Box,
-    collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
 use core::{fmt, fmt::Write, hash::Hash};
 
 use azul_css::{
-    codegen::format::VecContents,
-    css::{
-        Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock,
-        NodeTypeTag,
-    },
+    css::{Css, CssRuleBlock, NodeTypeTag},
     parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
         basic::{ColorU, StyleFontFamilyVec},
@@ -46,7 +41,7 @@ use azul_css::{
 };
 
 use crate::{
-    dom::{Dom, NodeType, OptionNodeType},
+    dom::{Dom, NodeData, NodeType, OptionNodeType},
     styled_dom::StyledDom,
     window::{AzStringPair, StringPairVec},
 };
@@ -159,19 +154,6 @@ impl_vec_clone!(
 );
 impl_vec_mut!(ComponentArgument, ComponentArgumentVec);
 
-/// Holds the list of arguments and whether the component accepts text content.
-/// Used by the compile pipeline to generate Rust function signatures.
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComponentArguments {
-    pub args: ComponentArgumentVec,
-    pub accepts_text: bool,
-}
-
-/// Name of an XML/HTML component (e.g. `"button"`, `"my-widget"`).
-type ComponentName = String;
-/// Compiled source code string for a component.
-type CompiledComponent = String;
-
 /// Universal HTML attribute names that are handled by the framework
 /// and should not be passed through to component-specific argument lists.
 const DEFAULT_ARGS: [&str; 8] = [
@@ -269,6 +251,9 @@ impl MimeTypeHint {
             "css" => "text/css",
             // Scripts
             "js" | "mjs" => "application/javascript",
+            // Data and text
+            "json" => "application/json",
+            "txt" => "text/plain",
             // Video
             "mp4" => "video/mp4",
             "webm" => "video/webm",
@@ -345,7 +330,7 @@ impl_vec_clone!(
 /// stack. Beyond this depth, deeper children are ignored rather than crashing.
 /// 512 is far past any realistic hand-authored markup while staying comfortably
 /// inside the default thread stack.
-const MAX_XML_NESTING_DEPTH: usize = 512;
+pub(crate) const MAX_XML_NESTING_DEPTH: usize = 512;
 
 /// AUDIT 2026-07-08: maximum recursion depth for [`ComponentFieldType::parse`],
 /// which recurses through `Option<..>` / `Vec<..>` wrappers. Caps attacker
@@ -360,6 +345,19 @@ pub struct Xml {
 }
 
 impl Xml {
+    /// Parses real-world HTML the way a browser builds its tree - never
+    /// fails (unquoted attributes, `<br>` without a slash, implied end tags,
+    /// stray end tags, Word / Outlook markup, the HTML named references; see
+    /// [`html`]). A fragment is a document: `<html>`, `<head>` and `<body>`
+    /// are implied. The strict XML loaders stay strict.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // C API: api.json hands the AzString over by value
+    pub fn create_from_html(html: AzString) -> Self {
+        Self {
+            root: html::parse_html_nodes(html.as_str()).into(),
+        }
+    }
+
     /// Scan the XML/HTML document for external resource URLs.
     ///
     /// This function traverses the entire document tree and extracts URLs from:
@@ -381,25 +379,26 @@ impl Xml {
         // wide match). An explicit stack keeps memory on the heap; `depth` still
         // bounds how deep we descend so unbounded input can't grow the worklist
         // without limit.
+        //
+        // The stack pops LAST first, so children go on in REVERSE: the first
+        // child comes off next and the scan is the document's pre-order (it
+        // listed siblings last first). Text is never CSS by itself - a
+        // `<style>`'s text is scanned by its element (`scan_node`); scanning
+        // every text node made prose that says `url(...)` a resource and read
+        // each stylesheet twice.
         let mut stack: Vec<(&XmlNodeChild, usize)> = Vec::new();
-        for child in self.root.as_ref() {
+        for child in self.root.as_ref().iter().rev() {
             stack.push((child, 0));
         }
         while let Some((child, depth)) = stack.pop() {
-            match child {
-                XmlNodeChild::Text(text) => {
-                    // CSS @import / url() in text content (inside <style> tags).
-                    Self::extract_css_urls(text.as_str(), &mut resources);
+            if let XmlNodeChild::Element(node) = child {
+                if depth > MAX_XML_NESTING_DEPTH {
+                    // Deeper subtrees are simply not scanned.
+                    continue;
                 }
-                XmlNodeChild::Element(node) => {
-                    if depth > MAX_XML_NESTING_DEPTH {
-                        // Deeper subtrees are simply not scanned.
-                        continue;
-                    }
-                    Self::scan_node(node, &mut resources);
-                    for c in node.children.as_ref() {
-                        stack.push((c, depth + 1));
-                    }
+                Self::scan_node(node, &mut resources);
+                for c in node.children.as_ref().iter().rev() {
+                    stack.push((c, depth + 1));
                 }
             }
         }
@@ -2377,32 +2376,99 @@ impl ComponentSource {
     }
 }
 
-/// The target language for code compilation
-// Threaded by reference through the codegen call graph; kept non-Copy so
-// deriving Copy doesn't force trivially_copy_pass_by_ref churn across the many
-// &CompileTarget codegen callers for a perf-neutral change.
-#[allow(missing_copy_implementations)]
+/// How generated code builds an instance of a component: the language-NEUTRAL
+/// half of a [`ComponentDef`].
+///
+/// The code generator (`azul_core::codegen`, the `codegen` feature) turns it
+/// into the IR every binding language's printer prints. It replaced the
+/// per-language string hook `compile_fn`.
+///
+/// Variant 0 is [`ComponentCodegen::RenderFunction`], so a zero-initialised C
+/// struct is a component that code calls through its render function.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+// The C API's repr(C) enum: boxing the `Call` payload would change its ABI.
+#[allow(clippy::large_enum_variant, variant_size_differences)]
+pub enum ComponentCodegen {
+    /// A call of the component's own render function,
+    /// `render_<name>(<value fields>)`: the code export defines it once,
+    /// from the component's template (a component made in `AzBuilder`) or
+    /// else from what it renders. User-defined and registered components.
+    RenderFunction,
+    /// An HTML element of the builtin library: the most specific
+    /// `Dom::create_<tag>(..)` its attributes and text pick.
+    Element,
+    /// A constructor in api.json vocabulary (a widget):
+    /// `<class>::<constructor>(<args>)`, then `.<setter>(<field>)` for each
+    /// field the instance sets, then `.<finish>()`.
+    Call(ComponentCallCodegen),
+}
+
+impl ComponentCodegen {
+    /// [`ComponentCodegen::RenderFunction`].
+    #[must_use]
+    pub const fn render_function() -> Self {
+        Self::RenderFunction
+    }
+
+    /// [`ComponentCodegen::Element`].
+    #[must_use]
+    pub const fn element() -> Self {
+        Self::Element
+    }
+
+    /// [`ComponentCodegen::Call`].
+    #[must_use]
+    pub const fn call(call: ComponentCallCodegen) -> Self {
+        Self::Call(call)
+    }
+}
+
+/// A widget's constructor in api.json vocabulary, for
+/// [`ComponentCodegen::Call`].
+///
+/// `Button::create(label).dom()` is
+/// `{ class: "Button", constructor: "create", args: ["label"], setters: [], finish: "dom" }`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum CompileTarget {
-    Rust,
-    C,
-    Cpp,
-    Python,
+pub struct ComponentCallCodegen {
+    /// The api.json class (`Button`).
+    pub class: AzString,
+    /// Its constructor (`create`).
+    pub constructor: AzString,
+    /// The data-model fields passed to the constructor, in order.
+    pub args: StringVec,
+    /// `key` = a data-model field, `value` = the builder method that sets it
+    /// (`with_button_type`), applied when the instance sets that field.
+    pub setters: StringPairVec,
+    /// The method that turns the widget into a `Dom` (`dom`), or empty when
+    /// the constructor returns one.
+    pub finish: AzString,
+}
+
+impl ComponentCallCodegen {
+    /// A constructor call with no setters.
+    #[must_use]
+    pub const fn create(
+        class: AzString,
+        constructor: AzString,
+        args: StringVec,
+        finish: AzString,
+    ) -> Self {
+        Self {
+            class,
+            constructor,
+            args,
+            setters: StringPairVec::from_const_slice(&[]),
+            finish,
+        }
+    }
 }
 
 impl_result!(
     StyledDom,
     RenderDomError,
     ResultStyledDomRenderDomError,
-    copy = false,
-    [Debug, Clone, PartialEq]
-);
-
-impl_result!(
-    AzString,
-    CompileError,
-    ResultStringCompileError,
     copy = false,
     [Debug, Clone, PartialEq]
 );
@@ -2415,15 +2481,6 @@ impl_result!(
 /// values substituted into the `default_value` fields.
 pub type ComponentRenderFn =
     fn(&ComponentDef, &ComponentDataModel, &ComponentMap) -> ResultStyledDomRenderDomError;
-
-/// Compile function type: takes component definition + target language + data model, returns source
-/// code.
-pub type ComponentCompileFn = fn(
-    &ComponentDef,
-    &CompileTarget,
-    &ComponentDataModel,
-    indent: usize,
-) -> ResultStringCompileError;
 
 /// Raw function pointer type that returns a single `ComponentDef` when called.
 /// Used as the `cb` field in `RegisterComponentFn`.
@@ -2523,12 +2580,11 @@ pub struct ComponentDef {
     pub data_model: ComponentDataModel,
     /// Render to live DOM
     pub render_fn: ComponentRenderFn,
-    /// Compile to source code in target language
-    pub compile_fn: ComponentCompileFn,
+    /// How generated code builds an instance (language-neutral: every code
+    /// generator prints it).
+    pub codegen: ComponentCodegen,
     /// Source code for `render_fn` (user-defined components only)
     pub render_fn_source: OptionString,
-    /// Source code for `compile_fn` (user-defined components only)
-    pub compile_fn_source: OptionString,
 }
 
 impl fmt::Debug for ComponentDef {
@@ -2697,21 +2753,30 @@ macro_rules! html_tag_node_types {
                 "transient-window" => NodeType::TransientWindow(
                     crate::transient::TransientWindowConfig::closed(),
                 ),
+                // `<webview>` starts with an ephemeral store; `storage=` is
+                // applied onto the config afterwards (`element::land_common`),
+                // `src` lands as the node's attribute.
+                "webview" => NodeType::WebView(crate::webview::WebViewConfig::ephemeral()),
                 $($tag => NodeType::$variant,)*
+                // An element of a foreign vocabulary (Word's `<o:p>`,
+                // Outlook's `<st1:place>`) is HTML's unknown element: inline.
+                t if is_foreign_element(t) => NodeType::Span,
                 _ => NodeType::Div,
             }
         }
 
         /// Map a tag name to its CSS `NodeTypeTag` for CSS matching in the compile pipeline.
         /// Falls back to `NodeTypeTag::Div` for unknown tags.
-        fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
+        pub(crate) fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
             match tag {
                 // `img`/`image`/`icon` have no 1:1 `NodeType` equivalent (see
                 // `tag_to_node_type`), so they map to dedicated `NodeTypeTag` variants.
                 "img" | "image" => NodeTypeTag::Img,
                 "icon" => NodeTypeTag::Icon,
                 "transient-window" => NodeTypeTag::TransientWindow,
+                "webview" => NodeTypeTag::WebView,
                 $($tag => NodeTypeTag::$variant,)*
+                t if is_foreign_element(t) => NodeTypeTag::Span,
                 _ => NodeTypeTag::Div,
             }
         }
@@ -2815,6 +2880,15 @@ html_tag_node_types! {
     "sub" => Sub,
     "sup" => Sup,
     "big" => Big,
+    // Legacy presentational tags mail still writes (HTML obsolete features,
+    // 16.2): read as the element whose rendering they share, so they stay
+    // INLINE instead of becoming the unknown tag's block. `<strike>` is
+    // `<s>`, `<tt>` is `<code>` (monospace), `<font>` and `<nobr>` are
+    // spans (their attributes are not read).
+    "strike" => S,
+    "tt" => Code,
+    "font" => Span,
+    "nobr" => Span,
     "bdo" => Bdo,
     "bdi" => Bdi,
     "wbr" => Wbr,
@@ -2898,68 +2972,15 @@ html_tag_node_types! {
     "base" => Base,
 }
 
-/// Default render function for builtin HTML elements.
-/// Delegates to creating a DOM node of the appropriate `NodeType`.
+/// Default render function for builtin HTML elements: the element with its
+/// text - what a drop inserts ([`builtin_dom`]; the preview adds its example).
 fn builtin_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
     _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
-    let node_type = tag_to_node_type(def.id.name.as_str());
-    let mut dom = Dom::create_node(node_type);
-    if let Some(text_str) = data.get_default_string("text") {
-        let prepared = prepare_string(text_str);
-        if !prepared.is_empty() {
-            dom = dom.with_children(
-                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
-                    prepared
-                )]
-                .into(),
-            );
-        }
-    }
+    let mut dom = builtin_dom(def.id.name.as_str(), data, false);
     let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
-    r.into()
-}
-
-/// Default compile function for builtin HTML elements.
-/// Generates `Dom::create_node(NodeType::Div)` style code for the target language.
-fn builtin_compile_fn(
-    def: &ComponentDef,
-    target: &CompileTarget,
-    data: &ComponentDataModel,
-    indent: usize,
-) -> ResultStringCompileError {
-    let node_type = tag_to_node_type(def.id.name.as_str());
-    let type_name = format!("{node_type:?}"); // "Div", "Body", "P", etc.
-    let text = data.get_default_string("text");
-
-    let r: Result<AzString, CompileError> = match target {
-        CompileTarget::Rust => text.map_or_else(
-            || Ok(format!("Dom::create_node(NodeType::{type_name})").into()),
-            |text_str| {
-                Ok(format!(
-                    "Dom::create_node(NodeType::{}).with_children(vec!\
-                     [Dom::create_text_do_not_use_without_block_level_wrapper(\"{}\")])",
-                    type_name,
-                    text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
-                )
-                .into())
-            },
-        ),
-        CompileTarget::C => text.map_or_else(
-            || Ok(format!("AzDom_create{type_name}()").into()),
-            |text_str| {
-                Ok(format!(
-                    "AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{}\"))",
-                    text_str.as_str().replace('\\', "\\\\").replace('"', "\\\"")
-                )
-                .into())
-            },
-        ),
-        CompileTarget::Cpp => Ok(format!("Dom::create_{}()", type_name.to_lowercase()).into()),
-        CompileTarget::Python => Ok(format!("Dom.create_{}()", type_name.to_lowercase()).into()),
-    };
     r.into()
 }
 
@@ -3167,190 +3188,6 @@ pub fn user_defined_render_fn(
     r.into()
 }
 
-/// Default compile function for user-defined (JSON-imported) components.
-///
-/// Generates source code that creates the component's DOM structure for the
-/// target language. For each data field, emits the appropriate code:
-/// - String fields → text node creation
-/// - Scalar fields → formatted display
-/// - `ComponentInstance` → function call to sub-component's render function
-/// - `StyledDom` slots → child parameter pass-through
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-#[must_use]
-pub fn user_defined_compile_fn(
-    def: &ComponentDef,
-    target: &CompileTarget,
-    data: &ComponentDataModel,
-    indent: usize,
-) -> ResultStringCompileError {
-    let tag = def.id.name.as_str();
-    let indent_str = " ".repeat(indent * 4);
-    let inner_indent = " ".repeat((indent + 1) * 4);
-
-    let r: Result<AzString, CompileError> = match target {
-        CompileTarget::Rust => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}// Component: {tag}"));
-            lines.push(alloc::format!(
-                "{indent_str}let mut children: Vec<Dom> = Vec::new();"
-            ));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-                        lines.push(alloc::format!(
-                            "{inner_indent}children.\
-                             push(Dom::create_text_do_not_use_without_block_level_wrapper(\"\
-                             {escaped}\"));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(b)) => {
-                        lines.push(alloc::format!(
-                            "{inner_indent}children.\
-                             push(Dom::create_text_do_not_use_without_block_level_wrapper(format!\
-                             (\"{{}}: {{}}\", \"{fname}\", {b}).as_str()));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{}children.push({}()); // sub-component {}:{}",
-                            inner_indent,
-                            fn_name,
-                            ci.library.as_str(),
-                            ci.component.as_str()
-                        ));
-                    }
-                    _ => {
-                        // For other types, generate a placeholder comment
-                        lines.push(alloc::format!(
-                            "{}// field '{}': {:?}",
-                            inner_indent,
-                            fname,
-                            field.field_type
-                        ));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!(
-                "{indent_str}Dom::create_node(NodeType::Div).with_children(children.into())"
-            ));
-            Ok(lines.join("\n").into())
-        }
-        CompileTarget::C => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}/* Component: {tag} */"));
-            lines.push(alloc::format!(
-                "{indent_str}AzDom root = AzDom_createDiv();"
-            ));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-                        lines.push(alloc::format!(
-                            "{inner_indent}AzDom_addChild(&root, \
-                             AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{escaped}\"\
-                             )));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{inner_indent}AzDom_addChild(&root, {fn_name}());"
-                        ));
-                    }
-                    _ => {
-                        lines.push(alloc::format!("{inner_indent}/* field '{fname}' */"));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!("{indent_str}return root;"));
-            Ok(lines.join("\n").into())
-        }
-        CompileTarget::Cpp => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}// Component: {tag}"));
-            lines.push(alloc::format!("{indent_str}auto root = Dom::create_div();"));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s.as_str().replace('\\', "\\\\").replace('"', "\\\"");
-                        lines.push(alloc::format!(
-                            "{inner_indent}root.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{escaped}\")));"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!("{inner_indent}root.add_child({fn_name}());"));
-                    }
-                    _ => {
-                        lines.push(alloc::format!("{inner_indent}// field '{fname}'"));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!("{indent_str}return root;"));
-            Ok(lines.join("\n").into())
-        }
-        CompileTarget::Python => {
-            let mut lines = Vec::new();
-            lines.push(alloc::format!("{indent_str}# Component: {tag}"));
-            lines.push(alloc::format!("{indent_str}root = Dom.create_div()"));
-
-            for field in data.fields.as_ref() {
-                let fname = field.name.as_str();
-                match &field.default_value {
-                    OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => {
-                        let escaped = s
-                            .as_str()
-                            .replace('\\', "\\\\")
-                            .replace('"', "\\\"")
-                            .replace('\'', "\\'");
-                        lines.push(alloc::format!(
-                            "{inner_indent}root = \
-                             root.with_child(Dom.\
-                             create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"))"
-                        ));
-                    }
-                    OptionComponentDefaultValue::Some(
-                        ComponentDefaultValue::ComponentInstance(ci),
-                    ) => {
-                        let fn_name =
-                            alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{inner_indent}root = root.with_child({fn_name}())"
-                        ));
-                    }
-                    _ => {
-                        lines.push(alloc::format!("{inner_indent}# field '{fname}'"));
-                    }
-                }
-            }
-
-            lines.push(alloc::format!("{indent_str}return root"));
-            Ok(lines.join("\n").into())
-        }
-    };
-    r.into()
-}
-
 /// Create a `ComponentDef` for a builtin HTML element.
 ///
 /// # Arguments
@@ -3391,9 +3228,8 @@ fn builtin_component_def(
             fields: fields.into(),
         },
         render_fn: builtin_render_fn,
-        compile_fn: builtin_compile_fn,
+        codegen: ComponentCodegen::Element,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -3468,6 +3304,30 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 Some(D::String(AzString::from_const_str(""))),
                 "Height of the image"
             ),
+            data_field(
+                "align",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Float (left, right) or vertical alignment (top, middle, bottom) of the image"
+            ),
+            data_field(
+                "border",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width of the image's border in pixels"
+            ),
+            data_field(
+                "hspace",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Gap left and right of the image in pixels"
+            ),
+            data_field(
+                "vspace",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Gap above and below the image in pixels"
+            ),
         ],
         "form" => alloc::vec![
             data_field(
@@ -3535,6 +3395,76 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 String,
                 Some(D::String(AzString::from_const_str("1"))),
                 "Numbering type (1, A, a, I, i)"
+            ),
+            data_field(
+                "reversed",
+                Bool,
+                Some(D::Bool(false)),
+                "Whether the list counts down"
+            ),
+        ],
+        "ul" => alloc::vec![
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Bullet type (disc, circle, square)"
+            ),
+        ],
+        "li" => alloc::vec![
+            data_field(
+                "value",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "The item's number in an ordered list (the next items count on from it)"
+            ),
+            data_field(
+                "type",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Numbering or bullet type of the item (1, A, a, I, i, disc, circle, square)"
+            ),
+        ],
+        "font" => alloc::vec![
+            data_field(
+                "face",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Font family names, comma separated"
+            ),
+            data_field(
+                "size",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Legacy font size 1..7, or relative to 3 (+1, -2)"
+            ),
+            data_field(
+                "color",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Text color"
+            ),
+        ],
+        "div" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => alloc::vec![
+            data_field(
+                "align",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Text alignment (left, right, center, justify)"
+            ),
+        ],
+        "body" => alloc::vec![
+            data_field(
+                "bgcolor",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Background color of the document"
+            ),
+            data_field(
+                "text",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Text color of the document"
             ),
         ],
         // Form controls
@@ -3851,6 +3781,28 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
                 String,
                 Some(D::String(AzString::from_const_str("auto"))),
                 "Preload hint (none, metadata, auto)"
+            ),
+        ],
+        // azul's native web view (`crate::webview`).
+        "webview" => alloc::vec![
+            data_field("src", String, None, "URL of the page the web view shows"),
+            data_field(
+                "storage",
+                String,
+                Some(D::String(AzString::from_const_str("ephemeral"))),
+                "Where cookies and storage live: ephemeral (in memory, the default) or persistent"
+            ),
+            data_field(
+                "width",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Width of the web view (300px unless set)"
+            ),
+            data_field(
+                "height",
+                String,
+                Some(D::String(AzString::from_const_str(""))),
+                "Height of the web view (150px unless set)"
             ),
         ],
         "source" => alloc::vec![
@@ -4180,57 +4132,416 @@ impl ComponentMap {
     }
 }
 
-/// Convert XML attributes to a `ComponentDataModel` by cloning the component's
-/// base data model and overriding field defaults with values from the XML attributes.
+/// A component's ARGUMENTS from an element's attributes.
 ///
-/// This is the bridge between the XML parsing layer (key-value string pairs)
-/// and the typed component data model. For each field in the base model,
-/// if a matching XML attribute exists, its string value is set as the new default.
+/// `dm` with every field it declares set from the attribute of the same name,
+/// parsed to the field's type; every other field keeps its default, and an
+/// attribute no field declares adds nothing.
 ///
-/// # Arguments
-/// * `base_model` - The component's data model template (from `ComponentDef::data_model`)
-/// * `xml_attributes` - The XML node's attribute map
-/// * `text_content` - Optional text content from child text nodes
+/// THE one path from markup attributes to component arguments, for every
+/// component - builtin and user alike: the XML loaders fill a builtin
+/// element's arguments with it ([`apply_builtin_args_from_attributes`]), the
+/// builder fills a user component instance's (`e2e::builder`), and the
+/// render fn reads the result.
 ///
-/// # Returns
-/// A cloned `ComponentDataModel` with overridden defaults
-fn xml_attrs_to_data_model(
-    base_model: &ComponentDataModel,
-    xml_attributes: &XmlAttributeMap,
-    text_content: Option<&str>,
+/// Names match case-insensitively, as HTML attribute names do. A `Bool`
+/// follows HTML's boolean attributes: present means `true` (`disabled=""`),
+/// unless it says `false` / `0` / `no` / `off`. A number that does not parse
+/// keeps the field's default. Field types an attribute string cannot carry
+/// (a `StyledDom`, a callback, a struct) keep their defaults.
+#[must_use]
+pub fn data_model_with_attributes<'a>(
+    dm: &ComponentDataModel,
+    attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> ComponentDataModel {
-    let mut model = base_model.clone();
-
-    // Override defaults from XML attributes
+    let attributes: Vec<(&str, &str)> = attributes.into_iter().collect();
+    let mut model = dm.clone();
     let mut fields_vec = core::mem::replace(
         &mut model.fields,
         ComponentDataFieldVec::from_const_slice(&[]),
     )
     .into_library_owned_vec();
-
     for field in &mut fields_vec {
-        if let Some(attr_value) = xml_attributes.get_key(field.name.as_str()) {
-            // Override the default_value with the XML attribute's string value
-            field.default_value = OptionComponentDefaultValue::Some(ComponentDefaultValue::String(
-                attr_value.clone(),
-            ));
+        let Some((_, raw)) = attributes
+            .iter()
+            .rev()
+            .find(|(k, _)| k.trim().eq_ignore_ascii_case(field.name.as_str()))
+        else {
+            continue;
+        };
+        let t = raw.trim();
+        let parsed = match field.field_type {
+            ComponentFieldType::String => Some(ComponentDefaultValue::String(AzString::from(*raw))),
+            ComponentFieldType::Bool => Some(ComponentDefaultValue::Bool(
+                !(t.eq_ignore_ascii_case("false")
+                    || t == "0"
+                    || t.eq_ignore_ascii_case("no")
+                    || t.eq_ignore_ascii_case("off")),
+            )),
+            ComponentFieldType::I32 => t.parse::<i32>().ok().map(ComponentDefaultValue::I32),
+            ComponentFieldType::I64 => t.parse::<i64>().ok().map(ComponentDefaultValue::I64),
+            ComponentFieldType::U32 => t.parse::<u32>().ok().map(ComponentDefaultValue::U32),
+            ComponentFieldType::U64 => t.parse::<u64>().ok().map(ComponentDefaultValue::U64),
+            ComponentFieldType::Usize => t.parse::<usize>().ok().map(ComponentDefaultValue::Usize),
+            ComponentFieldType::F32 => t.parse::<f32>().ok().map(ComponentDefaultValue::F32),
+            ComponentFieldType::F64 => t.parse::<f64>().ok().map(ComponentDefaultValue::F64),
+            _ => None,
+        };
+        if let Some(value) = parsed {
+            field.default_value = OptionComponentDefaultValue::Some(value);
         }
     }
-
     model.fields = ComponentDataFieldVec::from_vec(fields_vec);
+    model
+}
 
-    // Handle text content — set the "text" field if present
-    if let Some(text) = text_content {
-        let prepared = prepare_string(text);
-        if !prepared.is_empty() {
-            model = model.with_default(
-                "text",
-                ComponentDefaultValue::String(AzString::from(prepared.as_str())),
+/// The builtin elements whose component arguments
+/// [`apply_builtin_element_args`] lands on the node (the others' declared
+/// fields are read by the element's own path - `img` `width`/`height`, the
+/// form controls, `td` `colspan` - or not yet at all; see
+/// `scripts/MAILVIEW_2026_09_30.md`).
+const BUILTIN_ARGUMENT_ELEMENTS: &[&str] =
+    &["a", "area", "link", "base", "img", "ol", "li", "webview"];
+
+/// The render side of a builtin element's ARGUMENTS (its component's
+/// declared fields, filled by [`data_model_with_attributes`]): what they set
+/// on its node.
+///
+/// - `a`, `area`, `link`, `base`: `href` - where a click on the link goes; an app reads it
+///   with `CallbackInfo::get_node_attribute(node, "href")` - plus `target` and `rel` (not on
+///   `base`, which has no `rel`).
+/// - `img`: `src` and `alt`, as attributes an app can read (the image itself stays the
+///   loader's `NullImage` placeholder carrying `src`) - what a mail client needs to show "[image:
+///   alt]" and to load the picture on request.
+/// - `ol`: `reversed` (and its `start` when it counts down) as the attributes the layout's list
+///   numbering reads (`compute_counters`); an `ol` counting up starts through its
+///   presentational hint ([`builtin_presentational_hints`]: `counter-reset`).
+/// - `li`: `value` (a number) as its `Value` attribute: the item's number in its list, which
+///   the layout's numbering reads and the next items count on from.
+/// - `webview`: `src` as its `Src` attribute - the page the web view shows, as on an iframe
+///   (`crate::webview`; its `storage` rides in the node type, its `width` / `height` are
+///   presentational hints).
+///
+/// An empty value sets nothing; a value already on the node is not
+/// duplicated.
+pub fn apply_builtin_element_args(tag: &str, args: &ComponentDataModel, node: &mut NodeData) {
+    use crate::dom::AttributeType as A;
+
+    let value = |name: &str| {
+        args.get_default_string(name)
+            .filter(|v| !v.as_str().trim().is_empty())
+            .cloned()
+    };
+    let mut add: Vec<A> = Vec::new();
+    match tag {
+        "a" | "area" | "link" => {
+            add.extend(value("href").map(A::Href));
+            add.extend(value("target").map(A::Target));
+            add.extend(value("rel").map(A::Rel));
+        }
+        "base" => {
+            add.extend(value("href").map(A::Href));
+            add.extend(value("target").map(A::Target));
+        }
+        "img" | "image" => {
+            add.extend(value("src").map(A::Src));
+            add.extend(value("alt").map(A::Alt));
+        }
+        "webview" => {
+            add.extend(value("src").map(A::Src));
+        }
+        "ol" => {
+            if argument_bool(args, "reversed") {
+                add.push(A::Custom(crate::dom::AttributeNameValue {
+                    attr_name: AzString::from_const_str("reversed"),
+                    value: AzString::from_const_str(""),
+                }));
+                if let Some(start) = argument_i32(args, "start").filter(|s| *s != 1) {
+                    add.push(A::Custom(crate::dom::AttributeNameValue {
+                        attr_name: AzString::from_const_str("start"),
+                        value: AzString::from(start.to_string()),
+                    }));
+                }
+            }
+        }
+        "li" => {
+            add.extend(
+                value("value")
+                    .filter(|v| v.as_str().trim().parse::<i32>().is_ok())
+                    .map(A::Value),
             );
         }
+        _ => {}
     }
+    if add.is_empty() {
+        return;
+    }
+    let mut all = node.attributes().clone().into_library_owned_vec();
+    for a in add {
+        if !all.contains(&a) {
+            all.push(a);
+        }
+    }
+    node.set_attributes(all.into());
+}
 
-    model
+/// For the XML loaders: a builtin element's component arguments from its
+/// attributes.
+///
+/// Its builtin data model is filled by [`data_model_with_attributes`] and
+/// landed by [`apply_builtin_element_args`]. Only the elements whose arguments
+/// land on the node ([`BUILTIN_ARGUMENT_ELEMENTS`]) build a model, so the
+/// thousands of `div`s of a large document cost one slice lookup. `tag` is
+/// lowercase.
+pub fn apply_builtin_args_from_attributes<'a>(
+    tag: &str,
+    attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
+    node: &mut NodeData,
+) {
+    if !BUILTIN_ARGUMENT_ELEMENTS.contains(&tag) {
+        return;
+    }
+    let model = ComponentDataModel {
+        name: AzString::from_const_str(""),
+        description: AzString::from_const_str(""),
+        fields: builtin_data_model(tag).into(),
+    };
+    let args = data_model_with_attributes(&model, attributes);
+    apply_builtin_element_args(tag, &args, node);
+}
+
+/// An `I32` argument's value.
+fn argument_i32(args: &ComponentDataModel, name: &str) -> Option<i32> {
+    match &args.get_field(name)?.default_value {
+        OptionComponentDefaultValue::Some(ComponentDefaultValue::I32(n)) => Some(*n),
+        _ => None,
+    }
+}
+
+/// A `Bool` argument's value (`false` when the model has none).
+fn argument_bool(args: &ComponentDataModel, name: &str) -> bool {
+    matches!(
+        args.get_field(name).map(|f| &f.default_value),
+        Some(OptionComponentDefaultValue::Some(ComponentDefaultValue::Bool(true)))
+    )
+}
+
+/// The elements that have presentational hints ([`builtin_presentational_hints`]).
+const PRESENTATIONAL_ELEMENTS: &[&str] = &[
+    "ol", "ul", "li", "img", "image", "font", "center", "div", "p", "h1", "h2", "h3", "h4", "h5",
+    "h6", "body",
+];
+
+/// The CSS of a builtin element's PRESENTATIONAL arguments.
+///
+/// The HTML Standard's presentational hints (its rendering section), as
+/// declarations (`list-style-type: lower-alpha; ...`, empty for none):
+///
+/// - `ol` / `ul` / `li` `type` (`1 a A i I`, `disc circle square`): `list-style-type`; `ol
+///   start` (counting up): `counter-reset: list-item <start - 1>`;
+/// - `font`: `face` -> `font-family`, `size` (1..7, or relative to 3) -> `font-size` (10 13 16 18
+///   24 32 48 px), `color` -> `color`;
+/// - `center`: `text-align: center`; `align` on `div`, `p`, `h1`..`h6`: `text-align`;
+/// - `img`: `align` (`left` / `right` float, `top` / `middle` / `bottom` ... align vertically),
+///   `border` (a solid border of that width), `hspace` / `vspace` (margins), a percentage `width`
+///   / `height` (a number is the image's intrinsic size, which the loader sets);
+/// - `body`: `bgcolor` -> `background-color`, `text` -> `color`.
+///
+/// The arguments are the element's builtin data model filled from its
+/// `attributes` ([`data_model_with_attributes`], the one filler); a value that
+/// is not what the attribute takes (a colour with a `;` in it) is left out.
+/// The XML loaders put these declarations BEFORE the element's `style`
+/// attribute's, which wins over them. (A browser ranks them below the
+/// author's stylesheets too; azul's inline declarations outrank every
+/// stylesheet, so a sheet's rule cannot override a hint yet.) The table
+/// attributes (`bgcolor` / `width` / `align` on `table`, `td` ...) are not
+/// here.
+#[must_use]
+pub fn builtin_presentational_hints<'a>(
+    tag: &str,
+    attributes: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> String {
+    if !PRESENTATIONAL_ELEMENTS.contains(&tag) {
+        return String::new();
+    }
+    let model = ComponentDataModel {
+        name: AzString::from_const_str(""),
+        description: AzString::from_const_str(""),
+        fields: builtin_data_model(tag).into(),
+    };
+    let args = data_model_with_attributes(&model, attributes);
+    let text = |name: &str| -> Option<String> {
+        args.get_default_string(name)
+            .map(|v| v.as_str().trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let mut css = String::new();
+    let mut push = |property: &str, value: &str| {
+        css.push_str(property);
+        css.push_str(": ");
+        css.push_str(value);
+        css.push_str("; ");
+    };
+    match tag {
+        "ol" | "ul" | "li" => {
+            if let Some(kind) = text("type").filter(|t| !(tag == "ol" && t == "1")) {
+                if let Some(style) = list_style_of_type(&kind) {
+                    push("list-style-type", style);
+                }
+            }
+            if tag == "ol" && !argument_bool(&args, "reversed") {
+                if let Some(start) = argument_i32(&args, "start").filter(|s| *s != 1) {
+                    push(
+                        "counter-reset",
+                        &format!("list-item {}", start.saturating_sub(1)),
+                    );
+                }
+            }
+        }
+        "img" | "image" => {
+            for (attribute, property) in [("width", "width"), ("height", "height")] {
+                if let Some(percent) = text(attribute).and_then(|v| html_percentage(&v)) {
+                    push(property, &percent);
+                }
+            }
+            if let Some(align) = text("align") {
+                match align.to_ascii_lowercase().as_str() {
+                    "left" => push("float", "left"),
+                    "right" => push("float", "right"),
+                    "top" => push("vertical-align", "top"),
+                    "texttop" => push("vertical-align", "text-top"),
+                    "middle" | "absmiddle" | "abscenter" => push("vertical-align", "middle"),
+                    "bottom" | "baseline" => push("vertical-align", "baseline"),
+                    "absbottom" => push("vertical-align", "bottom"),
+                    _ => {}
+                }
+            }
+            if let Some(border) = text("border")
+                .and_then(|v| html_pixels(&v))
+                .filter(|b| *b > 0)
+            {
+                push("border", &format!("{border}px solid"));
+            }
+            if let Some(h) = text("hspace").and_then(|v| html_pixels(&v)) {
+                push("margin-left", &format!("{h}px"));
+                push("margin-right", &format!("{h}px"));
+            }
+            if let Some(v) = text("vspace").and_then(|v| html_pixels(&v)) {
+                push("margin-top", &format!("{v}px"));
+                push("margin-bottom", &format!("{v}px"));
+            }
+        }
+        "font" => {
+            if let Some(face) = text("face").filter(|f| is_safe_css_value(f)) {
+                push("font-family", &face);
+            }
+            if let Some(px) = text("size").and_then(|v| legacy_font_size_px(&v)) {
+                push("font-size", &format!("{px}px"));
+            }
+            if let Some(color) = text("color").and_then(|v| legacy_color(&v)) {
+                push("color", &color);
+            }
+        }
+        "center" => push("text-align", "center"),
+        "body" => {
+            if let Some(color) = text("bgcolor").and_then(|v| legacy_color(&v)) {
+                push("background-color", &color);
+            }
+            if let Some(color) = text("text").and_then(|v| legacy_color(&v)) {
+                push("color", &color);
+            }
+        }
+        _ => {
+            // div, p, h1..h6
+            if let Some(align) = text("align") {
+                let align = align.to_ascii_lowercase();
+                if matches!(align.as_str(), "left" | "right" | "center" | "justify") {
+                    push("text-align", &align);
+                }
+            }
+        }
+    }
+    css
+}
+
+/// HTML's list `type`: `1 a A i I` (case matters) and `disc circle square`.
+fn list_style_of_type(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "1" => "decimal",
+        "a" => "lower-alpha",
+        "A" => "upper-alpha",
+        "i" => "lower-roman",
+        "I" => "upper-roman",
+        k if k.eq_ignore_ascii_case("disc") => "disc",
+        k if k.eq_ignore_ascii_case("circle") => "circle",
+        k if k.eq_ignore_ascii_case("square") => "square",
+        k if k.eq_ignore_ascii_case("none") => "none",
+        _ => return None,
+    })
+}
+
+/// A non-negative number of pixels (`4`, `4px`).
+fn html_pixels(value: &str) -> Option<u32> {
+    value
+        .trim()
+        .trim_end_matches("px")
+        .trim()
+        .parse::<u32>()
+        .ok()
+}
+
+/// A percentage (`100%`) as CSS.
+fn html_percentage(value: &str) -> Option<String> {
+    let number = value.trim().strip_suffix('%')?.trim();
+    number
+        .parse::<f32>()
+        .ok()
+        .filter(|n| n.is_finite() && *n >= 0.0)
+        .map(|_| format!("{number}%"))
+}
+
+/// The pixel size of HTML's legacy font sizes: 1..7 (x-small .. xxx-large), a
+/// `+n` / `-n` relative to 3.
+fn legacy_font_size_px(value: &str) -> Option<u32> {
+    // Sizes 1..7 are the `font-size` keywords from `x-small` on (one table).
+    let px = &azul_css::props::basic::font::FONT_SIZE_KEYWORDS_PX[1..];
+    let value = value.trim();
+    let (relative, digits) = match value.as_bytes().first()? {
+        b'+' => (1, &value[1..]),
+        b'-' => (-1, &value[1..]),
+        _ => (0, value),
+    };
+    let digits: String = digits.chars().take_while(char::is_ascii_digit).collect();
+    let n: i32 = digits.parse().ok()?;
+    let size = if relative == 0 { n } else { 3 + relative * n };
+    let index = usize::try_from(size.clamp(1, 7) - 1).ok()?;
+    px.get(index).map(|(_, size)| u32::from(*size))
+}
+
+/// A legacy colour attribute as a CSS colour: `#rgb` / `#rrggbb` (also
+/// without the `#`, as mail writes it), a colour name, `rgb(..)`; `None` for
+/// anything else.
+fn legacy_color(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || !is_safe_css_value(value) {
+        return None;
+    }
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    if matches!(hex.len(), 3 | 6) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Some(format!("#{hex}"));
+    }
+    if value.starts_with('#') {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+/// A value that stays one CSS value: no `;`, braces, escapes, markup or
+/// control characters.
+fn is_safe_css_value(value: &str) -> bool {
+    !value
+        .chars()
+        .any(|c| matches!(c, ';' | '{' | '}' | '\\' | '<' | '>') || c.is_control())
 }
 
 // ============================================================================
@@ -4261,9 +4572,8 @@ fn builtin_if_component() -> ComponentDef {
             .into(),
         },
         render_fn: builtin_if_render_fn,
-        compile_fn: builtin_if_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4298,32 +4608,6 @@ fn builtin_if_render_fn(
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
 
-fn builtin_if_compile_fn(
-    _comp: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    match target {
-        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition {\n    // then branch\n    Dom::create_div()\n} else {\n    // \
-             else branch\n    Dom::create_div()\n}",
-        )),
-        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    AzDom_createDiv();\n} else {\n    // \
-             else branch\n    AzDom_createDiv();\n}",
-        )),
-        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "if (data.condition) {\n    // then branch\n    Dom::create_div();\n} else {\n    // \
-             else branch\n    Dom::create_div();\n}",
-        )),
-        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "if data.condition:\n    # then branch\n    Dom.create_div()\nelse:\n    # else \
-             branch\n    Dom.create_div()",
-        )),
-    }
-}
-
 /// `builtin:for` — iterative rendering.
 /// Takes `count: U32` (number of iterations), renders children N times.
 fn builtin_for_component() -> ComponentDef {
@@ -4347,9 +4631,8 @@ fn builtin_for_component() -> ComponentDef {
             .into(),
         },
         render_fn: builtin_for_render_fn,
-        compile_fn: builtin_for_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4384,36 +4667,6 @@ fn builtin_for_render_fn(
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
 
-fn builtin_for_compile_fn(
-    _comp: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    match target {
-        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let mut children = Vec::new();\nfor i in 0..data.count {\n    \
-             children.push(Dom::create_div());\n}\nDom::create_div().with_children(children)",
-        )),
-        CompileTarget::C => {
-            ResultStringCompileError::Ok(AzString::from(
-                "AzDom container = AzDom_createDiv();\nfor (uint32_t i = 0; i < data.count; i++) \
-                 {\n    AzDom_addChild(&container, AzDom_createDiv());\n}",
-            ))
-        }
-        CompileTarget::Cpp => {
-            ResultStringCompileError::Ok(AzString::from(
-                "auto container = Dom::create_div();\nfor (uint32_t i = 0; i < data.count; i++) \
-                 {\n    container.add_child(Dom::create_div());\n}",
-            ))
-        }
-        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "container = Dom.create_div()\nfor i in range(data.count):\n    container = \
-             container.with_child(Dom.create_div())",
-        )),
-    }
-}
-
 /// `builtin:map` — map data to DOM.
 /// Takes `data_json: String` (JSON array) + maps each element.
 fn builtin_map_component() -> ComponentDef {
@@ -4439,9 +4692,8 @@ fn builtin_map_component() -> ComponentDef {
             .into(),
         },
         render_fn: builtin_map_render_fn,
-        compile_fn: builtin_map_compile_fn,
+        codegen: ComponentCodegen::RenderFunction,
         render_fn_source: None.into(),
-        compile_fn_source: None.into(),
     }
 }
 
@@ -4474,35 +4726,484 @@ fn builtin_map_render_fn(
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
 
-fn builtin_map_compile_fn(
-    _comp: &ComponentDef,
-    target: &CompileTarget,
-    _data: &ComponentDataModel,
-    _indent: usize,
-) -> ResultStringCompileError {
-    match target {
-        CompileTarget::Rust => ResultStringCompileError::Ok(AzString::from(
-            "let items: Vec<serde_json::Value> = \
-             serde_json::from_str(&data.data_json).unwrap_or_default();\nlet children: Vec<Dom> = \
-             items.iter().map(|item| {\n    Dom::create_div() // map \
-             template\n}).collect();\nDom::create_div().with_children(children)",
-        )),
-        CompileTarget::C => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nAzDom container = AzDom_createDiv();\n// \
-             TODO: iterate parsed JSON array",
-        )),
-        CompileTarget::Cpp => ResultStringCompileError::Ok(AzString::from(
-            "// Parse data.data_json and map each item\nauto container = Dom::create_div();\n// \
-             TODO: iterate parsed JSON array",
-        )),
-        CompileTarget::Python => ResultStringCompileError::Ok(AzString::from(
-            "import json\nitems = json.loads(data.data_json)\ncontainer = Dom.create_div()\nfor \
-             item in items:\n    container = container.with_child(Dom.create_div())",
-        )),
+// ============================================================================
+// The builtin HTML elements: ONE table (name, text default, preview)
+// ============================================================================
+
+/// What a builtin element's PREVIEW shows - its palette card in `AzBuilder`
+/// (`get_component_thumbnail`) and the Components view's preview. Configured
+/// once per element in [`BUILTIN_ELEMENTS`], next to its text default, and
+/// rendered by [`builtin_preview_dom`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinPreview {
+    /// The element as a drop inserts it: with its default text (a `<p>`, a
+    /// `<strong>`), or drawing by itself (an `<hr>`, a `<button>`).
+    Itself,
+    /// The element holding an EXAMPLE that a drop does not insert: a
+    /// container is dropped empty, but its card shows what it is for (a
+    /// `<ul>` with two items, a `<section>` as a labelled box, an `<input>`
+    /// with a placeholder). `text` stands in only where the element has no
+    /// text of its own.
+    Example {
+        attrs: &'static [(&'static str, &'static str)],
+        text: &'static str,
+        children: &'static [PreviewNode],
+    },
+    /// Nothing to show on its own (document structure, a break, what only
+    /// shows inside another element or shows a source): the reason, which
+    /// the card shows instead of an empty box.
+    NoVisual(&'static str),
+}
+
+impl BuiltinPreview {
+    /// The element holding `children`.
+    const fn holding(children: &'static [PreviewNode]) -> Self {
+        Self::Example {
+            attrs: &[],
+            text: "",
+            children,
+        }
+    }
+
+    /// The element with the example attributes `attrs`.
+    const fn with(attrs: &'static [(&'static str, &'static str)]) -> Self {
+        Self::Example {
+            attrs,
+            text: "",
+            children: &[],
+        }
+    }
+
+    /// A block container: a dashed box with `label` in it.
+    const fn boxed(label: &'static str) -> Self {
+        Self::Example {
+            attrs: PREVIEW_BOX,
+            text: label,
+            children: &[],
+        }
+    }
+
+    /// Its example as `(attrs, text, children)`; empty for the other kinds.
+    const fn example(
+        self,
+    ) -> (
+        &'static [(&'static str, &'static str)],
+        &'static str,
+        &'static [PreviewNode],
+    ) {
+        match self {
+            Self::Example {
+                attrs,
+                text,
+                children,
+            } => (attrs, text, children),
+            Self::Itself | Self::NoVisual(_) => (&[], "", &[]),
+        }
     }
 }
 
-/// Register the 52 built-in HTML element components.
+/// One element of a [`BuiltinPreview::Example`]: `<tag attrs>text children</tag>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PreviewNode {
+    tag: &'static str,
+    attrs: &'static [(&'static str, &'static str)],
+    text: &'static str,
+    children: &'static [PreviewNode],
+}
+
+impl PreviewNode {
+    /// `<tag>text</tag>`
+    const fn text(tag: &'static str, text: &'static str) -> Self {
+        Self {
+            tag,
+            attrs: &[],
+            text,
+            children: &[],
+        }
+    }
+
+    /// `<tag>children</tag>`
+    const fn holding(tag: &'static str, children: &'static [Self]) -> Self {
+        Self {
+            tag,
+            attrs: &[],
+            text: "",
+            children,
+        }
+    }
+
+    /// `<tag attrs/>`
+    const fn with(tag: &'static str, attrs: &'static [(&'static str, &'static str)]) -> Self {
+        Self {
+            tag,
+            attrs,
+            text: "",
+            children: &[],
+        }
+    }
+
+    /// This node as parsed markup, for `xml_node_to_dom_fast`.
+    fn markup(&self) -> XmlNode {
+        preview_xml(self.tag, self.attrs, self.text, self.children)
+    }
+}
+
+/// One builtin HTML element: the component `builtin:<tag>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BuiltinElement {
+    tag: &'static str,
+    display_name: &'static str,
+    /// The default of its `text` field - which a drop inserts
+    /// (`builder_insert`) and its preview shows; `None`: it takes no text.
+    text: Option<&'static str>,
+    preview: BuiltinPreview,
+}
+
+const fn el(
+    tag: &'static str,
+    display_name: &'static str,
+    text: Option<&'static str>,
+    preview: BuiltinPreview,
+) -> BuiltinElement {
+    BuiltinElement {
+        tag,
+        display_name,
+        text,
+        preview,
+    }
+}
+
+/// The look of a container's preview: a dashed box, so an empty-looking
+/// block still reads as one.
+const PREVIEW_BOX: &[(&str, &str)] = &[(
+    "style",
+    "border: 1px dashed #9ca3af; padding: 4px 6px; color: #4b5563",
+)];
+const LIST_ITEMS: &[PreviewNode] = &[
+    PreviewNode::text("li", "First item"),
+    PreviewNode::text("li", "Second item"),
+];
+const TERM_AND_DESCRIPTION: &[PreviewNode] = &[
+    PreviewNode::text("dt", "Term"),
+    PreviewNode::text("dd", "Description"),
+];
+const HEAD_CELLS: &[PreviewNode] = &[
+    PreviewNode::text("th", "Name"),
+    PreviewNode::text("th", "Value"),
+];
+const BODY_CELLS: &[PreviewNode] = &[
+    PreviewNode::text("td", "Width"),
+    PreviewNode::text("td", "42"),
+];
+const HEAD_ROW: PreviewNode = PreviewNode::holding("tr", HEAD_CELLS);
+const BODY_ROW: PreviewNode = PreviewNode::holding("tr", BODY_CELLS);
+const HEAD_ROWS: &[PreviewNode] = &[HEAD_ROW];
+const BODY_ROWS: &[PreviewNode] = &[BODY_ROW];
+const TABLE_ROWS: &[PreviewNode] = &[HEAD_ROW, BODY_ROW];
+const FIGURE_CAPTION: &[PreviewNode] = &[PreviewNode::text("figcaption", "Figure caption")];
+const DETAILS_SUMMARY: &[PreviewNode] = &[PreviewNode::text("summary", "Details")];
+const RUBY_TEXT: &[PreviewNode] = &[PreviewNode::text("rt", "annotation")];
+const FORM_FIELDS: &[PreviewNode] = &[
+    PreviewNode::text("label", "Name"),
+    PreviewNode::with("input", &[("placeholder", "Your name")]),
+];
+const FIELDSET_FIELDS: &[PreviewNode] = &[
+    PreviewNode::text("legend", "Legend"),
+    PreviewNode::text("label", "Field"),
+];
+const SELECT_OPTIONS: &[PreviewNode] = &[
+    PreviewNode::text("option", "Option 1"),
+    PreviewNode::text("option", "Option 2"),
+];
+const SVG_SHAPES: &[PreviewNode] = &[
+    PreviewNode::with(
+        "circle",
+        &[("cx", "12"), ("cy", "12"), ("r", "10"), ("fill", "#3b82f6")],
+    ),
+    PreviewNode::with(
+        "path",
+        &[
+            ("d", "M 26,3 L 44,3 L 44,21 L 26,21 Z"),
+            ("fill", "#f59e0b"),
+        ],
+    ),
+];
+
+/// Every builtin HTML element, in palette order: THE one place its name, its
+/// text default and its preview are configured ([`register_builtin_components`]
+/// builds the components from it, [`builtin_preview_dom`] the previews).
+#[rustfmt::skip]
+static BUILTIN_ELEMENTS: &[BuiltinElement] = {
+    use BuiltinPreview::{Itself, NoVisual};
+    &[
+        // Structural
+        el("html", "HTML", None, NoVisual("the document root: a builder document is its <body>")),
+        el("head", "Head", None, NoVisual("the document's metadata: it has no box")),
+        el("title", "Title", Some(""), NoVisual("the window title: not drawn in the page")),
+        el("body", "Body", None, NoVisual("the document itself: the builder document's root")),
+        // Block-level
+        el("div", "Div", None, BuiltinPreview::boxed("Div")),
+        el("header", "Header", None, BuiltinPreview::boxed("Header")),
+        el("footer", "Footer", None, BuiltinPreview::boxed("Footer")),
+        el("section", "Section", None, BuiltinPreview::boxed("Section")),
+        el("article", "Article", None, BuiltinPreview::boxed("Article")),
+        el("aside", "Aside", None, BuiltinPreview::boxed("Aside")),
+        el("nav", "Nav", None, BuiltinPreview::boxed("Nav")),
+        el("main", "Main", None, BuiltinPreview::boxed("Main")),
+        el("figure", "Figure", None, BuiltinPreview::Example { attrs: PREVIEW_BOX, text: "", children: FIGURE_CAPTION }),
+        el("figcaption", "Figure Caption", Some("Figure caption"), Itself),
+        el("address", "Address", Some("Address"), Itself),
+        el("details", "Details", None, BuiltinPreview::holding(DETAILS_SUMMARY)),
+        el("summary", "Summary", Some("Details"), Itself),
+        el("dialog", "Dialog", None, BuiltinPreview::boxed("Dialog")),
+        // Headings: the level's name, so the preview shows its size
+        el("h1", "Heading 1", Some("Heading 1"), Itself),
+        el("h2", "Heading 2", Some("Heading 2"), Itself),
+        el("h3", "Heading 3", Some("Heading 3"), Itself),
+        el("h4", "Heading 4", Some("Heading 4"), Itself),
+        el("h5", "Heading 5", Some("Heading 5"), Itself),
+        el("h6", "Heading 6", Some("Heading 6"), Itself),
+        // Text content
+        el("p", "Paragraph", Some("Paragraph text"), Itself),
+        el("span", "Span", Some("Span text"), Itself),
+        el("pre", "Preformatted", Some("Preformatted text"), Itself),
+        el("code", "Code", Some("code"), Itself),
+        el("blockquote", "Blockquote", Some("Blockquote"), Itself),
+        el("br", "Line Break", None, NoVisual("a line break inside text: no box of its own")),
+        el("hr", "Horizontal Rule", None, Itself),
+        el("pagebreak", "Page Break", None, NoVisual("a page break: only paged output (print, PDF) shows it")),
+        // The icon's spec is its text content (`<icon>home</icon>`).
+        el("icon", "Icon", Some("home"), Itself),
+        // Lists
+        el("ul", "Unordered List", None, BuiltinPreview::holding(LIST_ITEMS)),
+        el("ol", "Ordered List", None, BuiltinPreview::holding(LIST_ITEMS)),
+        el("li", "List Item", Some("List item"), Itself),
+        el("dl", "Description List", None, BuiltinPreview::holding(TERM_AND_DESCRIPTION)),
+        el("dt", "Description Term", Some("Term"), Itself),
+        el("dd", "Description Details", Some("Description"), Itself),
+        el("menu", "Menu", None, BuiltinPreview::holding(LIST_ITEMS)),
+        el("menuitem", "Menu Item", Some("Menu item"), Itself),
+        el("dir", "Directory List", None, BuiltinPreview::holding(LIST_ITEMS)),
+        // Tables
+        el("table", "Table", None, BuiltinPreview::holding(TABLE_ROWS)),
+        el("caption", "Table Caption", Some("Table caption"), Itself),
+        el("thead", "Table Head", None, BuiltinPreview::holding(HEAD_ROWS)),
+        el("tbody", "Table Body", None, BuiltinPreview::holding(BODY_ROWS)),
+        el("tfoot", "Table Foot", None, BuiltinPreview::holding(BODY_ROWS)),
+        el("tr", "Table Row", None, BuiltinPreview::holding(BODY_CELLS)),
+        el("th", "Table Header Cell", Some("Header"), Itself),
+        el("td", "Table Data Cell", Some("Cell"), Itself),
+        el("colgroup", "Column Group", None, NoVisual("styles a table's columns: no box of its own")),
+        el("col", "Column", None, NoVisual("styles a table's column: no box of its own")),
+        // Inline
+        el("a", "Link", Some("Link text"), Itself),
+        el("strong", "Strong", Some("Strong text"), Itself),
+        el("em", "Emphasis", Some("Emphasized text"), Itself),
+        el("b", "Bold", Some("Bold text"), Itself),
+        el("i", "Italic", Some("Italic text"), Itself),
+        el("u", "Underline", Some("Underlined text"), Itself),
+        el("s", "Strikethrough", Some("Struck-through text"), Itself),
+        el("small", "Small", Some("Small text"), Itself),
+        el("mark", "Mark", Some("Marked text"), Itself),
+        el("del", "Deleted Text", Some("Deleted text"), Itself),
+        el("ins", "Inserted Text", Some("Inserted text"), Itself),
+        el("sub", "Subscript", Some("Subscript"), Itself),
+        el("sup", "Superscript", Some("Superscript"), Itself),
+        el("samp", "Sample Output", Some("Sample output"), Itself),
+        el("kbd", "Keyboard Input", Some("Ctrl+C"), Itself),
+        el("var", "Variable", Some("x"), Itself),
+        el("cite", "Citation", Some("Citation"), Itself),
+        el("dfn", "Definition", Some("Definition"), Itself),
+        el("abbr", "Abbreviation", Some("Abbr."), Itself),
+        el("acronym", "Acronym", Some("ACRONYM"), Itself),
+        el("q", "Inline Quote", Some("Quotation"), Itself),
+        el("time", "Time", Some("12:00"), Itself),
+        el("big", "Big", Some("Big text"), Itself),
+        el("bdo", "BiDi Override", Some("BiDi override"), Itself),
+        el("bdi", "BiDi Isolate", Some("BiDi isolate"), Itself),
+        el("wbr", "Word Break Opportunity", None, NoVisual("a line-break opportunity inside a word: no box of its own")),
+        el("ruby", "Ruby Annotation", None, BuiltinPreview::Example { attrs: &[], text: "Ruby", children: RUBY_TEXT }),
+        el("rt", "Ruby Text", Some("annotation"), Itself),
+        el("rtc", "Ruby Text Container", None, BuiltinPreview::holding(RUBY_TEXT)),
+        el("rp", "Ruby Parenthesis", Some("("), Itself),
+        el("data", "Data", Some("Data"), Itself),
+        // Forms: a raw control becomes its widget in the window, and in the preview
+        el("form", "Form", None, BuiltinPreview::holding(FORM_FIELDS)),
+        el("fieldset", "Field Set", None, BuiltinPreview::Example { attrs: PREVIEW_BOX, text: "", children: FIELDSET_FIELDS }),
+        el("legend", "Legend", Some("Legend"), Itself),
+        el("label", "Label", Some("Label"), Itself),
+        el("input", "Input", None, BuiltinPreview::with(&[("placeholder", "Input")])),
+        el("button", "Button", Some("Button text"), Itself),
+        el("select", "Select", None, BuiltinPreview::holding(SELECT_OPTIONS)),
+        el("optgroup", "Option Group", None, NoVisual("a heading over options: shows inside a <select>")),
+        el("option", "Option", Some("Option"), NoVisual("shows inside a <select>")),
+        el("textarea", "Text Area", Some(""), BuiltinPreview::with(&[("placeholder", "Text area")])),
+        el("output", "Output", Some("Output"), Itself),
+        el("progress", "Progress", None, NoVisual("not drawn by azul yet (the ProgressBar widget is)")),
+        el("meter", "Meter", None, NoVisual("not drawn by azul yet")),
+        el("datalist", "Data List", None, NoVisual("the suggestions of an <input list>: never drawn itself")),
+        // Embedded content: each shows what its source names
+        el("canvas", "Canvas", None, NoVisual("shows what the app draws into it")),
+        el("object", "Object", None, NoVisual("shows the resource its data attribute names")),
+        el("param", "Parameter", None, NoVisual("a parameter of its <object>")),
+        el("embed", "Embed", None, NoVisual("shows the resource its src names")),
+        el("audio", "Audio", None, NoVisual("plays the audio its src names")),
+        el("video", "Video", None, NoVisual("plays the video its src names")),
+        el("webview", "Web View", None, NoVisual("shows the web page its src names, in a native web view")),
+        el("source", "Source", None, NoVisual("a source of its <audio> / <video>")),
+        el("track", "Track", None, NoVisual("a text track of its <video>")),
+        el("map", "Image Map", None, NoVisual("the clickable regions of an image: no box of its own")),
+        el("area", "Map Area", None, NoVisual("a clickable region of an image map")),
+        el("svg", "SVG", None, BuiltinPreview::Example { attrs: &[("width", "48"), ("height", "24"), ("viewBox", "0 0 48 24")], text: "", children: SVG_SHAPES }),
+        // Metadata
+        el("meta", "Meta", None, NoVisual("document metadata: it has no box")),
+        el("link", "Link (Resource)", None, NoVisual("links a resource to the document: it has no box")),
+        el("script", "Script", Some(""), NoVisual("code, not content")),
+        el("style", "Style", Some(""), NoVisual("a stylesheet, not content")),
+        el("base", "Base URL", None, NoVisual("document metadata: it has no box")),
+    ]
+};
+
+/// The builtin element `tag`, if it is one.
+fn builtin_element(tag: &str) -> Option<&'static BuiltinElement> {
+    BUILTIN_ELEMENTS.iter().find(|e| e.tag == tag)
+}
+
+/// Why the builtin element `tag` has no preview (its palette card says "no
+/// visual" with this); `None` for one that shows something, and for a tag
+/// that is not a builtin element.
+#[must_use]
+pub fn builtin_no_visual(tag: &str) -> Option<&'static str> {
+    match builtin_element(tag)?.preview {
+        BuiltinPreview::NoVisual(why) => Some(why),
+        BuiltinPreview::Itself | BuiltinPreview::Example { .. } => None,
+    }
+}
+
+/// `<tag attrs>text children</tag>` as parsed markup.
+fn preview_xml(tag: &str, attrs: &[(&str, &str)], text: &str, children: &[PreviewNode]) -> XmlNode {
+    let mut kids: Vec<XmlNodeChild> = Vec::new();
+    if !text.is_empty() {
+        kids.push(XmlNodeChild::Text(AzString::from(text)));
+    }
+    kids.extend(children.iter().map(|c| XmlNodeChild::Element(c.markup())));
+    XmlNode {
+        node_type: XmlTagName::from(tag),
+        attributes: XmlAttributeMap::from(StringPairVec::from_vec(
+            attrs
+                .iter()
+                .map(|(k, v)| AzStringPair {
+                    key: AzString::from(*k),
+                    value: AzString::from(*v),
+                })
+                .collect::<Vec<_>>(),
+        )),
+        children: kids.into(),
+    }
+}
+
+/// What a builtin element's PREVIEW shows with `data` (its palette card, the
+/// Components view).
+///
+/// The element with its `text` (the data model's, else its example's) plus the
+/// example attributes and children its entry in the `BUILTIN_ELEMENTS` table
+/// configures - which a drop does not insert.
+///
+/// Unstyled on purpose: a raw `<input>` / `<select>` becomes its widget only
+/// where the widgets are, and azul-layout resolves them for the preview as it
+/// does for every document it mounts.
+#[must_use]
+pub fn builtin_preview_dom(tag: &str, data: &ComponentDataModel) -> Dom {
+    builtin_dom(tag, data, true)
+}
+
+/// A builtin element with `data`'s text and - with `example` - its preview
+/// example. Built by the XML loader's own path (`xml_node_to_dom_fast`: the
+/// one attribute table), so an example attribute sets exactly what markup
+/// would. An unknown tag is the node `tag_to_node_type` makes, with its text.
+fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
+    let (attrs, example_text, children) = builtin_element(tag)
+        .filter(|_| example)
+        .map_or(BuiltinPreview::Itself, |e| e.preview)
+        .example();
+    let own = data
+        .get_default_string("text")
+        .map(|t| prepare_string(t.as_str()))
+        .unwrap_or_default();
+    let text = if own.is_empty() {
+        example_text.to_string()
+    } else {
+        own
+    };
+    // The component's ARGUMENTS become the element's attributes, so the
+    // loader's own path lands them exactly as it lands markup's
+    // (`apply_builtin_args_from_attributes`, the attribute table, the
+    // element's own reading): the example's first, the arguments over them.
+    let arg_strings = argument_attributes(data, &builtin_data_model(tag));
+    let mut all_attrs: Vec<(&str, &str)> = attrs.to_vec();
+    for (k, v) in &arg_strings {
+        all_attrs.retain(|(ek, _)| !ek.eq_ignore_ascii_case(k));
+        all_attrs.push((k.as_str(), v.as_str()));
+    }
+    let node = preview_xml(tag, &all_attrs, &text, children);
+    xml_node_to_dom_fast(&node, &ComponentMap::default(), false, None, 0).unwrap_or_else(|_| {
+        let bare = Dom::create_node(tag_to_node_type(tag));
+        if text.is_empty() {
+            bare
+        } else {
+            bare.with_children(
+                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                    text
+                )]
+                .into(),
+            )
+        }
+    })
+}
+
+/// A component's arguments as attribute strings, for the render fn of a
+/// builtin element: every field but `text` that the caller SET (its value
+/// differs from the element's declared default in `defaults`) to a string, a
+/// bool or a number - a bool as HTML does: present when `true`, absent when
+/// `false`. Empty strings and unset fields are left out.
+fn argument_attributes(
+    data: &ComponentDataModel,
+    defaults: &[ComponentDataField],
+) -> Vec<(String, String)> {
+    data.fields
+        .as_ref()
+        .iter()
+        .filter(|f| f.name.as_str() != "text")
+        .filter(|f| {
+            !defaults
+                .iter()
+                .any(|d| d.name.as_str() == f.name.as_str() && d.default_value == f.default_value)
+        })
+        .filter_map(|f| {
+            let OptionComponentDefaultValue::Some(v) = &f.default_value else {
+                return None;
+            };
+            let value = match v {
+                ComponentDefaultValue::String(s) if !s.as_str().is_empty() => {
+                    s.as_str().to_string()
+                }
+                ComponentDefaultValue::Bool(true) => String::new(),
+                ComponentDefaultValue::I32(n) => n.to_string(),
+                ComponentDefaultValue::I64(n) => n.to_string(),
+                ComponentDefaultValue::U32(n) => n.to_string(),
+                ComponentDefaultValue::U64(n) => n.to_string(),
+                ComponentDefaultValue::Usize(n) => n.to_string(),
+                ComponentDefaultValue::F32(n) => n.to_string(),
+                ComponentDefaultValue::F64(n) => n.to_string(),
+                _ => return None,
+            };
+            Some((f.name.as_str().to_string(), value))
+        })
+        .collect()
+}
+
+/// Register the built-in components: one per HTML element of the
+/// `BUILTIN_ELEMENTS` table, then the structural `if` / `for` / `map`.
 ///
 /// This is an `extern "C"` function pointer compatible with
 /// `RegisterComponentLibraryFnType`, so it can be passed directly to
@@ -4510,7 +5211,6 @@ fn builtin_map_compile_fn(
 ///
 /// Called once during `AppConfig::create()` — the framework dogfoods
 /// its own component registration system for builtins.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use]
 pub extern "C" fn register_builtin_components() -> ComponentLibrary {
     ComponentLibrary {
@@ -4521,136 +5221,17 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
         modifiable: false,
         data_models: Vec::new().into(),
         enum_models: Vec::new().into(),
-        components: alloc::vec![
-            // Structural
-            builtin_component_def("html", "HTML", None, ""),
-            builtin_component_def("head", "Head", None, ""),
-            builtin_component_def("title", "Title", Some(""), ""),
-            builtin_component_def("body", "Body", None, ""),
-            // Block-level
-            builtin_component_def("div", "Div", None, ""),
-            builtin_component_def("header", "Header", None, ""),
-            builtin_component_def("footer", "Footer", None, ""),
-            builtin_component_def("section", "Section", None, ""),
-            builtin_component_def("article", "Article", None, ""),
-            builtin_component_def("aside", "Aside", None, ""),
-            builtin_component_def("nav", "Nav", None, ""),
-            builtin_component_def("main", "Main", None, ""),
-            builtin_component_def("figure", "Figure", None, ""),
-            builtin_component_def("figcaption", "Figure Caption", Some(""), ""),
-            builtin_component_def("address", "Address", Some(""), ""),
-            builtin_component_def("details", "Details", None, ""),
-            builtin_component_def("summary", "Summary", Some("Details"), ""),
-            builtin_component_def("dialog", "Dialog", None, ""),
-            // Headings — default text is the heading level name so preview is visible
-            builtin_component_def("h1", "Heading 1", Some("Heading 1"), ""),
-            builtin_component_def("h2", "Heading 2", Some("Heading 2"), ""),
-            builtin_component_def("h3", "Heading 3", Some("Heading 3"), ""),
-            builtin_component_def("h4", "Heading 4", Some("Heading 4"), ""),
-            builtin_component_def("h5", "Heading 5", Some("Heading 5"), ""),
-            builtin_component_def("h6", "Heading 6", Some("Heading 6"), ""),
-            // Text content
-            builtin_component_def("p", "Paragraph", Some("Paragraph text"), ""),
-            builtin_component_def("span", "Span", Some(""), ""),
-            builtin_component_def("pre", "Preformatted", Some(""), ""),
-            builtin_component_def("code", "Code", Some(""), ""),
-            builtin_component_def("blockquote", "Blockquote", Some(""), ""),
-            builtin_component_def("br", "Line Break", None, ""),
-            builtin_component_def("hr", "Horizontal Rule", None, ""),
-            builtin_component_def("pagebreak", "Page Break", None, ""),
-            builtin_component_def("icon", "Icon", Some(""), ""),
-            // Lists
-            builtin_component_def("ul", "Unordered List", None, ""),
-            builtin_component_def("ol", "Ordered List", None, ""),
-            builtin_component_def("li", "List Item", Some("List item"), ""),
-            builtin_component_def("dl", "Description List", None, ""),
-            builtin_component_def("dt", "Description Term", Some(""), ""),
-            builtin_component_def("dd", "Description Details", Some(""), ""),
-            builtin_component_def("menu", "Menu", None, ""),
-            builtin_component_def("menuitem", "Menu Item", Some(""), ""),
-            builtin_component_def("dir", "Directory List", None, ""),
-            // Tables
-            builtin_component_def("table", "Table", None, ""),
-            builtin_component_def("caption", "Table Caption", Some(""), ""),
-            builtin_component_def("thead", "Table Head", None, ""),
-            builtin_component_def("tbody", "Table Body", None, ""),
-            builtin_component_def("tfoot", "Table Foot", None, ""),
-            builtin_component_def("tr", "Table Row", None, ""),
-            builtin_component_def("th", "Table Header Cell", Some("Header"), ""),
-            builtin_component_def("td", "Table Data Cell", Some(""), ""),
-            builtin_component_def("colgroup", "Column Group", None, ""),
-            builtin_component_def("col", "Column", None, ""),
-            // Inline
-            builtin_component_def("a", "Link", Some("Link text"), ""),
-            builtin_component_def("strong", "Strong", Some(""), ""),
-            builtin_component_def("em", "Emphasis", Some(""), ""),
-            builtin_component_def("b", "Bold", Some(""), ""),
-            builtin_component_def("i", "Italic", Some(""), ""),
-            builtin_component_def("u", "Underline", Some(""), ""),
-            builtin_component_def("s", "Strikethrough", Some(""), ""),
-            builtin_component_def("small", "Small", Some(""), ""),
-            builtin_component_def("mark", "Mark", Some(""), ""),
-            builtin_component_def("del", "Deleted Text", Some(""), ""),
-            builtin_component_def("ins", "Inserted Text", Some(""), ""),
-            builtin_component_def("sub", "Subscript", Some(""), ""),
-            builtin_component_def("sup", "Superscript", Some(""), ""),
-            builtin_component_def("samp", "Sample Output", Some(""), ""),
-            builtin_component_def("kbd", "Keyboard Input", Some(""), ""),
-            builtin_component_def("var", "Variable", Some(""), ""),
-            builtin_component_def("cite", "Citation", Some(""), ""),
-            builtin_component_def("dfn", "Definition", Some(""), ""),
-            builtin_component_def("abbr", "Abbreviation", Some(""), ""),
-            builtin_component_def("acronym", "Acronym", Some(""), ""),
-            builtin_component_def("q", "Inline Quote", Some(""), ""),
-            builtin_component_def("time", "Time", Some(""), ""),
-            builtin_component_def("big", "Big", Some(""), ""),
-            builtin_component_def("bdo", "BiDi Override", Some(""), ""),
-            builtin_component_def("bdi", "BiDi Isolate", Some(""), ""),
-            builtin_component_def("wbr", "Word Break Opportunity", None, ""),
-            builtin_component_def("ruby", "Ruby Annotation", None, ""),
-            builtin_component_def("rt", "Ruby Text", Some(""), ""),
-            builtin_component_def("rtc", "Ruby Text Container", None, ""),
-            builtin_component_def("rp", "Ruby Parenthesis", Some(""), ""),
-            builtin_component_def("data", "Data", Some(""), ""),
-            // Forms
-            builtin_component_def("form", "Form", None, ""),
-            builtin_component_def("fieldset", "Field Set", None, ""),
-            builtin_component_def("legend", "Legend", Some("Legend"), ""),
-            builtin_component_def("label", "Label", Some("Label"), ""),
-            builtin_component_def("input", "Input", None, ""),
-            builtin_component_def("button", "Button", Some("Button text"), ""),
-            builtin_component_def("select", "Select", None, ""),
-            builtin_component_def("optgroup", "Option Group", None, ""),
-            builtin_component_def("option", "Option", Some(""), ""),
-            builtin_component_def("textarea", "Text Area", Some(""), ""),
-            builtin_component_def("output", "Output", Some(""), ""),
-            builtin_component_def("progress", "Progress", None, ""),
-            builtin_component_def("meter", "Meter", None, ""),
-            builtin_component_def("datalist", "Data List", None, ""),
-            // Embedded content
-            builtin_component_def("canvas", "Canvas", None, ""),
-            builtin_component_def("object", "Object", None, ""),
-            builtin_component_def("param", "Parameter", None, ""),
-            builtin_component_def("embed", "Embed", None, ""),
-            builtin_component_def("audio", "Audio", None, ""),
-            builtin_component_def("video", "Video", None, ""),
-            builtin_component_def("source", "Source", None, ""),
-            builtin_component_def("track", "Track", None, ""),
-            builtin_component_def("map", "Image Map", None, ""),
-            builtin_component_def("area", "Map Area", None, ""),
-            builtin_component_def("svg", "SVG", None, ""),
-            // Metadata
-            builtin_component_def("meta", "Meta", None, ""),
-            builtin_component_def("link", "Link (Resource)", None, ""),
-            builtin_component_def("script", "Script", Some(""), ""),
-            builtin_component_def("style", "Style", Some(""), ""),
-            builtin_component_def("base", "Base URL", None, ""),
+        components: BUILTIN_ELEMENTS
+            .iter()
+            .map(|e| builtin_component_def(e.tag, e.display_name, e.text, ""))
             // Structural control-flow builtins (F1-F3)
-            builtin_if_component(),
-            builtin_for_component(),
-            builtin_map_component(),
-        ]
-        .into(),
+            .chain([
+                builtin_if_component(),
+                builtin_for_component(),
+                builtin_map_component(),
+            ])
+            .collect::<Vec<_>>()
+            .into(),
     }
 }
 
@@ -5146,7 +5727,7 @@ impl fmt::Display for RenderDomError {
 /// turn. Reading only the first silently dropped everything after it - and it
 /// is silent in the worst way, because the page still renders, just with some
 /// rules missing and nothing to say which.
-fn head_style_text(html_node: &XmlNode) -> String {
+pub(crate) fn head_style_text(html_node: &XmlNode) -> String {
     let Some(head) = find_node_by_type(html_node.children.as_ref(), "head") else {
         return String::new();
     };
@@ -5421,8 +6002,24 @@ pub fn str_to_dom<'a>(
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, DomXmlParseError> {
+    str_to_dom_loading_fonts(root_nodes, component_map, max_width, None)
+}
+
+/// [`str_to_dom`], with the source of the fonts an `<svg>`'s `@font-face`s
+/// embed ([`element::FontSourceFn`]; without one they are not loaded).
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
+/// component).
+pub fn str_to_dom_loading_fonts<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+    max_width: Option<f32>,
+    font_source: Option<element::FontSourceFn>,
+) -> Result<StyledDom, DomXmlParseError> {
     // Delegate to the fast path (Dom::Fast / CompactDom arena).
-    str_to_dom_fast(root_nodes, component_map, max_width)
+    str_to_dom_fast(root_nodes, component_map, max_width, font_source)
 }
 
 /// Parse XML to `StyledDom` via arena-based `FastDom` (no tree intermediary).
@@ -5435,6 +6032,7 @@ fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
+    font_source: Option<element::FontSourceFn>,
 ) -> Result<StyledDom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
@@ -5446,8 +6044,36 @@ fn str_to_dom_fast<'a>(
         Some(Css::from_string(style_text.into()))
     };
 
-    render_dom_from_body_node_fast(body_node, global_style, component_map, max_width)
-        .map_err(Into::into)
+    render_dom_from_body_node_fast(
+        &html_node,
+        body_node,
+        global_style,
+        component_map,
+        max_width,
+        font_source,
+    )
+    .map_err(Into::into)
+}
+
+/// The root `Html` node of a loaded document: the `<html>` element's own
+/// attributes (its inline `style`, `lang`, `dir`, ids and classes) landed as
+/// every other element's are ([`element::render_element`]). Both loaders
+/// built a bare `Html` node and dropped them (WPT8 found (c)).
+fn html_root_node_data(html_node: &XmlNode) -> NodeData {
+    let pairs = attribute_pairs(html_node);
+    element::render_element(
+        &ComponentMap::default(),
+        &element::Element {
+            tag: "html",
+            attributes: &pairs,
+            scope: element::ElementScope::default(),
+            font_faces: &[],
+        },
+        &mut element::Landing {
+            css_key_map: None,
+            intern: &mut |s: &str| AzString::from(s),
+        },
+    )
 }
 
 /// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not applied).
@@ -5467,6 +6093,22 @@ pub fn str_to_dom_unstyled<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
 ) -> Result<Dom, DomXmlParseError> {
+    str_to_dom_unstyled_loading_fonts(root_nodes, component_map, None)
+}
+
+/// [`str_to_dom_unstyled`], with the source of the fonts an `<svg>`'s
+/// `@font-face`s embed ([`element::FontSourceFn`]; without one they are not
+/// loaded).
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
+/// component).
+pub fn str_to_dom_unstyled_loading_fonts<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+    font_source: Option<element::FontSourceFn>,
+) -> Result<Dom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
 
@@ -5478,18 +6120,24 @@ pub fn str_to_dom_unstyled<'a>(
     };
 
     // Build the DOM tree from the body node
-    let body_dom =
-        xml_node_to_dom_fast(body_node, component_map, false, 0).map_err(DomXmlParseError::from)?;
+    let body_dom = xml_node_to_dom_fast(body_node, component_map, false, font_source, 0)
+        .map_err(DomXmlParseError::from)?;
 
     // Wrap in proper HTML structure (NodeType is imported at module top)
     let root_node_type = body_dom.root.node_type.clone();
+    // The root carries the `<html>` element's own attributes.
+    let html_root = || {
+        let mut html = Dom::create_html();
+        html.root = html_root_node_data(&html_node);
+        html
+    };
 
     let mut full_dom = match root_node_type {
         NodeType::Html => body_dom,
-        NodeType::Body => Dom::create_html().with_child(body_dom),
+        NodeType::Body => html_root().with_child(body_dom),
         _ => {
             let body_wrapper = Dom::create_body().with_child(body_dom);
-            Dom::create_html().with_child(body_wrapper)
+            html_root().with_child(body_wrapper)
         }
     };
 
@@ -5501,193 +6149,13 @@ pub fn str_to_dom_unstyled<'a>(
     Ok(full_dom)
 }
 
-/// Parses an XML string and returns a `String`, which contains the Rust source code
-/// (i.e. it compiles the XML to valid Rust)
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
-/// Returns an error if the XML cannot be parsed or compiled to Rust code.
-pub fn str_to_rust_code<'a>(
-    root_nodes: &'a [XmlNodeChild],
-    imports: &str,
-    component_map: &'a ComponentMap,
-) -> Result<String, CompileError> {
-    let html_node = get_html_node(root_nodes)?;
-    let body_node = get_body_node(html_node.children.as_ref())?;
-    let style_text = head_style_text(&html_node);
-    let mut global_style = if style_text.is_empty() {
-        Css::empty()
-    } else {
-        azul_css::parser2::new_from_str(&style_text).0
-    };
-
-    global_style.sort_by_specificity();
-
-    let mut css_blocks = BTreeMap::new();
-    let mut extra_blocks = VecContents::default();
-    let app_source = compile_body_node_to_rust_code(
-        body_node,
-        component_map,
-        &mut extra_blocks,
-        &mut css_blocks,
-        &global_style,
-        CssMatcher {
-            path: Vec::new(),
-            indices_in_parent: vec![0],
-            children_length: vec![body_node.children.as_ref().len()],
-        },
-    )?;
-
-    let app_source = app_source
-        .lines()
-        .map(|l| format!("        {l}"))
-        .collect::<Vec<String>>()
-        .join("\r\n");
-
-    // NOTE: `css_blocks` / `extra_blocks` are no longer emitted — per-node styles
-    // are now inlined as `.with_css("..")` strings (public API) rather than as
-    // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` blocks (that API was
-    // removed in 32d44ed8a). The maps stay in the signatures for compatibility.
-    let _ = (&css_blocks, &extra_blocks);
-
-    let main_func = "
-
-use azul::{
-    app::{App, AppConfig},
-    dom::Dom,
-    callbacks::{RefAny, LayoutCallbackInfo},
-    window::WindowCreateOptions,
-};
-
-struct Data { }
-
-extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> Dom {
-    crate::ui::render()
-}
-
-fn main() {
-    let config = AppConfig::create();
-    let app = App::create(RefAny::new(Data { }), config);
-    let window = WindowCreateOptions::create(render);
-    app.run(window);
-}";
-
-    let ui_module = format!(
-        "#[allow(unused_imports)]\r\npub mod ui {{
-
-    use azul::prelude::*;
-    use azul::dom::{{NodeType, TabIndex, SmallAriaInfo}};
-    use azul::str::String as AzString;
-
-    pub fn render() -> Dom {{\r\n{app_source}\r\n    }}\r\n}}"
-    );
-    let source_code = format!(
-        "#![windows_subsystem = \"windows\"]\r\n//! Auto-generated UI source \
-         code\r\n{}\r\n{}\r\n\r\n{}{}",
-        imports,
-        compile_components(Vec::new()), // no user-defined components to compile
-        ui_module,
-        main_func,
-    );
-
-    Ok(source_code)
-}
-
-// Compile all components to source code
-#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API /
-                                         // ownership-transfer convention)
-fn compile_components(
-    components: Vec<(
-        ComponentName,
-        CompiledComponent,
-        ComponentArguments,
-        BTreeMap<String, String>,
-    )>,
-) -> String {
-    let cs = components
-        .iter()
-        .map(|(name, function_body, function_args, css_blocks)| {
-            let name = &normalize_casing(name);
-            let f = compile_component(name, function_args, function_body)
-                .lines()
-                .map(|l| format!("    {l}"))
-                .collect::<Vec<String>>()
-                .join("\r\n");
-
-            // let css_blocks = ...
-
-            format!(
-                "#[allow(unused_imports)]\r\npub mod {name} {{\r\n    use azul::dom::Dom;\r\n    \
-                 use azul::str::String as AzString;\r\n{f}\r\n}}"
-            )
-        })
-        .collect::<Vec<String>>()
-        .join("\r\n\r\n");
-
-    let cs = cs
-        .lines()
-        .map(|l| format!("    {l}"))
-        .collect::<Vec<String>>()
-        .join("\r\n");
-
-    if cs.is_empty() {
-        cs
-    } else {
-        format!("pub mod components {{\r\n{cs}\r\n}}")
-    }
-}
-
-fn format_component_args(component_args: &ComponentArgumentVec) -> String {
-    let mut args = component_args
-        .iter()
-        .map(|a| format!("{}: {}", a.name, a.arg_type))
-        .collect::<Vec<String>>();
-
-    args.sort_by(|a, b| b.cmp(a));
-
-    args.join(", ")
-}
-
-#[must_use]
-pub fn compile_component(
-    component_name: &str,
-    component_args: &ComponentArguments,
-    component_function_body: &str,
-) -> String {
-    let component_name = &normalize_casing(component_name);
-    let function_args = format_component_args(&component_args.args);
-    let component_function_body = component_function_body
-        .lines()
-        .map(|l| format!("    {l}"))
-        .collect::<Vec<String>>()
-        .join("\r\n");
-    let should_inline = component_function_body.lines().count() == 1;
-    format!(
-        "{}pub fn render({}{}{}) -> Dom {{\r\n{}\r\n}}",
-        if should_inline { "#[inline]\r\n" } else { "" },
-        // pass the text content as the first
-        if component_args.accepts_text {
-            "text: AzString"
-        } else {
-            ""
-        },
-        if function_args.is_empty() || !component_args.accepts_text {
-            ""
-        } else {
-            ", "
-        },
-        function_args,
-        component_function_body,
-    )
-}
-
 /// Parse an SVG numeric attribute value to f32.
 ///
 /// STRICT: a geometry attribute (`cx`, `r`, `x1`, ...) is a USER UNIT, and
 /// `cx="10px"` is not valid SVG. The `<svg>` element's own `width`/`height`
 /// are CSS lengths and a different thing entirely - see [`parse_svg_length`].
-fn parse_svg_float(attr: Option<&AzString>) -> Option<f32> {
-    attr?.as_str().trim().parse::<f32>().ok()
+fn parse_svg_float(attr: Option<&str>) -> Option<f32> {
+    attr?.trim().parse::<f32>().ok()
 }
 
 /// Parse the `<svg>` element's own `width`/`height`, which - unlike the
@@ -5697,8 +6165,8 @@ fn parse_svg_float(attr: Option<&AzString>) -> Option<f32> {
 /// `width="16"`. A relative unit (`%`, `em`) is REJECTED rather than guessed
 /// at: the caller then falls back to the viewBox, which is a real answer,
 /// instead of resolving a percentage against nothing.
-fn parse_svg_length(attr: Option<&AzString>) -> Option<f32> {
-    let raw = attr?.as_str().trim();
+fn parse_svg_length(attr: Option<&str>) -> Option<f32> {
+    let raw = attr?.trim();
     let number = raw.strip_suffix("px").unwrap_or(raw).trim();
     number.parse::<f32>().ok()
 }
@@ -5759,526 +6227,150 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
     })
 }
 
-/// Fast XML to Dom conversion that builds Dom tree directly without intermediate `StyledDom`
-/// This is O(n) instead of O(n²) for large documents
-/// Apply the shared set of XML attributes onto a single [`NodeData`] node.
-///
-/// Handles `<img src>` rebuild, `id`/`class`, `focusable`, `tabindex`, inline
-/// `style`, and SVG-shape geometry — the block that was previously duplicated
-/// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
-/// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
-/// must already be normalized (lowercased); the caller computes `child_inside_svg`.
-// Large but cohesive: one branch per input variant. Splitting the dispatch
-// would scatter the attribute table it exists to keep in one place.
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
-fn apply_xml_node_attributes(
-    node: &mut crate::dom::NodeData,
-    xml_node: &XmlNode,
-    component_name: &str,
-    inside_svg: bool,
-) {
-    use crate::dom::{IdOrClass, NodeType, TabIndex};
-
-    // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
-    // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
-    // resolved here — a downstream renderer (printpdf, the compositor, ...) uses
-    // the tag to look up and embed the actual image. Optional `width`/`height`
-    // attributes set the intrinsic size used for layout (CSS still overrides).
-    if component_name == "img" {
-        if let Some(src) = xml_node.attributes.get_key("src") {
-            let width = xml_node
-                .attributes
-                .get_key("width")
-                .and_then(|w| {
-                    w.as_str()
-                        .trim()
-                        .trim_end_matches("px")
-                        .trim()
-                        .parse::<usize>()
-                        .ok()
-                })
-                .unwrap_or(0);
-            let height = xml_node
-                .attributes
-                .get_key("height")
-                .and_then(|h| {
-                    h.as_str()
-                        .trim()
-                        .trim_end_matches("px")
-                        .trim()
-                        .parse::<usize>()
-                        .ok()
-                })
-                .unwrap_or(0);
-            let image_ref = crate::resources::ImageRef::null_image(
-                width,
-                height,
-                crate::resources::RawImageFormat::RGBA8,
-                src.as_str().as_bytes().to_vec(),
-            );
-            node.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
-        }
+/// An ellipse as four cubic Beziers (kappa scaled by `rx` on the x axis, by
+/// `ry` on the y axis), from its top round through its right, bottom and left.
+fn svg_ellipse_path(cx: f32, cy: f32, rx: f32, ry: f32) -> crate::svg::SvgPath {
+    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
+    const KAPPA: f32 = 0.552_284_8;
+    let kx = rx * KAPPA;
+    let ky = ry * KAPPA;
+    let elements = vec![
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx, y: cy - ry },
+            ctrl_1: SvgPoint {
+                x: cx + kx,
+                y: cy - ry,
+            },
+            ctrl_2: SvgPoint {
+                x: cx + rx,
+                y: cy - ky,
+            },
+            end: SvgPoint { x: cx + rx, y: cy },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx + rx, y: cy },
+            ctrl_1: SvgPoint {
+                x: cx + rx,
+                y: cy + ky,
+            },
+            ctrl_2: SvgPoint {
+                x: cx + kx,
+                y: cy + ry,
+            },
+            end: SvgPoint { x: cx, y: cy + ry },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx, y: cy + ry },
+            ctrl_1: SvgPoint {
+                x: cx - kx,
+                y: cy + ry,
+            },
+            ctrl_2: SvgPoint {
+                x: cx - rx,
+                y: cy + ky,
+            },
+            end: SvgPoint { x: cx - rx, y: cy },
+        }),
+        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+            start: SvgPoint { x: cx - rx, y: cy },
+            ctrl_1: SvgPoint {
+                x: cx - rx,
+                y: cy - ky,
+            },
+            ctrl_2: SvgPoint {
+                x: cx - kx,
+                y: cy - ry,
+            },
+            end: SvgPoint { x: cx, y: cy - ry },
+        }),
+    ];
+    crate::svg::SvgPath {
+        items: crate::svg::SvgPathElementVec::from_vec(elements),
     }
+}
 
-    // Set id and class attributes
-    let mut ids_and_classes = Vec::new();
-    if let Some(id_str) = xml_node.attributes.get_key("id") {
-        for id in id_str.split_whitespace() {
-            ids_and_classes.push(IdOrClass::Id(id.into()));
-        }
-    }
-    if let Some(class_str) = xml_node.attributes.get_key("class") {
-        for class in class_str.split_whitespace() {
-            ids_and_classes.push(IdOrClass::Class(class.into()));
-        }
-    }
-    if !ids_and_classes.is_empty() {
-        node.set_ids_and_classes(ids_and_classes.into());
-    }
-
-    // Handle focusable attribute
-    if let Some(focusable) = xml_node
-        .attributes
-        .get_key("focusable")
-        .and_then(|f| parse_bool(f.as_str()))
-    {
-        if focusable {
-            node.set_tab_index(TabIndex::Auto);
-        } else {
-            node.set_tab_index(TabIndex::NoKeyboardFocus);
-        }
-    }
-
-    // Handle tabindex attribute
-    if let Some(tab_index) = xml_node
-        .attributes
-        .get_key("tabindex")
-        .and_then(|val| val.parse::<isize>().ok())
-    {
-        match tab_index {
-            0 => node.set_tab_index(TabIndex::Auto),
-            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(
-                u32::try_from(i).unwrap_or(u32::MAX),
-            )),
-            _ => node.set_tab_index(TabIndex::NoKeyboardFocus),
-        }
-    }
-
-    // Table cell span attributes (`colspan` / `rowspan`).
-    apply_cell_span_attributes(node, xml_node);
-
-    // HTML `dir` attribute → the `direction` CSS property (dir="rtl"/"ltr"). Without
-    // this, dir="rtl" (the common way to set RTL in HTML) had no effect. Appended
-    // BEFORE the inline `style` below so author style still wins on equal specificity.
-    let dir_prop = xml_node.attributes.get_key("dir").and_then(|d| {
-        let v = d.as_str().trim();
-        if v.eq_ignore_ascii_case("rtl") {
-            Some(azul_css::props::style::StyleDirection::Rtl)
-        } else if v.eq_ignore_ascii_case("ltr") {
-            Some(azul_css::props::style::StyleDirection::Ltr)
-        } else {
-            None
-        }
-    });
-
-    // `<svg>`: its own viewport. Two things have to come off the element, and
-    // both were being dropped.
-    //
-    //   * the `viewBox`, which is the element's USER-SPACE coordinate system.
-    //     `SvgNodeData::ViewBox` existed as a variant but nothing ever produced one, so a parsed
-    //     `<svg>` had no record of what coordinate space its children were drawn in.
-    //   * an INTRINSIC SIZE. An `<svg>` is a replaced element: it is as big as `width`/`height`
-    //     say, and failing that as big as its viewBox (SVG's own default sizing rule). Without one
-    //     the element lays out 0x0 and takes no space at all - which is what an icon parsed
-    //     straight from a theme file did, and why it came out blank.
-    //
-    // These are INTRINSIC dimensions, not a demand: they are pushed ahead of
-    // the inline `style` below, so a call site that says how big it wants the
-    // thing still wins.
-    let mut intrinsic_props: Vec<azul_css::dynamic_selector::CssPropertyWithConditions> =
-        Vec::new();
-    if component_name == "svg" {
-        let view_box = xml_node
-            .attributes
-            .get_key("viewBox")
-            .or_else(|| xml_node.attributes.get_key("viewbox"))
-            .and_then(|v| parse_svg_view_box(v.as_str()));
-        if let Some((min_x, min_y, width, height)) = view_box {
-            node.set_svg_data(crate::dom::SvgNodeData::ViewBox {
-                min_x,
-                min_y,
-                width,
-                height,
-            });
-        }
-        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
-        let usable = |v: f32| v.is_finite() && v > 0.0;
-        if let Some(w) = stated("width")
-            .or_else(|| view_box.map(|(_, _, w, _)| w))
-            .filter(|w| usable(*w))
-        {
-            intrinsic_props.push(
-                azul_css::dynamic_selector::CssPropertyWithConditions::simple(
-                    azul_css::props::property::CssProperty::width(
-                        azul_css::props::layout::LayoutWidth::px(w),
-                    ),
-                ),
-            );
-        }
-        if let Some(h) = stated("height")
-            .or_else(|| view_box.map(|(_, _, _, h)| h))
-            .filter(|h| usable(*h))
-        {
-            intrinsic_props.push(
-                azul_css::dynamic_selector::CssPropertyWithConditions::simple(
-                    azul_css::props::property::CssProperty::height(
-                        azul_css::props::layout::LayoutHeight::px(h),
-                    ),
-                ),
-            );
-        }
-    }
-
-    // An SVG SHAPE is painted by filling its own box and clipping that box to
-    // its geometry (`SvgNodeData::*`, pushed as a clip mask by the display
-    // list). Two things make that work, and both are ordinary CSS:
-    //
-    //   * the box has to BE the `<svg>`'s viewport - the clip mask is rasterised into the node's
-    //     paint rect, so a shape that laid out as an ordinary in-flow block would be clipped
-    //     against the wrong rectangle (and, being empty, would be 0-high anyway);
-    //   * `fill` has to reach the cascade. The presentation ATTRIBUTE is translated here;
-    //     `style="fill:…"` and a stylesheet rule need nothing, because `fill` is an accepted
-    //     spelling of `background-color` (`COMBINED_CSS_PROPERTIES_KEY_MAP`).
-    //
-    // `fill="none"` deliberately emits NOTHING rather than a transparent
-    // background: it must not shadow a stylesheet rule that does set a fill.
-    if inside_svg
-        && matches!(
-            component_name,
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
-        )
-    {
-        use azul_css::props::{
-            layout::{LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop},
-            property::CssProperty,
-        };
-        let simple = azul_css::dynamic_selector::CssPropertyWithConditions::simple;
-        intrinsic_props.push(simple(CssProperty::const_position(
-            LayoutPosition::Absolute,
-        )));
-        intrinsic_props.push(simple(CssProperty::const_left(LayoutLeft::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_top(LayoutTop::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_right(LayoutRight::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_bottom(
-            LayoutInsetBottom::const_px(0),
-        )));
-
-        if let Some(fill) = xml_node.attributes.get_key("fill") {
-            let fill = fill.as_str().trim();
-            if fill != "none" {
-                if let Ok(color) = azul_css::props::basic::color::parse_css_color(fill) {
-                    intrinsic_props.push(simple(CssProperty::const_background_content(
-                        azul_css::props::style::StyleBackgroundContentVec::from_vec(vec![
-                            azul_css::props::style::StyleBackgroundContent::Color(color),
-                        ]),
-                    )));
-                }
-            }
-        }
-
-        // The STROKE, as the box's border - the display list turns it into a
-        // stroked path rather than a rectangle. Both halves are translated
-        // here only for the presentation ATTRIBUTE; `style="stroke:…"` and a
-        // stylesheet rule need nothing, because `stroke`/`stroke-width` are
-        // accepted spellings of `border-color`/`border-width`.
-        if let Some(stroke) = xml_node.attributes.get_key("stroke") {
-            let stroke = stroke.as_str().trim();
-            if stroke != "none" {
-                if let Ok(color) = azul_css::props::basic::color::parse_css_color(stroke) {
-                    use azul_css::props::style::{
-                        StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
-                        StyleBorderTopColor,
-                    };
-                    intrinsic_props.push(simple(CssProperty::const_border_top_color(
-                        StyleBorderTopColor { inner: color },
-                    )));
-                    intrinsic_props.push(simple(CssProperty::const_border_right_color(
-                        StyleBorderRightColor { inner: color },
-                    )));
-                    intrinsic_props.push(simple(CssProperty::const_border_bottom_color(
-                        StyleBorderBottomColor { inner: color },
-                    )));
-                    intrinsic_props.push(simple(CssProperty::const_border_left_color(
-                        StyleBorderLeftColor { inner: color },
-                    )));
-                }
-            }
-        }
-        // `stroke-width` is in USER UNITS, like every other geometry
-        // attribute - not a CSS length.
-        if let Some(width) = parse_svg_float(xml_node.attributes.get_key("stroke-width")) {
-            if width.is_finite() && width > 0.0 {
-                use azul_css::props::style::{
-                    LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-                    LayoutBorderTopWidth,
-                };
-                let px = azul_css::props::basic::PixelValue::px(width);
-                intrinsic_props.push(simple(CssProperty::const_border_top_width(
-                    LayoutBorderTopWidth { inner: px },
-                )));
-                intrinsic_props.push(simple(CssProperty::const_border_right_width(
-                    LayoutBorderRightWidth { inner: px },
-                )));
-                intrinsic_props.push(simple(CssProperty::const_border_bottom_width(
-                    LayoutBorderBottomWidth { inner: px },
-                )));
-                intrinsic_props.push(simple(CssProperty::const_border_left_width(
-                    LayoutBorderLeftWidth { inner: px },
-                )));
-            }
-        }
-    }
-
-    // `<svg>` is the positioning context its shapes resolve against.
-    if component_name == "svg" {
-        intrinsic_props.push(
-            azul_css::dynamic_selector::CssPropertyWithConditions::simple(
-                azul_css::props::property::CssProperty::const_position(
-                    azul_css::props::layout::LayoutPosition::Relative,
-                ),
-            ),
-        );
-    }
-
-    // Handle inline style attribute (and the mapped `dir` attribute above)
-    let style_attr = xml_node.attributes.get_key("style");
-    if style_attr.is_some() || dir_prop.is_some() || !intrinsic_props.is_empty() {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        let css_key_map = azul_css::props::property::get_css_key_map();
-        let mut props: Vec<CssPropertyWithConditions> = intrinsic_props;
-        if let Some(dir) = dir_prop {
-            props.push(CssPropertyWithConditions::simple(
-                azul_css::props::property::CssProperty::Direction(
-                    azul_css::css::CssPropertyValue::Exact(dir),
-                ),
-            ));
-        }
-        if let Some(style) = style_attr {
-            let mut attributes = Vec::new();
-            for s in style.as_str().split(';') {
-                let mut s = s.split(':');
-                let Some(key) = s.next() else {
-                    continue;
-                };
-                let Some(value) = s.next() else {
-                    continue;
-                };
-                // Called for its side effect (writes parsed props into `attributes`);
-                // the returned value is intentionally discarded.
-                drop(azul_css::parser2::parse_css_declaration(
-                    key.trim(),
-                    value.trim(),
-                    azul_css::parser2::ErrorLocationRange::default(),
-                    &css_key_map,
-                    &mut Vec::new(),
-                    &mut attributes,
-                ));
-            }
-            props.extend(attributes.into_iter().filter_map(|s| match s {
-                CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                CssDeclaration::Dynamic(_) => None,
-            }));
-        }
-        if !props.is_empty() {
-            node.set_css_props(props.into());
-        }
-    }
-
-    // Handle SVG shape elements when inside an <svg> context
-    let tag = component_name;
-    let is_svg_shape = inside_svg
-        && matches!(
-            tag,
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
-        );
-
-    if is_svg_shape {
-        let clip = match tag {
-            "path" => xml_node
-                .attributes
-                .get_key("d")
-                .and_then(|d| crate::path_parser::parse_svg_path_d(d.as_str()).ok()),
-            "circle" => {
-                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
-                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
-                let r = parse_svg_float(xml_node.attributes.get_key("r")).unwrap_or(0.0);
-                if r > 0.0 {
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::path_parser::svg_circle_to_paths(cx, cy, r),
-                        ]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "rect" => {
-                let x = parse_svg_float(xml_node.attributes.get_key("x")).unwrap_or(0.0);
-                let y = parse_svg_float(xml_node.attributes.get_key("y")).unwrap_or(0.0);
-                let w = parse_svg_float(xml_node.attributes.get_key("width")).unwrap_or(0.0);
-                let h = parse_svg_float(xml_node.attributes.get_key("height")).unwrap_or(0.0);
-                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
-                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(rx);
-                if w > 0.0 && h > 0.0 {
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
-                        ]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "ellipse" => {
-                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
-                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
-                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
-                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
-                if rx > 0.0 && ry > 0.0 {
-                    // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for
-                    // y-kappa)
-                    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
-                    const KAPPA: f32 = 0.552_284_8;
-                    let kx = rx * KAPPA;
-                    let ky = ry * KAPPA;
-                    let elements = vec![
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx, y: cy - ry },
-                            ctrl_1: SvgPoint {
-                                x: cx + kx,
-                                y: cy - ry,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx + rx,
-                                y: cy - ky,
-                            },
-                            end: SvgPoint { x: cx + rx, y: cy },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx + rx, y: cy },
-                            ctrl_1: SvgPoint {
-                                x: cx + rx,
-                                y: cy + ky,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx + kx,
-                                y: cy + ry,
-                            },
-                            end: SvgPoint { x: cx, y: cy + ry },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx, y: cy + ry },
-                            ctrl_1: SvgPoint {
-                                x: cx - kx,
-                                y: cy + ry,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx - rx,
-                                y: cy + ky,
-                            },
-                            end: SvgPoint { x: cx - rx, y: cy },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx - rx, y: cy },
-                            ctrl_1: SvgPoint {
-                                x: cx - rx,
-                                y: cy - ky,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx - kx,
-                                y: cy - ry,
-                            },
-                            end: SvgPoint { x: cx, y: cy - ry },
-                        }),
-                    ];
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                            items: crate::svg::SvgPathElementVec::from_vec(elements),
-                        }]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "line" => {
-                let x1 = parse_svg_float(xml_node.attributes.get_key("x1")).unwrap_or(0.0);
-                let y1 = parse_svg_float(xml_node.attributes.get_key("y1")).unwrap_or(0.0);
-                let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
-                let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
+/// The geometry of an SVG shape element (`path`, `circle`, `rect`,
+/// `ellipse`, `line`, `polygon`, `polyline`) in its user units: what its
+/// node's `SvgNodeData::Path` clips its box to. `None` for an empty or
+/// degenerate shape (a circle of no radius, a path that does not parse).
+fn svg_shape_geometry(element: &element::Element<'_>) -> Option<crate::svg::SvgMultiPolygon> {
+    let tag = element.tag;
+    match tag {
+        "path" => element
+            .attribute("d")
+            .and_then(|d| crate::path_parser::parse_svg_path_d(d).ok()),
+        "circle" => {
+            let cx = parse_svg_float(element.attribute("cx")).unwrap_or(0.0);
+            let cy = parse_svg_float(element.attribute("cy")).unwrap_or(0.0);
+            let r = parse_svg_float(element.attribute("r")).unwrap_or(0.0);
+            if r > 0.0 {
                 Some(crate::svg::SvgMultiPolygon {
-                    rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                        items: crate::svg::SvgPathElementVec::from_vec(vec![
-                            crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
-                                azul_css::props::basic::SvgPoint { x: x1, y: y1 },
-                                azul_css::props::basic::SvgPoint { x: x2, y: y2 },
-                            )),
-                        ]),
-                    }]),
+                    rings: crate::svg::SvgPathVec::from_vec(vec![
+                        crate::path_parser::svg_circle_to_paths(cx, cy, r),
+                    ]),
                 })
+            } else {
+                None
             }
-            "polygon" | "polyline" => xml_node
-                .attributes
-                .get_key("points")
-                .and_then(|pts| parse_svg_points(pts.as_str(), tag == "polygon")),
-            _ => None,
-        };
-
-        if let Some(mp) = clip {
-            node.set_svg_data(crate::dom::SvgNodeData::Path(mp));
         }
+        "rect" => {
+            let x = parse_svg_float(element.attribute("x")).unwrap_or(0.0);
+            let y = parse_svg_float(element.attribute("y")).unwrap_or(0.0);
+            let w = parse_svg_float(element.attribute("width")).unwrap_or(0.0);
+            let h = parse_svg_float(element.attribute("height")).unwrap_or(0.0);
+            let rx = parse_svg_float(element.attribute("rx")).unwrap_or(0.0);
+            let ry = parse_svg_float(element.attribute("ry")).unwrap_or(rx);
+            if w > 0.0 && h > 0.0 {
+                Some(crate::svg::SvgMultiPolygon {
+                    rings: crate::svg::SvgPathVec::from_vec(vec![
+                        crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
+                    ]),
+                })
+            } else {
+                None
+            }
+        }
+        "ellipse" => {
+            let cx = parse_svg_float(element.attribute("cx")).unwrap_or(0.0);
+            let cy = parse_svg_float(element.attribute("cy")).unwrap_or(0.0);
+            let rx = parse_svg_float(element.attribute("rx")).unwrap_or(0.0);
+            let ry = parse_svg_float(element.attribute("ry")).unwrap_or(0.0);
+            if rx > 0.0 && ry > 0.0 {
+                Some(crate::svg::SvgMultiPolygon {
+                    rings: crate::svg::SvgPathVec::from_vec(vec![svg_ellipse_path(cx, cy, rx, ry)]),
+                })
+            } else {
+                None
+            }
+        }
+        "line" => {
+            let x1 = parse_svg_float(element.attribute("x1")).unwrap_or(0.0);
+            let y1 = parse_svg_float(element.attribute("y1")).unwrap_or(0.0);
+            let x2 = parse_svg_float(element.attribute("x2")).unwrap_or(0.0);
+            let y2 = parse_svg_float(element.attribute("y2")).unwrap_or(0.0);
+            Some(crate::svg::SvgMultiPolygon {
+                rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+                    items: crate::svg::SvgPathElementVec::from_vec(vec![
+                        crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                            azul_css::props::basic::SvgPoint { x: x1, y: y1 },
+                            azul_css::props::basic::SvgPoint { x: x2, y: y2 },
+                        )),
+                    ]),
+                }]),
+            })
+        }
+        "polygon" | "polyline" => element
+            .attribute("points")
+            .and_then(|pts| parse_svg_points(pts, tag == "polygon")),
+        _ => None,
     }
 }
 
-/// Parse the HTML `colspan` / `rowspan` presentational attributes into
-/// `AttributeType`s on the node. The table layout reads them back via
-/// `get_cell_spans`. Without this the XML→DOM conversion dropped them and every
-/// cell defaulted to span 1, so `<th colspan="2">` only covered one column.
-/// Parsed unconditionally — non-cell elements simply don't carry these attributes.
-fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNode) {
-    let mut spans = Vec::new();
-    if let Some(n) = xml_node
-        .attributes
-        .get_key("colspan")
-        .and_then(|v| v.as_str().trim().parse::<i32>().ok())
-    {
-        spans.push(crate::dom::AttributeType::ColSpan(n));
-    }
-    if let Some(n) = xml_node
-        .attributes
-        .get_key("rowspan")
-        .and_then(|v| v.as_str().trim().parse::<i32>().ok())
-    {
-        spans.push(crate::dom::AttributeType::RowSpan(n));
-    }
-    if !spans.is_empty() {
-        let mut v = node.attributes().clone().into_library_owned_vec();
-        v.extend(spans);
-        node.set_attributes(v.into());
-    }
-}
-
-#[allow(clippy::result_large_err)]
-// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// component_map is threaded through the whole fast-DOM pipeline for parity with the
-// component-expanding interpreter path (see ~xml.rs:2845); this fast path never expands
-// components, so it only forwards the map into recursive calls. Removing it here would
-// cascade unused-param removals up the entire pipeline.
-#[allow(clippy::only_used_in_recursion)]
 /// Every `<style>` element's text in this subtree, in document order.
 ///
 /// Depth-bounded for the same reason the DOM conversion is: this reads files
 /// nothing in this build produced.
-fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
+pub(crate) fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
     if depth >= MAX_XML_NESTING_DEPTH {
         return;
     }
@@ -6286,7 +6378,7 @@ fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
         let XmlNodeChild::Element(element) = child else {
             continue;
         };
-        if normalize_casing(&element.node_type) == "style" {
+        if element.node_type.as_str().eq_ignore_ascii_case("style") {
             let text = element.get_text_content();
             if !text.is_empty() {
                 out.push(text);
@@ -6297,99 +6389,255 @@ fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
     }
 }
 
-// `component_map` is threaded through purely to reach the recursive calls; it
-// stays in the signature because the sibling `xml_node_to_fast_dom` reads it and
-// the two must keep the same shape. `RenderDomError` is large but is the crate's
-// public XML error type, shared with the C ABI, so it is not boxed here.
-#[allow(clippy::only_used_in_recursion, clippy::result_large_err)]
+/// Is this element one that DRAWS NOTHING, subtree and all?
+///
+/// Not "unknown" - unknown tags are ordinary boxes and stay `<div>`s. These
+/// are elements that a renderer is DEFINED not to draw, so whatever they
+/// contain is about the document rather than in it, and turning their text
+/// into text nodes puts prose on screen.
+///
+/// Two kinds, and a real icon theme hands us both in every file:
+///
+///   * `<metadata>` (SVG 1.1 §5.10), which is where Inkscape parks an RDF block - and inside it
+///     `<dc:format>image/svg+xml</dc:format>`, whose text drew across the window controls of a
+///     client-side titlebar, clipped to 16px, as the letters `im`;
+///   * anything in a FOREIGN NAMESPACE (SVG 1.1 §23.2), which is the rest of what Inkscape leaves
+///     behind: `<sodipodi:namedview>`, `<inkscape:grid>`, `<rdf:RDF>`, `<cc:Work>`.
+///
+/// A prefix alone does not make an element foreign: a document that declares
+/// the SVG or XHTML namespace may well write `<svg:path>`, which is a path.
+///
+/// `<style>` belongs to this family too but is handled separately at the call
+/// site: its text is not nothing, it is a stylesheet, and it is lifted onto
+/// the element that contains it.
+///
+/// Both are SVG's rules: the DOM builders ask this for the elements INSIDE an
+/// `<svg>`. In an HTML document a foreign element (Word's `<o:p>`, Outlook's
+/// `<st1:place>`) is an unknown element, which HTML renders inline with its
+/// content ([`tag_to_node_type`] makes it a `<span>`).
+#[must_use]
+pub fn element_draws_nothing(raw_tag: &str, normalized_tag: &str) -> bool {
+    normalized_tag == "metadata" || is_foreign_element(raw_tag)
+}
+
+/// Whether `tag` is an element of a foreign namespace: a prefix other than
+/// `svg`, `html` and `xhtml` (`o:p`, `sodipodi:namedview`).
+#[must_use]
+pub fn is_foreign_element(tag: &str) -> bool {
+    match tag.split_once(':') {
+        Some((prefix, _)) => {
+            let prefix = prefix.trim();
+            !(prefix.eq_ignore_ascii_case("svg")
+                || prefix.eq_ignore_ascii_case("html")
+                || prefix.eq_ignore_ascii_case("xhtml"))
+        }
+        None => false,
+    }
+}
+
+/// Convert an XML node tree into a `Dom` tree: [`walk_element`] into a
+/// [`DomTreeSink`]. `RenderDomError` is large but is the crate's public XML
+/// error type, shared with the C ABI, so it is not boxed here.
+#[allow(clippy::result_large_err)]
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
     inside_svg: bool,
+    font_source: Option<element::FontSourceFn>,
     depth: usize,
 ) -> Result<Dom, RenderDomError> {
-    use crate::dom::Dom;
+    let mut sink = DomTreeSink::default();
+    walk_element(
+        xml_node,
+        component_map,
+        element::ElementScope { inside_svg },
+        element::FontScope {
+            source: font_source,
+            faces: &[],
+        },
+        &mut sink,
+        depth,
+    )?;
+    Ok(sink.finish())
+}
 
-    let component_name = normalize_casing(&xml_node.node_type);
+/// Where a walk of the markup ([`walk_element`]) puts what it builds: a `Dom`
+/// tree ([`DomTreeSink`]) or a `FastDom` arena ([`CompactDomBuilder`]) - ONE
+/// walk for both.
+trait DomSink {
+    /// Open an element node; its children follow until [`Self::close`].
+    fn open(&mut self, node: NodeData);
+    /// A node without children (a text).
+    fn leaf(&mut self, node: NodeData);
+    /// A stylesheet for the OPEN node's subtree.
+    fn scope_css(&mut self, css: Css);
+    /// Close the open node.
+    fn close(&mut self);
+}
 
-    // Look up the component definition
-    let node_type = tag_to_node_type(&component_name);
-    let mut dom = Dom::create_node(node_type);
+/// A [`DomSink`] that builds a `Dom` tree.
+#[derive(Default)]
+struct DomTreeSink {
+    /// The open elements, innermost last.
+    open: Vec<Dom>,
+    /// The closed root.
+    done: Option<Dom>,
+}
 
-    apply_xml_node_attributes(&mut dom.root, xml_node, &component_name, inside_svg);
-
-    let child_inside_svg = inside_svg || component_name == "svg";
-
-    // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
-    // pathologically deep markup. At the cap, this node is emitted without its
-    // children (truncation) rather than crashing the process.
-    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
-    if depth >= MAX_XML_NESTING_DEPTH {
-        return Ok(dom);
+impl DomTreeSink {
+    fn finish(self) -> Dom {
+        self.done.unwrap_or_else(Dom::create_div)
     }
+}
 
-    // Recursively convert children
-    let mut children = Vec::new();
-    // A `<style>` found INSIDE the tree - an SVG's own `<defs><style>`, above
-    // all - is a stylesheet, not content. In azul a stylesheet is an ATTRIBUTE
-    // of a node (`Dom.css`, scoped to that subtree by `scope_inline_css`)
-    // rather than a node of its own, so it has to be recognised HERE, at the
-    // input, and hung on the element that contains it. Leaving it as a node
-    // rendered the CSS source as visible text.
-    //
-    // Scoping to the subtree is exactly right for the case that motivates it:
-    // an icon's `.ColorScheme-Text { color:… }` is meant for that icon, and
-    // must not reach the rest of the document.
-    let mut scoped_css: Vec<Css> = Vec::new();
-    // An `<svg>`'s stylesheet is SVG-GLOBAL: it is nearly always written in
-    // `<defs><style>`, and `<defs>` is a definition container that draws
-    // nothing - attaching the sheet there would scope it to a subtree with no
-    // shapes in it. Collected from the whole subtree and hung on the `<svg>`,
-    // which is as global as it should ever get.
-    if component_name == "svg" {
-        let mut texts = Vec::new();
-        collect_style_text(xml_node, &mut texts, 0);
-        for text in texts {
-            scoped_css.push(Css::from_string(text.into()));
+impl DomSink for DomTreeSink {
+    fn open(&mut self, node: NodeData) {
+        let mut dom = Dom::create_div();
+        dom.root = node;
+        self.open.push(dom);
+    }
+    fn leaf(&mut self, node: NodeData) {
+        self.open(node);
+        self.close();
+    }
+    fn scope_css(&mut self, css: Css) {
+        if let Some(dom) = self.open.last_mut() {
+            dom.add_component_css(css);
         }
     }
-    for child in xml_node.children.as_ref() {
-        match child {
-            XmlNodeChild::Element(child_node)
-                if normalize_casing(&child_node.node_type) == "style" =>
-            {
-                // Never a rendered node. Inside an `<svg>` it was already
-                // hoisted above; elsewhere it scopes to THIS element.
-                if component_name != "svg" {
-                    let text = child_node.get_text_content();
-                    if !text.is_empty() {
-                        scoped_css.push(Css::from_string(text.into()));
+    fn close(&mut self) {
+        let Some(dom) = self.open.pop() else {
+            return;
+        };
+        match self.open.last_mut() {
+            Some(parent) => parent.add_child(dom),
+            None => self.done = Some(dom),
+        }
+    }
+}
+
+impl DomSink for CompactDomBuilder {
+    fn open(&mut self, node: NodeData) {
+        self.open_node(node);
+    }
+    fn leaf(&mut self, node: NodeData) {
+        self.add_leaf(node);
+    }
+    fn scope_css(&mut self, css: Css) {
+        if let Some(&(open, _)) = self.stack.last() {
+            self.add_css(open, css);
+        }
+    }
+    fn close(&mut self) {
+        self.close_node();
+    }
+}
+
+/// An element's attributes as `(name, value)` pairs, in document order.
+fn attribute_pairs(xml_node: &XmlNode) -> Vec<(&str, &str)> {
+    xml_node
+        .attributes
+        .as_slice()
+        .iter()
+        .map(|pair| (pair.key.as_str(), pair.value.as_str()))
+        .collect()
+}
+
+/// THE walk of core's XML -> DOM builders: `xml_node` instantiated by its
+/// component ([`element::render_element`]), then its children - a
+/// `data-l10n` key first, as a localizable text; a `<style>` as a stylesheet
+/// of this element's subtree (an `<svg>` takes every sheet inside it); an
+/// element that draws nothing not at all ([`element::child_role`]).
+///
+/// Recursion is bounded: at [`MAX_XML_NESTING_DEPTH`] the element is emitted
+/// without its children rather than overflowing the native stack.
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+fn walk_element(
+    xml_node: &XmlNode,
+    component_map: &ComponentMap,
+    scope: element::ElementScope,
+    fonts: element::FontScope<'_>,
+    sink: &mut dyn DomSink,
+    depth: usize,
+) -> Result<(), RenderDomError> {
+    let tag = element::element_tag(component_map, xml_node.node_type.as_str());
+    let pairs = attribute_pairs(xml_node);
+    let node = element::render_element(
+        component_map,
+        &element::Element {
+            tag: &tag,
+            attributes: &pairs,
+            scope,
+            font_faces: fonts.faces,
+        },
+        &mut element::Landing {
+            css_key_map: None,
+            intern: &mut |s: &str| AzString::from(s),
+        },
+    );
+    sink.open(node);
+    if depth < MAX_XML_NESTING_DEPTH {
+        if let Some(key) = element::l10n_key(&pairs) {
+            sink.leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
+                AzString::tr(key),
+            ));
+        }
+        // An `<svg>`'s stylesheet is SVG-GLOBAL: nearly always written in
+        // `<defs><style>`, and `<defs>` draws nothing - hung on the `<svg>`.
+        // Its `@font-face`s are ITS fonts: two pages' `F1`s are two fonts.
+        let mut svg_faces = Vec::new();
+        if tag == "svg" {
+            let mut texts = Vec::new();
+            collect_style_text(xml_node, &mut texts, 0);
+            for text in texts {
+                svg_faces.extend(fonts.load(&text));
+                sink.scope_css(Css::from_string(text.into()));
+            }
+        }
+        let children_faces;
+        let children_fonts = if svg_faces.is_empty() {
+            fonts
+        } else {
+            children_faces = [fonts.faces, &svg_faces].concat();
+            element::FontScope {
+                faces: &children_faces,
+                ..fonts
+            }
+        };
+        let children_scope = scope.for_children_of(&tag);
+        for child in xml_node.children.as_ref() {
+            match child {
+                XmlNodeChild::Element(child_node) => {
+                    match element::child_role(children_scope, child_node.node_type.as_str()) {
+                        element::ChildRole::Node => walk_element(
+                            child_node,
+                            component_map,
+                            children_scope,
+                            children_fonts,
+                            sink,
+                            depth + 1,
+                        )?,
+                        // Inside an `<svg>` it was taken above.
+                        element::ChildRole::Stylesheet if tag != "svg" => {
+                            let text = child_node.get_text_content();
+                            if !text.is_empty() {
+                                sink.scope_css(Css::from_string(text.into()));
+                            }
+                        }
+                        element::ChildRole::Stylesheet | element::ChildRole::Nothing => {}
                     }
                 }
-            }
-            XmlNodeChild::Element(child_node) => {
-                let child_dom =
-                    xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
-                children.push(child_dom);
-            }
-            XmlNodeChild::Text(text) => {
-                let text_dom = Dom::create_text_do_not_use_without_block_level_wrapper(
-                    AzString::from(text.as_str()),
-                );
-                children.push(text_dom);
+                XmlNodeChild::Text(text) => {
+                    sink.leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
+                        AzString::from(text.as_str()),
+                    ));
+                }
             }
         }
     }
-
-    if !children.is_empty() {
-        dom = dom.with_children(children.into());
-    }
-
-    for css in scoped_css {
-        dom.add_component_css(css);
-    }
-
-    Ok(dom)
+    sink.close();
+    Ok(())
 }
 
 /// Builder for arena-based DOM construction (`FastDom`).
@@ -6397,7 +6645,7 @@ fn xml_node_to_dom_fast<'a>(
 #[derive(Debug)]
 pub struct CompactDomBuilder {
     hierarchy: Vec<crate::styled_dom::NodeHierarchyItem>,
-    node_data: Vec<crate::dom::NodeData>,
+    node_data: Vec<NodeData>,
     css: Vec<crate::dom::CssWithNodeId>,
     /// Stack of (`node_index`, `previous_child_index`) for open elements
     stack: Vec<(usize, Option<usize>)>,
@@ -6431,7 +6679,7 @@ impl CompactDomBuilder {
     }
 
     /// Open a new element node. Must be paired with `close_node()`.
-    pub fn open_node(&mut self, node_data: crate::dom::NodeData) {
+    pub fn open_node(&mut self, node_data: NodeData) {
         use crate::{id::NodeId, styled_dom::NodeHierarchyItem};
 
         let idx = self.hierarchy.len();
@@ -6485,7 +6733,7 @@ impl CompactDomBuilder {
     }
 
     /// Add a leaf node (text, br, hr, etc.) that has no children.
-    pub fn add_leaf(&mut self, node_data: crate::dom::NodeData) {
+    pub fn add_leaf(&mut self, node_data: NodeData) {
         self.open_node(node_data);
         self.close_node();
     }
@@ -6506,64 +6754,29 @@ impl CompactDomBuilder {
     }
 }
 
-/// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS pass.
-/// This is the fast path equivalent of `xml_node_to_dom_fast`.
+/// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS
+/// pass: [`walk_element`] into a [`CompactDomBuilder`].
 #[allow(clippy::result_large_err)]
 // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// See xml_node_to_dom_fast: component_map is forwarded for pipeline parity, not read here.
-#[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_fast_dom<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
     inside_svg: bool,
+    font_source: Option<element::FontSourceFn>,
     builder: &mut CompactDomBuilder,
     depth: usize,
 ) -> Result<(), RenderDomError> {
-    use crate::dom::NodeData;
-
-    let component_name = normalize_casing(&xml_node.node_type);
-    let node_type = tag_to_node_type(&component_name);
-    let mut node_data = NodeData::create_node(node_type);
-
-    apply_xml_node_attributes(&mut node_data, xml_node, &component_name, inside_svg);
-
-    let child_inside_svg = inside_svg || component_name == "svg";
-
-    // Open this node in the builder
-    builder.open_node(node_data);
-
-    // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
-    // pathologically deep markup. At the cap, children are dropped (the node is
-    // still opened+closed) rather than crashing the process.
-    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
-    if depth < MAX_XML_NESTING_DEPTH {
-        // Recursively convert children
-        for child in xml_node.children.as_ref() {
-            match child {
-                XmlNodeChild::Element(child_node) => {
-                    xml_node_to_fast_dom(
-                        child_node,
-                        component_map,
-                        child_inside_svg,
-                        builder,
-                        depth + 1,
-                    )?;
-                }
-                XmlNodeChild::Text(text) => {
-                    builder.add_leaf(
-                        NodeData::create_text_do_not_use_without_block_level_wrapper(
-                            AzString::from(text.as_str()),
-                        ),
-                    );
-                }
-            }
-        }
-    }
-
-    // Close this node
-    builder.close_node();
-
-    Ok(())
+    walk_element(
+        xml_node,
+        component_map,
+        element::ElementScope { inside_svg },
+        element::FontScope {
+            source: font_source,
+            faces: &[],
+        },
+        builder,
+        depth,
+    )
 }
 
 /// Render a DOM from an XML body node using the fast arena-based path.
@@ -6571,20 +6784,27 @@ fn xml_node_to_fast_dom<'a>(
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
                                    // break the C ABI/api.json
 fn render_dom_from_body_node_fast<'a>(
+    html_node: &XmlNode,
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
+    font_source: Option<element::FontSourceFn>,
 ) -> Result<StyledDom, RenderDomError> {
-    use crate::dom::{NodeData, NodeType};
-
     let mut builder = CompactDomBuilder::new();
 
     // Build the HTML > Body wrapper + body content in one pass
-    // Open <html>
-    builder.open_node(NodeData::create_node(NodeType::Html));
+    // Open <html>, with the element's own attributes
+    builder.open_node(html_root_node_data(html_node));
     // Open <body> (the body_node content goes inside)
-    xml_node_to_fast_dom(body_node, component_map, false, &mut builder, 0)?;
+    xml_node_to_fast_dom(
+        body_node,
+        component_map,
+        false,
+        font_source,
+        &mut builder,
+        0,
+    )?;
     // Close <html>
     builder.close_node();
 
@@ -6617,86 +6837,6 @@ fn render_dom_from_body_node_fast<'a>(
 }
 
 // render_dom_from_body_node() removed — use render_dom_from_body_node_fast() or str_to_dom()
-
-fn set_stringified_attributes(
-    dom_string: &mut String,
-    xml_attributes: &XmlAttributeMap,
-    filtered_xml_attributes: &ComponentArgumentVec,
-    tabs: usize,
-) {
-    let t0 = String::from("    ").repeat(tabs);
-    let t = String::from("    ").repeat(tabs + 1);
-
-    // push ids and classes as chained `.with_id("..")` / `.with_class("..")`
-    // calls (public builder API; both take `Into<AzString>`, so bare &str works).
-    let _ = &t;
-    for id in xml_attributes
-        .get_key("id")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default()
-    {
-        let _ = write!(
-            dom_string,
-            "\r\n{}.with_id(\"{}\")",
-            t0,
-            format_args_dynamic(id, filtered_xml_attributes)
-        );
-    }
-
-    for class in xml_attributes
-        .get_key("class")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default()
-    {
-        let _ = write!(
-            dom_string,
-            "\r\n{}.with_class(\"{}\")",
-            t0,
-            format_args_dynamic(class, filtered_xml_attributes)
-        );
-    }
-
-    if let Some(focusable) = xml_attributes
-        .get_key("focusable")
-        .map(|f| format_args_dynamic(f, filtered_xml_attributes))
-        .and_then(|f| parse_bool(&f))
-    {
-        if focusable {
-            let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)");
-        } else {
-            let _ = write!(
-                dom_string,
-                "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
-            );
-        }
-    }
-
-    if let Some(tab_index) = xml_attributes
-        .get_key("tabindex")
-        .map(|val| format_args_dynamic(val, filtered_xml_attributes))
-        .and_then(|val| val.parse::<isize>().ok())
-    {
-        match tab_index {
-            0 => {
-                let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)");
-            }
-            i if i > 0 => {
-                let _ = write!(
-                    dom_string,
-                    "\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))",
-                    t,
-                    usize::try_from(i).unwrap_or(0)
-                );
-            }
-            _ => {
-                let _ = write!(
-                    dom_string,
-                    "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
-                );
-            }
-        }
-    }
-}
 
 /// Item of a split string - either a variable name (with optional format spec) or a string
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -6891,74 +7031,6 @@ pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentVec) -> Str
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
 
-/// Decode a numeric character reference body (the part between `&` and `;`),
-/// e.g. `"#65"` -> `'A'`, `"#x41"` -> `'A'`. Returns `None` if it is not a valid
-/// numeric reference.
-fn decode_numeric_entity(entity: &str) -> Option<char> {
-    let num = entity.strip_prefix('#')?;
-    let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
-        u32::from_str_radix(hex, 16).ok()?
-    } else {
-        num.parse::<u32>().ok()?
-    };
-    char::from_u32(code)
-}
-
-/// Decode the common HTML/XML entities in a single left-to-right pass.
-///
-/// Handles `&lt;` `&gt;` `&amp;` `&quot;` `&apos;` and numeric references
-/// (`&#NN;` / `&#xHH;`). `&nbsp;` and any unrecognized `&...;` sequence are left
-/// verbatim. The single pass guarantees `&amp;` never double-decodes a following
-/// entity. See [`prepare_string`] for why `&nbsp;` is deliberately preserved.
-fn decode_entities(input: &str) -> String {
-    // Longest handled entity body is a hex numeric ref like `#x10FFFF` (8 bytes);
-    // cap the `;` search window so a stray `&` far from a `;` stays cheap.
-    const MAX_ENTITY_BODY: usize = 12;
-
-    let mut out = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < input.len() {
-        if bytes[i] == b'&' {
-            if let Some(semi_rel) = input[i + 1..].find(';') {
-                if semi_rel <= MAX_ENTITY_BODY {
-                    let body = &input[i + 1..i + 1 + semi_rel];
-                    let end = i + 1 + semi_rel; // index of ';'
-                                                // Leave &nbsp; for the per-line pass in
-                                                // prepare_string.
-                    if body.eq_ignore_ascii_case("nbsp") {
-                        out.push_str(&input[i..=end]);
-                        i = end + 1;
-                        continue;
-                    }
-                    let decoded = match body {
-                        "lt" => Some('<'),
-                        "gt" => Some('>'),
-                        "amp" => Some('&'),
-                        "quot" => Some('"'),
-                        "apos" => Some('\''),
-                        _ => decode_numeric_entity(body),
-                    };
-                    if let Some(c) = decoded {
-                        out.push(c);
-                        i = end + 1;
-                        continue;
-                    }
-                }
-            }
-            // Not a recognized entity: emit the '&' literally.
-            out.push('&');
-            i += 1;
-        } else {
-            // Copy one whole UTF-8 char (i is always on a char boundary here).
-            let ch = input[i..].chars().next().unwrap_or('\u{FFFD}');
-            out.push(ch);
-            i += ch.len_utf8();
-        }
-    }
-    out
-}
-
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
 #[must_use]
 pub fn prepare_string(input: &str) -> String {
@@ -6971,14 +7043,15 @@ pub fn prepare_string(input: &str) -> String {
         return String::new();
     }
 
-    // AUDIT 2026-07-08: previously only `&lt;`/`&gt;` were decoded. Decode the full
-    // common named-entity set (`&lt;` `&gt;` `&amp;` `&quot;` `&apos;`) plus numeric
-    // references (`&#NN;` decimal and `&#xHH;` hex) in a single left-to-right pass.
-    // A single pass is used deliberately so `&amp;` cannot double-decode a following
-    // entity (e.g. "&amp;lt;" -> literal "&lt;", not "<"). `&nbsp;` is intentionally
-    // left untouched here so the per-line pass below (which runs AFTER trimming) can
-    // still turn it into a space that survives leading/trailing trim.
-    let input = decode_entities(input);
+    // The character references, decoded by THE decoder
+    // (`html::decode_character_references`, XML's rules with HTML's names) in
+    // one left-to-right pass, so `&amp;lt;` is the text `&lt;`, not `<`.
+    // `&nbsp;` is the exception: it stays `&nbsp;` here (written as `&amp;nbsp;`
+    // first, which the one pass turns back into `&nbsp;`) so the per-line pass
+    // below, which runs AFTER the trim, turns it into a space the trim keeps -
+    // decoded to U+00A0 now, `str::trim` would eat it.
+    let protected = input.replace("&nbsp;", "&amp;nbsp;");
+    let input = html::decode_character_references(&protected, html::CharRefMode::Xml);
 
     let input_len = input.len();
     let mut final_lines: Vec<String> = Vec::new();
@@ -7024,1824 +7097,144 @@ pub fn parse_bool(input: &str) -> Option<bool> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CssMatcher {
-    path: Vec<CssPathSelector>,
-    indices_in_parent: Vec<usize>,
-    children_length: Vec<usize>,
-}
+/// ONE table: which XML attribute sets what on a node (the XML → DOM
+/// builders and the code generator both read it).
+#[path = "xml_attributes.rs"]
+pub mod attributes;
 
-impl CssMatcher {
-    fn get_hash(&self) -> u64 {
-        use core::hash::{Hash, Hasher};
+/// One element of markup -> one DOM node: the builtin renderers every XML
+/// loader instantiates its elements with.
+#[path = "xml_element.rs"]
+pub mod element;
 
-        let mut hasher = crate::hash::DefaultHasher::new();
-        for p in &self.path {
-            p.hash(&mut hasher);
-        }
-        hasher.finish()
-    }
-}
-
-impl CssMatcher {
-    fn matches(&self, path: &CssPath) -> bool {
-        use azul_css::css::CssPathSelector::*;
-
-        use crate::style::{CssGroupIterator, CssGroupSplitReason};
-
-        if self.path.is_empty() {
-            return false;
-        }
-        if path.selectors.as_ref().is_empty() {
-            return false;
-        }
-
-        // self_matcher is only ever going to contain "Children" selectors, never "DirectChildren"
-        let mut path_groups = CssGroupIterator::new(path.selectors.as_ref()).collect::<Vec<_>>();
-        path_groups.reverse();
-
-        if path_groups.is_empty() {
-            return false;
-        }
-        let mut self_groups = CssGroupIterator::new(self.path.as_ref()).collect::<Vec<_>>();
-        self_groups.reverse();
-        if self_groups.is_empty() {
-            return false;
-        }
-
-        if self.indices_in_parent.len() != self_groups.len() {
-            return false;
-        }
-        if self.children_length.len() != self_groups.len() {
-            return false;
-        }
-
-        // self_groups = [ // HTML
-        //     "body",
-        //     "div.__azul_native-ribbon-container"
-        //     "div.__azul_native-ribbon-tabs"
-        //     "p.home"
-        // ]
-        //
-        // path_groups = [ // CSS
-        //     ".__azul_native-ribbon-tabs"
-        //     "div.after-tabs"
-        // ]
-
-        // get the first path group and see if it matches anywhere in the self group
-        let mut cur_selfgroup_scan = 0;
-        let mut cur_pathgroup_scan = 0;
-        let mut valid = false;
-        let mut path_group = path_groups[cur_pathgroup_scan].clone();
-
-        while cur_selfgroup_scan < self_groups.len() {
-            let mut advance = None;
-
-            // scan all remaining path groups
-            for (id, cg) in self_groups[cur_selfgroup_scan..].iter().enumerate() {
-                let gm = group_matches(
-                    &path_group.0,
-                    &self_groups[cur_selfgroup_scan + id].0,
-                    self.indices_in_parent[cur_selfgroup_scan + id],
-                    self.children_length[cur_selfgroup_scan + id],
-                );
-
-                if gm {
-                    // ok: ".__azul_native-ribbon-tabs" was found within self_groups
-                    // advance the self_groups by n
-                    advance = Some(id);
-                    break;
-                }
-            }
-
-            match advance {
-                Some(n) => {
-                    // group was found in remaining items
-                    // advance cur_pathgroup_scan by 1 and cur_selfgroup_scan by n
-                    if cur_pathgroup_scan == path_groups.len() - 1 {
-                        // last path group
-                        return cur_selfgroup_scan + n == self_groups.len() - 1;
-                    }
-                    cur_pathgroup_scan += 1;
-                    cur_selfgroup_scan += n;
-                    path_group = path_groups[cur_pathgroup_scan].clone();
-                }
-                None => return false, // group was not found in remaining items
-            }
-        }
-
-        // only return true if all path_groups matched
-        cur_pathgroup_scan == path_groups.len() - 1
-    }
-}
-
-// does p.home match div.after-tabs?
-// a: div.after-tabs
-fn group_matches(
-    a: &[&CssPathSelector],
-    b: &[&CssPathSelector],
-    idx_in_parent: usize,
-    parent_children: usize,
-) -> bool {
-    use azul_css::css::{
-        CssNthChildSelector, CssPathPseudoSelector,
-        CssPathSelector::{Class, Global, Id, PseudoSelector, Type},
-    };
-
-    for selector in a {
-        match selector {
-            // always matches
-            Global
-            | PseudoSelector(
-                CssPathPseudoSelector::Hover
-                | CssPathPseudoSelector::Active
-                | CssPathPseudoSelector::Focus
-                | CssPathPseudoSelector::SeatFocus,
-            ) => {}
-
-            Type(tag) => {
-                if !b.iter().any(|t| **t == Type(*tag)) {
-                    return false;
-                }
-            }
-            Class(class) => {
-                if !b.iter().any(|t| **t == Class(class.clone())) {
-                    return false;
-                }
-            }
-            Id(id) => {
-                if !b.iter().any(|t| **t == Id(id.clone())) {
-                    return false;
-                }
-            }
-            PseudoSelector(CssPathPseudoSelector::First) => {
-                if idx_in_parent != 0 {
-                    return false;
-                }
-            }
-            PseudoSelector(CssPathPseudoSelector::Last) => {
-                if idx_in_parent != parent_children.saturating_sub(1) {
-                    return false;
-                }
-            }
-            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Number(i))) => {
-                if idx_in_parent != *i as usize {
-                    return false;
-                }
-            }
-            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Even)) => {
-                if !idx_in_parent.is_multiple_of(2) {
-                    return false;
-                }
-            }
-            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Odd)) => {
-                if idx_in_parent.is_multiple_of(2) {
-                    return false;
-                }
-            }
-            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(p))) => {
-                if !idx_in_parent
-                    .saturating_sub(p.offset as usize)
-                    .is_multiple_of(p.pattern_repeat as usize)
-                {
-                    return false;
-                }
-            }
-
-            _ => return false, // can't happen
-        }
-    }
-
-    true
-}
-
-struct CssBlock {
-    ending: Option<CssPathPseudoSelector>,
-    block: CssRuleBlock,
-}
-
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
+/// HTML as a browser reads it (the lenient loader), and the ONE tree
+/// construction every XML loader shares.
 ///
-/// Returns an error if the body node cannot be compiled to Rust code.
-pub fn compile_body_node_to_rust_code<'a>(
-    body_node: &'a XmlNode,
-    component_map: &'a ComponentMap,
-    extra_blocks: &mut VecContents,
-    css_blocks: &mut BTreeMap<String, String>,
-    css: &Css,
-    mut matcher: CssMatcher,
-) -> Result<String, CompileError> {
-    use azul_css::css::CssDeclaration;
-
-    let t = "";
-    let t2 = "    ";
-    let mut dom_string = String::from("Dom::create_body()");
-    let node_type = CssPathSelector::Type(NodeTypeTag::Body);
-    matcher.path.push(node_type);
-
-    let ids = body_node
-        .attributes
-        .get_key("id")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default();
-    matcher.path.extend(
-        ids.into_iter()
-            .map(|id| CssPathSelector::Id(id.to_string().into())),
-    );
-    let classes = body_node
-        .attributes
-        .get_key("class")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default();
-    matcher.path.extend(
-        classes
-            .into_iter()
-            .map(|class| CssPathSelector::Class(class.to_string().into())),
-    );
-
-    let matcher_hash = matcher.get_hash();
-    let css_blocks_for_this_node = get_css_blocks(css, &matcher);
-    if !css_blocks_for_this_node.is_empty() {
-        // Track property types for the helper-const machinery, then emit the
-        // matched declarations as an inline CSS string. (The old path emitted a
-        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
-        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
-        // current equivalent and parses pseudo blocks too.)
-        for css_block in &css_blocks_for_this_node {
-            for declaration in css_block.block.declarations.as_ref() {
-                let prop = match declaration {
-                    CssDeclaration::Static(s) => s,
-                    CssDeclaration::Dynamic(d) => &d.default_value,
-                };
-                extra_blocks.insert_from_css_property(prop);
-            }
-        }
-
-        let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
-        if !inline_css.is_empty() {
-            let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
-        }
-        let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
-    }
-
-    if !body_node.children.as_ref().is_empty() {
-        use azul_css::codegen::format::GetHash;
-        let children_hash = body_node.children.as_ref().get_hash();
-        dom_string.push_str("\r\n.with_children(vec![\r\n");
-
-        for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
-            match child {
-                XmlNodeChild::Element(child_node) => {
-                    let mut matcher = matcher.clone();
-                    matcher.path.push(CssPathSelector::Children);
-                    matcher.indices_in_parent.push(child_idx);
-                    matcher.children_length.push(body_node.children.len());
-
-                    let _ = write!(
-                        dom_string,
-                        "{}{},\r\n",
-                        t,
-                        compile_node_to_rust_code_inner(
-                            child_node,
-                            component_map,
-                            1,
-                            extra_blocks,
-                            css_blocks,
-                            css,
-                            matcher,
-                        )?
-                    );
-                }
-                XmlNodeChild::Text(text) => {
-                    let text = text.trim();
-                    if !text.is_empty() {
-                        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-                        let _ = write!(
-                            dom_string,
-                            "{t}Dom::create_text_do_not_use_without_block_level_wrapper(\"\
-                             {escaped}\"),\r\n"
-                        );
-                    }
-                }
-            }
-        }
-        let _ = write!(dom_string, "\r\n{t}])");
-    }
-
-    let dom_string = dom_string.trim();
-    Ok(dom_string.to_string())
-}
-
-/// Serialize the CSS blocks matched for a node into one inline CSS string for
-/// `Dom::with_css(...)`. `with_css` parses via `Css::parse_inline`, which runs
-/// the full selector+nesting machinery, so `:hover`/`:active`/`:focus` are
-/// emitted as nested pseudo blocks and round-trip faithfully; plain rules are
-/// emitted flat as `key: value;` (via `CssProperty::key()` / `value()`).
-fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
-    fn decls_of(block: &CssBlock) -> Vec<String> {
-        block
-            .block
-            .declarations
-            .as_ref()
-            .iter()
-            .map(|d| {
-                let prop = match d {
-                    CssDeclaration::Static(s) => s,
-                    CssDeclaration::Dynamic(dy) => &dy.default_value,
-                };
-                format!("{}: {};", prop.key(), prop.value())
-            })
-            .collect()
-    }
-
-    let mut normal: Vec<String> = Vec::new();
-    let mut pseudo: Vec<String> = Vec::new();
-    for block in blocks {
-        let pseudo_sel = match block.ending {
-            Some(CssPathPseudoSelector::Hover) => Some(":hover"),
-            Some(CssPathPseudoSelector::Active) => Some(":active"),
-            Some(CssPathPseudoSelector::Focus) => Some(":focus"),
-            Some(CssPathPseudoSelector::SeatFocus) => Some(":seat-focus"),
-            _ => None,
-        };
-        match pseudo_sel {
-            None => normal.extend(decls_of(block)),
-            Some(sel) => pseudo.push(format!("{} {{ {} }}", sel, decls_of(block).join(" "))),
-        }
-    }
-
-    let mut parts = normal;
-    parts.extend(pseudo);
-    parts.join(" ")
-}
-
-fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
-    let mut blocks = Vec::new();
-
-    for css_block in css.rules.as_ref() {
-        if matcher.matches(&css_block.path) {
-            let ending = match css_block.path.selectors.as_ref().last() {
-                Some(CssPathSelector::PseudoSelector(p)) => Some(p.clone()),
-                _ => None,
-            };
-
-            blocks.push(CssBlock {
-                ending,
-                block: css_block.clone(),
-            });
-        }
-    }
-
-    blocks
-}
-
-fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
-    use self::DynamicItem::{Str, Var};
-    if input.is_empty() {
-        String::from("AzString::from_const_str(\"\")")
-    } else if input.len() == 1 {
-        // common: there is only one "dynamic item" - skip the "format!()" macro
-        match &input[0] {
-            Var { name, format_spec } => {
-                let var_name = normalize_casing(name.trim());
-                if let Some(spec) = format_spec {
-                    format!("format!(\"{{:{spec}}}\", {var_name}).into()")
-                } else {
-                    var_name
-                }
-            }
-            Str(s) => format!("AzString::from_const_str(\"{s}\")"),
-        }
-    } else {
-        // build a "format!("{var}, blah", var)" string
-        let mut formatted_str = String::from("format!(\"");
-        let mut variables = Vec::new();
-        for item in input {
-            match item {
-                Var { name, format_spec } => {
-                    let variable_name = normalize_casing(name.trim());
-                    if let Some(spec) = format_spec {
-                        let _ = write!(formatted_str, "{{{variable_name}:{spec}}}");
-                    } else {
-                        let _ = write!(formatted_str, "{{{variable_name}}}");
-                    }
-                    variables.push(variable_name.clone());
-                }
-                Str(s) => {
-                    let s = s.replace('"', "\\\"");
-                    formatted_str.push_str(&s);
-                }
-            }
-        }
-
-        formatted_str.push('\"');
-        if !variables.is_empty() {
-            formatted_str.push_str(", ");
-        }
-
-        formatted_str.push_str(&variables.join(", "));
-        formatted_str.push_str(").into()");
-        formatted_str
-    }
-}
-
-fn format_args_for_rust_code(input: &str) -> String {
-    let dynamic_str_items = split_dynamic_string(input);
-    compile_and_format_dynamic_items(&dynamic_str_items)
-}
-
-#[allow(clippy::result_large_err)]
-// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// component_map is forwarded through the codegen recursion for parity with the
-// component-expanding path; this Rust-codegen path only threads it into recursive calls.
-#[allow(clippy::only_used_in_recursion)]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
-                                 // branch per input variant)
-fn compile_node_to_rust_code_inner(
-    node: &XmlNode,
-    component_map: &ComponentMap,
-    tabs: usize,
-    extra_blocks: &mut VecContents,
-    css_blocks: &mut BTreeMap<String, String>,
-    css: &Css,
-    mut matcher: CssMatcher,
-) -> Result<String, CompileError> {
-    use azul_css::css::CssDeclaration;
-
-    let t = String::from("    ").repeat(tabs - 1);
-    let t2 = String::from("    ").repeat(tabs);
-
-    let component_name = normalize_casing(&node.node_type);
-
-    // Look up the CSS NodeTypeTag
-    let node_type_tag = tag_to_node_type_tag(&component_name);
-    let node_type = CssPathSelector::Type(node_type_tag);
-
-    // Emit a plain `create_node(<Tag>)` for the base node. Do NOT route through
-    // the component `compile_fn`: its Rust arm bakes inline text into a
-    // `.with_children(..)`, which the child-walk below would then OVERWRITE with
-    // a second `.with_children(..)` — silently dropping the text on any node
-    // that has BOTH text and element children. The child-walk handles ALL
-    // children (text + elements) in order, so the base node must stay childless.
-    // Interactive/data tags (Button/Input/…) whose NodeType carries data fall
-    // back to `div`, matching the C/C++/Python walkers (`safe_container_tag`).
-    let ctor = analyze_node_ctor(&component_name, node);
-    let mut dom_string = ctor.render_rust().map_or_else(
-        || {
-            let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
-            format!("{t2}Dom::create_node(NodeType::{tag})")
-        },
-        |expr| format!("{t2}{expr}"),
-    );
-
-    matcher.path.push(node_type);
-    let ids = node
-        .attributes
-        .get_key("id")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    matcher.path.extend(
-        ids.into_iter()
-            .map(|id| CssPathSelector::Id(id.to_string().into())),
-    );
-
-    let classes = node
-        .attributes
-        .get_key("class")
-        .map(|s| s.split_whitespace().collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    matcher.path.extend(
-        classes
-            .into_iter()
-            .map(|class| CssPathSelector::Class(class.to_string().into())),
-    );
-
-    let matcher_hash = matcher.get_hash();
-    let css_blocks_for_this_node = get_css_blocks(css, &matcher);
-    if !css_blocks_for_this_node.is_empty() {
-        // Track property types for the helper-const machinery, then emit the
-        // matched declarations as an inline CSS string. (The old path emitted a
-        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
-        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
-        // current equivalent and parses pseudo blocks too.)
-        for css_block in &css_blocks_for_this_node {
-            for declaration in css_block.block.declarations.as_ref() {
-                let prop = match declaration {
-                    CssDeclaration::Static(s) => s,
-                    CssDeclaration::Dynamic(d) => &d.default_value,
-                };
-                extra_blocks.insert_from_css_property(prop);
-            }
-        }
-
-        let inline_css = css_blocks_to_inline_string(&css_blocks_for_this_node);
-        if !inline_css.is_empty() {
-            let escaped = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = write!(dom_string, "\r\n{t2}.with_css(\"{escaped}\")");
-        }
-        let _ = (&mut *css_blocks, matcher_hash); // retained for signature compat
-    }
-
-    set_stringified_attributes(
-        &mut dom_string,
-        &node.attributes,
-        &ComponentArgumentVec::new(),
-        tabs,
-    );
-
-    // Text folded into the ctor (Tier A/C) is skipped, as is a `<caption>`
-    // already injected by `create_table`.
-    let mut caption_skipped = false;
-    let mut children_string = node
-        .children
-        .as_ref()
-        .iter()
-        .enumerate()
-        .filter_map(|(child_idx, c)| match c {
-            XmlNodeChild::Element(child_node) => {
-                if ctor.skip_caption()
-                    && !caption_skipped
-                    && child_node
-                        .node_type
-                        .as_str()
-                        .eq_ignore_ascii_case("caption")
-                {
-                    caption_skipped = true;
-                    return None;
-                }
-                let mut matcher = matcher.clone();
-                matcher.path.push(CssPathSelector::Children);
-                matcher.indices_in_parent.push(child_idx);
-                matcher.children_length.push(node.children.len());
-
-                Some(compile_node_to_rust_code_inner(
-                    child_node,
-                    component_map,
-                    tabs + 1,
-                    extra_blocks,
-                    css_blocks,
-                    css,
-                    matcher,
-                ))
-            }
-            XmlNodeChild::Text(text) => {
-                if ctor.consumes_text() {
-                    return None;
-                }
-                let text = text.trim();
-                if text.is_empty() {
-                    None
-                } else {
-                    let t2 = String::from("    ").repeat(tabs);
-                    let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    Some(Ok(format!(
-                        "{t2}Dom::create_text_do_not_use_without_block_level_wrapper(\"{escaped}\"\
-                         )"
-                    )))
-                }
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .join(",\r\n");
-
-    if !children_string.is_empty() {
-        let _ = write!(
-            dom_string,
-            "\r\n{t2}.with_children(vec![\r\n{children_string}\r\n{t2}])"
-        );
-    }
-
-    Ok(dom_string)
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// Generic FLUENT DOM-builder emitter (C++ / Python).
-//
-// Rust has its own dedicated walker above (`compile_*_to_rust_code`). C++ and
-// Python share this generic walker because their builder APIs are also fluent
-// (`Dom::create_*().with_css(..).with_child(..)`); only the surface tokens
-// differ, captured in `FluentSyntax`. Plain C is imperative and has its own
-// walker (`compile_*_to_c_code`).
-// ───────────────────────────────────────────────────────────────────────────
-
-/// Tags with a zero-arg per-tag creator (`create_<tag>()` / `AzDom_create<Tag>()`
-/// / `create_node(NodeType::<Tag>)`). Interactive / data elements (Button, Input,
-/// Img, Select, Textarea, Label, A, Table, …) take constructor arguments, so an
-/// exported page maps them to a plain `div` container (structure preserved; the
-/// user re-wires behavior). Keep these CamelCase to match `NodeTypeTag` debug names.
-const SAFE_CONTAINER_TAGS: &[&str] = &[
-    // These must match the real `NodeType` Debug names exactly (the lookup below is a
-    // string compare against `{:?}`). Six used to be mis-cased — "Blockquote",
-    // "Colgroup", "Figcaption", "Tbody", "Tfoot", "Thead" — so those tags silently
-    // degraded to "Div".
-    "Abbr",
-    "Acronym",
-    "Address",
-    "Article",
-    "Aside",
-    "B",
-    "Bdi",
-    "Bdo",
-    "Big",
-    "BlockQuote",
-    "Body",
-    "Br",
-    "Caption",
-    "Cite",
-    "Code",
-    "ColGroup",
-    "Dd",
-    "Del",
-    "Dfn",
-    "Dir",
-    "Div",
-    "Dl",
-    "Dt",
-    "Em",
-    "Embed",
-    "FigCaption",
-    "Figure",
-    "Footer",
-    "H1",
-    "H2",
-    "H3",
-    "H4",
-    "H5",
-    "H6",
-    "Head",
-    "Header",
-    "Hr",
-    "Html",
-    "I",
-    "Ins",
-    "Kbd",
-    "Li",
-    "Link",
-    "Main",
-    "Map",
-    "Mark",
-    "Meta",
-    "Nav",
-    "Object",
-    "Ol",
-    "P",
-    "Pre",
-    "Q",
-    "Rp",
-    "Rt",
-    "Rtc",
-    "Ruby",
-    "S",
-    "Samp",
-    "Script",
-    "Section",
-    "Small",
-    "Span",
-    "Strong",
-    "Style",
-    "Sub",
-    "Sup",
-    "Svg",
-    "TBody",
-    "Td",
-    "TFoot",
-    "Th",
-    "THead",
-    "Title",
-    "Tr",
-    "U",
-    "Ul",
-    "Var",
-    "Wbr",
-];
-
-/// The CamelCase tag to actually emit a creator for: the tag itself if it has a
-/// zero-arg creator, else `"Div"`.
-fn safe_container_tag(tag_dbg: &str) -> &'static str {
-    SAFE_CONTAINER_TAGS
-        .iter()
-        .copied()
-        .find(|t| *t == tag_dbg)
-        .unwrap_or("Div")
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// Semantic / accessibility-aware constructor selection.
-//
-// Instead of mapping every element to a plain `div`, an exported live page
-// picks the *most specific* Azul constructor so the generated app keeps the
-// page's semantics + accessibility tree:
-//
-//   • Tier A  `create_<tag>_with_text(text)` — a tag with a single text child
-//             and no element children (P, Span, H1-H6, Li, Td, Code, …).
-//   • Tier B  aria-only / void widgets (Details, Summary, Form, Canvas, Area,
-//             …) — `create_<tag>(SmallAriaInfo::label(..))` when `aria-label`
-//             is present, else `create_<tag>_no_a11y()`.
-//   • Tier C  multi-arg widgets (Button, A, Label, Input, Select, Option,
-//             Optgroup, Textarea, Table) — args pulled from HTML attributes.
-//   • Tier D  scalar-driven widgets (Progress, Meter, Dialog) — the `*_no_a11y`
-//             form with extracted numeric args (the full aria structs are
-//             complex; the NoA11y form is simplest + correct).
-//
-// Every symbol emitted here is verified to exist in `target/codegen/azul.h` (C)
-// and `azul20.hpp` (C++); anything else falls back to `safe_container_tag`
-// (`div`). The four walkers share `analyze_node_ctor` and each renders the
-// result with its own surface tokens.
-// ───────────────────────────────────────────────────────────────────────────
-
-/// A single positional argument of a semantic constructor. String payloads are
-/// RAW — escaping happens at render time (matching the walkers).
-#[derive(Debug, Clone)]
-enum CtorArg {
-    /// Plain string literal (`AzString` / `String` / `"…"`).
-    Str(String),
-    /// `SmallAriaInfo` built from an accessible label.
-    Aria(String),
-    /// `f32` numeric literal.
-    Float(f32),
-    /// `OptionString::Some(text)`.
-    OptSome(String),
-    /// `OptionString::None`.
-    OptNone,
-}
-
-/// The constructor chosen for an element node.
-enum NodeCtor {
-    /// Plain container — keep each walker's existing `create_<tag>()` path.
-    Plain,
-    /// A specific semantic constructor.
-    Semantic {
-        /// Canonical CamelCase suffix after `create` / `AzDom_create`
-        /// (e.g. `Button`, `ButtonNoA11y`, `PWithText`, `A`, `ANoA11y`).
-        suffix: String,
-        args: Vec<CtorArg>,
-        /// The node's direct text is folded into the ctor — skip text children
-        /// in the walk so it isn't emitted twice.
-        consumes_text: bool,
-        /// The table aria form injects its own `<caption>` child — drop the
-        /// first literal `<caption>` element so it isn't duplicated.
-        skip_caption: bool,
-    },
-}
-
-/// Uppercase the first character (`button` → `Button`, `h1` → `H1`). HTML tags
-/// are single lowercase tokens, so this yields the exact `AzDom_create<Suffix>`
-/// spelling.
-fn cap_first(tag: &str) -> String {
-    let mut c = tag.chars();
-    c.next().map_or_else(String::new, |f| {
-        f.to_uppercase().collect::<String>() + c.as_str()
-    })
-}
-
-/// CamelCase → `snake_case` for the C++/Python/Rust method names
-/// (`ButtonNoA11y` → `button_no_a11y`, `PWithText` → `p_with_text`,
-/// `ANoA11y` → `a_no_a11y`, `H1WithText` → `h1_with_text`).
-fn camel_to_snake(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    let mut out = String::new();
-    for (i, &ch) in chars.iter().enumerate() {
-        if ch.is_ascii_uppercase() && i > 0 {
-            let prev = chars[i - 1];
-            let next_lower = chars.get(i + 1).is_some_and(char::is_ascii_lowercase);
-            if prev.is_ascii_lowercase()
-                || prev.is_ascii_digit()
-                || (prev.is_ascii_uppercase() && next_lower)
-            {
-                out.push('_');
-            }
-        }
-        out.extend(ch.to_lowercase());
-    }
-    out
-}
-
-/// Escape `\` and `"` for a double-quoted string literal.
-fn esc_lit(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Format an `f32` as a valid float literal with a decimal point (`1` → `1.0`).
-fn fmt_f32_lit(f: f32) -> String {
-    let s = format!("{f}");
-    if s.contains('.') || s.contains('e') || s.contains("inf") || s.contains("NaN") {
-        s
-    } else {
-        format!("{s}.0")
-    }
-}
-
-/// Joined, trimmed text of a node's *direct* text children (`"  Go  "` → `"Go"`).
-fn node_direct_text(node: &XmlNode) -> String {
-    node.children
-        .as_ref()
-        .iter()
-        .filter_map(|c| match c {
-            XmlNodeChild::Text(t) => {
-                let t = t.trim();
-                if t.is_empty() {
-                    None
-                } else {
-                    Some(t.to_string())
-                }
-            }
-            XmlNodeChild::Element(_) => None,
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Non-empty `aria-label` attribute value, if present.
-fn node_aria_label(node: &XmlNode) -> Option<String> {
-    node.attributes.get_key("aria-label").and_then(|v| {
-        let v = v.as_str().trim();
-        if v.is_empty() {
-            None
-        } else {
-            Some(v.to_string())
-        }
-    })
-}
-
-/// Attribute value, or `default` when absent.
-fn node_attr_or(node: &XmlNode, key: &str, default: &str) -> String {
-    node.attributes
-        .get_key(key)
-        .map_or_else(|| default.to_string(), |v| v.as_str().to_string())
-}
-
-/// Attribute parsed as `f32`, or `default` when absent / unparsable.
-fn node_attr_f32(node: &XmlNode, key: &str, default: f32) -> f32 {
-    node.attributes
-        .get_key(key)
-        .and_then(|v| v.as_str().trim().parse::<f32>().ok())
-        .unwrap_or(default)
-}
-
-/// Text of the node's first `<caption>` element child, if any (non-empty).
-fn first_caption_text(node: &XmlNode) -> Option<String> {
-    node.children.as_ref().iter().find_map(|c| match c {
-        XmlNodeChild::Element(e) if e.node_type.as_str().eq_ignore_ascii_case("caption") => {
-            let t = e.get_text_content();
-            let t = t.trim();
-            if t.is_empty() {
-                None
-            } else {
-                Some(t.to_string())
-            }
-        }
-        _ => None,
-    })
-}
-
-/// Tags with a single-arg `create_<tag>_with_text(text)` constructor (Tier A).
-const WITH_TEXT_TAGS: &[&str] = &[
-    "acronym",
-    "b",
-    "bdi",
-    "bdo",
-    "big",
-    "blockquote",
-    "cite",
-    "code",
-    "del",
-    "dfn",
-    "em",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "i",
-    "ins",
-    "kbd",
-    "li",
-    "mark",
-    "p",
-    "pre",
-    "rp",
-    "rt",
-    "s",
-    "samp",
-    "small",
-    "span",
-    "strong",
-    "style",
-    "sub",
-    "sup",
-    "td",
-    "th",
-    "title",
-    "u",
-    "var",
-];
-
-/// Pick the semantic constructor for `tag` (lowercase HTML tag) + `node`.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one
-                                 // branch per input variant)
-fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
-    // Helper for the common "no caption skip" case.
-    fn sem(suffix: impl Into<String>, args: Vec<CtorArg>, consumes_text: bool) -> NodeCtor {
-        NodeCtor::Semantic {
-            suffix: suffix.into(),
-            args,
-            consumes_text,
-            skip_caption: false,
-        }
-    }
-
-    let aria = node_aria_label(node);
-    let has_aria = aria.is_some();
-    let label = aria.unwrap_or_default();
-    // `has_only_text_children()` is also true for childless nodes; pair it with
-    // `has_text` so empty elements stay plain containers.
-    let pure_text = node.has_only_text_children();
-    let text = node_direct_text(node);
-    let has_text = !text.is_empty();
-    let cap = cap_first(tag);
-
-    // Tier A — *_with_text (single text child, no element children).
-    if WITH_TEXT_TAGS.contains(&tag) {
-        if pure_text && has_text {
-            return sem(format!("{cap}WithText"), vec![CtorArg::Str(text)], true);
-        }
-        return NodeCtor::Plain;
-    }
-
-    match tag {
-        // Tier B — aria-only / void widgets.
-        "details" | "form" | "fieldset" | "legend" | "menu" | "output" | "datalist" | "canvas"
-        | "audio" | "video" | "area" => {
-            if has_aria {
-                sem(cap, vec![CtorArg::Aria(label)], false)
-            } else {
-                sem(format!("{cap}NoA11y"), vec![], false)
-            }
-        }
-        // Summary is Tier B but also has a WithText form for a single text child.
-        "summary" => {
-            if pure_text && has_text {
-                if has_aria {
-                    sem(
-                        "SummaryWithText",
-                        vec![CtorArg::Str(text), CtorArg::Aria(label)],
-                        true,
-                    )
-                } else {
-                    sem("SummaryWithTextNoA11y", vec![CtorArg::Str(text)], true)
-                }
-            } else if has_aria {
-                sem("Summary", vec![CtorArg::Aria(label)], false)
-            } else {
-                sem("SummaryNoA11y", vec![], false)
-            }
-        }
-
-        // Tier C — multi-arg widgets (args from HTML attributes).
-        "button" => {
-            if has_aria {
-                sem(
-                    "Button",
-                    vec![CtorArg::Str(text), CtorArg::Aria(label)],
-                    true,
-                )
-            } else {
-                sem("ButtonNoA11y", vec![CtorArg::Str(text)], true)
-            }
-        }
-        "a" => {
-            let href = node_attr_or(node, "href", "");
-            if has_aria {
-                sem(
-                    "A",
-                    vec![CtorArg::Str(href), CtorArg::Str(text), CtorArg::Aria(label)],
-                    true,
-                )
-            } else {
-                let lbl = if has_text {
-                    CtorArg::OptSome(text)
-                } else {
-                    CtorArg::OptNone
-                };
-                sem("ANoA11y", vec![CtorArg::Str(href), lbl], true)
-            }
-        }
-        "label" => {
-            let for_id = node_attr_or(node, "for", "");
-            if has_aria {
-                sem(
-                    "Label",
-                    vec![
-                        CtorArg::Str(for_id),
-                        CtorArg::Str(text),
-                        CtorArg::Aria(label),
-                    ],
-                    true,
-                )
-            } else {
-                sem(
-                    "LabelNoA11y",
-                    vec![CtorArg::Str(for_id), CtorArg::Str(text)],
-                    true,
-                )
-            }
-        }
-        "input" => {
-            let ty = node_attr_or(node, "type", "text");
-            let name = node_attr_or(node, "name", "");
-            if has_aria {
-                sem(
-                    "Input",
-                    vec![
-                        CtorArg::Str(ty),
-                        CtorArg::Str(name),
-                        CtorArg::Str(label.clone()),
-                        CtorArg::Aria(label),
-                    ],
-                    false,
-                )
-            } else {
-                sem(
-                    "InputNoA11y",
-                    vec![CtorArg::Str(ty), CtorArg::Str(name), CtorArg::Str(label)],
-                    false,
-                )
-            }
-        }
-        "textarea" => {
-            let name = node_attr_or(node, "name", "");
-            if has_aria {
-                sem(
-                    "Textarea",
-                    vec![
-                        CtorArg::Str(name),
-                        CtorArg::Str(label.clone()),
-                        CtorArg::Aria(label),
-                    ],
-                    false,
-                )
-            } else {
-                sem(
-                    "TextareaNoA11y",
-                    vec![CtorArg::Str(name), CtorArg::Str(label)],
-                    false,
-                )
-            }
-        }
-        "select" => {
-            let name = node_attr_or(node, "name", "");
-            if has_aria {
-                sem(
-                    "Select",
-                    vec![
-                        CtorArg::Str(name),
-                        CtorArg::Str(label.clone()),
-                        CtorArg::Aria(label),
-                    ],
-                    false,
-                )
-            } else {
-                sem(
-                    "SelectNoA11y",
-                    vec![CtorArg::Str(name), CtorArg::Str(label)],
-                    false,
-                )
-            }
-        }
-        "option" => {
-            let value = node_attr_or(node, "value", "");
-            if has_aria {
-                sem(
-                    "Option",
-                    vec![
-                        CtorArg::Str(value),
-                        CtorArg::Str(text),
-                        CtorArg::Aria(label),
-                    ],
-                    true,
-                )
-            } else {
-                sem(
-                    "OptionNoA11y",
-                    vec![CtorArg::Str(value), CtorArg::Str(text)],
-                    true,
-                )
-            }
-        }
-        "optgroup" => {
-            let lbl = node_attr_or(node, "label", "");
-            if has_aria {
-                sem(
-                    "Optgroup",
-                    vec![CtorArg::Str(lbl), CtorArg::Aria(label)],
-                    false,
-                )
-            } else {
-                sem("OptgroupNoA11y", vec![CtorArg::Str(lbl)], false)
-            }
-        }
-        "table" => {
-            if has_aria {
-                // The aria form injects a caption child, so take the caption from
-                // the literal <caption> (or the aria label) and drop the literal.
-                let caption = first_caption_text(node).unwrap_or_else(|| label.clone());
-                NodeCtor::Semantic {
-                    suffix: "Table".to_string(),
-                    args: vec![CtorArg::Str(caption), CtorArg::Aria(label)],
-                    consumes_text: false,
-                    skip_caption: true,
-                }
-            } else {
-                sem("TableNoA11y", vec![], false)
-            }
-        }
-
-        // Tier D — scalar-driven widgets (NoA11y form with extracted numbers).
-        "progress" => sem(
-            "ProgressNoA11y",
-            vec![
-                CtorArg::Float(node_attr_f32(node, "value", 0.0)),
-                CtorArg::Float(node_attr_f32(node, "max", 1.0)),
-            ],
-            false,
-        ),
-        "meter" => sem(
-            "MeterNoA11y",
-            vec![
-                CtorArg::Float(node_attr_f32(node, "value", 0.0)),
-                CtorArg::Float(node_attr_f32(node, "min", 0.0)),
-                CtorArg::Float(node_attr_f32(node, "max", 1.0)),
-            ],
-            false,
-        ),
-        "dialog" => sem("DialogNoA11y", vec![], false),
-
-        _ => NodeCtor::Plain,
-    }
-}
-
-impl CtorArg {
-    /// Rust expression for this argument (`AzString::from(..)` works for both the
-    /// `Into<AzString>` and the concrete `AzString` parameter forms).
-    fn render_rust(&self) -> String {
-        match self {
-            Self::Str(s) => format!("AzString::from(\"{}\")", esc_lit(s)),
-            Self::Aria(s) => format!("SmallAriaInfo::label(AzString::from(\"{}\"))", esc_lit(s)),
-            Self::Float(f) => fmt_f32_lit(*f),
-            Self::OptSome(s) => format!("OptionString::Some(AzString::from(\"{}\"))", esc_lit(s)),
-            Self::OptNone => "OptionString::None".to_string(),
-        }
-    }
-    fn render_c(&self) -> String {
-        match self {
-            Self::Str(s) => format!("AZ_STR(\"{}\")", esc_lit(s)),
-            Self::Aria(s) => format!("AzSmallAriaInfo_label(AZ_STR(\"{}\"))", esc_lit(s)),
-            Self::Float(f) => format!("{}f", fmt_f32_lit(*f)),
-            Self::OptSome(s) => format!("AzOptionString_some(AZ_STR(\"{}\"))", esc_lit(s)),
-            Self::OptNone => "AzOptionString_none()".to_string(),
-        }
-    }
-    fn render_cpp(&self) -> String {
-        match self {
-            Self::Str(s) => format!("String(\"{}\")", esc_lit(s)),
-            Self::Aria(s) => format!("SmallAriaInfo::label(String(\"{}\"))", esc_lit(s)),
-            Self::Float(f) => format!("{}f", fmt_f32_lit(*f)),
-            Self::OptSome(s) => format!("OptionString::some(String(\"{}\"))", esc_lit(s)),
-            Self::OptNone => "OptionString::none()".to_string(),
-        }
-    }
-    fn render_python(&self) -> String {
-        match self {
-            Self::Str(s) => format!("\"{}\"", esc_lit(s)),
-            Self::Aria(s) => format!("azul.SmallAriaInfo.label(\"{}\")", esc_lit(s)),
-            Self::Float(f) => fmt_f32_lit(*f),
-            Self::OptSome(s) => format!("azul.OptionString.some(\"{}\")", esc_lit(s)),
-            Self::OptNone => "azul.OptionString.none()".to_string(),
-        }
-    }
-}
-
-impl NodeCtor {
-    const fn consumes_text(&self) -> bool {
-        matches!(
-            self,
-            Self::Semantic {
-                consumes_text: true,
-                ..
-            }
-        )
-    }
-    const fn skip_caption(&self) -> bool {
-        matches!(
-            self,
-            Self::Semantic {
-                skip_caption: true,
-                ..
-            }
-        )
-    }
-    /// `Dom::create_…(args)` for Rust, or `None` for a plain container.
-    fn render_rust(&self) -> Option<String> {
-        match self {
-            Self::Plain => None,
-            Self::Semantic { suffix, args, .. } => Some(format!(
-                "Dom::create_{}({})",
-                camel_to_snake(suffix),
-                args.iter()
-                    .map(CtorArg::render_rust)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )),
-        }
-    }
-    /// `AzDom_create…(args)` for C, or `None` for a plain container.
-    fn render_c(&self) -> Option<String> {
-        match self {
-            Self::Plain => None,
-            Self::Semantic { suffix, args, .. } => Some(format!(
-                "AzDom_create{}({})",
-                suffix,
-                args.iter()
-                    .map(CtorArg::render_c)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )),
-        }
-    }
-    /// Fluent `Dom::create_…` (C++) / `azul.Dom.create_…` (Python), or `None`.
-    fn render_fluent(&self, target: &CompileTarget) -> Option<String> {
-        match self {
-            Self::Plain => None,
-            Self::Semantic { suffix, args, .. } => {
-                let snake = camel_to_snake(suffix);
-                let (prefix, rendered) = match target {
-                    CompileTarget::Cpp => (
-                        format!("Dom::create_{snake}"),
-                        args.iter().map(CtorArg::render_cpp).collect::<Vec<_>>(),
-                    ),
-                    CompileTarget::Python => (
-                        format!("azul.Dom.create_{snake}"),
-                        args.iter().map(CtorArg::render_python).collect::<Vec<_>>(),
-                    ),
-                    _ => return None,
-                };
-                Some(format!("{}({})", prefix, rendered.join(", ")))
-            }
-        }
-    }
-}
-
-/// Per-language token hooks for the fluent walker. The `&str` args are already
-/// escaped for a double-quoted string literal.
-struct FluentSyntax {
-    target: CompileTarget,
-    /// tag debug-name (e.g. "Div") -> full create expression
-    create_node: fn(&str) -> String,
-    /// escaped text -> create-text expression
-    create_text: fn(&str) -> String,
-    /// escaped css -> `.with_css(..)` call
-    with_css: fn(&str) -> String,
-    /// escaped class -> `.with_class(..)` call
-    with_class: fn(&str) -> String,
-    /// escaped id -> `.with_id(..)` call
-    with_id: fn(&str) -> String,
-    /// escaped child expression -> `.with_child(..)` call (children are chained)
-    with_child: fn(&str) -> String,
-}
-
-const CPP_SYNTAX: FluentSyntax = FluentSyntax {
-    target: CompileTarget::Cpp,
-    // Use per-tag creators (Dom::create_div(), create_p(), create_body(), …)
-    // — `NodeType` is a tagged union, so `create_node` would need union
-    // construction; the per-tag creators exist for every common HTML element.
-    create_node: |tag| alloc::format!("Dom::create_{}()", tag.to_lowercase()),
-    create_text: |s| {
-        alloc::format!("Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{s}\"))")
-    },
-    with_css: |s| alloc::format!(".with_css(String(\"{s}\"))"),
-    with_class: |s| alloc::format!(".with_class(String(\"{s}\"))"),
-    with_id: |s| alloc::format!(".with_id(String(\"{s}\"))"),
-    with_child: |c| alloc::format!(".with_child({c})"),
-};
-
-const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
-    target: CompileTarget::Python,
-    // Per-tag creators (azul.Dom.create_div(), …) — see CPP_SYNTAX note.
-    create_node: |tag| alloc::format!("azul.Dom.create_{}()", tag.to_lowercase()),
-    create_text: |s| {
-        alloc::format!("azul.Dom.create_text_do_not_use_without_block_level_wrapper(\"{s}\")")
-    },
-    with_css: |s| alloc::format!(".with_css(\"{s}\")"),
-    with_class: |s| alloc::format!(".with_class(\"{s}\")"),
-    with_id: |s| alloc::format!(".with_id(\"{s}\")"),
-    with_child: |c| alloc::format!(".with_child({c})"),
-};
-
-/// Walk one element node, emitting a fluent create-expression for `syntax`'s
-/// language. Mirrors `compile_node_to_rust_code_inner` but token-parameterized.
-#[allow(clippy::result_large_err)]
-// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// See compile_node_to_rust_code_inner: component_map is forwarded for codegen-path parity.
-#[allow(clippy::only_used_in_recursion)]
-fn compile_node_fluent(
-    node: &XmlNode,
-    syntax: &FluentSyntax,
-    component_map: &ComponentMap,
-    css: &Css,
-    mut matcher: CssMatcher,
-) -> Result<String, CompileError> {
-    use azul_css::css::CssDeclaration;
-
-    let component_name = normalize_casing(&node.node_type);
-    let node_type_tag = tag_to_node_type_tag(&component_name);
-    let tag_dbg = alloc::format!("{:?}", tag_to_node_type(&component_name));
-
-    // Base create-expression. For an exported live page every node is a plain
-    // HTML element, so emit a per-tag creator directly via the language hooks
-    // (universal + verified) rather than the per-component `compile_fn`, whose
-    // C++/Python arms emit stale placeholder syntax (`Dom.div()` etc.).
-    // Interactive/data tags (whose creators need args) fall back to `div`. Any
-    // element text shows up as a Text child below and is handled there.
-    let ctor = analyze_node_ctor(&component_name, node);
-    let mut s = ctor.render_fluent(&syntax.target).map_or_else(
-        || (syntax.create_node)(safe_container_tag(&tag_dbg)),
-        |expr| expr,
-    );
-
-    matcher.path.push(CssPathSelector::Type(node_type_tag));
-    let ids: Vec<String> = node
-        .attributes
-        .get_key("id")
-        .map(|v| {
-            v.split_whitespace()
-                .map(alloc::string::ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    matcher
-        .path
-        .extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
-    let classes: Vec<String> = node
-        .attributes
-        .get_key("class")
-        .map(|v| {
-            v.split_whitespace()
-                .map(alloc::string::ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    matcher.path.extend(
-        classes
-            .iter()
-            .map(|c| CssPathSelector::Class(c.clone().into())),
-    );
-
-    // Inline CSS (matched rules -> `.with_css("..")`, pseudo blocks included).
-    let blocks = get_css_blocks(css, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&(syntax.with_css)(&esc));
-        }
-    }
-    for id in &ids {
-        s.push_str(&(syntax.with_id)(
-            &id.replace('\\', "\\\\").replace('"', "\\\""),
-        ));
-    }
-    for class in &classes {
-        s.push_str(&(syntax.with_class)(
-            &class.replace('\\', "\\\\").replace('"', "\\\""),
-        ));
-    }
-
-    // Children (chained `.with_child(..)`). Text folded into the ctor (Tier A/C)
-    // is skipped here, as is a `<caption>` already injected by `create_table`.
-    let mut caption_skipped = false;
-    for (child_idx, child) in node.children.as_ref().iter().enumerate() {
-        match child {
-            XmlNodeChild::Element(child_node) => {
-                if ctor.skip_caption()
-                    && !caption_skipped
-                    && child_node
-                        .node_type
-                        .as_str()
-                        .eq_ignore_ascii_case("caption")
-                {
-                    caption_skipped = true;
-                    continue;
-                }
-                let mut m = matcher.clone();
-                m.path.push(CssPathSelector::Children);
-                m.indices_in_parent.push(child_idx);
-                m.children_length.push(node.children.len());
-                let child_src = compile_node_fluent(child_node, syntax, component_map, css, m)?;
-                s.push_str(&(syntax.with_child)(&child_src));
-            }
-            XmlNodeChild::Text(text) => {
-                if ctor.consumes_text() {
-                    continue;
-                }
-                let text = text.trim();
-                if !text.is_empty() {
-                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    s.push_str(&(syntax.with_child)(&(syntax.create_text)(&esc)));
-                }
-            }
-        }
-    }
-
-    Ok(s)
-}
-
-/// Build the `<body>` render-expression for `syntax`'s language.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
-                                   // break the C ABI/api.json
-fn compile_body_fluent<'a>(
-    body_node: &'a XmlNode,
-    syntax: &FluentSyntax,
-    component_map: &'a ComponentMap,
-    css: &Css,
-    mut matcher: CssMatcher,
-) -> Result<String, CompileError> {
-    let mut s = (syntax.create_node)("Body");
-    matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
-    let classes: Vec<String> = body_node
-        .attributes
-        .get_key("class")
-        .map(|v| {
-            v.split_whitespace()
-                .map(alloc::string::ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    matcher.path.extend(
-        classes
-            .iter()
-            .map(|c| CssPathSelector::Class(c.clone().into())),
-    );
-
-    let blocks = get_css_blocks(css, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&(syntax.with_css)(&esc));
-        }
-    }
-    for class in &classes {
-        s.push_str(&(syntax.with_class)(
-            &class.replace('\\', "\\\\").replace('"', "\\\""),
-        ));
-    }
-
-    for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
-        match child {
-            XmlNodeChild::Element(child_node) => {
-                let mut m = matcher.clone();
-                m.path.push(CssPathSelector::Children);
-                m.indices_in_parent.push(child_idx);
-                m.children_length.push(body_node.children.len());
-                let child_src = compile_node_fluent(child_node, syntax, component_map, css, m)?;
-                s.push_str(&(syntax.with_child)(&child_src));
-            }
-            XmlNodeChild::Text(text) => {
-                let text = text.trim();
-                if !text.is_empty() {
-                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    s.push_str(&(syntax.with_child)(&(syntax.create_text)(&esc)));
-                }
-            }
-        }
-    }
-    Ok(s)
-}
-
-/// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by
-/// the C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// Returns the body by VALUE: `get_html_node` may have synthesised the `<html>`
-/// wrapper (a fragment with no root of its own), and a reference into a node
-/// this function owns cannot outlive it. Codegen, not a hot path - one clone
-/// of the body subtree per compile.
-fn parse_page_style_and_body(root_nodes: &[XmlNodeChild]) -> Result<(Css, XmlNode), CompileError> {
-    let html_node = get_html_node(root_nodes)?;
-    let body_node = get_body_node(html_node.children.as_ref())?.clone();
-    let mut global_style = Css::empty();
-    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
-            let text = style_node.get_text_content();
-            if !text.is_empty() {
-                global_style = azul_css::parser2::new_from_str(&text).0;
-            }
-        }
-    }
-    global_style.sort_by_specificity();
-    Ok((global_style, body_node))
-}
-
-fn body_matcher(body_node: &XmlNode) -> CssMatcher {
-    CssMatcher {
-        path: Vec::new(),
-        indices_in_parent: vec![0],
-        children_length: vec![body_node.children.as_ref().len()],
-    }
-}
-
-/// Compile a full HTML page to a compilable **C++** Azul app.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
-/// Returns an error if the XML cannot be parsed or compiled to C++ code.
-pub fn str_to_cpp_code<'a>(
-    root_nodes: &'a [XmlNodeChild],
-    component_map: &'a ComponentMap,
-) -> Result<String, CompileError> {
-    let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
-    let body_node = &body_node;
-    let render = compile_body_fluent(
-        body_node,
-        &CPP_SYNTAX,
-        component_map,
-        &global_style,
-        body_matcher(body_node),
-    )?;
-    Ok(alloc::format!(
-        "// Auto-generated UI source code (C++). Build:\n//   clang++ -std=c++20 -I \
-         <azul>/target/codegen main.cpp -lazul\n#include \"azul20.hpp\"\nusing namespace \
-         azul;\n\nstruct Data {{}};\n\nAzDom render(AzRefAny data, AzLayoutCallbackInfo info) \
-         {{\n    return {render};\n}}\n\nint main() {{\n    RefAny data = \
-         RefAny::create(Data{{}});\n    WindowCreateOptions window = \
-         WindowCreateOptions::create(render);\n    App app = App::create(std::move(data), \
-         AppConfig::create());\n    app.run(std::move(window));\n    return 0;\n}}\n"
-    ))
-}
-
-/// Compile a full HTML page to a compilable **Python** Azul app.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
-/// Returns an error if the XML cannot be parsed or compiled to Python code.
-pub fn str_to_python_code<'a>(
-    root_nodes: &'a [XmlNodeChild],
-    component_map: &'a ComponentMap,
-) -> Result<String, CompileError> {
-    let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
-    let body_node = &body_node;
-    let render = compile_body_fluent(
-        body_node,
-        &PYTHON_SYNTAX,
-        component_map,
-        &global_style,
-        body_matcher(body_node),
-    )?;
-    Ok(alloc::format!(
-        "# Auto-generated UI source code (Python). Run: python3 main.py\nimport azul\n\nclass \
-         Data:\n    pass\n\ndef render(data, info):\n    return (\n        {}\n    )\n\ndef \
-         main():\n    app = azul.App.create(Data(), azul.AppConfig.create())\n    window = \
-         azul.WindowCreateOptions.create(render)\n    app.run(window)\n\nif __name__ == \
-         \"__main__\":\n    main()\n",
-        render.replace("\r\n", "\n        ")
-    ))
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-// Imperative C emitter. C has no fluent builder: each node is a statement that
-// creates an `AzDom` local, applies css/class (by-value, returns), and pushes
-// children via `AzDom_addChild(&parent, child)`. A recursive walk emits the
-// statements bottom-up and returns the variable name holding each node.
-// ───────────────────────────────────────────────────────────────────────────
-
-/// C per-tag creator suffix: `NodeTypeTag` debug name with first char kept and
-/// the rest lowercased (`Div`->`Div`, `BlockQuote`->`Blockquote`, `H1`->`H1`),
-/// matching `AzDom_create<Suffix>` in azul.h.
-fn c_creator_suffix(tag_dbg: &str) -> String {
-    let mut chars = tag_dbg.chars();
-    chars.next().map_or_else(
-        || "Div".to_string(),
-        |first| {
-            let rest: String = chars.as_str().to_lowercase();
-            alloc::format!("{first}{rest}")
-        },
-    )
-}
-
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-#[allow(clippy::too_many_lines)] // large but cohesive: one branch per node kind
-fn compile_node_c(
-    node: &XmlNode,
-    component_map: &ComponentMap,
-    css: &Css,
-    mut matcher: CssMatcher,
-    counter: &mut usize,
-    out: &mut String,
-) -> Result<String, CompileError> {
-    let _ = component_map;
-    let component_name = normalize_casing(&node.node_type);
-    let node_type_tag = tag_to_node_type_tag(&component_name);
-    let tag_dbg = alloc::format!("{:?}", tag_to_node_type(&component_name));
-
-    let var = alloc::format!("n{}", *counter);
-    *counter += 1;
-    let ctor = analyze_node_ctor(&component_name, node);
-    match ctor.render_c() {
-        Some(expr) => {
-            let _ = writeln!(out, "    AzDom {var} = {expr};");
-        }
-        None => {
-            let _ = writeln!(
-                out,
-                "    AzDom {} = AzDom_create{}();",
-                var,
-                c_creator_suffix(safe_container_tag(&tag_dbg))
-            );
-        }
-    }
-
-    matcher.path.push(CssPathSelector::Type(node_type_tag));
-    let ids: Vec<String> = node
-        .attributes
-        .get_key("id")
-        .map(|v| {
-            v.split_whitespace()
-                .map(alloc::string::ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    matcher
-        .path
-        .extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
-    let classes: Vec<String> = node
-        .attributes
-        .get_key("class")
-        .map(|v| {
-            v.split_whitespace()
-                .map(alloc::string::ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    matcher.path.extend(
-        classes
-            .iter()
-            .map(|c| CssPathSelector::Class(c.clone().into())),
-    );
-
-    let blocks = get_css_blocks(css, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = writeln!(out, "    {var} = AzDom_withCss({var}, AZ_STR(\"{esc}\"));");
-        }
-    }
-    for id in &ids {
-        let esc = id.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = writeln!(out, "    {var} = AzDom_withId({var}, AZ_STR(\"{esc}\"));");
-    }
-    for class in &classes {
-        let esc = class.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = writeln!(
-            out,
-            "    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));"
-        );
-    }
-
-    let mut caption_skipped = false;
-    for (child_idx, child) in node.children.as_ref().iter().enumerate() {
-        match child {
-            XmlNodeChild::Element(child_node) => {
-                if ctor.skip_caption()
-                    && !caption_skipped
-                    && child_node
-                        .node_type
-                        .as_str()
-                        .eq_ignore_ascii_case("caption")
-                {
-                    caption_skipped = true;
-                    continue;
-                }
-                let mut m = matcher.clone();
-                m.path.push(CssPathSelector::Children);
-                m.indices_in_parent.push(child_idx);
-                m.children_length.push(node.children.len());
-                let child_var = compile_node_c(child_node, component_map, css, m, counter, out)?;
-                let _ = writeln!(out, "    AzDom_addChild(&{var}, {child_var});");
-            }
-            XmlNodeChild::Text(text) => {
-                if ctor.consumes_text() {
-                    continue;
-                }
-                let text = text.trim();
-                if !text.is_empty() {
-                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = writeln!(
-                        out,
-                        "    AzDom_addChild(&{var}, \
-                         AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
-                    );
-                }
-            }
-        }
-    }
-    Ok(var)
-}
-
-/// Compile a full HTML page to a compilable **C** Azul app.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
-/// Returns an error if the XML cannot be parsed or compiled to C code.
-pub fn str_to_c_code<'a>(
-    root_nodes: &'a [XmlNodeChild],
-    component_map: &'a ComponentMap,
-) -> Result<String, CompileError> {
-    let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
-    let body_node = &body_node;
-    let mut body = String::new();
-    let mut counter = 0usize;
-
-    // Emit the body as the root node, then its children.
-    let root = alloc::format!("n{counter}");
-    counter += 1;
-    let _ = writeln!(body, "    AzDom {root} = AzDom_createBody();");
-
-    let mut matcher = body_matcher(body_node);
-    matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
-    let classes: Vec<String> = body_node
-        .attributes
-        .get_key("class")
-        .map(|v| {
-            v.split_whitespace()
-                .map(alloc::string::ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    matcher.path.extend(
-        classes
-            .iter()
-            .map(|c| CssPathSelector::Class(c.clone().into())),
-    );
-    let blocks = get_css_blocks(&global_style, &matcher);
-    if !blocks.is_empty() {
-        let inline_css = css_blocks_to_inline_string(&blocks);
-        if !inline_css.is_empty() {
-            let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = writeln!(
-                body,
-                "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));"
-            );
-        }
-    }
-    for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
-        match child {
-            XmlNodeChild::Element(child_node) => {
-                let mut m = matcher.clone();
-                m.path.push(CssPathSelector::Children);
-                m.indices_in_parent.push(child_idx);
-                m.children_length.push(body_node.children.len());
-                let child_var = compile_node_c(
-                    child_node,
-                    component_map,
-                    &global_style,
-                    m,
-                    &mut counter,
-                    &mut body,
-                )?;
-                let _ = writeln!(body, "    AzDom_addChild(&{root}, {child_var});");
-            }
-            XmlNodeChild::Text(text) => {
-                let text = text.trim();
-                if !text.is_empty() {
-                    let esc = text.replace('\\', "\\\\").replace('"', "\\\"");
-                    let _ = writeln!(
-                        body,
-                        "    AzDom_addChild(&{root}, \
-                         AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"{esc}\")));"
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(alloc::format!(
-        "/* Auto-generated UI source code (C). Build:\n*   clang -I <azul>/target/codegen main.c \
-         -lazul\n */\n#include \"azul.h\"\n#include <string.h>\n#define AZ_STR(s) \
-         AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))\n\nAzDom render(AzRefAny data, \
-         AzLayoutCallbackInfo info) {{\n{body}    return {root};\n}}\n\nint main(void) {{\n    \
-         AzString data_type = AZ_STR(\"Data\");\n    AzRefAny data = \
-         AzRefAny_newC((AzGlVoidPtrConst){{ .ptr = NULL }}, 0, 1, 0, data_type, NULL, 0, 0);\n    \
-         AzApp app = AzApp_create(data, AzAppConfig_create());\n    AzWindowCreateOptions window \
-         = AzWindowCreateOptions_create(render);\n    AzApp_run(&app, window);\n    \
-         AzApp_delete(&app);\n    return 0;\n}}\n"
-    ))
-}
+// The empty `///` line ends this summary: rustdoc joins it with the `//!`
+// docs of `xml_html.rs` (clippy::too_long_first_doc_paragraph).
+#[path = "xml_html.rs"]
+pub mod html;
+
+/// The HTML Standard's named character references (generated).
+#[path = "xml_entities.rs"]
+mod entities;
 
 #[cfg(test)]
 #[path = "xml_test.rs"]
 mod xml_test;
+
+/// The `<html>` element's own attributes on the root node both loaders build
+/// (WPT8 found (c)).
+#[cfg(test)]
+mod html_root_attribute_tests {
+    use super::*;
+
+    /// `<html style="background: red"><body></body></html>`.
+    fn html_with_a_style() -> Vec<XmlNodeChild> {
+        let body = XmlNode {
+            node_type: "body".into(),
+            attributes: XmlAttributeMap::default(),
+            children: Vec::<XmlNodeChild>::new().into(),
+        };
+        let html = XmlNode {
+            node_type: "html".into(),
+            attributes: XmlAttributeMap::from(StringPairVec::from_vec(alloc::vec![AzStringPair {
+                key: AzString::from("style"),
+                value: AzString::from("background: red;"),
+            }])),
+            children: alloc::vec![XmlNodeChild::Element(body)].into(),
+        };
+        alloc::vec![XmlNodeChild::Element(html)]
+    }
+
+    #[test]
+    fn the_html_elements_style_attribute_reaches_the_root() {
+        let map = ComponentMap::with_builtin();
+
+        // The tree loader (`str_to_dom_unstyled`).
+        let dom = str_to_dom_unstyled(&html_with_a_style(), &map).expect("the markup parses");
+        assert!(
+            matches!(dom.root.node_type, NodeType::Html),
+            "the root is the html element"
+        );
+        assert!(
+            !dom.root.style.rules.as_ref().is_empty(),
+            "the html element's inline style is on the root (the tree loader built a bare Html)"
+        );
+
+        // The arena loader (`str_to_dom`).
+        let styled = str_to_dom(&html_with_a_style(), &map, None).expect("the markup parses");
+        let root = &styled.node_data.as_container()[crate::id::NodeId::ZERO];
+        assert!(
+            matches!(root.node_type, NodeType::Html),
+            "the root is the html element"
+        );
+        assert!(
+            !root.style.rules.as_ref().is_empty(),
+            "the html element's inline style is on the root (the arena loader built a bare Html)"
+        );
+    }
+}
+
+/// `Xml::scan_external_resources` (MAIL9's engine gap, SCANORDER).
+#[cfg(test)]
+mod scan_external_resources_tests {
+    use super::*;
+
+    #[test]
+    fn scan_external_resources_lists_resources_in_document_order_once_and_ignores_url_in_prose() {
+        // The worklist was a LIFO stack fed in order, so siblings came out
+        // last first; and every TEXT node was scanned as CSS, so prose that
+        // says `url(...)` became a resource and a `<style>` sheet was scanned
+        // twice (its text, then its element).
+        let xml = Xml::create_from_html(AzString::from(
+            "<html><body><img src=\"a.png\"><p>write url(prose.png) in CSS</p><img \
+             src=\"b.png\"><style>.x { background: url(c.png); }</style></body></html>",
+        ));
+        let urls: Vec<String> = xml
+            .scan_external_resources()
+            .as_ref()
+            .iter()
+            .map(|r| r.url.as_str().to_string())
+            .collect();
+        assert_eq!(
+            urls,
+            ["a.png", "b.png", "c.png"],
+            "document order, each once, nothing from prose"
+        );
+    }
+}
+
+/// `MimeTypeHint::from_extension`, the one extension table.
+#[cfg(test)]
+mod mime_type_hint_tests {
+    use super::*;
+
+    /// A JSON or text file had no row and came out as
+    /// `application/octet-stream`, so crash_mail kept its own twin table for
+    /// the two (FIX9-INPUT round 2 item 4).
+    #[test]
+    fn a_json_or_txt_extension_has_its_own_media_type() {
+        for (extension, media_type) in [
+            ("json", "application/json"),
+            ("JSON", "application/json"),
+            ("txt", "text/plain"),
+            ("TXT", "text/plain"),
+        ] {
+            assert_eq!(
+                MimeTypeHint::from_extension(extension).inner.as_str(),
+                media_type,
+                "the media type of .{extension}"
+            );
+        }
+        // Unchanged: a known row, and the default.
+        assert_eq!(
+            MimeTypeHint::from_extension("png").inner.as_str(),
+            "image/png"
+        );
+        assert_eq!(
+            MimeTypeHint::from_extension("xyz").inner.as_str(),
+            "application/octet-stream"
+        );
+    }
+}

@@ -86,14 +86,21 @@ pub fn decode_mvt_tile(
 /// 2. GET `url` → PBF bytes, through `client` when the map has one.
 /// 3. `decode_mvt_tile(bytes, tile)` → GeoJSON features.
 /// 4. `features_to_svg(&features, tile)` → SVG string.
-/// 5. `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg` pointed at
-///    `azul_layout::widgets::map::map_tile_writeback`, which stamps the cache `Ready` and triggers
-///    a relayout.
+/// 5. `draw_tile_svg(&svg)` → the tile DRAWN: its geometry rasterised, its
+///    labels parsed. This is the expensive step, and it used to run on the UI
+///    thread, in the map's render, for every visible tile on every render.
+/// 6. `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg` pointed at
+///    `azul_layout::widgets::map::map_tile_writeback`, which files the drawing and
+///    re-renders the map's view in place.
 ///
-/// Cancellation: before the fetch and between the fetch and the decode we
-/// poll `recv.recv()` for `ThreadSendMsg::TerminateThread`, so a job whose
-/// `Thread` was dropped while it waited in a pool's queue never downloads, and
-/// one dropped mid-download doesn't waste a decode.
+/// Cancellation: before the fetch, between the fetch and the decode and
+/// between the decode and the draw we poll `recv.recv()` for
+/// `ThreadSendMsg::TerminateThread`, so a job whose `Thread` was dropped while
+/// it waited in a pool's queue never downloads, and one dropped mid-download
+/// doesn't waste a decode or a draw.
+///
+/// With `AZ_MAP_STATS` (AzMaps' `--stats`) every tile prints
+/// `AZ_MAP_TILE <z>/<x>/<y> <fetch_ms> <decode_ms> <draw_ms> <bytes>` from here.
 #[cfg(feature = "map-tiles")]
 pub extern "C" fn tile_fetch_worker(
     mut init: azul_core::refany::RefAny,
@@ -105,8 +112,15 @@ pub extern "C" fn tile_fetch_worker(
     use azul_layout::{
         http::{HttpRequestConfig, OptionHttpClient},
         thread::{ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback},
-        widgets::map::{map_tile_writeback, TileFetchInit, TileReadyMsg},
+        widgets::map::{
+            draw_tile_svg, map_stats_enabled, map_tile_writeback, DrawnTile, TileFetchInit,
+            TileReadyMsg,
+        },
     };
+
+    fn millis(since: std::time::Instant) -> f64 {
+        since.elapsed().as_secs_f64() * 1000.0
+    }
 
     let (tile, url, mapcss, look, cached_bytes, client) = match init.downcast_ref::<TileFetchInit>()
     {
@@ -121,18 +135,30 @@ pub extern "C" fn tile_fetch_worker(
         None => return,
     };
 
+    // Whether the map has let go of this job: a `TerminateThread` ANYWHERE in
+    // the queue - the UI thread sends a `Tick` every frame, and reading one
+    // message only saw the first of those.
+    let mut cancelled = || loop {
+        match recv.recv().into_option() {
+            Some(azul_core::task::ThreadSendMsg::TerminateThread) => break true,
+            Some(_) => continue,
+            None => break false,
+        }
+    };
+
     // A job that waited in a thread pool's queue may belong to a map that has
     // since gone away.
-    if matches!(
-        recv.recv().into_option(),
-        Some(azul_core::task::ThreadSendMsg::TerminateThread)
-    ) {
+    if cancelled() {
         return;
     }
 
     // `bytes` travels back to the main thread ONLY when we downloaded it, so a
-    // restyle does not copy the payload back and forth for nothing.
-    let send_back = |svg: AzString, error: AzString, bytes: Vec<u8>| -> ThreadWriteBackMsg {
+    // restyle does not copy the payload back and forth for nothing. A drawn
+    // tile sends no SVG: the drawing is all the render needs.
+    let send_back = |error: AzString,
+                     bytes: Vec<u8>,
+                     drawn: Option<DrawnTile>|
+     -> ThreadWriteBackMsg {
         ThreadWriteBackMsg::new(
             WriteBackCallback {
                 cb: map_tile_writeback,
@@ -140,15 +166,17 @@ pub extern "C" fn tile_fetch_worker(
             },
             RefAny::new(TileReadyMsg {
                 tile,
-                svg,
+                svg: AzString::from(""),
                 error,
                 look,
                 bytes: azul_css::U8Vec::from_vec(bytes),
+                drawn,
             }),
         )
     };
 
     let dbg = std::env::var("AZ_MAP_DEBUG").is_ok();
+    let fetch_started = std::time::Instant::now();
     if dbg {
         eprintln!(
             "[map] worker start tile=({},{},{}) url={}",
@@ -197,28 +225,37 @@ pub extern "C" fn tile_fetch_worker(
                         tile.z, tile.x, tile.y
                     );
                 }
+                if map_stats_enabled() {
+                    println!(
+                        "AZ_MAP_TILE {}/{}/{} {:.1} - - 0 failed",
+                        tile.z,
+                        tile.x,
+                        tile.y,
+                        millis(fetch_started)
+                    );
+                }
                 sender.send(ThreadReceiveMsg::WriteBack(send_back(
-                    AzString::from(""),
                     AzString::from(alloc::format!("fetch failed: {e:?}")),
                     Vec::new(),
+                    None,
                 )));
                 return;
             }
         }
     };
+    let fetch_ms = if restyle { 0.0 } else { millis(fetch_started) };
 
     // Cancellation check between fetch and decode.
-    if matches!(
-        recv.recv().into_option(),
-        Some(azul_core::task::ThreadSendMsg::TerminateThread)
-    ) {
+    if cancelled() {
         return;
     }
 
     // 3-4. Decode + emit SVG. `decode_mvt_tile` consumes the bytes, so keep the
     // copy we owe the main thread first (only when we actually downloaded it).
     let give_back = if restyle { Vec::new() } else { bytes.clone() };
-    match decode_mvt_tile(bytes, tile) {
+    let payload_len = bytes.len();
+    let decode_started = std::time::Instant::now();
+    let svg = match decode_mvt_tile(bytes, tile) {
         Ok(features) => {
             let svg = features_to_svg(&features, tile, &mapcss);
             if dbg {
@@ -231,11 +268,7 @@ pub extern "C" fn tile_fetch_worker(
                     svg.len()
                 );
             }
-            sender.send(ThreadReceiveMsg::WriteBack(send_back(
-                AzString::from(svg),
-                AzString::from(""),
-                give_back,
-            )));
+            svg
         }
         Err(e) => {
             if dbg {
@@ -245,12 +278,47 @@ pub extern "C" fn tile_fetch_worker(
                 );
             }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
-                AzString::from(""),
                 AzString::from(alloc::format!("decode failed: {e}")),
                 give_back,
+                None,
             )));
+            return;
         }
+    };
+    let decode_ms = millis(decode_started);
+
+    // Cancellation check between the decode and the draw - the draw (the
+    // rasterisation) is the most expensive step of all.
+    if cancelled() {
+        return;
     }
+
+    // 5. Draw HERE, on the worker: rasterise the geometry, parse the labels.
+    // The render on the UI thread only places the result.
+    let draw_started = std::time::Instant::now();
+    let drawn = draw_tile_svg(&svg);
+    let draw_ms = millis(draw_started);
+    if dbg {
+        eprintln!(
+            "[map] worker drew tile=({},{},{}) image={} labels={} in {draw_ms:.1} ms",
+            tile.z,
+            tile.x,
+            tile.y,
+            drawn.image.is_some(),
+            drawn.labels.len()
+        );
+    }
+    if map_stats_enabled() {
+        println!(
+            "AZ_MAP_TILE {}/{}/{} {fetch_ms:.1} {decode_ms:.1} {draw_ms:.1} {payload_len}",
+            tile.z, tile.x, tile.y
+        );
+    }
+    sender.send(ThreadReceiveMsg::WriteBack(send_back(
+        AzString::from(""),
+        give_back,
+        Some(drawn),
+    )));
 }
 
 /// Install the built-in tile-fetch worker as the framework-owned fetcher every

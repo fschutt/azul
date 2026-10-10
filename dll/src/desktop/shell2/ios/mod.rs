@@ -59,6 +59,8 @@ use crate::{
 pub mod accessibility;
 pub mod clipboard;
 mod text_input;
+/// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
+mod webview;
 
 use crate::{
     desktop::wr_translate2::{AsyncHitTester, WrRenderApi},
@@ -235,6 +237,10 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         None => return,
     };
 
+    // `<webview>`s first: their reports (a delegate asked for this pass) may
+    // ask for a rebuild or a repaint, which this pass then makes.
+    window.pump_webviews_if_any();
+
     if window.common.regeneration_pending() {
         // A relayout re-rasters on its way through, so any pending
         // repaint-only request is satisfied by it.
@@ -248,6 +254,9 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         window.needs_rerender = false;
         window.rerender_cpu();
     }
+
+    // Where this frame put the `<webview>`s, and the ops queued for them.
+    let _ = crate::desktop::shell2::common::webview::sync(window);
 
     #[cfg(feature = "cpurender")]
     {
@@ -700,6 +709,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
 
         // Pencil events route through the same gesture manager that pen
         // tablets do on desktop. Apple Pencil has no eraser tip and no
@@ -939,7 +949,10 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
     use azul_core::geom::LogicalPosition;
     use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
     let state: i64 = unsafe { msg_send![sender, state] };
-    if state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
+    // `scale` is the recognizer's scale since the gesture began (cumulative,
+    // as `DetectedPinch` is defined); the BEGAN update opens the gesture.
+    let began = state == UI_GESTURE_RECOGNIZER_STATE_BEGAN;
+    if !began && state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
         return;
     }
     let scale: f64 = unsafe { msg_send![sender, scale] };
@@ -956,6 +969,7 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
                 initial_distance: 0.0,
                 current_distance: 0.0,
                 duration_ms: 0,
+                began,
             }),
         );
     }
@@ -1059,6 +1073,18 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // per-frame slot `run.rs` gives the four desktop backends.
         #[cfg(feature = "a11y")]
         window.process_accessibility_actions();
+        // Native notifications: queued posts out to UNUserNotificationCenter,
+        // taps / buttons / dismissals (queued by the UN delegate on its own
+        // queue) routed to their callbacks - or to the app-level handler for
+        // the tap that launched the app - and run against this window. The
+        // display tick is iOS's only per-frame slot, so it is the pump; UN
+        // needs no wake-up here, unlike the parked macOS loop.
+        let deliveries = crate::desktop::notifications::pump_notifications();
+        if !deliveries.is_empty()
+            && crate::desktop::notifications::invoke_deliveries(window, deliveries)
+        {
+            window.request_redraw();
+        }
         // The APP's explicit soft-keyboard request. `CallbackInfo::
         // request_soft_keyboard()` -> `CallbackChange::RequestSoftKeyboard` ->
         // `TextEditManager::pending_soft_keyboard` was drained on Android only,
@@ -1088,7 +1114,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
             let _ = window.process_window_events(0);
             window
                 .common
-                .request_regeneration(RelayoutReason::ThemeChange);
+                .request_regeneration(RelayoutReason::ModeChange);
         }
         if window.common.regeneration_pending() {
             let _ = window.present();
@@ -1096,7 +1122,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     }
 }
 
-/// The device's light/dark setting, as a [`WindowTheme`].
+/// The device's light/dark setting, as a [`DarkLightMode`].
 ///
 /// `UITraitCollection.currentTraitCollection.userInterfaceStyle`:
 /// 0 = unspecified, 1 = light, 2 = dark (`UIUserInterfaceStyle`). Unspecified
@@ -1108,15 +1134,15 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
 /// Linux backends: there the probe is a blocking D-Bus round trip and MUST be
 /// threaded, here it is one message send and must NOT be.
 #[cfg(target_os = "ios")]
-unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme> {
+unsafe fn probe_user_interface_style() -> Option<azul_core::window::DarkLightMode> {
     let traits: *mut Object = msg_send![class!(UITraitCollection), currentTraitCollection];
     if traits.is_null() {
         return None;
     }
     let style: i64 = msg_send![traits, userInterfaceStyle];
     match style {
-        1 => Some(azul_core::window::WindowTheme::LightMode),
-        2 => Some(azul_core::window::WindowTheme::DarkMode),
+        1 => Some(azul_core::window::DarkLightMode::Light),
+        2 => Some(azul_core::window::DarkLightMode::Dark),
         _ => None,
     }
 }
@@ -1133,16 +1159,19 @@ unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme>
 unsafe fn adopt_device_appearance(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> bool {
-    let Some(theme) = probe_user_interface_style() else {
+    let Some(desktop) = probe_user_interface_style() else {
         return false;
     };
-    if common.current_window_state().theme == theme {
+    // The DEVICE's appearance: the window takes it only while the app follows
+    // it (`AppConfig::mode` / `CallbackInfo::set_mode` pin it otherwise);
+    // either way the device's is remembered.
+    let Some(theme) = common.adopt_desktop_theme(desktop) else {
         return false;
-    }
+    };
     // The diff pipeline compares against previous_window_state to decide a
     // ThemeChanged event fired; without this snapshot no callback runs.
     common.snapshot_window_state_baseline("ios.adopt_device_appearance");
-    common.update_unsynced_state(|ws| ws.theme = theme);
+    common.write_shown_mode(theme);
     true
 }
 
@@ -1369,6 +1398,13 @@ extern "C" fn did_finish_launching(
                 }
             };
 
+        // The UNUserNotificationCenter delegate, BEFORE this method returns:
+        // a tap on a notification of an app that was not running launches it,
+        // and UN delivers that response only to a delegate set while launching.
+        // Also reads the stored authorization for
+        // `get_permission_status(Capability::Notifications)`.
+        crate::desktop::notifications::install_launch_hooks();
+
         let window = match IOSWindow::new(
             root_window,
             fc_cache,
@@ -1404,6 +1440,10 @@ extern "C" fn did_finish_launching(
 
 extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidBecomeActive:");
+    // Notifications: a response from now on is a tap on a running app (the
+    // one that cold-launched it arrived before this), and the permission the
+    // user may have changed in Settings meanwhile is re-read.
+    crate::desktop::notifications::app_became_active();
     // Covers the resume path that skips willEnterForeground (first launch
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };
@@ -1590,6 +1630,9 @@ pub struct IOSWindow {
     /// panning with the finger that is left). Re-seeded on hand-over so the
     /// transfer is not read as a jump.
     pub pan_touch_id: Option<u64>,
+    /// The window's `<webview>`s (`webview::IosWebViews`), made at the
+    /// first one: an app without a web view never loads WebKit.
+    webviews: Option<webview::IosWebViews>,
 }
 
 impl IOSWindow {
@@ -1614,6 +1657,11 @@ impl IOSWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
+        // `<webview>`s are WKWebViews (`webview::IosWebViews`).
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
 
         // Build the native UI tree. Bounds come from `[[UIScreen mainScreen] bounds]`.
         let (ui_window, ui_view_controller, ui_view) = unsafe {
@@ -1777,6 +1825,7 @@ impl IOSWindow {
             touch_pan_last: None,
             primary_touch_id: None,
             pan_touch_id: None,
+            webviews: None,
         })
     }
 
@@ -1840,6 +1889,22 @@ impl IOSWindow {
         let _ = self.present();
     }
 
+    /// One turn of the window's `<webview>`s (`common::webview::pump`): what
+    /// WebKit reported (its delegate asked for this display pass) runs the
+    /// views' callbacks, and the queued ops reach WebKit. Only while a web
+    /// view exists or is owed something.
+    pub(crate) fn pump_webviews_if_any(&mut self) {
+        let busy = self.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if busy
+            && PlatformWindow::pump_webviews(self)
+                != azul_core::events::ProcessEventResult::DoNothing
+        {
+            self.needs_rerender = true;
+        }
+    }
+
     /// Drain the accessibility actions UIKit queued and apply them.
     ///
     /// Mirrors `Win32Window::process_accessibility_actions` /
@@ -1878,6 +1943,16 @@ impl IOSWindow {
         let Some(lw) = self.common.layout_window.as_ref() else {
             return;
         };
+        // The layout tail's accessibility pass (`LayoutWindow::update_a11y_tree`)
+        // diffs the tree against what was published and publishes NOTHING
+        // when nothing a screen reader can see changed: then the element
+        // list built from the last snapshot is still right, and rebuilding
+        // the whole snapshot after every regenerate was a full walk for
+        // nothing (A11YPATCH8 left 3). The first pass publishes the whole
+        // tree; an explicit `a11y_dirty` still rebuilds.
+        if !lw.a11y_manager.last_pass.published && !self.common.a11y_dirty {
+            return;
+        }
         let snapshot = lw.build_a11y_snapshot();
         let view = (&*self.ui_view as *const Object) as *mut Object;
         self.accessibility_adapter.update_snapshot(snapshot, view);
@@ -1906,7 +1981,7 @@ impl IOSWindow {
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -2003,6 +2078,23 @@ impl PlatformWindow for IOSWindow {
     /// by the application.
     fn handle_begin_interactive_move(&mut self) {}
 
+    /// `WKWebView`s in the render view (`webview::IosWebViews`), made at the
+    /// first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        if self.webviews.is_none() {
+            let view = &*self.ui_view as *const Object as *mut objc2::runtime::AnyObject;
+            // SAFETY: the window's live render view; the retain keeps it for
+            // the web views that are its subviews.
+            let parent = unsafe { objc2::rc::Retained::retain(view) }?;
+            self.webviews = Some(webview::IosWebViews::new(parent));
+        }
+        self.webviews
+            .as_mut()
+            .map(|views| views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
@@ -2071,7 +2163,7 @@ impl PlatformWindow for IOSWindow {
     ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
-                lw.threads.remove(id);
+                drop(lw.remove_thread(id));
             }
         }
     }
@@ -2431,7 +2523,7 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
     // The inset is layout input, so a change has to reach layout.
     window
         .common
-        .request_regeneration(RelayoutReason::ThemeChange);
+        .request_regeneration(RelayoutReason::ModeChange);
 }
 
 /// `canBecomeFirstResponder` — required, or UIKit never asks for text.

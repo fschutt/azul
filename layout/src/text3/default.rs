@@ -21,7 +21,7 @@ use crate::{
     text3::{
         cache::{
             BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
-            FontVariantLigatures, FontVariantNumeric, Glyph, GlyphOrientation, GlyphSource,
+            FontVariantLigatures, Glyph, GlyphOrientation, GlyphSource,
             LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
             TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
         },
@@ -83,6 +83,7 @@ impl PathLoader {
                 weight: rust_fontconfig::FcWeight::Normal,
                 style: crate::text3::cache::FontStyle::Normal,
                 unicode_ranges: Vec::new(),
+                optical_size: 0,
             })
         })?;
         let arc_owned = Arc::<[u8]>::from(font_bytes);
@@ -631,17 +632,10 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
         FontVariantCaps::Normal => {}
     }
 
-    // Numeric
-    match style.font_variant_numeric {
-        FontVariantNumeric::LiningNums => add_on(b"lnum"),
-        FontVariantNumeric::OldstyleNums => add_on(b"onum"),
-        FontVariantNumeric::ProportionalNums => add_on(b"pnum"),
-        FontVariantNumeric::TabularNums => add_on(b"tnum"),
-        FontVariantNumeric::DiagonalFractions => add_on(b"frac"),
-        FontVariantNumeric::StackedFractions => add_on(b"afrc"),
-        FontVariantNumeric::Ordinal => add_on(b"ordn"),
-        FontVariantNumeric::SlashedZero => add_on(b"zero"),
-        FontVariantNumeric::Normal => {}
+    // Numeric: every feature the value asks for - it combines groups
+    // (`tabular-nums slashed-zero` is `tnum` AND `zero`).
+    for tag in style.font_variant_numeric.opentype_features() {
+        add_on(&tag);
     }
 }
 
@@ -896,6 +890,13 @@ fn shape_text_internal(
         FALLBACK_SCALE
     };
 
+    // The face's own tracking at this size (its AAT `trak` table: Apple's
+    // system faces), as CoreText and Chrome add it to each glyph's advance.
+    let tracking = parsed_font
+        .tracking
+        .as_ref()
+        .map_or(0.0, |t| t.at(font_size) * scale_factor);
+
     let font_hash = parsed_font.get_hash();
     let font_metrics = LayoutFontMetrics {
         ascent: parsed_font.font_metrics.ascent,
@@ -904,6 +905,7 @@ fn shape_text_internal(
         units_per_em: parsed_font.font_metrics.units_per_em,
         x_height: parsed_font.font_metrics.x_height,
         cap_height: parsed_font.font_metrics.cap_height,
+        browser_ascent_boost: parsed_font.font_metrics.browser_ascent_boost,
     };
     let style_arc = Arc::new(style.clone());
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
@@ -970,6 +972,14 @@ fn shape_text_internal(
                     || f32::from(base_advance) * scale_factor,
                     |hinted| hinted * font_size / f32::from(ppem),
                 )
+        };
+        // Tracking goes on every glyph that starts a piece of the text and
+        // has an advance of its own - not on a zero-width mark, nor on a
+        // multiple-substitution duplicate (HarfBuzz tracks per grapheme).
+        let advance = if byte_len > 0 && base_advance > 0 {
+            advance + tracking
+        } else {
+            advance
         };
         let kerning = f32::from(info.kerning) * scale_factor;
 
@@ -2200,6 +2210,37 @@ mod autotest_generated {
     // add_variant_features (other)
     // -----------------------------------------------------------------
 
+    /// `font-variant-numeric` (CSS Fonts 4 s6.7) reaches the shaper: the text
+    /// under `tabular-nums slashed-zero` is shaped with the OpenType `tnum`
+    /// and `zero` features - the figures of a time column line up. The
+    /// property did not exist: the declaration was dropped as unknown and
+    /// every digit kept its proportional advance (AzMusic's durations).
+    #[test]
+    fn a_run_under_font_variant_numeric_tabular_nums_is_shaped_with_tnum() {
+        use azul_core::{
+            dom::{Dom, NodeId},
+            styled_dom::StyledDom,
+        };
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p_with_text("10:41")
+                .with_css("font-variant-numeric: tabular-nums slashed-zero;"),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        // body (0) > p (1) > text (2): the text inherits it from the <p>.
+        let style = crate::solver3::getters::get_style_properties(
+            &styled,
+            NodeId::new(2),
+            None,
+            azul_css::props::basic::PhysicalSize::new(800.0, 600.0),
+        );
+        let mut features = Vec::new();
+        add_variant_features(&style, &mut features);
+        let tags: Vec<[u8; 4]> = features.iter().map(|f| f.feature_tag.to_be_bytes()).collect();
+        assert!(tags.contains(b"tnum"), "tabular-nums must shape with `tnum`: {tags:?}");
+        assert!(tags.contains(b"zero"), "slashed-zero must shape with `zero`: {tags:?}");
+    }
+
     #[test]
     fn add_variant_features_maps_css_variants_to_opentype_tags() {
         let tags = |style: &StyleProperties| -> Vec<u32> {
@@ -2232,7 +2273,10 @@ mod autotest_generated {
 
         let combined = StyleProperties {
             font_variant_ligatures: FontVariantLigatures::Discretionary,
-            font_variant_numeric: FontVariantNumeric::TabularNums,
+            font_variant_numeric: crate::text3::cache::FontVariantNumeric {
+                tabular_nums: true,
+                ..Default::default()
+            },
             font_variant_caps: FontVariantCaps::TitlingCaps,
             ..StyleProperties::default()
         };
@@ -2270,16 +2314,31 @@ mod autotest_generated {
             FontVariantCaps::Unicase,
             FontVariantCaps::TitlingCaps,
         ];
+        use crate::text3::cache::FontVariantNumeric;
+        let one = |set: fn(&mut FontVariantNumeric)| {
+            let mut value = FontVariantNumeric::NORMAL;
+            set(&mut value);
+            value
+        };
         let numeric = [
-            FontVariantNumeric::Normal,
-            FontVariantNumeric::LiningNums,
-            FontVariantNumeric::OldstyleNums,
-            FontVariantNumeric::ProportionalNums,
-            FontVariantNumeric::TabularNums,
-            FontVariantNumeric::DiagonalFractions,
-            FontVariantNumeric::StackedFractions,
-            FontVariantNumeric::Ordinal,
-            FontVariantNumeric::SlashedZero,
+            FontVariantNumeric::NORMAL,
+            one(|v| v.lining_nums = true),
+            one(|v| v.oldstyle_nums = true),
+            one(|v| v.proportional_nums = true),
+            one(|v| v.tabular_nums = true),
+            one(|v| v.diagonal_fractions = true),
+            one(|v| v.stacked_fractions = true),
+            one(|v| v.ordinal = true),
+            one(|v| v.slashed_zero = true),
+            // The widest value the grammar allows: one per group, both flags.
+            FontVariantNumeric {
+                oldstyle_nums: true,
+                tabular_nums: true,
+                stacked_fractions: true,
+                ordinal: true,
+                slashed_zero: true,
+                ..FontVariantNumeric::NORMAL
+            },
         ];
 
         // a pre-existing feature must survive: the helper appends, never clears
@@ -2300,9 +2359,10 @@ mod autotest_generated {
                     add_variant_features(&style, &mut features);
                     assert_eq!(features[0].feature_tag, sentinel.feature_tag);
                     assert_eq!(features[0].alternate, Some(7));
-                    // at most 2 (caps) + 1 (ligature) + 1 (numeric) new tags
+                    // at most 2 (caps) + 1 (ligature) + 5 (numeric: one per
+                    // group, ordinal, slashed-zero) new tags
                     assert!(
-                        features.len() <= 5,
+                        features.len() <= 9,
                         "{l:?}/{c:?}/{n:?} emitted too many features"
                     );
                     for f in &features[1..] {

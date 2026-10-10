@@ -194,20 +194,84 @@ fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
     }
 }
 
+/// Largest request the debug server reads (an imported component library or
+/// a project with many snapshots is a few MB).
+#[cfg(feature = "std")]
+const MAX_HTTP_REQUEST: usize = 64 * 1024 * 1024;
+
+/// Read ONE whole HTTP request: the head up to its blank line, then as many
+/// body bytes as `Content-Length` announces.
+///
+/// This used to be a single `read()` into a 16 KiB buffer, which cut every
+/// larger body (an imported component library, the builder's `render_tree`,
+/// a big `set_app_state`) and could cut even a small one that the client
+/// wrote in two TCP segments — the JSON then failed to parse and the UI got
+/// an error for a request it sent correctly. Stops early (with what it has)
+/// when the peer closes or the read timeout (set by the accept loop) fires.
+#[cfg(feature = "std")]
+fn read_http_request(stream: &mut std::net::TcpStream) -> Option<Vec<u8>> {
+    use std::io::Read;
+
+    fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+        hay.windows(needle.len()).position(|w| w == needle)
+    }
+    fn content_length(head: &str) -> usize {
+        head.lines()
+            .find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                if key.trim().eq_ignore_ascii_case("content-length") {
+                    value.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    }
+
+    let mut buf: Vec<u8> = Vec::with_capacity(16384);
+    let mut chunk = [0u8; 16384];
+    // (end of the head, body length) once the head is complete.
+    let mut expected: Option<(usize, usize)> = None;
+    loop {
+        if let Some((head_end, body_len)) = expected {
+            if buf.len() >= head_end.saturating_add(body_len) {
+                break;
+            }
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+        if buf.len() > MAX_HTTP_REQUEST {
+            return None;
+        }
+        if expected.is_none() {
+            let head_end = find(&buf, b"\r\n\r\n")
+                .map(|p| p + 4)
+                .or_else(|| find(&buf, b"\n\n").map(|p| p + 2));
+            if let Some(head_end) = head_end {
+                let body_len = content_length(&String::from_utf8_lossy(&buf[..head_end]));
+                expected = Some((head_end, body_len));
+            }
+        }
+    }
+    if buf.is_empty() {
+        None
+    } else {
+        Some(buf)
+    }
+}
+
 #[cfg(feature = "std")]
 fn handle_http_connection(
     stream: &mut std::net::TcpStream,
     request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>,
 ) {
-    use std::io::{Read, Write};
-
-    let mut buffer = [0u8; 16384];
-    let bytes_read = match stream.read(&mut buffer) {
-        Ok(n) if n > 0 => n,
-        _ => return,
+    let Some(raw) = read_http_request(stream) else {
+        return;
     };
 
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let request = String::from_utf8_lossy(&raw);
 
     // Parse HTTP request
     let lines: Vec<&str> = request.lines().collect();
@@ -245,10 +309,28 @@ fn handle_http_connection(
         return;
     }
 
+    // ── Route: GET /debugger-project.js → AzBuilder's project tree + editor ──
+    if method == "GET" && path == "/debugger-project.js" {
+        static DEBUGGER_PROJECT_JS_BR: &[u8] =
+            include_bytes!(concat!(env!("OUT_DIR"), "/debugger-project.js.br"));
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; \
+             charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: \
+             close\r\n\r\n",
+            DEBUGGER_PROJECT_JS_BR.len()
+        );
+        serve_response(stream, &header, DEBUGGER_PROJECT_JS_BR);
+        return;
+    }
+
     // Compressed debugger assets (gzip, built by build.rs)
     // Browsers decompress transparently via Content-Encoding: br.
     static DEBUGGER_CSS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.css.br"));
     static DEBUGGER_JS_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.js.br"));
+    static DEBUGGER_DND_JS_BR: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/debugger-dnd.js.br"));
+    static DEBUGGER_EXPORT_JS_BR: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/debugger-export.js.br"));
     static DEBUGGER_HTML_BR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/debugger.html.br"));
 
     // ── Route: GET /debugger.css → serve brotli-compressed CSS ──
@@ -274,6 +356,30 @@ fn handle_http_connection(
         return;
     }
 
+    // ── Route: GET /debugger-dnd.js → the builder's drag and drop (AzBuilder) ──
+    if method == "GET" && path == "/debugger-dnd.js" {
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; \
+             charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: \
+             close\r\n\r\n",
+            DEBUGGER_DND_JS_BR.len()
+        );
+        serve_response(stream, &header, DEBUGGER_DND_JS_BR);
+        return;
+    }
+
+    // ── Route: GET /debugger-export.js → the builder's quick export dialogs ──
+    if method == "GET" && path == "/debugger-export.js" {
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; \
+             charset=utf-8\r\nContent-Encoding: br\r\nContent-Length: {}\r\nConnection: \
+             close\r\n\r\n",
+            DEBUGGER_EXPORT_JS_BR.len()
+        );
+        serve_response(stream, &header, DEBUGGER_EXPORT_JS_BR);
+        return;
+    }
+
     // ── Route: GET / → serve brotli-compressed debugger HTML ──
     if method == "GET" && (path == "/" || path == "/index.html") {
         let header = format!(
@@ -285,7 +391,7 @@ fn handle_http_connection(
         return;
     }
 
-    // ── Route: POST /debug/compile?lang=<rust|cpp|python> → return generated project as ZIP ──
+    // ── Route: POST /debug/compile?lang=<any azul_css::codegen language> → generated project as ZIP ──
     if method == "POST" && path.starts_with("/debug/compile") {
         let lang = path
             .split_once('?')
@@ -381,13 +487,13 @@ fn handle_http_connection(
 fn compile_and_send_zip(stream: &mut std::net::TcpStream, lang: &str, css_source: &str) {
     use std::io::{Read, Write};
 
-    use azul_css::codegen::backend_for;
+    use azul_css::codegen::{backend_for, supported_languages};
     use azul_layout::zip::{ZipFileEntry, ZipWriteConfig};
 
     let backend = match backend_for(lang) {
         Some(b) => b,
         None => {
-            let body = format!("Unknown lang: {lang}. Supported: rust, cpp, python.");
+            let body = format!("Unknown lang: {lang}. Supported: {}.", supported_languages());
             let header = format!(
                 "HTTP/1.0 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: \
                  {}\r\nConnection: close\r\n\r\n",
@@ -480,6 +586,12 @@ pub fn register_debug_timer(
     if !is_debug_enabled() {
         return;
     }
+    // Kept for the windows the app opens later (`register_debug_timer_on_new_window`).
+    if let Ok(mut shared) = shared_debug_channel().lock() {
+        if shared.is_none() {
+            *shared = Some((request_rx.clone(), component_map.clone()));
+        }
+    }
 
     log(
         LogLevel::Debug,
@@ -488,10 +600,9 @@ pub fn register_debug_timer(
         None,
     );
 
-    /// Well-known timer ID for the debug server polling timer.
-    /// Chosen to avoid collision with user-registered timer IDs.
-    const DEBUG_TIMER_ID: usize = 0xDEBE;
-    let timer_id: usize = DEBUG_TIMER_ID;
+    // Well-known timer ID for the debug server polling timer, shared with
+    // the timer's own re-arming (`DebugPollPace`).
+    let timer_id: usize = azul_layout::e2e::DEBUG_TIMER_ID;
     let app_data_for_timer = window.get_app_data().borrow().clone();
     let window_id = window
         .get_current_window_state()
@@ -518,6 +629,34 @@ pub fn register_debug_timer(
         ),
         None,
     );
+}
+
+/// The debug channel the first window's timer was registered with: every window an app opens
+/// later drains the same queue (its requests are routed by window id in the timer).
+#[cfg(feature = "std")]
+#[allow(clippy::type_complexity)]
+fn shared_debug_channel(
+) -> &'static Mutex<Option<(spmc::Receiver<DebugRequest>, Arc<Mutex<azul_core::xml::ComponentMap>>)>> {
+    static SHARED: std::sync::OnceLock<
+        Mutex<Option<(spmc::Receiver<DebugRequest>, Arc<Mutex<azul_core::xml::ComponentMap>>)>>,
+    > = std::sync::OnceLock::new();
+    SHARED.get_or_init(|| Mutex::new(None))
+}
+
+/// Gives a window the app opened at runtime (`CallbackInfo::create_window`: a dialog, a second
+/// window) the debug timer the first window has, so the debug server reaches it too (a request
+/// names it by its `window_id`). Nothing when the debug server is off.
+#[cfg(feature = "std")]
+pub fn register_debug_timer_on_new_window(
+    window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
+) {
+    let channel = shared_debug_channel()
+        .lock()
+        .ok()
+        .and_then(|shared| shared.clone());
+    if let Some((request_rx, component_map)) = channel {
+        register_debug_timer(window, request_rx, component_map);
+    }
 }
 
 // ==================== Host hooks ====================
@@ -547,4 +686,13 @@ pub fn install_e2e_host_hooks() {
     set_host_hooks(E2eHostHooks {
         take_native_screenshot_base64: Some(screenshot),
     });
+
+    // A queued request wakes the desktop run loop (an NSEvent on macOS, the
+    // wake fd in the X11 / Wayland poll set); the loop then re-arms the
+    // window's debug poll at the busy rate
+    // (`PlatformWindow::serve_debug_request_wake`). The headless loop
+    // registers its own condvar waker.
+    azul_layout::e2e::add_debug_request_waker(std::sync::Arc::new(
+        crate::desktop::loop_waker::wake,
+    ));
 }

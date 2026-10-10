@@ -154,3 +154,127 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("require 'ffi'");
     builder.blank();
 }
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+
+    /// `azul.rb` for the real api.json, generated once.
+    fn azul_rb() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("ruby codegen")
+        })
+    }
+
+    /// The body of the idiomatic `class <name>` (up to its `end # class`).
+    fn class_body(name: &str) -> &'static str {
+        let out = azul_rb();
+        let head = format!("\n  class {}\n", name);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("class {} is not generated", name));
+        let end_marker = format!("end # class {}", name);
+        let end = out[start..].find(&end_marker).expect("class end") + start;
+        &out[start..end]
+    }
+
+    /// The `def <name>` method of `body`, up to the next blank line.
+    fn method<'a>(body: &'a str, def: &str) -> &'a str {
+        let head = format!("def {}\n", def);
+        let alt = format!("def {}(", def);
+        let i = body
+            .find(&head)
+            .or_else(|| body.find(&alt))
+            .unwrap_or_else(|| panic!("`def {}` is missing in:\n{}", def, body));
+        let rest = &body[i..];
+        &rest[..rest.find("\n\n").unwrap_or(rest.len())]
+    }
+
+    /// The module-level `def self.<name>` helper in `module Azul`.
+    fn helper(name: &str) -> &'static str {
+        let out = azul_rb();
+        let head = format!("def self.{}(", name);
+        let i = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("helper {} is missing", name));
+        let rest = &out[i..];
+        &rest[..rest.find("\n\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn a_window_title_reads_as_a_ruby_string_and_its_setter_releases_the_old_title() {
+        let body = class_body("FullWindowState");
+        let get = method(body, "title");
+        assert!(get.contains("Azul._read_string("), "decoded, never consumed:\n{}", get);
+        let set = method(body, "title=");
+        assert!(set.contains("Native.az_string_delete("), "the old title is released:\n{}", set);
+        assert!(set.contains("Azul._az_string(value)"), "a Ruby String is copied in:\n{}", set);
+        assert!(set.contains("Azul._own(value)"), "an Azul::String is moved in:\n{}", set);
+        let rd = helper("_read_string");
+        assert!(!rd.contains("_delete"), "reading must not free the field:\n{}", rd);
+    }
+
+    #[test]
+    fn the_window_state_of_create_options_is_a_live_view_and_its_setter_moves_the_value_in() {
+        let body = class_body("WindowCreateOptions");
+        let get = method(body, "window_state");
+        assert!(
+            get.contains("Azul._view(FullWindowState, self, :window_state)"),
+            "nested writes must reach the options:\n{}",
+            get
+        );
+        let set = method(body, "window_state=");
+        assert!(set.contains("Azul._own(value)"), "{}", set);
+        assert!(set.contains("Native.az_full_window_state_delete("), "{}", set);
+        assert!(set.contains("Azul._consume(value)"), "{}", set);
+        // The size path: FullWindowState.size -> WindowSize.dimensions.
+        let size = method(class_body("FullWindowState"), "size");
+        assert!(size.contains("Azul._view(WindowSize, self, :size)"), "{}", size);
+    }
+
+    #[test]
+    fn a_bool_field_of_a_wrapped_struct_reads_and_writes_in_place() {
+        let body = class_body("CheckBoxState");
+        assert!(method(body, "checked").contains("[:checked]"), "{}", body);
+        let set = method(body, "checked=");
+        assert!(set.contains("[:checked] = value"), "{}", set);
+        assert!(!set.contains("_delete"), "a bool owns nothing:\n{}", set);
+    }
+
+    #[test]
+    fn a_field_whose_getter_name_is_an_api_method_is_still_settable() {
+        let body = class_body("TextInputState");
+        assert!(body.contains("def get_text"), "{}", body);
+        let set = method(body, "text=");
+        assert!(set.contains("Native.az_u32_vec_delete("), "{}", set);
+    }
+
+    #[test]
+    fn a_borrowed_view_has_no_finalizer_and_is_never_consumed() {
+        let view = helper("_view");
+        assert!(view.contains(".allocate"), "a view skips initialize (no finalizer):\n{}", view);
+        assert!(!view.contains("define_finalizer"), "{}", view);
+        let consume = helper("_consume");
+        assert!(consume.contains("@az_owner"), "a view is not consumed:\n{}", consume);
+        let own = helper("_own");
+        assert!(own.contains("@az_owner"), "a view is deep-copied before a move:\n{}", own);
+    }
+
+    #[test]
+    fn apply_opts_releases_the_old_value_and_consumes_the_wrapper_it_moves_in() {
+        let apply = helper("_apply_opts");
+        assert!(apply.contains("_own(value)"), "{}", apply);
+        assert!(apply.contains("_consume(value)"), "{}", apply);
+        assert!(apply.contains("FIELD_DELETE"), "the old value is released:\n{}", apply);
+        assert!(azul_rb().contains("'AzString' => :az_string_delete,"));
+    }
+
+    #[test]
+    fn a_wrapper_moved_into_a_call_goes_through_own() {
+        let run = method(class_body("App"), "run");
+        assert!(run.contains("Native.az_app_run(@ptr, Azul._own(root_window))"), "{}", run);
+    }
+}

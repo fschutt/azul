@@ -17,8 +17,8 @@ use core::{
 
 pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
-    codegen::format::GetHash,
     css::{BoxOrStatic, Css, NodeTypeTag},
+    hash::GetHash,
     props::{
         basic::{FloatValue, FontRef},
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},
@@ -506,8 +506,9 @@ pub enum NodeType {
     SvgPolyline,
 
     // SVG elements — text
-    /// SVG `<text>` element.
-    SvgText(AzString),
+    /// SVG `<text>` element. Its characters are its `Text` children, as
+    /// every element's are; its position, font and paint are its attributes.
+    SvgText,
     /// SVG `<tspan>` element.
     SvgTspan,
     /// SVG `<textPath>` element.
@@ -674,6 +675,13 @@ pub enum NodeType {
     /// materializing an estimated break does not move content. XML tag:
     /// `<pagebreak/>`; constructor: [`Dom::create_page_break`].
     PageBreak,
+    /// `<webview src=..>` - a native web view embedded as a replaced
+    /// element (300x150 unless sized), the page in the node's `src`
+    /// attribute. It reports its navigations, loads and title to the app as
+    /// `ComponentEventFilter::WebView*` events; there is no script bridge.
+    /// The config rides inline like `TransientWindow`'s. See
+    /// `crate::webview`; constructor: [`Dom::create_webview`].
+    WebView(crate::webview::WebViewConfig),
 }
 
 /// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
@@ -833,7 +841,7 @@ impl NodeType {
             SvgPolygon => SvgPolygon,
             SvgPolyline => SvgPolyline,
             // SVG text
-            SvgText(s) => SvgText(s.clone_self()),
+            SvgText => SvgText,
             SvgTspan => SvgTspan,
             SvgTextPath => SvgTextPath,
             // SVG paint
@@ -908,6 +916,7 @@ impl NodeType {
             Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
             GeolocationProbe(cfg) => GeolocationProbe(*cfg),
             Self::PageBreak => Self::PageBreak,
+            Self::WebView(cfg) => Self::WebView(*cfg),
         }
     }
 
@@ -924,6 +933,19 @@ impl NodeType {
                 "geolocation-probe(hi={}, bg={}, max={}m, every={}ms)",
                 cfg.high_accuracy, cfg.background, cfg.max_accuracy_m, cfg.min_interval_ms
             )),
+            Self::WebView(cfg) => Some(format!("webview(storage={})", cfg.storage.as_str())),
+            _ => None,
+        }
+    }
+
+    /// The text a text node holds (owned); `None` for every other node.
+    /// The safe way to read a `Text` payload: the `BoxOrStaticString` it
+    /// carries is a raw pointer in the C API, and three editors dereferenced
+    /// it by hand (`unsafe`).
+    #[must_use]
+    pub fn get_text(&self) -> Option<AzString> {
+        match self {
+            Self::Text(s) => Some(s.as_ref().clone()),
             _ => None,
         }
     }
@@ -1051,7 +1073,7 @@ impl NodeType {
             Self::SvgLine => NodeTypeTag::SvgLine,
             Self::SvgPolygon => NodeTypeTag::SvgPolygon,
             Self::SvgPolyline => NodeTypeTag::SvgPolyline,
-            Self::SvgText(_) => NodeTypeTag::SvgText,
+            Self::SvgText => NodeTypeTag::SvgText,
             Self::SvgTspan => NodeTypeTag::SvgTspan,
             Self::SvgTextPath => NodeTypeTag::SvgTextPath,
             Self::SvgLinearGradient => NodeTypeTag::SvgLinearGradient,
@@ -1115,6 +1137,7 @@ impl NodeType {
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::GeolocationProbe(_) => NodeTypeTag::GeolocationProbe,
             Self::PageBreak => NodeTypeTag::PageBreak,
+            Self::WebView(_) => NodeTypeTag::WebView,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
@@ -1682,6 +1705,86 @@ impl AttributeType {
     }
 }
 
+/// A strongly-typed argument for Fluent localization strings.
+/// Supports standard pluralization and interpolation formatting.
+#[repr(C, u8)]
+#[derive(Debug, Clone, PartialEq)]
+#[allow(variant_size_differences)]
+pub enum FluentArg {
+    String(AzString),
+    I32(i32),
+    F32(f32),
+}
+
+/// One named argument of a Fluent message: `key` is the `$variable` name
+/// the `.ftl` pattern refers to, without the `$`.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct FluentArgKV {
+    pub key: AzString,
+    pub value: FluentArg,
+}
+
+azul_css::impl_option!(
+    FluentArgKV,
+    OptionFluentArgKV,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+azul_css::impl_vec!(
+    FluentArgKV,
+    FluentArgKVVec,
+    FluentArgKVVecDestructor,
+    FluentArgKVVecDestructorType,
+    FluentArgKVVecSlice,
+    OptionFluentArgKV
+);
+azul_css::impl_vec_debug!(FluentArgKV, FluentArgKVVec);
+azul_css::impl_vec_clone!(FluentArgKV, FluentArgKVVec, FluentArgKVVecDestructor);
+azul_css::impl_vec_partialeq!(FluentArgKV, FluentArgKVVec);
+
+impl FluentArgKVVec {
+    /// The Fluent arguments an XML element declares as
+    /// `data-l10n-<name>="value"` attributes, in attribute order.
+    ///
+    /// `data-l10n` itself (the message key) is not an argument. A value that
+    /// parses as `i32` becomes [`FluentArg::I32`], else a plain decimal
+    /// (digits, sign, point - no `NaN`, `inf` or exponent, which
+    /// `f32::from_str` would also accept) becomes [`FluentArg::F32`], else it
+    /// stays a [`FluentArg::String`]. Shared by every XML-to-DOM builder, so
+    /// the three of them cannot drift apart.
+    pub fn from_l10n_attributes<'a, I>(attributes: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        let mut args: Vec<FluentArgKV> = Vec::new();
+        for (key, value) in attributes {
+            let Some(arg_name) = key.strip_prefix("data-l10n-") else {
+                continue;
+            };
+            let plain_decimal = value
+                .bytes()
+                .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+'));
+            let value = value.parse::<i32>().map_or_else(
+                |_| {
+                    if let (true, Ok(f)) = (plain_decimal, value.parse::<f32>()) {
+                        FluentArg::F32(f)
+                    } else {
+                        FluentArg::String(value.into())
+                    }
+                },
+                FluentArg::I32,
+            );
+            args.push(FluentArgKV {
+                key: arg_name.into(),
+                value,
+            });
+        }
+        Self::from_vec(args)
+    }
+}
+
 /// Represents all data associated with a single DOM node, such as its type,
 /// classes, IDs, callbacks, and inline styles.
 #[repr(C)]
@@ -1710,6 +1813,8 @@ pub struct NodeData {
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI.
     extra: Option<Box<NodeDataExt>>,
+    /// Fluent arguments for localizable text nodes.
+    pub fluent_args: Option<Box<FluentArgKVVec>>,
 }
 
 impl_option!(
@@ -1743,6 +1848,7 @@ impl Drop for NodeData {
     fn drop(&mut self) {
         drop(self.accessibility.take());
         drop(self.extra.take());
+        drop(self.fluent_args.take());
     }
 }
 
@@ -1800,9 +1906,27 @@ impl Hash for NodeData {
         // Hash inline CSS properties (Static declarations only — same set the
         // legacy `css_props` field hashed). Conditions are intentionally
         // skipped to match the previous behaviour.
+        //
+        // WHICH properties the node declares, never in which ORDER: an
+        // imperative patch (`upsert_inline_css_property`, what
+        // `set_css_property` writes) moves its declaration to the end, and an
+        // order-sensitive hash made the patched node differ from a fresh build
+        // of the same widget - which then hashed exactly like an untouched
+        // twin elsewhere in the document, and `reconcile_dom` gave the rebuilt
+        // widget the twin's identity (AzWidgets: the clicked Switch matched a
+        // settings switch 7400 px down, slid in from there and lost its tween
+        // to it). A sum of per-property hashes is order-free and still counts
+        // a property declared twice.
+        let mut inline_sum: u64 = 0;
+        let mut inline_count: u64 = 0;
         for (prop, _conds) in self.style.iter_inline_properties() {
-            mem::discriminant(prop).hash(state);
+            let mut one = crate::hash::DefaultHasher::new();
+            mem::discriminant(prop).hash(&mut one);
+            inline_sum = inline_sum.wrapping_add(one.finish());
+            inline_count += 1;
         }
+        inline_count.hash(state);
+        inline_sum.hash(state);
         if let Some(ext) = self.extra.as_ref() {
             if let Some(ds) = ext.dataset.as_ref() {
                 ds.hash(state);
@@ -2309,6 +2433,11 @@ pub struct NodeDataExt {
     /// ruling 2026-08-17): a sidebar widget ships its fly-out next to its
     /// own DOM, not in app-global state.
     pub animation_callbacks: Vec<crate::resources::AnimationFunction>,
+    /// The Fluent message key this (text) node was translated from. The
+    /// translation pass replaces an `AzString::tr` key with its translation
+    /// and records the key here, so a later locale change can translate the
+    /// SAME node again in place, without rebuilding the DOM.
+    pub l10n_key: Option<AzString>,
 }
 
 // The MARKER is EXCLUDED from equality, ordering and hashing (USER ruling
@@ -2317,9 +2446,13 @@ pub struct NodeDataExt {
 // otherwise identical nodes must compare equal across rebuilds, or every
 // marked node would look "changed" to the DOM diff on every frame, defeating
 // reconciliation for exactly the widgets the fast path is for.
+//
+// `l10n_key` is excluded for a related reason: it only records where the
+// node's text CAME from; the text itself (the translation) is the node's
+// content and is compared as such.
 impl NodeDataExt {
-    /// Every field EXCEPT `marker`, as one comparable/hashable tuple - the
-    /// single place that decides what "same ext" means.
+    /// Every field EXCEPT `marker` and `l10n_key`, as one comparable/hashable
+    /// tuple - the single place that decides what "same ext" means.
     #[allow(clippy::type_complexity)]
     const fn cmp_key(
         &self,
@@ -2499,6 +2632,7 @@ impl Clone for NodeData {
             flags: self.flags,
             accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
+            fluent_args: self.fluent_args.clone(),
         }
     }
 }
@@ -2760,6 +2894,7 @@ impl NodeData {
             },
             flags: NodeFlags::new(),
             accessibility: None,
+            fluent_args: None,
             extra: None,
         }
     }
@@ -2771,6 +2906,97 @@ impl NodeData {
     pub fn attributes(&self) -> &AttributeTypeVec {
         static EMPTY: AttributeTypeVec = AttributeTypeVec::from_const_slice(&[]);
         self.extra.as_ref().map_or(&EMPTY, |ext| &ext.attributes)
+    }
+
+    /// The node's attributes (`href`, `alt`, `data-*`, ...), owned - what
+    /// [`Self::set_attributes`] and `Dom::with_attribute` set.
+    #[must_use]
+    pub fn get_attributes(&self) -> AttributeTypeVec {
+        self.attributes().clone()
+    }
+
+    /// The value of the attribute HTML calls `name` (`"href"`, `"alt"`,
+    /// `"data-id"`, `"aria-checked"`, ...), `None` when the node has none. A
+    /// boolean attribute answers `"true"` (`checked` also `"false"`), a
+    /// number its decimal text; the builder's flags answer as HTML spells
+    /// them (`contenteditable`, `tabindex`). The one lookup:
+    /// `CallbackInfo::get_node_attribute` reads a live node through it.
+    #[must_use]
+    pub fn get_attribute(&self, name: &str) -> Option<AzString> {
+        let number = |n: i32| -> AzString { n.to_string().into() };
+        for attr in self.attributes().as_ref() {
+            let found: Option<AzString> = match (name, attr) {
+                ("id", AttributeType::Id(v))
+                | ("class", AttributeType::Class(v))
+                | ("aria-label", AttributeType::AriaLabel(v))
+                | ("aria-labelledby", AttributeType::AriaLabelledBy(v))
+                | ("aria-describedby", AttributeType::AriaDescribedBy(v))
+                | ("role", AttributeType::AriaRole(v))
+                | ("href", AttributeType::Href(v))
+                | ("rel", AttributeType::Rel(v))
+                | ("target", AttributeType::Target(v))
+                | ("src", AttributeType::Src(v))
+                | ("alt", AttributeType::Alt(v))
+                | ("title", AttributeType::Title(v))
+                | ("name", AttributeType::Name(v))
+                | ("value", AttributeType::Value(v))
+                | ("type", AttributeType::InputType(v))
+                | ("placeholder", AttributeType::Placeholder(v))
+                | ("max", AttributeType::Max(v))
+                | ("min", AttributeType::Min(v))
+                | ("step", AttributeType::Step(v))
+                | ("pattern", AttributeType::Pattern(v))
+                | ("autocomplete", AttributeType::Autocomplete(v))
+                | ("scope", AttributeType::Scope(v))
+                | ("lang", AttributeType::Lang(v))
+                | ("dir", AttributeType::Dir(v)) => Some(v.clone()),
+                ("required", AttributeType::Required)
+                | ("disabled", AttributeType::Disabled)
+                | ("readonly", AttributeType::Readonly)
+                | ("checked", AttributeType::CheckedTrue)
+                | ("selected", AttributeType::Selected)
+                | ("hidden", AttributeType::Hidden)
+                | ("focusable", AttributeType::Focusable)
+                | ("autofocus", AttributeType::Autofocus) => Some(AzString::from_const_str("true")),
+                ("checked", AttributeType::CheckedFalse) => Some(AzString::from_const_str("false")),
+                ("minlength", AttributeType::MinLength(n))
+                | ("maxlength", AttributeType::MaxLength(n))
+                | ("colspan", AttributeType::ColSpan(n))
+                | ("rowspan", AttributeType::RowSpan(n))
+                | ("tabindex", AttributeType::TabIndex(n)) => Some(number(*n)),
+                ("contenteditable", AttributeType::ContentEditable(b))
+                | ("draggable", AttributeType::Draggable(b)) => Some(b.to_string().into()),
+                (_, AttributeType::Data(nv))
+                    if name.strip_prefix("data-") == Some(nv.attr_name.as_str()) =>
+                {
+                    Some(nv.value.clone())
+                }
+                (_, AttributeType::AriaState(nv) | AttributeType::AriaProperty(nv))
+                    if name.strip_prefix("aria-") == Some(nv.attr_name.as_str()) =>
+                {
+                    Some(nv.value.clone())
+                }
+                (_, AttributeType::Custom(nv)) if nv.attr_name.as_str() == name => {
+                    Some(nv.value.clone())
+                }
+                _ => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        // What the builder keeps as FLAGS (`Dom::with_contenteditable`,
+        // `Dom::with_tab_index`, which every text field and keyboard stop
+        // uses) answers too, as HTML spells it.
+        match name {
+            "contenteditable" if self.is_contenteditable() => Some(AzString::from_const_str("true")),
+            "tabindex" => self.get_tab_index().map(|tab| match tab {
+                TabIndex::Auto => AzString::from_const_str("0"),
+                TabIndex::OverrideInParent(n) => n.to_string().into(),
+                TabIndex::NoKeyboardFocus => AzString::from_const_str("-1"),
+            }),
+            _ => None,
+        }
     }
 
     /// Returns a mutable reference to the node's attributes,
@@ -2846,6 +3072,26 @@ impl NodeData {
             callback: callback.into(),
             refany: data,
         });
+        nd
+    }
+
+    /// A `<webview>` showing the page `src`, its cookies and storage in the
+    /// app's ephemeral store (see [`NodeType::WebView`]). The page is the
+    /// node's `src` attribute, as on an iframe.
+    #[must_use]
+    pub fn create_webview(src: AzString) -> Self {
+        Self::create_webview_with_config(src, crate::webview::WebViewConfig::ephemeral())
+    }
+
+    /// [`Self::create_webview`] with an explicit configuration (a persistent
+    /// store: `WebViewConfig::persistent()`).
+    #[must_use]
+    pub fn create_webview_with_config(
+        src: AzString,
+        config: crate::webview::WebViewConfig,
+    ) -> Self {
+        let mut nd = Self::create_node(NodeType::WebView(config));
+        nd.set_attributes(vec![AttributeType::Src(src)].into());
         nd
     }
 
@@ -3052,6 +3298,19 @@ impl NodeData {
         matches!(self.node_type, NodeType::VirtualView)
     }
 
+    /// Whether this node is a replaced element the layout sizes from its own
+    /// box - an image, a `VirtualView` or a `<webview>`: no flow content, an
+    /// intrinsic size (its natural one, or 300x150), and a `width` / `height`
+    /// that apply even when it is inline. The one predicate the solver's
+    /// sizing paths share, so another kind of embedded view is one arm here.
+    #[must_use]
+    pub const fn is_sized_replaced_node(&self) -> bool {
+        matches!(
+            self.node_type,
+            NodeType::Image(_) | NodeType::VirtualView | NodeType::WebView(_)
+        )
+    }
+
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
     // in the future (which is why the fields are all private).
 
@@ -3234,11 +3493,50 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.marker.as_ref())
     }
 
+    /// The Fluent key this node's text was translated from, if it was (see
+    /// `NodeDataExt::l10n_key`).
+    #[must_use]
+    pub fn get_localization_key(&self) -> Option<&AzString> {
+        self.extra.as_ref().and_then(|ext| ext.l10n_key.as_ref())
+    }
+
+    /// Record (or forget) the Fluent key this node's text was translated from.
+    pub fn set_localization_key(&mut self, key: Option<AzString>) {
+        match key {
+            None => {
+                if let Some(ext) = self.extra.as_mut() {
+                    ext.l10n_key = None;
+                }
+            }
+            Some(key) => {
+                self.extra
+                    .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                    .l10n_key = Some(key);
+            }
+        }
+    }
+
     /// Builder form of [`Self::set_marker`].
     #[inline]
     #[must_use]
     pub fn with_marker(mut self, marker: OptionString) -> Self {
         self.set_marker(marker);
+        self
+    }
+
+    /// Attach the arguments (`$name` → value) a localizable text is
+    /// formatted with. They apply to this node's own text when it is an
+    /// `AzString::tr` key, and otherwise to its direct text children - the
+    /// shape `Dom::create_p_with_text(AzString::tr(key))` builds.
+    pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
+        self.fluent_args = Some(Box::new(args.into()));
+    }
+
+    /// Builder form of [`Self::set_fluent_args`].
+    #[inline]
+    #[must_use]
+    pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
+        self.set_fluent_args(args);
         self
     }
 
@@ -3314,7 +3612,7 @@ impl NodeData {
             let mut decls = mem::take(&mut rule.declarations).into_library_owned_vec();
             decls.retain(|d| match d {
                 CssDeclaration::Static(p) => p.get_type() != ty,
-                CssDeclaration::Dynamic(_) => true,
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => true,
             });
             rule.declarations = decls.into();
         }
@@ -3413,6 +3711,59 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.key)
     }
 
+    /// Takes over what made `original` THIS node in the app's tree - its
+    /// ids and classes, callbacks, tab stop, dataset, key, context menu and
+    /// accessibility info - for a node that REPLACES it (a resolved icon).
+    /// `self`'s own ids, classes and callbacks stay, after the original's;
+    /// the single-valued ones are taken where `self` has none.
+    ///
+    /// A resolver builds its replacement from the original's style alone, so
+    /// `Dom::create_icon("play").with_id(..).with_callback(Click, ..)` - an
+    /// icon button - lost its click, the id the E2E finds it by, the class
+    /// its CSS selects and its tab stop.
+    pub(crate) fn carry_identity_from(&mut self, original: &Self) {
+        let mut ids_and_classes = original.get_ids_and_classes().into_library_owned_vec();
+        for own in self.get_ids_and_classes().as_ref() {
+            if !ids_and_classes.contains(own) {
+                ids_and_classes.push(own.clone());
+            }
+        }
+        self.set_ids_and_classes(ids_and_classes.into());
+
+        if !original.callbacks.as_ref().is_empty() {
+            let mut callbacks = original.callbacks.clone().into_library_owned_vec();
+            callbacks.extend(self.callbacks.as_ref().iter().cloned());
+            self.callbacks = callbacks.into();
+        }
+        if self.get_tab_index().is_none() {
+            if let Some(tab_index) = original.get_tab_index() {
+                self.set_tab_index(tab_index);
+            }
+        }
+        if self.get_dataset().is_none() {
+            if let Some(dataset) = original.get_dataset() {
+                self.set_dataset(OptionRefAny::Some(dataset.clone()));
+            }
+        }
+        if self.get_key().is_none() {
+            if let Some(key) = original.get_key() {
+                self.extra
+                    .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                    .key = Some(key);
+            }
+        }
+        if self.get_context_menu().is_none() {
+            if let Some(menu) = original.get_context_menu() {
+                self.set_context_menu(menu.clone());
+            }
+        }
+        if self.get_accessibility_info().is_none() {
+            if let Some(info) = original.get_accessibility_info() {
+                self.set_accessibility_info(info.clone());
+            }
+        }
+    }
+
     /// Sets a dataset merge callback for this node.
     ///
     /// The merge callback is invoked during reconciliation when a node from the
@@ -3502,15 +3853,10 @@ impl NodeData {
         data: RefAny,
         callback: C,
     ) {
-        let callback = callback.into();
         let mut v: CoreCallbackDataVec = Vec::new().into();
         mem::swap(&mut v, &mut self.callbacks);
         let mut v = v.into_library_owned_vec();
-        v.push(CoreCallbackData {
-            event,
-            refany: data,
-            callback,
-        });
+        v.push(CoreCallbackData::create(event, data, callback));
         self.callbacks = v.into();
     }
 
@@ -3790,7 +4136,9 @@ impl NodeData {
     pub fn set_css(&mut self, style: &str) {
         // Parse via Css::parse_inline so the inline path goes through the same
         // selector + nesting machinery as author CSS. Rules are tagged
-        // `rule_priority::INLINE` and appended to whatever this node already has.
+        // `rule_priority::INLINE` and appended to whatever this node already has;
+        // a `:hover { .. }` block becomes a rule under a `:hover` condition (the
+        // cascade reads a node's own style by its conditions).
         let parsed = azul_css::css::Css::parse_inline(style);
         let mut current: azul_css::css::CssRuleBlockVec = Vec::new().into();
         mem::swap(&mut current, &mut self.style.rules);
@@ -3824,6 +4172,7 @@ impl NodeData {
             flags: self.flags,
             accessibility: self.accessibility.clone(),
             extra: self.extra.clone(),
+            fluent_args: self.fluent_args.clone(),
         }
     }
 
@@ -4219,6 +4568,16 @@ impl_vec_debug!(DomNodeId, DomNodeIdVec);
 impl_vec_clone!(DomNodeId, DomNodeIdVec, DomNodeIdVecDestructor);
 impl_vec_partialeq!(DomNodeId, DomNodeIdVec);
 impl_vec_partialord!(DomNodeId, DomNodeIdVec);
+
+// "A list of nodes, or none given" - the `candidates` of
+// `SpatialNavigationSearchOptions`, where an EMPTY list (find nothing) and NO
+// list (search the container) mean different things.
+impl_option!(
+    DomNodeIdVec,
+    OptionDomNodeIdVec,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
 
 impl DomNodeId {
     pub const ROOT: Self = Self {
@@ -4794,6 +5153,34 @@ impl Dom {
     #[must_use]
     pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
         Self::create_node(NodeType::GeolocationProbe(config))
+    }
+
+    /// Creates a `<webview>` showing the page `src`: a native web view laid
+    /// out as a replaced element - 300x150 unless CSS (or the markup's
+    /// `width` / `height`) sizes it - in the app's ephemeral store.
+    ///
+    /// The view reports to the app through four component events at this
+    /// node: `WebViewNavigationRequested` (cancel with `prevent_default` -
+    /// how a sign-in flow catches its redirect), `WebViewLoadFinished`,
+    /// `WebViewTitleChanged` and `WebViewLoadFailed`, each read with
+    /// `CallbackInfo::get_webview_event`. A changed `src` on the same node
+    /// navigates the view it has; `CallbackInfo::webview_navigate`,
+    /// `webview_reload` and `webview_go_back` drive it from a callback.
+    #[inline]
+    #[must_use]
+    pub fn create_webview(src: AzString) -> Self {
+        Self::create_from_data(NodeData::create_webview(src))
+    }
+
+    /// [`Self::create_webview`] with an explicit configuration, e.g. the
+    /// app's persistent store (`WebViewConfig::persistent()`).
+    #[inline]
+    #[must_use]
+    pub fn create_webview_with_config(
+        src: AzString,
+        config: crate::webview::WebViewConfig,
+    ) -> Self {
+        Self::create_from_data(NodeData::create_webview_with_config(src, config))
     }
 
     // Semantic HTML Elements with Accessibility Guidance
@@ -7055,6 +7442,21 @@ impl Dom {
         self.root.add_id(id);
         self
     }
+
+    /// Attach Fluent arguments to this DOM's root node - see
+    /// [`NodeData::set_fluent_args`] for which text they apply to.
+    pub fn set_fluent_args<I: Into<FluentArgKVVec>>(&mut self, args: I) {
+        self.root.set_fluent_args(args);
+    }
+
+    /// Builder form of [`Self::set_fluent_args`].
+    #[inline]
+    #[must_use]
+    pub fn with_fluent_args<I: Into<FluentArgKVVec>>(mut self, args: I) -> Self {
+        self.set_fluent_args(args);
+        self
+    }
+
     #[inline]
     #[must_use]
     pub fn with_class(mut self, class: AzString) -> Self {
@@ -7296,7 +7698,10 @@ impl Dom {
         // path, and the old `with_component_css` is folded into this. A bare-declaration
         // string (`color: red`) parses to `* { color: red }` and so applies to the whole
         // subtree, exactly like attaching a `@scope { :scope { ... } }` block.
-        self.add_component_css(azul_css::css::Css::parse_inline(style));
+        // `parse_scoped`, not `parse_inline`: this sheet is selector-matched, so a
+        // `:hover { .. }` block stays the selector `*:hover` (a node's OWN style
+        // turns it into a condition instead).
+        self.add_component_css(azul_css::css::Css::parse_scoped(style));
     }
 
     /// Builder method for `set_css`

@@ -110,6 +110,7 @@ macro_rules! impl_vec {
             len: usize,
             cap: usize,
             destructor: $destructor_name,
+            pub flags: u8,
         }
 
         #[derive(Debug, Copy, Clone)]
@@ -148,6 +149,7 @@ macro_rules! impl_vec {
                     len: input.len(),
                     cap: input.len(),
                     destructor: $destructor_name::NoDestructor, // because of &'static
+                    flags: 0,
                 }
             }
 
@@ -184,6 +186,7 @@ macro_rules! impl_vec {
                     len,
                     cap,
                     destructor: $destructor_name::DefaultRust,
+                    flags: 0,
                 }
             }
 
@@ -920,9 +923,15 @@ macro_rules! impl_vec_clone {
                         len: self.len,
                         cap: self.cap,
                         destructor: $destructor_name::NoDestructor,
+                        flags: self.flags,
                     },
                     $destructor_name::External(_) | $destructor_name::DefaultRust => {
-                        Self::from_vec(self.as_ref().to_vec())
+                        // `from_vec` starts a fresh buffer with `flags: 0`; the
+                        // flags describe the VALUE (e.g. "this string is a
+                        // translation key"), so a copy keeps them.
+                        let mut copy = Self::from_vec(self.as_ref().to_vec());
+                        copy.flags = self.flags;
+                        copy
                     }
                 }
             }
@@ -1089,7 +1098,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1097,7 +1106,10 @@ macro_rules! impl_option {
         // This arm (copy = false) deliberately does NOT derive Copy so the
         // wrapper can hold non-Copy payloads; missing_copy_implementations is a
         // false positive for the Copy-payload instantiations routed through here.
+        // The size lints: this is the C API's `repr(C)` option, boxing the
+        // payload would change its ABI.
         #[allow(missing_copy_implementations, variant_size_differences)]
+        #[allow(clippy::large_enum_variant)]
         pub enum $struct_name {
             None,
             Some($struct_type)
@@ -1112,7 +1124,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1135,7 +1147,7 @@ macro_rules! impl_option {
             }
         }
 
-        impl_option_inner!($struct_type, $struct_name);
+        $crate::impl_option_inner!($struct_type, $struct_name);
     );
 }
 
@@ -1199,7 +1211,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
     ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1217,7 +1229,7 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
     ($ok_struct_type:ident, $err_struct_type:ident,  $struct_name:ident, [$($derive:meta),* ]) => (
         $(#[derive($derive)])*
@@ -1236,10 +1248,12 @@ macro_rules! impl_result {
             }
         }
 
-        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+        $crate::impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
 }
 
+// Only `codegen::format` uses it, so it exists with that feature only.
+#[cfg(feature = "codegen")]
 macro_rules! impl_color_value_fmt {
     ($struct_name:ty) => {
         impl FormatAsRustCode for $struct_name {
@@ -1255,6 +1269,7 @@ macro_rules! impl_color_value_fmt {
 }
 
 macro_rules! impl_enum_fmt {($enum_name:ident, $($enum_type:ident),+) => (
+    #[cfg(feature = "codegen")]
     impl crate::codegen::format::FormatAsRustCode for $enum_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
             match self {

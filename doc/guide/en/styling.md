@@ -129,7 +129,7 @@ let _ = Dom::create_body()
 > the mutating twin for when you are not chaining.
 
 Matching and inheritance happen once after `layout()` returns, in a single
-cascade pass. [The DOM page](dom.md#component-level-stylesheets)
+cascade pass. [Where styles meet the DOM](#where-styles-meet-the-dom)
 walks through the timing.
 
 [scope]: https://developer.mozilla.org/en-US/docs/Web/CSS/@scope
@@ -202,8 +202,9 @@ let _ = Dom::create_div().with_css("
   `@os(macos = sonoma)`.
 - `@os(<family>:<de> <op> <version>)` combines DE with a version.
   Example: `@os(linux:gnome > 40)`.
-- `@theme <variant>` matches the system theme. Variants: `dark`, `light`,
-  plus any custom string.
+- `@theme <variant>`: `dark` and `light` match the window's light / dark
+  mode (`AppConfig::with_mode`); any other name matches the app theme
+  (`AppConfig::with_theme`).
 - `@media (orientation: ...)` accepts `portrait` or `landscape`.
 - `@media (min-width: Npx)` and friends match numeric viewport ranges.
 - `@media (prefers-reduced-motion)` is the accessibility query for motion.
@@ -270,22 +271,37 @@ Layout properties (`width`, `padding`, `flex-grow`, ...) and most visual
 properties (`background`, `border`, ...) don't inherit. Write `inherit`
 explicitly if you want one to.
 
-## Dynamic properties (var(...))
+## Custom properties (`--name`) and var()
 
-A dynamic declaration is a CSS value swappable from Rust per frame.
-Syntax in CSS: `var(--my_id, <default>)`. It compiles to
-`DynamicCssProperty`:
+A custom property is a declaration like any other: `--accent: #ff6600`
+in a stylesheet rule or in a node's own style, under that rule's
+`@theme` / `@media` / `@os` / `:hover` conditions. It inherits: every
+node sees the nearest definition of each name, so a definition on a
+panel beats the `:root` one inside that panel (whatever either's
+priority), and a sibling subtree keeps seeing `:root`'s.
 
-```rust,ignore
-pub struct DynamicCssProperty {
-    pub dynamic_id: AzString,
-    pub default_value: CssProperty,
-}
+`var(--name, <fallback>)` reads it. The cascade resolves every `var()`
+per node under the window's live context, across all stylesheets and a
+node's own declarations, so one set of rules follows the mode:
+
+```css
+@theme(dark)  { :root { --face: #272822; } }
+@theme(light) { :root { --face: #fafafa; } }
+.button { background: var(--face, system:button-face); }
 ```
 
-Use them when you want to change a single value (an accent color, a
-spacing unit) without re-parsing the stylesheet. The override path lives
-on `Dom::with_css_property`.
+A light/dark switch re-resolves the variables through the ordinary
+restyle, without rebuilding the DOM.
+
+- Always declare a fallback: an undefined or mistyped variable then
+  degrades to a working value. A `var()` without one takes the property's
+  initial value, the parser warns, and the widget lint rejects it.
+- A fallback may itself be a `var()`: `var(--a, var(--b, 4px))`.
+- A definition may read other variables; it is resolved where it is
+  defined. A reference cycle makes the names in it undefined there.
+- `var()` works on longhand properties, and on `background` /
+  `background-color` (one longhand each). `margin: var(--m)` is refused
+  as ambiguous - write `margin-top: var(--m)`.
 
 ## system: keywords
 
@@ -349,8 +365,8 @@ parse via `with_css` or `Css::from_string` is "free" in the sense that it
 is one parse and one push onto a list. Selector matching and inheritance
 happen once after you return.
 
-See [The DOM](dom.md#component-level-stylesheets)
-for the per-frame walkthrough, and [Layout](layout.md) for how the
+See [Layout › Adding stylesheets](layout.md#adding-stylesheets) for what
+attaching a stylesheet does internally, and [Layout](layout.md) for how the
 cascaded properties feed the formatting algorithms.
 
 Sub-pages cover the catalogue of properties, the platform integration,
@@ -364,3 +380,5 @@ and the icon and text-styling primitives:
   style, alignment, plus the `system:` font keywords.
 - [Icon Packs](styling/icon-packs.md). Registering image and font icons
   under named packs.
+- [Ricing (User Themes)](styling/ricing.md). How end users restyle any Azul
+  app from `~/.azul/css/<theme>/`, the priority header, and `AZ_RICING`.

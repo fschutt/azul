@@ -3,8 +3,10 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode, corety::AzString, props::formatter::PrintAsCssValue,
+    corety::AzString, props::formatter::PrintAsCssValue,
 };
 
 // --- list-style-type ---
@@ -52,6 +54,7 @@ impl PrintAsCssValue for StyleListStyleType {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleListStyleType {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleListStyleType::{
@@ -107,6 +110,7 @@ impl PrintAsCssValue for StyleListStylePosition {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleListStylePosition {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleListStylePosition::{Inside, Outside};
@@ -426,6 +430,7 @@ mod autotest_generated {
         assert_eq!(StyleListStylePosition::default().to_string(), "outside");
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn rust_code_names_the_variant_and_ignores_the_tab_argument() {
         for v in ALL_TYPES {

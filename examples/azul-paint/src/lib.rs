@@ -1,7 +1,9 @@
 use azul::{
-    callbacks::{CallbackType, RenderImageCallbackInfo},
+    callbacks::{
+        CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo, StandardDialogOnEventCallbackType,
+    },
     css::PhysicalSizeU32,
-    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
+    dialog::{FileDialog, FileOpenResult},
     dom::RenderImageCallback,
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
     file::FileReadBytesResult,
@@ -9,8 +11,73 @@ use azul::{
     image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat},
     option::OptionFileTypeList,
     prelude::*,
+    str::String as AzString,
     vec::{F32VecRef, StringVec, U8VecRef},
+    shells::ShellThemeScope,
+    widgets::{AboutDialog, Dialog, DialogState, StandardDialogEvent, Titlebar},
 };
+use azul_appkit::{
+    about::AboutInfo,
+    args::{AppArgs, AppSpec},
+    files::{FileJob, FileOutcome},
+    history::UndoHistory,
+    shortcuts::Shortcut,
+    ui as kit,
+};
+
+/// The screens `--screen` opens; the first is the default.
+const SCREENS: [&str; 3] = ["paint", "settings", "about"];
+
+/// What azul-appkit's parser and usage text know about AzPaint.
+const SPEC: AppSpec = AppSpec {
+    name: "AzPaint",
+    binary: "AzPaint",
+    summary: "a paint app for the mouse, a finger or a stylus: brush and metaball strokes",
+    screens: &SCREENS,
+    files_help: "an image to paint over (PNG, JPEG, WebP, GIF, BMP, TIFF)",
+};
+
+/// What the About dialog and the settings page say about AzPaint.
+const ABOUT: AboutInfo = AboutInfo {
+    name: "AzPaint",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "Paint with the mouse, a finger or a stylus (pressure, tilt and twist): brush or \
+              metaball strokes over an imported picture, exported as PNG or SVG into the data \
+              folder. Part of the Azlin apps, built with azul.",
+    license: "MIT",
+    app_folder: "paint",
+};
+
+/// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
+const SHORTCUTS: [Shortcut; 5] = [
+    Shortcut::new("Edit", "Mod+Z", "Undo"),
+    Shortcut::new("Edit", "Mod+Shift+Z", "Redo"),
+    Shortcut::new("File", "Mod+O", "Import a picture to paint over"),
+    Shortcut::new("File", "Mod+S", "Export PNG into the data folder"),
+    Shortcut::new("File", "Mod+Shift+S", "Export SVG into the data folder"),
+];
+
+/// Every DOM id and marker AzPaint sets, defined ONCE with the app's prefix
+/// (`__azpaint_`, like the widgets' `__azul_`).
+mod ids {
+    use azul::str::String as AzString;
+
+    /// The canvas: its id (scripts find it) and its marker (the callbacks
+    /// find it to redraw it in place).
+    pub const CANVAS: AzString = AzString::from_const_str("__azpaint_canvas");
+    /// The pen-pressure meter in the header.
+    pub const PRESSURE: AzString = AzString::from_const_str("__azpaint_pressure");
+}
+
+/// A line for scripts on stdout: `<KEY> <value>`.
+fn say(line: &str) {
+    println!("{line}");
+}
+
+/// `AZPAINT_STROKES <n>`: the strokes on the canvas, after every change.
+fn say_strokes(state: &PaintState) {
+    say(&format!("AZPAINT_STROKES {}", state.strokes.len()));
+}
 
 #[derive(Debug, Clone, Copy)]
 struct StrokePoint {
@@ -75,25 +142,30 @@ struct PenHud {
 
 struct PaintState {
     strokes: Vec<Stroke>,
-    undone: Vec<Stroke>,
+    /// The strokes before each edit (a stroke, a Clear): azul-appkit's undo
+    /// stack, shared by every Azlin app.
+    history: UndoHistory<Vec<Stroke>>,
     current: Option<Stroke>,
     color: ColorU,
     hud: Option<PenHud>,
     device_line: Option<String>,
     metaball_mode: bool,
     background: Option<RawImage>,
-    export_path: Option<String>,
     rev: u64,
-    pressure_marker: String,
-    canvas_marker: String,
     last_pressure: f32,
+    /// azul-appkit's kit: settings (theme and mode remembered), the
+    /// settings page, the data root.
+    kit: RefAny,
+    about_open: bool,
+    /// Exports being written (data key, bytes), reported when written.
+    exports: Vec<(String, usize)>,
 }
 
 impl PaintState {
     fn new() -> Self {
         Self {
             strokes: Vec::new(),
-            undone: Vec::new(),
+            history: UndoHistory::new("New"),
             current: None,
             color: ColorU {
                 r: 30,
@@ -105,12 +177,52 @@ impl PaintState {
             device_line: None,
             metaball_mode: true,
             background: None,
-            export_path: None,
             rev: 1,
-            pressure_marker: String::new(),
-            canvas_marker: String::new(),
             last_pressure: 0.0,
+            kit: RefAny::new(()),
+            about_open: false,
+            exports: Vec::new(),
         }
+    }
+
+    /// `--sample`: three strokes, so the canvas shows what the app does.
+    fn load_sample(&mut self) {
+        let colors = [
+            ColorU::rgb(0x1e, 0x1e, 0x28),
+            ColorU::rgb(0xc8, 0x3c, 0x32),
+            ColorU::rgb(0x28, 0x78, 0xc8),
+        ];
+        for (row, color) in colors.into_iter().enumerate() {
+            let y = 90.0 + row as f32 * 70.0;
+            let points = (0..40)
+                .map(|i| {
+                    let t = i as f32 / 39.0;
+                    StrokePoint {
+                        x: 60.0 + t * 420.0,
+                        y: y + (t * std::f32::consts::TAU).sin() * 18.0,
+                        pressure: 0.25 + 0.6 * (t * std::f32::consts::PI).sin(),
+                        tilt_x: 0.0,
+                        tilt_y: 0.0,
+                        barrel_roll_rad: 0.0,
+                    }
+                })
+                .collect();
+            self.strokes.push(Stroke {
+                points,
+                color,
+                is_eraser: false,
+            });
+        }
+        self.rev += 1;
+    }
+
+    /// The strokes on the canvas, with the one being drawn.
+    fn all_strokes(&self) -> Vec<Stroke> {
+        let mut all = self.strokes.clone();
+        if let Some(cur) = self.current.as_ref() {
+            all.push(cur.clone());
+        }
+        all
     }
 
     fn toggle_metaballs(&mut self) {
@@ -123,18 +235,8 @@ impl PaintState {
         self.rev += 1;
     }
 
-    fn request_export(&mut self, path: String) {
-        self.export_path = Some(path);
-        self.rev += 1;
-    }
-
     fn begin_stroke(&mut self, p: StrokePoint, is_eraser: bool) {
-        if let Some(active) = self.current.take() {
-            if !active.points.is_empty() {
-                self.strokes.push(active);
-            }
-        }
-        self.undone.clear();
+        self.commit_current();
         self.current = Some(Stroke {
             points: vec![p],
             color: self.color,
@@ -151,33 +253,46 @@ impl PaintState {
     }
 
     fn end_stroke(&mut self) {
-        if let Some(active) = self.current.take() {
-            if !active.points.is_empty() {
-                self.strokes.push(active);
-            }
-        }
+        self.commit_current();
         self.rev += 1;
     }
 
-    fn undo(&mut self) {
-        if let Some(s) = self.strokes.pop() {
-            self.undone.push(s);
-            self.rev += 1;
+    /// The stroke being drawn joins the strokes: one History step.
+    fn commit_current(&mut self) {
+        if let Some(active) = self.current.take() {
+            if !active.points.is_empty() {
+                let label = if active.is_eraser { "Erase" } else { "Stroke" };
+                self.history.checkpoint(label, self.strokes.clone());
+                self.strokes.push(active);
+            }
         }
     }
 
-    fn redo(&mut self) {
-        if let Some(s) = self.undone.pop() {
-            self.strokes.push(s);
+    /// Back one step; whether there was one.
+    fn undo(&mut self) -> bool {
+        self.commit_current();
+        let undone = self.history.undo(&mut self.strokes);
+        if undone {
             self.rev += 1;
         }
+        undone
     }
 
+    /// Forward one step; whether there was one.
+    fn redo(&mut self) -> bool {
+        let redone = self.history.redo(&mut self.strokes);
+        if redone {
+            self.rev += 1;
+        }
+        redone
+    }
+
+    /// Clear the canvas: one History step (nothing for an empty canvas).
     fn clear_all(&mut self) {
-        if !self.strokes.is_empty() {
-            self.undone.append(&mut self.strokes);
-        }
         self.current = None;
+        if !self.strokes.is_empty() {
+            self.history.checkpoint("Clear", std::mem::take(&mut self.strokes));
+        }
         self.rev += 1;
     }
 }
@@ -287,14 +402,8 @@ fn render_brush_cpu(
     bg: ColorU,
     background: Option<&RawImage>,
 ) -> RawImage {
-    let mut img = RawImage {
-        pixels: RawImageData::U8(vec![0u8; (w as usize) * (h as usize) * 4].into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::new().into(),
-    };
+    let mut img =
+        RawImage::create_rgba8(w, h, vec![0u8; (w as usize) * (h as usize) * 4], true);
     if let RawImageData::U8(ref mut v) = img.pixels {
         composite_base(v.as_mut(), w, h, bg, background);
     }
@@ -306,10 +415,22 @@ fn render_brush_cpu(
     img
 }
 
-fn export_png(img: &RawImage, path: &str) {
-    let encoded = img.encode_png();
-    if let ResultU8VecEncodeImageError::Ok(ref bytes) = encoded {
-        let _ = std::fs::write(path, bytes.as_ref());
+/// The canvas on the CPU at `w` x `h`: metaballs (incrementally into `mb`)
+/// or brush strokes, over the background. The canvas's CPU path and the PNG
+/// export share it.
+fn cpu_raster(
+    mb: &mut MetaballField,
+    strokes: &[Stroke],
+    metaball_mode: bool,
+    w: u32,
+    h: u32,
+    background: Option<&RawImage>,
+) -> RawImage {
+    let bg = canvas_bg();
+    if metaball_mode {
+        metaball_image(mb, strokes, w, h, bg, background)
+    } else {
+        render_brush_cpu(strokes, w, h, bg, background)
     }
 }
 
@@ -567,14 +688,7 @@ fn metaball_image(
     mb.dabs = total_dabs;
     mb.strokes = strokes.len();
 
-    RawImage {
-        pixels: RawImageData::U8(mb.buf.clone().into()),
-        width: wu,
-        height: hu,
-        premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::new().into(),
-    }
+    RawImage::create_rgba8(w, h, mb.buf.clone(), true)
 }
 
 const MAX_GPU_BALLS: usize = 128;
@@ -788,18 +902,13 @@ fn render_canvas_inner(
     let mut cache = data.downcast_mut::<CanvasCache>()?;
     let cache = &mut *cache;
 
-    let (rev, strokes, metaball_mode, background, export_path) = {
+    let (rev, strokes, metaball_mode, background) = {
         let paint = cache.paint.downcast_ref::<PaintState>()?;
-        let mut all = paint.strokes.clone();
-        if let Some(cur) = paint.current.as_ref() {
-            all.push(cur.clone());
-        }
         (
             paint.rev,
-            all,
+            paint.all_strokes(),
             paint.metaball_mode,
             paint.background.clone(),
-            paint.export_path.clone(),
         )
     };
 
@@ -849,12 +958,7 @@ fn render_canvas_inner(
                 }
             }
             cache.rendered_rev = rev;
-        }
-        if let Some(path) = export_path.as_ref() {
-            if let Some(tex) = cache.texture.as_ref() {
-                export_png(&tex.copy_to_raw_image(), path.as_str());
-            }
-            clear_export(cache);
+            say(&format!("AZPAINT_RASTER {rev}"));
         }
         return cache
             .texture
@@ -866,44 +970,17 @@ fn render_canvas_inner(
         let s = img.get_size();
         (s.width as u32, s.height as u32)
     });
-    if cpu_canvas_needs_raster(
-        cache.rendered_rev,
-        rev,
-        cached,
-        (w, h),
-        export_path.is_some(),
-    ) {
-        let img = if metaball_mode {
-            metaball_image(&mut cache.mb, &strokes, w, h, bg, bg_ref)
-        } else {
-            render_brush_cpu(&strokes, w, h, bg, bg_ref)
-        };
-        if let Some(path) = export_path.as_ref() {
-            export_png(&img, path.as_str());
-        }
+    if cpu_canvas_needs_raster(cache.rendered_rev, rev, cached, (w, h)) {
+        let img = cpu_raster(&mut cache.mb, &strokes, metaball_mode, w, h, bg_ref);
         cache.cpu_image = ImageRef::create_rawimage(img).into_option();
         cache.rendered_rev = rev;
-    }
-    if export_path.is_some() {
-        clear_export(cache);
+        say(&format!("AZPAINT_RASTER {rev}"));
     }
     cache.cpu_image.clone()
 }
 
-fn cpu_canvas_needs_raster(
-    rendered_rev: u64,
-    rev: u64,
-    cached: Option<(u32, u32)>,
-    target: (u32, u32),
-    exporting: bool,
-) -> bool {
-    rendered_rev != rev || cached != Some(target) || exporting
-}
-
-fn clear_export(cache: &mut CanvasCache) {
-    if let Some(mut paint) = cache.paint.downcast_mut::<PaintState>() {
-        paint.export_path = None;
-    }
+fn cpu_canvas_needs_raster(rendered_rev: u64, rev: u64, cached: Option<(u32, u32)>, target: (u32, u32)) -> bool {
+    rendered_rev != rev || cached != Some(target)
 }
 
 extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
@@ -927,39 +1004,39 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
     new_data
 }
 
+/// The bar over the canvas: flat's dark bar (one band with the title row);
+/// under flora a leaf under flora's window chrome, in its ink and its hand.
 const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
                       flex-direction: row; align-items: center; font-family: sans-serif; \
-                      font-size: 16px; user-select: none;";
+                      font-size: 16px; user-select: none; @theme(flora) { background: \
+                      system:window-background; color: system:text; font-family: system:ui; \
+                      border-bottom: 1px solid system:separator; }";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
-const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
+const ROOT: &str = "display: flex; flex-direction: column; height: 100%; margin: 0px;";
+/// The column in the theme scope: the title row, the header, the canvas.
+const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 
-extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (pressure_marker, canvas_marker) = match data.downcast_mut::<PaintState>() {
-        Some(mut s) => {
-            if s.pressure_marker.is_empty() {
-                s.pressure_marker = azul::uuid::Uuid::short().as_str().to_string();
-            }
-            if s.canvas_marker.is_empty() {
-                s.canvas_marker = azul::uuid::Uuid::short().as_str().to_string();
-            }
-            (s.pressure_marker.clone(), s.canvas_marker.clone())
-        }
-        None => (String::new(), String::new()),
-    };
-    let (n_strokes, n_undone, metaballs, hud, device_line, last_pressure) = data
+/// The app theme is flora or a spin of it ("flora:green").
+fn is_flora(theme: &str) -> bool {
+    theme == "flora" || theme.starts_with("flora:")
+}
+
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the theme makes a switch rebuild the window (the title row is
+    // flora's own chrome under flora).
+    let flora = is_flora(info.get_theme().as_str());
+    let (n_strokes, metaballs, hud, device_line, last_pressure) = data
         .downcast_ref::<PaintState>()
         .map(|s| {
             (
                 s.strokes.len(),
-                s.undone.len(),
                 s.metaball_mode,
                 s.hud,
                 s.device_line.clone(),
                 s.last_pressure,
             )
         })
-        .unwrap_or((0, 0, true, None, None, 0.0));
-    let _ = n_undone;
+        .unwrap_or((0, true, None, None, 0.0));
 
     let mode_label = if metaballs { "Metaballs" } else { "Brush" };
     let title = match device_line {
@@ -1010,9 +1087,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 azul::widgets::ProgressBar::create(last_pressure)
                     .with_height(azul::css::PixelValue::px(12.0))
                     .dom()
-                    .with_marker(azul::option::OptionString::Some(
-                        pressure_marker.as_str().into(),
-                    )),
+                    .with_marker(azul::option::OptionString::Some(ids::PRESSURE)),
             ),
     );
 
@@ -1030,7 +1105,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         cache.clone(),
     ))
     .with_css(CANVAS)
-    .with_marker(azul::option::OptionString::Some(canvas_marker.as_str().into()))
+    .with_id(ids::CANVAS)
+    .with_marker(azul::option::OptionString::Some(ids::CANVAS))
     .with_dataset(OptionRefAny::Some(cache))
     .with_merge_callback(merge_cache)
     .with_callback(
@@ -1038,8 +1114,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         data.clone(),
         on_pointer_down,
     )
+    // Movement: `MouseMove` (W3C `mouseover` fires once, on entry - with it
+    // the strokes got no points between press and release).
     .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseOver),
+        EventFilter::Hover(HoverEventFilter::MouseMove),
         data.clone(),
         on_pointer_move,
     )
@@ -1090,18 +1168,22 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let menu = Menu::create(vec![
         MenuItem::string(StringMenuItem::create("File").with_children(vec![
             action_with_accel("Import image…", on_import, &[K::LWin, K::O]),
-            action_with_accel("Export PNG…", on_export, &[K::LWin, K::S]),
-            action_with_accel("Export SVG…", on_export_svg, &[K::LWin, K::LShift, K::S]),
+            action_with_accel("Export PNG", on_export, &[K::LWin, K::S]),
+            action_with_accel("Export SVG", on_export_svg, &[K::LWin, K::LShift, K::S]),
         ])),
         MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
-            action("Undo", on_undo),
-            action("Redo", on_redo),
+            action_with_accel("Undo", on_undo, &[K::LWin, K::Z]),
+            action_with_accel("Redo", on_redo, &[K::LWin, K::LShift, K::Z]),
             action("Clear", on_clear),
         ])),
         MenuItem::string(StringMenuItem::create("View").with_children(vec![action(
             "Toggle effect (Brush / Metaballs)",
             on_toggle_mode,
         )])),
+        MenuItem::string(StringMenuItem::create("Help").with_children(vec![
+            action("Settings…", on_settings_open),
+            action("About AzPaint", on_about_open),
+        ])),
     ]);
 
     let ctx_menu = Menu::create(vec![
@@ -1114,12 +1196,131 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     ]);
     let canvas = canvas.with_context_menu(ctx_menu.clone());
 
+    let (kit_ref, about_open) = data
+        .downcast_ref::<PaintState>()
+        .map(|s| (s.kit.clone(), s.about_open))
+        .unwrap_or((RefAny::new(()), false));
+    let mut column = Dom::create_div().with_css(COLUMN).with_child(title_row(flora));
+    if kit::settings_open(&kit_ref) {
+        // azul-appkit's settings page: Appearance (remembered), Data,
+        // Shortcuts, About.
+        column.add_child(kit::settings_page(&kit_ref, Vec::new()));
+    } else {
+        column.add_child(header);
+        column.add_child(canvas);
+        if about_open {
+            column.add_child(about_dialog(&data));
+        }
+    }
+    // The theme's ground, ink and hand around everything (the settings page
+    // and the About dialog inherit them, flora's scrollbars come with it).
     Dom::create_body()
         .with_css(ROOT)
         .with_menu_bar(menu)
         .with_context_menu(ctx_menu)
-        .with_child(header)
-        .with_child(canvas)
+        .with_child(ShellThemeScope::create(column).dom())
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            data.clone(),
+            on_key,
+        )
+}
+
+/// Help > About AzPaint: azul's standard AboutDialog in a modal Dialog.
+fn about_dialog(data: &RefAny) -> Dom {
+    let about = AboutDialog::create(ABOUT.name, ABOUT.version)
+        .with_icon("brush")
+        .with_description(ABOUT.summary)
+        .with_copyright("MIT license")
+        .with_credit("azul", "MIT")
+        .with_on_event(data.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .dom();
+    Dialog::create(about)
+        .with_title("About AzPaint")
+        .with_open(true)
+        .with_modal(true)
+        .with_close_button(true)
+        .with_on_close(data.clone(), on_about_close as DialogOnCloseCallbackType)
+        .dom()
+}
+
+fn close_about(data: &mut RefAny) -> Update {
+    match data.downcast_mut::<PaintState>() {
+        Some(mut s) if s.about_open => {
+            s.about_open = false;
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
+    }
+}
+
+extern "C" fn on_about_event(mut data: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
+    close_about(&mut data)
+}
+
+extern "C" fn on_about_close(mut data: RefAny, _info: CallbackInfo, _state: DialogState) -> Update {
+    close_about(&mut data)
+}
+
+extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    kit::close_settings(&s.kit);
+    s.about_open = true;
+    Update::RefreshDom
+}
+
+/// File > Settings / Help > Keyboard Shortcuts: the kit's settings page.
+extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    s.about_open = false;
+    kit::open_settings(&s.kit, None);
+    Update::RefreshDom
+}
+
+/// The window's keys: the kit's (Mod+, the settings, F1 the shortcuts,
+/// Escape closes them), Escape closes About. Undo, redo, import and export
+/// are the menu items' accelerators.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = data.downcast_ref::<PaintState>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
+        return update;
+    }
+    let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
+    if matches!(key, Some(azul::dom::VirtualKeyCode::Escape)) {
+        return close_about(&mut data);
+    }
+    Update::DoNothing
+}
+
+/// The window is up: the kit's `--shot` timer.
+extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(s) = data.downcast_ref::<PaintState>() {
+        kit::on_window_created(&s.kit, &mut info);
+        say_strokes(&s);
+    }
+    Update::DoNothing
+}
+
+/// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
+/// draws only the traffic lights). Flat: the header's colour and no line
+/// under it, so the title row and the header read as one bar. Flora: flora's
+/// window chrome and its line over the header's leaf (flora draws its own
+/// chrome; the bar's colour fields are flat's).
+fn title_row(flora: bool) -> Dom {
+    if flora {
+        return Titlebar::create("AzPaint").dom();
+    }
+    let mut bar = Titlebar::create("AzPaint")
+        .with_background(ColorU::rgb(0x2b, 0x2b, 0x2b))
+        .without_border_bottom();
+    bar.title_color = ColorU::rgb(0xff, 0xff, 0xff);
+    bar.dom()
 }
 
 fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
@@ -1210,7 +1411,7 @@ fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
     ))
 }
 
-fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> {
+fn push_pressure_to_meter(info: &mut CallbackInfo) -> Option<f32> {
     let pct = match info.get_pen_state().into_option() {
         Some(pen) => pen.pressure.clamp(0.0, 1.0) * 100.0,
         None => {
@@ -1222,13 +1423,13 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
             }
         }
     };
-    let node_id = info.get_node_id_by_marker(marker.to_string()).into_option();
+    let node_id = info.get_node_id_by_marker(ids::PRESSURE).into_option();
     let ok = node_id
         .map(|n| azul::widgets::ProgressBar::update_progress(*info, n, pct))
         .unwrap_or(false);
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!(
-            "[paint] t={}ms fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
+            "[paint] t={}ms fast-path: node={:?} pct={pct} update_progress={ok}",
             dbg_ms(),
             node_id.map(|n| (n.dom.inner, n.node.inner as i64 - 1)),
         );
@@ -1236,11 +1437,15 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
     ok.then_some(pct)
 }
 
-fn poke_canvas(info: &mut CallbackInfo, marker: &str) {
-    if let Some(node) = info.get_node_id_by_marker(marker.to_string()).into_option() {
+/// Ask for a new frame of the canvas (its `RenderImageCallback`), no relayout.
+fn poke_canvas(info: &mut CallbackInfo) {
+    if let Some(node) = info.get_node_id_by_marker(ids::CANVAS).into_option() {
+        // `into_raw` is the 1-based encoding (0 = none); `NodeId` is 0-based.
+        // Passing it as it was poked the node AFTER the canvas: the stroke
+        // was not drawn until something else re-rendered the window.
         let raw = node.node.into_raw();
         if raw != 0 {
-            info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw });
+            info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw - 1 });
         }
     }
 }
@@ -1266,25 +1471,20 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     };
     update_hud(&mut state, hud);
     state.begin_stroke(point, is_eraser);
-    let marker = state.pressure_marker.clone();
-    let canvas = state.canvas_marker.clone();
     drop(state);
-    if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
+    if let Some(pct) = push_pressure_to_meter(&mut info) {
         if let Some(mut s) = data.downcast_mut::<PaintState>() {
             s.last_pressure = pct;
         }
     }
-    poke_canvas(&mut info, &canvas);
+    poke_canvas(&mut info);
     Update::DoNothing
 }
 
 extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let hud = hud_from(&info);
     let point = extract_point(&info);
-    let pushed = data
-        .downcast_ref::<PaintState>()
-        .map(|s| s.pressure_marker.clone())
-        .and_then(|m| push_pressure_to_meter(&mut info, &m));
+    let pushed = push_pressure_to_meter(&mut info);
     let device_line = data
         .downcast_ref::<PaintState>()
         .is_some_and(|s| s.device_line.is_none())
@@ -1313,9 +1513,8 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     match point {
         Some((p, _)) => {
             state.extend_stroke(p);
-            let canvas = state.canvas_marker.clone();
             drop(state);
-            poke_canvas(&mut info, &canvas);
+            poke_canvas(&mut info);
             Update::DoNothing
         }
         None if hud_changed => Update::RefreshDom,
@@ -1333,15 +1532,15 @@ extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         );
     }
     let hud = hud_from(&info);
-    let marker = match data.downcast_mut::<PaintState>() {
+    match data.downcast_mut::<PaintState>() {
         Some(mut s) => {
             update_hud(&mut s, hud);
             s.end_stroke();
-            s.pressure_marker.clone()
+            say_strokes(&s);
         }
         None => return Update::DoNothing,
-    };
-    if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
+    }
+    if let Some(pct) = push_pressure_to_meter(&mut info) {
         if let Some(mut s) = data.downcast_mut::<PaintState>() {
             s.last_pressure = pct;
         }
@@ -1361,6 +1560,7 @@ extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
     let had_stroke = state.current.is_some();
     if had_stroke {
         state.end_stroke();
+        say_strokes(&state);
     }
     if had_hud || had_stroke {
         Update::RefreshDom
@@ -1369,27 +1569,37 @@ extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
     }
 }
 
+/// Edit > Undo (Mod+Z, the item's accelerator).
 extern "C" fn on_undo(mut data: RefAny, _info: CallbackInfo) -> Update {
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.undo(),
-        None => return Update::DoNothing,
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    if !s.undo() {
+        return Update::DoNothing;
     }
+    say_strokes(&s);
     Update::RefreshDom
 }
 
+/// Edit > Redo (Mod+Shift+Z).
 extern "C" fn on_redo(mut data: RefAny, _info: CallbackInfo) -> Update {
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.redo(),
-        None => return Update::DoNothing,
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    if !s.redo() {
+        return Update::DoNothing;
     }
+    say_strokes(&s);
     Update::RefreshDom
 }
 
+/// Edit > Clear: one undoable step.
 extern "C" fn on_clear(mut data: RefAny, _info: CallbackInfo) -> Update {
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.clear_all(),
-        None => return Update::DoNothing,
-    }
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    s.clear_all();
+    say_strokes(&s);
     Update::RefreshDom
 }
 
@@ -1459,43 +1669,144 @@ extern "C" fn on_import_bytes(mut data: RefAny, _info: CallbackInfo, result: Ref
     Update::RefreshDom
 }
 
-extern "C" fn on_export(data: RefAny, _info: CallbackInfo) -> Update {
-    let _request = FileDialog::save_file("Export PNG", "canvas.png", data, on_export_target);
-    Update::DoNothing
+/// The tag of the export file jobs.
+const TAG_EXPORT: u64 = 1;
+
+/// `paint/exports/<stem>-<unix seconds>-<n>.<ext>`: an export's key in the
+/// data tree (the counter keeps two exports of one second apart).
+fn export_key(stem: &str, ext: &str, n: usize) -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    azul_appkit::data::app_key(ABOUT.app_folder, &format!("exports/{stem}-{secs}-{n}.{ext}"))
 }
 
-extern "C" fn on_export_target(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
-        return Update::DoNothing;
+/// Write `bytes` into the data tree under `key` on a Thread (the kit's file
+/// job through the Drive - no file write in the callback).
+fn write_export(data: &RefAny, info: &mut CallbackInfo, key: String, bytes: Vec<u8>) {
+    let mut handle = data.clone();
+    let Some(mut s) = handle.downcast_mut::<PaintState>() else {
+        return;
     };
-    let Some(target) = picked.target.into_option() else {
-        return Update::DoNothing;
+    let Some(root) = s.kit.clone().downcast_ref::<kit::Kit>().map(|k| k.data_root.clone()) else {
+        return;
     };
-    let Some(path) = target.as_path().into_option() else {
-        return Update::DoNothing;
+    s.exports.push((key.clone(), bytes.len()));
+    drop(s);
+    kit::spawn_file_jobs(
+        info,
+        &root,
+        vec![FileJob::Put { key, bytes }],
+        data.clone(),
+        TAG_EXPORT,
+        on_files_done,
+    );
+}
+
+/// The canvas's size (logical px), for the PNG export.
+fn canvas_size(info: &mut CallbackInfo) -> (u32, u32) {
+    info.get_node_id_by_marker(ids::CANVAS)
+        .into_option()
+        .and_then(|node| info.get_node_size(node).into_option())
+        .map_or((1024, 720), |size| (size.width.max(1.0) as u32, size.height.max(1.0) as u32))
+}
+
+/// File > Export PNG (Mod+S): the canvas as it is, into
+/// `paint/exports/canvas-*.png` in the data folder.
+extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (w, h) = canvas_size(&mut info);
+    let (png, n) = {
+        let Some(s) = data.downcast_ref::<PaintState>() else {
+            return Update::DoNothing;
+        };
+        let img = cpu_raster(
+            &mut MetaballField::default(),
+            &s.all_strokes(),
+            s.metaball_mode,
+            w,
+            h,
+            s.background.as_ref(),
+        );
+        (img.encode_png(), s.exports.len())
     };
-    match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.request_export(path.as_string().as_str().to_string()),
-        None => return Update::DoNothing,
+    match png {
+        ResultU8VecEncodeImageError::Ok(bytes) => {
+            write_export(&data, &mut info, export_key("canvas", "png", n), bytes.as_ref().to_vec());
+        }
+        _ => eprintln!("[azpaint] the canvas could not be encoded as PNG"),
     }
-    Update::RefreshDom
-}
-
-extern "C" fn on_export_svg(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let svg = match data.downcast_ref::<PaintState>() {
-        Some(s) => strokes_to_svg(&s.strokes, s.metaball_mode),
-        None => return Update::DoNothing,
-    };
-    let _scheduled = FileDialog::save_bytes("strokes.svg", "image/svg+xml", svg.into_bytes());
     Update::DoNothing
 }
 
+/// File > Export SVG (Mod+Shift+S): the strokes as vector shapes, into
+/// `paint/exports/strokes-*.svg`.
+extern "C" fn on_export_svg(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (svg, n) = match data.downcast_ref::<PaintState>() {
+        Some(s) => (strokes_to_svg(&s.all_strokes(), s.metaball_mode), s.exports.len()),
+        None => return Update::DoNothing,
+    };
+    write_export(&data, &mut info, export_key("strokes", "svg", n), svg.into_bytes());
+    Update::DoNothing
+}
+
+/// An export was written (or not): `AZPAINT_EXPORTED <key> <bytes>`.
+extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    for outcome in reply.outcomes {
+        if let FileOutcome::Put { key, result } = outcome {
+            let size = s.exports.iter().find(|(k, _)| *k == key).map_or(0, |(_, n)| *n);
+            s.exports.retain(|(k, _)| *k != key);
+            match result {
+                Ok(()) => say(&format!("AZPAINT_EXPORTED {key} {size}")),
+                Err(e) => eprintln!("[azpaint] {key}: {e}"),
+            }
+        }
+    }
+    Update::DoNothing
+}
+
+/// Starts AzPaint (`--help` for the switches): azul-appkit's kit (the data
+/// root, the remembered theme and mode, `--size`, `--shot`), `--sample`, an
+/// image to paint over.
 pub fn start() {
-    let data = RefAny::new(PaintState::new());
-    let config = AppConfig::create();
-    let app = App::create(data, config);
-    let window = WindowCreateOptions::create(layout);
-    app.run(window);
+    let app_args = match AppArgs::parse(&SPEC, std::env::args().skip(1)) {
+        Ok(a) => a,
+        Err(message) => {
+            println!("{message}");
+            std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
+        }
+    };
+    let screen = app_args.screen_or_default(&SPEC).to_string();
+    let picture = app_args.files.first().cloned();
+    let sample = app_args.sample;
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], app_args);
+    if screen == "settings" {
+        kit::open_settings(&kit_ref, None);
+    }
+    let mut state = PaintState::new();
+    state.kit = kit_ref.clone();
+    state.about_open = screen == "about";
+    if sample {
+        state.load_sample();
+    }
+    // A picture named on the command line, read before the window exists.
+    if let Some(path) = picture {
+        match std::fs::read(&path) {
+            Ok(bytes) => match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
+                ResultRawImageDecodeImageError::Ok(img) => state.set_background(img),
+                _ => eprintln!("[azpaint] {}: not an image azul can read", path.display()),
+            },
+            Err(e) => eprintln!("[azpaint] {}: {e}", path.display()),
+        }
+    }
+    let config = kit::app_config(&kit_ref);
+    let window = kit::window_options(&kit_ref, layout, (1024.0, 720.0), (480.0, 360.0), on_window_created);
+    App::create(RefAny::new(state), config).run(window);
 }
 
 #[cfg(target_os = "android")]
@@ -1507,6 +1818,21 @@ fn android_ctor() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flora_and_its_spins_are_flora_and_the_header_keeps_flats_bar() {
+        assert!(is_flora("flora"));
+        assert!(is_flora("flora:green"));
+        assert!(!is_flora("flat"));
+        assert!(!is_flora("florabunda"));
+        // Flat's dark bar stays; flora's block (after it) lays the leaf and
+        // names no colour of its own.
+        let (flat, flora) = HEADER.split_once("@theme(flora)").expect("a flora block");
+        assert!(flat.contains("background: #2b2b2b;"));
+        assert!(flora.contains("background: system:window-background;"));
+        assert!(flora.contains("font-family: system:ui;"));
+        assert!(!flora.contains('#'), "flora's header names system: colours: {flora}");
+    }
 
     fn pt(x: f32, y: f32, pressure: f32) -> StrokePoint {
         StrokePoint {
@@ -1552,6 +1878,51 @@ mod tests {
             },
             is_eraser: false,
         }
+    }
+
+    fn stroke_at(s: &mut PaintState, x: f32) {
+        s.begin_stroke(pt(x, x, 0.5), false);
+        s.extend_stroke(pt(x + 10.0, x, 0.5));
+        s.end_stroke();
+    }
+
+    /// Undo / redo through azul_appkit::UndoHistory: a stroke and a Clear are
+    /// one step each, Clear can be undone, a new stroke drops the redo branch.
+    #[test]
+    fn undo_and_redo_walk_strokes_and_clear_through_the_history() {
+        let mut s = PaintState::new();
+        stroke_at(&mut s, 10.0);
+        stroke_at(&mut s, 20.0);
+        assert_eq!(s.strokes.len(), 2);
+        s.clear_all();
+        assert!(s.strokes.is_empty());
+
+        assert!(s.undo(), "the Clear is undone");
+        assert_eq!(s.strokes.len(), 2, "both strokes are back");
+        assert!(s.undo());
+        assert_eq!(s.strokes.len(), 1);
+        assert!(s.redo());
+        assert_eq!(s.strokes.len(), 2);
+        assert_eq!(s.history.redo_label(), Some("Clear"));
+
+        stroke_at(&mut s, 30.0);
+        assert_eq!(s.strokes.len(), 3);
+        assert!(!s.redo(), "a new stroke drops the redo branch");
+        assert!(s.undo() && s.undo() && s.undo());
+        assert!(s.strokes.is_empty());
+        assert!(!s.undo(), "nothing before the first stroke");
+    }
+
+    #[test]
+    fn a_press_without_a_stroke_or_a_clear_of_nothing_is_no_step() {
+        let mut s = PaintState::new();
+        s.end_stroke();
+        s.clear_all();
+        assert!(!s.history.can_undo());
+        stroke_at(&mut s, 5.0);
+        let rev = s.rev;
+        assert!(s.undo());
+        assert!(s.rev > rev, "an undo redraws the canvas");
     }
 
     #[test]
@@ -1614,29 +1985,17 @@ mod tests {
 
     #[test]
     fn the_cpu_canvas_re_rasterises_when_its_box_changes() {
-        assert!(cpu_canvas_needs_raster(
-            3,
-            3,
-            Some((400, 300)),
-            (500, 300),
-            false
-        ));
-        assert!(
-            cpu_canvas_needs_raster(3, 3, None, (500, 300), false),
-            "no bitmap yet"
-        );
-        assert!(
-            cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300), false),
-            "strokes changed"
-        );
-        assert!(
-            cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), true),
-            "export pending"
-        );
-        assert!(
-            !cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), false),
-            "nothing changed"
-        );
+        assert!(cpu_canvas_needs_raster(3, 3, Some((400, 300)), (500, 300)));
+        assert!(cpu_canvas_needs_raster(3, 3, None, (500, 300)), "no bitmap yet");
+        assert!(cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300)), "strokes changed");
+        assert!(!cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300)), "nothing changed");
+    }
+
+    #[test]
+    fn an_export_key_lives_in_the_apps_exports_folder() {
+        let key = export_key("canvas", "png", 2);
+        assert!(key.starts_with("paint/exports/canvas-"), "{key}");
+        assert!(key.ends_with("-2.png"), "{key}");
     }
 
     #[test]

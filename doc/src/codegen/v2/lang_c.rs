@@ -126,11 +126,25 @@ pub(crate) fn escape_cpp_keyword_for_c(name: &str) -> String {
     }
 }
 
+/// See [`super::field_access::is_callback_or_refany_field`].
+fn is_callback_or_refany_field(t: &str, ir: &CodegenIR) -> bool {
+    super::field_access::is_callback_or_refany_field(t, ir)
+}
+
 // ============================================================================
 // C Generator
 // ============================================================================
 
 pub struct CGenerator;
+
+/// One variant of a tagged union as `CGenerator::generate_union_type` emits
+/// it: its name and payload members `(C member name, api type, ref kind)` -
+/// empty for a unit variant. Data-carrying enums and monomorphized aliases
+/// both lower to this, so one emitter writes both.
+struct CUnionVariant<'a> {
+    name: &'a str,
+    members: Vec<(String, &'a str, FieldRefKind)>,
+}
 
 impl LanguageGenerator for CGenerator {
     fn generate(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -175,11 +189,17 @@ impl LanguageGenerator for CGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
 
+        // ABI guard: AZ_ABI_HASH, AzAbi_getHash, AzAbi_check (run at load)
+        builder.raw(&super::abi_guard::c_items(ir));
+
         // Enum variant checker functions (is{Variant}())
         self.generate_enum_variant_checkers(&mut builder, ir, config);
 
         // Union match helper functions
         self.generate_union_match_helpers(&mut builder, ir, config);
+
+        // Heap-owning field helpers (Az<T>_set<Field> / Az<T>_get<Field>)
+        self.generate_field_helpers(&mut builder, ir, config);
 
         // Vec_empty macros (must come before capi_patch which uses them)
         self.generate_vec_empty_macros(&mut builder, ir, config);
@@ -264,13 +284,13 @@ impl LanguageGenerator for CGenerator {
                     self.generate_struct(&mut builder, struct_def, config);
                 }
                 SortedType::Enum(enum_def) => {
-                    self.generate_enum(&mut builder, enum_def, config);
+                    self.generate_enum(&mut builder, enum_def, ir, config);
                 }
                 SortedType::Callback(callback) => {
                     self.generate_callback_typedef(&mut builder, callback, config);
                 }
                 SortedType::TypeAlias(type_alias) => {
-                    self.generate_type_alias(&mut builder, type_alias, config);
+                    self.generate_type_alias(&mut builder, type_alias, ir, config);
                 }
             }
         }
@@ -367,6 +387,9 @@ impl CGenerator {
         builder.line("#include <string.h>");
         builder.blank();
 
+        // The ABI guard's includes, outside the `extern "C"` block below.
+        builder.raw(&super::abi_guard::c_includes());
+
         // DLL import/export macros
         builder.line("/* cross-platform define for __declspec(dllimport) */");
         builder.line("#ifdef _WIN32");
@@ -393,6 +416,26 @@ impl CGenerator {
         builder.line("#    define AZ_ALIGNOF(type) __alignof(type)");
         builder.line("#  else");
         builder.line("#    define AZ_ALIGNOF(type) offsetof(struct { char c; type t; }, t)");
+        builder.line("#  endif");
+        builder.line("#endif");
+        builder.blank();
+
+        // Compile-time layout checks. The tagged unions below pin every
+        // padded variant payload offset to Rust's (`#ifdef AZ_LAYOUT_CHECK`
+        // blocks after each union); pre-C11 / pre-C++11 compilers skip them.
+        // Defining AZ_LAYOUT_CHECK(cond, msg) before the include overrides it.
+        builder.line("/* Compile-time layout checks: C11 _Static_assert / C++11 static_assert */");
+        builder.line("#ifndef AZ_LAYOUT_CHECK");
+        builder.line(
+            "#  if defined(__cplusplus) && (__cplusplus >= 201103L || (defined(_MSC_VER) && \
+             _MSC_VER >= 1600))",
+        );
+        builder.line("#    define AZ_LAYOUT_CHECK(cond, msg) static_assert(cond, msg);");
+        builder.line(
+            "#  elif !defined(__cplusplus) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= \
+             201112L",
+        );
+        builder.line("#    define AZ_LAYOUT_CHECK(cond, msg) _Static_assert(cond, msg);");
         builder.line("#  endif");
         builder.line("#endif");
         builder.blank();
@@ -472,13 +515,14 @@ impl CGenerator {
         &self,
         builder: &mut CodeBuilder,
         type_alias: &TypeAliasDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&type_alias.name);
 
         // If this type alias has a monomorphized definition, generate it as a full type
         if let Some(ref mono_def) = type_alias.monomorphized_def {
-            self.generate_monomorphized_type(builder, &name, mono_def, config);
+            self.generate_monomorphized_type(builder, &type_alias.name, &name, mono_def, ir, config);
             return;
         }
 
@@ -513,74 +557,34 @@ impl CGenerator {
     fn generate_monomorphized_type(
         &self,
         builder: &mut CodeBuilder,
+        api_name: &str,
         name: &str,
         mono_def: &MonomorphizedTypeDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
         match &mono_def.kind {
             MonomorphizedKind::TaggedUnion { repr, variants } => {
-                let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-
-                // Generate tag enum
-                builder.line(&format!("enum {}_Tag {{", name));
-                builder.indent();
-                for variant in variants {
-                    builder.line(&format!("{}_Tag_{},", name, variant.name));
-                }
-                if is_u8_repr {
-                    builder.line(&format!("{}_Tag__Force8Bit = 0xFF,", name));
-                }
-                builder.dedent();
-                builder.line("};");
-                builder.line(&format!("typedef enum {}_Tag {}_Tag;", name, name));
-                builder.blank();
-
-                // Generate variant structs. The tag FIELD must be `uint8_t`
-                // for a `#[repr(C, u8)]` enum: a C `enum` is `int`-sized no
-                // matter how small its values (the `__Force8Bit = 0xFF`
-                // sentinel above documents the intent, it does not shrink the
-                // type), so `X_Tag tag;` made every variant struct 4 bytes
-                // of tag + padding to the payload's alignment. For payloads
-                // aligned to 8 that coincides with the u8 layout by luck; for
-                // the 13 `CssPropertyValue<Color>` types (ColorU: 4×u8, align
-                // 1) the header said 8 where the DLL and Pascal said 5. Same
-                // rule as the regular tagged-enum emitter below.
-                for variant in variants {
-                    builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
-                    builder.indent();
-                    if is_u8_repr {
-                        builder.line("uint8_t tag;");
-                    } else {
-                        builder.line(&format!("{}_Tag tag;", name));
-                    }
-
-                    if let Some(ref payload_type) = variant.payload_type {
-                        let c_type = self.rust_type_to_c_with_prefix(payload_type, config);
-                        let (ptr_prefix, ptr_suffix) =
-                            self.ref_kind_to_c_syntax(&variant.payload_ref_kind);
-                        builder.line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
-                    }
-
-                    builder.dedent();
-                    builder.line("};");
-                    builder.line(&format!(
-                        "typedef struct {}Variant_{} {}Variant_{};",
-                        name, variant.name, name, variant.name
-                    ));
-                    builder.blank();
-                }
-
-                // Generate union
-                builder.line(&format!("union {} {{", name));
-                builder.indent();
-                for variant in variants {
-                    builder.line(&format!(
-                        "{}Variant_{} {};",
-                        name, variant.name, variant.name
-                    ));
-                }
-                builder.dedent();
-                builder.line("};");
+                let variants: Vec<CUnionVariant> = variants
+                    .iter()
+                    .map(|v| CUnionVariant {
+                        name: &v.name,
+                        members: v
+                            .payload_type
+                            .iter()
+                            .map(|t| ("payload".to_string(), t.as_str(), v.payload_ref_kind))
+                            .collect(),
+                    })
+                    .collect();
+                self.generate_union_type(
+                    builder,
+                    api_name,
+                    name,
+                    repr.as_deref(),
+                    &variants,
+                    ir,
+                    config,
+                );
                 builder.blank();
             }
 
@@ -715,7 +719,13 @@ impl CGenerator {
         builder.blank();
     }
 
-    fn generate_enum(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, config: &CodegenConfig) {
+    fn generate_enum(
+        &self,
+        builder: &mut CodeBuilder,
+        enum_def: &EnumDef,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
         let name = config.apply_prefix(&enum_def.name);
 
         // Doc comment
@@ -729,7 +739,7 @@ impl CGenerator {
 
         if enum_def.is_union {
             // Tagged union: generate tag enum + union struct
-            self.generate_tagged_union(builder, enum_def, config);
+            self.generate_tagged_union(builder, enum_def, ir, config);
         } else {
             // Simple enum
             // Check if this enum has a u8 repr (for size enforcement)
@@ -765,26 +775,90 @@ impl CGenerator {
         &self,
         builder: &mut CodeBuilder,
         enum_def: &EnumDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        // Generate tagged union for C:
-        // 1. Tag enum with _Tag suffix
-        // 2. Variant structs with tag + payload
-        // 3. Main union type
-
         let name = config.apply_prefix(&enum_def.name);
+        let variants: Vec<CUnionVariant> = enum_def
+            .variants
+            .iter()
+            .map(|variant| CUnionVariant {
+                name: &variant.name,
+                members: match &variant.kind {
+                    EnumVariantKind::Unit => Vec::new(),
+                    // Rust enum tuple variants typically have one element: `payload`.
+                    EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                        vec![("payload".to_string(), types[0].0.as_str(), types[0].1)]
+                    }
+                    EnumVariantKind::Tuple(types) => types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (t, rk))| (format!("payload_{}", i), t.as_str(), *rk))
+                        .collect(),
+                    EnumVariantKind::Struct(fields) => fields
+                        .iter()
+                        .map(|f| {
+                            (
+                                escape_cpp_keyword_for_c(&f.name),
+                                f.type_name.as_str(),
+                                f.ref_kind,
+                            )
+                        })
+                        .collect(),
+                },
+            })
+            .collect();
+        self.generate_union_type(
+            builder,
+            &enum_def.name,
+            &name,
+            enum_def.repr.as_deref(),
+            &variants,
+            ir,
+            config,
+        );
+    }
 
-        // Check if this enum has a u8 repr
-        let is_u8_repr = enum_def
-            .repr
-            .as_ref()
-            .map(|r| r.contains("u8"))
-            .unwrap_or(false);
+    /// ONE tagged union - a data-carrying enum or a monomorphized generic
+    /// alias, which lower to the same C:
+    ///
+    /// 1. the tag enum `<Name>_Tag`,
+    /// 2. one struct per variant, `{ tag; [uint8_t _pad0[N];] payload... }`,
+    /// 3. the union of those structs (its typedef is a forward declaration),
+    /// 4. a compile-time `offsetof` check for every padded variant.
+    ///
+    /// The tag FIELD is `uint8_t` for a `#[repr(C, u8)]` enum: a C `enum` is
+    /// `int`-sized no matter how small its values (the `__Force8Bit = 0xFF`
+    /// sentinel documents the intent, it does not shrink the type), so
+    /// `X_Tag tag;` made every variant struct 4 bytes of tag + padding (the
+    /// 13 `CssPropertyValue<Color>` types were 8 bytes here and 5 in the DLL).
+    ///
+    /// The padding `N` comes from `c_layout::union_payload_layout`, the one
+    /// place that decides where a payload sits. Rust puts EVERY variant's
+    /// payload at the tag rounded up to the largest alignment of ANY variant;
+    /// `{ tag; payload; }` alone aligns it to its OWN alignment, which put
+    /// `StyleBackgroundContent::Color` (ColorU, align 1) at 1 instead of 8
+    /// and made every C reader - and the `matchRef`/`matchMut` helpers -
+    /// read the wrong bytes.
+    #[allow(clippy::too_many_arguments)]
+    fn generate_union_type(
+        &self,
+        builder: &mut CodeBuilder,
+        api_name: &str,
+        name: &str,
+        repr: Option<&str>,
+        variants: &[CUnionVariant<'_>],
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        let is_u8_repr = repr.map(|r| r.contains("u8")).unwrap_or(false);
+        let layout = super::c_layout::union_payload_layout(api_name, ir);
+        let padding = |variant: &str| layout.as_ref().map_or(0, |l| l.padding(variant));
 
         // Tag enum with _Tag suffix
         builder.line(&format!("enum {}_Tag {{", name));
         builder.indent();
-        for variant in &enum_def.variants {
+        for variant in variants {
             builder.line(&format!("{}_Tag_{},", name, variant.name));
         }
         // Add sentinel value to force enum size for u8 repr
@@ -797,52 +871,23 @@ impl CGenerator {
         builder.blank();
 
         // Variant structs (with tag field in each variant)
-        for variant in &enum_def.variants {
-            let has_payload = match &variant.kind {
-                EnumVariantKind::Tuple(types) => !types.is_empty(),
-                EnumVariantKind::Struct(fields) => !fields.is_empty(),
-                EnumVariantKind::Unit => false,
-            };
-
+        for variant in variants {
             builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
             builder.indent();
-            // Use uint8_t for tag if repr is u8, otherwise use the enum type
             if is_u8_repr {
                 builder.line("uint8_t tag;");
             } else {
                 builder.line(&format!("{}_Tag tag;", name));
             }
-
-            match &variant.kind {
-                EnumVariantKind::Tuple(types) if !types.is_empty() => {
-                    // Single payload field (Rust enum tuple variants typically have one element)
-                    for (i, (type_name, ref_kind)) in types.iter().enumerate() {
-                        let c_type = self.rust_type_to_c_with_prefix(type_name, config);
-                        let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(ref_kind);
-                        if types.len() == 1 {
-                            builder
-                                .line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
-                        } else {
-                            builder.line(&format!(
-                                "{}{}{} payload_{};",
-                                ptr_prefix, c_type, ptr_suffix, i
-                            ));
-                        }
-                    }
-                }
-                EnumVariantKind::Struct(fields) if !fields.is_empty() => {
-                    for field in fields {
-                        let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
-                        builder.line(&format!(
-                            "{} {};",
-                            c_type,
-                            escape_cpp_keyword_for_c(&field.name)
-                        ));
-                    }
-                }
-                _ => {}
+            let pad = padding(variant.name);
+            if pad > 0 && !variant.members.is_empty() {
+                builder.line(&format!("uint8_t _pad0[{}];", pad));
             }
-
+            for (member, type_name, ref_kind) in &variant.members {
+                let c_type = self.rust_type_to_c_with_prefix(type_name, config);
+                let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(ref_kind);
+                builder.line(&format!("{}{}{} {};", ptr_prefix, c_type, ptr_suffix, member));
+            }
             builder.dedent();
             builder.line("};");
             builder.line(&format!(
@@ -855,7 +900,7 @@ impl CGenerator {
         // Main union type
         builder.line(&format!("union {} {{", name));
         builder.indent();
-        for variant in &enum_def.variants {
+        for variant in variants {
             builder.line(&format!(
                 "{}Variant_{} {};",
                 name, variant.name, variant.name
@@ -863,6 +908,35 @@ impl CGenerator {
         }
         builder.dedent();
         builder.line("};");
+
+        // Every C/C++ build checks the padded payload offsets against Rust's.
+        // Guarded, so pre-C11 compilers and the LuaJIT / PHP cdef converter
+        // (which drops `#if` blocks) never see them.
+        if let Some(layout) = &layout {
+            let checks: Vec<String> = variants
+                .iter()
+                .filter(|v| padding(v.name) > 0)
+                .filter_map(|v| v.members.first().map(|(member, _, _)| (v.name, member)))
+                .map(|(variant, member)| {
+                    format!(
+                        "AZ_LAYOUT_CHECK(offsetof({name}Variant_{variant}, {member}) == {off}, \
+                         \"{name}::{variant}: payload at byte {off}, as in Rust's repr(C) \
+                         enum layout\")",
+                        name = name,
+                        variant = variant,
+                        member = member,
+                        off = layout.payload_offset,
+                    )
+                })
+                .collect();
+            if !checks.is_empty() {
+                builder.line("#ifdef AZ_LAYOUT_CHECK");
+                for check in &checks {
+                    builder.line(check);
+                }
+                builder.line("#endif");
+            }
+        }
         // Note: typedef for union already done in forward declarations
     }
 
@@ -1329,6 +1403,13 @@ impl CGenerator {
         builder.line("/* Enum variant checker functions */");
         builder.blank();
 
+        // A checker is a function-like MACRO, so it would shadow a libazul
+        // function of the same name in every translation unit after it: the
+        // api.json method wins (`ChartKind.isBar` vs the `Bar` variant's
+        // `AzChartKind_isBar(value)`, which broke every C++ header, B3 class).
+        let functions: std::collections::BTreeSet<&str> =
+            ir.functions.iter().map(|f| f.c_name.as_str()).collect();
+
         for enum_def in &ir.enums {
             if !config.should_include_type(&enum_def.name) {
                 continue;
@@ -1345,6 +1426,9 @@ impl CGenerator {
             let first_variant_name = enum_def.variants.first().map(|v| &v.name);
 
             for variant in &enum_def.variants {
+                if functions.contains(format!("{}_is{}", name, variant.name).as_str()) {
+                    continue;
+                }
                 // Generate is{Variant}() function
                 // For unions, we check the tag via the first variant's struct
                 // (the tag is at the same offset in all variant structs)
@@ -1462,6 +1546,126 @@ impl CGenerator {
                 builder.blank();
             }
         }
+    }
+
+    /// `static inline` helpers for the HEAP-OWNING fields of the plain data
+    /// structs: `Az<T>_set<Field>(&s, v)` frees the old value, then takes
+    /// ownership of `v`; `Az<T>_get<Field>(&s)` returns a deep copy through
+    /// `Az<F>_clone` (no `_clone` -> no getter, never a shallow copy).
+    ///
+    /// C keeps raw structs: a scalar or POD field is read and written
+    /// directly (`state.checked = true;`), and nothing here wraps those. A
+    /// heap-owning field is where raw access goes wrong - `opts.window_state
+    /// .title = AzString_fromUtf8(..)` leaks the old title, `AzString t =
+    /// opts.window_state.title;` aliases it (freeing both frees it twice) -
+    /// so those get the two operations raw syntax cannot express. Nested
+    /// fields compose through the pointer: `AzFullWindowState_setTitle(
+    /// &opts.window_state, title)`.
+    ///
+    /// Skipped: callback / callback-wrapper / RefAny fields (wired by the
+    /// callback API), pointer / array / generic fields, the representation
+    /// of String / Vec / Option wrappers, and any name an exported function
+    /// (or one of its `Byref` / `Struct` / `WithCtx` twins) already has.
+    fn generate_field_helpers(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        use std::collections::BTreeSet;
+
+        let mut exported: BTreeSet<String> = BTreeSet::new();
+        for f in &ir.functions {
+            for suffix in ["", "Byref", "Struct", "StructByref", "WithCtx", "WithCtxByref"] {
+                exported.insert(format!("{}{}", f.c_name, suffix));
+            }
+        }
+        let fn_of = |class: &str, kind: FunctionKind| -> Option<String> {
+            ir.functions
+                .iter()
+                .find(|f| f.class_name == class && f.kind == kind)
+                .map(|f| f.c_name.clone())
+        };
+        let pascal = |snake: &str| -> String {
+            snake
+                .split('_')
+                .filter(|p| !p.is_empty())
+                .map(|p| {
+                    let mut c = p.chars();
+                    match c.next() {
+                        Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect()
+        };
+
+        builder.line("/* Field helpers: Az<T>_set<Field>(&value, v) frees the field's old value,");
+        builder.line(" * then takes ownership of v; Az<T>_get<Field>(&value) returns a deep copy");
+        builder.line(" * (free it with its _delete). Only heap-owning fields have them - read and");
+        builder.line(" * write scalars and plain structs directly. Nested fields go through the");
+        builder.line(" * pointer: AzFullWindowState_setTitle(&opts.window_state, title); */");
+        builder.blank();
+
+        for s in &ir.structs {
+            if !config.should_include_type(&s.name)
+                || !matches!(s.category, TypeCategory::Regular | TypeCategory::Recursive)
+                || s.callback_wrapper_info.is_some()
+                || !s.generic_params.is_empty()
+            {
+                continue;
+            }
+            let owner = config.apply_prefix(&s.name);
+            for f in &s.fields {
+                if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+                    continue;
+                }
+                let t = f.type_name.trim();
+                if t.is_empty()
+                    || t.contains(|c: char| matches!(c, '<' | '[' | '*' | '&' | ' '))
+                    || !config.should_include_type(t)
+                    || is_callback_or_refany_field(t, ir)
+                {
+                    continue;
+                }
+                if ir.find_struct(t).is_some_and(|fs| {
+                    matches!(
+                        fs.category,
+                        TypeCategory::VecRef | TypeCategory::Boxed | TypeCategory::GenericTemplate
+                    )
+                }) {
+                    continue;
+                }
+                // Only heap-owning fields: plain ones are plain C.
+                let Some(delete) = fn_of(t, FunctionKind::Delete) else {
+                    continue;
+                };
+                let field_ty = config.apply_prefix(t);
+                let member = escape_cpp_keyword_for_c(&f.name);
+                let setter = format!("{}_set{}", owner, pascal(&f.name));
+                if !exported.contains(&setter) {
+                    builder.line(&format!(
+                        "static inline void {}({}* instance, {} value) {{",
+                        setter, owner, field_ty
+                    ));
+                    builder.line(&format!("    {}(&instance->{});", delete, member));
+                    builder.line(&format!("    instance->{} = value;", member));
+                    builder.line("}");
+                }
+                let getter = format!("{}_get{}", owner, pascal(&f.name));
+                if let Some(clone) = fn_of(t, FunctionKind::DeepCopy) {
+                    if !exported.contains(&getter) {
+                        builder.line(&format!(
+                            "static inline {} {}(const {}* instance) {{",
+                            field_ty, getter, owner
+                        ));
+                        builder.line(&format!("    return {}(&instance->{});", clone, member));
+                        builder.line("}");
+                    }
+                }
+            }
+        }
+        builder.blank();
     }
 
     /// Generate empty Vec initializer macros for all Vec types
@@ -1827,5 +2031,102 @@ impl CGenerator {
 
         builder.line("#endif /* __cplusplus - end of C-only reflection macro */");
         builder.blank();
+
+        // Zero-allocation AzStrings over static bytes, for C and C++. Their
+        // names must be free: `AzString_fromConstStr` is the C99 initializer
+        // macro above and `AzString_tr(AzString)` is a libazul export, and
+        // re-using either name here broke every C translation unit
+        // (`bug_classes::azul_h_never_emits_one_name_as_macro_and_function_or_with_two_linkages`).
+        builder.line("/* Zero-allocation AzString over static bytes (C and C++); TR(\"key\") makes a translation key */");
+        builder.line("#ifdef __cplusplus");
+        builder.line("extern \"C\" {");
+        builder.line("#endif");
+        builder.line("static inline AzString AzString_fromStaticBytes(const char* key, size_t len) {");
+        builder.line("    AzU8VecDestructor dest;");
+        builder.line("    dest.NoDestructor.tag = AzU8VecDestructor_Tag_NoDestructor;");
+        builder.line("    AzU8Vec vec;");
+        builder.line("    vec.ptr = (const uint8_t*)key;");
+        builder.line("    vec.len = len;");
+        builder.line("    vec.cap = 0;");
+        builder.line("    vec.destructor = dest;");
+        builder.line("    vec.flags = 0;");
+        builder.line("    AzString s;");
+        builder.line("    s.vec = vec;");
+        builder.line("    return s;");
+        builder.line("}");
+        builder.line("static inline AzString AzString_trStaticBytes(const char* key, size_t len) {");
+        builder.line("    AzU8VecDestructor dest;");
+        builder.line("    dest.NoDestructor.tag = AzU8VecDestructor_Tag_NoDestructor;");
+        builder.line("    AzU8Vec vec;");
+        builder.line("    vec.ptr = (const uint8_t*)key;");
+        builder.line("    vec.len = len;");
+        builder.line("    vec.cap = 0;");
+        builder.line("    vec.destructor = dest;");
+        builder.line("    vec.flags = 1;");
+        builder.line("    AzString s;");
+        builder.line("    s.vec = vec;");
+        builder.line("    return s;");
+        builder.line("}");
+        builder.line("#ifdef __cplusplus");
+        builder.line("}");
+        builder.line("#endif");
+        builder.line("#define TR(key) AzString_trStaticBytes(key, sizeof(key) - 1)");
+        builder.blank();
+    }
+}
+
+#[cfg(test)]
+mod field_helper_tests {
+    /// The real azul.h, line endings folded to LF.
+    fn header() -> String {
+        let api = crate::api::ApiData::from_str(include_str!("../../../../api.json"))
+            .expect("api.json parses");
+        super::super::generate_c_header(&api)
+            .expect("azul.h generates")
+            .replace("\r\n", "\n")
+    }
+
+    /// C keeps raw structs - a scalar or POD field is read and written
+    /// directly - but a heap-owning field gets the two helpers raw access
+    /// cannot express safely: replace (free the old value, take the new one)
+    /// and copy (a deep copy the caller frees).
+    #[test]
+    fn a_heap_owning_c_field_gets_a_freeing_setter_and_a_deep_copy_getter() {
+        let h = header();
+        assert!(h.contains(
+            "static inline void AzFullWindowState_setTitle(AzFullWindowState* instance, AzString \
+             value) {\n    AzString_delete(&instance->title);\n    instance->title = value;\n}\n"
+        ));
+        assert!(h.contains(
+            "static inline AzString AzFullWindowState_getTitle(const AzFullWindowState* \
+             instance) {\n    return AzString_clone(&instance->title);\n}\n"
+        ));
+        assert!(h.contains(
+            "static inline void AzWindowCreateOptions_setWindowState(AzWindowCreateOptions* \
+             instance, AzFullWindowState value) {\n    \
+             AzFullWindowState_delete(&instance->window_state);\n    instance->window_state = \
+             value;\n}\n"
+        ));
+        assert!(h.contains(
+            "static inline AzFullWindowState AzWindowCreateOptions_getWindowState(const \
+             AzWindowCreateOptions* instance) {\n    return \
+             AzFullWindowState_clone(&instance->window_state);\n}\n"
+        ));
+    }
+
+    /// Scalars and PODs are plain C fields; callbacks are wired by the
+    /// callback API; an exported function of the same name wins.
+    #[test]
+    fn plain_callback_and_colliding_c_fields_get_no_helper() {
+        let h = header();
+        assert!(!h.contains("AzCheckBoxState_setChecked("));
+        assert!(!h.contains("AzFullWindowState_setSize("));
+        assert!(!h.contains("AzFullWindowState_setLayoutCallback("));
+        assert!(!h.contains("AzWindowCreateOptions_setCreateCallback("));
+        assert!(!h.contains("static inline AzU32Vec AzTextInputState_getText("));
+        assert!(h.contains(
+            "static inline void AzTextInputState_setText(AzTextInputState* instance, AzU32Vec \
+             value) {\n"
+        ));
     }
 }

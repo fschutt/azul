@@ -6,7 +6,9 @@
 //! Clicking a segment selects it: the internal handler computes the clicked
 //! segment's index from its position among its siblings, updates the
 //! `selected_index`, invokes the user's `on_change(index)`, and live-restyles
-//! every segment (selected vs unselected) via `set_css_property`.
+//! every segment (selected vs unselected) with the style a build in the new
+//! selection gives it (`CallbackInfo::set_node_style`) - dark twins
+//! and states included, so the cascade keeps picking the mode's colours.
 //!
 //! Key types: [`Segmented`], [`SegmentedState`], [`SegmentedOnChange`].
 
@@ -14,14 +16,13 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -43,12 +44,18 @@ use azul_css::{
     AzString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static SEGMENTED_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-segmented"))];
+/// The class every segment carries: how the key handler tells the control's
+/// segments apart from anything else.
+const SEGMENT_ITEM_CLASS_NAME: &str = "__azul-native-segmented-item";
 static SEGMENT_ITEM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-segmented-item",
+    SEGMENT_ITEM_CLASS_NAME,
 ))];
 
 /// Callback function type invoked when the selected segment changes.
@@ -89,6 +96,11 @@ pub struct Segmented {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
+    /// theme is a DOM-level choice: it picks the skin the segments are built
+    /// from (and the colours a selection restyles them with), so switching it
+    /// rebuilds the control.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -165,10 +177,32 @@ static SEGMENTED_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
-/// Builds the style for one segment. The selected/unselected colours and the
-/// rounding of the outer corners (only the first segment is rounded on the left,
-/// only the last on the right) are the position-dependent properties, so the
-/// style is built at runtime.
+/// One segment's BASE: how a segment lays out, the same in every theme (R5) -
+/// its label centred in a flex row that never grows, the pointer, and no
+/// text selection. Every theme's segment starts with it - flat's
+/// [`build_segment_style`], `themes::flora::segmented_segment` - and adds
+/// its skin after it: padding, borders, font, colours.
+///
+/// Declared once here, it is declared once in a segment that follows the
+/// app theme too (`themes::theme_blocks`): outside every `@theme` block, so
+/// it holds under an app theme no widget knows.
+pub(crate) static SEGMENT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Builds the style for one segment: the [`SEGMENT_BASE`], then the flat
+/// skin. The selected/unselected colours and the rounding of the outer
+/// corners (only the first segment is rounded on the left, only the last on
+/// the right) are the position-dependent properties, so the style is built
+/// at runtime.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
 fn build_segment_style(
@@ -182,18 +216,8 @@ fn build_segment_style(
         (SEG_UNSELECTED_BG, SEG_UNSELECTED_TEXT)
     };
 
-    let mut v: Vec<CssPropertyWithConditions> = alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut v: Vec<CssPropertyWithConditions> = SEGMENT_BASE.to_vec();
+    v.extend([
         // padding: 6px 12px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(6,)
@@ -248,17 +272,15 @@ fn build_segment_style(
                 inner: SEG_BORDER_COLOR,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             13
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
-    ];
+    ]);
 
     if is_first {
         v.push(CssPropertyWithConditions::simple(
@@ -301,6 +323,92 @@ fn build_segment_style(
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// The dark twins of one segment's colours, appended after
+/// [`build_segment_style`]'s light face. Nothing in a segment's style is
+/// state-conditional, so "after its light value" is simply the end.
+///
+/// A selected segment takes the desktop's accent and the ink that sits on
+/// it, an unselected one the desktop's button face and button ink, and the
+/// shared seams the separator colour. The light palette (white paper, the
+/// fixed accent blue) is left exactly as it was.
+fn dark_segment_twins(selected: bool, is_first: bool) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::themes::system_palette as sys;
+
+    let (bg, text) = if selected {
+        (sys::DARK_ACCENT_BACKGROUND, sys::DARK_ACCENT_TEXT)
+    } else {
+        (sys::DARK_BUTTON_FACE, sys::DARK_BUTTON_TEXT)
+    };
+    let mut v = alloc::vec![
+        bg,
+        text,
+        sys::dark_border_top(sys::SEPARATOR),
+        sys::dark_border_bottom(sys::SEPARATOR),
+        sys::dark_border_right(sys::SEPARATOR),
+    ];
+    if is_first {
+        v.push(sys::dark_border_left(sys::SEPARATOR));
+    }
+    v
+}
+
+/// One segment's resting style in the flat theme: the light face, then its
+/// dark twins (`themes::flat::segmented_skin` appends the states).
+pub(crate) fn segment_style(
+    selected: bool,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
+    let mut v = build_segment_style(selected, is_first, is_last).into_library_owned_vec();
+    v.extend(dark_segment_twins(selected, is_first));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// What a theme supplies for a segmented control: every segment's style.
+/// Built by `themes::flat::segmented_skin` / `themes::flora::segmented_skin`.
+/// A selection restyles each segment with the same function
+/// (`CallbackInfo::set_node_style`), so a clicked control is the
+/// control built in its new state - in every mode.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SegmentedSkin {
+    pub theme: UiTheme,
+    /// One segment's full style - resting light face, dark twins, then the
+    /// states - for whether it is selected, first (left-rounded) and last
+    /// (right-rounded).
+    pub segment: fn(bool, bool, bool) -> CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws segmented controls with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> SegmentedSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::segmented_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::segmented_skin(),
+    }
+}
+
+/// One segment in BOTH themes' blocks (`themes::theme_blocks::follow_props`) - the
+/// `segment` of an unpinned control's skin.
+#[must_use]
+fn follow_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    crate::widgets::themes::theme_blocks::follow_props(
+        (skin_for(UiTheme::Flat).segment)(selected, is_first, is_last).as_slice(),
+        (skin_for(UiTheme::Flora).segment)(selected, is_first, is_last).as_slice(),
+    )
+}
+
+/// The skin an UNPINNED segmented control is built with, so it follows the
+/// app theme: `structure`'s theme (its marker goes on the control, so the
+/// selection restyle writes that theme's segments - a theme switch rebuilds
+/// the DOM) and every segment in BOTH themes' blocks.
+#[must_use]
+pub(crate) const fn follow_skin(structure: UiTheme) -> SegmentedSkin {
+    SegmentedSkin {
+        theme: structure,
+        segment: follow_segment,
+    }
+}
+
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
     #[must_use]
@@ -312,7 +420,23 @@ impl Segmented {
             },
             labels,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the control follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this segmented row renders with.
@@ -375,16 +499,37 @@ impl Segmented {
         self
     }
 
+    /// Renders the control. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the control follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::segmented(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::segmented(self),
+            None => self.build(follow_skin(UiTheme::current())),
+        }
+    }
+
+    /// Renders the control with `skin` styling its segments - what
+    /// `themes::flat::segmented` / `themes::flora::segmented` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: SegmentedSkin) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
+            events::FocusEventFilter,
             refany::OptionRefAny,
         };
 
         let selected = self.segmented_state.inner.selected_index;
         let count = self.labels.as_ref().len();
+        // WAI-ARIA APG (a segmented control is a radio group): ONE Tab stop -
+        // the selected segment, or the first when the selection is out of
+        // range. The arrow keys move within it.
+        let tab_stop = crate::widgets::roving::stop_index(Some(selected), count);
         // Resolved before `self.segmented_state` is moved out below.
         let container_style = self.resolved_container_style();
 
@@ -396,36 +541,58 @@ impl Segmented {
         for (i, label) in self.labels.as_ref().iter().enumerate() {
             let is_first = i == 0;
             let is_last = i + 1 == count;
-            let seg_style = build_segment_style(i == selected, is_first, is_last);
+            let seg_style = (skin.segment)(i == selected, is_first, is_last);
 
             children.push(
                 crate::widgets::widget_p_with_text(label.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENT_ITEM_CLASS))
                     .with_css_props(seg_style)
                     .with_callbacks(
-                        vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::Click),
-                            callback: CoreCallback {
-                                cb: on_segment_click as usize,
-                                ctx: OptionRefAny::None,
+                        vec![
+                            CoreCallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                callback: CoreCallback {
+                                    cb: on_segment_click as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
                             },
-                            refany: state.clone(),
-                        }]
+                            CoreCallbackData {
+                                event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                                callback: CoreCallback {
+                                    cb: on_segment_key as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
+                            },
+                        ]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // a row of mutually exclusive choices. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::PageTabList,
-                ..Default::default()
-            }),
+                    .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
+                    // A segmented control is a radio group (WAI-ARIA APG, the
+                    // model its keys follow): each segment is a RADIO that says
+                    // whether it is the selected one. The NAME comes from the
+                    // segment's own text.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::RadioButton,
+                        states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                            if i == selected {
+                                azul_core::a11y::AccessibilityState::CheckedTrue
+                            } else {
+                                azul_core::a11y::AccessibilityState::CheckedFalse
+                            },
+                        ]),
+                        ..Default::default()
+                    }),
             );
         }
 
+        // The control carries the theme's marker: the selection restyle reads
+        // it back to write the colours of the theme it was built in.
+        let mut classes: Vec<IdOrClass> = SEGMENTED_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENTED_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -439,9 +606,10 @@ impl Default for Segmented {
 
 /// Click handler shared by all segments. Determines the clicked segment's index
 /// from its position among its siblings, updates the selection, invokes the user
-/// callback, and live-restyles every segment.
-extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul_core::dom::DomNodeId;
+/// callback, and live-restyles every segment. The clicked segment also becomes
+/// the control's one Tab stop (the click itself already focused it).
+extern "C" fn on_segment_click(data: RefAny, mut info: CallbackInfo) -> Update {
+    use crate::widgets::roving;
 
     let clicked = info.get_hit_node();
     let Some(parent) = info.get_parent(clicked) else {
@@ -449,61 +617,129 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
     };
 
     // Collect the segment siblings in document order.
-    let mut segments: Vec<DomNodeId> = Vec::new();
-    let mut cur = info.get_first_child(parent);
-    while let Some(node) = cur {
-        segments.push(node);
-        cur = info.get_next_sibling(node);
-    }
+    let segments = roving::children_of(&info, parent);
 
     let Some(selected) = segments.iter().position(|n| *n == clicked) else {
         return Update::DoNothing;
     };
 
+    let Some(result) = select_segment(data, &mut info, &segments, selected) else {
+        return Update::DoNothing;
+    };
+
+    let items = roving::items_of(&info, parent, SEGMENT_ITEM_CLASS_NAME);
+    if let Some(stop) = items.iter().position(|n| *n == clicked) {
+        roving::set_stop(&mut info, &items, stop);
+        announce_selection(&mut info, &items, stop);
+    }
+
+    result
+}
+
+/// Every segment says, live, whether it is the selected one - a segment is
+/// a radio (see `roving::announce_chosen`).
+fn announce_selection(
+    info: &mut CallbackInfo,
+    segments: &[azul_core::dom::DomNodeId],
+    selected: usize,
+) {
+    use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+    crate::widgets::roving::announce_chosen(
+        info,
+        segments,
+        selected,
+        CheckedTrue,
+        Some(CheckedFalse),
+    );
+}
+
+/// Arrow keys on the focused segment - a segmented control is a radio group
+/// (WAI-ARIA APG): Right and Down select the next segment, Left and Up the
+/// previous one, wrapping at the ends. Focus and the control's one Tab stop
+/// move with the selection and the default action (spatial navigation) is
+/// cancelled. Every other key - and an arrow held with Alt, Ctrl, Cmd or
+/// Shift - keeps its default.
+extern "C" fn on_segment_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Right | K::Down) => Step::Next,
+        Some(K::Left | K::Up) => Step::Previous,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(parent) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let segments = roving::items_of(&info, parent, SEGMENT_ITEM_CLASS_NAME);
+    let Some(current) = segments.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, segments.len(), step, true) else {
+        return Update::DoNothing;
+    };
+    if data.downcast_ref::<SegmentedStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    // Moved BEFORE the user callback runs, so a focus it asks for wins.
+    roving::move_stop(&mut info, &segments, target);
+    announce_selection(&mut info, &segments, target);
+    select_segment(data, &mut info, &segments, target).unwrap_or(Update::DoNothing)
+}
+
+/// Selects segment `selected` of `segments`: updates the shared state, invokes
+/// the user callback and live-restyles every segment.
+/// `None` when the payload is not this widget's state (or is already
+/// borrowed) - nothing was changed.
+fn select_segment(
+    mut data: RefAny,
+    info: &mut CallbackInfo,
+    segments: &[azul_core::dom::DomNodeId],
+    selected: usize,
+) -> Option<Update> {
+    // The theme the control was BUILT in, from the marker on the segments'
+    // parent: its segments are the ones to write.
+    let theme = segments
+        .first()
+        .and_then(|s| info.get_parent(*s))
+        .map_or(UiTheme::Flat, |parent| {
+            style_kit::theme_of_classes(info.get_node_classes(parent).as_ref())
+        });
+    let skin = skin_for(theme);
+
     let result = {
-        let Some(mut seg) = data.downcast_mut::<SegmentedStateWrapper>() else {
-            return Update::DoNothing;
-        };
+        let mut seg = data.downcast_mut::<SegmentedStateWrapper>()?;
         seg.inner.selected_index = selected;
         let inner = seg.inner;
         let seg = &mut *seg;
         match seg.on_change.as_mut() {
             Some(SegmentedOnChange { callback, refany }) => {
-                callback.invoke(refany.clone(), info, inner)
+                callback.invoke(refany.clone(), *info, inner)
             }
             None => Update::DoNothing,
         }
     };
 
-    // Live-restyle: selected segment gets the accent fill + light text,
-    // the rest get the neutral fill + dark text.
+    // Live-restyle: every segment takes the style it would be BUILT with in
+    // the new selection - its light face, dark twins and states - so the
+    // cascade, not this handler, picks the mode's colours, now and after a
+    // light / dark switch (an override baked for the mode of the moment
+    // outlived the switch, and outranked the hover and focus rules).
+    let last = segments.len().saturating_sub(1);
     for (i, node) in segments.iter().enumerate() {
-        if i == selected {
-            info.set_css_property(
-                *node,
-                CssProperty::const_background_content(SEG_SELECTED_BG),
-            );
-            info.set_css_property(
-                *node,
-                CssProperty::const_text_color(StyleTextColor {
-                    inner: SEG_SELECTED_TEXT,
-                }),
-            );
-        } else {
-            info.set_css_property(
-                *node,
-                CssProperty::const_background_content(SEG_UNSELECTED_BG),
-            );
-            info.set_css_property(
-                *node,
-                CssProperty::const_text_color(StyleTextColor {
-                    inner: SEG_UNSELECTED_TEXT,
-                }),
-            );
-        }
+        info.set_node_style(
+            *node,
+            (skin.segment)(i == selected, i == 0, i == last).into(),
+        );
     }
 
-    result
+    Some(result)
 }
 
 impl From<Segmented> for Dom {
@@ -520,16 +756,17 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType, TabIndex},
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::{
+        css::Css,
         props::basic::{length::SizeMetric, pixel::PixelValue},
         system::SystemStyle,
     };
@@ -541,6 +778,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -748,6 +986,22 @@ mod autotest_generated {
         node.root
             .style
             .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// A rendered node's declarations WITHOUT the interactive-state rules
+    /// (hover, press, focus ring) the theme appends after the resting style -
+    /// what `segment_style` builds.
+    fn resting_properties(node: &Dom) -> Vec<CssProperty> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| {
+                !c.as_ref().iter().any(|s| {
+                    matches!(s, azul_css::dynamic_selector::DynamicSelector::PseudoState(_))
+                })
+            })
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -982,42 +1236,63 @@ mod autotest_generated {
         (update, recorded)
     }
 
-    /// Every colour the live restyle wrote, as `(node index, "bg" | "text", colour)`
-    /// in emission order. Panics on any property other than the two the handler is
-    /// documented to write.
-    fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
+    /// Every segment style the live restyle wrote (`set_node_style`),
+    /// as `(node index, style)` in emission order. Panics on any change other
+    /// than the restyle and the roving Tab stop: the restyle pins no value
+    /// (`ChangeNodeCssProperties` would outlive a light / dark switch).
+    fn inline_writes(changes: &[CallbackChange]) -> Vec<(usize, Css)> {
         let mut out = Vec::new();
         for change in changes {
-            let CallbackChange::ChangeNodeCssProperties {
-                node_id,
-                properties,
-                ..
-            } = change
-            else {
-                panic!("the restyle must only emit ChangeNodeCssProperties, got {change:?}");
+            // The click also moves the control's roving Tab stop and announces
+            // the selection; neither is part of the restyle (the roving and
+            // accessibility tests below check them).
+            if matches!(
+                change,
+                CallbackChange::SetNodeTabIndex { .. }
+                    | CallbackChange::ChangeNodeAccessibilityState { .. }
+            ) {
+                continue;
+            }
+            let CallbackChange::SetNodeStyle { node_id, style, .. } = change else {
+                panic!("the restyle must only replace inline styles, got {change:?}");
             };
-            for p in properties.as_ref() {
-                match p {
-                    CssProperty::BackgroundContent(v) => {
-                        let layers = v
-                            .get_property()
-                            .expect("restyle must write an exact background");
-                        assert_eq!(layers.as_ref().len(), 1, "a segment fill is a single layer");
-                        match &layers.as_ref()[0] {
-                            StyleBackgroundContent::Color(c) => {
-                                out.push((node_id.index(), "bg", *c));
-                            }
-                            other => panic!("segment background is not a flat colour: {other:?}"),
-                        }
-                    }
-                    CssProperty::TextColor(v) => {
-                        let c = v
-                            .get_property()
-                            .expect("restyle must write an exact text colour");
-                        out.push((node_id.index(), "text", c.inner));
-                    }
-                    other => panic!("unexpected restyle property: {other:?}"),
+            out.push((node_id.index(), style.clone()));
+        }
+        out
+    }
+
+    /// Every colour the live restyle wrote, as `(node index, "bg" | "text", colour)`
+    /// in emission order: the LIGHT resting face (the last unconditional
+    /// declaration) of every segment style the click wrote. The dark twins
+    /// travel in the same styles; `click_restyle_agrees_with_a_freshly_built_style`
+    /// pins the whole style.
+    fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
+        let mut out = Vec::new();
+        for (node, style) in inline_writes(changes) {
+            let resting = |ty: CssPropertyType| {
+                style
+                    .iter_inline_properties()
+                    .filter(|(p, c)| c.as_ref().is_empty() && p.get_type() == ty)
+                    .last()
+                    .map(|(p, _)| p.clone())
+            };
+            if let Some(CssProperty::BackgroundContent(v)) =
+                resting(CssPropertyType::BackgroundContent)
+            {
+                let layers = v
+                    .get_property()
+                    .expect("restyle must write an exact background");
+                assert_eq!(layers.as_ref().len(), 1, "a segment fill is a single layer");
+                match &layers.as_ref()[0] {
+                    StyleBackgroundContent::Color(c) => out.push((node, "bg", *c)),
+                    other => panic!("segment background is not a flat colour: {other:?}"),
                 }
+            }
+            if let Some(CssProperty::TextColor(v)) = resting(CssPropertyType::TextColor) {
+                let c = v
+                    .get_property()
+                    .expect("restyle must write an exact text colour");
+                out.push((node, "text", c.inner));
             }
         }
         out
@@ -1834,17 +2109,18 @@ mod autotest_generated {
     fn dom_styles_each_segment_by_its_position_and_selection() {
         for n in [1usize, 2, 3, 5] {
             for selected in 0..n {
+                // The flat look (an unpinned control carries every theme's blocks).
                 let dom = Segmented::create(n_labels(n))
                     .with_selected_index(selected)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 let children = dom.children.as_ref();
                 assert_eq!(children.len(), n);
 
                 for (i, child) in children.iter().enumerate() {
-                    let expected =
-                        properties(&build_segment_style(i == selected, i == 0, i + 1 == n));
+                    let expected = properties(&segment_style(i == selected, i == 0, i + 1 == n));
                     assert_eq!(
-                        inline_properties(child),
+                        resting_properties(child),
                         expected,
                         "n={n} selected={selected}: segment {i} carries the wrong style"
                     );
@@ -1859,6 +2135,7 @@ mod autotest_generated {
             for selected in 0..n {
                 let dom = Segmented::create(n_labels(n))
                     .with_selected_index(selected)
+                    .with_theme(UiTheme::Flat)
                     .dom();
                 let marked: Vec<usize> = dom
                     .children
@@ -1887,6 +2164,7 @@ mod autotest_generated {
         for selected in [n, n + 1, 1_000, usize::MAX, usize::MAX - 1] {
             let dom = Segmented::create(n_labels(n))
                 .with_selected_index(selected)
+                .with_theme(UiTheme::Flat)
                 .dom();
             assert_eq!(
                 dom.children.as_ref().len(),
@@ -1895,9 +2173,9 @@ mod autotest_generated {
             );
 
             for (i, child) in dom.children.as_ref().iter().enumerate() {
-                let expected = properties(&build_segment_style(false, i == 0, i + 1 == n));
+                let expected = properties(&segment_style(false, i == 0, i + 1 == n));
                 assert_eq!(
-                    inline_properties(child),
+                    resting_properties(child),
                     expected,
                     "selected={selected}: segment {i} must render unselected"
                 );
@@ -1908,7 +2186,7 @@ mod autotest_generated {
     #[test]
     fn dom_rounds_only_the_two_outer_segments() {
         let n = 4;
-        let dom = Segmented::create(n_labels(n)).dom();
+        let dom = Segmented::create(n_labels(n)).with_theme(UiTheme::Flat).dom();
         let r = SEG_RADIUS as f32;
 
         let radii_of = |child: &Dom| -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
@@ -1963,13 +2241,15 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_single_segment_is_rounded_on_both_ends() {
-        let dom = Segmented::create(labels(&["only"])).dom();
+        let dom = Segmented::create(labels(&["only"]))
+            .with_theme(UiTheme::Flat)
+            .dom();
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 1);
 
-        let expected = properties(&build_segment_style(true, true, true));
+        let expected = properties(&segment_style(true, true, true));
         assert_eq!(
-            inline_properties(&children[0]),
+            resting_properties(&children[0]),
             expected,
             "a lone segment is simultaneously first and last"
         );
@@ -1981,7 +2261,11 @@ mod autotest_generated {
         let dom = Segmented::create(n_labels(n)).dom();
         for (i, child) in dom.children.as_ref().iter().enumerate() {
             let cbs = child.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "segment {i}: exactly one handler");
+            assert_eq!(
+                cbs.as_ref().len(),
+                2,
+                "segment {i}: the click and the arrow-key handler"
+            );
             assert_eq!(
                 cbs.as_ref()[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -1989,9 +2273,20 @@ mod autotest_generated {
             assert_eq!(cbs.as_ref()[0].callback.cb, on_segment_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));
             assert_eq!(
+                cbs.as_ref()[1].event,
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown)
+            );
+            assert_eq!(cbs.as_ref()[1].callback.cb, on_segment_key as usize);
+            // ONE Tab stop per control (WAI-ARIA APG): the selected segment,
+            // segment 0 of a fresh control; the arrows reach the others.
+            assert_eq!(
                 child.root.get_tab_index(),
-                Some(TabIndex::Auto),
-                "segment {i} must be tab-reachable"
+                Some(if i == 0 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "segment {i} has the wrong tab index"
             );
         }
     }
@@ -2128,12 +2423,13 @@ mod autotest_generated {
         // still give exactly one selected segment, at the requested position.
         let dom = Segmented::create(labels(&["same", "same", "same"]))
             .with_selected_index(1)
+            .with_theme(UiTheme::Flat)
             .dom();
         let children = dom.children.as_ref();
         for (i, child) in children.iter().enumerate() {
             assert_eq!(text_of(child), Some("same"));
-            let expected = properties(&build_segment_style(i == 1, i == 0, i == 2));
-            assert_eq!(inline_properties(child), expected, "segment {i}");
+            let expected = properties(&segment_style(i == 1, i == 0, i == 2));
+            assert_eq!(resting_properties(child), expected, "segment {i}");
         }
     }
 
@@ -2183,6 +2479,24 @@ mod autotest_generated {
 
         for clicked in 0..n {
             let (_, changes) = run_click(Some(styled.clone()), seg_node(clicked), state.clone());
+            // The WHOLE style a build gives each segment - dark twins and
+            // states included - not a colour baked for the mode of the moment.
+            let styles = inline_writes(&changes);
+            assert_eq!(styles.len(), n);
+            for (i, written) in styles.iter().enumerate() {
+                assert_eq!(
+                    written,
+                    &(
+                        seg_node(i),
+                        Css::from((skin_for(UiTheme::Flat).segment)(
+                            i == clicked,
+                            i == 0,
+                            i + 1 == n
+                        ))
+                    ),
+                    "clicked={clicked}: segment {i} takes the style a flat build gives it"
+                );
+            }
             let writes = restyle_writes(&changes);
             assert_eq!(writes.len(), 2 * n);
 
@@ -2470,5 +2784,501 @@ mod autotest_generated {
                 (seg_node(2), "text", SEG_UNSELECTED_TEXT),
             ]
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Roving tabindex (WAI-ARIA APG, P2-12): a segmented control behaves as a
+    // radio group - one Tab stop, the arrows move AND select, wrapping.
+    // ------------------------------------------------------------------
+
+    /// A plain tab stop, the control, another plain tab stop. Flattened: root
+    /// 0, before 1, control 2, segment `i` at `3 + 2 * i`, after at `3 + 2 * n`.
+    /// Also hands back the control's shared state.
+    fn page(seg: Segmented) -> (StyledDom, RefAny) {
+        let dom = seg.dom();
+        let state = segment_state(&dom, 0);
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), dom, stop()].into());
+        (StyledDom::create_from_dom(page), state)
+    }
+
+    fn page_node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn page_before() -> DomNodeId {
+        page_node(1)
+    }
+
+    fn page_segment(i: usize) -> DomNodeId {
+        page_node(3 + 2 * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        page_node(3 + 2 * n)
+    }
+
+    /// Presses `key` on segment `i` of `page`; panics when the segment has no
+    /// key handler - the state of every segment before P2-12.
+    fn press_segment(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_segment(i), key, held)
+            .expect("every segment must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_from_the_item_before_lands_on_the_selected_segment_and_the_next_tab_leaves() {
+        let (styled, _) = page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(2));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_segment(2), page_after(3)],
+            "the control is ONE tab stop: the selected segment, then out",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_segment(2), page_before()],
+        );
+    }
+
+    #[test]
+    fn with_the_selection_out_of_range_the_first_segment_is_the_tab_stop() {
+        let (styled, _) =
+            page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(usize::MAX));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_segment(0), page_after(3)],
+        );
+    }
+
+    #[test]
+    fn arrow_right_on_a_segment_selects_and_focuses_the_next_one() {
+        let (styled, state) = page(Segmented::create(labels(&["a", "b", "c"])));
+        let mut probe = state.clone();
+
+        let (_, changes) = press_segment(&styled, 0, VirtualKeyCode::Right, &[]);
+
+        assert_eq!(selected_index_of(&mut probe), 1);
+        assert_eq!(rv::focus_request(&changes), Some(page_segment(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn segment_arrows_move_the_selection_both_ways_and_wrap_around() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, to) in [
+            (1, K::Right, 2),
+            (1, K::Down, 2),
+            (1, K::Left, 0),
+            (1, K::Up, 0),
+            (2, K::Right, 0),
+            (0, K::Left, 2),
+        ] {
+            let (styled, state) =
+                page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(from));
+            let mut probe = state.clone();
+            let (_, changes) = press_segment(&styled, from, key, &[]);
+            assert_eq!(
+                selected_index_of(&mut probe),
+                to,
+                "{key:?} on segment {from} must select segment {to}",
+            );
+            assert_eq!(rv::focus_request(&changes), Some(page_segment(to)));
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_selected_segment_is_the_only_tab_stop() {
+        let (mut styled, _) = page(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = press_segment(&styled, 0, VirtualKeyCode::Left, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_segment(2), page_after(3)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_segment(2), page_before()],
+        );
+    }
+
+    #[test]
+    fn the_user_callback_hears_a_segment_selected_with_the_arrow_keys() {
+        let mut log = RefAny::new(IndexLog { seen: Vec::new() });
+        let (styled, _) = page(
+            Segmented::create(labels(&["a", "b", "c"]))
+                .with_on_change(log.clone(), change_cb(record_index)),
+        );
+        let (update, _) = press_segment(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(log_indices(&mut log), vec![1]);
+        assert_eq!(update, Update::RefreshDom);
+    }
+
+    #[test]
+    fn a_modified_or_unused_key_on_a_segment_is_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Right, Some(K::LAlt)),
+            (K::Right, Some(K::RControl)),
+            (K::Left, Some(K::LWin)),
+            (K::Left, Some(K::LShift)),
+            (K::Tab, None),
+            (K::Escape, None),
+        ] {
+            let (styled, state) = page(Segmented::create(labels(&["a", "b", "c"])));
+            let mut probe = state.clone();
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_segment(&styled, 0, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(selected_index_of(&mut probe), 0, "{held:?}+{key:?}");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clicking_a_segment_makes_it_the_tab_stop() {
+        let (mut styled, state) = flatten(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = run_click(Some(styled.clone()), seg_node(2), state);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let stop = page_node(seg_node(2));
+        assert_eq!(rv::tab_walk(&styled, None, true, 2), vec![stop, stop]);
+    }
+
+    // ------------------------------------------------------------------
+    // Accessibility: a segmented control is a radio group (the key handler's
+    // own model), so every segment is a RADIO that says whether it is the
+    // selected one - and says it live, since a selection restyles without a
+    // rebuild. Each segment used to declare the LIST role (`PageTabList`)
+    // and no state at all.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_segment_is_a_radio_that_says_whether_it_is_selected() {
+        use azul_core::a11y::{
+            AccessibilityRole::RadioButton,
+            AccessibilityState::{CheckedFalse, CheckedTrue},
+        };
+
+        let (styled, _) = page(Segmented::create(labels(&["a", "b", "c"])).with_selected_index(1));
+        for i in 0..3 {
+            assert_eq!(
+                rv::declared(&styled, page_segment(i)),
+                Some((
+                    RadioButton,
+                    vec![if i == 1 { CheckedTrue } else { CheckedFalse }]
+                )),
+                "segment {i}",
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_announces_the_newly_selected_segment() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, _) = page(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = press_segment(&styled, 0, VirtualKeyCode::Right, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_segment(0), vec![CheckedFalse]),
+                (page_segment(1), vec![CheckedTrue]),
+                (page_segment(2), vec![CheckedFalse]),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_click_announces_the_selected_segment_too() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, state) = flatten(Segmented::create(labels(&["a", "b", "c"])));
+        let (_, changes) = run_click(Some(styled), seg_node(2), state);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_node(seg_node(0)), vec![CheckedFalse]),
+                (page_node(seg_node(1)), vec![CheckedFalse]),
+                (page_node(seg_node(2)), vec![CheckedTrue]),
+            ],
+        );
+    }
+
+    /// The click restyle writes the segments of the theme the control was
+    /// BUILT in (read back from its marker class): a flora control must not be
+    /// repainted in flat's white and blue on the first click. Each segment
+    /// takes the whole style a flora build gives it.
+    #[test]
+    fn a_click_on_a_flora_segmented_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc, UiTheme};
+
+        let (styled, state) =
+            flatten(Segmented::create(labels(&["Day", "Week", "Month"])).with_theme(UiTheme::Flora));
+        let (_, changes) = run_click(Some(styled), seg_node(2), state);
+        let written = inline_writes(&changes);
+        let flora_segment = flora::segmented_skin().segment;
+        assert_eq!(
+            written,
+            (0..3)
+                .map(|i| (
+                    seg_node(i),
+                    Css::from(flora_segment(i == 2, i == 0, i == 2))
+                ))
+                .collect::<Vec<_>>(),
+            "every segment takes the style a flora build gives it"
+        );
+
+        // ...which is flora paper and the stone, with their night faces.
+        let node = |i: usize| Dom::create_div().with_style(written[i].1.clone());
+        for dark in [false, true] {
+            let first = tc::background(&node(0), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                first,
+                Some(vec![if dark {
+                    flora::RAISED_FACE_DARK
+                } else {
+                    flora::RAISED_FACE_LIGHT
+                }]),
+                "dark={dark}: an unselected segment goes back to flora paper"
+            );
+            let third = tc::background(&node(2), dark).map(|p| tc::bg_layers(&p));
+            assert_eq!(
+                third,
+                Some(flora::selected_stone()),
+                "dark={dark}: the selected segment is the stone"
+            );
+        }
+        assert_eq!(tc::text_color(&node(2), false), Some(flora::LIGHT_ON_ACC));
+    }
+
+    /// An UNPINNED control follows the app theme, and so does its selection
+    /// restyle: built for flora, it repaints in flora's segments.
+    #[test]
+    fn a_click_on_an_unpinned_segmented_built_for_flora_restyles_in_flora_s_colours() {
+        use crate::widgets::themes::{flora, theme_checks as tc};
+
+        let (styled, state) = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            flatten(Segmented::create(labels(&["Day", "Week", "Month"])))
+        };
+        let (_, changes) = run_click(Some(styled), seg_node(2), state);
+        let third = inline_writes(&changes)
+            .into_iter()
+            .find(|(n, _)| *n == seg_node(2))
+            .map(|(_, style)| style)
+            .expect("segment 2 is restyled");
+        assert_eq!(
+            third,
+            Css::from((flora::segmented_skin().segment)(true, false, true))
+        );
+        assert_eq!(
+            tc::text_color(&Dom::create_div().with_style(third), false),
+            Some(flora::LIGHT_ON_ACC),
+            "the selected segment wears flora's stone ink"
+        );
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! Segmented's theme is a DOM-level choice: the segments are built from
+    //! the skin of the theme the control carries, flat by default, and the
+    //! selection restyle writes that theme's colours.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, property::CssPropertyType, style::StyleBackgroundContent},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, system_palette, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// `Day | Week | Month` with `Week` selected.
+    fn control(theme: Option<UiTheme>) -> Dom {
+        let s = Segmented::create(StringVec::from_vec(vec![
+            AzString::from("Day"),
+            AzString::from("Week"),
+            AzString::from("Month"),
+        ]))
+        .with_selected_index(1);
+        match theme {
+            Some(t) => s.with_theme(t).dom(),
+            None => s.dom(),
+        }
+    }
+
+    fn segment(dom: &Dom, i: usize) -> &Dom {
+        &dom.children.as_ref()[i]
+    }
+
+    fn layers(node: &Dom, dark: bool) -> Vec<StyleBackgroundContent> {
+        tc::background(node, dark)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_segmented_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let s = Segmented::create(StringVec::from_const_slice(&[]));
+        assert_eq!(s.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&control(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            control(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = Segmented::create(StringVec::from_const_slice(&[]));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            Segmented::create(StringVec::from_const_slice(&[])).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_segmented_keeps_its_look_and_takes_the_desktop_palette_in_the_dark() {
+        let dom = control(Some(UiTheme::Flat));
+        let selected = segment(&dom, 1);
+        let other = segment(&dom, 0);
+        assert_eq!(
+            tc::background(selected, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(13, 110, 253))
+        );
+        assert_eq!(layers(selected, true), system_palette::ACCENT_BACKGROUND.as_ref().to_vec());
+        assert_eq!(
+            tc::background(other, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(255, 255, 255))
+        );
+        assert_eq!(layers(other, true), system_palette::BUTTON_FACE.as_ref().to_vec());
+    }
+
+    #[test]
+    fn a_flora_segmented_is_raised_paper_with_the_choice_a_sunken_stone() {
+        let dom = control(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let other = segment(&dom, 0);
+        assert_eq!(layers(other, false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(layers(other, true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(other, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(other, true), Some(flora::DARK_INK));
+        assert_eq!(tc::border_top_color(other, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(other, true, None), Some(flora::DARK_BD2));
+
+        let selected = segment(&dom, 1);
+        for dark in [false, true] {
+            assert_eq!(layers(selected, dark), flora::selected_stone(), "dark={dark}");
+            assert_eq!(tc::text_color(selected, dark), Some(flora::LIGHT_ON_ACC));
+        }
+    }
+
+    #[test]
+    fn a_flora_segment_hovers_and_presses_like_flora_paper() {
+        let dom = control(Some(UiTheme::Flora));
+        let other = segment(&dom, 2);
+        for (state, light, dark) in [
+            (PseudoStateType::Hover, flora::HOVER_FACE_LIGHT, flora::HOVER_FACE_DARK),
+            (PseudoStateType::Active, flora::PRESSED_FACE_LIGHT, flora::PRESSED_FACE_DARK),
+        ] {
+            let at = |d: bool| {
+                tc::resolve(other, CssPropertyType::BackgroundContent, d, Some(state))
+                    .map(|p| tc::bg_layers(&p))
+            };
+            assert_eq!(at(false), Some(vec![light]), "{state:?}");
+            assert_eq!(at(true), Some(vec![dark]), "{state:?} dark");
+        }
+    }
+
+    #[test]
+    fn every_segment_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = control(Some(theme));
+            // One Tab stop; the arrows focus the others, so every segment owes
+            // a ring.
+            for i in 0..3 {
+                let s = segment(&dom, i);
+                assert!(tc::has_focus_ring(s, false), "{theme:?}: segment {i}, light");
+                assert!(tc::has_focus_ring(s, true), "{theme:?}: segment {i}, dark");
+            }
+            tc::assert_theme_invariants(&format!("segmented {theme:?}"), &dom);
+        }
+        let dom = control(Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(segment(&dom, 0), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(segment(&dom, 0), true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = control(Some(UiTheme::Flat));
+        let flora_dom = control(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 3);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a segmented control's structure is its base, declared once for
+    //! every app theme - never inside a `@theme(<name>)` block.
+
+    use azul_css::{AzString, StringVec};
+
+    use super::Segmented;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    fn labels(n: usize) -> StringVec {
+        StringVec::from_vec(
+            ["Day", "Week", "Month"][..n]
+                .iter()
+                .map(|l| AzString::from(*l))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_segmented_control_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // The choice on the first, an inner and the last segment, and a
+            // one-segment control (first and last at once).
+            for (count, selected) in [(3, 0), (3, 1), (3, 2), (1, 0)] {
+                let dom = under(t, || {
+                    Segmented::create(labels(count))
+                        .with_selected_index(selected)
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!(
+                        "segmented ({count} segments, #{selected} chosen) built for {}",
+                        t.name()
+                    ),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

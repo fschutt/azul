@@ -1,13 +1,20 @@
 use azul::{
-    callbacks::RenderImageCallbackInfo,
-    dom::{AccessibilityInfo, IdOrClass, RenderImageCallback},
-    image::{ImageRef, RawImage, RawImageData, RawImageFormat},
+    callbacks::{ButtonOnClickCallbackType, RenderImageCallbackInfo},
+    dom::{AccessibilityInfo, RenderImageCallback},
+    image::{ImageRef, RawImage, RawImageFormat},
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
-    vec::{IdOrClassVec, MenuItemVec, U8VecRef},
+    shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
+    vec::{MenuItemVec, U8VecRef},
+    widgets::{Button, StatusBar, StatusBarSegment},
 };
+use azul_appkit::ui as kit;
 
-use crate::{code, ink, model::Semantic, AppState};
+use crate::{code, ids, ink, model::Semantic, AppState};
+
+/// A column that takes the rest of its parent.
+const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                      min-width: 0px;";
 
 pub const LINE_H: f32 = 15.0;
 const PAGE_W: f32 = 1000.0;
@@ -71,25 +78,45 @@ pub struct PageTag {
     pub page: usize,
 }
 
-pub extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
+pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the mode makes a light / dark switch rebuild the window.
+    let _mode = info.get_mode();
     let mut d = data.clone();
     let Some(s) = d.downcast_ref::<AppState>() else {
         return Dom::create_body();
     };
-
-    let mut root = Dom::create_body().with_css(
-        "display: flex; flex-direction: row; background: #e9e7e2; font-family: sans-serif;",
-    );
-    root.add_child(sidebar(&s, &data));
-
-    let mut center = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;");
-    center.add_child(toolbar(&s, &data));
-    center.add_child(page_rail(&s, &data));
-    center.add_child(sheet(&s, &data));
-    center.add_child(status_bar(&s));
-    root.add_child(center);
-    root.with_menu_bar(menu_bar(&data))
+    let content = if kit::settings_open(&s.kit) {
+        // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
+        Dom::create_div()
+            .with_css(COLUMN)
+            .with_child(kit::title_row(crate::SPEC.name))
+            .with_child(kit::settings_page(&s.kit, Vec::new()))
+    } else {
+        // The document shell: the files beside the document (the toolbar,
+        // the page rail, the sheets), the status bar under it.
+        let document = Dom::create_div()
+            .with_css(COLUMN)
+            .with_child(toolbar(&s, &data))
+            .with_child(page_rail(&s, &data))
+            .with_child(sheet(&s, &data));
+        DocumentShell::create(document)
+            .with_navigation(sidebar(&s, &data))
+            .office_shell()
+            .with_title_row(kit::title_row(crate::SPEC.name))
+            .with_status_bar(status_bar(&s))
+            .dom()
+    };
+    // The scope as the window's body: no UA margin, the full window height,
+    // the app theme's ground and ink in both modes.
+    ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
+        .with_accent(ShellThemeAccent::Slate)
+        .body()
+        .with_menu_bar(menu_bar(&data))
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            data.clone(),
+            crate::on_key,
+        )
 }
 
 fn menu_bar(data: &RefAny) -> Menu {
@@ -126,17 +153,16 @@ fn menu_bar(data: &RefAny) -> Menu {
 }
 
 fn sidebar(s: &AppState, data: &RefAny) -> Dom {
-    let mut col = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; width: 260px; flex-shrink: 0; min-height: 0px; \
-         height: 100%; background: #f7f6f3; border-right: 1px solid #cfcbc4;",
-    );
-    col.add_child(Dom::create_div_with_text("Name").with_css(
-        "font-size: 11px; padding: 7px 10px; color: #6b665e; flex-shrink: 0; border-bottom: 1px \
-         solid #d8d4cd; background: #efede8;",
+    let mut col = Dom::create_div().with_css(COLUMN);
+    col.add_child(Dom::create_span_with_text("Name").with_css(
+        "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
+         border-bottom: 1px solid system:separator;",
     ));
 
     let mut list = Dom::create_div()
-        .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; overflow-x: hidden;");
+        .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; overflow-x: hidden;")
+        .with_id(ids::FILES)
+        .with_accessibility_name("Files");
 
     let mut prev: Vec<String> = Vec::new();
     for (i, f) in s.files.iter().enumerate() {
@@ -147,7 +173,7 @@ fn sidebar(s: &AppState, data: &RefAny) -> Dom {
                 continue;
             }
             list.add_child(finder_row(
-                comp, depth, "folder", "#4a90d9", false, None, data,
+                comp, depth, "folder", "system:accent", false, None, data,
             ));
         }
         prev = dirs.iter().map(|c| (*c).to_string()).collect();
@@ -156,7 +182,7 @@ fn sidebar(s: &AppState, data: &RefAny) -> Dom {
             leaf,
             dirs.len(),
             file_icon(leaf),
-            "#7d786f",
+            "system:secondary-text",
             s.current == Some(i),
             Some(i),
             data,
@@ -194,26 +220,41 @@ fn finder_row(
     index: Option<usize>,
     data: &RefAny,
 ) -> Dom {
+    // A selected file: flat's accent row; under flora flora's selection (the soft wash and
+    // the deep ink by day, the stone at night), as every list of the engine shows it.
     let mut row = Dom::create_div().with_css(
         format!(
             "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 3px 10px \
-             3px {}px; font-size: 11px; flex-shrink: 0; background: {}; color: {};",
+             3px {}px; font-size: 11px; flex-shrink: 0; background: {}; color: {};{}",
             10 + depth * 16,
-            if selected { "#3478f6" } else { "transparent" },
-            if selected { "#ffffff" } else { "#2b2b2b" },
+            if selected { "system:accent" } else { "transparent" },
+            if selected { "system:accent-text" } else { "system:text" },
+            if selected {
+                " @theme(flora) { background: system:selection-background; color: \
+                 system:selection-text; }"
+            } else {
+                ""
+            },
         )
         .as_str(),
     );
     row.add_child(
         Dom::create_icon(icon).with_css(
             format!(
-                "font-size: 14px; color: {};",
-                if selected { "#ffffff" } else { icon_color },
+                "font-size: 14px; color: {};{}",
+                if selected { "system:accent-text" } else { icon_color },
+                // Under flora a glyph is flora's small-icon ink (a multicolour Haiku icon keeps
+                // its own colours whatever the ink).
+                if selected {
+                    " @theme(flora) { color: system:selection-text; }"
+                } else {
+                    " @theme(flora) { color: system:icon; }"
+                },
             )
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_div_with_text(label));
+    row.add_child(Dom::create_span_with_text(label));
     match index {
         Some(i) => row
             .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
@@ -229,7 +270,7 @@ fn finder_row(
 fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     let mut bar = Dom::create_div().with_css(
         "display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; \
-         background: #f7f6f3; border-bottom: 1px solid #cfcbc4;",
+         border-bottom: 1px solid system:separator; flex-shrink: 0;",
     );
     for (i, sem) in Semantic::ALL.iter().enumerate() {
         let c = sem.color();
@@ -243,18 +284,18 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
                 c.g,
                 c.b,
                 if selected { "1.0" } else { "0.18" },
-                if selected { "#ffffff" } else { "#2b2b2b" },
+                if selected { "#ffffff" } else { "system:text" },
                 if selected {
-                    "2px solid #2b2b2b"
+                    "2px solid system:text"
                 } else {
-                    "1px solid #cfcbc4"
+                    "1px solid system:separator"
                 },
             )
             .as_str(),
         );
         swatch.add_child(Dom::create_icon(sem.icon()).with_css("font-size: 15px;"));
         swatch.add_child(
-            Dom::create_div_with_text(format!("{}", i + 1).as_str())
+            Dom::create_span_with_text(format!("{}", i + 1).as_str())
                 .with_css("font-size: 10px; opacity: 0.75;"),
         );
         bar.add_child(
@@ -270,46 +311,41 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     }
     let mut nib = Dom::create_div().with_css(
         "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: 16px; \
-         padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #ffffff; color: \
-         #2b2b2b; border: 1px dashed #a9a49b;",
+         padding: 5px 12px; font-size: 12px; border-radius: 4px; color: system:text; border: 1px \
+         dashed system:separator;",
     );
     nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
-    nib.add_child(Dom::create_div_with_text(s.tool.label()));
+    nib.add_child(Dom::create_span_with_text(s.tool.label()));
     bar.add_child(nib);
 
+    // The meter, then record, save and the settings at the end of the row.
+    bar.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     let rec = s.recording.is_some();
     if rec {
         bar.add_child(meter(s));
     }
-    let mut record = Dom::create_div().with_css(if rec {
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: 10px; \
-         padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #d62d20; color: white;"
-    } else {
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; margin-left: auto; \
-         padding: 5px 12px; font-size: 12px; border-radius: 4px; background: #ffffff; color: \
-         #2b2b2b; border: 1px solid #cfcbc4;"
-    });
-    record.add_child(
-        Dom::create_icon(if rec { "fiber_manual_record" } else { "mic" })
-            .with_css("font-size: 15px;"),
-    );
-    record.add_child(Dom::create_div_with_text(if rec {
-        "recording"
-    } else {
-        "record"
-    }));
     bar.add_child(
-        record
-            .with_accessibility_info(named(if rec {
-                "stop recording"
-            } else {
-                "start recording"
-            }))
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                data.clone(),
-                crate::on_toggle_record,
-            ),
+        Button::create(if rec { "Stop recording" } else { "Record" })
+            .with_icon(if rec { "fiber_manual_record" } else { "mic" })
+            .with_toggled(rec)
+            .with_on_click(data.clone(), crate::on_toggle_record as ButtonOnClickCallbackType)
+            .dom()
+            .with_id(ids::RECORD),
+    );
+    bar.add_child(
+        Button::create("Save")
+            .with_icon("save")
+            .with_on_click(data.clone(), crate::on_save_button as ButtonOnClickCallbackType)
+            .dom()
+            .with_id(ids::SAVE),
+    );
+    bar.add_child(
+        Button::create("")
+            .with_icon("settings")
+            .with_on_click(data.clone(), crate::on_settings_open as ButtonOnClickCallbackType)
+            .dom()
+            .with_id(ids::SETTINGS)
+            .with_accessibility_name("Settings"),
     );
     bar
 }
@@ -317,12 +353,11 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
 fn meter(s: &AppState) -> Dom {
     let packets = s.level_samples / METER_PACKET_SAMPLES;
     let filled = (packets % METER_SPAN_PACKETS) as f32 / METER_SPAN_PACKETS as f32;
-    let mut wrap = Dom::create_div().with_css(
-        "margin-left: auto; display: flex; flex-direction: row; align-items: center; gap: 6px;",
-    );
+    let mut wrap = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; gap: 6px;");
     wrap.add_child(
-        Dom::create_div_with_text(format!("{packets} pkt").as_str())
-            .with_css("font-size: 11px; color: #6b665e; font-family: monospace;"),
+        Dom::create_span_with_text(format!("{packets} pkt").as_str())
+            .with_css("font-size: 11px; color: system:secondary-text; font-family: monospace;"),
     );
     let mut holder = Dom::create_div().with_css("width: 160px;");
     holder.add_child(ProgressBar::create(filled * 100.0).dom());
@@ -330,26 +365,31 @@ fn meter(s: &AppState) -> Dom {
     wrap
 }
 
-pub const STRIP_ID: &str = "sheet-strip";
+pub const STRIP_ID: &str = ids::STRIP_NAME;
 
 fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let mut rail = Dom::create_div().with_css(
         "display: flex; flex-direction: row; align-items: center; gap: 3px; padding: 4px 12px; \
-         background: #efede8; border-bottom: 1px solid #cfcbc4; overflow-x: auto; overflow-y: \
-         hidden; flex-shrink: 0; width: 100%; box-sizing: border-box;",
+         border-bottom: 1px solid system:separator; overflow-x: auto; overflow-y: hidden; \
+         flex-shrink: 0; width: 100%; box-sizing: border-box;",
     );
     let Some(file) = s.file() else { return rail };
     for page in 0..file.page_count() {
         let here = page == s.visible_page;
+        // A page's number: flat's monospace; under flora flora's Garamond (its figures are
+        // tabular) at 12px.
         let css = if here {
             "padding: 2px 9px; font-size: 11px; font-family: monospace; border-radius: 3px; \
-             background: #2b2b2b; color: #ffffff; flex-shrink: 0;"
+             background: system:accent; color: system:accent-text; flex-shrink: 0; \
+             @theme(flora) { font-family: EB Garamond, Georgia, serif; font-size: 12px; }"
         } else {
             "padding: 2px 9px; font-size: 11px; font-family: monospace; border-radius: 3px; \
-             background: #ffffff; color: #55514a; border: 1px solid #d8d4cd; flex-shrink: 0;"
+             background: system:control-background; color: system:secondary-text; border: 1px \
+             solid system:separator; flex-shrink: 0; @theme(flora) { font-family: EB Garamond, \
+             Georgia, serif; font-size: 12px; }"
         };
         rail.add_child(
-            Dom::create_div_with_text(format!("{}", page + 1).as_str())
+            Dom::create_span_with_text(format!("{}", page + 1).as_str())
                 .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: page })))
                 .with_css(css)
                 .with_callback(
@@ -374,13 +414,13 @@ pub fn scroll_to_page(info: &mut CallbackInfo, page: usize) {
 
 fn sheet(s: &AppState, data: &RefAny) -> Dom {
     let mut area = Dom::create_div().with_css(
-        "flex-grow: 1; min-height: 0px; background: #e9e7e2; display: flex; flex-direction: \
-         column; overflow: hidden; padding: 18px;",
+        "flex-grow: 1; min-height: 0px; background: system:under-page-background; display: flex; \
+         flex-direction: column; overflow: hidden; padding: 18px;",
     );
     if s.file().is_none() {
         area.add_child(
-            Dom::create_div_with_text("Open a file to begin")
-                .with_css("color: #7a756c; padding: 40px;"),
+            Dom::create_p_with_text("Open a file to begin")
+                .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
         );
         return area;
     }
@@ -389,7 +429,7 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
             RefAny::new(SheetStrip { app: data.clone() }),
             sheets_virtual_view,
         )
-        .with_ids_and_classes(IdOrClassVec::from_item(IdOrClass::id(STRIP_ID)))
+        .with_id(ids::STRIP)
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
     );
     area
@@ -491,22 +531,7 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         .as_str(),
     );
     for (i, line) in lines.iter().enumerate() {
-        let mut row = Dom::create_div()
-            .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
-        row.add_child(
-            Dom::create_div_with_text(format!("{}", first_line + i).as_str()).with_css(
-                format!(
-                    "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
-                     font-family: monospace; font-size: 11px; color: #b0aaa0;",
-                    GUTTER_W as isize - 10,
-                )
-                .as_str(),
-            ),
-        );
-        row.add_child(Dom::create_div_with_text(line.as_str()).with_css(
-            "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
-        ));
-        col.add_child(row);
+        col.add_child(code_row(first_line + i, line.as_str()));
     }
     sheet.add_child(col);
 
@@ -516,42 +541,68 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         strokes: page_strokes.into_iter().cloned().collect(),
         live: if has_live { s.live.clone() } else { None },
     });
-    sheet.add_child(
-        Dom::create_image(ImageRef::callback(
-            RenderImageCallback::create(render_ink).to_core(),
-            cache,
-        ))
-        .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
-        .with_css(
+    sheet.add_child(ink_layer(data, cache, page));
+    sheet
+}
+
+/// One line of code: its number in the gutter, then the line.
+fn code_row(number: usize, line: &str) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
+    row.add_child(
+        Dom::create_span_with_text(format!("{number}").as_str()).with_css(
             format!(
-                "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
-                PAGE_W as isize,
-                page_h() as isize,
+                "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
+                 font-family: monospace; font-size: 11px; color: #b0aaa0;",
+                GUTTER_W as isize - 10,
             )
             .as_str(),
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseDown),
-            data.clone(),
-            crate::on_ink_down,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseOver),
-            data.clone(),
-            crate::on_ink_move,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            data.clone(),
-            crate::on_ink_up,
-        )
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::RightMouseUp),
-            data.clone(),
-            crate::on_cycle_tool_back,
         ),
     );
-    sheet
+    row.add_child(Dom::create_span_with_text(line).with_css(
+        "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
+    ));
+    row
+}
+
+/// The ink over page `page`: `cache` (an [`InkLayer`]) drawn by
+/// [`render_ink`], the pointer handlers of the app (`data`).
+fn ink_layer(data: &RefAny, cache: RefAny, page: usize) -> Dom {
+    Dom::create_image(ImageRef::callback(
+        RenderImageCallback::create(render_ink).to_core(),
+        cache,
+    ))
+    .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
+    .with_css(
+        format!(
+            "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
+            PAGE_W as isize,
+            page_h() as isize,
+        )
+        .as_str(),
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseDown),
+        data.clone(),
+        crate::on_ink_down,
+    )
+    // Movement: `MouseMove` (W3C `mouseover` fires once, on entry - with it
+    // a stroke kept only its first point).
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseMove),
+        data.clone(),
+        crate::on_ink_move,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        data.clone(),
+        crate::on_ink_up,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::RightMouseUp),
+        data.clone(),
+        crate::on_cycle_tool_back,
+    )
 }
 
 struct InkLayer {
@@ -575,14 +626,7 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
         all.push(l);
     }
     let buf = ink::rasterize_page(&all, w, h);
-    let img = RawImage {
-        pixels: RawImageData::U8(buf.into()),
-        width: w as usize,
-        height: h as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-        tag: Vec::new().into(),
-    };
+    let img = RawImage::create_rgba8(w, h, buf, false);
     ImageRef::create_rawimage(img)
         .into_option()
         .unwrap_or_else(|| {
@@ -598,17 +642,62 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
 fn status_bar(s: &AppState) -> Dom {
     let pages = s.file().map_or(0, code::SourceFile::page_count);
     let clips = s.clips.len() + usize::from(s.recording.is_some());
-    let mut bar = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 5px 12px; \
-         font-size: 11px; color: #55514a; background: #f7f6f3; border-top: 1px solid #cfcbc4;",
-    );
-    bar.add_child(Dom::create_div_with_text(
-        format!(
-            "{pages} sheets  ·  {} strokes  ·  {clips} clips",
-            s.strokes.len()
-        )
-        .as_str(),
-    ));
-    bar.add_child(Dom::create_div_with_text(s.status.as_str()).with_css("margin-left: auto;"));
-    bar
+    StatusBar::create(vec![
+        StatusBarSegment::create(format!("{pages} sheets")),
+        StatusBarSegment::create(format!("{} strokes", s.strokes.len())),
+        StatusBarSegment::create(format!("{clips} clips")),
+        StatusBarSegment::create(s.status.as_str()),
+    ])
+    .dom()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The events the ink layer hands to `handler`.
+    fn events_of(layer: &Dom, handler: azul::callbacks::CallbackType) -> Vec<EventFilter> {
+        layer
+            .root
+            .callbacks
+            .as_slice()
+            .iter()
+            .filter(|c| c.callback.cb == handler as usize)
+            .map(|c| c.event)
+            .collect()
+    }
+
+    /// A line of code and its number are text spans, not anonymous divs: a
+    /// screen reader is told what they are (and azul's div-as-text check stays
+    /// quiet).
+    #[test]
+    fn a_code_line_and_its_number_are_text_spans() {
+        let row = code_row(7, "fn main() {}");
+        let kinds: Vec<bool> = row
+            .children
+            .as_slice()
+            .iter()
+            .map(|c| matches!(c.root.node_type, NodeType::Span))
+            .collect();
+        assert_eq!(kinds, vec![true, true]);
+    }
+
+    /// W3C `mouseover` fires once, when the pointer ENTERS the page; the
+    /// points of a stroke between press and release come from `mousemove`.
+    #[test]
+    fn the_ink_layer_takes_the_points_of_a_stroke_from_every_pointer_move() {
+        let layer = ink_layer(&RefAny::new(0u8), RefAny::new(0u8), 0);
+        assert_eq!(
+            events_of(&layer, crate::on_ink_move),
+            vec![EventFilter::Hover(HoverEventFilter::MouseMove)]
+        );
+        assert_eq!(
+            events_of(&layer, crate::on_ink_down),
+            vec![EventFilter::Hover(HoverEventFilter::MouseDown)]
+        );
+        assert_eq!(
+            events_of(&layer, crate::on_ink_up),
+            vec![EventFilter::Hover(HoverEventFilter::MouseUp)]
+        );
+    }
 }

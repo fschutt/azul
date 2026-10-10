@@ -1,0 +1,27 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: 'list-style-position:outside' should be the initial value and should result in 'outside' marker-positioning</title>
+<style>
+  body {
+    /* Increase left margin to ensure we can see the list item's marker. */
+    margin-left: 50px;
+  }
+  .wrapper {
+    border: 2px solid teal;
+    width: max-content;
+    margin-bottom: 2px;
+  }
+</style>
+</head>
+<body><div class="wrapper">
+  
+  <li>unspecified</li>
+  <li style="list-style-position: outside">outside</li>
+  <li style="list-style-position: initial">initial</li>
+  <li style="list-style-position: inherit">inherit</li>
+  <li style="list-style-position: unset">unset</li>
+  <li style="list-style-position: revert">revert</li>
+  <li style="list-style-position: revert-layer">revert-layer</li>
+</div>
+</body>
+</html>

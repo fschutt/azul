@@ -10,18 +10,78 @@
 //!   timerfd file descriptors.
 //! - [`X11Window::render_and_present`] — full render cycle: layout regeneration, WebRender update,
 //!   and buffer swap (GPU) or XPutImage (CPU).
+//!
+//! Also built into a macOS binary with the `x11-macos` feature, where it runs
+//! against XQuartz (see `common::x11_host`). `LinuxWindow` has only the X11
+//! variant there, so every `_ =>` arm and `if let LinuxWindow::X11(..)` written
+//! against X11 + Wayland is trivially exhaustive on that host. The two lints
+//! that say so are silenced there only; on Linux, where this code is written
+//! and the enum has both variants, they stay live.
+#![cfg_attr(
+    not(target_os = "linux"),
+    allow(unreachable_patterns, irrefutable_let_patterns)
+)]
 
 use azul_layout::solver3::LayoutNodeId;
 
 use crate::impl_platform_window_getters;
 
+#[cfg(target_os = "linux")]
 pub mod accessibility;
+/// X11 on a macOS host: there is no AT-SPI bus to talk to, and
+/// `accesskit_unix` is a Linux-only dependency. The window keeps the adapter's
+/// API with nothing behind it - what an `a11y`-less Linux build gets.
+#[cfg(not(target_os = "linux"))]
+pub mod accessibility {
+    #[cfg(feature = "a11y")]
+    use accesskit::{ActionRequest, TreeUpdate};
+    #[cfg(feature = "a11y")]
+    use azul_core::dom::{AccessibilityAction, DomId, NodeId};
+
+    /// Inert off Linux: see the module docs.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct LinuxAccessibilityAdapter;
+
+    impl LinuxAccessibilityAdapter {
+        pub fn new() -> Self {
+            Self
+        }
+
+        pub fn initialize(&mut self, _window_name: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        #[cfg(feature = "a11y")]
+        pub fn update_tree(&self, _tree_update: TreeUpdate) {}
+
+        pub fn set_focus(&self, _has_focus: bool) {}
+
+        pub fn set_root_window_bounds(&self, _x: f64, _y: f64, _width: f64, _height: f64) {}
+
+        #[cfg(feature = "a11y")]
+        pub fn take_pending_actions(&self) -> Vec<ActionRequest> {
+            Vec::new()
+        }
+
+        #[cfg(feature = "a11y")]
+        pub fn poll_action(&self) -> Option<(DomId, NodeId, AccessibilityAction)> {
+            None
+        }
+    }
+}
+#[cfg(target_os = "linux")]
+pub mod clipboard;
+/// X11 on a macOS host: the selections through XQuartz's pasteboard bridge
+/// instead of the `x11-clipboard` transport - the file says why.
+#[cfg(not(target_os = "linux"))]
+#[path = "clipboard_xquartz.rs"]
 pub mod clipboard;
 pub mod defines;
 pub mod dlopen;
 pub mod events;
 pub mod gl;
 pub mod menu;
+mod shm;
 pub mod tooltip;
 
 use std::{
@@ -194,7 +254,11 @@ enum RenderMode {
 /// Returns the XRandR event base if successful (screen change events = event_base + 0).
 fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
     use crate::desktop::shell2::{
-        common::{dlopen::load_first_available, DynamicLibrary},
+        common::{
+            dlopen::load_first_available,
+            x11_host::{candidates, X11Lib},
+            DynamicLibrary,
+        },
         linux::x11::dlopen::Library,
     };
 
@@ -208,8 +272,7 @@ fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
     const RR_SCREEN_CHANGE_NOTIFY_MASK: std::ffi::c_int = 1 << 0;
 
     unsafe {
-        let xrandr_lib =
-            load_first_available::<Library>(&["libXrandr.so.2", "libXrandr.so"]).ok()?;
+        let xrandr_lib = load_first_available::<Library>(candidates(X11Lib::Xrandr)).ok()?;
 
         let query_extension: XRRQueryExtensionFn =
             xrandr_lib.get_symbol("XRRQueryExtension").ok()?;
@@ -311,6 +374,142 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
     None
 }
 
+/// This host's name for `WM_CLIENT_MACHINE`, read from the kernel rather than
+/// from the environment: `/proc/sys/kernel/hostname` on Linux, gethostname(3)
+/// on a host without procfs (macOS under `x11-macos`). Empty when unreadable,
+/// and the caller then sets no property at all.
+fn client_machine_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/sys/kernel/hostname")
+            .map(|h| h.trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut buf = [0 as c_char; 256];
+        if unsafe { libc::gethostname(buf.as_mut_ptr(), buf.len()) } != 0 {
+            return String::new();
+        }
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        let bytes: Vec<u8> = buf[..len].iter().map(|&c| c as u8).collect();
+        String::from_utf8_lossy(&bytes).trim().to_string()
+    }
+}
+
+/// The bytes a window title goes onto the wire as, truncated at an interior
+/// NUL rather than refused.
+///
+/// X strings are NUL-terminated, so a title carrying one cannot be expressed
+/// past that byte - but `CString::new(..).unwrap()` turned that into a PANIC,
+/// and a title is often user data (a document name, a URL).
+fn window_title_bytes(title: &str) -> Vec<u8> {
+    let end = title.find('\0').unwrap_or(title.len());
+    title[..end].as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod window_title_tests {
+    use super::window_title_bytes;
+
+    #[test]
+    fn a_title_survives_its_non_ascii_characters() {
+        // The whole point of _NET_WM_NAME: these bytes are UTF-8, and
+        // WM_NAME(STRING) could not carry them.
+        assert_eq!(window_title_bytes("Übersicht — 日本語"), "Übersicht — 日本語".as_bytes());
+    }
+
+    #[test]
+    fn an_interior_nul_truncates_instead_of_panicking() {
+        assert_eq!(window_title_bytes("doc\0evil"), b"doc");
+        assert!(window_title_bytes("\0").is_empty());
+    }
+}
+
+/// The executable's own name, which is what every other toolkit derives a
+/// window class from when the application does not supply one (GTK reads
+/// `g_get_prgname()`, Qt `QCoreApplication::applicationName()`; both fall
+/// back to `argv[0]`). Read from the app's one identity
+/// (`desktop::app_identity`), so it is the same string as the Wayland
+/// `app_id` and the notifications' `desktop-entry` hint - `FLATPAK_ID` in a
+/// sandbox, whose `.desktop` file is named after it.
+fn current_exe_name() -> String {
+    crate::desktop::app_identity::current().desktop_entry()
+}
+
+/// The bytes of a `WM_CLASS` property: `instance\0class\0`.
+///
+/// A window ALWAYS has one. It is how every taskbar groups windows, how a
+/// dock matches the `.desktop` file that carries the icon and the display
+/// name, and what a WM window rule matches on. azul used to write the
+/// property only when the application had supplied a class of its own, which
+/// almost none do - its own demo does not - so the window arrived on the
+/// desktop anonymous: no grouping, no icon, no rule could name it.
+///
+/// The instance is conventionally the executable's name as invoked, the
+/// class the same with an initial capital.
+fn wm_class_payload(supplied: Option<(&str, &str)>, exe: &str) -> Vec<u8> {
+    let (instance, class) = match supplied {
+        Some((i, c)) if !i.is_empty() || !c.is_empty() => (i.to_string(), c.to_string()),
+        _ => {
+            let instance = if exe.is_empty() { "azul" } else { exe };
+            let mut chars = instance.chars();
+            let class = chars.next().map_or_else(String::new, |f| {
+                f.to_uppercase().collect::<String>() + chars.as_str()
+            });
+            (instance.to_string(), class)
+        }
+    };
+    let mut data = Vec::with_capacity(instance.len() + class.len() + 2);
+    data.extend_from_slice(instance.as_bytes());
+    data.push(0);
+    data.extend_from_slice(class.as_bytes());
+    data.push(0);
+    data
+}
+
+#[cfg(test)]
+mod wm_class_tests {
+    use super::wm_class_payload;
+
+    fn parts(data: &[u8]) -> Vec<String> {
+        data.split(|b| *b == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_window_has_a_class_even_when_the_app_supplies_none() {
+        // RED before this existed: no property was written at all, and the
+        // window arrived on the desktop with nothing to group or icon it.
+        let data = wm_class_payload(None, "AzWidgets");
+        assert_eq!(parts(&data), vec!["AzWidgets", "AzWidgets"]);
+        assert_eq!(data.last(), Some(&0), "both strings are NUL-terminated");
+        assert_eq!(data.iter().filter(|b| **b == 0).count(), 2);
+    }
+
+    #[test]
+    fn the_class_is_the_instance_with_an_initial_capital() {
+        assert_eq!(parts(&wm_class_payload(None, "azwidgets")), vec!["azwidgets", "Azwidgets"]);
+    }
+
+    #[test]
+    fn what_the_app_supplies_wins() {
+        assert_eq!(
+            parts(&wm_class_payload(Some(("inkscape", "Inkscape")), "AzWidgets")),
+            vec!["inkscape", "Inkscape"]
+        );
+    }
+
+    #[test]
+    fn a_nameless_executable_still_produces_a_usable_pair() {
+        // `current_exe()` can fail; the property is still owed.
+        assert_eq!(parts(&wm_class_payload(None, "")), vec!["azul", "Azul"]);
+        assert_eq!(parts(&wm_class_payload(Some(("", "")), "")), vec!["azul", "Azul"]);
+    }
+}
+
 /// Publish `_NET_WM_ICON` from whatever icon sizes the caller supplied.
 ///
 /// EWMH format is `[w1, h1, w1*h1 pixels..., w2, h2, ...]`, one entry per size,
@@ -379,6 +578,45 @@ unsafe fn apply_net_wm_icon(
     );
 }
 
+/// The `_MOTIF_WM_HINTS` decoration bits a decoration mode asks the window
+/// manager for.
+///
+/// Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
+/// MINIMIZE=32, MAXIMIZE=64.
+///
+/// Zero means "draw me no frame at all", and it is the ONLY answer an X11
+/// window manager reads unambiguously: every WM that honours these hints -
+/// xfwm4, Metacity/Marco, KWin - treats `MWM_DECOR_BORDER` as "this window
+/// wants a frame" and hands back the WHOLE one, caption included. So a mode
+/// that must not get a server caption has to ask for nothing, and draw the
+/// rest itself.
+///
+/// Separated from [`apply_motif_wm_hints`] so the decision is testable: it is
+/// also what tells the software resize band whether this window has a server
+/// frame to resize by (`x11::events`, `csd_resize_edge_for_press`).
+pub(super) const fn motif_decor_bits(
+    decorations: azul_core::window::WindowDecorations,
+) -> std::os::raw::c_long {
+    match decorations {
+        // Nothing, and for the same reason in both cases: the app is getting
+        // its chrome from azul. `None` asked for that outright; `NoTitle`
+        // asked for a caption-less frame, which no X11 window manager can
+        // give - ask one for BORDER and it draws the caption too - so the
+        // only request that keeps a second titlebar off the screen is none.
+        // The controls `NoTitle` is owed come from `CsdInjection::ControlsOnly`
+        // and the edges from the software resize band, both of which key off
+        // exactly this answer.
+        azul_core::window::WindowDecorations::None
+        | azul_core::window::WindowDecorations::NoTitle => 0,
+        // Same all-or-nothing: ask for TITLE and the window manager draws
+        // its whole caption, BUTTONS INCLUDED - which is precisely what
+        // `NoControls` says it does not want. The title it IS owed comes
+        // from `CsdInjection::SoftwareTitleOnly`.
+        azul_core::window::WindowDecorations::NoControls => 0,
+        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
+    }
+}
+
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
 /// MWA-B5: `_MOTIF_WM_HINTS` — tell the WM which decorations to draw.
@@ -404,14 +642,7 @@ unsafe fn apply_motif_wm_hints(
         status: c_long,
     }
     const MWM_HINTS_DECORATIONS: c_long = 1 << 1;
-    // Motif decoration bits: ALL=1, BORDER=2, RESIZEH=4, TITLE=8, MENU=16,
-    // MINIMIZE=32, MAXIMIZE=64.
-    let deco_bits: c_long = match decorations {
-        azul_core::window::WindowDecorations::None => 0,
-        azul_core::window::WindowDecorations::NoTitle => 2 | 4,
-        azul_core::window::WindowDecorations::NoControls => 2 | 4 | 8,
-        _ => 1, // Normal / NoTitleAutoInject: full WM decorations
-    };
+    let deco_bits: c_long = motif_decor_bits(decorations);
     let hints = MotifWmHints {
         flags: MWM_HINTS_DECORATIONS,
         functions: 0,
@@ -1470,23 +1701,6 @@ const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
 /// dropped its XIC and ran a full pass plus restyle every time a context menu
 /// opened. `detail == NotifyPointer` is likewise not a window focus change (the
 /// focus merely follows the pointer). Same rule winit and GTK apply.
-/// The primary monitor's refresh interval for frame pacing (fallback 60Hz,
-/// clamped to 30..=240 so a bogus XRandR reading cannot stall or spin the
-/// pacer). Read once at window creation; a mid-session mode switch keeps the
-/// old cadence until the next window (acceptable - pacing is a ceiling, not
-/// a sync).
-fn detect_frame_interval() -> std::time::Duration {
-    let monitors = crate::desktop::display::get_monitors();
-    let hz = monitors
-        .as_ref()
-        .iter()
-        .find(|m| m.is_primary_monitor)
-        .or_else(|| monitors.as_ref().first())
-        .and_then(|m| m.video_modes.as_ref().first())
-        .map_or(60_u64, |v| u64::from(v.refresh_rate));
-    std::time::Duration::from_nanos(1_000_000_000 / hz.clamp(30, 240))
-}
-
 fn is_grab_focus_change(ev: &defines::XFocusChangeEvent) -> bool {
     ev.mode == defines::NotifyGrab
         || ev.mode == defines::NotifyUngrab
@@ -1742,15 +1956,17 @@ pub(super) struct SeatXkb {
 
 impl X11Window {
     /// The xkb state of master keyboard `deviceid`, built from the device on
-    /// first use (9b-ii-a-i-a-i). `None` without libxkbcommon-x11 / libX11-xcb
-    /// or when the server refuses - the caller then uses the core keymap.
+    /// first use (9b-ii-a-i-a-i). `None` without libxkbcommon(-x11) /
+    /// libX11-xcb or when the server refuses - the caller then uses the core
+    /// keymap.
     fn seat_xkb_state(&mut self, deviceid: c_int) -> Option<*mut defines::xkb_state> {
         if let Some(entry) = self.seat_keymaps.get(&deviceid) {
             return Some(entry.state);
         }
         let x11 = self.xkb_x11.clone()?;
+        let xkb = self.xkb.clone()?;
         if self.seat_xkb_context.is_null() {
-            self.seat_xkb_context = unsafe { (self.xkb.xkb_context_new)(0) };
+            self.seat_xkb_context = unsafe { (xkb.xkb_context_new)(0) };
             if self.seat_xkb_context.is_null() {
                 return None;
             }
@@ -1767,7 +1983,7 @@ impl X11Window {
             }
             let state = (x11.xkb_x11_state_new_from_device)(keymap, conn, deviceid);
             if state.is_null() {
-                (self.xkb.xkb_keymap_unref)(keymap);
+                (xkb.xkb_keymap_unref)(keymap);
                 return None;
             }
             (keymap, state)
@@ -1782,9 +1998,13 @@ impl X11Window {
     /// rebuilds the map from the server (9b-ii-a-i-a-i-a).
     fn drop_seat_keymap(&mut self, deviceid: c_int) {
         if let Some(entry) = self.seat_keymaps.remove(&deviceid) {
+            // An entry exists only if libxkbcommon built it.
+            let Some(xkb) = self.xkb.as_ref() else {
+                return;
+            };
             unsafe {
-                (self.xkb.xkb_state_unref)(entry.state);
-                (self.xkb.xkb_keymap_unref)(entry.keymap);
+                (xkb.xkb_state_unref)(entry.state);
+                (xkb.xkb_keymap_unref)(entry.keymap);
             }
         }
     }
@@ -1815,9 +2035,13 @@ impl X11Window {
     /// (`XI_HierarchyChanged`), so a cached map may describe another keyboard.
     fn drop_seat_keymaps(&mut self) {
         for (_, entry) in std::mem::take(&mut self.seat_keymaps) {
+            // An entry exists only if libxkbcommon built it.
+            let Some(xkb) = self.xkb.as_ref() else {
+                continue;
+            };
             unsafe {
-                (self.xkb.xkb_state_unref)(entry.state);
-                (self.xkb.xkb_keymap_unref)(entry.keymap);
+                (xkb.xkb_state_unref)(entry.state);
+                (xkb.xkb_keymap_unref)(entry.keymap);
             }
         }
     }
@@ -1880,8 +2104,8 @@ impl X11Window {
         // modifier and group state applied to a keymap built from the
         // device, so a seat on another layout is not translated through
         // the primary's. The core keymap below is the fallback.
-        let per_device = self.seat_xkb_state(ev.deviceid).map(|xkb_state| {
-            let xkb = self.xkb.clone();
+        let per_device = self.seat_xkb_state(ev.deviceid).zip(self.xkb.clone());
+        let per_device = per_device.map(|(xkb_state, xkb)| {
             unsafe {
                 // The virtual keycode comes from the UNMODIFIED symbol of
                 // the seat's group; the text from the full state.
@@ -2601,13 +2825,23 @@ pub struct X11Window {
     /// Rotation accumulated across the current XI pinch. `delta_angle` is a
     /// per-update delta in degrees, so an absolute angle only exists as a sum.
     pub pinch_accumulated_rotation: f32,
+    /// An XI pinch began and has not reported an update yet: its first update
+    /// carries `DetectedPinch::began` (XI's `scale` is already cumulative).
+    pub pinch_began: bool,
     /// Travel accumulated across the current XI swipe; the direction is only
     /// decided at the end event.
     pub swipe_accumulated: (f32, f32),
 
     pub xlib: Rc<Xlib>,
-    pub egl: Rc<Egl>,
-    pub xkb: Rc<Xkb>,
+    /// Always `Some` on Linux, where libEGL is required. Off Linux (XQuartz
+    /// ships none) `None` means the GPU path is never tried: the window
+    /// renders on the CPU, which is the default anyway.
+    pub egl: Option<Rc<Egl>>,
+    /// Always `Some` on Linux, where libxkbcommon is required. Off Linux
+    /// (XQuartz ships none) `None` loses the no-XIM compose table and the
+    /// per-seat keymaps of a second master keyboard; keysyms and typed text
+    /// come from the core `XLookupString` / XIM path either way.
+    pub xkb: Option<Rc<Xkb>>,
     /// libxkbcommon-x11, when present (9b-ii-a-i-a-i): per-master-keyboard
     /// keymaps for the other seats.
     xkb_x11: Option<Rc<dlopen::XkbX11>>,
@@ -2746,7 +2980,8 @@ pub struct X11Window {
     /// XRandR event base (if available). Screen change events have type xrandr_event_base + 0.
     pub xrandr_event_base: Option<i32>,
 
-    // Native timer support via timerfd (Linux-specific)
+    // Native timer support via timerfd (a kqueue timer off Linux, see
+    // `linux/timer.rs`)
     // Maps TimerId -> (timerfd file descriptor)
     // When timerfd becomes readable, the timer has fired
     pub timer_fds: std::collections::BTreeMap<usize, i32>,
@@ -2771,7 +3006,6 @@ pub struct X11Window {
     net_wm_state_atoms: Option<[Atom; 5]>,
     last_present_at: Option<std::time::Instant>,
     pace_fd: i32,
-    frame_interval: std::time::Duration,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -2798,6 +3032,12 @@ pub struct X11Window {
     /// Cached BGRA conversion buffer reused across CPU frames
     #[cfg(feature = "cpurender")]
     bgra_buffer: Vec<u8>,
+    /// MIT-SHM upload of the CPU present (`shm.rs`): `Some` while the window
+    /// uploads through a shared segment, `None` once it fell back to
+    /// `XPutImage` (or before the first CPU present probed it).
+    shm_upload: Option<shm::X11ShmUpload>,
+    /// The MIT-SHM probe ran (once per window; its fallback is sticky).
+    shm_probed: bool,
 
     /// Set when the OS asked us to repaint (Expose / MapNotify): the window
     /// content on screen may be stale or undefined, so the next CPU present
@@ -2835,6 +3075,10 @@ pub struct X11Window {
     /// resizes the window to it, then maps — so the popup appears exactly
     /// content-sized with no tiny-window flash. Cleared after the one-time pass.
     size_to_content_pending: bool,
+
+    /// The window's `<webview>`s (`linux::webview::WpeWebViews`), made at
+    /// the first one: an app without a web view never loads WPE WebKit.
+    webviews: Option<super::webview::WpeWebViews>,
 
     // Accessibility
     /// Linux accessibility adapter
@@ -3090,6 +3334,9 @@ impl X11Window {
 
     /// Destroy the X11 window, free the ARGB colormap, and close the display.
     pub fn close(&mut self) {
+        // The popups this window opened close with it (a popup's own popup has
+        // no other parent to close it).
+        PlatformWindow::close_transient_windows(self);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
@@ -3192,6 +3439,8 @@ impl X11Window {
         layout_window.current_window_state = self.common.current_window_state().clone();
         layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
         layout_window.routes = self.resources.config.routes.clone();
+        layout_window.set_app_localization(&self.resources.config);
+        layout_window.webviews.set_platform(super::webview::platform());
         if let Ok(mut guard) = layout_window.monitors.lock() {
             *guard = crate::desktop::display::get_monitors();
         }
@@ -3204,6 +3453,51 @@ impl X11Window {
                 .set_tablet_devices(self.tablet_device_infos.clone());
         }
         Ok(())
+    }
+
+    /// Publish the window title as BOTH `_NET_WM_NAME` and `WM_NAME`.
+    ///
+    /// `WM_NAME` is a `STRING`, which in X means LATIN-1: every window
+    /// manager written this century reads the UTF-8 `_NET_WM_NAME` first and
+    /// keeps `WM_NAME` only as the fallback for clients that predate it.
+    /// azul wrote only the latter, so any title with a character outside
+    /// Latin-1 - an umlaut, an em dash, any CJK - reached the taskbar
+    /// mangled or not at all.
+    fn publish_window_title(&self, title: &str) {
+        let bytes = window_title_bytes(title);
+        unsafe {
+            let utf8 =
+                (self.xlib.XInternAtom)(self.display, b"UTF8_STRING\0".as_ptr() as *const c_char, 0);
+            let net_name = (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_NAME\0".as_ptr() as *const c_char,
+                0,
+            );
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                net_name,
+                utf8,
+                8,
+                defines::PropModeReplace,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+            );
+            let wm_name =
+                (self.xlib.XInternAtom)(self.display, b"WM_NAME\0".as_ptr() as *const c_char, 0);
+            let string_atom =
+                (self.xlib.XInternAtom)(self.display, b"STRING\0".as_ptr() as *const c_char, 0);
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                wm_name,
+                string_atom,
+                8,
+                defines::PropModeReplace,
+                bytes.as_ptr(),
+                bytes.len() as i32,
+            );
+        }
     }
 
     /// Set this live window's `_NET_WM_ICON` — the `App::set_app_icon` path
@@ -3240,11 +3534,36 @@ impl X11Window {
 
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
-        let egl = Egl::new()
-            .map_err(|e| WindowError::PlatformError(format!("Failed to load libEGL: {:?}", e)))?;
-        let xkb = Xkb::new().map_err(|e| {
+        #[cfg(target_os = "linux")]
+        let egl =
+            Some(Egl::new().map_err(|e| {
+                WindowError::PlatformError(format!("Failed to load libEGL: {:?}", e))
+            })?);
+        #[cfg(target_os = "linux")]
+        let xkb = Some(Xkb::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
-        })?;
+        })?);
+        // Off Linux - XQuartz, which ships neither library - both are
+        // optional. Without EGL the window renders on the CPU (the default,
+        // and what `AZ_BACKEND=gpu` falls back to below). Without xkbcommon
+        // the core `XLookupString` / XIM path still yields every keysym and
+        // every typed character; see the `xkb` field for what is lost.
+        #[cfg(not(target_os = "linux"))]
+        let egl = Egl::new()
+            .map_err(|e| {
+                crate::plog_info!("[X11] libEGL not loaded ({:?}) - CPU rendering only", e);
+            })
+            .ok();
+        #[cfg(not(target_os = "linux"))]
+        let xkb = Xkb::new()
+            .map_err(|e| {
+                crate::plog_info!(
+                    "[X11] libxkbcommon not loaded ({:?}) - keys go through core Xlib, no \
+                     compose table without an input method",
+                    e
+                );
+            })
+            .ok();
 
         // Set custom X11 error handler to prevent application crashes
         // The default handler terminates the app on any X protocol error
@@ -3593,12 +3912,12 @@ impl X11Window {
                 .platform_specific_options
                 .linux_options
                 .x11_wm_classes;
-            if let Some(pair) = classes.as_ref().first() {
-                let mut data: Vec<u8> = Vec::new();
-                data.extend_from_slice(pair.key.as_str().as_bytes());
-                data.push(0);
-                data.extend_from_slice(pair.value.as_str().as_bytes());
-                data.push(0);
+            let supplied = classes
+                .as_ref()
+                .first()
+                .map(|pair| (pair.key.as_str(), pair.value.as_str()));
+            {
+                let data = wm_class_payload(supplied, &current_exe_name());
                 unsafe {
                     let wm_class_atom =
                         (xlib.XInternAtom)(display, b"WM_CLASS\0".as_ptr() as *const c_char, 0);
@@ -3615,6 +3934,49 @@ impl X11Window {
                         data.len() as i32,
                     );
                 }
+            }
+        }
+
+        // WHO WE ARE, the other half. `WM_CLASS` says what application this
+        // is; `_NET_WM_PID` + `WM_CLIENT_MACHINE` say which PROCESS on which
+        // host it belongs to, and EWMH requires them together. Without them
+        // `xdotool search --pid` and `wmctrl -lp` report nothing for an azul
+        // window, and the WM cannot offer to force-quit one that hangs.
+        unsafe {
+            let pid: std::os::raw::c_long = std::process::id() as std::os::raw::c_long;
+            let pid_atom =
+                (xlib.XInternAtom)(display, b"_NET_WM_PID\0".as_ptr() as *const c_char, 0);
+            (xlib.XChangeProperty)(
+                display,
+                window_handle,
+                pid_atom,
+                defines::XA_CARDINAL,
+                32,
+                defines::PropModeReplace,
+                &pid as *const std::os::raw::c_long as *const u8,
+                1,
+            );
+            // The hostname has to be the one the WM would see, so it is read
+            // from the kernel rather than from the environment.
+            let host = client_machine_name();
+            if !host.is_empty() {
+                let machine_atom = (xlib.XInternAtom)(
+                    display,
+                    b"WM_CLIENT_MACHINE\0".as_ptr() as *const c_char,
+                    0,
+                );
+                let string_atom =
+                    (xlib.XInternAtom)(display, b"STRING\0".as_ptr() as *const c_char, 0);
+                (xlib.XChangeProperty)(
+                    display,
+                    window_handle,
+                    machine_atom,
+                    string_atom,
+                    8,
+                    defines::PropModeReplace,
+                    host.as_ptr(),
+                    host.len() as i32,
+                );
             }
         }
 
@@ -3658,10 +4020,10 @@ impl X11Window {
         // Shared frame-ready signal: ONE Arc for both the WR Notifier and the
         // window field (they used to be two different Arcs — the notifier
         // signalled into the void), plus an eventfd in the poll set so the
-        // backend thread can WAKE the blocked loop.
+        // backend thread can WAKE the blocked loop (a kqueue off Linux - see
+        // `linux/timer.rs`).
         let new_frame_ready_shared = Arc::new((Mutex::new(false), Condvar::new()));
-        let frame_ready_wake_fd =
-            unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+        let frame_ready_wake_fd = super::timer::new_wake_fd();
 
         let (
             render_mode,
@@ -3687,13 +4049,20 @@ impl X11Window {
                 None.into(),
             )
         } else {
-            match gl::GlContext::new(&xlib, &egl, display, window_handle) {
+            // Only a host other than Linux arrives here without libEGL (it is
+            // required above on Linux), and a missing EGL is a GL failure like
+            // any other: the Err arm below renders on the CPU instead.
+            let gl_init = match egl.as_ref() {
+                Some(egl) => gl::GlContext::new(&xlib, egl, display, window_handle),
+                None => Err(WindowError::PlatformError("libEGL is not loaded".into())),
+            };
+            match gl_init {
                 Ok(gl_context) => 'gpu: {
                     gl_context.make_current();
                     gl_context.configure_vsync(options.window_state.renderer_options.vsync);
                     // ANY failure past this point falls back to CPU rendering in THIS
                     // window — "GPU init failed" must never mean "no window".
-                    let gl_functions = match GlFunctions::initialize(&egl) {
+                    let gl_functions = match GlFunctions::initialize(&gl_context.egl) {
                         Ok(f) => f,
                         Err(e) => {
                             crate::plog_warn!(
@@ -3727,14 +4096,7 @@ impl X11Window {
                         Box::new(Notifier {
                             new_frame_ready: new_frame_ready.clone(),
                             wake: Some(Arc::new(move || {
-                                let one: u64 = 1;
-                                unsafe {
-                                    libc::write(
-                                        wake_fd_for_notifier,
-                                        std::ptr::addr_of!(one).cast(),
-                                        8,
-                                    );
-                                }
+                                super::timer::signal_wake_fd(wake_fd_for_notifier);
                             })),
                         }),
                         wr_translate2::default_renderer_options(
@@ -3876,14 +4238,14 @@ impl X11Window {
         };
 
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu(_));
-        let xkb_for_compose = Rc::clone(&xkb);
+        let xkb_for_compose = xkb.clone();
         let mut common = event::CommonWindowState::new(
             FullWindowState {
                 title: options.window_state.title.clone(),
                 size, // logical dimensions + DETECTED dpi (see detect_initial_dpi above)
                 position: options.window_state.position,
                 flags: options.window_state.flags,
-                theme: options.window_state.theme,
+                mode: options.window_state.mode,
                 debug_state: options.window_state.debug_state,
                 keyboard_state: Default::default(),
                 mouse_state: Default::default(),
@@ -3893,7 +4255,6 @@ impl X11Window {
                 renderer_options: options.window_state.renderer_options,
                 background_color: options.window_state.background_color,
                 layout_callback: options.window_state.layout_callback,
-                close_callback: options.window_state.close_callback.clone(),
                 // Seed with the monitor we are actually placing the window on.
                 // This was `None` and was never written afterwards, so on X11
                 // `CallbackInfo::get_current_monitor()` returned None for the
@@ -3907,7 +4268,7 @@ impl X11Window {
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
                 keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
-            options.theme,
+            options.mode,
             options.background_color_light,
             options.background_color_dark,
             resources.fc_cache.clone(),
@@ -3953,11 +4314,13 @@ impl X11Window {
             compose: if ime_manager.is_some() {
                 None
             } else {
-                xkb_for_compose.compose_fns().and_then(|fns| {
-                    crate::desktop::shell2::linux::common::compose::ComposeSequencer::new(
-                        fns,
-                        xkb_for_compose.clone(),
-                    )
+                xkb_for_compose.and_then(|xkb| {
+                    xkb.compose_fns().and_then(|fns| {
+                        crate::desktop::shell2::linux::common::compose::ComposeSequencer::new(
+                            fns,
+                            xkb.clone(),
+                        )
+                    })
                 })
             },
             ime_manager,
@@ -3973,6 +4336,7 @@ impl X11Window {
             pending_raw_motion: (0.0, 0.0),
             pending_raw_motion_device: 0,
             pinch_accumulated_rotation: 0.0,
+            pinch_began: false,
             swipe_accumulated: (0.0, 0.0),
             pen_valuators,
             scroll_valuators,
@@ -3995,7 +4359,6 @@ impl X11Window {
             net_wm_state_atoms: None,
             last_present_at: None,
             pace_fd: -1,
-            frame_interval: detect_frame_interval(),
             pending_window_creates: Vec::new(),
             gnome_menu: None, // New dlopen-based implementation
             resources: resources.clone(),
@@ -4016,12 +4379,15 @@ impl X11Window {
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
+            shm_upload: None,
+            shm_probed: false,
             os_present_requested: true, // first present must be full
             frame_ready_wake_fd,
             gpu_damage_rects: Vec::new(),
             net_supported_cache: None,
             needs_redraw: crate::desktop::shell2::common::event::LatchedRequest::raised(),
             size_to_content_pending: options.size_to_content,
+            webviews: None,
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
@@ -4548,6 +4914,16 @@ impl X11Window {
                 return Ok(());
             }
 
+            // App-level work no descriptor below will announce: D-Bus
+            // messages libdbus parsed during a blocking call, presses the
+            // hotkey connection's Xlib already queued, a notification a
+            // callback posted this iteration, a thread's `loop_waker::wake`.
+            // Return instead of parking - the main loop's app-event
+            // collector serves it, exactly like the Xlib-queue drain above.
+            if crate::desktop::loop_waker::must_not_park() {
+                return Ok(());
+            }
+
             // Build pollfd array: X11 connection + all timer fds
             let mut pollfds: Vec<libc::pollfd> = Vec::with_capacity(1 + self.timer_fds.len());
 
@@ -4607,6 +4983,20 @@ impl X11Window {
                 });
             }
 
+            // The app-level sources: the tray's and the notification
+            // server's D-Bus socket, the global-hotkey grab connection, and
+            // the loop waker a listener thread raises. Readability is all
+            // they report; the main loop's app-event collector reads them at
+            // the top of the next iteration. They replace the old 100 ms cap
+            // that ran whenever a tray, a notification or a hotkey existed.
+            for fd in crate::desktop::loop_waker::wait_fds() {
+                pollfds.push(libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set — their completion can't wake poll(). So while any thread
             // is in flight, poll on a ~16ms tick and drain thread writebacks on
@@ -4619,17 +5009,7 @@ impl X11Window {
                 .as_ref()
                 .map(|lw| !lw.threads.is_empty())
                 .unwrap_or(false);
-            // A live tray talks D-Bus, whose fd is not in this poll set — the
-            // panel's property reads sit unanswered until the loop wakes. Cap
-            // the park so the run loop's tray pump runs a few times a second.
-            let has_tray = crate::desktop::tray::has_live_tray();
-            let timeout_ms: i32 = if has_threads {
-                16
-            } else if has_tray {
-                100
-            } else {
-                -1
-            };
+            let timeout_ms: i32 = if has_threads { 16 } else { -1 };
             // A trackpad gesture end is inferred from SILENCE (XI2 has no
             // gesture-end event), so nothing will wake this poll to observe
             // it. Shorten the park to the remaining idle budget instead —
@@ -4670,8 +5050,7 @@ impl X11Window {
                     {
                         // Read from timerfd to acknowledge the timer
                         if let Some(&fd) = self.timer_fds.get(&timer_id) {
-                            let mut expirations: u64 = 0;
-                            libc::read(fd, &mut expirations as *mut u64 as *mut libc::c_void, 8);
+                            super::timer::drain_fd(fd);
                             any_timer_fired = true;
                         }
                     }
@@ -4685,12 +5064,7 @@ impl X11Window {
                     && frame_ready_idx < pollfds.len()
                     && pollfds[frame_ready_idx].revents & libc::POLLIN != 0
                 {
-                    let mut n: u64 = 0;
-                    libc::read(
-                        self.frame_ready_wake_fd,
-                        &mut n as *mut u64 as *mut libc::c_void,
-                        8,
-                    );
+                    super::timer::drain_fd(self.frame_ready_wake_fd);
                     let ready = {
                         let (lock, _) = &*self.new_frame_ready;
                         let mut g = lock.lock().unwrap();
@@ -4727,8 +5101,7 @@ impl X11Window {
                     && pace_idx < pollfds.len()
                     && pollfds[pace_idx].revents & libc::POLLIN != 0
                 {
-                    let mut n: u64 = 0;
-                    libc::read(self.pace_fd, &mut n as *mut u64 as *mut libc::c_void, 8);
+                    super::timer::drain_fd(self.pace_fd);
                 }
             }
             // result == 0: timeout (the 16ms thread tick, or spurious)
@@ -4834,6 +5207,14 @@ impl X11Window {
     }
 
     fn handle_event(&mut self, event: &mut XEvent) {
+        // MIT-SHM: the server finished reading the segment for this window's
+        // last XShmPutImage (`shm.rs`, the segment-reuse law).
+        if let Some(shm) = self.shm_upload.as_mut() {
+            if unsafe { event.type_ } == shm.completion_event_type() {
+                shm.on_completion();
+                return;
+            }
+        }
         if let Some(ime) = &self.ime_manager {
             let consumed = ime.filter_event(event);
             if let Some((preedit, caret)) = ime.drain_preedit() {
@@ -4900,12 +5281,18 @@ impl X11Window {
         // Process event with V2 handlers
         let result = match unsafe { event.type_ } {
             defines::Expose => {
-                // A real (WM) or synthetic Expose means "repaint now". Render
-                // directly — the previous code re-posted ANOTHER Expose here
-                // (request_redraw), so in the blocking idle path the repaint
-                // request ping-ponged and the frame never actually painted
-                // (resize/timer/caret repaints appeared frozen). This now
-                // matches poll_event's Expose arm.
+                // A REAL Expose (the server's, send_event == 0) means the
+                // window's content is undefined: render now. A SYNTHETIC one
+                // is our own `request_redraw` wake-up, and the flag it raised
+                // is what owes the frame — it is drawn by the PACED render
+                // gate every dispatch of this event is followed by
+                // (`poll_event`, or `wait_for_events` returning to it). This
+                // arm used to render synthetic Exposes on the spot too, which
+                // bypassed the frame pacer: every internally requested repaint
+                // presented at once, and a timer frame whose redraw had
+                // already been drawn by the gate was drawn a second time.
+                // (It must never re-post an Expose instead of rendering: the
+                // request then ping-ponged and the frame never painted.)
                 let (count, synthetic) = {
                     let ex = unsafe { &event.expose };
                     (ex.count, ex.send_event != 0)
@@ -4929,7 +5316,7 @@ impl X11Window {
                 // a full render_and_present per sub-rect. needs_redraw stays
                 // raised in between, so even a (protocol-impossible) missing
                 // final event is mopped up by poll_event's gate.
-                if count == 0 {
+                if count == 0 && !synthetic {
                     if let Err(e) = self.render_and_present() {
                         log_warn!(
                             LogCategory::Rendering,
@@ -4966,8 +5353,14 @@ impl X11Window {
                     // the flag false -> true and run a pass so
                     // EventType::WindowClose fires; a callback that clears the
                     // flag cancels the close.
-                    let outcome = self.request_window_close("x11.wm_delete_window");
+                    // Against the DOM the app's state describes now (a
+                    // rebuild its last callback asked for is built first, as
+                    // ConfigureNotify's regenerate_now does in this handler).
+                    let outcome = self.run_close_protocol("x11.wm_delete_window");
                     if outcome.confirmed {
+                        // The loop drops the window without close(): the
+                        // popups it opened are told here.
+                        PlatformWindow::close_transient_windows(self);
                         self.is_open = false;
                     } else {
                         log_debug!(
@@ -5043,6 +5436,7 @@ impl X11Window {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_in");
                     self.common
                         .update_unsynced_state(|ws| ws.window_focused = true);
+                    self.common.note_focus_gained();
                     self.dynamic_selector_context.window_focused = true;
                     // The keyboard state is a guess again: everything released
                     // while another window had focus was delivered THERE. The
@@ -5108,6 +5502,17 @@ impl X11Window {
                     self.release_pointer_lock_on_focus_loss();
 
                     self.dynamic_selector_context.window_focused = false;
+                    // THE KEYBOARD WENT SOMEWHERE ELSE, SO THE MENU IS OVER.
+                    // X11 never gives an override-redirect popup the input
+                    // focus, so this - on the window that OWNS the chain - is
+                    // the only event that ever says "the user clicked the
+                    // root window / another app". Nothing acted on it, so a
+                    // context menu simply stayed on screen (and stayed live)
+                    // after its window lost focus. `is_grab_focus_change`
+                    // already excluded the FocusOut our own pointer grab
+                    // synthesises, which would otherwise dismiss the menu the
+                    // instant it opened.
+                    self.dismiss_menu_chain(self.window as u64);
                     // Tablet reset. Wayland gets this from `pad_leave` /
                     // `pad_removed` / `proximity_out`; X11 has no equivalent
                     // events, so focus loss is the reset point. A pad
@@ -5475,8 +5880,8 @@ impl X11Window {
                         // stays at exactly 96 DPI, and an ordinary-density
                         // monitor (a 27" 1080p panel estimates 0.84) must not
                         // shrink the window when it is dragged onto it.
-                        let new_dpi = ((((display.scale_factor * 4.0).round() / 4.0).max(1.0))
-                            * 96.0) as u32;
+                        let new_dpi =
+                            ((((display.scale_factor * 4.0).round() / 4.0).max(1.0)) * 96.0) as u32;
                         let old_dpi = self.common.current_window_state().size.dpi;
                         if !has_xft_dpi
                             && new_dpi > 0
@@ -6179,7 +6584,7 @@ impl X11Window {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -6343,35 +6748,16 @@ impl X11Window {
             return true;
         };
         let since = last.elapsed();
-        if since >= self.frame_interval {
+        // THIS window's frame: the refresh rate of the monitor it is on,
+        // capped by `RendererOptions::max_frame_rate` - read per frame, so a
+        // window dragged to another monitor paces at that monitor's rate.
+        let frame_interval = self.common.frame_interval();
+        if since >= frame_interval {
             return true;
         }
-        let remaining = self.frame_interval - since;
-        unsafe {
-            if self.pace_fd < 0 {
-                self.pace_fd = libc::timerfd_create(
-                    libc::CLOCK_MONOTONIC,
-                    libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
-                );
-            }
-            if self.pace_fd >= 0 {
-                let ns = remaining.as_nanos().max(1);
-                #[allow(clippy::cast_possible_truncation)]
-                let spec = libc::itimerspec {
-                    // one-shot: it_interval zero
-                    it_interval: libc::timespec {
-                        tv_sec: 0,
-                        tv_nsec: 0,
-                    },
-                    it_value: libc::timespec {
-                        tv_sec: (ns / 1_000_000_000) as libc::time_t,
-                        tv_nsec: (ns % 1_000_000_000) as libc::c_long,
-                    },
-                };
-                if libc::timerfd_settime(self.pace_fd, 0, &spec, std::ptr::null_mut()) == 0 {
-                    return false;
-                }
-            }
+        let remaining = frame_interval - since;
+        if super::timer::arm_oneshot_timer(&mut self.pace_fd, remaining) {
+            return false;
         }
         // No usable timerfd: never defer (pacing must not lose frames).
         true
@@ -6710,6 +7096,55 @@ impl X11Window {
                                                     as c_uint
                                             };
 
+                                            // MIT-SHM first (shm.rs): the damaged rects
+                                            // go into a shared segment and the server
+                                            // reads them there - no pixel through the
+                                            // socket. Probed once per window; a remote
+                                            // display, a missing extension or a refused
+                                            // attach leaves the XPutImage loop below
+                                            // in charge for good.
+                                            if !self.shm_probed {
+                                                self.shm_probed = true;
+                                                match shm::X11ShmUpload::probe(self.display) {
+                                                    Ok(up) => self.shm_upload = Some(up),
+                                                    Err(why) => log_debug!(
+                                                        LogCategory::Rendering,
+                                                        "[X11] CPU present uploads with \
+                                                         XPutImage: {:?}",
+                                                        why
+                                                    ),
+                                                }
+                                            }
+                                            let mut uploaded = false;
+                                            if let Some(up) = self.shm_upload.as_mut() {
+                                                uploaded = up.upload(
+                                                    &self.xlib,
+                                                    self.display,
+                                                    self.window,
+                                                    *gc,
+                                                    visual as *mut c_void,
+                                                    depth,
+                                                    data,
+                                                    pw,
+                                                    ph,
+                                                    &rects,
+                                                );
+                                            }
+                                            if !uploaded {
+                                                if let Some(mut dead) = self.shm_upload.take() {
+                                                    dead.destroy(&self.xlib, self.display);
+                                                    log_debug!(
+                                                        LogCategory::Rendering,
+                                                        "[X11] CPU present uploads with \
+                                                         XPutImage: {:?}",
+                                                        crate::desktop::shell2::common::x11_host::PutImageWhy::AttachFailed
+                                                    );
+                                                }
+                                            }
+                                            // Uploaded through MIT-SHM: nothing is left
+                                            // for the XPutImage loop.
+                                            let rects = if uploaded { Vec::new() } else { rects };
+
                                             for (rx, ry, rw, rh) in rects {
                                                 // Pack + swizzle ONLY this rect's rows
                                                 // (RGBA → BGRA) into the reused buffer;
@@ -6995,6 +7430,8 @@ impl X11Window {
 
         // Step 5's framebuffer size, read BEFORE the renderer is borrowed mutably.
         let physical_size = self.common.current_window_state().size.get_physical_size();
+        // The canvas follows the mode the window shows (THE clear colour).
+        self.common.sync_renderer_clear_color();
 
         // Step 4: Update WebRender (re-borrow renderer after layout_window borrow)
         let renderer = match self.common.renderer.as_mut() {
@@ -7146,12 +7583,7 @@ impl X11Window {
         use azul_core::window::WindowFrame;
 
         // Title — XStoreName is NOT called in new(), so we must apply it here
-        {
-            let c_title = CString::new(self.common.current_window_state().title.as_str()).unwrap();
-            unsafe {
-                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
-            }
-        }
+        self.publish_window_title(self.common.current_window_state().title.as_str());
 
         // Window frame (Maximized, Minimized, Fullscreen)
         // Must be done AFTER XMapWindow since _NET_WM_STATE messages go to the root window
@@ -7467,10 +7899,7 @@ impl X11Window {
 
         // Title changed?
         if previous.title != current.title {
-            let c_title = CString::new(current.title.as_str()).unwrap();
-            unsafe {
-                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
-            }
+            self.publish_window_title(current.title.as_str());
         }
 
         // Size changed?
@@ -7754,6 +8183,50 @@ impl PlatformWindow for X11Window {
         crate::desktop::eyedropper::x11::capture(self)
     }
 
+    /// WPE WebKit, composited (`linux::webview`), made at the first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let views = self
+            .webviews
+            .get_or_insert_with(|| super::webview::WpeWebViews::new(scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
+    /// The popup that holds the keyboard is an override-redirect X window
+    /// that never gets the input focus, so its keys arrive HERE and the
+    /// shared rule (`forward_keys_to_popup`) parked them in its mailbox. The
+    /// popup is registered in this process: run its pass now, the way
+    /// Wayland's parent runs its popup's `key_event`, instead of leaving the
+    /// key until something else wakes the popup.
+    fn deliver_forwarded_keys(&mut self) {
+        let own = self.window as u64;
+        for wid in super::registry::get_all_window_ids() {
+            if wid == own {
+                continue;
+            }
+            let Some(wptr) = (unsafe { super::registry::get_window(wid) }) else {
+                continue;
+            };
+            if let super::LinuxWindow::X11(popup) = unsafe { &mut *wptr } {
+                if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                    popup.common.current_window_state(),
+                ) {
+                    let r = popup.process_window_events(0);
+                    popup.apply_event_result(r);
+                }
+            }
+        }
+    }
+
     /// XShape: the bounding (drawn) and input shapes both follow the frame's
     /// alpha. Rects arrive y-then-x sorted and non-overlapping (`YXBanded`).
     fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
@@ -7921,7 +8394,7 @@ impl PlatformWindow for X11Window {
     ) {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
-                layout_window.threads.remove(thread_id);
+                drop(layout_window.remove_thread(thread_id));
             }
         }
     }
@@ -7936,6 +8409,24 @@ impl PlatformWindow for X11Window {
                     w.common
                         .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     w.request_redraw();
+                }
+            }
+        }
+    }
+
+    fn adopt_app_mode_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // mode through its own trigger (restyle, or a rebuild where its
+        // `layout()` read the mode).
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    if w.adopt_app_mode() {
+                        w.request_redraw();
+                    }
                 }
             }
         }
@@ -8017,6 +8508,113 @@ impl PlatformWindow for X11Window {
 }
 
 impl X11Window {
+    /// Every live menu window of this app, as the registry knows it, for
+    /// [`crate::desktop::menu::menus_to_dismiss`].
+    fn menu_chain_links(&self) -> Vec<crate::desktop::menu::MenuChainLink> {
+        let own = self.window as u64;
+        // OUR OWN link comes from `self`, never from the registry: the
+        // registry holds a raw pointer to this very window, and taking a
+        // reference through it while `&mut self` is live would alias it.
+        let mut links = alloc::vec![crate::desktop::menu::MenuChainLink {
+            id: own,
+            parent: self.parent_window_id,
+            is_menu: self.common.current_window_state().flags.window_type
+                == azul_core::window::WindowType::Menu,
+        }];
+        for wid in super::registry::get_all_window_ids() {
+            if wid == own {
+                continue;
+            }
+            let Some(wptr) = (unsafe { super::registry::get_window(wid) }) else {
+                continue;
+            };
+            if let super::LinuxWindow::X11(w) = unsafe { &*wptr } {
+                if !w.is_open {
+                    continue;
+                }
+                links.push(crate::desktop::menu::MenuChainLink {
+                    id: wid,
+                    parent: w.parent_window_id,
+                    is_menu: w.common.current_window_state().flags.window_type
+                        == azul_core::window::WindowType::Menu,
+                });
+            }
+        }
+        links
+    }
+
+    /// The user left the menu: take the WHOLE chain down, deepest first.
+    ///
+    /// A menu is transient — it exists only while the user is in it — and it
+    /// is its own X window, which X11 never gives the input focus to (it is
+    /// override-redirect). So the two things that mean "the user left" are
+    /// the owning toplevel's `FocusOut` and a press the menu's own pointer
+    /// grab delivered from outside it, and NEITHER of them can be answered by
+    /// closing one window: the grab belongs to whichever menu took it last,
+    /// and the toplevel is not a menu at all. Nothing in the tree ever closed
+    /// a chain, so menus accumulated — a menu from an earlier right-click was
+    /// still mapped beside a new one on the live run — and every one of them
+    /// stayed live enough to deliver an activation.
+    ///
+    /// Idempotent: a second call finds nothing left to close, so a double
+    /// click, or the focus change that follows the click that already
+    /// dismissed the chain, is a no-op rather than a second teardown.
+    ///
+    /// `close()` ungrabs the pointer for a `Menu` window and destroys its X
+    /// window; the run loop drops it on `!is_open`.
+    /// A menu that is closing takes its chain with it.
+    ///
+    /// Activating an item sets `close_requested` on the window the item
+    /// lives in - the SUBMENU - and the shell then closes exactly that one.
+    /// Its parent stayed on screen, mapped and grabbed, after the user had
+    /// already chosen something. Measured live: after clicking "Delete" in a
+    /// submenu, the 160x133 parent was still there seconds later.
+    ///
+    /// `menus_to_dismiss` already answers "what else goes with this one"; the
+    /// activation path simply never asked.
+    pub(super) fn dismiss_chain_if_menu(&mut self) {
+        if self.common.current_window_state().flags.window_type
+            == azul_core::window::WindowType::Menu
+        {
+            self.dismiss_menu_chain(self.window as u64);
+        }
+    }
+
+    pub(super) fn dismiss_menu_chain(&mut self, from: u64) {
+        let doomed = crate::desktop::menu::menus_to_dismiss(&self.menu_chain_links(), from);
+        if doomed.is_empty() {
+            return;
+        }
+        log_debug!(
+            LogCategory::Window,
+            "[X11] dismissing the menu chain reached from {:#x}: {} window(s)",
+            from,
+            doomed.len()
+        );
+        let own = self.window as u64;
+        let mut close_self = false;
+        for wid in doomed {
+            if wid == own {
+                // Last, and not through the registry: `self` is already
+                // borrowed here, and `&mut *wptr` would alias it.
+                close_self = true;
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(menu) = unsafe { &mut *wptr } {
+                    if menu.is_open {
+                        menu.close();
+                    }
+                }
+            }
+        }
+        if close_self && self.is_open {
+            self.close();
+        }
+    }
+}
+
+impl X11Window {
     /// Show a fallback window-based menu at the given position
     fn show_fallback_menu(
         &mut self,
@@ -8058,6 +8656,8 @@ impl X11Window {
             physical_anchor, // The node the menu was opened for (drives min-width)
             Some(physical_cursor), // Position for menu (physical px)
             None,            // No parent menu
+            // The item picked in it runs in THIS window (run.rs, `run_menu_picks`).
+            self.common.menu_picks.clone(),
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.
@@ -8122,7 +8722,10 @@ impl Drop for X11Window {
     fn drop(&mut self) {
         self.drop_seat_keymaps();
         if !self.seat_xkb_context.is_null() {
-            unsafe { (self.xkb.xkb_context_unref)(self.seat_xkb_context) };
+            // Only ever created through libxkbcommon, so it is loaded.
+            if let Some(xkb) = self.xkb.as_ref() {
+                unsafe { (xkb.xkb_context_unref)(self.seat_xkb_context) };
+            }
             self.seat_xkb_context = std::ptr::null_mut();
         }
         // Close all timerfd's
@@ -8200,6 +8803,10 @@ impl Drop for X11Window {
             unsafe {
                 (self.xlib.XFreeGC)(self.display, gc);
             }
+        }
+        // The MIT-SHM segment: detached while the display is still open.
+        if let Some(mut shm) = self.shm_upload.take() {
+            unsafe { shm.destroy(&self.xlib, self.display) };
         }
 
         self.render_mode = RenderMode::None;
@@ -8549,8 +9156,15 @@ impl X11Window {
     /// so that scroll offsets / GPU values are sent to WebRender.
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event::PlatformWindow;
+        // Mark the frame, do not post a synthetic Expose: both callers are
+        // followed by the paced render gate (`poll_event` runs it right
+        // after this; `wait_for_events` returns into it), which draws a
+        // raised `needs_redraw`. The Expose `request_redraw` posts only
+        // exists to wake a loop parked in `poll`, and this runs INSIDE the
+        // loop. Posting it made every timer frame - each step of a CSS
+        // animation - wake the loop once more, and cost a second render.
         if self.process_timers_and_threads() {
-            self.request_redraw();
+            self.needs_redraw.raise();
         }
 
         // A runtime light/dark switch. The system style was read once at window
@@ -8571,7 +9185,7 @@ impl X11Window {
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);
-            self.request_redraw();
+            self.needs_redraw.raise();
         }
     }
 
@@ -9372,6 +9986,7 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
     match cookie.evtype {
         defines::XI_GesturePinchBegin => {
             win.pinch_accumulated_rotation = 0.0;
+            win.pinch_began = true;
         }
         defines::XI_GesturePinchUpdate => {
             let ev = &*(cookie.data as *const defines::XIGesturePinchEvent);
@@ -9385,6 +10000,9 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
             // Both are injected: two fingers can pinch and rotate at once, and
             // the protocol reports both on the same event.
             if (scale - 1.0).abs() > f32::EPSILON {
+                // XI's `scale` is relative to the begin: cumulative, as
+                // `DetectedPinch` is defined; the first update reported begins it.
+                let began = core::mem::replace(&mut win.pinch_began, false);
                 lw.gesture_drag_manager
                     .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                         scale,
@@ -9392,6 +10010,7 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
                         initial_distance: PINCH_NOMINAL_DISTANCE,
                         current_distance: PINCH_NOMINAL_DISTANCE * scale,
                         duration_ms: 0,
+                        began,
                     }));
             }
             if rotation.abs() > f32::EPSILON {
@@ -9528,5 +10147,69 @@ unsafe fn handle_xi_raw_motion(win: &mut X11Window, cookie: &defines::XGenericEv
     if let Some(ref mut lw) = win.common.layout_window {
         lw.device_event_manager
             .note_raw_motion(dx, dy, ev.sourceid as u64);
+    }
+}
+
+#[cfg(test)]
+mod motif_decoration_tests {
+    //! THE DOUBLE TITLEBAR ON X11.
+    //!
+    //! Measured on Linux Mint 22.2 / Xfwm4 with the AzWidgets demo, which asks
+    //! for `WindowDecorations::NoTitle`:
+    //!
+    //! ```text
+    //! _MOTIF_WM_HINTS(_MOTIF_WM_HINTS) = 0x2, 0x0, 0x6, 0x0, 0x0
+    //! _NET_FRAME_EXTENTS(CARDINAL)     = 2, 2, 36, 2
+    //! ```
+    //!
+    //! `0x6` is `MWM_DECOR_BORDER | MWM_DECOR_RESIZEH` - "no title bit" - and
+    //! the window still came back with a 36 px caption carrying its own
+    //! minimise / maximise / close. Every window manager that reads these
+    //! hints does this: `MWM_DECOR_BORDER` means "this window wants a frame",
+    //! and the frame a WM knows how to draw is the whole one. Xfwm4 and
+    //! Metacity/Marco fold title and border into ONE flag; KWin's `noborder`
+    //! is `!(BORDER | TITLE | ALL)`, so BORDER alone keeps the caption there
+    //! too.
+    //!
+    //! Meanwhile `csd::csd_injection_for` believes no Linux frame can show
+    //! controls without a title, and overlays a software set on top - so the
+    //! window ended up with TWO close buttons, one of them azul's.
+    //!
+    //! X11 has no xdg-decoration to negotiate with. The only request that
+    //! reliably means "no caption" is no decoration bits at all, which is what
+    //! `NoTitle` has to ask for: azul already owns the controls and, once the
+    //! bits are zero, the software resize band as well.
+
+    use azul_core::window::WindowDecorations;
+
+    use super::motif_decor_bits;
+
+    /// `NoTitle` must not ask for a server frame, because every WM that reads
+    /// the hint answers a request for one with the caption included.
+    #[test]
+    fn a_no_title_window_asks_for_no_server_frame() {
+        assert_eq!(
+            motif_decor_bits(WindowDecorations::NoTitle),
+            0,
+            "NoTitle asked the WM for BORDER|RESIZEH and got a 36px caption \
+             with it; the only request that leaves no caption is none at all"
+        );
+    }
+
+    /// Asking for no frame is also what turns the software resize band on -
+    /// one fact, read in both places, so a window can never be left with
+    /// neither the WM's edges nor ours.
+    #[test]
+    fn a_window_with_no_server_frame_resizes_itself() {
+        // Every mode whose chrome azul draws itself asks for NO server frame,
+        // because Motif is all-or-nothing: a request for BORDER or TITLE gets
+        // the whole caption, buttons included.
+        assert_eq!(motif_decor_bits(WindowDecorations::None), 0);
+        assert_eq!(motif_decor_bits(WindowDecorations::NoTitle), 0);
+        assert_eq!(motif_decor_bits(WindowDecorations::NoControls), 0);
+
+        // These keep the WM's frame, and with it its resize handles.
+        assert_ne!(motif_decor_bits(WindowDecorations::Normal), 0);
+        assert_ne!(motif_decor_bits(WindowDecorations::NoTitleAutoInject), 0);
     }
 }

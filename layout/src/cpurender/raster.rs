@@ -14,7 +14,7 @@ use agg_rust::{
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
-    span_gradient::{GradientConic, GradientRadialD, GradientX},
+    span_gradient::{GradientConic, GradientRadialD, GradientRepeatAdaptor, GradientX},
     trans_affine::TransAffine,
 };
 use azul_core::{
@@ -73,23 +73,65 @@ fn resolve_color(
     }
 }
 
-/// Build a `GradientLut` from normalized linear color stops.
-fn build_gradient_lut_linear(
-    stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
-    system_colors: Option<&azul_css::system::SystemColors>,
-) -> GradientLut {
-    let mut lut = GradientLut::new_default();
-    let stops_slice = stops.as_ref();
-    if stops_slice.len() < 2 {
-        // Need at least 2 stops; fill with transparent
+/// The default gradient LUT resolution (agg's own default).
+const GRADIENT_LUT_MIN: usize = 256;
+/// The finest gradient LUT, and the longest gradient space (px) agg is handed.
+/// agg measures gradient distances in 1/16 units and computes
+/// `(d - d1) * lut_size` in `i32`: 4096 * 16 * 4096 is ~2.7e8, well inside.
+const GRADIENT_LUT_MAX: usize = 4096;
+/// How far the second stop of a hard stop is nudged past the first: agg's
+/// `build_lut` keeps ONE stop per offset (closer than 1e-10), so the pair
+/// must differ - by less than any LUT entry, so the change stays hard.
+const HARD_STOP_EPSILON: f64 = 1e-9;
+
+/// The LUT resolution for a gradient line `line_px` device pixels long: an
+/// entry per pixel (a 3 px quote bar in a 600 px block is not smeared over
+/// 256 entries), within `GRADIENT_LUT_MIN..=GRADIENT_LUT_MAX`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // finite, clamped
+fn gradient_lut_size(line_px: f64) -> usize {
+    if line_px.is_finite() && line_px > 0.0 {
+        (line_px.ceil() as usize).clamp(GRADIENT_LUT_MIN, GRADIENT_LUT_MAX)
+    } else {
+        GRADIENT_LUT_MIN
+    }
+}
+
+/// Build a `size`-entry `GradientLut` from `(offset, color)` stops - the one
+/// LUT builder of every CPU gradient.
+///
+/// The stops are ordered by offset and cut to the line (`0.0..=1.0`) by the
+/// shared [`color_stops_on_the_line`], so a stop beyond an end colors that
+/// end by interpolation. A hard stop (two stops at one offset) keeps both
+/// colors: agg would drop the second, which painted nothing at all for
+/// `red 50%, blue 50%` (one stop left), so it is nudged past the first by
+/// [`HARD_STOP_EPSILON`]. Fewer than two stops paint nothing.
+///
+/// [`color_stops_on_the_line`]: azul_css::props::style::background::color_stops_on_the_line
+fn build_gradient_lut(stops: &[(f32, ColorU)], size: usize) -> GradientLut {
+    let mut lut = GradientLut::new(size.clamp(GRADIENT_LUT_MIN, GRADIENT_LUT_MAX));
+    let mut ordered: Vec<(f32, ColorU)> = stops
+        .iter()
+        .copied()
+        .filter(|(t, _)| t.is_finite())
+        .collect();
+    ordered.sort_by(|a, b| a.0.total_cmp(&b.0)); // stable: a hard stop keeps its order
+    if ordered.len() < 2 {
         lut.add_color(0.0, Rgba8::new(0, 0, 0, 0));
         lut.add_color(1.0, Rgba8::new(0, 0, 0, 0));
         lut.build_lut();
         return lut;
     }
-    for stop in stops_slice {
-        let offset = f64::from(stop.offset.normalized()); // 0.0..1.0
-        let c = resolve_color(&stop.color, system_colors);
+    let on_line = azul_css::props::style::background::color_stops_on_the_line(
+        &ordered,
+        |from: ColorU, to: ColorU, t: f32| from.interpolate(&to, t),
+    );
+    let mut previous = f64::NEG_INFINITY;
+    for (t, c) in on_line {
+        let mut offset = f64::from(t);
+        if offset <= previous {
+            offset = previous + HARD_STOP_EPSILON;
+        }
+        previous = offset;
         lut.add_color(
             offset,
             Rgba8::new(
@@ -104,41 +146,46 @@ fn build_gradient_lut_linear(
     lut
 }
 
+/// Build a `GradientLut` from the stops of a radial gradient, which sit at a
+/// percentage of the gradient ray (the parser refuses radial stops at a
+/// length).
+fn build_gradient_lut_linear(
+    stops: &azul_css::props::style::background::NormalizedLinearColorStopVec,
+    system_colors: Option<&azul_css::system::SystemColors>,
+) -> GradientLut {
+    let stops: Vec<(f32, ColorU)> = stops
+        .as_ref()
+        .iter()
+        .map(|stop| {
+            (
+                stop.offset.normalized(),
+                resolve_color(&stop.color, system_colors),
+            )
+        })
+        .collect();
+    build_gradient_lut(&stops, GRADIENT_LUT_MIN)
+}
+
 /// Build a `GradientLut` from normalized radial (conic) color stops.
 fn build_gradient_lut_radial(
     stops: &azul_css::props::style::background::NormalizedRadialColorStopVec,
     system_colors: Option<&azul_css::system::SystemColors>,
 ) -> GradientLut {
-    let mut lut = GradientLut::new_default();
-    let stops_slice = stops.as_ref();
-    if stops_slice.len() < 2 {
-        lut.add_color(0.0, Rgba8::new(0, 0, 0, 0));
-        lut.add_color(1.0, Rgba8::new(0, 0, 0, 0));
-        lut.build_lut();
-        return lut;
-    }
-    for stop in stops_slice {
-        // Conic stops use angle — normalize to 0..1 fraction of full circle.
-        // Use the RAW degrees (not `to_degrees()`, which wraps 360 -> 0): a
-        // final 360deg stop is a meaningful, distinct offset of 1.0. Without
-        // this, `conic-gradient(a, b)` (normalized to 0deg/360deg) collapses
-        // both stops onto offset 0.0, `build_lut()` dedups them to one stop,
-        // bails (`len < 2`), and the gradient paints nothing. The clamp keeps
-        // any out-of-range raw angle inside [0, 1].
-        let offset = f64::from((stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0));
-        let c = resolve_color(&stop.color, system_colors);
-        lut.add_color(
-            offset,
-            Rgba8::new(
-                u32::from(c.r),
-                u32::from(c.g),
-                u32::from(c.b),
-                u32::from(c.a),
-            ),
-        );
-    }
-    lut.build_lut();
-    lut
+    let stops: Vec<(f32, ColorU)> = stops
+        .as_ref()
+        .iter()
+        .map(|stop| {
+            // Conic stops use angle — normalize to 0..1 fraction of full circle.
+            // Use the RAW degrees (not `to_degrees()`, which wraps 360 -> 0): a
+            // final 360deg stop is a meaningful, distinct offset of 1.0. Without
+            // this, `conic-gradient(a, b)` (normalized to 0deg/360deg) collapses
+            // both stops onto offset 0.0 and paints a single color. The clamp
+            // keeps any out-of-range raw angle inside [0, 1].
+            let offset = (stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0);
+            (offset, resolve_color(&stop.color, system_colors))
+        })
+        .collect();
+    build_gradient_lut(&stops, GRADIENT_LUT_MIN)
 }
 
 /// Resolve a background position to (`x_fraction`, `y_fraction`) in 0..1 range.
@@ -180,9 +227,7 @@ fn resolve_background_position(
     (x, y)
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // software rasterizer:
-                                                                        // bounded pixel/coord/
-                                                                        // colour casts
+#[allow(clippy::suboptimal_flops)] // explicit origin + point * dpi; mul_add is no faster here
 fn render_linear_gradient(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -192,58 +237,82 @@ fn render_linear_gradient(
     dpi_factor: f32,
     system_colors: Option<&azul_css::system::SystemColors>,
 ) {
-    use azul_css::props::basic::geometry::{LayoutRect, LayoutSize};
+    use azul_css::props::style::background::ExtendMode;
 
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
         return;
     };
-
-    let stops = gradient.stops.as_ref();
-    if stops.is_empty() {
+    if gradient.stops.as_ref().is_empty() {
         return;
     }
 
-    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
-
-    // Convert Direction to start/end points using the existing to_points method
-    let layout_rect = LayoutRect {
-        origin: azul_css::props::basic::geometry::LayoutPoint::new(0, 0),
-        size: LayoutSize {
-            width: (rect.width as isize),
-            height: (rect.height as isize),
-        },
+    // The gradient line and every stop on it, from the resolver all
+    // renderers share (CSS Images 3: `90deg` runs like `to right`, a stop at
+    // a length sits at that length, a hard stop stays hard). It works in the
+    // box's CSS px; the line is scaled to device px here.
+    let dpi = f64::from(dpi_factor);
+    // (x1, y1, x2, y2, length) of a resolved line in device px.
+    let device_line = |r: &azul_css::props::style::background::ResolvedLinearGradient| {
+        let x1 = f64::from(rect.x) + f64::from(r.start.0) * dpi;
+        let y1 = f64::from(rect.y) + f64::from(r.start.1) * dpi;
+        let x2 = f64::from(rect.x) + f64::from(r.end.0) * dpi;
+        let y2 = f64::from(rect.y) + f64::from(r.end.1) * dpi;
+        (x1, y1, x2, y2, (x2 - x1).hypot(y2 - y1))
     };
-    let (from_pt, to_pt) = gradient.direction.to_points(&layout_rect);
-
-    // Pixel-space start/end
-    let x1 = f64::from(rect.x) + from_pt.x as f64;
-    let y1 = f64::from(rect.y) + from_pt.y as f64;
-    let x2 = f64::from(rect.x) + to_pt.x as f64;
-    let y2 = f64::from(rect.y) + to_pt.y as f64;
-
-    let dx = x2 - x1;
-    let dy = y2 - y1;
-    let len = dx.hypot(dy);
-    if len < 0.001 {
+    let mut resolved = gradient.resolve_in_box(bounds.size.width, bounds.size.height);
+    // `repeating-linear-gradient` repeats the first..last stop span. A period
+    // under a pixel cannot repeat (agg's repeat divides by its length in
+    // 1/16 px): it paints clamped instead.
+    let mut repeating = false;
+    if gradient.extend_mode == ExtendMode::Repeat {
+        let period = resolved.to_repeat_period();
+        if device_line(&period).4 >= 1.0 {
+            resolved = period;
+            repeating = true;
+        }
+    }
+    let (x1, y1, x2, y2, len) = device_line(&resolved);
+    if !len.is_finite() || len < 0.001 {
         return;
     }
 
-    // gradient-space (0..100, 0) → pixel-space line (x1,y1)→(x2,y2). Use agg's
-    // helper so the composition order is T * R * S — hand-rolling it via
-    // new_translation().rotate().scale() pre-multiplies and ends up as
+    let stops: Vec<(f32, ColorU)> = resolved
+        .stops
+        .iter()
+        .map(|(t, color)| (*t, resolve_color(color, system_colors)))
+        .collect();
+    let lut = build_gradient_lut(&stops, gradient_lut_size(len));
+
+    // Gradient space runs 0..`d2` along the line (x1,y1)→(x2,y2): one unit
+    // per device pixel, capped so agg's i32 distance math cannot overflow.
+    // Use agg's helper so the composition order is T * R * S — hand-rolling
+    // it via new_translation().rotate().scale() pre-multiplies and ends up as
     // S * R * T, which rotates the translation and yields out-of-range gx.
-    let mut transform = TransAffine::new_line_segment(x1, y1, x2, y2, 100.0);
+    #[allow(clippy::cast_precision_loss)] // GRADIENT_LUT_MAX is far below 2^52
+    let d2 = len.min(GRADIENT_LUT_MAX as f64);
+    let mut transform = TransAffine::new_line_segment(x1, y1, x2, y2, d2);
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
-    agg_fill_gradient_clipped(
-        pixmap, &mut path, &lut, GradientX, transform, 0.0, 100.0, clip,
-    );
+    if repeating {
+        agg_fill_gradient_clipped(
+            pixmap,
+            &mut path,
+            &lut,
+            GradientRepeatAdaptor::new(GradientX),
+            transform,
+            0.0,
+            d2,
+            clip,
+        );
+    } else {
+        agg_fill_gradient_clipped(pixmap, &mut path, &lut, GradientX, transform, 0.0, d2, clip);
+    }
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -323,7 +392,7 @@ fn render_radial_gradient(
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -386,7 +455,7 @@ fn render_conic_gradient(
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -556,6 +625,133 @@ fn render_box_shadow(
         return Ok(());
     }
 
+    // CSS Backgrounds 3 s7.2: an INNER shadow - `bounds` is then the padding
+    // box (the display list hands it over, above the background) - is cast
+    // inside the padding box only, as if everything outside the padding edge
+    // were opaque: the padding box moved by the offset and shrunk by the
+    // spread is the hole, the rest of the padding box is shadow. It used to
+    // take the outer path below: a filled box at the offset.
+    if matches!(shadow.clip_mode, BoxShadowClipMode::Inset) {
+        let pad = blur_r.ceil() + 1.0;
+        let buf_w = 2.0f32.mul_add(pad, rect.width).ceil();
+        let buf_h = 2.0f32.mul_add(pad, rect.height).ceil();
+        if !(buf_w > 0.0 && buf_h > 0.0) {
+            return Ok(());
+        }
+        let (sw, sh) = (buf_w as u32, buf_h as u32);
+        if sw == 0 || sh == 0 || sw > MAX_SHADOW_PIXBUF_SIZE || sh > MAX_SHADOW_PIXBUF_SIZE {
+            return Ok(());
+        }
+        let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
+        tmp.fill(0, 0, 0, 0);
+        let agg_color = Rgba8::new(
+            u32::from(color.r),
+            u32::from(color.g),
+            u32::from(color.b),
+            u32::from(color.a),
+        );
+        let Some(whole) = AzRect::from_xywh(0.0, 0.0, buf_w, buf_h) else {
+            return Ok(());
+        };
+        // Everything (even-odd) minus the hole.
+        let mut path = build_rect_path(&whole);
+        let hole_w = 2.0f32.mul_add(-spread, rect.width);
+        let hole_h = 2.0f32.mul_add(-spread, rect.height);
+        if hole_w > 0.0 && hole_h > 0.0 {
+            if let Some(hole) = AzRect::from_xywh(
+                pad + offset_x + spread,
+                pad + offset_y + spread,
+                hole_w,
+                hole_h,
+            ) {
+                // The hole's corners shrink with the spread (logical radii,
+                // device spread).
+                let shrink = |r: f32| {
+                    if r > 0.0 {
+                        (r - spread / dpi_factor.max(f32::EPSILON)).max(0.0)
+                    } else {
+                        0.0
+                    }
+                };
+                let hole_radius = BorderRadius {
+                    top_left: shrink(border_radius.top_left),
+                    top_right: shrink(border_radius.top_right),
+                    bottom_left: shrink(border_radius.bottom_left),
+                    bottom_right: shrink(border_radius.bottom_right),
+                };
+                let mut hole_path = build_rounded_rect_path(&hole, &hole_radius, dpi_factor);
+                path.concat_path(&mut hole_path, 0);
+            }
+        }
+        agg_fill_path(&mut tmp, &mut path, &agg_color, FillingRule::EvenOdd);
+        if blur_r > 0.5 {
+            let blur_radius = (blur_r.ceil() as u32).min(254);
+            let stride = (sw * 4) as i32;
+            let mut ra =
+                unsafe { RowAccessor::new_with_buf(tmp.data_mut().as_mut_ptr(), sw, sh, stride) };
+            stack_blur_rgba32(&mut ra, blur_radius, blur_radius);
+        }
+        // A rounded padding box masks the shadow to its curve (premultiplied:
+        // every channel scales with the coverage).
+        if !border_radius.is_zero() {
+            let mut mask = AzulPixmap::new(sw, sh).ok_or("cannot create shadow mask")?;
+            mask.fill(0, 0, 0, 0);
+            if let Some(padding_box) = AzRect::from_xywh(pad, pad, rect.width, rect.height) {
+                let mut padding_path =
+                    build_rounded_rect_path(&padding_box, border_radius, dpi_factor);
+                agg_fill_path(
+                    &mut mask,
+                    &mut padding_path,
+                    &Rgba8::new(255, 255, 255, 255),
+                    FillingRule::NonZero,
+                );
+            }
+            for (px, m) in tmp
+                .data_mut()
+                .chunks_exact_mut(4)
+                .zip(mask.data().chunks_exact(4))
+            {
+                let coverage = u32::from(m[3]);
+                for channel in px.iter_mut() {
+                    *channel = ((u32::from(*channel) * coverage + 127) / 255) as u8;
+                }
+            }
+        }
+        // Never outside the padding box (nor the active clip).
+        let padding_clip = (
+            rect.x.floor() as i32,
+            rect.y.floor() as i32,
+            (rect.x + rect.width).ceil() as i32,
+            (rect.y + rect.height).ceil() as i32,
+        );
+        let clip = match clip_px {
+            Some((x0, y0, x1, y1)) => (
+                x0.max(padding_clip.0),
+                y0.max(padding_clip.1),
+                x1.min(padding_clip.2),
+                y1.min(padding_clip.3),
+            ),
+            None => padding_clip,
+        };
+        if clip.0 >= clip.2 || clip.1 >= clip.3 {
+            return Ok(());
+        }
+        blit_clipped(
+            pixmap,
+            Some(clip),
+            tmp.data(),
+            sw,
+            sh,
+            0,
+            0,
+            sw,
+            sh,
+            (rect.x - pad) as i32,
+            (rect.y - pad) as i32,
+        );
+        return Ok(());
+    }
+
     // Compute shadow rect (expanded by spread, padded by blur)
     let padding = blur_r.ceil();
     let shadow_x = rect.x + offset_x - spread - padding;
@@ -619,11 +815,35 @@ fn render_box_shadow(
         let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
         tmp.fill(0, 0, 0, 0); // transparent
 
-        // The shape origin within the temp buffer
-        let shape_x = padding + spread;
-        let shape_y = padding + spread;
-        let Some(shape_rect) = AzRect::from_xywh(shape_x, shape_y, rect.width, rect.height) else {
+        // The shadow SHAPE is the border box grown by the spread on every
+        // side (CSS Backgrounds 3 §7.1), placed after the blur padding. It
+        // used to be drawn at the spread OFFSET but at the border box's own
+        // size, so a spread never widened anything: the ring blit below cut
+        // the box out and left only its 1px anti-seam sliver - a `0 0 0 6px`
+        // ring painted as two hairlines.
+        let Some(shape_rect) = AzRect::from_xywh(
+            padding,
+            padding,
+            2.0f32.mul_add(spread, rect.width),
+            2.0f32.mul_add(spread, rect.height),
+        ) else {
             return Ok(());
+        };
+        // The shadow's corners follow the spread too: radius + spread, never
+        // below zero (a square corner stays square). `spread` is in device
+        // pixels, the radii in logical ones.
+        let grow = |r: f32| {
+            if r > 0.0 {
+                (r + spread / dpi_factor.max(f32::EPSILON)).max(0.0)
+            } else {
+                0.0
+            }
+        };
+        let border_radius = &BorderRadius {
+            top_left: grow(border_radius.top_left),
+            top_right: grow(border_radius.top_right),
+            bottom_left: grow(border_radius.bottom_left),
+            bottom_right: grow(border_radius.bottom_right),
         };
 
         let agg_color = Rgba8::new(
@@ -693,14 +913,23 @@ fn render_box_shadow(
     let ring_eligible =
         matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && border_radius.is_zero();
     if ring_eligible {
-        // Border-box hole in SOURCE coordinates. Shrink it by 1px on every
-        // side (ceil origin, floor extent) so the ring keeps a sliver of
-        // shadow UNDER the element edge — an over-large hole would leave a
-        // visible seam against the element's antialiased edge.
-        let hole_x = (rect.x - shadow_x).max(0.0).ceil() as u32 + 1;
-        let hole_y = (rect.y - shadow_y).max(0.0).ceil() as u32 + 1;
-        let hole_r = ((rect.x + rect.width - shadow_x).floor() as i64 - 1).max(0) as u32;
-        let hole_b = ((rect.y + rect.height - shadow_y).floor() as i64 - 1).max(0) as u32;
+        // Border-box hole in SOURCE coordinates. A box off the pixel grid
+        // has an antialiased edge: shrink the hole by 1px on every side
+        // (ceil origin, floor extent) so the ring keeps a sliver of shadow
+        // UNDER that edge - an over-large hole would leave a visible seam. A
+        // box ON the grid has no such edge, and the sliver would show
+        // through a transparent box (CSS: never inside the border box; WPT
+        // box-shadow-outset-without-border-radius-001): its hole is exact.
+        let on_the_grid = [rect.x, rect.y, rect.width, rect.height]
+            .iter()
+            .all(|v| v.fract() == 0.0);
+        let sliver = u32::from(!on_the_grid);
+        let hole_x = (rect.x - shadow_x).max(0.0).ceil() as u32 + sliver;
+        let hole_y = (rect.y - shadow_y).max(0.0).ceil() as u32 + sliver;
+        let hole_r =
+            ((rect.x + rect.width - shadow_x).floor() as i64 - i64::from(sliver)).max(0) as u32;
+        let hole_b =
+            ((rect.y + rect.height - shadow_y).floor() as i64 - i64::from(sliver)).max(0) as u32;
         let hole_r = hole_r.min(sw);
         let hole_b = hole_b.min(sh);
 
@@ -814,6 +1043,301 @@ pub enum MaskEntry {
         /// the corners that belong to the clip it is popping.
         clip_depth: usize,
     },
+    /// A `filter` group (`PushFilter`); `Some` when it is isolated (see
+    /// [`FilterGroup`]), `None` when the push carries no work here. Every
+    /// push has one, so a `PopFilter` always closes its own push.
+    Filter(Option<Box<FilterGroup>>),
+    /// A reference frame (`PushReferenceFrame`): how its content reaches the
+    /// pixmap, so the `PopReferenceFrame` undoes exactly what its push did.
+    /// Every push has one.
+    Transform(ReferenceFrameGroup),
+}
+
+/// How the flat walk paints a reference frame's content (a CSS `transform`,
+/// a drag, the animation channel's slide) - moved by the frame's live
+/// matrix, as the layered compositor paints the frame's layer.
+#[derive(Debug)]
+pub enum ReferenceFrameGroup {
+    /// The matrix is the identity: nothing was opened.
+    Identity,
+    /// A 2D translation, folded into the scroll-offset stack (the walk
+    /// paints at `pos - offset`): one entry was pushed there. The items are
+    /// painted moved and nothing is resampled.
+    Translated,
+    /// Any other matrix: an isolated group, see [`TransformGroup`].
+    Isolated(Box<TransformGroup>),
+}
+
+/// A reference frame whose matrix is not a translation, painted in place.
+///
+/// The push sets the device-pixel box of the frame's bounds aside and clears
+/// it; the frame's content paints into that box at its LAYOUT place, clipped
+/// to it (the compositor's layer for the frame is that box, too). The pop
+/// takes those pixels out, puts the backdrop back and composites them
+/// through the matrix - about the frame's origin, as the compositor places
+/// its layer - inside the clip that was open around the push.
+#[derive(Debug)]
+pub struct TransformGroup {
+    backdrop: Vec<u8>,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    /// Group pixel -> pixmap pixel, a column-vector homography (`Mat3`).
+    matrix: Mat3,
+    /// The clip open around the push, device pixels, half-open.
+    outer_clip: Option<(i32, i32, i32, i32)>,
+}
+
+impl ReferenceFrameGroup {
+    /// Opens the reference frame whose live matrix is `m`, around content
+    /// laid out in `bounds` (device-logical: already moved by the scroll
+    /// frames around it).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel box
+    fn begin(
+        m: &[[f32; 4]; 4],
+        bounds: &LogicalRect,
+        pixmap: &mut AzulPixmap,
+        dpi_factor: f32,
+        clip_stack: &mut Vec<Option<AzRect>>,
+        real_clip_stack: &mut Vec<Option<AzRect>>,
+        scroll_offset_stack: &mut Vec<(f32, f32)>,
+    ) -> Self {
+        // The layer builder's tests: a frame it would not promote is painted
+        // where it is laid out, one it would is moved.
+        if is_identity_2d(m) {
+            return Self::Identity;
+        }
+        if let Some((tx, ty)) = translation_2d(m) {
+            let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
+            scroll_offset_stack.push((sx - tx, sy - ty));
+            return Self::Translated;
+        }
+
+        let x = (bounds.origin.x * dpi_factor).floor() as i32;
+        let y = (bounds.origin.y * dpi_factor).floor() as i32;
+        let x1 = ((bounds.origin.x + bounds.size.width) * dpi_factor).ceil() as i32;
+        let y1 = ((bounds.origin.y + bounds.size.height) * dpi_factor).ceil() as i32;
+        let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+
+        let outer_clip = clip_stack.last().copied().flatten().map(|c| {
+            (
+                c.x.round() as i32,
+                c.y.round() as i32,
+                (c.x + c.width).round() as i32,
+                (c.y + c.height).round() as i32,
+            )
+        });
+
+        // Group pixel s -> pixmap: p = (x, y) + s, then about the frame's
+        // origin o: o + M (p - o), M's translation in logical units scaled
+        // to device pixels (the compositor's `layer_h`).
+        let dpi = f64::from(dpi_factor);
+        let (ox, oy) = (
+            f64::from(bounds.origin.x) * dpi,
+            f64::from(bounds.origin.y) * dpi,
+        );
+        let layer_h: Mat3 = [
+            f64::from(m[0][0]),
+            f64::from(m[1][0]),
+            f64::from(m[3][0]) * dpi,
+            f64::from(m[0][1]),
+            f64::from(m[1][1]),
+            f64::from(m[3][1]) * dpi,
+            f64::from(m[0][3]) / dpi,
+            f64::from(m[1][3]) / dpi,
+            f64::from(m[3][3]),
+        ];
+        let matrix = mat3_mul(
+            &mat3_translation(ox, oy),
+            &mat3_mul(
+                &layer_h,
+                &mat3_translation(f64::from(x) - ox, f64::from(y) - oy),
+            ),
+        );
+
+        let backdrop = snapshot_region(pixmap, x, y, width, height);
+        let clear = vec![0u8; backdrop.len()];
+        write_region(pixmap, &clear, width, height, x, y);
+
+        // The content paints inside the group's box only, whatever was open
+        // around it: that clip applies where the group lands, at the pop.
+        let group_clip = AzRect::from_xywh(x as f32, y as f32, width as f32, height as f32)
+            .unwrap_or(AzRect::DENY_ALL);
+        clip_stack.push(Some(group_clip));
+        real_clip_stack.push(Some(group_clip));
+
+        Self::Isolated(Box::new(TransformGroup {
+            backdrop,
+            x,
+            y,
+            width,
+            height,
+            matrix,
+            outer_clip,
+        }))
+    }
+
+    /// Closes what [`Self::begin`] opened: the scroll-offset entry of a
+    /// translation, or the isolated group - composited through its matrix.
+    fn finish(
+        self,
+        pixmap: &mut AzulPixmap,
+        clip_stack: &mut Vec<Option<AzRect>>,
+        real_clip_stack: &mut Vec<Option<AzRect>>,
+        scroll_offset_stack: &mut Vec<(f32, f32)>,
+    ) {
+        match self {
+            Self::Identity => {}
+            Self::Translated => {
+                if scroll_offset_stack.len() > 1 {
+                    scroll_offset_stack.pop();
+                }
+            }
+            Self::Isolated(group) => {
+                if clip_stack.len() > 1 {
+                    clip_stack.pop();
+                }
+                if real_clip_stack.len() > 1 {
+                    real_clip_stack.pop();
+                }
+                group.finish(pixmap);
+            }
+        }
+    }
+}
+
+/// Widest or tallest box a [`TransformGroup`] sets aside, in device pixels
+/// (a degenerate layout must not become a giant allocation).
+const MAX_TRANSFORM_GROUP_SIDE: i32 = 16_384;
+
+impl TransformGroup {
+    /// Take what the group painted out of the pixmap, put the backdrop back
+    /// and composite the group through its matrix.
+    fn finish(&self, pixmap: &mut AzulPixmap) {
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        let painted = snapshot_region(pixmap, self.x, self.y, self.width, self.height);
+        write_region(
+            pixmap,
+            &self.backdrop,
+            self.width,
+            self.height,
+            self.x,
+            self.y,
+        );
+        let group = AzulPixmap {
+            data: painted.into(),
+            width: self.width,
+            height: self.height,
+        };
+        if mat3_is_affine(&self.matrix) {
+            blit_pixmap_affine_clipped(
+                &group,
+                pixmap,
+                &mat3_affine_part(&self.matrix),
+                1.0,
+                self.outer_clip,
+            );
+        } else {
+            blit_pixmap_projective_clipped(&group, pixmap, &self.matrix, 1.0, self.outer_clip);
+        }
+    }
+}
+
+/// Is the walk inside an isolated reference frame ([`TransformGroup`])?
+/// Its items paint at their layout place and are moved at the pop, so the
+/// damaged walk cannot cull them by where they are laid out.
+fn inside_isolated_transform(mask_stack: &[MaskEntry]) -> bool {
+    mask_stack.iter().any(|entry| {
+        matches!(
+            entry,
+            MaskEntry::Transform(ReferenceFrameGroup::Isolated(_))
+        )
+    })
+}
+
+/// Does a `filter` list need its group's own pixels apart from the backdrop?
+/// `flood()` fills the group and `composite()` reads the group's own alpha,
+/// so both do; the colour filters that act per pixel do not.
+fn filter_group_needs_isolation(filters: &[StyleFilter]) -> bool {
+    filters
+        .iter()
+        .any(|f| matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_)))
+}
+
+/// An isolated `filter` group of the direct (layer-less) render path.
+///
+/// [`Self::begin`] sets the pixels under the group aside and clears them to
+/// transparent, so the group paints onto nothing; [`Self::finish`] filters
+/// what the group painted (the SOURCE graphic of `composite()`) and
+/// composites the result back over the saved backdrop.
+#[derive(Debug)]
+pub struct FilterGroup {
+    backdrop: Vec<u8>,
+    filters: Vec<StyleFilter>,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl FilterGroup {
+    /// Set aside and clear the device-pixel region `r` covers (its bounding
+    /// box: the near edges floored, the far ones ceiled).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel box
+    fn begin(pixmap: &mut AzulPixmap, r: &AzRect, filters: &[StyleFilter]) -> Self {
+        let x = r.x.floor() as i32;
+        let y = r.y.floor() as i32;
+        let width = ((r.x + r.width).ceil() as i32).saturating_sub(x).max(0) as u32;
+        let height = ((r.y + r.height).ceil() as i32).saturating_sub(y).max(0) as u32;
+        let backdrop = snapshot_region(pixmap, x, y, width, height);
+        let clear = vec![0u8; backdrop.len()];
+        write_region(pixmap, &clear, width, height, x, y);
+        Self {
+            backdrop,
+            filters: filters.to_vec(),
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// Filter what the group painted and composite it over the backdrop.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // colour math
+    fn finish(&self, pixmap: &mut AzulPixmap, dpi_factor: f32) {
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        let painted = snapshot_region(pixmap, self.x, self.y, self.width, self.height);
+        let mut group = AzulPixmap {
+            data: painted.into(),
+            width: self.width,
+            height: self.height,
+        };
+        apply_layer_filters(&mut group, &self.filters, dpi_factor);
+
+        // straight-alpha source-over: the filtered group over the backdrop
+        let mut out = self.backdrop.clone();
+        for (dst, src) in out.chunks_exact_mut(4).zip(group.data.chunks_exact(4)) {
+            let sa = f32::from(src[3]) / 255.0;
+            let da = f32::from(dst[3]) / 255.0;
+            let oa = sa + da * (1.0 - sa);
+            if oa <= 0.0 {
+                dst.copy_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            for c in 0..3 {
+                let v = (f32::from(src[c]) * sa + f32::from(dst[c]) * da * (1.0 - sa)) / oa;
+                dst[c] = v.round().clamp(0.0, 255.0) as u8;
+            }
+            dst[3] = (oa * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+        write_region(pixmap, &out, self.width, self.height, self.x, self.y);
+    }
 }
 
 /// One corner box of a [`MaskEntry::RoundedClip`], in device pixels.
@@ -1008,7 +1532,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
                 blend_masked_region(pixmap, &c.snapshot, &c.mask, c.x, c.y, c.w, c.h);
             }
         }
-        MaskEntry::Opacity { .. } => {}
+        MaskEntry::Opacity { .. } | MaskEntry::Filter(_) | MaskEntry::Transform(_) => {}
     }
 }
 
@@ -1311,63 +1835,18 @@ pub fn extract_gpu_values(
         let mut transforms = HashMap::new();
         let mut opacities = HashMap::new();
 
+        // THE shared source (`GpuValueCache::for_each_bound_value`): the
+        // WebRender path hands the same values to its dynamic properties.
         if let Some(cache) = gpu_cache {
-            // Scrollbar thumb transforms (vertical)
-            for (node_id, key) in &cache.transform_keys {
-                if let Some(value) = cache.current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            // Scrollbar thumb transforms (horizontal)
-            for (node_id, key) in &cache.h_transform_keys {
-                if let Some(value) = cache.h_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            // ANIMATION transforms — a separate channel from the CSS one,
-            // because `synchronize` owns `css_transform_keys` and evicts
-            // anything not backed by a CSS `transform` property. Extracted the
-            // same way: the rasteriser looks values up by KEY id, so an
-            // animated node is indistinguishable from a CSS-transformed one at
-            // this point, which is the intent.
-            for (node_id, key) in &cache.anim_transform_keys {
-                if let Some(value) = cache.anim_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            for (node_id, key) in &cache.anim_opacity_keys {
-                if let Some(value) = cache.anim_current_opacity_values.get(node_id) {
-                    opacities.insert(key.id, *value);
-                }
-            }
-            // CSS transforms
-            for (node_id, key) in &cache.css_transform_keys {
-                if let Some(value) = cache.css_current_transform_values.get(node_id) {
-                    transforms.insert(key.id, *value);
-                }
-            }
-            // Scrollbar opacity (vertical)
-            for ((d, node_id), key) in &cache.scrollbar_v_opacity_keys {
-                if *d == dom_id {
-                    if let Some(&value) = cache.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
-                        opacities.insert(key.id, value);
-                    }
-                }
-            }
-            // Scrollbar opacity (horizontal)
-            for ((d, node_id), key) in &cache.scrollbar_h_opacity_keys {
-                if *d == dom_id {
-                    if let Some(&value) = cache.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
-                        opacities.insert(key.id, value);
-                    }
-                }
-            }
-            // CSS opacity
-            for (node_id, key) in &cache.opacity_keys {
-                if let Some(&value) = cache.current_opacity_values.get(node_id) {
-                    opacities.insert(key.id, value);
-                }
-            }
+            cache.for_each_bound_value(
+                dom_id,
+                |key, value| {
+                    transforms.insert(key, *value);
+                },
+                |key, value| {
+                    opacities.insert(key, value);
+                },
+            );
         }
 
         (transforms, opacities)
@@ -1487,6 +1966,7 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
         I::HitTestArea { .. } => "dl:hit",
         I::VirtualView { .. } => "dl:vview",
         I::VirtualViewPlaceholder { .. } => "dl:vview_ph",
+        I::WebView { .. } => "dl:webview",
     }
 }
 
@@ -1565,7 +2045,7 @@ pub fn render_display_list_damaged(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
     damage_rects: &[LogicalRect],
-) -> Result<(), String> {
+) -> Result<Vec<LogicalRect>, String> {
     // The strip/damage raster body - the previously UNSPANNED majority of a
     // scroll frame's present time (7 of 10.2ms measured 2026-08-29).
     let _p = crate::probe::Probe::span("raster_damage_body");
@@ -1582,7 +2062,7 @@ pub fn render_display_list_damaged(
     }
 
     if damage_rects.is_empty() {
-        return Ok(()); // nothing changed
+        return Ok(Vec::new()); // nothing changed
     }
 
     // Snap every damage rect OUTWARD to physical-pixel boundaries (floor the
@@ -1730,7 +2210,9 @@ pub fn render_display_list_damaged(
         for (item_idx, item) in display_list.items.iter().enumerate() {
             // Always process state-management items (Push/Pop) regardless of bounds,
             // because skipping a Push while processing its matching Pop corrupts stacks.
-            if !item.is_state_management() {
+            // Nor is anything culled inside a turned / scaled reference frame:
+            // it paints at its layout place and lands elsewhere at the pop.
+            if !item.is_state_management() && !inside_isolated_transform(&mask_stack) {
                 // INK bounds for the cull, not box bounds: `Text.bounds()`
                 // returns the IFC owner's WHOLE content box, so a 3px scroll
                 // strip touching one paragraph admitted EVERY line of it (and
@@ -1807,7 +2289,11 @@ pub fn render_display_list_damaged(
         }
     }
 
-    Ok(())
+    // The rects this call actually CLEARED AND PAINTED. Overlapping requests
+    // are merged into their bounding box above, so the painted area can be
+    // larger than what was asked for: the caller has to present (and, on a
+    // pool-order target, byte-convert) what was written, not what it wanted.
+    Ok(rects.iter().map(|r| r.logical).collect())
 }
 
 #[allow(
@@ -2166,6 +2652,23 @@ pub fn render_single_item(
                     (scroll_dx, scroll_dy),
                 );
             }
+            // LCD text needs an opaque backdrop (see `backdrop_is_opaque`): a
+            // run over a transparent layer pixel takes grayscale coverage.
+            let run = item
+                .visual_bounds()
+                .and_then(|ink| text_run_clip(&scroll_rect(&ink), clip, dpi_factor));
+            let grayscale = run.is_some_and(|run| !backdrop_is_opaque(pixmap, run));
+            // The display list's uniform background is a HINT from the
+            // ancestors (`compute_uniform_text_bg`: the first one painting an
+            // opaque colour) - but a layer painted between that ancestor and
+            // the text (a positioned gradient, a band of light) is the real
+            // backdrop. The pre-blended tiles bake the hinted colour under
+            // every glyph: AzPlayer's start strip showed BLACK boxes (its
+            // black body under a blue layer). Trusted only when the pixels the
+            // run covers ARE that colour.
+            let item_uniform_bg = item_uniform_bg.filter(|(bg, _)| {
+                run.is_some_and(|run| backdrop_is_colour(pixmap, run, *bg))
+            });
             render_text_with_bg(
                 glyphs,
                 *font_hash,
@@ -2179,7 +2682,7 @@ pub fn render_single_item(
                 dpi_factor,
                 glyph_cache,
                 (scroll_dx, scroll_dy),
-                false,
+                grayscale,
                 item_uniform_bg,
             );
         }
@@ -2517,6 +3020,9 @@ pub fn render_single_item(
                 );
             }
         }
+        // The native web view is the platform's to draw, over the window:
+        // the item only reserves its rect (`DisplayListItem::WebView`).
+        DisplayListItem::WebView { .. } => {}
 
         // Gradient rendering
         DisplayListItem::LinearGradient {
@@ -2680,24 +3186,68 @@ pub fn render_single_item(
             let mut composed = tf;
             composed.premultiply(&current);
             transform_stack.push(composed);
+
+            // The frame's content is painted MOVED by its live matrix - the
+            // layered compositor's layer for this frame, in place. Without
+            // this every damage rect repainted a transformed box at its
+            // layout place (mid-slide ghosts; a lasting transform ghosted
+            // wherever damage touched its layout box).
+            let group = ReferenceFrameGroup::begin(
+                m,
+                &scroll_rect(bounds.inner()),
+                pixmap,
+                dpi_factor,
+                clip_stack,
+                real_clip_stack,
+                scroll_offset_stack,
+            );
+            mask_stack.push(MaskEntry::Transform(group));
         }
         DisplayListItem::PopReferenceFrame => {
             if transform_stack.len() > 1 {
                 transform_stack.pop();
             }
+            if matches!(mask_stack.last(), Some(MaskEntry::Transform(_))) {
+                if let Some(MaskEntry::Transform(group)) = mask_stack.pop() {
+                    group.finish(pixmap, clip_stack, real_clip_stack, scroll_offset_stack);
+                }
+            }
         }
 
         // --- Filter effects ---
         //
-        // `filter` (PushFilter/PopFilter) is intentionally a no-op *here*: the
-        // effect is realized by the compositor layer path, which allocates a
+        // A blur is realized by the compositor layer path, which allocates a
         // dedicated pixbuf for the filtered subtree in
-        // `allocate_layers_from_display_list` and applies the blur/color filters
-        // at composite time via `apply_layer_filters`. The content between
+        // `allocate_layers_from_display_list` and applies the filters at
+        // composite time via `apply_layer_filters`; the content between
         // Push/PopFilter is rendered into that layer's pixbuf by this very
-        // function, so the markers themselves carry no work at item level.
-        DisplayListItem::PushFilter { .. } => {}
-        DisplayListItem::PopFilter => {}
+        // function, so for it the markers carry no work at item level.
+        //
+        // `flood()` and `composite()` are different: they need the group's
+        // OWN pixels apart from whatever is behind it (a flood fills the
+        // group, `composite(in)` keeps it only where the group painted - the
+        // icon tint), and no layer is promoted for them. Such a group is
+        // ISOLATED right here: the region under it is set aside and cleared,
+        // the group paints onto transparent pixels, and the pop filters them
+        // and composites the result back over what was there. Every push
+        // leaves an entry (`None` when nothing is isolated), so a pop always
+        // closes its own push however filters nest.
+        DisplayListItem::PushFilter { bounds, filters } => {
+            let group = if filter_group_needs_isolation(filters) {
+                logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor)
+                    .map(|r| FilterGroup::begin(pixmap, &r, filters))
+            } else {
+                None
+            };
+            mask_stack.push(MaskEntry::Filter(group.map(Box::new)));
+        }
+        DisplayListItem::PopFilter => {
+            if matches!(mask_stack.last(), Some(MaskEntry::Filter(_))) {
+                if let Some(MaskEntry::Filter(Some(group))) = mask_stack.pop() {
+                    group.finish(pixmap, dpi_factor);
+                }
+            }
+        }
 
         // TODO(superplan g4): `backdrop-filter` is unimplemented in the CPU
         // renderer. Unlike `filter` (which acts on the element's own content),
@@ -2735,10 +3285,36 @@ pub fn render_single_item(
             mask_rect,
         } => {
             let mr = &scroll_rect(mask_rect.inner());
-            let mask_x = (mr.origin.x * dpi_factor) as i32;
-            let mask_y = (mr.origin.y * dpi_factor) as i32;
-            let mask_w = (mr.size.width * dpi_factor).ceil() as u32;
-            let mask_h = (mr.size.height * dpi_factor).ceil() as u32;
+            // Both regions below have to COVER every pixel the masked
+            // drawing can touch, so each is its box's pixel-aligned BOUNDING
+            // BOX: floor the near edge, ceil the far one. Truncating the
+            // origin and ceiling the SIZE is not the same thing - for a box at
+            // 9.5..25.5 it gave rows 9..25, leaving row 25 outside the region
+            // `apply_mask` blends, so the solid rect under the mask survived
+            // there as one fully-opaque row. A titlebar centring a 16px glyph
+            // in a 24px button puts every icon on exactly that half pixel.
+            //
+            // `floor`, not a cast: `as i32` truncates toward zero, which for
+            // a negative origin rounds the wrong way and leaks the same row
+            // on the other side.
+            //
+            // The mask is then resampled (bilinearly) onto a region up to one
+            // pixel larger in each axis, which spreads its coverage by that
+            // much. That is the honest answer for a mask whose rect sits
+            // between pixels, and it is what the edge is for.
+            let pixel_box = |r: &LogicalRect| -> (i32, i32, u32, u32) {
+                let x0 = (r.origin.x * dpi_factor).floor();
+                let y0 = (r.origin.y * dpi_factor).floor();
+                let x1 = ((r.origin.x + r.size.width) * dpi_factor).ceil();
+                let y1 = ((r.origin.y + r.size.height) * dpi_factor).ceil();
+                (
+                    x0 as i32,
+                    y0 as i32,
+                    (x1 - x0).max(0.0) as u32,
+                    (y1 - y0).max(0.0) as u32,
+                )
+            };
+            let (mask_x, mask_y, mask_w, mask_h) = pixel_box(mr);
 
             // THE MASKED REGION IS THE ELEMENT, NOT THE MASK RECT.
             //
@@ -2747,11 +3323,7 @@ pub fn render_single_item(
             // the mask rect left everything the mask does not reach fully
             // painted, so the two backends disagreed about every mask smaller
             // than its element.
-            let br = &scroll_rect(bounds.inner());
-            let px_x = (br.origin.x * dpi_factor) as i32;
-            let px_y = (br.origin.y * dpi_factor) as i32;
-            let px_w = (br.size.width * dpi_factor).ceil() as u32;
-            let px_h = (br.size.height * dpi_factor).ceil() as u32;
+            let (px_x, px_y, px_w, px_h) = pixel_box(&scroll_rect(bounds.inner()));
 
             if px_w > 0 && px_h > 0 && mask_w > 0 && mask_h > 0 {
                 let snapshot = snapshot_region(pixmap, px_x, px_y, px_w, px_h);
@@ -3127,6 +3699,68 @@ fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
     })
 }
 
+// ---- Glyph geometry agg can take ----
+//
+// agg rasterizes on `i32` coordinates (24.8 fixed point; the LCD path triples
+// x). A pen or clip that is non-finite, or far enough off the pixmap to
+// saturate those integers, must never reach it: a pen that a broken layout
+// parked at 1e38 saturated to `i32::MAX`, the LCD `* 3` wrapped, the
+// rasterizer's x range straddled all of `i32` and `ScanlineU8::reset`
+// allocated a ONE-cover span - `index out of bounds: the len is 1 but the
+// index is 1` in `add_cell` (the AzMail receipt, and seven AzWidgets aborts on
+// 2026-09-30). Every glyph path (LCD sweep, LCD tiles, grayscale) goes through
+// the three helpers below.
+
+/// The largest rendered em, in device pixels, a glyph run is rasterized at.
+/// With the 4-em ink bound of [`glyph_ink_reach`] it keeps a glyph's own
+/// cells far inside agg's `i32` range: 4 x 65536 px x 3 stripes x 256
+/// subpixels is about 2e8, a tenth of `i32::MAX`.
+const MAX_RASTER_EM_PX: f32 = 65_536.0;
+
+/// How far (device px) a glyph's ink can reach from its pen: 4 em, the bound
+/// the LCD sweep's horizontal cull always used. `None` for an em no
+/// rasterizer can take (non-finite, not positive, or past
+/// [`MAX_RASTER_EM_PX`]): the whole run is skipped.
+fn glyph_ink_reach(em_px: f32) -> Option<f32> {
+    (em_px.is_finite() && em_px > 0.0 && em_px <= MAX_RASTER_EM_PX).then_some(em_px * 4.0)
+}
+
+/// Whether a glyph whose pen sits at device `(x, y)` can put ink on a
+/// `width` x `height` pixmap, its ink reaching `reach` px from the pen on
+/// every side. A glyph this rejects paints nothing anyway; one it admits
+/// keeps every integer offset agg sees within `reach` of the pixmap.
+#[allow(clippy::cast_precision_loss)] // pixmap sides are far below 2^24
+fn glyph_pen_reaches_pixmap(x: f32, y: f32, reach: f32, width: u32, height: u32) -> bool {
+    let (w, h) = (width as f32, height as f32);
+    x.is_finite()
+        && y.is_finite()
+        && reach.is_finite()
+        && x >= -reach
+        && x <= w + reach
+        && y >= -reach
+        && y <= h + reach
+}
+
+/// The whole pixels a text clip covers on a `width` x `height` pixmap, in
+/// agg's inclusive `clip_box_i` form `(x1, y1, x2, y2)` (the truncating rule
+/// the text paths always used), or `None` when it covers no pixel.
+///
+/// Intersecting with the pixmap FIRST keeps every coordinate small enough for
+/// agg's integer math (the LCD stripe clip triples x). An empty result must
+/// skip the run rather than reach agg: `RendererBase::clip_box_i` NORMALIZES
+/// an inverted box, so a clip thinner than a pixel used to paint two.
+// The casts run after the clamp to the pixmap.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn text_clip_pixel_box(clip: AzRect, width: u32, height: u32) -> Option<(i32, i32, i32, i32)> {
+    let pixmap = AzRect::from_xywh(0.0, 0.0, width as f32, height as f32)?;
+    let c = clip.clip(&pixmap)?;
+    let x1 = c.x as i32;
+    let y1 = c.y as i32;
+    let x2 = (c.x + c.width) as i32 - 1;
+    let y2 = (c.y + c.height) as i32 - 1;
+    (x2 >= x1 && y2 >= y1).then_some((x1, y1, x2, y2))
+}
+
 /// RGB LCD subpixel-AA glyph run. Rasterizes each glyph at **3× horizontal
 /// resolution** (one sub-sample per R/G/B stripe), then lets [`PixfmtRgba32Lcd`]
 /// run a 5-tap FIR (the `FreeType` default "light" filter `[08 4D 56 4D 08]`, which
@@ -3153,6 +3787,69 @@ fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )] // software rasterizer: bounded pixel/coord/colour casts
+/// The clip a text run paints under, in device pixels: its own `clip_rect`
+/// (already scroll-projected by the caller) cut to the active `clip`.
+/// `None` = nothing of the run can show.
+///
+/// ONE rule for every paint path. The pre-tiled LCD path always clipped
+/// to this intersection, as `WebRender` clips a text item; the batch sweep
+/// and the grayscale path clipped to the stack clip alone and only skipped
+/// a run whose `clip_rect` lay wholly outside it, so ink past a run's
+/// `clip_rect` painted on two paths and not on the third (a list marker cut
+/// by one path and painted by the other).
+fn text_run_clip(clip_rect: &LogicalRect, clip: Option<AzRect>, dpi_factor: f32) -> Option<AzRect> {
+    let own = logical_rect_to_az_rect(clip_rect, dpi_factor)?;
+    match clip {
+        Some(c) => own.clip(&c),
+        None => Some(own),
+    }
+}
+
+/// Whether every pixel of `pixmap` under `rect` (device pixels) is opaque.
+///
+/// LCD subpixel text blends each colour stripe against the destination and
+/// stamps the pixel opaque, so it is only right over an opaque backdrop. An
+/// opacity / filter / transform layer starts TRANSPARENT (its content is
+/// composited through the effect): LCD glyph edges drawn there were blended
+/// against transparent black and stamped opaque - smeared, heavy text in every
+/// dimmed (disabled) control. A run over any transparent pixel takes
+/// grayscale coverage instead, as browsers draw text in a layer without an
+/// opaque background.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel coords
+/// Whether every pixel of `rect` is exactly the opaque colour `bg` - the
+/// proof a pre-blended LCD tile over `bg` needs before it is stamped there.
+fn backdrop_is_colour(pixmap: &AzulPixmap, rect: AzRect, bg: ColorU) -> bool {
+    if bg.a != 255 {
+        return false;
+    }
+    let w = pixmap.width as usize;
+    let h = pixmap.height as usize;
+    let x0 = (rect.x.floor().max(0.0) as usize).min(w);
+    let y0 = (rect.y.floor().max(0.0) as usize).min(h);
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as usize).min(w).max(x0);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as usize).min(h);
+    let data = pixmap.data();
+    let want = [bg.r, bg.g, bg.b, 255];
+    (y0..y1).all(|y| {
+        data.get((y * w + x0) * 4..(y * w + x1) * 4)
+            .is_none_or(|row| row.chunks_exact(4).all(|p| p == want))
+    })
+}
+
+fn backdrop_is_opaque(pixmap: &AzulPixmap, rect: AzRect) -> bool {
+    let w = pixmap.width as usize;
+    let h = pixmap.height as usize;
+    let x0 = (rect.x.floor().max(0.0) as usize).min(w);
+    let y0 = (rect.y.floor().max(0.0) as usize).min(h);
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as usize).min(w).max(x0);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as usize).min(h);
+    let data = pixmap.data();
+    (y0..y1).all(|y| {
+        data.get((y * w + x0) * 4..(y * w + x1) * 4)
+            .is_none_or(|row| row.chunks_exact(4).all(|p| p[3] == 255))
+    })
+}
+
 #[allow(clippy::too_many_arguments)] // mirrors render_text's font/metric plumbing
 fn render_glyphs_lcd(
     pixmap: &mut AzulPixmap,
@@ -3169,6 +3866,21 @@ fn render_glyphs_lcd(
     glyph_cache: &mut GlyphCache,
 ) {
     use agg_rust::pixfmt_lcd::{LcdDistributionLut, PixfmtRgba32Lcd};
+
+    // Geometry agg can take (see `glyph_pen_reaches_pixmap`): the clip as
+    // whole pixels on this pixmap - one covering no pixel paints nothing -
+    // and the reach of a glyph's ink from its pen, from the RENDERED em.
+    let clip_box = match clip {
+        Some(c) => match text_clip_pixel_box(c, pixmap.width, pixmap.height) {
+            Some(b) => Some(b),
+            None => return,
+        },
+        None => None,
+    };
+    let em_px = scale * f32::from(parsed_font.font_metrics.units_per_em);
+    let Some(max_ink_w) = glyph_ink_reach(em_px) else {
+        return;
+    };
 
     let agg_color = Rgba8::new(
         u32::from(color.r),
@@ -3189,6 +3901,18 @@ fn render_glyphs_lcd(
         let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
+        // A pen that cannot put ink on the pixmap - NaN, or parked far off it
+        // by a broken layout - never reaches agg's integer cell math.
+        if !glyph_pen_reaches_pixmap(
+            glyph_x,
+            glyph_baseline_y,
+            max_ink_w,
+            pixmap.width,
+            pixmap.height,
+        ) {
+            continue;
+        }
+
         // Horizontal cull BEFORE decode: a glyph whose ink cannot reach the
         // clip contributes nothing to the sweep. Pad = 2px for the FIR
         // fringe (ink just outside the clip lightens the boundary column if
@@ -3208,7 +3932,7 @@ fn render_glyphs_lcd(
             // both sides so negative bearings / RTL marks reaching into the
             // clip from the right survive too. Only ever more conservative
             // than exact ink: a glyph is clipped by the sweep, never lost.
-            let max_ink_w = scale * f32::from(parsed_font.font_metrics.units_per_em) * 4.0;
+            // (`max_ink_w` is that 4-em bound, from `glyph_ink_reach`.)
             let cx0 = c.x;
             let cx1 = c.x + c.width;
             if glyph_x - max_ink_w > cx1 + 2.0 || glyph_x + max_ink_w < cx0 - 2.0 {
@@ -3272,51 +3996,41 @@ fn render_glyphs_lcd(
         // sRGB-space blending), instead of only on near-b/w pairs.
         let mut pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
         pf.set_subpixel_order(order);
-        if let Some(c) = clip {
+        if let Some((x1, _, x2, _)) = clip_box {
             // The FIR spread writes 2 stripes past every span; the renderer-
             // base clip box cannot bound those writes (task #17: a damage-rect
             // repaint double-blended the escaped fringe one pixel LEFT of the
             // rect — 239²/255 = 224, the exact measured divergence).
-            pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
+            pf.set_stripe_clip(x1 * 3, (x2 + 1) * 3);
         }
         let mut rb = RendererBase::new(pf);
-        if let Some(c) = clip {
+        if let Some((_, y1, _, y2)) = clip_box {
             // Y-only span clip: vertical has no FIR spread, so scanline
             // clipping is exact. X spans must reach the FIR distribution
             // UNCLIPPED — ink just OUTSIDE the clip contributes fringe to
             // the boundary column INSIDE it (a span-clipped repaint loses
             // that contribution and renders the column lighter than a full
             // repaint). The stripe clip set above bounds the WRITES instead.
-            rb.clip_box_i(
-                0,
-                c.y as i32,
-                (w as i32) * 3 - 1,
-                (c.y + c.height) as i32 - 1,
-            );
+            rb.clip_box_i(0, y1, (w as i32) * 3 - 1, y2);
         }
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     } else {
         // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
         let mut pf = PixfmtRgba32Lcd::new(&mut ra, lut);
         pf.set_subpixel_order(order);
-        if let Some(c) = clip {
+        if let Some((x1, _, x2, _)) = clip_box {
             // Same stripe-clip as the colorimetric arm above.
-            pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
+            pf.set_stripe_clip(x1 * 3, (x2 + 1) * 3);
         }
         let mut rb = RendererBase::new(pf);
-        if let Some(c) = clip {
+        if let Some((_, y1, _, y2)) = clip_box {
             // Y-only span clip: vertical has no FIR spread, so scanline
             // clipping is exact. X spans must reach the FIR distribution
             // UNCLIPPED — ink just OUTSIDE the clip contributes fringe to
             // the boundary column INSIDE it (a span-clipped repaint loses
             // that contribution and renders the column lighter than a full
             // repaint). The stripe clip set above bounds the WRITES instead.
-            rb.clip_box_i(
-                0,
-                c.y as i32,
-                (w as i32) * 3 - 1,
-                (c.y + c.height) as i32 - 1,
-            );
+            rb.clip_box_i(0, y1, (w as i32) * 3 - 1, y2);
         }
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     }
@@ -3526,26 +4240,37 @@ fn render_text_prerendered_lcd(
     } else {
         1.0
     };
+    // An em no rasterizer can take paints nothing (see `glyph_ink_reach`).
+    let Some(ink_reach) = glyph_ink_reach(effective_px) else {
+        return true;
+    };
     let lut = lcd_distribution_lut();
 
-    // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
+    // The run's clip, as WHOLE PIXELS: `text_run_clip` (the item clip_rect
+    // cut to the stack clip, device px) through `text_clip_pixel_box` - the
+    // very box the sweep and the grayscale path paint under, so a fractional
+    // clip cuts the tiles at the same pixel (this path used to snap the
+    // clip_rect OUTWARD on its own and paint one column / row more).
     // NOTE: `clip_rect` arrives ALREADY scroll-projected by the caller
     // (`text_clip = scroll_rect(clip_rect)` in the Text arm) — do not
     // subtract `scroll_offset` here again.
-    let cr = clip_rect;
-    let mut cx0 = (cr.origin.x * dpi_factor).floor() as i32;
-    let mut cy0 = (cr.origin.y * dpi_factor).floor() as i32;
-    let mut cx1 = ((cr.origin.x + cr.size.width) * dpi_factor).ceil() as i32;
-    let mut cy1 = ((cr.origin.y + cr.size.height) * dpi_factor).ceil() as i32;
-    if let Some(c) = clip {
-        cx0 = cx0.max(c.x as i32);
-        cy0 = cy0.max(c.y as i32);
-        cx1 = cx1.min((c.x + c.width) as i32);
-        cy1 = cy1.min((c.y + c.height) as i32);
-    }
-    if cx1 <= cx0 || cy1 <= cy0 {
+    let Some((bx0, by0, bx1, by1)) = text_run_clip(clip_rect, clip, dpi_factor)
+        .and_then(|c| text_clip_pixel_box(c, pixmap.width, pixmap.height))
+    else {
         return true; // fully clipped: nothing to paint, and nothing missed
-    }
+    };
+    // `clip_box_i`'s inclusive form, made exclusive for the tile copies.
+    let (cx0, cy0, cx1, cy1) = (bx0, by0, bx1 + 1, by1 + 1);
+    // The same box, for the sweep the overlapping components take (pass
+    // 2a): it used to get the STACK clip alone, so with no stack clip - or
+    // one wider than the run's clip_rect - the overlapping glyphs of a run
+    // painted past the clip_rect the tiled ones were cut to.
+    let run_clip = AzRect::from_xywh(
+        cx0 as f32,
+        cy0 as f32,
+        (cx1 - cx0) as f32,
+        (cy1 - cy0) as f32,
+    );
 
     let _p = crate::probe::Probe::span("glyph_lcd_pretile");
     // Pass 1: build tiles and group glyphs into CONNECTED COMPONENTS by
@@ -3570,6 +4295,11 @@ fn render_text_prerendered_lcd(
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
+        // A pen that cannot put ink on the pixmap never reaches the tile
+        // placement (`int_x + tile.dx` overflowed for a saturated pen).
+        if !glyph_pen_reaches_pixmap(gx, gy, ink_reach, pixmap.width, pixmap.height) {
+            continue;
+        }
         let glyph_index = glyph.index as u16;
         let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
             continue;
@@ -3621,10 +4351,12 @@ fn render_text_prerendered_lcd(
             // horizontally scrolled TextInput into the per-glyph cull).
             let prx = pr.origin.x - scroll_offset.0;
             let pry = pr.origin.y - scroll_offset.1;
-            let px0 = (prx * dpi_factor).ceil() as i32 + 1;
-            let py0 = (pry * dpi_factor).ceil() as i32 + 1;
-            let px1 = ((prx + pr.size.width) * dpi_factor).floor() as i32 - 1;
-            let py1 = ((pry + pr.size.height) * dpi_factor).floor() as i32 - 1;
+            // Saturating: a proven rect far off the pixmap saturates the
+            // casts, and the 1-px inset must not overflow them.
+            let px0 = ((prx * dpi_factor).ceil() as i32).saturating_add(1);
+            let py0 = ((pry * dpi_factor).ceil() as i32).saturating_add(1);
+            let px1 = (((prx + pr.size.width) * dpi_factor).floor() as i32).saturating_sub(1);
+            let py1 = (((pry + pr.size.height) * dpi_factor).floor() as i32).saturating_sub(1);
             if x0 < px0 || y0 < py0 || x0 + tile.w as i32 > px1 || y0 + tile.h as i32 > py1 {
                 drop(crate::probe::Probe::span("glyph_lcd_pretile_boundary"));
                 return false; // whole run sweeps (rare: edge-hugging text)
@@ -3670,11 +4402,12 @@ fn render_text_prerendered_lcd(
     }
 
     // Pass 2a: the overlapping components through the batch sweep (their
-    // pixels are disjoint from every tiled glyph's pixels).
+    // pixels are disjoint from every tiled glyph's pixels), under the SAME
+    // combined clip the tile copies below are cut to.
     if !sweep_glyphs.is_empty() {
         render_glyphs_lcd(
             pixmap,
-            clip,
+            run_clip,
             &sweep_glyphs,
             parsed_font,
             font_hash,
@@ -3727,7 +4460,8 @@ fn render_text_prerendered_lcd(
     true
 }
 
-fn render_text(
+/// One glyph run into `pixmap` (also `text_raster`'s rasteriser).
+pub(super) fn render_text(
     glyphs: &[GlyphInstance],
     font_hash: FontHash,
     font_size_px: f32,
@@ -3750,15 +4484,12 @@ fn render_text(
         return;
     }
 
-    // Skip text entirely if its clip_rect is outside the active clip region
-    if let Some(ref c) = clip {
-        let Some(text_rect) = logical_rect_to_az_rect(clip_rect, dpi_factor) else {
-            return;
-        };
-        if text_rect.clip(c).is_none() {
-            return; // fully clipped
-        }
-    }
+    // The run's own clip_rect cut to the active clip: the one clip the LCD
+    // sweep and the grayscale path below paint under (`text_run_clip`).
+    let Some(run_clip) = text_run_clip(clip_rect, clip, dpi_factor) else {
+        return; // fully clipped
+    };
+    let clip = Some(run_clip);
 
     let agg_color = Rgba8::new(
         u32::from(color.r),
@@ -3833,18 +4564,27 @@ fn render_text(
     let h = pixmap.height;
     let stride = (w * 4) as i32;
 
+    // Geometry agg can take (see `glyph_pen_reaches_pixmap`): a clip covering
+    // no whole pixel paints nothing, and an em no rasterizer can take skips
+    // the run.
+    let clip_box = match clip {
+        Some(c) => match text_clip_pixel_box(c, w, h) {
+            Some(b) => Some(b),
+            None => return,
+        },
+        None => None,
+    };
+    let Some(ink_reach) = glyph_ink_reach(effective_px) else {
+        return;
+    };
+
     // Create renderer infrastructure once, reuse for all glyphs in this text run.
     // Batches all glyph cells into a single rasterizer pass when possible.
     let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     let mut pf = PixfmtRgba32::new(&mut ra);
     let mut rb = RendererBase::new(pf);
-    if let Some(c) = clip {
-        rb.clip_box_i(
-            c.x as i32,
-            c.y as i32,
-            (c.x + c.width) as i32 - 1,
-            (c.y + c.height) as i32 - 1,
-        );
+    if let Some((x1, y1, x2, y2)) = clip_box {
+        rb.clip_box_i(x1, y1, x2, y2);
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
@@ -3853,6 +4593,13 @@ fn render_text(
     // This amortizes sort_cells cost across all glyphs in the run.
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
+
+        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
+        // A pen that cannot put ink on the pixmap never reaches agg.
+        if !glyph_pen_reaches_pixmap(glyph_x, glyph_baseline_y, ink_reach, w, h) {
+            continue;
+        }
 
         // Lazy decode: first access to a given gid for this face does
         // the allsorts glyf walk + OwnedGlyph conversion; subsequent
@@ -3870,9 +4617,6 @@ fn render_text(
                 ppem,
             )
             .is_some_and(|c| c.is_hinted);
-
-        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
-        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
         let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells(
             font_hash.font_hash,
@@ -4462,18 +5206,18 @@ fn render_image(
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return;
         }
-        DecodedImage::NullImage { .. } => {
-            let gray = Rgba8::new(200, 200, 200, 255);
-            // The placeholder stands in for the image, so it takes the image's
-            // shape: a `border-radius` on the <img> has to round the grey too,
-            // or a rounded surface shows square grey corners poking out past
-            // its own border (the frontpage `opengl` shot, whose GL callback
-            // has no GPU to run on and so is all placeholder).
-            let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
-            agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-            return;
-        }
-        DecodedImage::Gl(_) => return,
+        // A `NullImage` has no pixels, so nothing is drawn - as WebRender
+        // draws nothing for it (no pixels to upload) and a browser's `<img>`
+        // without a picture, `<video>` without a frame or blank `<canvas>`
+        // shows the box's own background. Both kinds: an `<img src>` nobody
+        // supplied (the XML loaders' placeholder, its tag the src; it stays
+        // in the display list for a renderer that resolves srcs itself,
+        // printpdf's HTML bridge), and an app's "nothing to show yet" without
+        // a tag (a remote video tile before its first frame, an empty
+        // monitor, a render callback's fallback, a GL texture's CPU copy).
+        // The grey placeholders above are for pixels that exist but cannot be
+        // read here.
+        DecodedImage::NullImage { .. } | DecodedImage::Gl(_) => return,
     };
 
     // Area/bilinear blit: each destination pixel takes the value
@@ -4609,7 +5353,15 @@ impl RgbaRow {
 /// Convert source row `y` into `out` as straight RGBA8. The format match runs
 /// ONCE per row instead of once per tap (four times per destination pixel).
 fn source_row_to_rgba(src: &crate::image_scale::SrcImage<'_>, y: u32, out: &mut [u8]) {
-    use azul_core::resources::RawImageFormat;
+    use azul_core::resources::{Nv12Layout, RawImageFormat, YuvCoefficients};
+    // NV12 (a camera / decoder frame): the row's luma with the chroma of its
+    // row pair, through the one YCbCr table - the same values
+    // `SrcImage::pixel` gives, so the blit stays byte-identical to `sample`.
+    if let Some(coeffs) = YuvCoefficients::of(src.format) {
+        let layout = Nv12Layout::new(src.width as usize, src.height as usize);
+        coeffs.row_to_rgba(src.bytes, &layout, y as usize, out);
+        return;
+    }
     let Some(bpp) = crate::image_scale::bytes_per_pixel(src.format) else {
         out.fill(0);
         return;
@@ -4673,14 +5425,19 @@ fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
             pixmap.data[di + 2] = q[2];
             pixmap.data[di + 3] = 255;
         } else if sa > 0 {
-            // Alpha blend: dst = src * sa + dst * (255 - sa)
+            // The source is PREMULTIPLIED: an `ImageRef` stores its pixels
+            // premultiplied (`RawImage` load premultiplies straight input,
+            // the GPU's convention), and the samples keep that. So
+            // dst = src + dst * (255 - sa) / 255 - the straight-alpha formula
+            // (src * sa) multiplied by alpha a second time and painted every
+            // translucent image too dark (white at 85% over white: 222).
             let da = 255 - sa;
             pixmap.data[di] =
-                ((u32::from(q[0]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                (u32::from(q[0]) + u32::from(pixmap.data[di]) * da / 255).min(255) as u8;
             pixmap.data[di + 1] =
-                ((u32::from(q[1]) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+                (u32::from(q[1]) + u32::from(pixmap.data[di + 1]) * da / 255).min(255) as u8;
             pixmap.data[di + 2] =
-                ((u32::from(q[2]) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
+                (u32::from(q[2]) + u32::from(pixmap.data[di + 2]) * da / 255).min(255) as u8;
             pixmap.data[di + 3] = ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
         }
     }
@@ -4750,6 +5507,28 @@ fn blit_sampled_image(
     let src_w = src.width as usize;
     let last_x = src.width as i32 - 1;
     let last_y = src.height as i32 - 1;
+
+    if src.width == dst_w && src.height == dst_h && mask.is_none() {
+        // ---- 1:1: a frame that already has the tile's device size ---------
+        // `sample` at scale 1 is the source pixel itself (the bilinear
+        // partner row and column get weight 0), so each VISIBLE source row
+        // is converted once and composited as it is: no lerp, and no read of
+        // the row below. This is the steady state of a video tile whose
+        // frames are resampled early.
+        let mut rgba = RgbaRow::new(src_w);
+        for py in py_lo..py_hi {
+            source_row_to_rgba(src, py, &mut rgba.bytes);
+            conversions.0 += 1;
+            let ty_px = (dst_y + py as i32) as u32;
+            let tx_px = (dst_x + px_lo as i32) as u32;
+            composite_rgba_row(
+                pixmap,
+                ((ty_px * pw + tx_px) * 4) as usize,
+                &rgba.bytes[px_lo as usize * 4..px_hi as usize * 4],
+            );
+        }
+        return;
+    }
 
     let mut stage = vec![0u8; vis_w * 4];
 
@@ -4906,6 +5685,26 @@ fn horizontal_lerp_row(rgba: &[u8], cols: &[(u32, u32, f32)], out: &mut [f32]) {
             o[c] = f32::from(a[c]) * w + f32::from(b[c]) * tx;
         }
     }
+}
+
+/// The path of `rect` with its edges ROUNDED to whole device pixels - the
+/// rule an opaque [`render_rect`] fills by ([`round_edge`]) and browsers
+/// paint a box's background by: a box's fractional edge is not an
+/// anti-aliased one. Two gradient boxes sharing a pixel each covered part of
+/// it, and what lay under them showed through (a red seam between floats,
+/// WPT background-gradient-subpixel-fills-area).
+fn build_pixel_snapped_rect_path(rect: &AzRect) -> PathStorage {
+    let x0 = f64::from(round_edge(rect.x));
+    let y0 = f64::from(round_edge(rect.y));
+    let x1 = f64::from(round_edge(rect.x + rect.width));
+    let y1 = f64::from(round_edge(rect.y + rect.height));
+    let mut path = PathStorage::new();
+    path.move_to(x0, y0);
+    path.line_to(x1, y0);
+    path.line_to(x1, y1);
+    path.line_to(x0, y1);
+    path.close_polygon(PATH_FLAGS_NONE);
+    path
 }
 
 fn build_rect_path(rect: &AzRect) -> PathStorage {
@@ -5225,17 +6024,23 @@ pub fn render_component_preview(
     // --- Font resolution ---
     {
         use crate::{
-            solver3::getters::collect_and_resolve_font_chains_with_registration,
+            solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
             text3::default::PathLoader,
         };
 
         let platform = azul_css::system::Platform::current();
 
-        let chains = collect_and_resolve_font_chains_with_registration(
+        // The preview's text is laid out in `viewport`: a `vw` font size's
+        // chain is collected at the size the text asks for.
+        let chains = collect_and_resolve_font_chains_with_registration_in_viewport(
             styled_dom,
             &preview_font_manager.fc_cache,
             &preview_font_manager,
             &platform,
+            azul_css::props::basic::PhysicalSize::new(
+                viewport.size.width,
+                viewport.size.height,
+            ),
         );
         let loader = PathLoader::new();
         let _failed = preview_font_manager.load_missing_for_chains(&chains, |bytes, index| {
@@ -5248,6 +6053,7 @@ pub fn render_component_preview(
     let mut layout_cache = LayoutCache {
         tree: None,
         resize_only_hint: false,
+        overrides_only_hint: None,
         last_reconcile_was_skipped: false,
         last_reconcile_structure_preserved: false,
         last_build_was_patched: false,
@@ -5292,6 +6098,7 @@ pub fn render_component_preview(
         &mut text_cache,
         styled_dom,
         viewport,
+        LogicalRect::new(LogicalPosition::zero(), viewport.size),
         &preview_font_manager,
         &empty_scroll_offsets,
         &empty_text_selections,
@@ -6129,6 +6936,7 @@ mod autotest_generated {
             .map(|(offset_percent, color)| NormalizedLinearColorStop {
                 offset: PercentageValue::new(*offset_percent),
                 color: ColorOrSystem::Color(*color),
+                offset_px: azul_css::props::basic::FloatValue::const_new(0),
             })
             .collect::<Vec<_>>()
             .into()
@@ -6348,16 +7156,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn gradient_lut_linear_out_of_range_offsets_are_clamped_not_panicking() {
-        // -500% and +900% (and a saturating 1e30%) must clamp into 0..=1.
+    fn gradient_lut_linear_stops_beyond_the_line_color_its_ends_by_interpolation() {
+        // -500% .. +900% black -> white: the line itself starts 500/1400 of
+        // the way to white (CSS Images 3: a stop outside 0..100% is not moved
+        // onto the line, the line samples the ramp). A saturating 1e30% must
+        // not panic.
         let lut = build_gradient_lut_linear(
             &lin_stops(&[(-500.0, BLACK), (900.0, WHITE), (1e30, RED)]),
             None,
         );
         assert_eq!(lut.size(), 256);
-        assert_eq!(lut.get(0).r, 0, "the -500% stop clamps to offset 0");
-        // Both 900% and 1e30% clamp to offset 1.0; the dedup keeps one of them.
-        assert!(lut.get(255).a > 0);
+        let start = lut.get(0).r;
+        assert!((88..=94).contains(&start), "0% is gray 91, got {start}");
+        let end = lut.get(255).r;
+        assert!((104..=112).contains(&end), "100% is gray 109, got {end}");
+        assert_eq!(lut.get(255).a, 255);
     }
 
     #[test]
@@ -6369,13 +7182,44 @@ mod autotest_generated {
     }
 
     #[test]
-    fn gradient_lut_linear_duplicate_offsets_degrade_to_transparent_not_panic() {
-        // Two stops at the SAME offset dedup down to one -> <2 stops -> the LUT
-        // is left transparent. The contract that matters here: no panic, and no
-        // arbitrary color is invented.
+    fn gradient_lut_linear_a_hard_stop_splits_the_line_into_two_colors() {
+        // Two stops at the SAME offset are a hard color change (CSS Images 3).
+        // agg keeps one stop per offset, which left this LUT transparent - a
+        // `red 50%, blue 50%` background painted nothing.
         let lut = build_gradient_lut_linear(&lin_stops(&[(50.0, RED), (50.0, BLUE)]), None);
         assert_eq!(lut.size(), 256);
-        assert_eq!(lut.get(128).a, 0);
+        for i in [0usize, 64, 126] {
+            let c = lut.get(i);
+            assert!(
+                c.r == 255 && c.b == 0 && c.a == 255,
+                "entry {i} is red: {c:?}"
+            );
+        }
+        for i in [129usize, 192, 255] {
+            let c = lut.get(i);
+            assert!(
+                c.b == 255 && c.r == 0 && c.a == 255,
+                "entry {i} is blue: {c:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn gradient_lut_resolution_follows_the_line_length() {
+        assert_eq!(gradient_lut_size(100.0), GRADIENT_LUT_MIN);
+        assert_eq!(gradient_lut_size(600.2), 601);
+        assert_eq!(gradient_lut_size(1.0e9), GRADIENT_LUT_MAX);
+        assert_eq!(gradient_lut_size(f64::NAN), GRADIENT_LUT_MIN);
+        // A 3 px bar of a 600 px line owns its 3 entries.
+        let red = (RED, 0.0_f32, 3.0 / 600.0);
+        let lut = build_gradient_lut(
+            &[(red.1, red.0), (red.2, red.0), (red.2, WHITE), (1.0, WHITE)],
+            gradient_lut_size(600.0),
+        );
+        assert_eq!(lut.size(), 600);
+        assert_eq!(lut.get(1).r, 255);
+        assert_eq!(lut.get(1).g, 0, "entry 1 (px 1..2) is red");
+        assert_eq!(lut.get(4).g, 255, "entry 4 (px 4..5) is white");
     }
 
     #[test]
@@ -6388,10 +7232,12 @@ mod autotest_generated {
             NormalizedLinearColorStop {
                 offset: PercentageValue::new(0.0),
                 color: ColorOrSystem::System(SystemColorRef::Accent),
+                offset_px: azul_css::props::basic::FloatValue::const_new(0),
             },
             NormalizedLinearColorStop {
                 offset: PercentageValue::new(100.0),
                 color: ColorOrSystem::Color(WHITE),
+                offset_px: azul_css::props::basic::FloatValue::const_new(0),
             },
         ]
         .into();
@@ -6845,6 +7691,44 @@ mod autotest_generated {
         assert!(
             top < bottom,
             "the default Top->Bottom direction must ramp dark->light (top {top}, bottom {bottom})"
+        );
+    }
+
+    #[test]
+    fn adjacent_gradients_at_a_fractional_edge_leave_no_seam() {
+        // WPT css/css-backgrounds/background-gradient-subpixel-fills-area:
+        // ten floats 39.6875px wide, each with a gradient background, over
+        // a red list - a red seam showed at every boundary. Each gradient's
+        // fractional edge was an anti-aliased PATH edge, so the shared pixel
+        // was covered 0.6875 by one and 0.3125 by the other: a quarter of
+        // the red stayed. Opaque rects are snapped to whole pixels
+        // (`render_rect`, round_edge) and so are a browser's backgrounds;
+        // the column the two gradients share is theirs, not red.
+        let mut p = pixmap(24, 4);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 24.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        let blue = linear(lin_stops(&[(0.0, BLUE), (100.0, BLUE)]));
+        for x in [0.0, 9.6875] {
+            render_linear_gradient(
+                &mut p,
+                &lrect(x, 0.0, 9.6875, 4.0),
+                &blue,
+                &BorderRadius::default(),
+                None,
+                1.0,
+                None,
+            );
+        }
+        let seam = px_at(&p, 9, 2);
+        assert!(
+            seam[0] < 8 && seam[2] > 247,
+            "the shared column is the gradients' blue, no red under a seam: {seam:?}"
         );
     }
 
@@ -8574,13 +9458,15 @@ mod autotest_generated {
                     pixmap.data[di + 2] = sb;
                     pixmap.data[di + 3] = 255;
                 } else if sa > 0 {
+                    // The samples are PREMULTIPLIED (an ImageRef's storage):
+                    // src + dst * (255 - sa) / 255.
                     let da = 255 - sa;
                     pixmap.data[di] =
-                        ((u32::from(sr) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                        (u32::from(sr) + u32::from(pixmap.data[di]) * da / 255).min(255) as u8;
                     pixmap.data[di + 1] =
-                        ((u32::from(sg) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+                        (u32::from(sg) + u32::from(pixmap.data[di + 1]) * da / 255).min(255) as u8;
                     pixmap.data[di + 2] =
-                        ((u32::from(sb) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
+                        (u32::from(sb) + u32::from(pixmap.data[di + 2]) * da / 255).min(255) as u8;
                     pixmap.data[di + 3] =
                         ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
                 }
@@ -8649,6 +9535,88 @@ mod autotest_generated {
                 );
             }
         }
+    }
+
+    /// A deterministic, non-uniform NV12 source (both planes).
+    fn noisy_nv12(w: u32, h: u32) -> Vec<u8> {
+        let len = azul_core::resources::Nv12Layout::new(w as usize, h as usize)
+            .checked_total_len()
+            .expect("small");
+        (0..len).map(|i| ((i * 37 + 11) % 256) as u8).collect()
+    }
+
+    #[test]
+    fn an_nv12_frame_blits_byte_identical_to_image_scale_sample() {
+        // A camera / decoder frame in NV12 goes through the same blit as any
+        // image: its rows are converted to RGB once each (the fused
+        // convert + scale pass), and every painted byte is the byte the
+        // reference sampler gives.
+        use azul_core::resources::RawImageFormat as F;
+        for fmt in [F::NV12Rec601Video, F::NV12Rec709Full] {
+            let (sw, sh) = (13u32, 7u32);
+            let bytes = noisy_nv12(sw, sh);
+            let src = crate::image_scale::SrcImage {
+                bytes: &bytes,
+                format: fmt,
+                width: sw,
+                height: sh,
+            };
+            assert!(src.is_sampleable(), "{fmt:?} must be sampleable");
+            for (dw, dh) in [(13u32, 7u32), (40, 23), (5, 3), (1, 1)] {
+                let mut fast = pixmap(dw + 4, dh + 4);
+                let mut want = pixmap(dw + 4, dh + 4);
+                blit_sampled_image(
+                    &mut fast,
+                    &src,
+                    2,
+                    2,
+                    dw,
+                    dh,
+                    (0, 0, dw, dh),
+                    None,
+                    &mut RowConversions::new(),
+                );
+                reference_blit(&mut want, &src, 2, 2, dw, dh);
+                assert_eq!(
+                    snap(&fast),
+                    snap(&want),
+                    "{fmt:?} {sw}x{sh} -> {dw}x{dh}: NV12 must blit byte-identical to the sampler"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_frame_at_the_tiles_size_converts_each_visible_row_exactly_once() {
+        // A video frame that arrives at the tile's device size (the point of
+        // resampling early) is a 1:1 blit: each VISIBLE source row is
+        // converted once and copied. The bilinear path used to read one more
+        // row (the lerp partner at weight 0) for every run of rows.
+        use azul_core::resources::RawImageFormat as F;
+        let (w, h) = (64u32, 32u32);
+        let bytes = noisy_nv12(w, h);
+        let src = crate::image_scale::SrcImage {
+            bytes: &bytes,
+            format: F::NV12Rec709Video,
+            width: w,
+            height: h,
+        };
+        let mut p = pixmap(w, h);
+        let mut conv = RowConversions::new();
+        // Only rows 8..24 are damaged.
+        blit_sampled_image(&mut p, &src, 0, 0, w, h, (0, 8, w, 24), None, &mut conv);
+        assert_eq!(
+            conv.0, 16,
+            "a 1:1 blit of 16 visible rows converts exactly those 16 source rows"
+        );
+        let mut want = pixmap(w, h);
+        reference_blit(&mut want, &src, 0, 0, w, h);
+        let row = (w * 4) as usize;
+        assert_eq!(
+            &snap(&p)[8 * row..24 * row],
+            &snap(&want)[8 * row..24 * row],
+            "and paints what the sampler gives"
+        );
     }
 
     #[test]
@@ -8815,6 +9783,35 @@ mod autotest_generated {
         let before = snap(&p);
         run_list(&dl, &mut p, 1.0).expect("must render");
         assert_eq!(before, p.data(), "alpha=0 source pixels must not blend");
+    }
+
+    /// An app's "nothing to show yet" - an image node holding a null image
+    /// without a src (AzMeet's remote tile before its first frame,
+    /// AzVideocut's empty monitor, a canvas callback's fallback) - paints
+    /// nothing, as WebRender does (a null image has no pixels to upload) and
+    /// as a browser's `<video>` or `<canvas>` with no frame yet: the box's own
+    /// background shows. The CPU renderer alone painted a flat #C8C8C8 tile.
+    #[test]
+    fn a_null_image_with_nothing_to_show_yet_paints_nothing() {
+        for radius in [0.0, 6.0] {
+            let dl = DisplayList {
+                items: vec![DisplayListItem::Image {
+                    bounds: wrect(0.0, 0.0, 6.0, 6.0),
+                    image: ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new()),
+                    border_radius: BorderRadius {
+                        top_left: radius,
+                        top_right: radius,
+                        bottom_left: radius,
+                        bottom_right: radius,
+                    },
+                }],
+                ..Default::default()
+            };
+            let mut p = pixmap(8, 8);
+            let before = snap(&p);
+            run_list(&dl, &mut p, 1.0).expect("must render");
+            assert_eq!(before, p.data(), "radius {radius}: nothing is painted");
+        }
     }
 
     // ==================================================================
@@ -9062,7 +10059,11 @@ mod autotest_generated {
     // render_display_list_damaged
     // ==================================================================
 
-    fn damaged(dl: &DisplayList, p: &mut AzulPixmap, rects: &[LogicalRect]) -> Result<(), String> {
+    fn damaged(
+        dl: &DisplayList,
+        p: &mut AzulPixmap,
+        rects: &[LogicalRect],
+    ) -> Result<Vec<LogicalRect>, String> {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());
@@ -9891,6 +10892,100 @@ pub(super) mod lcd_pretile_tests {
              same pixels (check FIR padding and tile placement)"
         );
     }
+
+    /// A FRACTIONAL clip cuts tiled LCD text where it cuts the other text
+    /// paths (Engine backlog 5, FB3's "text clip twins"): the sweep and the
+    /// grayscale path paint the whole pixels `text_clip_pixel_box` gives
+    /// `text_run_clip`, while the tile path kept its own i32 box, snapped
+    /// OUTWARD from the clip_rect - a clip ending at x = 100.5 let the tiles
+    /// paint column 100, which the sweep leaves alone.
+    #[test]
+    fn a_fractional_clip_cuts_tiled_lcd_text_where_it_cuts_grayscale_text() {
+        let Some(font) = load_test_font() else {
+            eprintln!("no system test font — skipping");
+            return;
+        };
+        if !text_lcd_enabled() || lcd_linear_params().is_none() || !lcd_pretile_enabled() {
+            eprintln!("no LCD tile path in this configuration — skipping");
+            return;
+        }
+        let (rr, fm, font_hash) = rr_with(&font);
+        let font_size = 24.0;
+        let glyphs = shape(&font, "HHHHHHHHHHHHHHHHHHHH", font_size, 8.0, 40.0);
+        let bg = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let color = ColorU {
+            r: 20,
+            g: 20,
+            b: 20,
+            a: 255,
+        };
+        let proven = LogicalRect {
+            origin: LogicalPosition {
+                x: -10_000.0,
+                y: -10_000.0,
+            },
+            size: LogicalSize {
+                width: 20_000.0,
+                height: 20_000.0,
+            },
+        };
+        // Every right edge x + 0.5 across the run's middle (one of them lands
+        // in a stem), and a fractional bottom edge through the glyphs.
+        for right in 60..140u16 {
+            let clip_rect = LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize {
+                    width: f32::from(right) + 0.5,
+                    height: 35.5,
+                },
+            };
+            let paint = |uniform_bg| {
+                let mut pm = AzulPixmap::new(320, 60).unwrap();
+                pm.fill(bg.r, bg.g, bg.b, 255);
+                let mut gc = GlyphCache::new();
+                render_text_with_bg(
+                    &glyphs,
+                    font_hash,
+                    font_size,
+                    color,
+                    &mut pm,
+                    &clip_rect,
+                    None,
+                    &rr,
+                    &fm,
+                    1.0,
+                    &mut gc,
+                    (0.0, 0.0),
+                    false,
+                    uniform_bg,
+                );
+                pm
+            };
+            let sweep = paint(None);
+            let tiles = paint(Some((bg, proven.into())));
+            let diff: Vec<usize> = sweep
+                .data
+                .iter()
+                .zip(tiles.data.iter())
+                .enumerate()
+                .filter(|(_, (a, b))| a != b)
+                .map(|(i, _)| i / 4)
+                .collect();
+            assert!(
+                diff.is_empty(),
+                "clip right edge {right}.5, bottom 35.5: the tiles paint {} pixels the sweep does \
+                 not, first at ({}, {})",
+                diff.len(),
+                diff[0] % 320,
+                diff[0] / 320
+            );
+        }
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -10011,6 +11106,18 @@ mod layer_path_text_tests {
             },
         }
         .into();
+        // The surface is 2px taller than the page: a scroll frame that covers
+        // the WHOLE root is the page's own and is painted in place (see
+        // `allocate_layers_from_display_list`), and this test is about a
+        // frame that gets a layer. The backdrop covers the whole surface.
+        let surface: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 42.0,
+            },
+        }
+        .into();
         let fg = ColorU {
             r: 0x66,
             g: 0x70,
@@ -10025,7 +11132,7 @@ mod layer_path_text_tests {
         };
         let items = vec![
             DisplayListItem::Rect {
-                bounds: page,
+                bounds: surface,
                 color: bg,
                 border_radius: BorderRadius::default(),
             },
@@ -10054,17 +11161,17 @@ mod layer_path_text_tests {
             ..Default::default()
         };
 
-        let mut plain = AzulPixmap::new(200, 40).unwrap();
+        let mut plain = AzulPixmap::new(200, 42).unwrap();
         plain.fill(255, 255, 255, 255);
         let mut gc1 = GlyphCache::new();
         render_display_list(&dl, &mut plain, 1.0, &rr, &fm, &mut gc1).unwrap();
         assert_ink_gamut(&plain, fg, bg, "flat render");
 
         let state = CpuRenderState::new(ScrollOffsetMap::new());
-        let mut layered = AzulPixmap::new(200, 40).unwrap();
+        let mut layered = AzulPixmap::new(200, 42).unwrap();
         layered.fill(255, 255, 255, 255);
         let mut gc2 = GlyphCache::new();
-        let mut comp = CompositorState::new(200, 40);
+        let mut comp = CompositorState::new(200, 42);
         comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(
             comp.layers.len(),
@@ -10196,6 +11303,454 @@ mod pass2b_clamp_tests {
             ((tx1 - tx0) as u32).checked_mul(4).is_none(),
             "the pre-fix `(tx1 - tx0) as u32 * 4` would overflow here — the empty-rect guard in \
              pass 2b must skip before this math runs"
+        );
+    }
+}
+
+/// A glyph run whose geometry no rasterizer can place is skipped, never
+/// handed to agg - and a clip thinner than a pixel paints nothing.
+///
+/// agg rasterizes on `i32` coordinates (24.8 fixed point, x tripled on the
+/// LCD path). A pen that a broken layout parked at 1e38 saturated to
+/// `i32::MAX`, the LCD `* 3` wrapped, the rasterizer's x range straddled all
+/// of `i32` and `ScanlineU8::reset` allocated a one-cover span: `index out of
+/// bounds: the len is 1 but the index is 1` in `add_cell`. That panic took
+/// down the AzMail reading pane (a receipt table) and aborted AzWidgets seven
+/// times on 2026-09-30 with no table involved, always from `render_glyphs_lcd`.
+#[cfg(all(test, feature = "std"))]
+mod unplaceable_glyph_geometry_tests {
+    use super::*;
+
+    const W: u32 = 96;
+    const H: u32 = 32;
+    const FONT_PX: f32 = 16.0;
+    const BLACK: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const WHITE: ColorU = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+
+    fn white_pixmap() -> AzulPixmap {
+        let mut pm = AzulPixmap::new(W, H).expect("a 96x32 pixmap");
+        pm.fill(255, 255, 255, 255);
+        pm
+    }
+
+    /// How many pixels are not pure white.
+    fn inked(pm: &AzulPixmap) -> usize {
+        pm.data()
+            .chunks_exact(4)
+            .filter(|p| p[0] != 255 || p[1] != 255 || p[2] != 255)
+            .count()
+    }
+
+    fn whole_window() -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: W as f32,
+                height: H as f32,
+            },
+        }
+    }
+
+    /// `HHHHHH` on a baseline at y = 22.
+    fn sane_run(font: &ParsedFont) -> Vec<GlyphInstance> {
+        lcd_pretile_tests::shape_pub(font, "HHHHHH", FONT_PX, 2.0, 22.0)
+    }
+
+    /// The sane run, then the same glyph at pens nothing can place: NaN on
+    /// either axis, both infinities and +-1e38.
+    fn run_with_unplaceable_pens(font: &ParsedFont) -> Vec<GlyphInstance> {
+        let mut glyphs = sane_run(font);
+        let template = glyphs[0];
+        for (x, y) in [
+            (f32::NAN, 22.0),
+            (22.0, f32::NAN),
+            (f32::INFINITY, 22.0),
+            (f32::NEG_INFINITY, 22.0),
+            (1.0e38, 22.0),
+            (-1.0e38, 22.0),
+        ] {
+            glyphs.push(GlyphInstance {
+                point: LogicalPosition { x, y },
+                ..template
+            });
+        }
+        glyphs
+    }
+
+    /// The LCD batch sweep, called directly.
+    fn lcd_sweep(
+        pm: &mut AzulPixmap,
+        clip: Option<AzRect>,
+        glyphs: &[GlyphInstance],
+        font: &ParsedFont,
+        font_hash: FontHash,
+    ) {
+        let scale = FONT_PX / f32::from(font.font_metrics.units_per_em);
+        let mut gc = GlyphCache::new();
+        render_glyphs_lcd(
+            pm,
+            clip,
+            glyphs,
+            font,
+            font_hash,
+            0,
+            scale,
+            1.0,
+            BLACK,
+            1.0,
+            (0.0, 0.0),
+            &mut gc,
+        );
+    }
+
+    /// The grayscale path (the one text-shadows take).
+    fn grayscale(
+        pm: &mut AzulPixmap,
+        clip: Option<AzRect>,
+        glyphs: &[GlyphInstance],
+        rr: &RendererResources,
+        fm: &FontManager<FontRef>,
+        font_hash: FontHash,
+    ) {
+        let mut gc = GlyphCache::new();
+        render_text(
+            glyphs,
+            font_hash,
+            FONT_PX,
+            BLACK,
+            pm,
+            &whole_window(),
+            clip,
+            rr,
+            fm,
+            1.0,
+            &mut gc,
+            (0.0, 0.0),
+            true,
+        );
+    }
+
+    #[test]
+    fn the_lcd_sweep_skips_the_pens_it_cannot_place() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (_rr, _fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = run_with_unplaceable_pens(&font);
+
+        let mut unclipped = white_pixmap();
+        lcd_sweep(&mut unclipped, None, &glyphs, &font, font_hash);
+        let mut clipped = white_pixmap();
+        lcd_sweep(
+            &mut clipped,
+            AzRect::from_xywh(0.0, 0.0, W as f32, H as f32),
+            &glyphs,
+            &font,
+            font_hash,
+        );
+
+        // Skipped glyph by glyph: the placeable ones still paint.
+        assert!(inked(&unclipped) > 0, "the sane glyphs of the run paint");
+        assert!(
+            inked(&clipped) > 0,
+            "the sane glyphs of the run paint under a clip"
+        );
+    }
+
+    #[test]
+    fn the_grayscale_and_pretiled_paths_skip_the_pens_they_cannot_place() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = run_with_unplaceable_pens(&font);
+
+        let mut gray = white_pixmap();
+        grayscale(&mut gray, None, &glyphs, &rr, &fm, font_hash);
+        assert!(
+            inked(&gray) > 0,
+            "the sane glyphs paint on the grayscale path"
+        );
+
+        // The pre-blended tile path (a proven uniform background).
+        let mut tiled = white_pixmap();
+        let mut gc = GlyphCache::new();
+        render_text_with_bg(
+            &glyphs,
+            font_hash,
+            FONT_PX,
+            BLACK,
+            &mut tiled,
+            &whole_window(),
+            None,
+            &rr,
+            &fm,
+            1.0,
+            &mut gc,
+            (0.0, 0.0),
+            false,
+            Some((
+                WHITE,
+                LogicalRect {
+                    origin: LogicalPosition {
+                        x: -10_000.0,
+                        y: -10_000.0,
+                    },
+                    size: LogicalSize {
+                        width: 20_000.0,
+                        height: 20_000.0,
+                    },
+                }
+                .into(),
+            )),
+        );
+        assert!(inked(&tiled) > 0, "the sane glyphs paint on the tile path");
+    }
+
+    #[test]
+    fn a_clip_thinner_than_a_pixel_paints_nothing() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = sane_run(&font);
+        // A sliver across every row the H crossbars can sit on, and one down
+        // every column the first stem can sit in: both cover no whole pixel.
+        let slivers = [
+            (0.0, 14.2, W as f32, 0.4),
+            (0.0, 15.2, W as f32, 0.4),
+            (0.0, 16.2, W as f32, 0.4),
+            (3.2, 0.0, 0.4, H as f32),
+            (4.2, 0.0, 0.4, H as f32),
+        ];
+        for (x, y, w, h) in slivers {
+            let clip = AzRect::from_xywh(x, y, w, h);
+            assert!(clip.is_some(), "the sliver is a valid rect");
+
+            let mut pm = white_pixmap();
+            lcd_sweep(&mut pm, clip, &glyphs, &font, font_hash);
+            assert_eq!(
+                inked(&pm),
+                0,
+                "the LCD sweep painted outside the sub-pixel clip {clip:?}"
+            );
+
+            let mut pm = white_pixmap();
+            grayscale(&mut pm, clip, &glyphs, &rr, &fm, font_hash);
+            assert_eq!(
+                inked(&pm),
+                0,
+                "the grayscale path painted outside the sub-pixel clip {clip:?}"
+            );
+        }
+    }
+
+    /// Ink in the columns from `x0` rightwards.
+    fn inked_right_of(pm: &AzulPixmap, x0: u32) -> usize {
+        let w = pm.width() as usize;
+        pm.data()
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(i, p)| (i % w) as u32 >= x0 && (p[0] != 255 || p[1] != 255 || p[2] != 255))
+            .count()
+    }
+
+    /// A text item is clipped to its OWN `clip_rect` (cut to the active
+    /// clip) on every paint path, as WebRender clips it. The pre-tiled LCD
+    /// path did; the batch sweep and the grayscale path clipped to the
+    /// STACK clip alone and only skipped a run whose clip_rect lay wholly
+    /// outside it - so ink past a run's clip_rect painted on two paths and
+    /// not on the third (a list marker cut by one, painted by the other).
+    #[test]
+    fn a_runs_ink_outside_its_own_clip_rect_is_cut_on_every_paint_path() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            eprintln!("no system test font - skipping");
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = sane_run(&font);
+
+        // Premise: unclipped, the six H's ink well past x = 20.
+        let mut open = white_pixmap();
+        grayscale(&mut open, None, &glyphs, &rr, &fm, font_hash);
+        assert!(
+            inked_right_of(&open, 20) > 0,
+            "premise: the run inks past x = 20 when nothing clips it"
+        );
+
+        // The run's own clip ends at x = 20. The stack clip is absent, or
+        // the whole window: wider than the run's clip either way.
+        let own = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: 20.0,
+                height: H as f32,
+            },
+        };
+        for stack in [None, AzRect::from_xywh(0.0, 0.0, W as f32, H as f32)] {
+            let mut pm = white_pixmap();
+            let mut gc = GlyphCache::new();
+            render_text(
+                &glyphs,
+                font_hash,
+                FONT_PX,
+                BLACK,
+                &mut pm,
+                &own,
+                stack,
+                &rr,
+                &fm,
+                1.0,
+                &mut gc,
+                (0.0, 0.0),
+                true,
+            );
+            assert!(
+                inked(&pm) > 0,
+                "the H's inside the run's clip paint (stack clip {stack:?})"
+            );
+            assert_eq!(
+                inked_right_of(&pm, 20),
+                0,
+                "the grayscale path painted ink right of the run's own clip_rect (x >= 20) \
+                 under stack clip {stack:?}"
+            );
+
+            // The pre-blended tile path (a proven uniform background): the
+            // same rule.
+            let mut tiled = white_pixmap();
+            let mut gc = GlyphCache::new();
+            render_text_with_bg(
+                &glyphs,
+                font_hash,
+                FONT_PX,
+                BLACK,
+                &mut tiled,
+                &own,
+                stack,
+                &rr,
+                &fm,
+                1.0,
+                &mut gc,
+                (0.0, 0.0),
+                false,
+                Some((
+                    WHITE,
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: -10_000.0,
+                            y: -10_000.0,
+                        },
+                        size: LogicalSize {
+                            width: 20_000.0,
+                            height: 20_000.0,
+                        },
+                    }
+                    .into(),
+                )),
+            );
+            assert_eq!(
+                inked_right_of(&tiled, 20),
+                0,
+                "the tile path painted ink right of the run's own clip_rect (x >= 20) under \
+                 stack clip {stack:?}"
+            );
+        }
+    }
+
+    // ---- the three guards, without a font ----
+
+    #[test]
+    fn an_em_no_rasterizer_can_take_has_no_ink_reach() {
+        assert_eq!(glyph_ink_reach(16.0), Some(64.0), "4 em");
+        for bad in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            0.0,
+            -16.0,
+            MAX_RASTER_EM_PX * 2.0,
+            1.0e38,
+        ] {
+            assert_eq!(glyph_ink_reach(bad), None, "em {bad}");
+        }
+    }
+
+    #[test]
+    fn a_pen_reaches_the_pixmap_only_from_within_its_ink_reach() {
+        // Inside, and just outside on every side within the reach.
+        assert!(glyph_pen_reaches_pixmap(10.0, 20.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(-60.0, 20.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(W as f32 + 60.0, 20.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(10.0, -60.0, 64.0, W, H));
+        assert!(glyph_pen_reaches_pixmap(10.0, H as f32 + 60.0, 64.0, W, H));
+        // Beyond the reach, non-finite, or far past agg's integer range.
+        for (x, y) in [
+            (-65.0, 20.0),
+            (W as f32 + 65.0, 20.0),
+            (10.0, -65.0),
+            (10.0, H as f32 + 65.0),
+            (f32::NAN, 20.0),
+            (10.0, f32::NAN),
+            (f32::INFINITY, 20.0),
+            (f32::NEG_INFINITY, 20.0),
+            (1.0e38, 20.0),
+            (-1.0e38, 20.0),
+            (8.0e8, 20.0),
+            (10.0, 1.0e38),
+        ] {
+            assert!(
+                !glyph_pen_reaches_pixmap(x, y, 64.0, W, H),
+                "pen ({x}, {y}) must be skipped"
+            );
+        }
+        assert!(
+            !glyph_pen_reaches_pixmap(10.0, 20.0, f32::NAN, W, H),
+            "a NaN reach admits nothing"
+        );
+    }
+
+    #[test]
+    fn a_text_clip_becomes_the_pixels_it_covers_or_nothing() {
+        let rect = |x, y, w, h| AzRect::from_xywh(x, y, w, h).expect("a valid rect");
+        // Inside the pixmap: the truncating rule the text paths always used.
+        assert_eq!(
+            text_clip_pixel_box(rect(3.7, 2.2, 10.0, 5.0), W, H),
+            Some((3, 2, 12, 6))
+        );
+        // Larger than the pixmap, or huge: clamped to it, so the LCD stripe
+        // clip's `* 3` cannot overflow.
+        assert_eq!(
+            text_clip_pixel_box(rect(-50.0, -50.0, 1000.0, 1000.0), W, H),
+            Some((0, 0, W as i32 - 1, H as i32 - 1))
+        );
+        assert_eq!(
+            text_clip_pixel_box(rect(-1.0e30, -1.0e30, 2.0e30, 2.0e30), W, H),
+            Some((0, 0, W as i32 - 1, H as i32 - 1))
+        );
+        // Thinner than a pixel on either axis, or off the pixmap: nothing.
+        assert_eq!(text_clip_pixel_box(rect(4.2, 0.0, 0.4, 10.0), W, H), None);
+        assert_eq!(text_clip_pixel_box(rect(0.0, 16.2, 10.0, 0.4), W, H), None);
+        assert_eq!(
+            text_clip_pixel_box(rect(1.0e30, 0.0, 10.0, 10.0), W, H),
+            None
+        );
+        assert_eq!(
+            text_clip_pixel_box(rect(-500.0, 0.0, 10.0, 10.0), W, H),
+            None
         );
     }
 }

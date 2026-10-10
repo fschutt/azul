@@ -30,6 +30,7 @@ use azul_css::{
     system::{SystemFontType, SystemStyle, TitlebarButtonSide, TitlebarButtons, TitlebarMetrics},
     *,
 };
+use azul_css::system::DarkLightMode;
 
 // ── Compile-time defaults (used when no SystemStyle is available) ─────────
 
@@ -82,6 +83,34 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
     b: 229,
     a: 255,
 }; // #e5e5e5
+
+// The line under a standard macOS titlebar, measured through AppKit on macOS
+// 15.5: one device pixel (0.5pt) of #D0D0D0 in light mode, #000000 in dark.
+const MACOS_SEPARATOR_LIGHT: ColorU = ColorU {
+    r: 0xD0,
+    g: 0xD0,
+    b: 0xD0,
+    a: 255,
+};
+const MACOS_SEPARATOR_DARK: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+};
+
+// Only macOS draws a line under its titlebar by default. Windows 11 (Mica)
+// and KDE draw none; GNOME's is a shade the app's own chrome supplies.
+#[cfg(target_os = "macos")]
+const DEFAULT_SEPARATOR_COLOR: OptionColorU = OptionColorU::Some(MACOS_SEPARATOR_LIGHT);
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_SEPARATOR_COLOR: OptionColorU = OptionColorU::None;
+
+// 0.5pt on macOS (one device pixel on a Retina display); 1px elsewhere.
+#[cfg(target_os = "macos")]
+const DEFAULT_SEPARATOR_WIDTH: f32 = 0.5;
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_SEPARATOR_WIDTH: f32 = 1.0;
 
 // ── Titlebar ─────────────────────────────────────────────────────────────
 
@@ -154,6 +183,29 @@ pub struct Titlebar {
     /// Background the CLOSE button takes on hover — its own colour, because
     /// Breeze and Windows both turn it red while the others stay neutral.
     pub close_hover_color: OptionColorU,
+    /// The line under the bar, between it and the content. `None` = no line.
+    ///
+    /// macOS draws one under every standard titlebar: one device pixel
+    /// (0.5pt) of #D0D0D0 in light mode, #000000 in dark mode. The default
+    /// light colour carries that dark twin, like the default title colour.
+    pub separator_color: OptionColorU,
+    /// The line's colour while the window is unfocused (`:backdrop`).
+    pub separator_color_inactive: OptionColorU,
+    /// The line's thickness in CSS pixels. The bar's `height` INCLUDES it
+    /// (`box-sizing: border-box`), as `AppKit`'s 28pt band includes its
+    /// separator, so a line never makes the bar taller.
+    pub separator_width: f32,
+    /// The widget theme this bar is PINNED to (`with_theme`), or `None` to
+    /// follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    ///
+    /// A theme decides the bar's paint - its fill, ink, line colour and the
+    /// controls' hover faces - never its metrics: height, font, padding,
+    /// centring, the line's width and the drag region are the platform's in
+    /// every theme. The colour fields above are the FLAT look's (the native
+    /// one, filled from the desktop by `from_system_style`); flora draws its
+    /// own window chrome.
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 impl Titlebar {
@@ -175,12 +227,33 @@ impl Titlebar {
             padding_left,
             padding_right,
             title_color: DEFAULT_TITLE_COLOR_LIGHT,
+            // No fill: the window's own background shows through, which is
+            // what a transparent native titlebar shows.
             background_color: OptionColorU::None,
             background_inactive: OptionColorU::None,
             title_color_inactive: OptionColorU::None,
             button_hover_color: OptionColorU::None,
             close_hover_color: OptionColorU::None,
+            separator_color: DEFAULT_SEPARATOR_COLOR,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: DEFAULT_SEPARATOR_WIDTH,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the bar keeps this look whatever the app theme
+    /// is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// FFI-compatible alias for [`Titlebar::new`].
@@ -266,16 +339,17 @@ impl Titlebar {
         // (KDE's `Colors:Header`). Falling straight through to the window
         // text made a client-side decoration the right shape in the wrong
         // colour, which is exactly what makes it read as foreign beside a
-        // native neighbour. Window text, then the theme default, remain the
-        // fallbacks for a platform that states no titlebar colour.
+        // native neighbour. Window text, then the default, remain the
+        // fallbacks for a platform that states no titlebar colour. The
+        // default is the LIGHT one, which `build_title_style` gives its dark
+        // twin: the cascade picks between them by the mode the WINDOW shows
+        // (after the app's / `AZ_THEME` pin), where picking here by the
+        // desktop's theme baked the desktop's mode into the bar.
         let title_color = tm
             .text_active
             .into_option()
             .or_else(|| system_style.colors.text.into_option())
-            .unwrap_or(match system_style.theme {
-                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-            });
+            .unwrap_or(DEFAULT_TITLE_COLOR_LIGHT);
 
         Self {
             title,
@@ -291,6 +365,10 @@ impl Titlebar {
             title_color_inactive: tm.text_inactive,
             button_hover_color: tm.button_hover_background,
             close_hover_color: tm.close_button_hover_background,
+            separator_color: tm.separator_color,
+            separator_color_inactive: tm.separator_color_inactive,
+            separator_width: separator_width_of(tm),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -306,15 +384,13 @@ impl Titlebar {
             .title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
-        let title_color =
-            system_style
-                .colors
-                .text
-                .into_option()
-                .unwrap_or(match system_style.theme {
-                    system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                    system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-                });
+        // The default follows the WINDOW's mode through its dark twin - see
+        // `from_system_style`.
+        let title_color = system_style
+            .colors
+            .text
+            .into_option()
+            .unwrap_or(DEFAULT_TITLE_COLOR_LIGHT);
         Self {
             title,
             height,
@@ -329,34 +405,84 @@ impl Titlebar {
             title_color_inactive: tm.text_inactive,
             button_hover_color: tm.button_hover_background,
             close_hover_color: tm.close_button_hover_background,
+            separator_color: tm.separator_color,
+            separator_color_inactive: tm.separator_color_inactive,
+            separator_width: separator_width_of(tm),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
-    /// Build inline CSS for the container div.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
-        let mut props = Vec::with_capacity(8);
-        if show_buttons {
-            // CSD mode: flex layout to place buttons + title side by side
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_display(LayoutDisplay::Flex),
-            ));
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_flex_direction(LayoutFlexDirection::Row),
-            ));
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_align_items(LayoutAlignItems::Center),
-            ));
-        } else {
-            // Title-only mode: block layout — title fills width automatically.
-            // Avoids flex-grow complexity; text centers via text-align.
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_display(LayoutDisplay::Block),
-            ));
-        }
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
-        ));
+    /// Set the bar's own background, or clear it with `None` (the window's
+    /// background then shows through, as behind a transparent native bar).
+    #[inline]
+    pub const fn set_background(&mut self, color: OptionColorU) {
+        self.background_color = color;
+    }
+
+    /// The bar with its own background colour.
+    #[inline]
+    #[must_use]
+    pub const fn with_background(mut self, color: ColorU) -> Self {
+        self.set_background(OptionColorU::Some(color));
+        self
+    }
+
+    /// The bar's background while the window is unfocused (`:backdrop`).
+    #[inline]
+    #[must_use]
+    pub const fn with_background_inactive(mut self, color: ColorU) -> Self {
+        self.background_inactive = OptionColorU::Some(color);
+        self
+    }
+
+    /// Set the line under the bar: `width` CSS pixels of `color`, or no line
+    /// with `None`. The bar's height includes the line.
+    #[inline]
+    pub const fn set_border_bottom(&mut self, width: f32, color: OptionColorU) {
+        self.separator_width = width;
+        self.separator_color = color;
+    }
+
+    /// The bar with a `width`px line of `color` under it.
+    #[inline]
+    #[must_use]
+    pub const fn with_border_bottom(mut self, width: f32, color: ColorU) -> Self {
+        self.set_border_bottom(width, OptionColorU::Some(color));
+        self
+    }
+
+    /// The line's colour while the window is unfocused (`:backdrop`).
+    #[inline]
+    #[must_use]
+    pub const fn with_border_bottom_inactive(mut self, color: ColorU) -> Self {
+        self.separator_color_inactive = OptionColorU::Some(color);
+        self
+    }
+
+    /// The bar with no line under it.
+    #[inline]
+    #[must_use]
+    pub const fn without_border_bottom(mut self) -> Self {
+        self.separator_color = OptionColorU::None;
+        self.separator_color_inactive = OptionColorU::None;
+        self
+    }
+
+    /// Build inline CSS for the container div: the FLAT look - the
+    /// platform's (or the desktop's) own background, line and dimming.
+    pub(crate) fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
+        self.container_style_painted(
+            show_buttons,
+            self.flat_background(),
+            self.flat_line(),
+            Vec::new(),
+        )
+    }
+
+    /// The flat bar's fill: the platform's titlebar colour when one was
+    /// stated, and the dimmed one for when focus leaves.
+    fn flat_background(&self) -> Vec<CssPropertyWithConditions> {
+        let mut props = Vec::with_capacity(2);
         // The titlebar's own background, when the platform stated one. Emitted
         // as a normal declaration so an app's `.with_css("background: …")`
         // still overrides it — the widget supplies the native default, it does
@@ -380,10 +506,139 @@ impl Titlebar {
                 &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
             ));
         }
+        props
+    }
+
+    /// The flat line's colour: the platform's, with its dark twin when it is
+    /// the macOS default, and the `:backdrop` colour. Empty without a line.
+    fn flat_line(&self) -> Vec<CssPropertyWithConditions> {
+        let mut props = Vec::with_capacity(3);
+        let OptionColorU::Some(line) = self.separator_color else {
+            return props;
+        };
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: line }),
+        ));
+        // The default (macOS light) line carries its dark twin, like the
+        // default title colour: a bar built without a desktop to ask must
+        // not draw a light-grey rule on a dark window.
+        if line == MACOS_SEPARATOR_LIGHT {
+            props.push(CssPropertyWithConditions::dark_mode(
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                    inner: MACOS_SEPARATOR_DARK,
+                }),
+            ));
+        }
+        // Pushed after the twin: an unfocused dark window takes the
+        // `:backdrop` colour, not the twin (last match wins).
+        if let OptionColorU::Some(dim) = self.separator_color_inactive {
+            props.push(CssPropertyWithConditions::with_single_condition(
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dim }),
+                &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
+            ));
+        }
+        props
+    }
+
+    /// The bar's inline CSS in some look: the bar's METRICS - the same in
+    /// every theme - with the look's `background` and `ink` where the fill
+    /// goes, and its `line` colour inside the line (drawn only when the bar
+    /// has one: a `separator_color` and a positive `separator_width`).
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub(crate) fn container_style_painted(
+        &self,
+        show_buttons: bool,
+        background: Vec<CssPropertyWithConditions>,
+        line: Vec<CssPropertyWithConditions>,
+        ink: Vec<CssPropertyWithConditions>,
+    ) -> CssPropertyWithConditionsVec {
+        let mut props = Vec::with_capacity(8);
+        // The BAR centres the title's line box on its midline, in both modes.
+        // That is the line AppKit centres the traffic lights on (y = 14 in a
+        // 28pt bar), and the line a CSD bar centres its own controls on.
+        // The title used to centre itself with `padding-top: (height -
+        // font_size) / 2`, as if its line were exactly `font_size` tall. A
+        // line box is about 1.2x the font size, so the title sat most of a
+        // pixel low in title-only mode, and inside the CSD row (which already
+        // centres its children) the padding pushed it 3.5px below the controls.
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_display(LayoutDisplay::Flex),
+        ));
+        if show_buttons {
+            // CSD mode: buttons + title side by side, centred on the midline.
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_flex_direction(LayoutFlexDirection::Row),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_align_items(LayoutAlignItems::Center),
+            ));
+        } else {
+            // Title-only mode: a COLUMN. Its one title block keeps the bar's
+            // full width (the cross axis stretches), so `text-align: center`
+            // still lands on the window's middle, and `justify-content`
+            // centres the block's line on the midline. The title claims no
+            // flex share of its own.
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_flex_direction(LayoutFlexDirection::Column),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_justify_content(LayoutJustifyContent::Center),
+            ));
+        }
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
+        ));
+        // ...and keeps it: the bar is usually the first child of a column
+        // body, and when the content below overflows, the default
+        // `flex-shrink: 1` squeezed it under the window controls.
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
+            LayoutFlexShrink {
+                inner: FloatValue::const_new(0),
+            },
+        )));
+        // The look's fill (flat: the platform's titlebar colour and its
+        // `:backdrop` dimming) and ink.
+        props.extend(background);
+        props.extend(ink);
+        // The line under the bar. Border-box sizing: the bar's `height`
+        // INCLUDES the line, as AppKit's 28pt band includes its separator, so
+        // a line never makes the bar taller than the platform's. Whether there
+        // is a line, and how wide, is the platform's; its colour is the look's.
+        if self.separator_color.is_some() && self.separator_width > 0.0 {
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_border_bottom_width(LayoutBorderBottomWidth {
+                    inner: PixelValue::px(self.separator_width),
+                }),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_border_bottom_style(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                }),
+            ));
+            props.extend(line);
+        }
         // Titlebar should show grab cursor and prevent text selection
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_cursor(StyleCursor::Grab),
         ));
+        // THE WHOLE BAR moves the window, which is what a titlebar is. The
+        // drag used to live on the title TEXT alone, so the strip either side
+        // of it - most of the bar, and all of it once the title is short -
+        // did nothing. Declared here rather than as three more callbacks
+        // because the framework's `-azul-app-region` path is the one that
+        // hands the gesture to the window manager (X11 `_NET_WM_MOVERESIZE`,
+        // xdg_toplevel.move, WM_NCLBUTTONDOWN, performWindowDragWithEvent:),
+        // and a WM-driven move is snap-aware and multi-monitor-correct where
+        // a per-event position loop is not. The buttons opt out with
+        // `no-drag`.
+        if show_buttons {
+            props.push(CssPropertyWithConditions::simple(CssProperty::AppRegion(
+                StyleAppRegionValue::Exact(StyleAppRegion::Drag),
+            )));
+        }
         props.push(CssPropertyWithConditions::simple(CssProperty::user_select(
             StyleUserSelect::None,
         )));
@@ -404,19 +659,16 @@ impl Titlebar {
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
-    /// Build inline CSS for the title text node.
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
-        let font_family = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
-            SystemFontType::TitleBold,
-        )]);
-        let mut props = Vec::with_capacity(10);
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
-        ));
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_font_family(font_family),
-        ));
+    /// Build inline CSS for the title text node: the FLAT look - the
+    /// platform's (or the desktop's) title colour and its dimming.
+    pub(crate) fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
+        self.title_style_painted(show_buttons, self.flat_title_ink())
+    }
+
+    /// The flat title's ink: the resolved title colour, its dark twin when it
+    /// is the light default, and the `:backdrop` dimming.
+    fn flat_title_ink(&self) -> Vec<CssPropertyWithConditions> {
+        let mut props = Vec::with_capacity(3);
         // Use resolved title color from SystemStyle (adapts to dark mode)
         // The dimmed title for an unfocused window, same `:backdrop` mechanism
         // as the container's background above. Pushed BEFORE the active colour
@@ -432,11 +684,52 @@ impl Titlebar {
                 inner: self.title_color,
             }),
         ));
-        // In CSD mode (flex container), title must grow to fill remaining space
-        if show_buttons {
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)),
+        // The default title colour is the LIGHT one (`Titlebar::new` has no
+        // desktop to ask, and `from_system_style` falls back to it when the
+        // desktop states no text colour): #4c4c4c, which on a dark window
+        // reads 1.6:1. Give that default its dark counterpart, so the WINDOW's
+        // mode picks - a restyle-only mode switch included. A colour
+        // `from_system_style` read is the desktop's own and gets no twin.
+        if self.title_color == DEFAULT_TITLE_COLOR_LIGHT {
+            props.push(CssPropertyWithConditions::dark_mode(
+                CssProperty::const_text_color(StyleTextColor {
+                    inner: DEFAULT_TITLE_COLOR_DARK,
+                }),
             ));
+        }
+        props
+    }
+
+    /// The title's inline CSS in some look: the title's METRICS - the
+    /// platform's font (`system:title:bold` at the platform size), centring,
+    /// clipping - the same in every theme, with the look's `ink` where the
+    /// colour goes.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub(crate) fn title_style_painted(
+        &self,
+        show_buttons: bool,
+        ink: Vec<CssPropertyWithConditions>,
+    ) -> CssPropertyWithConditionsVec {
+        let font_family = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
+            SystemFontType::TitleBold,
+        )]);
+        let mut props = Vec::with_capacity(10);
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
+        ));
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_font_family(font_family),
+        ));
+        props.extend(ink);
+        // In CSD mode the title does NOT grow. Growing was what put it off
+        // centre: a title that eats the space the buttons left over is
+        // centred in THAT, so `text-align: center` landed it half the button
+        // block to one side of the window's middle. The bar centres it
+        // instead, by giving the two blocks beside it the same share
+        // (`flex_fill_style`) — so the title's box is the bar's middle
+        // whichever side the buttons are on. It still shrinks (min-width: 0)
+        // so a long title ellipsises rather than pushing them off the edge.
+        if show_buttons {
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_min_width(LayoutMinWidth::const_px(0)),
             ));
@@ -450,13 +743,8 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_overflow_x(LayoutOverflow::Hidden),
         ));
-        // Vertically center the text: pad from top by (height - font_size) / 2
-        let v_pad = ((self.height - self.font_size) / 2.0).max(0.0);
-        if v_pad > 0.0 {
-            props.push(CssPropertyWithConditions::simple(
-                CssProperty::const_padding_top(LayoutPaddingTop::const_px(v_pad as isize)),
-            ));
-        }
+        // No vertical padding: the bar centres the title's line box (see
+        // `build_container_style`), whatever the font's line height is.
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
@@ -487,6 +775,43 @@ impl Titlebar {
         self.dom_inner(true, buttons, button_side)
     }
 
+    /// The window CONTROLS alone, with no title beside them.
+    ///
+    /// `WindowDecorations::NoTitle` promises "no title text, controls still
+    /// visible": the app draws its own title and the frame keeps close,
+    /// minimise and maximise. macOS can do that natively (traffic lights over
+    /// a title-less bar) and Windows keeps its caption; X11's Motif hints and
+    /// Wayland's xdg-decoration cannot ask for half a frame, so the window
+    /// comes up with NO WAY TO CLOSE IT. This is that half, in software: the
+    /// buttons and the drag region, and nothing that takes a title's width.
+    #[must_use]
+    pub fn dom_controls_only(
+        mut self,
+        buttons: &TitlebarButtons,
+        button_side: TitlebarButtonSide,
+    ) -> Dom {
+        // An overlay the size of its buttons, on top of the app's own chrome:
+        // no line under it.
+        self.separator_color = OptionColorU::None;
+        let look = TitlebarLook::of(&self, true);
+        // `None`: this overlay is sized to its buttons, not to a bar, so the
+        // button block claims no share of anything.
+        let button_container = button_container_painted(buttons, &look, None);
+        let mut container_classes = vec![
+            Class("csd-titlebar".into()),
+            Class("csd-controls-only".into()),
+            Class("__azul-native-titlebar".into()),
+        ];
+        if let Some(marker) = look.marker {
+            container_classes.push(Class(marker.into()));
+        }
+        let _ = button_side;
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(container_classes))
+            .with_css_props(look.container)
+            .with_child(button_container)
+    }
+
     /// Inner builder for both modes.
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
                                                  // pixel/coord path or to avoid churning call sites
@@ -505,9 +830,11 @@ impl Titlebar {
         #[derive(Debug, Clone, Copy)]
         struct DragMarker;
 
-        // Build styles BEFORE moving self.title
-        let title_style = self.build_title_style(show_buttons);
-        let container_style = self.build_container_style(show_buttons);
+        // Build styles BEFORE moving self.title. The look is the pinned
+        // theme's, or - unpinned - both themes' in their `@theme` blocks.
+        let look = TitlebarLook::of(&self, show_buttons);
+        let title_style = look.title.clone();
+        let container_style = look.container.clone();
 
         // ── Title node with drag callbacks ──
         let title_classes = IdOrClassVec::from_vec(vec![Class("csd-title".into())]);
@@ -545,35 +872,53 @@ impl Titlebar {
 
         // ── Button container (CSD mode only) ──
         let button_container = if show_buttons {
-            Some(build_button_container(
-                buttons,
-                self.button_hover_color,
-                self.close_hover_color,
-            ))
+            Some(button_container_painted(buttons, &look, Some(button_side)))
         } else {
             None
         };
 
         // ── Root ──
-        let container_classes = IdOrClassVec::from_vec(vec![
+        let mut container_classes = vec![
             Class("csd-titlebar".into()),
             Class("__azul-native-titlebar".into()),
-        ]);
+        ];
+        if let Some(marker) = look.marker {
+            container_classes.push(Class(marker.into()));
+        }
         let mut root = Dom::create_div()
-            .with_ids_and_classes(container_classes)
+            .with_ids_and_classes(IdOrClassVec::from_vec(container_classes))
             .with_css_props(container_style);
 
-        // Button side determines child order:
-        //   Left  (macOS):   [buttons] [title]
-        //   Right (Win/Lin): [title] [buttons]
+        // Three blocks, not two. The buttons take one end; an EMPTY block of
+        // the same flex claims the other; the title sits between them. Both
+        // outer blocks grow from a zero basis, so they always come out the
+        // same width and the title's box is the bar's middle — which is where
+        // a titlebar's title goes, on either side's convention.
+        //
+        // The two-child version centred the title in what the buttons left
+        // over, i.e. half the button block to the left of centre on
+        // Windows/Linux and half of it to the right on macOS.
+        //
+        //   Left  (macOS):   [buttons] [title] [spacer]
+        //   Right (Win/Lin): [spacer]  [title] [buttons]
+        //
+        // The spacer exists ONLY to balance the button block, so title-only
+        // mode - which has no buttons, and is a column around the one title -
+        // keeps its single child.
         match button_side {
             TitlebarButtonSide::Left => {
                 if let Some(btn) = button_container {
                     root = root.with_child(btn);
                 }
                 root = root.with_child(title_node);
+                if show_buttons {
+                    root = root.with_child(title_spacer());
+                }
             }
             TitlebarButtonSide::Right => {
+                if show_buttons {
+                    root = root.with_child(title_spacer());
+                }
                 root = root.with_child(title_node);
                 if let Some(btn) = button_container {
                     root = root.with_child(btn);
@@ -583,6 +928,286 @@ impl Titlebar {
 
         root
     }
+}
+
+// ── Tabs in the titlebar ─────────────────────────────────────────────────
+
+/// How far below the window's top edge a tab strip that IS the title bar
+/// holds its tabs: the grab strip above them.
+const DEFAULT_TABS_TOP: f32 = 8.0;
+
+// Whether a `NoTitle` window's controls sit OVER the app's content, so a tab
+// strip along the top has to leave them room: macOS draws its traffic lights
+// over the content view, and Linux overlays the software controls at the
+// frame's corner (`CsdInjection::ControlsOnly`). Windows keeps its caption
+// ABOVE the client area.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const DEFAULT_CONTROLS_OVER_CONTENT: bool = true;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const DEFAULT_CONTROLS_OVER_CONTENT: bool = false;
+
+/// Where a tab strip sits when it IS the window's title bar.
+///
+/// Firefox's "tabs in titlebar" (2014, Australis): the window has no title
+/// row; its tab strip is the top of the window, held a few pixels below the
+/// top edge and clear of the window controls, and everything AROUND the tabs
+/// - the strip above them, before the first and after the last - moves the
+/// window (`-azul-app-region: drag`; a double click maximizes, on macOS it
+/// zooms). The tabs themselves stay tabs.
+///
+/// The window is `WindowDecorations::NoTitle`: the OS keeps its controls (the
+/// traffic lights over the strip's top-left on macOS, the software controls
+/// overlay at its corner on Linux) and the offsets leave them room. The
+/// strip's own paint runs up to the window's edges - the offsets are space
+/// INSIDE the strip, not around it.
+///
+/// [`TabsInTitlebar::platform`] is this platform's default; every offset can
+/// be set ([`TabsInTitlebar::create`]).
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct TabsInTitlebar {
+    /// Space above the tabs, in CSS pixels: the grab strip along the
+    /// window's top edge.
+    pub top: f32,
+    /// Space before the first tab, in CSS pixels: clears the window controls
+    /// on the left (macOS's traffic lights).
+    pub left: f32,
+    /// Space after the last tab, in CSS pixels: clears the window controls on
+    /// the right where the window draws them over the strip (Linux).
+    pub right: f32,
+}
+
+azul_css::impl_option!(
+    TabsInTitlebar,
+    OptionTabsInTitlebar,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
+impl Default for TabsInTitlebar {
+    fn default() -> Self {
+        Self::platform()
+    }
+}
+
+impl TabsInTitlebar {
+    /// A tab strip `top` px below the window's top edge, `left` px in from
+    /// its left edge and `right` px from its right edge.
+    #[inline]
+    #[must_use]
+    pub const fn create(top: f32, left: f32, right: f32) -> Self {
+        Self { top, left, right }
+    }
+
+    /// This platform's offsets, with no `SystemStyle` to ask (compile-time
+    /// defaults, as [`Titlebar::new`]): an 8px grab strip above the tabs,
+    /// and the window controls' width on the side where they sit over the
+    /// strip - the traffic lights' 78px before the first tab on macOS, the
+    /// software controls after the last one on Linux; nothing on Windows,
+    /// whose caption stays above the window's content.
+    #[must_use]
+    pub const fn platform() -> Self {
+        let controls = if DEFAULT_CONTROLS_OVER_CONTENT {
+            DEFAULT_BUTTON_AREA_WIDTH
+        } else {
+            0.0
+        };
+        let (left, right) = if DEFAULT_BUTTON_SIDE_LEFT {
+            (controls, 0.0)
+        } else {
+            (0.0, controls)
+        };
+        Self {
+            top: DEFAULT_TABS_TOP,
+            left,
+            right,
+        }
+    }
+
+    /// The platform's offsets from a live [`SystemStyle`]: the controls' own
+    /// width and side ([`TitlebarMetrics`]), the titlebar's horizontal
+    /// padding beside them and the safe area (a camera housing) on both
+    /// sides.
+    #[must_use]
+    pub fn from_system_style(system_style: &SystemStyle) -> Self {
+        let tm = &system_style.metrics.titlebar;
+        let px = |v: Option<&PixelValue>| v.map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
+        let controls = if DEFAULT_CONTROLS_OVER_CONTENT {
+            tm.button_area_width
+                .as_ref()
+                .map_or(DEFAULT_BUTTON_AREA_WIDTH, |pv| {
+                    pv.to_pixels_internal(0.0, 0.0, 0.0)
+                })
+                + px(tm.padding_horizontal.as_ref())
+        } else {
+            0.0
+        };
+        let (safe_left, safe_right) = (
+            px(tm.safe_area.left.as_ref()),
+            px(tm.safe_area.right.as_ref()),
+        );
+        let (left, right) = match tm.button_side {
+            TitlebarButtonSide::Left => (controls + safe_left, safe_right),
+            TitlebarButtonSide::Right => (safe_left, controls + safe_right),
+        };
+        Self {
+            top: DEFAULT_TABS_TOP,
+            left,
+            right,
+        }
+    }
+
+    /// Where macOS's traffic lights go to sit on this strip's tab row, for
+    /// the window's `MacWindowOptions::traffic_light_position` (the close
+    /// button's top-left, from the window's top-left): centred on the row
+    /// vertically - the row is `row_height` tall, [`Self::top`] below the
+    /// window's top - and in the [`Self::left`] space before the first tab
+    /// horizontally. `AppKit` leaves them at its own y (the middle of a 28pt
+    /// bar), above the middle of any taller tab row.
+    ///
+    /// The geometry is `AppKit`'s (macOS 11 - 15): 14 x 16pt button frames,
+    /// 20pt apart. Only macOS draws traffic lights; elsewhere the position
+    /// is unused.
+    #[must_use]
+    pub fn traffic_light_position(&self, row_height: f32) -> azul_core::geom::LogicalPosition {
+        const BUTTON_WIDTH: f32 = 14.0;
+        const BUTTON_HEIGHT: f32 = 16.0;
+        const PITCH: f32 = 20.0;
+        let lights_width = 2.0 * PITCH + BUTTON_WIDTH;
+        azul_core::geom::LogicalPosition::new(
+            ((self.left - lights_width) / 2.0).max(0.0),
+            (self.top + (row_height - BUTTON_HEIGHT) / 2.0).max(0.0),
+        )
+    }
+
+    /// `strip` - a tab strip's declarations - as the window's title bar.
+    ///
+    /// The three offsets are ADDED to the strip's own padding, so its tabs
+    /// keep their place inside it, and a strip that sizes its border box
+    /// (`box-sizing: border-box` with a px height) grows by [`Self::top`] -
+    /// the space above the tabs is new, it is not taken from them. The whole
+    /// strip is a window-drag region; a tab inside it declares
+    /// [`Self::control`] to stay a tab. Conditioned declarations (a viewport
+    /// range, a state) are left as they are.
+    #[must_use]
+    pub(crate) fn strip_style(
+        &self,
+        strip: &CssPropertyWithConditionsVec,
+    ) -> CssPropertyWithConditionsVec {
+        use azul_css::css::CssPropertyValue;
+
+        let mut v: Vec<CssPropertyWithConditions> = strip.as_ref().to_vec();
+        let border_box = v.iter().any(|p| {
+            p.apply_if.as_ref().is_empty()
+                && matches!(
+                    p.property,
+                    CssProperty::BoxSizing(CssPropertyValue::Exact(LayoutBoxSizing::BorderBox))
+                )
+        });
+        let (mut top, mut left, mut right) = (false, false, false);
+        for p in v.iter_mut().filter(|p| p.apply_if.as_ref().is_empty()) {
+            match &mut p.property {
+                CssProperty::PaddingTop(CssPropertyValue::Exact(pad)) => {
+                    top |= grow_px(&mut pad.inner, self.top);
+                }
+                CssProperty::PaddingLeft(CssPropertyValue::Exact(pad)) => {
+                    left |= grow_px(&mut pad.inner, self.left);
+                }
+                CssProperty::PaddingRight(CssPropertyValue::Exact(pad)) => {
+                    right |= grow_px(&mut pad.inner, self.right);
+                }
+                CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(h))) if border_box => {
+                    grow_px(h, self.top);
+                }
+                CssProperty::MinHeight(CssPropertyValue::Exact(h)) if border_box => {
+                    grow_px(&mut h.inner, self.top);
+                }
+                _ => {}
+            }
+        }
+        // A strip without a padding of its own on a side (or with one in a
+        // unit an offset cannot be added to) takes the offset as its padding.
+        if !top {
+            v.push(CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+                LayoutPaddingTop::px(self.top),
+            )));
+        }
+        if !left {
+            v.push(CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+                LayoutPaddingLeft::px(self.left),
+            )));
+        }
+        if !right {
+            v.push(CssPropertyWithConditions::simple(
+                CssProperty::const_padding_right(LayoutPaddingRight::px(self.right)),
+            ));
+        }
+        v.push(CssPropertyWithConditions::simple(CssProperty::AppRegion(
+            StyleAppRegionValue::Exact(StyleAppRegion::Drag),
+        )));
+        CssPropertyWithConditionsVec::from_vec(v)
+    }
+
+    /// What a control inside a [`Self::strip_style`] strip declares - a tab,
+    /// the application button - so that pressing it presses IT and dragging
+    /// it does not move the window: `-azul-app-region: no-drag`, which stops
+    /// the framework's walk up to the strip.
+    #[must_use]
+    pub(crate) const fn control() -> CssPropertyWithConditions {
+        CssPropertyWithConditions::simple(CssProperty::AppRegion(StyleAppRegionValue::Exact(
+            StyleAppRegion::NoDrag,
+        )))
+    }
+}
+
+/// `px` grown by `by`, if it is in px; `false` (and `px` as it was) for any
+/// other unit.
+fn grow_px(px: &mut PixelValue, by: f32) -> bool {
+    if px.metric != SizeMetric::Px {
+        return false;
+    }
+    *px = PixelValue::px(px.number.get() + by);
+    true
+}
+
+/// The separator thickness a platform states, or the compile-time default.
+fn separator_width_of(tm: &TitlebarMetrics) -> f32 {
+    tm.separator_width
+        .as_ref()
+        .map_or(DEFAULT_SEPARATOR_WIDTH, |pv| {
+            pv.to_pixels_internal(0.0, 0.0, 0.0)
+        })
+}
+
+/// `flex-grow: 1; flex-basis: 0; min-width: 0` — the claim that makes two
+/// blocks share what is left of a flex row EQUALLY.
+///
+/// The zero basis is the load-bearing part: without it the block holding the
+/// buttons starts out as wide as they are and ends up that much wider than
+/// its opposite number, which is the off-centre title all over again.
+fn flex_fill_style() -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            1,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::FlexBasis(LayoutFlexBasisValue::Exact(
+            LayoutFlexBasis::Exact(PixelValue::const_px(0)),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
+            0,
+        ))),
+    ])
+}
+
+/// The empty block opposite the window controls.
+///
+/// It draws nothing and hits nothing; it exists so the title has the same
+/// amount of bar on both sides of it.
+fn title_spacer() -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
+            "csd-title-spacer".into(),
+        )]))
+        .with_css_props(flex_fill_style())
 }
 
 /// The size a window-control glyph is drawn at - freedesktop's nominal for a
@@ -744,7 +1369,82 @@ extern "C" fn render_maximize_icon(
     VirtualViewReturn::with_dom(interior, rect, rect)
 }
 
-/// Build the `.csd-buttons` container with close/min/max button DOM nodes.
+/// What a theme gives a titlebar: the bar, the title, a window control and
+/// the close control (which hovers in its own colour), and the marker class
+/// the bar carries (`None` for flat). The metrics inside `container` and
+/// `title` are the platform's in every look; the nodes, their classes, the
+/// drag, double-click and window-control callbacks are the widget's.
+#[derive(Debug, Clone)]
+pub(crate) struct TitlebarLook {
+    /// The bar.
+    pub(crate) container: CssPropertyWithConditionsVec,
+    /// The title block.
+    pub(crate) title: CssPropertyWithConditionsVec,
+    /// The minimize and maximize controls.
+    pub(crate) button: CssPropertyWithConditionsVec,
+    /// The close control.
+    pub(crate) close: CssPropertyWithConditionsVec,
+    /// The theme marker class on the bar, if the look has one.
+    pub(crate) marker: Option<&'static str>,
+}
+
+impl TitlebarLook {
+    /// `bar`'s look in its pinned theme, or - unpinned - the look that
+    /// follows the app theme: every part carries both themes' declarations,
+    /// each theme's in its `@theme(<name>)` block
+    /// (`theme_blocks::follow_props`), and the bar the marker of the theme
+    /// the DOM is built for. `show_buttons` is the CSD row (vs title-only).
+    pub(crate) fn of(bar: &Titlebar, show_buttons: bool) -> Self {
+        use crate::widgets::themes::{flat, flora, theme_blocks::follow_props, UiTheme};
+        match bar.theme.into_option() {
+            Some(UiTheme::Flat) => flat::titlebar_look(bar, show_buttons),
+            Some(UiTheme::Flora) => flora::titlebar_look(bar, show_buttons),
+            None => {
+                let a = flat::titlebar_look(bar, show_buttons);
+                let b = flora::titlebar_look(bar, show_buttons);
+                let both = |x: &CssPropertyWithConditionsVec, y: &CssPropertyWithConditionsVec| {
+                    follow_props(x.as_ref(), y.as_ref())
+                };
+                Self {
+                    container: both(&a.container, &b.container),
+                    title: both(&a.title, &b.title),
+                    button: both(&a.button, &b.button),
+                    close: both(&a.close, &b.close),
+                    marker: match UiTheme::current() {
+                        UiTheme::Flat => a.marker,
+                        UiTheme::Flora => b.marker,
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// The flat look's hover background for a window control, as an inline
+/// `:hover` declaration: the desktop's colour when it stated one. Emitted
+/// per button rather than as one class rule because CLOSE has its own colour
+/// on Breeze and Windows alike (red), and the others do not.
+pub(crate) fn flat_control_hover(c: OptionColorU) -> CssPropertyWithConditionsVec {
+    match c {
+        // Built by the theme module, which pairs the compositor's colour
+        // with a dark twin. The twin is not redundant: azul's dark mode is
+        // its own CSS condition rather than a reflection of the desktop's,
+        // so a decoration colour reported for a light desktop is not
+        // automatically right when the app renders dark.
+        OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(
+            crate::widgets::themes::flat::hover_bg_pair(c).to_vec(),
+        ),
+        // Nothing stated: declare nothing, so an app's own `.csd-button`
+        // styling keeps full control.
+        OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
+    }
+}
+
+/// Build the `.csd-buttons` container with close/min/max button DOM nodes,
+/// in the FLAT look (`hover` / `close_hover`: the desktop's hover colours) -
+/// the tests' way in to the controls; the bar builds them from its look
+/// ([`button_container_painted`]).
+#[cfg(test)]
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
                                              // pixel/coord path or to avoid churning call sites for
                                              // a perf-neutral change)
@@ -752,29 +1452,31 @@ fn build_button_container(
     buttons: &TitlebarButtons,
     hover: OptionColorU,
     close_hover: OptionColorU,
+    fills_its_side: Option<TitlebarButtonSide>,
+) -> Dom {
+    let look = TitlebarLook {
+        container: CssPropertyWithConditionsVec::from_vec(Vec::new()),
+        title: CssPropertyWithConditionsVec::from_vec(Vec::new()),
+        button: flat_control_hover(hover),
+        close: flat_control_hover(close_hover),
+        marker: None,
+    };
+    button_container_painted(buttons, &look, fills_its_side)
+}
+
+/// The `.csd-buttons` container with the close/min/max button DOM nodes,
+/// each control styled with `look`'s `button` (`close` for close).
+#[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
+                                             // pixel/coord path or to avoid churning call sites for
+                                             // a perf-neutral change)
+fn button_container_painted(
+    buttons: &TitlebarButtons,
+    look: &TitlebarLook,
+    fills_its_side: Option<TitlebarButtonSide>,
 ) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{EventFilter, HoverEventFilter},
-    };
-
-    // The hover background a control takes, as an inline `:hover` declaration.
-    // Emitted per button rather than as one class rule because CLOSE has its
-    // own colour on Breeze and Windows alike (red), and the others do not.
-    let hover_style = |c: OptionColorU| -> CssPropertyWithConditionsVec {
-        match c {
-            // Built by the theme module, which pairs the compositor's colour
-            // with a dark twin. The twin is not redundant: azul's dark mode is
-            // its own CSS condition rather than a reflection of the desktop's,
-            // so a decoration colour reported for a light desktop is not
-            // automatically right when the app renders dark.
-            OptionColorU::Some(c) => CssPropertyWithConditionsVec::from_vec(
-                crate::widgets::themes::flat::hover_bg_pair(c).to_vec(),
-            ),
-            // Nothing stated: declare nothing, so an app's own `.csd-button`
-            // styling keeps full control.
-            OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
-        }
     };
 
     let mut children = Vec::new();
@@ -788,7 +1490,7 @@ fn build_button_container(
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_css_props(hover_style(hover))
+                .with_css_props(look.button.clone())
                 .with_child(Dom::create_icon("system:window-minimize,minimize"))
                 .with_callbacks(
                     vec![CoreCallbackData {
@@ -813,7 +1515,7 @@ fn build_button_container(
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_css_props(hover_style(hover))
+                .with_css_props(look.button.clone())
                 .with_child(maximize_icon_view(
                     AzString::from_const_str("system:window-maximize,maximize"),
                     AzString::from_const_str("system:window-restore,restore"),
@@ -842,7 +1544,7 @@ fn build_button_container(
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_css_props(hover_style(close_hover))
+                .with_css_props(look.close.clone())
                 .with_child(Dom::create_icon(
                     "system:titlebar-close,system:window-close,close",
                 ))
@@ -861,8 +1563,30 @@ fn build_button_container(
     }
 
     let classes = IdOrClassVec::from_vec(vec![Class("csd-buttons".into())]);
+
+    // In a BAR, the button block is one of the two ends the title is centred
+    // between: it claims the same share as the empty block opposite it and
+    // pins its buttons to the window's edge. It also opts OUT of the drag
+    // region the bar declares, or pressing close would start moving the
+    // window instead - which is exactly what `-azul-app-region: no-drag`
+    // is for.
+    let mut props = Vec::new();
+    if let Some(side) = fills_its_side {
+        props.extend(flex_fill_style().into_library_owned_vec());
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_justify_content(match side {
+                TitlebarButtonSide::Left => LayoutJustifyContent::FlexStart,
+                TitlebarButtonSide::Right => LayoutJustifyContent::FlexEnd,
+            }),
+        ));
+    }
+    props.push(CssPropertyWithConditions::simple(CssProperty::AppRegion(
+        StyleAppRegionValue::Exact(StyleAppRegion::NoDrag),
+    )));
+
     Dom::create_div()
         .with_ids_and_classes(classes)
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(props))
         .with_children(DomVec::from_vec(children))
 }
 
@@ -894,7 +1618,7 @@ pub(crate) fn glyph_drawn_by_view(
         dom::{NodeType, OptionDom},
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         resources::{DpiScaleFactor, ImageCache},
-        window::WindowTheme,
+        window::DarkLightMode,
     };
     use rust_fontconfig::FcFontCache;
 
@@ -906,7 +1630,7 @@ pub(crate) fn glyph_drawn_by_view(
         VirtualViewCallbackReason::InitialRender,
         &fonts,
         &images,
-        WindowTheme::LightMode,
+        DarkLightMode::Light,
         frame,
         HidpiAdjustedBounds {
             logical_size: size,
@@ -1249,17 +1973,62 @@ mod autotest_generated {
     /// The exact container declarations the widget documents, for a given mode.
     fn expected_container(t: &Titlebar, show_buttons: bool) -> Vec<CssProperty> {
         let mut v = Vec::new();
+        // The bar centres the title on its midline in both modes: a row
+        // beside the controls, a column around the lone title.
+        v.push(CssProperty::const_display(LayoutDisplay::Flex));
         if show_buttons {
-            v.push(CssProperty::const_display(LayoutDisplay::Flex));
             v.push(CssProperty::const_flex_direction(LayoutFlexDirection::Row));
             v.push(CssProperty::const_align_items(LayoutAlignItems::Center));
         } else {
-            v.push(CssProperty::const_display(LayoutDisplay::Block));
+            v.push(CssProperty::const_flex_direction(LayoutFlexDirection::Column));
+            v.push(CssProperty::const_justify_content(
+                LayoutJustifyContent::Center,
+            ));
         }
         v.push(CssProperty::const_height(LayoutHeight::const_px(
             t.height as isize,
         )));
+        // ...which overflowing content below never squeezes.
+        v.push(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        }));
+        // The line under the bar (macOS's by default), inside the bar's height.
+        if let (OptionColorU::Some(line), true) = (t.separator_color, t.separator_width > 0.0) {
+            v.push(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox));
+            v.push(CssProperty::const_border_bottom_width(
+                LayoutBorderBottomWidth {
+                    inner: PixelValue::px(t.separator_width),
+                },
+            ));
+            v.push(CssProperty::const_border_bottom_style(
+                StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                },
+            ));
+            v.push(CssProperty::const_border_bottom_color(
+                StyleBorderBottomColor { inner: line },
+            ));
+            // ...and the default line's dark twin (its condition is not part
+            // of `properties`).
+            if line == MACOS_SEPARATOR_LIGHT {
+                v.push(CssProperty::const_border_bottom_color(
+                    StyleBorderBottomColor {
+                        inner: MACOS_SEPARATOR_DARK,
+                    },
+                ));
+            }
+        }
         v.push(CssProperty::const_cursor(StyleCursor::Grab));
+        // The BAR is the drag region now, not the title node - the strip
+        // either side of the text used to move nothing. CSD mode only: a
+        // title-only bar carries no controls to opt out of it.
+        if show_buttons {
+            v.push(CssProperty::AppRegion(
+                azul_css::props::property::StyleAppRegionValue::Exact(
+                    azul_css::props::style::transform::StyleAppRegion::Drag,
+                ),
+            ));
+        }
         v.push(CssProperty::user_select(StyleUserSelect::None));
         if t.padding_left > 0.0 {
             v.push(CssProperty::const_padding_left(
@@ -1286,8 +2055,18 @@ mod autotest_generated {
                 inner: t.title_color,
             }),
         ];
+        // The default light title colour carries its dark twin (the twin's
+        // condition is not part of `properties`).
+        if t.title_color == DEFAULT_TITLE_COLOR_LIGHT {
+            v.push(CssProperty::const_text_color(StyleTextColor {
+                inner: DEFAULT_TITLE_COLOR_DARK,
+            }));
+        }
         if show_buttons {
-            v.push(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)));
+            // The title no longer grows: `[spacer][title][buttons]` with both
+            // ends `flex-grow: 1; flex-basis: 0` centres it on the BAR instead
+            // of on what the buttons left over. `min-width: 0` still lets a
+            // long title ellipsise.
             v.push(CssProperty::const_min_width(LayoutMinWidth::const_px(0)));
         }
         v.push(CssProperty::const_text_align(StyleTextAlign::Center));
@@ -1295,12 +2074,7 @@ mod autotest_generated {
             StyleWhiteSpace::Nowrap,
         )));
         v.push(CssProperty::const_overflow_x(LayoutOverflow::Hidden));
-        let v_pad = ((t.height - t.font_size) / 2.0).max(0.0);
-        if v_pad > 0.0 {
-            v.push(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-                v_pad as isize,
-            )));
-        }
+        // No padding-top: the BAR centres the title vertically.
         v
     }
 
@@ -1551,6 +2325,112 @@ mod autotest_generated {
         assert_eq!(t.title_color, DEFAULT_TITLE_COLOR_LIGHT);
         assert_eq!(t.padding_left, DEFAULT_BUTTON_AREA_WIDTH / 2.0);
         assert_eq!(t.padding_right, DEFAULT_BUTTON_AREA_WIDTH / 2.0);
+        // No fill; the platform's line (macOS: #D0D0D0 at 0.5px, else none).
+        assert_eq!(t.background_color, OptionColorU::None);
+        assert_eq!(t.separator_color, DEFAULT_SEPARATOR_COLOR);
+        assert_eq!(t.separator_color_inactive, OptionColorU::None);
+        assert_eq!(t.separator_width, DEFAULT_SEPARATOR_WIDTH);
+    }
+
+    /// The background and the line under the bar are the app's to choose:
+    /// the builders reach the container's declarations, and a bar without a
+    /// line declares no border at all.
+    #[test]
+    fn the_builders_set_the_background_and_the_line_under_the_bar() {
+        let fill = ColorU {
+            r: 0x12,
+            g: 0x34,
+            b: 0x56,
+            a: 255,
+        };
+        let line = ColorU {
+            r: 0x65,
+            g: 0x43,
+            b: 0x21,
+            a: 255,
+        };
+        let dim = ColorU {
+            r: 0x11,
+            g: 0x11,
+            b: 0x11,
+            a: 255,
+        };
+        let t = tb("x")
+            .with_background(fill)
+            .with_border_bottom(2.0, line)
+            .with_border_bottom_inactive(dim);
+        assert_eq!(t.background_color, OptionColorU::Some(fill));
+        assert_eq!(t.separator_color, OptionColorU::Some(line));
+        assert_eq!(t.separator_color_inactive, OptionColorU::Some(dim));
+        assert_eq!(t.separator_width, 2.0);
+
+        for show_buttons in [false, true] {
+            let style = t.build_container_style(show_buttons);
+            let props = properties(&style);
+            assert!(props.contains(&CssProperty::const_box_sizing(
+                LayoutBoxSizing::BorderBox
+            )));
+            assert!(props.contains(&CssProperty::const_border_bottom_width(
+                LayoutBorderBottomWidth {
+                    inner: PixelValue::px(2.0),
+                }
+            )));
+            assert!(props.contains(&CssProperty::const_border_bottom_color(
+                StyleBorderBottomColor { inner: line }
+            )));
+            // A colour the app chose gets no dark twin; the unfocused one
+            // rides `:backdrop`.
+            assert!(!props.contains(&CssProperty::const_border_bottom_color(
+                StyleBorderBottomColor {
+                    inner: MACOS_SEPARATOR_DARK
+                }
+            )));
+            assert!(style.as_ref().iter().any(|p| {
+                p.property
+                    == CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                        inner: dim,
+                    })
+                    && p.apply_if.as_ref().iter().any(|c| {
+                        matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                    })
+            }));
+        }
+
+        let bare = tb("x").without_border_bottom();
+        assert_eq!(bare.separator_color, OptionColorU::None);
+        for show_buttons in [false, true] {
+            let style = bare.build_container_style(show_buttons);
+            assert!(
+                !properties(&style).iter().any(|p| matches!(
+                    p,
+                    CssProperty::BorderBottomColor(_)
+                        | CssProperty::BorderBottomWidth(_)
+                        | CssProperty::BoxSizing(_)
+                )),
+                "a bar without a line declared a border"
+            );
+            assert!(
+                all_unconditional(&style),
+                "a bar without a line has nothing conditional to declare"
+            );
+        }
+
+        // A zero-width line is no line.
+        let mut zero = tb("x").with_border_bottom(0.0, line);
+        assert!(!properties(&zero.build_container_style(true))
+            .iter()
+            .any(|p| matches!(p, CssProperty::BorderBottomColor(_))));
+        zero.set_border_bottom(1.0, OptionColorU::None);
+        assert!(!properties(&zero.build_container_style(true))
+            .iter()
+            .any(|p| matches!(p, CssProperty::BorderBottomColor(_))));
+
+        // Clearing the background again.
+        let mut cleared = tb("x").with_background(fill);
+        cleared.set_background(OptionColorU::None);
+        assert!(!properties(&cleared.build_container_style(true))
+            .iter()
+            .any(|p| matches!(p, CssProperty::BackgroundContent(_))));
     }
 
     #[test]
@@ -1946,9 +2826,9 @@ mod autotest_generated {
             b: 7,
             a: 6,
         };
-        for theme in [system::Theme::Light, system::Theme::Dark] {
+        for theme in [DarkLightMode::Light, DarkLightMode::Dark] {
             let mut ss = blank_system_style();
-            ss.theme = theme;
+            ss.mode = theme;
             ss.colors.text = OptionColorU::Some(detected);
             assert_eq!(
                 Titlebar::from_system_style(AzString::from("x"), &ss).title_color,
@@ -1958,23 +2838,57 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn from_system_style_picks_the_theme_appropriate_fallback_colour() {
-        let mut light = blank_system_style();
-        light.theme = system::Theme::Light;
-        light.colors.text = OptionColorU::None;
-        assert_eq!(
-            Titlebar::from_system_style(AzString::from("x"), &light).title_color,
-            DEFAULT_TITLE_COLOR_LIGHT,
-        );
+    /// The title colour a window in `mode` paints: the last declaration of
+    /// the title style whose conditions hold there, as the cascade picks it.
+    fn title_colour_in(
+        t: &Titlebar,
+        mode: azul_css::system::DarkLightMode,
+    ) -> Option<ColorU> {
+        let ctx = azul_css::dynamic_selector::DynamicSelectorContext {
+            mode,
+            ..azul_css::dynamic_selector::DynamicSelectorContext::default()
+        };
+        t.build_title_style(true)
+            .as_ref()
+            .iter()
+            .filter(|p| p.matches(&ctx))
+            .filter_map(|p| match &p.property {
+                CssProperty::TextColor(c) => c.get_property().map(|c| c.inner),
+                _ => None,
+            })
+            .next_back()
+    }
 
-        let mut dark = blank_system_style();
-        dark.theme = system::Theme::Dark;
-        dark.colors.text = OptionColorU::None;
-        assert_eq!(
-            Titlebar::from_system_style(AzString::from("x"), &dark).title_color,
-            DEFAULT_TITLE_COLOR_DARK,
-        );
+    /// With no text colour detected, the title falls back to the default of
+    /// the mode the WINDOW shows - the cascade's mode, after the app's /
+    /// `AZ_THEME` pin - not of the desktop's: the fallback was picked by the
+    /// desktop's theme and baked in, so a light-pinned window on a dark
+    /// desktop drew a near-white title on its light titlebar (and a dark pin
+    /// on a light desktop a dark grey one on its dark titlebar).
+    #[test]
+    fn the_fallback_title_colour_follows_the_windows_mode_not_the_desktops() {
+        use azul_css::dynamic_selector::ThemeCondition;
+
+        for desktop in [DarkLightMode::Light, DarkLightMode::Dark] {
+            let mut ss = blank_system_style();
+            ss.mode = desktop;
+            ss.colors.text = OptionColorU::None;
+            for bar in [
+                Titlebar::from_system_style(AzString::from("x"), &ss),
+                Titlebar::from_system_style_csd(AzString::from("x"), &ss),
+            ] {
+                assert_eq!(
+                    title_colour_in(&bar, azul_css::system::DarkLightMode::Light),
+                    Some(DEFAULT_TITLE_COLOR_LIGHT),
+                    "{desktop:?} desktop, light window",
+                );
+                assert_eq!(
+                    title_colour_in(&bar, azul_css::system::DarkLightMode::Dark),
+                    Some(DEFAULT_TITLE_COLOR_DARK),
+                    "{desktop:?} desktop, dark window",
+                );
+            }
+        }
 
         // The two fallbacks must actually differ, or dark mode renders unreadably.
         assert_ne!(DEFAULT_TITLE_COLOR_LIGHT, DEFAULT_TITLE_COLOR_DARK);
@@ -2000,7 +2914,7 @@ mod autotest_generated {
         let mut ss = blank_system_style();
         ss.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(41.0));
         ss.metrics.titlebar.title_font_size = OptionF32::Some(17.5);
-        ss.theme = system::Theme::Dark;
+        ss.mode = DarkLightMode::Dark;
 
         let title_only = Titlebar::from_system_style(AzString::from("x"), &ss);
         let csd = Titlebar::from_system_style_csd(AzString::from("x"), &ss);
@@ -2008,7 +2922,10 @@ mod autotest_generated {
         assert_eq!(csd.height, title_only.height);
         assert_eq!(csd.font_size, title_only.font_size);
         assert_eq!(csd.title_color, title_only.title_color);
-        assert_eq!(csd.title_color, DEFAULT_TITLE_COLOR_DARK);
+        // Not the dark default on a dark desktop: the light one, whose dark
+        // twin lets the WINDOW's mode pick (see
+        // `the_fallback_title_colour_follows_the_windows_mode_not_the_desktops`).
+        assert_eq!(csd.title_color, DEFAULT_TITLE_COLOR_LIGHT);
 
         // The buttons are DOM children in CSD mode, so no space is reserved.
         assert_eq!(csd.padding_left.to_bits(), 0_f32.to_bits());
@@ -2049,35 +2966,46 @@ mod autotest_generated {
                 expected_container(&t, show_buttons),
                 "container declarations drifted (show_buttons = {show_buttons})",
             );
+            // Unconditional, except the dark twin of the default separator
+            // (macOS), which is gated on the dark theme alone.
             assert!(
-                all_unconditional(&style),
+                style.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
                 "a container declaration became conditional"
             );
         }
     }
 
+    /// The bar centres its title on the midline in BOTH modes: a column around
+    /// the lone title (whose block keeps the bar's width, so `text-align`
+    /// still lands on the window's middle), a row beside the controls.
     #[test]
-    fn build_container_style_switches_flex_only_for_the_csd_mode() {
+    fn build_container_style_centres_the_title_on_the_midline_in_both_modes() {
         let t = tb("x");
 
-        let block = t.build_container_style(false);
-        let flex = t.build_container_style(true);
+        let column = properties(&t.build_container_style(false));
+        let row = properties(&t.build_container_style(true));
 
-        assert!(properties(&block).contains(&CssProperty::const_display(LayoutDisplay::Block)));
-        assert!(properties(&flex).contains(&CssProperty::const_display(LayoutDisplay::Flex)));
-        // Title-only mode must *not* declare flex layout — the doc comment says it
-        // deliberately avoids flex-grow complexity.
-        assert!(
-            !properties(&block).iter().any(|p| matches!(
-                p,
-                CssProperty::FlexDirection(_) | CssProperty::AlignItems(_)
-            )),
-            "title-only mode leaked flex declarations",
-        );
+        for props in [&column, &row] {
+            assert!(props.contains(&CssProperty::const_display(LayoutDisplay::Flex)));
+        }
+        assert!(column.contains(&CssProperty::const_flex_direction(
+            LayoutFlexDirection::Column
+        )));
+        assert!(column.contains(&CssProperty::const_justify_content(
+            LayoutJustifyContent::Center
+        )));
+        assert!(row.contains(&CssProperty::const_flex_direction(
+            LayoutFlexDirection::Row
+        )));
+        assert!(row.contains(&CssProperty::const_align_items(
+            LayoutAlignItems::Center
+        )));
         // Everything else is identical.
-        assert_eq!(height_px(&block), height_px(&flex));
-        assert_eq!(padding_left_px(&block), padding_left_px(&flex));
-        assert_eq!(padding_right_px(&block), padding_right_px(&flex));
+        let (column, row) = (t.build_container_style(false), t.build_container_style(true));
+        assert_eq!(height_px(&column), height_px(&row));
+        assert_eq!(padding_left_px(&column), padding_left_px(&row));
+        assert_eq!(padding_right_px(&column), padding_right_px(&row));
     }
 
     /// A CSD titlebar paints the DESKTOP's titlebar colour, not the window
@@ -2170,6 +3098,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::Some(neutral),
             OptionColorU::Some(red),
+            None,
         );
         let kids = dom.children.as_ref();
         assert_eq!(kids.len(), 3, "minimize + maximize + close");
@@ -2199,6 +3128,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         assert!(
             !style_of(&bare.children.as_ref()[2]).contains(&hex(red)),
@@ -2214,6 +3144,23 @@ mod autotest_generated {
             let props = properties(&style);
             assert!(props.contains(&CssProperty::const_cursor(StyleCursor::Grab)));
             assert!(props.contains(&CssProperty::user_select(StyleUserSelect::None)));
+        }
+    }
+
+    #[test]
+    fn build_container_style_keeps_the_bar_from_shrinking_under_overflowing_content() {
+        // A titlebar is the platform's height whatever the content below it
+        // does. In a column body whose content overflows (AzCalendar's week
+        // grid), a flex item's default `flex-shrink: 1` squeezed the 28px bar
+        // to 15px, under the traffic lights.
+        for show_buttons in [false, true] {
+            let style = tb("x").build_container_style(show_buttons);
+            assert!(
+                properties(&style).contains(&CssProperty::const_flex_shrink(LayoutFlexShrink {
+                    inner: FloatValue::const_new(0),
+                })),
+                "show_buttons {show_buttons}: the bar must declare flex-shrink: 0"
+            );
         }
     }
 
@@ -2306,8 +3253,11 @@ mod autotest_generated {
                 expected_title(&t, show_buttons),
                 "title declarations drifted (show_buttons = {show_buttons})",
             );
+            // Unconditional, except the dark twin of the default title
+            // colour, which is gated on the dark theme alone.
             assert!(
-                all_unconditional(&style),
+                style.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
                 "a title declaration became conditional"
             );
         }
@@ -2315,11 +3265,17 @@ mod autotest_generated {
 
     #[test]
     fn build_title_style_only_grows_the_title_in_csd_mode() {
-        // In the flex container the title must claim the space left by the buttons,
-        // and `min-width: 0` is what lets it actually shrink below its text width.
+        // The title does NOT grow: `[spacer][title][buttons]` with both ends
+        // growing from a zero basis centres it on the BAR, at any window width
+        // and with the controls on either side. Growing the title instead
+        // centred it in what the buttons left over. `min-width: 0` is still
+        // what lets a long title shrink below its text width and ellipsise.
         let t = tb("x");
         let flex = properties(&t.build_title_style(true));
-        assert!(flex.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))));
+        assert!(
+            !flex.iter().any(|p| matches!(p, CssProperty::FlexGrow(_))),
+            "the title grows again, so it is centred on the leftover space",
+        );
         assert!(flex.contains(&CssProperty::const_min_width(LayoutMinWidth::const_px(0))));
 
         let block = properties(&t.build_title_style(false));
@@ -2375,46 +3331,35 @@ mod autotest_generated {
         }
     }
 
+    /// The title declares NO vertical padding, at any height or font size and
+    /// in either mode: the bar centres its line box. A padding sized from the
+    /// font size pushed the line box below the midline (a line is taller
+    /// than its font size), and doubled up with the CSD row's own centring.
     #[test]
-    fn build_title_style_centres_vertically_with_half_the_leftover_height() {
-        for (h, fs, expected) in [
-            (30.0_f32, 13.0_f32, Some(8.0_f32)), // (30-13)/2 = 8.5 -> 8px
-            (32.0, 12.0, Some(10.0)),
-            (40.0, 20.0, Some(10.0)),
-            (14.0, 13.0, Some(0.0)), // 0.5 -> declared, but 0px
-        ] {
-            let mut t = tb("x");
-            t.set_height(h);
-            t.font_size = fs;
-            assert_eq!(
-                padding_top_px(&t.build_title_style(false)),
-                expected,
-                "h={h} fs={fs} produced the wrong vertical padding",
-            );
-        }
-    }
-
-    #[test]
-    fn build_title_style_omits_the_vertical_padding_when_the_text_does_not_fit() {
-        // `.max(0.0)` must swallow the negative gap: a negative padding-top would
-        // push the title above the titlebar.
+    fn build_title_style_leaves_the_vertical_centring_to_the_bar() {
         for (h, fs) in [
-            (13.0_f32, 13.0_f32),
-            (10.0, 20.0),
+            (28.0_f32, 13.0_f32),
+            (30.0, 13.0),
+            (32.0, 12.0),
+            (40.0, 20.0),
+            (14.0, 13.0),
+            (13.0, 13.0),
             (0.0, 13.0),
             (-100.0, 13.0),
             (f32::NEG_INFINITY, 13.0),
             (f32::NAN, 13.0),
             (13.0, f32::NAN),
         ] {
-            let mut t = tb("x");
-            t.set_height(h);
-            t.font_size = fs;
-            assert_eq!(
-                padding_top_px(&t.build_title_style(false)),
-                None,
-                "h={h} fs={fs} declared a vertical padding it should have clamped away",
-            );
+            for show_buttons in [false, true] {
+                let mut t = tb("x");
+                t.set_height(h);
+                t.font_size = fs;
+                assert_eq!(
+                    padding_top_px(&t.build_title_style(show_buttons)),
+                    None,
+                    "h={h} fs={fs} (show_buttons = {show_buttons}) declared a vertical padding",
+                );
+            }
         }
     }
 
@@ -2484,42 +3429,20 @@ mod autotest_generated {
         }
     }
 
-    #[cfg(panic = "unwind")]
+    /// The title no longer turns the bar's HEIGHT into a length (it used to,
+    /// through `padding-top`), so no height - however unencodable - can
+    /// break the title's style. The container's `height` still encodes it:
+    /// see `heights_outside_the_encodable_range_are_not_saturated`.
     #[test]
-    fn an_unencodable_vertical_gap_reaches_the_padding_encoder_unclamped() {
-        use std::{
-            hint::black_box,
-            panic::{catch_unwind, AssertUnwindSafe},
-        };
-
-        let profile_traps_overflow = catch_unwind(AssertUnwindSafe(|| {
-            let big = black_box(isize::MAX);
-            let _ = black_box(big * black_box(1000_isize));
-        }))
-        .is_err();
-
-        // A *positive* unencodable height also blows up through `padding-top`,
-        // because `(h - fs) / 2` is still unencodable. The negative ones are
-        // clamped away by `.max(0.0)` and are therefore safe — asserted here so
-        // the asymmetry is not mistaken for full coverage.
-        for bogus in [f32::INFINITY, f32::MAX] {
+    fn the_title_style_does_not_depend_on_the_bar_height() {
+        let reference = properties(&tb("x").build_title_style(false));
+        for h in [f32::INFINITY, f32::MAX, f32::NEG_INFINITY, f32::MIN, 0.0, 28.0] {
             let mut t = tb("x");
-            t.set_height(bogus);
-            let panicked =
-                catch_unwind(AssertUnwindSafe(|| drop(t.build_title_style(false)))).is_err();
+            t.set_height(h);
             assert_eq!(
-                panicked, profile_traps_overflow,
-                "height {bogus} via padding-top"
-            );
-        }
-
-        for safe in [f32::NEG_INFINITY, f32::MIN] {
-            let mut t = tb("x");
-            t.set_height(safe);
-            assert_eq!(
-                padding_top_px(&t.build_title_style(false)),
-                None,
-                "height {safe} must be clamped away by .max(0.0)",
+                properties(&t.build_title_style(false)),
+                reference,
+                "height {h} changed the title's declarations"
             );
         }
     }
@@ -2556,7 +3479,12 @@ mod autotest_generated {
     #[test]
     fn dom_puts_the_container_and_title_styles_on_the_right_nodes() {
         let t = tb("caption");
-        let dom = t.clone().dom();
+        // Pinned to flat: the expected lists are the flat look's, which an
+        // unpinned bar carries inside its `@theme(flat)` block.
+        let dom = t
+            .clone()
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
+            .dom();
 
         assert_eq!(inline_props(&dom), expected_container(&t, false));
         assert_eq!(inline_props(title_node(&dom)), expected_title(&t, false));
@@ -2638,23 +3566,27 @@ mod autotest_generated {
     fn dom_with_buttons_orders_the_children_by_button_side() {
         let buttons = TitlebarButtons::default();
 
+        // Three blocks: the controls on their side, the title in the middle,
+        // and the block that balances the controls on the other side.
         let left = tb("x").dom_with_buttons(&buttons, TitlebarButtonSide::Left);
         let left_kids = left.children.as_ref();
-        assert_eq!(left_kids.len(), 2);
+        assert_eq!(left_kids.len(), 3);
         assert!(
             has_class(&left_kids[0], "csd-buttons"),
             "macOS puts the buttons first"
         );
         assert!(has_class(&left_kids[1], "csd-title"));
+        assert!(has_class(&left_kids[2], "csd-title-spacer"));
 
         let right = tb("x").dom_with_buttons(&buttons, TitlebarButtonSide::Right);
         let right_kids = right.children.as_ref();
-        assert_eq!(right_kids.len(), 2);
+        assert_eq!(right_kids.len(), 3);
         assert!(
-            has_class(&right_kids[0], "csd-title"),
-            "Windows/Linux put the title first"
+            has_class(&right_kids[0], "csd-title-spacer"),
+            "Windows/Linux balance the controls on the leading side"
         );
-        assert!(has_class(&right_kids[1], "csd-buttons"));
+        assert!(has_class(&right_kids[1], "csd-title"));
+        assert!(has_class(&right_kids[2], "csd-buttons"));
     }
 
     #[test]
@@ -2708,12 +3640,14 @@ mod autotest_generated {
                 fingerprint(&build_button_container(
                     &off,
                     OptionColorU::None,
-                    OptionColorU::None
+                    OptionColorU::None,
+                    None
                 )),
                 fingerprint(&build_button_container(
                     &on,
                     OptionColorU::None,
-                    OptionColorU::None
+                    OptionColorU::None,
+                    None
                 )),
                 "has_fullscreen changed the rendered buttons",
             );
@@ -2728,15 +3662,17 @@ mod autotest_generated {
             has_maximize: false,
             has_fullscreen: false,
         };
-        let container = build_button_container(&none, OptionColorU::None, OptionColorU::None);
+        let container = build_button_container(&none, OptionColorU::None, OptionColorU::None, None);
 
         assert_eq!(classes(&container), vec!["csd-buttons"]);
         assert!(container.children.as_ref().is_empty());
         assert_eq!(container.estimated_total_children, 0);
 
-        // ... and the full DOM still has both children in the documented order.
+        // ... and the full DOM still has all three blocks in the documented
+        // order. An empty control block still balances the spacer, so a
+        // titlebar with no controls at all keeps its title on the midpoint.
         let dom = tb("x").dom_with_buttons(&none, TitlebarButtonSide::Right);
-        assert_eq!(dom.children.as_ref().len(), 2);
+        assert_eq!(dom.children.as_ref().len(), 3);
         assert!(buttons_node(&dom).is_some());
     }
 
@@ -2778,6 +3714,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         let kids = container.children.as_ref();
         assert_eq!(kids.len(), 3);
@@ -2817,6 +3754,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         let button = container
             .children
@@ -2862,6 +3800,7 @@ mod autotest_generated {
             &TitlebarButtons::default(),
             OptionColorU::None,
             OptionColorU::None,
+            None,
         );
         for (node, specific) in
             container
@@ -2892,14 +3831,14 @@ mod autotest_generated {
                 let enabled = usize::from(buttons.has_close)
                     + usize::from(buttons.has_minimize)
                     + usize::from(buttons.has_maximize);
-                // title + label <p> + text + button container
+                // spacer + title + label <p> + text + button container
                 // + 3 nodes per enabled button (button, icon, its glyph slot),
                 // except MAXIMIZE, whose glyph is a single VirtualView node:
                 // its child DOM is a document of its own and contributes
                 // nothing to this tree.
                 assert_eq!(
                     dom.estimated_total_children,
-                    4 + 3 * enabled - usize::from(buttons.has_maximize)
+                    5 + 3 * enabled - usize::from(buttons.has_maximize)
                 );
             }
         }
@@ -2908,14 +3847,22 @@ mod autotest_generated {
     #[test]
     fn dom_with_buttons_uses_the_csd_container_and_title_styles() {
         let t = tb("x");
+        // Pinned to flat: the expected lists are the flat look's.
         let dom = t
             .clone()
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
             .dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Right);
 
         assert_eq!(inline_props(&dom), expected_container(&t, true));
         assert_eq!(inline_props(title_node(&dom)), expected_title(&t, true));
-        // The button container is styled entirely from the stylesheet.
-        assert!(inline_props(buttons_node(&dom).unwrap()).is_empty());
+        // The button container is one of the two END BLOCKS that centre the
+        // title: it grows from a zero basis exactly as the spacer opposite it
+        // does, which is what makes the two sides equal without anyone having
+        // to know how wide the controls are. Its LOOK is still entirely the
+        // stylesheet's.
+        let btns = inline_props(buttons_node(&dom).unwrap());
+        assert!(btns.contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))));
+        assert!(btns.contains(&CssProperty::const_min_width(LayoutMinWidth::const_px(0))));
     }
 
     #[test]
@@ -2931,10 +3878,17 @@ mod autotest_generated {
             fingerprint(title_node(&right)),
             "the title node must not depend on the button side",
         );
+        // The end blocks DO depend on the side now - each pins its buttons to
+        // the window edge it sits on - so the law is narrowed to what the side
+        // must not change: which buttons there are, and in what order.
         assert_eq!(
-            fingerprint(buttons_node(&left).unwrap()),
-            fingerprint(buttons_node(&right).unwrap()),
-            "the button container must not depend on the button side",
+            classes(buttons_node(&left).unwrap()),
+            classes(buttons_node(&right).unwrap()),
+        );
+        assert_eq!(
+            buttons_node(&left).unwrap().children.as_ref().len(),
+            buttons_node(&right).unwrap().children.as_ref().len(),
+            "the button container must hold the same buttons on either side",
         );
     }
 
@@ -3424,5 +4378,614 @@ mod drag_region_tests {
             ),
             "the caller's class must survive"
         );
+    }
+}
+
+#[cfg(test)]
+mod tabs_in_titlebar_tests {
+    use azul_css::css::CssPropertyValue;
+
+    use super::*;
+
+    fn part(props: Vec<CssProperty>) -> CssPropertyWithConditionsVec {
+        CssPropertyWithConditionsVec::from_vec(
+            props
+                .into_iter()
+                .map(CssPropertyWithConditions::simple)
+                .collect(),
+        )
+    }
+
+    /// The LAST unconditioned declaration of `ty` - the one that wins.
+    fn last(v: &CssPropertyWithConditionsVec, ty: CssPropertyType) -> Option<CssProperty> {
+        v.as_ref()
+            .iter()
+            .rev()
+            .find(|p| p.apply_if.as_ref().is_empty() && p.property.get_type() == ty)
+            .map(|p| p.property.clone())
+    }
+
+    fn app_region(v: &CssPropertyWithConditionsVec) -> Option<StyleAppRegion> {
+        match last(v, CssPropertyType::AppRegion)? {
+            CssProperty::AppRegion(CssPropertyValue::Exact(r)) => Some(r),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_strip_in_the_titlebar_grows_by_the_space_above_its_tabs_and_takes_the_offsets_as_padding()
+    {
+        let chrome = TabsInTitlebar::create(8.0, 78.0, 0.0);
+        let strip = part(vec![
+            CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox),
+            CssProperty::const_height(LayoutHeight::const_px(26)),
+        ]);
+        let s = chrome.strip_style(&strip);
+        assert_eq!(
+            last(&s, CssPropertyType::Height),
+            Some(CssProperty::const_height(LayoutHeight::px(34.0))),
+            "a border-box strip grows by the space above its tabs: the tabs keep their 26px"
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingTop),
+            Some(CssProperty::const_padding_top(LayoutPaddingTop::px(8.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingLeft),
+            Some(CssProperty::const_padding_left(LayoutPaddingLeft::px(78.0))),
+            "the first tab starts past the traffic lights"
+        );
+    }
+
+    #[test]
+    fn a_strip_in_the_titlebar_adds_the_offsets_to_the_padding_it_already_has() {
+        let chrome = TabsInTitlebar::create(8.0, 78.0, 100.0);
+        let strip = part(vec![
+            CssProperty::const_padding_top(LayoutPaddingTop::const_px(4)),
+            CssProperty::const_padding_left(LayoutPaddingLeft::const_px(6)),
+            CssProperty::const_padding_right(LayoutPaddingRight::const_px(2)),
+            CssProperty::const_height(LayoutHeight::const_px(32)),
+        ]);
+        let s = chrome.strip_style(&strip);
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingTop),
+            Some(CssProperty::const_padding_top(LayoutPaddingTop::px(12.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingLeft),
+            Some(CssProperty::const_padding_left(LayoutPaddingLeft::px(84.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingRight),
+            Some(CssProperty::const_padding_right(LayoutPaddingRight::px(102.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::Height),
+            Some(CssProperty::const_height(LayoutHeight::const_px(32))),
+            "a content-box strip grows by its padding alone"
+        );
+    }
+
+    #[test]
+    fn the_strip_moves_the_window_and_a_control_in_it_does_not() {
+        let s = TabsInTitlebar::platform().strip_style(&part(Vec::new()));
+        assert_eq!(app_region(&s), Some(StyleAppRegion::Drag));
+        let control = CssPropertyWithConditionsVec::from_vec(vec![TabsInTitlebar::control()]);
+        assert_eq!(app_region(&control), Some(StyleAppRegion::NoDrag));
+    }
+
+    #[test]
+    fn the_platform_offsets_clear_the_window_controls_on_their_side() {
+        let t = TabsInTitlebar::platform();
+        assert_eq!(t.top, DEFAULT_TABS_TOP);
+        if cfg!(target_os = "macos") {
+            assert_eq!(t.left, DEFAULT_BUTTON_AREA_WIDTH, "the traffic lights' width");
+            assert_eq!(t.right, 0.0);
+        }
+        if cfg!(target_os = "windows") {
+            assert_eq!((t.left, t.right), (0.0, 0.0), "the caption is above the content");
+        }
+        if cfg!(target_os = "linux") {
+            assert_eq!((t.left, t.right), (0.0, DEFAULT_BUTTON_AREA_WIDTH));
+        }
+    }
+
+    /// The traffic lights of a window with its tabs in the titlebar sit on
+    /// the tab row: a 36px row 8px below the top has its middle at 26, so the
+    /// 16pt-high buttons start at 18; the three of them (54pt) are centred in
+    /// the 78pt before the first tab.
+    #[test]
+    fn the_traffic_lights_sit_centred_on_the_tab_row() {
+        let p = TabsInTitlebar::create(8.0, 78.0, 0.0).traffic_light_position(36.0);
+        assert_eq!((p.x, p.y), (12.0, 18.0));
+        // A row no taller than the buttons starts them at its top.
+        let p = TabsInTitlebar::create(0.0, 40.0, 0.0).traffic_light_position(10.0);
+        assert_eq!((p.x, p.y), (0.0, 0.0), "never outside the window");
+    }
+}
+
+#[cfg(test)]
+mod titlebar_centring_tests {
+    //! A TITLEBAR CENTRES ITS TITLE ON THE BAR.
+    //!
+    //! Reported from a live X11/XFCE run: "the title is off-centre - it is
+    //! centred in the space left over after the window controls, not in the
+    //! whole bar". That is exactly what a two-child flex row does. The title
+    //! grew into whatever the button block left, and `text-align: center`
+    //! then centred the text in THAT box - half a button block to the left of
+    //! the window's middle on Windows/Linux, half of it to the right on
+    //! macOS.
+    //!
+    //! The bar centres it instead: the buttons take one end, an empty block
+    //! with the SAME flex claim takes the other, and the title sits between
+    //! two equal shares. Which is why these tests read the claims rather than
+    //! any pixel count - the claim is what makes the two ends equal at every
+    //! window width, for any set of controls, on either side.
+
+    use alloc::{string::String, vec::Vec};
+
+    use azul_core::dom::{Dom, IdOrClass};
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            property::{CssProperty, CssPropertyType},
+            style::transform::StyleAppRegion,
+        },
+        system::{TitlebarButtonSide, TitlebarButtons},
+    };
+
+    use super::Titlebar;
+
+    const BOTH_SIDES: [TitlebarButtonSide; 2] =
+        [TitlebarButtonSide::Left, TitlebarButtonSide::Right];
+
+    fn bar(side: TitlebarButtonSide) -> Dom {
+        Titlebar::new("Azul Widget Showcase".into())
+            .dom_with_buttons(&TitlebarButtons::default(), side)
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name))
+    }
+
+    fn classes(node: &Dom) -> Vec<String> {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(s) => Some(String::from(s.as_str())),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn inline_props(node: &Dom) -> Vec<CssProperty> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    /// What a node claims of the row's free space.
+    fn flex_claim(node: &Dom) -> Vec<CssProperty> {
+        inline_props(node)
+            .into_iter()
+            .filter(|p| {
+                matches!(
+                    p.get_type(),
+                    CssPropertyType::FlexGrow | CssPropertyType::FlexBasis
+                )
+            })
+            .collect()
+    }
+
+    fn region(node: &Dom) -> Option<StyleAppRegion> {
+        inline_props(node).into_iter().find_map(|p| match p {
+            CssProperty::AppRegion(CssPropertyValue::Exact(r)) => Some(r),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_title_sits_between_two_equal_shares_of_the_bar() {
+        for side in BOTH_SIDES {
+            let dom = bar(side);
+            let kids = dom.children.as_ref();
+
+            assert_eq!(
+                kids.len(),
+                3,
+                "{side:?}: a bar is [end] [title] [end]; this one has {} children",
+                kids.len()
+            );
+            assert!(
+                has_class(&kids[1], "csd-title"),
+                "{side:?}: the title is the MIDDLE block, between the two ends; got {:?}",
+                classes(&kids[1])
+            );
+
+            let (leading, trailing) = (flex_claim(&kids[0]), flex_claim(&kids[2]));
+            assert!(
+                !leading.is_empty(),
+                "{side:?}: the ends must claim a share, or they cannot be equal"
+            );
+            assert_eq!(
+                leading, trailing,
+                "{side:?}: the two ends claim different shares, so the title's box \
+                 is not the bar's middle"
+            );
+
+            // ...and the title must not claim one of its own, or it eats the
+            // asymmetry straight back.
+            assert!(
+                flex_claim(&kids[1]).is_empty(),
+                "{side:?}: the title grows again, so it is centred in the leftovers \
+                 rather than on the bar"
+            );
+        }
+    }
+
+    /// ...and the whole bar drags the window, not just the title text.
+    ///
+    /// The drag used to be three callbacks on the `.csd-title` node alone, so
+    /// the strip either side of the text - most of the bar, and all of it
+    /// once the title is short - moved nothing. `-azul-app-region` is the
+    /// framework's own path for this, and the one that hands the gesture to
+    /// the WINDOW MANAGER (measured on X11: `_NET_WM_MOVERESIZE` moves the
+    /// window; the per-event position loop is the fallback for a WM that
+    /// cannot take it).
+    #[test]
+    fn the_whole_bar_drags_the_window_and_the_buttons_do_not() {
+        for side in BOTH_SIDES {
+            let dom = bar(side);
+            assert_eq!(
+                region(&dom),
+                Some(StyleAppRegion::Drag),
+                "{side:?}: the BAR is what drags the window"
+            );
+            let buttons = dom
+                .children
+                .as_ref()
+                .iter()
+                .find(|c| has_class(c, "csd-buttons"))
+                .expect("a full CSD titlebar renders its controls");
+            assert_eq!(
+                region(buttons),
+                Some(StyleAppRegion::NoDrag),
+                "{side:?}: pressing close must not start moving the window"
+            );
+        }
+    }
+}
+
+/// The titlebar's two looks (W5b). Flat is the native bar. Flora is flora's
+/// window chrome (`.azul-titlebar`, docs-guide.css): a band of `--fl-ct`
+/// over `--fl-cb` with its night values, closed by a `--fl-bd5` line where
+/// the bar has one, the title in the chrome's light ink (stepping back when
+/// the window loses focus), window controls that wash under the pointer and
+/// a close control that turns to the clay stone. A theme changes the paint,
+/// never the platform's metrics: the 28pt band, the centred
+/// `system:title:bold` title, the padding, the line's width, the drag region.
+#[cfg(test)]
+mod theme_tests {
+    use alloc::{string::String, vec::Vec};
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::color::ColorU, property::CssPropertyType},
+        system::{defaults, TitlebarButtonSide, TitlebarButtons},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{decl, flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLORA: &str = "__azul-theme-flora";
+
+    const ALL: TitlebarButtons = TitlebarButtons {
+        has_close: true,
+        has_minimize: true,
+        has_maximize: true,
+        has_fullscreen: false,
+    };
+
+    /// The bar's metrics: the platform's in every look.
+    const BAR_METRICS: [CssPropertyType; 13] = [
+        CssPropertyType::Display,
+        CssPropertyType::FlexDirection,
+        CssPropertyType::AlignItems,
+        CssPropertyType::JustifyContent,
+        CssPropertyType::Height,
+        CssPropertyType::BoxSizing,
+        CssPropertyType::BorderBottomWidth,
+        CssPropertyType::BorderBottomStyle,
+        CssPropertyType::Cursor,
+        CssPropertyType::AppRegion,
+        CssPropertyType::UserSelect,
+        CssPropertyType::PaddingLeft,
+        CssPropertyType::PaddingRight,
+    ];
+
+    /// The title's metrics: the platform's font, size and centring.
+    const TITLE_METRICS: [CssPropertyType; 6] = [
+        CssPropertyType::FontSize,
+        CssPropertyType::FontFamily,
+        CssPropertyType::MinWidth,
+        CssPropertyType::TextAlign,
+        CssPropertyType::WhiteSpace,
+        CssPropertyType::OverflowX,
+    ];
+
+    /// Every shape a bar is built in, for one bar: title-only, the CSD row
+    /// with its controls on either side, and the controls alone.
+    fn shapes(bar: &Titlebar, theme: UiTheme) -> Vec<(String, Dom)> {
+        let bar = bar.clone().with_theme(theme);
+        let mut out = vec![(String::from("title-only"), bar.clone().dom())];
+        for side in [TitlebarButtonSide::Left, TitlebarButtonSide::Right] {
+            out.push((
+                alloc::format!("csd {side:?}"),
+                bar.clone().dom_with_buttons(&ALL, side),
+            ));
+            out.push((
+                alloc::format!("controls-only {side:?}"),
+                bar.clone().dom_controls_only(&ALL, side),
+            ));
+        }
+        out
+    }
+
+    /// The bars the platform builds: the macOS native bar, a CSD bar the
+    /// desktop coloured, and one with no desktop to ask.
+    fn bars() -> Vec<(&'static str, Titlebar)> {
+        vec![
+            (
+                "macos",
+                Titlebar::from_system_style("Title".into(), &defaults::macos_modern_light()),
+            ),
+            (
+                "gnome csd",
+                Titlebar::from_system_style_csd("Title".into(), &defaults::gnome_adwaita_light()),
+            ),
+            (
+                "windows",
+                Titlebar::from_system_style("Title".into(), &defaults::windows_11_light()),
+            ),
+            ("new", Titlebar::new("Title".into())),
+            (
+                "new with a line",
+                Titlebar::new("Title".into()).with_border_bottom(1.0, ColorU::rgb(200, 0, 0)),
+            ),
+        ]
+    }
+
+    fn title_of(dom: &Dom) -> Option<&Dom> {
+        tc::find(dom, "csd-title")
+    }
+
+    fn control<'a>(dom: &'a Dom, id: &str) -> &'a Dom {
+        tc::nodes(dom)
+            .into_iter()
+            .map(|(_, n)| n)
+            .find(|n| {
+                n.root
+                    .get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Id(s) if s.as_str() == id))
+            })
+            .unwrap_or_else(|| panic!("no #{id}"))
+    }
+
+    fn hover_fill(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::resolve(
+            node,
+            CssPropertyType::BackgroundContent,
+            dark,
+            Some(PseudoStateType::Hover),
+        )
+        .as_ref()
+        .and_then(tc::bg_color)
+    }
+
+    #[test]
+    fn a_titlebar_without_a_theme_follows_the_app_theme_and_set_theme_pins_it() {
+        for (name, bar) in bars() {
+            assert_eq!(bar.theme, OptionUiTheme::None, "{name}: a fresh bar follows the app");
+        }
+        let bar = Titlebar::new("Title".into());
+        let mut set = bar.clone();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set, bar.with_theme(UiTheme::Flora), "set_theme and with_theme agree");
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flora_titlebar_keeps_every_platform_metric() {
+        for (name, bar) in bars() {
+            let flat = shapes(&bar, UiTheme::Flat);
+            let flora = shapes(&bar, UiTheme::Flora);
+            for ((shape, a), (_, b)) in flat.iter().zip(flora.iter()) {
+                assert_eq!(
+                    tc::nodes(a).len(),
+                    tc::nodes(b).len(),
+                    "{name} {shape}: the same nodes"
+                );
+                for dark in [false, true] {
+                    for ty in BAR_METRICS {
+                        assert_eq!(
+                            tc::resolve(a, ty, dark, None),
+                            tc::resolve(b, ty, dark, None),
+                            "{name} {shape} dark={dark}: flora moved the bar's {ty:?}"
+                        );
+                    }
+                    if let (Some(ta), Some(tb)) = (title_of(a), title_of(b)) {
+                        for ty in TITLE_METRICS {
+                            assert_eq!(
+                                tc::resolve(ta, ty, dark, None),
+                                tc::resolve(tb, ty, dark, None),
+                                "{name} {shape} dark={dark}: flora moved the title's {ty:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_flora_titlebar_is_flora_window_chrome() {
+        for (name, bar) in bars() {
+            for (shape, dom) in shapes(&bar, UiTheme::Flora) {
+                assert!(tc::has_class(&dom, FLORA), "{name} {shape}: flora's marker");
+                assert!(tc::has_class(&dom, "csd-titlebar"), "{name} {shape}: still the bar");
+                for (dark, top, foot, line) in [
+                    (false, flora::LIGHT_CT, flora::LIGHT_CB, flora::LIGHT_BD5),
+                    (true, flora::DARK_CT, flora::DARK_CB, flora::DARK_BD5),
+                ] {
+                    assert_eq!(
+                        tc::background(&dom, dark).map(|p| tc::bg_layers(&p)),
+                        Some(vec![decl::face(top, foot)]),
+                        "{name} {shape} dark={dark}: the chrome band"
+                    );
+                    assert_eq!(
+                        tc::text_color(&dom, dark),
+                        Some(flora::CHROME_INK),
+                        "{name} {shape} dark={dark}: the controls' glyphs are the chrome's ink"
+                    );
+                    let has_line = tc::resolve(&dom, CssPropertyType::BorderBottomWidth, dark, None)
+                        .is_some();
+                    if has_line {
+                        assert_eq!(
+                            tc::resolve(&dom, CssPropertyType::BorderBottomColor, dark, None)
+                                .as_ref()
+                                .and_then(tc::border_color),
+                            Some(line),
+                            "{name} {shape} dark={dark}: the line is --fl-bd5"
+                        );
+                    }
+                    if let Some(title) = title_of(&dom) {
+                        assert_eq!(
+                            tc::text_color(title, dark),
+                            Some(flora::CHROME_INK),
+                            "{name} {shape} dark={dark}: the title"
+                        );
+                        assert_eq!(
+                            tc::resolve(
+                                title,
+                                CssPropertyType::TextColor,
+                                dark,
+                                Some(PseudoStateType::Backdrop),
+                            ),
+                            Some(CssProperty::const_text_color(StyleTextColor {
+                                inner: flora::CHROME_INK_DIM,
+                            })),
+                            "{name} {shape} dark={dark}: an unfocused window's title steps back"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn flora_window_controls_wash_under_the_pointer_and_close_turns_to_clay() {
+        let bar = Titlebar::from_system_style_csd("Title".into(), &defaults::gnome_adwaita_light())
+            .with_theme(UiTheme::Flora);
+        for dom in [
+            bar.clone().dom_with_buttons(&ALL, TitlebarButtonSide::Right),
+            bar.clone().dom_controls_only(&ALL, TitlebarButtonSide::Right),
+        ] {
+            for dark in [false, true] {
+                for id in ["csd-button-minimize", "csd-button-maximize"] {
+                    assert_eq!(
+                        hover_fill(control(&dom, id), dark),
+                        Some(flora::CHROME_HOVER),
+                        "dark={dark}: #{id} washes in the chrome's ink"
+                    );
+                }
+                let close = control(&dom, "csd-button-close");
+                assert_eq!(
+                    hover_fill(close, dark),
+                    Some(flora::STONE_CLAY.stone),
+                    "dark={dark}: close turns to the clay stone"
+                );
+                assert_eq!(
+                    tc::resolve(
+                        close,
+                        CssPropertyType::TextColor,
+                        dark,
+                        Some(PseudoStateType::Hover),
+                    ),
+                    Some(CssProperty::const_text_color(StyleTextColor {
+                        inner: flora::LIGHT_ON_ACC,
+                    })),
+                    "dark={dark}: its glyph in the stone's ink"
+                );
+            }
+            tc::assert_theme_invariants("flora titlebar", &dom);
+        }
+    }
+
+    #[test]
+    fn both_looks_build_the_same_bar_and_accessibility_tree() {
+        for (name, bar) in bars() {
+            for ((shape, a), (_, b)) in shapes(&bar, UiTheme::Flat)
+                .iter()
+                .zip(shapes(&bar, UiTheme::Flora).iter())
+            {
+                assert_eq!(tc::a11y_outline(a), tc::a11y_outline(b), "{name} {shape}");
+                for ((path, x), (_, y)) in tc::nodes(a).iter().zip(tc::nodes(b).iter()) {
+                    assert_eq!(
+                        x.root.get_callbacks().as_ref().len(),
+                        y.root.get_callbacks().as_ref().len(),
+                        "{name} {shape} {path}: the same drag and control callbacks"
+                    );
+                }
+            }
+        }
+    }
+
+    /// R5: the bar's STRUCTURE (display, flex, box-sizing, cursor,
+    /// user-select, white-space, overflow) is its base - declared once,
+    /// outside every `@theme(<name>)` block, so it holds under flat, flora
+    /// and any theme to come. What a theme owns is its paint.
+    #[test]
+    fn a_titlebar_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            for (name, bar) in bars() {
+                // Every shape, built unpinned for the app theme `t`.
+                let built = under(t, || {
+                    let mut out = vec![(String::from("title-only"), bar.clone().dom())];
+                    for side in [TitlebarButtonSide::Left, TitlebarButtonSide::Right] {
+                        out.push((
+                            alloc::format!("csd {side:?}"),
+                            bar.clone().dom_with_buttons(&ALL, side),
+                        ));
+                        out.push((
+                            alloc::format!("controls-only {side:?}"),
+                            bar.clone().dom_controls_only(&ALL, side),
+                        ));
+                    }
+                    out
+                });
+                for (shape, dom) in &built {
+                    assert_structure_is_shared(
+                        &alloc::format!("{name} titlebar, {shape}, built for {}", t.name()),
+                        dom,
+                        &[],
+                    );
+                }
+            }
+        }
     }
 }

@@ -55,15 +55,17 @@ use azul_core::{
     events::{EasingFunction, EventData, EventType, SyntheticEvent},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
-    spaces::Inclusivity,
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
 };
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::impl_option;
 
 use crate::{
     managers::hover::InputPointId,
-    solver3::{layout_tree::LayoutNodeId, scrollbar::compute_scrollbar_geometry_with_button_size},
+    solver3::{
+        layout_tree::LayoutNodeId,
+        scrollbar::{compute_scrollbar_geometry_with_button_size, ScrollbarPresence},
+    },
 };
 
 /// Minimum change in scroll offset (in logical pixels) to consider the position
@@ -113,6 +115,26 @@ pub enum ScrollInputSource {
     /// mid-flight keeps the current velocity (no restart). Produced by
     /// `LayoutWindow::scroll_to_animated`.
     AnimateTo,
+}
+
+impl ScrollInputSource {
+    /// Whether this input is the USER moving the view with their own hand.
+    ///
+    /// The four gesture sources are; the two engine ones are not. A caret
+    /// glide (`AnimateTo`) and an app's `scroll_to` (`Programmatic`) are the
+    /// engine moving the view on somebody's behalf, and a reveal that ends up
+    /// in this queue must not be read back as the user having scrolled away
+    /// from it.
+    #[must_use]
+    pub const fn is_user_scroll(self) -> bool {
+        matches!(
+            self,
+            Self::TrackpadContinuous
+                | Self::TrackpadMomentum
+                | Self::TrackpadEnd
+                | Self::WheelDiscrete
+        )
+    }
 }
 
 /// WHERE a scroll input physically came from - distinct from
@@ -218,6 +240,37 @@ impl ScrollInputQueue {
         )
     }
 
+    /// Remove the most recently pushed input matching `input` (same target,
+    /// same delta, same timestamp), if it is still pending.
+    ///
+    /// The one caller is [`ScrollManager::cancel_queued_scroll_input`], i.e.
+    /// a `Scroll` callback that vetoed the default scroll in the very pass
+    /// that queued it. The physics timer drains the queue wholesale and never
+    /// runs inside a dispatch, so "still pending" is the normal case; a
+    /// `false` return means the timer already spent the delta.
+    #[must_use]
+    pub fn cancel(&self, input: &ScrollInput) -> bool {
+        let Ok(mut queue) = self.inner.lock() else {
+            return false;
+        };
+        let found = queue.iter().rposition(|q| {
+            q.dom_id == input.dom_id
+                && q.node_id == input.node_id
+                && q.timestamp == input.timestamp
+                // Bit equality, not `==`: a NaN delta (platforms do forward
+                // them) must still match itself so the veto can remove it.
+                && q.delta.x.to_bits() == input.delta.x.to_bits()
+                && q.delta.y.to_bits() == input.delta.y.to_bits()
+        });
+        match found {
+            Some(idx) => {
+                queue.remove(idx);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Check if there are pending inputs without consuming them
     #[must_use]
     pub fn has_pending(&self) -> bool {
@@ -243,7 +296,10 @@ pub enum ScrollbarComponent {
 /// Scrollbar geometry state (calculated per frame, used for hit-testing and rendering)
 #[derive(Copy, Debug, Clone)]
 pub struct ScrollbarState {
-    /// Is this scrollbar visible? (content larger than container)
+    /// Can this bar be pressed? Every bar `calculate_scrollbar_states` builds
+    /// exists (its axis's [`ScrollbarPresence`] says so) and starts out
+    /// `true` - a faded-out overlay bar included: the fade is paint-only, and
+    /// a press where the bar lives still grabs it, as it always has.
     pub visible: bool,
     /// Orientation
     pub orientation: ScrollbarOrientation,
@@ -352,6 +408,74 @@ pub enum ScrollPhaseTransition {
     Ended,
 }
 
+/// A ONE-SHOT request to bring the editing session's caret - or its
+/// selection - into view: THE view-intent arbiter of a window
+/// ([`ScrollManager::request_reveal`]).
+///
+/// Two mechanisms move a scroll container the user did not name: the
+/// user's own scrolling (wheel, trackpad, touch pan, a scrollbar thumb, a
+/// drag selection's autoscroll) and the engine's caret REVEAL. Both are
+/// correct and neither may be deleted - without the reveal, typing into a
+/// field the user has scrolled past shows nothing; without the user's
+/// scroll, the view is nailed to the caret. WHICH CAME LAST decides, and a
+/// request is how "last" is carried:
+///
+/// - only an INPUT issues one - an edit that landed, a caret or selection
+///   op, a click that placed the caret, a focus that seeded one, an app or
+///   assistive-technology request; nothing re-derives one from state;
+/// - the user moving the view drops it ([`ScrollManager::note_user_scroll`]);
+/// - it is consumed ONCE - by the reveal the input's own pass performs, or
+///   after the next layout against fresh geometry - and then gone.
+///
+/// It replaced a per-window "last view action" bit that every reveal
+/// re-armed, including the one the shells ran on every pass whether or not
+/// anything was typed: after each wheel event the bit read "reveal" again
+/// and the view was dragged back to the caret. And a post-layout caret
+/// latch keyed on the caret's content, which a peer's edit tripped too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevealRequest {
+    /// The primary caret - for a range, its FOCUS end.
+    Caret,
+    /// The primary selection: whole while it fits the scrollport, else its
+    /// focus end.
+    Selection,
+}
+
+/// Where a nested (`VirtualView`-mounted) dom is composited, kept in a form
+/// the scroll manager resolves against its own LIVE offsets: a nested dom is
+/// laid out 0-relative, and its boxes - and their scrollbars - are painted
+/// where its host puts it.
+///
+/// Published by `register_scroll_nodes` from the host display lists (the
+/// placement `headless::nested_dom_window_origin` resolves for the raster
+/// and the hit tester), so [`ScrollManager::calculate_scrollbar_states`]
+/// can keep every bar's track in WINDOW space - on every scroll, not only
+/// after a layout. The host's transforms are carried as resolved at
+/// publication (a transform animating between two layouts is followed at
+/// the next one); a bar inside a transformed box of its OWN dom is still
+/// placed as if untransformed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NestedDomPlacement {
+    /// The position, before [`Self::host_transform`], of the dom's
+    /// 0-relative origin with every frame in [`Self::host_frames`] at rest.
+    pub origin: LogicalPosition,
+    /// The scroll containers whose CURRENT offsets move the dom up and left
+    /// of [`Self::origin`]: the host scroll frames its `VirtualView` item
+    /// is painted in, and the `VirtualView` itself (its offset moves the
+    /// content through its box).
+    pub host_frames: Vec<(DomId, NodeId)>,
+    /// The viewports the dom shows through - each enclosing `VirtualView`'s
+    /// box, with its frames at rest - each with the scroll frames that move
+    /// it and the host transform around it
+    /// (`headless::NestedDomViewport`). Nothing of the dom is visible, or
+    /// pressable, outside them.
+    pub viewports: Vec<crate::headless::NestedDomViewport>,
+    /// The FORWARD transform of the host reference frames the dom's content
+    /// is composited under (`None`: untransformed), applied after the
+    /// scroll: the raster's `T_total(pos - scroll_total)`.
+    pub host_transform: Option<crate::headless::ScreenMapAffine>,
+}
+
 // Core Scroll Manager
 
 /// Manages all scroll state and animations for a window
@@ -365,6 +489,16 @@ pub struct ScrollManager {
     states: BTreeMap<(DomId, NodeId), AnimatedScrollState>,
     /// Scrollbar geometry states (calculated per frame)
     scrollbar_states: BTreeMap<(DomId, NodeId, ScrollbarOrientation), ScrollbarState>,
+    /// Per registered scroll node: the scroll containers ABOVE it in its own
+    /// dom, published by `register_scroll_nodes`. A box - and its scrollbar -
+    /// is painted inside their scroll frames, so it appears on screen moved
+    /// by their summed offset ([`Self::ancestor_scroll_offset`]); the page's
+    /// own frame (the viewport's) puts the root above every box on a page
+    /// taller than its window.
+    scroll_ancestors: BTreeMap<(DomId, NodeId), Vec<NodeId>>,
+    /// Per nested dom: where it is composited ([`NestedDomPlacement`]),
+    /// published by `register_scroll_nodes`. Empty with no `VirtualView`.
+    nested_doms: BTreeMap<DomId, NestedDomPlacement>,
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
@@ -382,10 +516,31 @@ pub struct ScrollManager {
     /// `Scroll` event is aimed at THAT seat's hovered node. `Default` (0) is
     /// the primary.
     pub pending_wheel_seat: u64,
+    /// The container input the CURRENT input pass queued, if any.
+    ///
+    /// The wheel is queued against a scroll container at INGRESS — before any
+    /// callback has seen the delta — because that ordering is what lets a
+    /// wheel-as-zoom widget read the raw delta at all. A `Scroll` callback
+    /// that claims the gesture must therefore be able to take that scroll
+    /// back; see [`Self::cancel_queued_scroll_input`]. Dropped at the end of
+    /// every pass, next to `pending_wheel_event`, so a later `preventDefault`
+    /// cannot reach back into a gesture that is already spent.
+    #[cfg(feature = "std")]
+    queued_this_pass: Option<ScrollInput>,
     /// Set when a scroll position changes; cleared after the display list
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
     scroll_dirty: bool,
+    /// The scrollbar thumb the user is currently holding, if any: set at the
+    /// press that starts a thumb drag, cleared at the release that ends it.
+    ///
+    /// The shell keeps the drag's geometry (`ScrollbarDragState`); this is
+    /// the manager's own view of it, so that everything the manager drives —
+    /// the fade in particular — can ask "is this bar being held?" without
+    /// reaching into the shell. A held bar never fades: `last_activity` is
+    /// only refreshed by scroll-position changes, and a thumb held still
+    /// produces none.
+    thumb_drag: Option<(DomId, NodeId, ScrollbarOrientation)>,
     /// Scroll-direction preference, applied ONCE in [`Self::record_scroll_input`]
     /// (the single chokepoint every platform's wheel/axis event flows through).
     ///
@@ -422,6 +577,12 @@ pub struct ScrollManager {
     /// Phase transitions observed since the last drain, oldest first. Drained
     /// by `EventProvider::get_pending_events`.
     pub pending_scroll_phase: Vec<ScrollPhaseTransition>,
+    /// THE LAST ACTION WINS: the reveal an input asked for and nothing has
+    /// performed yet. See [`RevealRequest`]; issued by
+    /// [`ScrollManager::request_reveal`], dropped by
+    /// [`ScrollManager::note_user_scroll`], consumed by
+    /// [`ScrollManager::take_pending_reveal`].
+    pending_reveal: Option<RevealRequest>,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -448,16 +609,14 @@ pub struct AnimatedScrollState {
     pub overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior,
     /// Per-node overflow scrolling mode (from CSS `-azul-overflow-scrolling`)
     pub overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling,
-    /// CSS-resolved scrollbar thickness (from `scrollbar-width` property).
-    /// Used for rendering and hit-testing. Defaults to 16.0 if not set.
-    pub scrollbar_thickness: f32,
-    /// Visual rendering width in CSS pixels (e.g. 8.0 for thin overlay).
-    /// Non-zero even for overlay scrollbars. Falls back to `scrollbar_thickness` if 0.
-    pub visual_width_px: f32,
-    /// Whether this node also needs a horizontal scrollbar (affects vertical geometry)
-    pub has_horizontal_scrollbar: bool,
-    /// Whether this node also needs a vertical scrollbar (affects horizontal geometry)
-    pub has_vertical_scrollbar: bool,
+    /// The bar on the horizontal axis, as layout resolved it from the axis's
+    /// overflow and the node's style (`ScrollbarRequirements::presence`).
+    /// `None` for a node registration has never described - a state created
+    /// by a programmatic scroll or a `VirtualView` callback has no bar until
+    /// layout says it has one.
+    pub horizontal_bar: ScrollbarPresence,
+    /// The bar on the vertical axis; see [`Self::horizontal_bar`].
+    pub vertical_bar: ScrollbarPresence,
 }
 
 /// Details of an in-progress smooth scroll animation.
@@ -576,7 +735,7 @@ impl ScrollManager {
     /// `-1.0` traditional (default), `+1.0` natural. Centralises what used to be a
     /// hardcoded `-delta` at every platform call site.
     #[inline]
-    const fn scroll_sign(&self) -> f32 {
+    pub(crate) const fn scroll_sign(&self) -> f32 {
         if self.natural_scroll {
             1.0
         } else {
@@ -659,6 +818,45 @@ impl ScrollManager {
     }
 
     // ========================================================================
+    // THE LAST ACTION WINS - who owns the view right now
+    // ========================================================================
+
+    /// The user just moved the view themselves: a wheel step, a trackpad or
+    /// touch pan, a scrollbar thumb, a drag selection's autoscroll. Any
+    /// reveal requested BEFORE this is dropped.
+    pub const fn note_user_scroll(&mut self) {
+        self.pending_reveal = None;
+    }
+
+    /// An INPUT asks for the caret or the selection to be shown: an edit
+    /// landed, a caret or selection op ran, a click placed the caret, a focus
+    /// seeded one, the app or an assistive technology asked. Nothing else may
+    /// call this - a reveal re-derived from state ("there is a caret", "this
+    /// pass had events") is what fought the wheel. The newest request wins.
+    pub const fn request_reveal(&mut self, request: RevealRequest) {
+        self.pending_reveal = Some(request);
+    }
+
+    /// The reveal an input asked for that nothing has performed yet.
+    #[must_use]
+    pub const fn pending_reveal(&self) -> Option<RevealRequest> {
+        self.pending_reveal
+    }
+
+    /// Consume the pending reveal: whoever performs it takes it, so it runs
+    /// exactly once.
+    pub const fn take_pending_reveal(&mut self) -> Option<RevealRequest> {
+        self.pending_reveal.take()
+    }
+
+    /// Whether a reveal may still move the view: an input asked for one, and
+    /// neither a reveal has performed it nor has the user scrolled since.
+    #[must_use]
+    pub const fn reveal_may_move_view(&self) -> bool {
+        self.pending_reveal.is_some()
+    }
+
+    // ========================================================================
     // Input Recording API (timer-based architecture)
     // ========================================================================
 
@@ -676,12 +874,51 @@ impl ScrollManager {
     /// now pending inputs and no timer is running yet).
     #[cfg(feature = "std")]
     pub fn record_scroll_input(&mut self, mut input: ScrollInput) -> bool {
+        // THE USER MOVED THE VIEW. Recorded at the same chokepoint the
+        // direction sign is applied at, so no backend can forget it. The
+        // engine's own motion rides this queue too - a caret glide as
+        // `AnimateTo`, an app's `scroll_to` as `Programmatic` - and must not
+        // be read back as the user having scrolled away from the reveal that
+        // produced it.
+        if input.source.is_user_scroll() {
+            self.note_user_scroll();
+        }
         let sign = self.scroll_sign();
         input.delta.x *= sign;
         input.delta.y *= sign;
         let was_empty = !self.scroll_input_queue.has_pending();
+        self.queued_this_pass = Some(input.clone());
         self.scroll_input_queue.push(input);
         was_empty // caller should start timer if this returns true
+    }
+
+    /// THE WHEEL HAS ONE CONSUMER: take back the container scroll this pass
+    /// queued, because a `Scroll` callback claimed the gesture for itself.
+    ///
+    /// Called by the input pass when a `Scroll` callback returned
+    /// `preventDefault` — the same veto the text input and the keyboard
+    /// default actions already honour. `stopPropagation` cannot do this job:
+    /// it silences other CALLBACKS, while the container scroll is queued
+    /// before dispatch and is not a callback at all. Without the veto a
+    /// wheel-driven widget could only ADD to the page scroll (the map zoomed
+    /// AND the page moved under it), never replace it.
+    ///
+    /// Returns whether a queued input was actually removed.
+    #[cfg(feature = "std")]
+    pub fn cancel_queued_scroll_input(&mut self) -> bool {
+        let Some(input) = self.queued_this_pass.take() else {
+            return false;
+        };
+        self.pending_wheel_event = None;
+        self.scroll_input_queue.cancel(&input)
+    }
+
+    /// Forget which input this pass queued, WITHOUT cancelling it: the pass
+    /// is over, so the next one's `preventDefault` must not reach back into
+    /// a scroll the user already got.
+    #[cfg(feature = "std")]
+    pub fn forget_queued_scroll_input(&mut self) {
+        self.queued_this_pass = None;
     }
 
     /// High-level entry point for platform event handlers: performs hit-test lookup
@@ -706,6 +943,16 @@ impl ScrollManager {
         // counts as the start or end of a gesture, which is the whole reason
         // the latch lives on the manager rather than in the shells.
         self.note_scroll_phase(source);
+
+        // ...and so is the claim on the view, for the same reason and one
+        // more: a wheel step that lands on nothing scrollable - or one a
+        // `Scroll` callback takes back with `cancel_queued_scroll_input` to
+        // zoom a map with - never reaches `record_scroll_input`, and it is
+        // still the user's hand. A stale reveal hauling the page around
+        // underneath a map the user is zooming is the same bug.
+        if source.is_user_scroll() {
+            self.note_user_scroll();
+        }
 
         // Record the raw wheel delta for this pass unconditionally — even when the
         // cursor isn't over a scroll container — so a `Scroll` event can be aimed
@@ -929,33 +1176,10 @@ impl ScrollManager {
         self.states.values().any(|s| s.animation.is_some())
     }
 
-    /// The closest node registered as a scroll container, walking up from
-    /// `node_id`.
-    ///
-    /// `inclusivity` decides whether `node_id` itself may be the answer, and
-    /// the two cases are genuinely different questions:
-    ///
-    /// * [`Inclusivity::SelfAndAncestors`] — "which scroll box does this node live in?" A caret
-    ///   sitting on a `TextInput`'s value `<p>` lives in THAT `<p>`: it is both the IFC root and
-    ///   the horizontal scroll box.
-    /// * [`Inclusivity::AncestorsOnly`] — "which OTHER container takes over?" Momentum hand-off
-    ///   must chain outwards, and the on-screen box of a container is moved only by its ancestors'
-    ///   scrolling, never its own.
-    ///
-    /// This used to be hardcoded to ancestors-only via a `nid != node_id`
-    /// guard inside the loop, which was a live bug for the first question —
-    /// see the note on `auto_scroll_timer_callback`.
-    #[must_use]
-    pub fn find_scroll_parent(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
-        inclusivity: Inclusivity,
-    ) -> Option<NodeId> {
-        azul_core::styled_dom::hierarchy_ancestors(node_hierarchy, node_id, inclusivity)
-            .find(|nid| self.states.contains_key(&(dom_id, *nid)))
-    }
+    // "Which scroll container does this node live in / chain to" is not the
+    // manager's to answer: it follows CONTAINING BLOCKS, which only the
+    // layout tree knows (`LayoutWindow::scroll_box_of_node`). The DOM walk
+    // that stood here answered the page for a fixed box.
 
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
     ///
@@ -1139,6 +1363,58 @@ impl ScrollManager {
             .map(|s| s.last_activity.clone())
     }
 
+    /// The user pressed the thumb of `orientation`'s scrollbar on `node_id`
+    /// and is dragging it. The bar counts as active for as long as the drag
+    /// lasts (see [`Self::thumb_drag`]).
+    pub fn begin_thumb_drag(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+        now: Instant,
+    ) {
+        self.thumb_drag = Some((dom_id, node_id, orientation));
+        // Holding the bar is the user moving the view as much as the wheel
+        // is, and it does not go through the input queue at all.
+        self.note_user_scroll();
+        self.touch_activity(dom_id, node_id, now);
+    }
+
+    /// The thumb drag ended (release, or the pointer/window went away). The
+    /// bar's activity stamp restarts from `now`, so the fade delay is counted
+    /// from the release and not from the last scroll the drag produced.
+    pub fn end_thumb_drag(&mut self, now: Instant) {
+        if let Some((dom_id, node_id, _)) = self.thumb_drag.take() {
+            self.touch_activity(dom_id, node_id, now);
+        }
+    }
+
+    /// The scrollbar thumb being held right now, if any.
+    #[must_use]
+    pub const fn thumb_drag(&self) -> Option<(DomId, NodeId, ScrollbarOrientation)> {
+        self.thumb_drag
+    }
+
+    /// Whether `orientation`'s scrollbar on `node_id` is being held.
+    #[must_use]
+    pub fn is_thumb_dragged(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+    ) -> bool {
+        self.thumb_drag == Some((dom_id, node_id, orientation))
+    }
+
+    /// Record activity on a node without moving it: the fade delay restarts
+    /// from `now`. A node the manager has never scrolled has no state and
+    /// therefore no visible bar to keep alive; nothing is created for it.
+    fn touch_activity(&mut self, dom_id: DomId, node_id: NodeId, now: Instant) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.last_activity = now;
+        }
+    }
+
     /// Returns the internal scroll state for a node
     #[must_use]
     pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
@@ -1237,12 +1513,6 @@ impl ScrollManager {
             .collect()
     }
 
-    /// Registers or updates a scrollable node with its container and content sizes.
-    /// This should be called after layout for each node that has overflow:scroll or overflow:auto
-    /// with overflowing content.
-    ///
-    /// If the node already exists, updates container/content rects without changing scroll offset.
-    /// If the node is new, initializes with zero scroll offset.
     /// Apply the node's resolved `overscroll-behavior-x` / `-y`.
     ///
     /// Called by `register_scroll_nodes` right before registration, so the
@@ -1267,6 +1537,19 @@ impl ScrollManager {
         }
     }
 
+    /// Registers or updates a scrollable node with its container and content
+    /// sizes and the bar each of its axes carries. This should be called after
+    /// layout for each node that has overflow:scroll or overflow:auto with
+    /// overflowing content - and for each node that HAD, so a box whose
+    /// content fits again loses its bars and its offset instead of keeping the
+    /// ones it overflowed with (`register_scroll_nodes`).
+    ///
+    /// `horizontal_bar` / `vertical_bar` are layout's per-axis answer
+    /// (`ScrollbarRequirements::presence`) - the bars [`Self::calculate_scrollbar_states`]
+    /// builds and [`Self::hit_test_scrollbars`] finds, and nothing else.
+    ///
+    /// If the node already exists, updates container/content rects without changing scroll offset.
+    /// If the node is new, initializes with zero scroll offset.
     pub fn register_or_update_scroll_node(
         &mut self,
         dom_id: DomId,
@@ -1274,10 +1557,8 @@ impl ScrollManager {
         container_rect: LogicalRect,
         content_size: LogicalSize,
         now: Instant,
-        scrollbar_thickness: f32,
-        visual_width_px: f32,
-        has_horizontal_scrollbar: bool,
-        has_vertical_scrollbar: bool,
+        horizontal_bar: ScrollbarPresence,
+        vertical_bar: ScrollbarPresence,
     ) {
         let key = (dom_id, node_id);
 
@@ -1310,13 +1591,21 @@ impl ScrollManager {
             // Update rects, keep scroll offset
             existing.container_rect = container_rect;
             existing.content_rect = content_rect;
-            existing.scrollbar_thickness = scrollbar_thickness;
-            existing.visual_width_px = visual_width_px;
-            existing.has_horizontal_scrollbar = has_horizontal_scrollbar;
-            existing.has_vertical_scrollbar = has_vertical_scrollbar;
+            existing.horizontal_bar = horizontal_bar;
+            existing.vertical_bar = vertical_bar;
 
             if !was_overscrolling {
-                existing.current_offset = existing.clamp(existing.current_offset);
+                let clamped = existing.clamp(off);
+                // A range that shrank under the offset MOVES the view - a
+                // field whose text fits again goes back to its start - and
+                // the CPU path only rebuilds its display list for a move it
+                // is told about.
+                if (clamped.x - off.x).abs() > SCROLL_CHANGE_EPSILON
+                    || (clamped.y - off.y).abs() > SCROLL_CHANGE_EPSILON
+                {
+                    self.scroll_dirty = true;
+                }
+                existing.current_offset = clamped;
             }
         } else {
             // +spec:overflow:8c7aa1 - initial scroll position is zero (scroll origin for LTR/TTB)
@@ -1335,13 +1624,184 @@ impl ScrollManager {
                     overscroll_behavior_y:
                         azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                     overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-                    scrollbar_thickness,
-                    visual_width_px,
-                    has_horizontal_scrollbar,
-                    has_vertical_scrollbar,
+                    horizontal_bar,
+                    vertical_bar,
                 },
             );
         }
+    }
+
+    /// Refresh the CONTENT size of a registered scroll node in place. The
+    /// container, the bars and the offset stay; the offset is clamped into the
+    /// new range the way a registration clamps it (a live rubber-band is left
+    /// alone).
+    ///
+    /// The text-edit fast path's half of registration
+    /// (`LayoutWindow::reshape_text_node`): a keystroke grows the text
+    /// without a relayout, and the caret reveal that follows it in the SAME
+    /// pass is clamped against this size. Refreshed only when the box's
+    /// scrollbar necessity flipped, a box that already overflowed kept the
+    /// extent of the previous keystroke, and the reveal stopped one
+    /// character short.
+    ///
+    /// Returns `false`, changing nothing, when the node has no state.
+    pub fn update_content_size(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        content_size: LogicalSize,
+    ) -> bool {
+        let Some(state) = self.states.get_mut(&(dom_id, node_id)) else {
+            return false;
+        };
+        let off = state.current_offset;
+        let was_overscrolling =
+            off.x.is_finite() && off.y.is_finite() && state.clamp(off) != off;
+        state.content_rect.size = content_size;
+        if !was_overscrolling {
+            let clamped = state.clamp(off);
+            if (clamped.x - off.x).abs() > SCROLL_CHANGE_EPSILON
+                || (clamped.y - off.y).abs() > SCROLL_CHANGE_EPSILON
+            {
+                self.scroll_dirty = true;
+            }
+            state.current_offset = clamped;
+        }
+        true
+    }
+
+    /// Forget `node_id`'s scroll state - offset, bounds, bars - for a node that
+    /// is no longer a scroll container at all (`register_scroll_nodes`). A
+    /// node that merely stopped overflowing keeps its state, refreshed. A
+    /// thumb held on it is let go: there is no bar left to hold.
+    pub fn remove_scroll_node(&mut self, dom_id: DomId, node_id: NodeId) {
+        // Its frames go with it: a node that is registered again later gets
+        // them republished by `register_scroll_nodes`.
+        self.scroll_ancestors.remove(&(dom_id, node_id));
+        let Some(removed) = self.states.remove(&(dom_id, node_id)) else {
+            return;
+        };
+        self.scrollbar_states
+            .retain(|(d, n, _), _| (*d, *n) != (dom_id, node_id));
+        if self
+            .thumb_drag
+            .is_some_and(|(d, n, _)| d == dom_id && n == node_id)
+        {
+            self.thumb_drag = None;
+        }
+        // Content that was painted scrolled is painted where it lies now.
+        if removed.current_offset.x != 0.0 || removed.current_offset.y != 0.0 {
+            self.scroll_dirty = true;
+        }
+    }
+
+    /// Record the scroll containers above `node_id` in its own dom - the
+    /// scroll frames it is painted in. Replaces what was recorded before; an
+    /// empty list forgets the node. Published by `register_scroll_nodes`.
+    pub fn set_scroll_ancestors(&mut self, dom_id: DomId, node_id: NodeId, ancestors: Vec<NodeId>) {
+        if ancestors.is_empty() {
+            self.scroll_ancestors.remove(&(dom_id, node_id));
+        } else {
+            self.scroll_ancestors.insert((dom_id, node_id), ancestors);
+        }
+    }
+
+    /// How far the scroll containers above `node_id` (see
+    /// [`Self::set_scroll_ancestors`]) have moved it: its box - and its
+    /// scrollbar - is painted this much up and to the left of where it was
+    /// laid out.
+    #[must_use]
+    pub fn ancestor_scroll_offset(&self, dom_id: DomId, node_id: NodeId) -> LogicalPosition {
+        self.scroll_ancestors
+            .get(&(dom_id, node_id))
+            .map_or_else(LogicalPosition::zero, |ancestors| {
+                ancestors
+                    .iter()
+                    .filter_map(|ancestor| self.get_current_offset(dom_id, *ancestor))
+                    .fold(LogicalPosition::zero(), |sum, offset| {
+                        LogicalPosition::new(sum.x + offset.x, sum.y + offset.y)
+                    })
+            })
+    }
+
+    /// Record where every nested dom is composited ([`NestedDomPlacement`]),
+    /// replacing what was recorded before. Published by
+    /// `register_scroll_nodes`.
+    pub fn set_nested_dom_placements(&mut self, placements: BTreeMap<DomId, NestedDomPlacement>) {
+        self.nested_doms = placements;
+    }
+
+    /// The summed CURRENT offsets of `frames`.
+    fn offset_of_frames(&self, frames: &[(DomId, NodeId)]) -> LogicalPosition {
+        frames
+            .iter()
+            .filter_map(|(dom_id, node_id)| self.get_current_offset(*dom_id, *node_id))
+            .fold(LogicalPosition::zero(), |sum, offset| {
+                LogicalPosition::new(sum.x + offset.x, sum.y + offset.y)
+            })
+    }
+
+    /// Where `dom_id`'s 0-relative coordinates start in the window NOW: its
+    /// [`NestedDomPlacement`] resolved against the current offsets, the host
+    /// transform applied. Zero for the window's own dom and for a dom no
+    /// host mounts.
+    #[must_use]
+    pub fn dom_window_origin(&self, dom_id: DomId) -> LogicalPosition {
+        self.dom_rect_to_window(dom_id, LogicalRect::zero()).origin
+    }
+
+    /// `rect`, in `dom_id`'s 0-relative space, where the window shows it
+    /// NOW: moved to the dom's placement, up and left by its host frames'
+    /// current offsets, then through the host transform (the bounds of the
+    /// mapped rect). Unchanged for the window's own dom and for a dom no host
+    /// mounts.
+    fn dom_rect_to_window(&self, dom_id: DomId, rect: LogicalRect) -> LogicalRect {
+        let Some(placement) = self.nested_doms.get(&dom_id) else {
+            return rect;
+        };
+        let scroll = self.offset_of_frames(&placement.host_frames);
+        Self::placed(
+            LogicalRect::new(
+                LogicalPosition::new(
+                    rect.origin.x + placement.origin.x - scroll.x,
+                    rect.origin.y + placement.origin.y - scroll.y,
+                ),
+                rect.size,
+            ),
+            placement.host_transform.as_ref(),
+        )
+    }
+
+    /// `rect` through a host transform, if there is one.
+    fn placed(
+        rect: LogicalRect,
+        transform: Option<&crate::headless::ScreenMapAffine>,
+    ) -> LogicalRect {
+        transform.map_or(rect, |t| t.map_rect(rect))
+    }
+
+    /// Does `dom_id` show at window point `point` - inside every viewport
+    /// it is composited through? The window's own dom shows everywhere.
+    fn dom_shows_at(&self, dom_id: DomId, point: LogicalPosition) -> bool {
+        self.nested_doms.get(&dom_id).is_none_or(|placement| {
+            placement
+                .viewports
+                .iter()
+                .all(|(viewport, frames, transform)| {
+                    let scroll = self.offset_of_frames(frames);
+                    Self::placed(
+                        LogicalRect::new(
+                            LogicalPosition::new(
+                                viewport.origin.x - scroll.x,
+                                viewport.origin.y - scroll.y,
+                            ),
+                            viewport.size,
+                        ),
+                        transform.as_ref(),
+                    )
+                    .contains(point)
+                })
+        })
     }
 
     // Scrollbar State Management
@@ -1349,11 +1809,31 @@ impl ScrollManager {
     /// Calculate scrollbar states for all visible scrollbars.
     /// This should be called once per frame after layout is complete.
     /// Uses the shared `compute_scrollbar_geometry()` for consistent geometry.
+    ///
+    /// The tracks are in WINDOW space - where the bars are painted, which is
+    /// what the pointer is hit-tested with: a bar is painted inside every
+    /// scroll frame above its box, so its layout-space track is moved by
+    /// [`Self::ancestor_scroll_offset`]. Built from the layout-space
+    /// scrollport alone, a box on a scrolled page had its bar found where it
+    /// had been laid out, the page's scroll away from where it was drawn.
+    /// A box of a nested (`VirtualView`) dom is laid out 0-relative, so its
+    /// track is lifted to where the host composites that dom
+    /// ([`Self::dom_window_origin`]); without it a child dom's bar was
+    /// pressed near the window's top-left corner, over the page.
     pub fn calculate_scrollbar_states(&mut self) {
         self.scrollbar_states.clear();
 
-        // Uses virtual_scroll_size (when set) for the overflow check and thumb ratio,
-        // so VirtualView nodes with large virtual content show correct scrollbar geometry.
+        // One bar per axis that HAS one (`AnimatedScrollState::bar`, layout's
+        // answer from the axis's overflow and the node's style) - not per
+        // axis whose content happens to be larger than its box. The size
+        // comparison built a 16px bar for a `scrollbar-width: none` box (a
+        // TextInput's value line, which it then covered, taking every press
+        // on the text), a bar down an `overflow-y: hidden` axis whose content
+        // ran past the bottom, and no bar for an `overflow: scroll` box whose
+        // painted bar had nothing to scroll.
+        //
+        // The thumb ratio uses virtual_scroll_size (when set), so VirtualView
+        // nodes with large virtual content show correct scrollbar geometry.
         for orientation in [
             ScrollbarOrientation::Vertical,
             ScrollbarOrientation::Horizontal,
@@ -1361,23 +1841,22 @@ impl ScrollManager {
             let states: Vec<_> = self
                 .states
                 .iter()
-                .filter(|(_, s)| {
-                    let (effective, container) = match orientation {
-                        ScrollbarOrientation::Vertical => (
-                            s.effective_content_size().height,
-                            s.container_rect.size.height,
+                .filter_map(|((dom_id, node_id), scroll_state)| {
+                    let mut state =
+                        Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation)?;
+                    // Moved by the frames above the box in its own dom, and
+                    // lifted out of a nested dom's 0-relative space to where
+                    // its host composites it (host frames and transform).
+                    let shift = self.ancestor_scroll_offset(*dom_id, *node_id);
+                    let in_dom = LogicalRect::new(
+                        LogicalPosition::new(
+                            state.track_rect.origin.x - shift.x,
+                            state.track_rect.origin.y - shift.y,
                         ),
-                        ScrollbarOrientation::Horizontal => (
-                            s.effective_content_size().width,
-                            s.container_rect.size.width,
-                        ),
-                    };
-                    effective > container
-                })
-                .map(|((dom_id, node_id), scroll_state)| {
-                    let state =
-                        Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation);
-                    ((*dom_id, *node_id, orientation), state)
+                        state.track_rect.size,
+                    );
+                    state.track_rect = self.dom_rect_to_window(*dom_id, in_dom);
+                    Some(((*dom_id, *node_id, orientation), state))
                 })
                 .collect();
 
@@ -1385,18 +1864,21 @@ impl ScrollManager {
         }
     }
 
-    /// Calculate scrollbar state using the shared `compute_scrollbar_geometry()`.
+    /// The bar `scroll_state` carries on `orientation`'s axis, measured with
+    /// the shared `compute_scrollbar_geometry_with_button_size()` from the
+    /// same thickness and buttons `paint_scrollbars` draws it with. `None`
+    /// when the axis has no bar - nothing to build, draw or press - and for a
+    /// bar no geometry could be built for (its thickness is the divisor of
+    /// `scale`).
     fn calculate_scrollbar_state_from_geometry(
         scroll_state: &AnimatedScrollState,
         orientation: ScrollbarOrientation,
-    ) -> ScrollbarState {
-        let scrollbar_thickness = if scroll_state.visual_width_px > 0.0 {
-            scroll_state.visual_width_px
-        } else if scroll_state.scrollbar_thickness > 0.0 {
-            scroll_state.scrollbar_thickness
-        } else {
-            crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX
-        };
+    ) -> Option<ScrollbarState> {
+        let bar = scroll_state.bar(orientation);
+        let scrollbar_thickness = bar.thickness();
+        if !bar.is_present() || !scrollbar_thickness.is_finite() || scrollbar_thickness <= 0.0 {
+            return None;
+        }
 
         let content_size = scroll_state.effective_content_size();
 
@@ -1405,14 +1887,12 @@ impl ScrollManager {
             ScrollbarOrientation::Horizontal => scroll_state.current_offset.x,
         };
 
-        let has_other_scrollbar = match orientation {
-            ScrollbarOrientation::Vertical => scroll_state.has_horizontal_scrollbar,
-            ScrollbarOrientation::Horizontal => scroll_state.has_vertical_scrollbar,
+        let other_axis = match orientation {
+            ScrollbarOrientation::Vertical => ScrollbarOrientation::Horizontal,
+            ScrollbarOrientation::Horizontal => ScrollbarOrientation::Vertical,
         };
+        let has_other_scrollbar = scroll_state.bar(other_axis).is_present();
 
-        // Overlay scrollbars (thickness == 0 from layout) have no arrow buttons
-        let is_overlay = scroll_state.scrollbar_thickness == 0.0;
-        let button_size = if is_overlay { 0.0 } else { scrollbar_thickness };
         let geom = compute_scrollbar_geometry_with_button_size(
             orientation,
             scroll_state.container_rect,
@@ -1420,7 +1900,7 @@ impl ScrollManager {
             scroll_offset,
             scrollbar_thickness,
             has_other_scrollbar,
-            button_size,
+            bar.button_size(),
         );
 
         // Build ScrollbarState from the shared geometry
@@ -1433,7 +1913,7 @@ impl ScrollManager {
             }
         };
 
-        ScrollbarState {
+        Some(ScrollbarState {
             visible: true,
             orientation,
             base_size: scrollbar_thickness,
@@ -1445,7 +1925,7 @@ impl ScrollManager {
             usable_track_length: geom.usable_track_length,
             thumb_length: geom.thumb_length,
             thumb_offset: geom.thumb_offset,
-        }
+        })
     }
 
     /// Get scrollbar state for hit-testing
@@ -1477,44 +1957,61 @@ impl ScrollManager {
         global_pos: LogicalPosition,
     ) -> Option<ScrollbarHit> {
         // Check both vertical and horizontal scrollbars for this node
-        for orientation in [
+        [
             ScrollbarOrientation::Vertical,
             ScrollbarOrientation::Horizontal,
-        ] {
-            let Some(scrollbar_state) = self.scrollbar_states.get(&(dom_id, node_id, orientation))
-            else {
-                continue;
-            };
+        ]
+        .into_iter()
+        .find_map(|orientation| {
+            self.hit_test_scrollbar_axis(dom_id, node_id, orientation, global_pos)
+        })
+    }
 
-            if !scrollbar_state.visible {
-                continue;
-            }
-
-            // Check if position is inside scrollbar track using LogicalRect::contains
-            if !scrollbar_state.track_rect.contains(global_pos) {
-                continue;
-            }
-
-            // Calculate local position relative to track origin
-            let local_pos = LogicalPosition::new(
-                global_pos.x - scrollbar_state.track_rect.origin.x,
-                global_pos.y - scrollbar_state.track_rect.origin.y,
-            );
-
-            // Determine which component was hit
-            let component = scrollbar_state.hit_test_component(local_pos);
-
-            return Some(ScrollbarHit {
-                dom_id,
-                node_id,
-                orientation,
-                component,
-                local_position: local_pos,
-                global_position: global_pos,
-            });
+    /// Hit-test ONE bar - `node_id`'s on `orientation`'s axis - at the given
+    /// window position: which part of it lies there, by the bar's live
+    /// geometry. `None` when the bar does not exist, cannot be pressed, or
+    /// does not cover the point.
+    ///
+    /// Geometry only: whether the bar is PAINTED on top there is the press
+    /// arbiter's question (`LayoutWindow::scrollbar_at`).
+    #[must_use]
+    pub fn hit_test_scrollbar_axis(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+        global_pos: LogicalPosition,
+    ) -> Option<ScrollbarHit> {
+        let scrollbar_state = self.scrollbar_states.get(&(dom_id, node_id, orientation))?;
+        if !scrollbar_state.visible {
+            return None;
         }
 
-        None
+        // Check if position is inside scrollbar track - and inside the
+        // viewports its dom shows through: a child dom's bar scrolled out
+        // of its `VirtualView` is not there to press.
+        if !scrollbar_state.track_rect.contains(global_pos) || !self.dom_shows_at(dom_id, global_pos)
+        {
+            return None;
+        }
+
+        // Calculate local position relative to track origin
+        let local_pos = LogicalPosition::new(
+            global_pos.x - scrollbar_state.track_rect.origin.x,
+            global_pos.y - scrollbar_state.track_rect.origin.y,
+        );
+
+        // Determine which component was hit
+        let component = scrollbar_state.hit_test_component(local_pos);
+
+        Some(ScrollbarHit {
+            dom_id,
+            node_id,
+            orientation,
+            component,
+            local_position: local_pos,
+            global_position: global_pos,
+        })
     }
 
     /// Perform hit-testing for all scrollbars at the given global position.
@@ -1522,42 +2019,41 @@ impl ScrollManager {
     /// This iterates through all visible scrollbars in reverse z-order (top to bottom)
     /// and returns the first hit. Use this when you don't know which node to check.
     ///
+    /// GEOMETRY ONLY: the tracks, not what is painted over them or which
+    /// ancestor clips them away. The press arbiter
+    /// (`LayoutWindow::scrollbar_at`, behind `route_press`) asks this first,
+    /// as the cheap filter, and then the paint order. Only bars that exist are
+    /// candidates: [`Self::calculate_scrollbar_states`] builds one per axis
+    /// whose [`ScrollbarPresence`] has one, and a box whose style draws no bar
+    /// leaves its whole area to its content. A faded-out overlay bar still
+    /// counts: the fade is paint-only, and a press where the bar lives grabs
+    /// it, as it always has.
+    ///
     /// For better performance, use `hit_test_scrollbar()` when you already have
     /// a hit-tested node from `WebRender`.
     #[must_use]
     pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
-        // Iterate in reverse order to hit top-most scrollbars first
-        for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
-        {
-            if !scrollbar_state.visible {
-                continue;
-            }
+        use crate::solver3::scrollbar::is_viewport_scroller;
 
-            // Check if position is inside scrollbar track
-            if !scrollbar_state.track_rect.contains(global_pos) {
-                continue;
-            }
-
-            // Calculate local position relative to track origin
-            let local_pos = LogicalPosition::new(
-                global_pos.x - scrollbar_state.track_rect.origin.x,
-                global_pos.y - scrollbar_state.track_rect.origin.y,
-            );
-
-            // Determine which component was hit
-            let component = scrollbar_state.hit_test_component(local_pos);
-
-            return Some(ScrollbarHit {
-                dom_id: *dom_id,
-                node_id: *node_id,
-                orientation: *orientation,
-                component,
-                local_position: local_pos,
-                global_position: global_pos,
-            });
-        }
-
-        None
+        // The VIEWPORT's bar first: it is painted over the whole page, after
+        // everything the root's stacking context holds, so wherever it lies
+        // over another bar - a scroll box flush with the window's edge - it is
+        // the bar the user sees and presses. Reverse key order alone tried it
+        // LAST (the root element is node 0) and handed the press to the bar
+        // underneath.
+        let viewport = self
+            .scrollbar_states
+            .iter()
+            .filter(|((dom, node, _), _)| is_viewport_scroller(*dom, *node));
+        // Then the rest in reverse order, to hit top-most scrollbars first
+        let rest = self
+            .scrollbar_states
+            .iter()
+            .rev()
+            .filter(|((dom, node, _), _)| !is_viewport_scroller(*dom, *node));
+        viewport.chain(rest).find_map(|((dom_id, node_id, orientation), _)| {
+            self.hit_test_scrollbar_axis(*dom_id, *node_id, *orientation, global_pos)
+        })
     }
 }
 
@@ -1599,10 +2095,17 @@ impl AnimatedScrollState {
             overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
-            scrollbar_thickness: crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-            visual_width_px: 0.0,
-            has_horizontal_scrollbar: false,
-            has_vertical_scrollbar: false,
+            horizontal_bar: ScrollbarPresence::None,
+            vertical_bar: ScrollbarPresence::None,
+        }
+    }
+
+    /// The bar on `orientation`'s axis, as registration last described it.
+    #[must_use]
+    pub const fn bar(&self, orientation: ScrollbarOrientation) -> ScrollbarPresence {
+        match orientation {
+            ScrollbarOrientation::Vertical => self.vertical_bar,
+            ScrollbarOrientation::Horizontal => self.horizontal_bar,
         }
     }
 
@@ -1656,6 +2159,145 @@ pub(crate) fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 }
 
 #[cfg(test)]
+mod last_action_wins {
+    use super::{RevealRequest, ScrollInputSource, ScrollManager};
+
+    /// THE LAW, as the user stated it (2026-09-21):
+    ///
+    /// > the LAST action should always win, so that scrolling is not
+    /// > interrupted (and vice versa: if I do key input to a component that is
+    /// > off-screen then it should be scrolled into view - because now the key
+    /// > input is the "last" thing)
+    ///
+    /// Reported as: click a checkbox, then turn the wheel, and the reveal
+    /// keeps hauling the view back to the thing that was clicked - the user
+    /// cannot scroll away from whatever they last touched.
+    ///
+    /// BOTH directions are pinned here on purpose. A "fix" that simply stops
+    /// revealing would satisfy the first half and break the second, which is
+    /// the half the user called out by name.
+    #[test]
+    fn a_reveal_moves_the_view_only_while_it_is_the_last_thing_that_happened() {
+        let mut sm = ScrollManager::new();
+
+        // Nothing has happened yet, so nothing is to be revealed: a reveal is
+        // CAUSED by an input (a focus that seeds a caret requests one).
+        assert!(
+            !sm.reveal_may_move_view(),
+            "no input has asked for a reveal: none is pending",
+        );
+
+        // A focus change asks for a reveal - and THEN the user turns the
+        // wheel. The wheel is the last action, so the reveal asked for before
+        // it is dropped.
+        sm.request_reveal(RevealRequest::Caret);
+        sm.note_user_scroll();
+        assert!(
+            !sm.reveal_may_move_view(),
+            "the user scrolled AFTER the reveal was asked for: the stale reveal must not haul \
+             the view back, or scrolling away from a focused node is impossible",
+        );
+
+        // The wheel does not disable the reveal for good. Key input to a
+        // component the user has just scrolled off-screen is now the last
+        // thing that happened, so it reveals.
+        sm.request_reveal(RevealRequest::Caret);
+        assert!(
+            sm.reveal_may_move_view(),
+            "key input AFTER a user scroll is the last action: the off-screen component it \
+             reaches must be scrolled into view",
+        );
+
+        // ...and the next wheel step takes the view back again.
+        sm.note_user_scroll();
+        assert!(
+            !sm.reveal_may_move_view(),
+            "a reveal still pending when the wheel turns must not move the view",
+        );
+    }
+
+    /// Contract 1: a request is consumed exactly once - whoever performs it
+    /// takes it, and the next layout finds nothing left to reveal.
+    #[test]
+    fn a_reveal_request_is_consumed_exactly_once() {
+        let mut sm = ScrollManager::new();
+        sm.request_reveal(RevealRequest::Selection);
+        assert_eq!(sm.pending_reveal(), Some(RevealRequest::Selection));
+        assert_eq!(sm.take_pending_reveal(), Some(RevealRequest::Selection));
+        assert_eq!(
+            sm.take_pending_reveal(),
+            None,
+            "a performed reveal is gone: re-performing it every layout is what fought the wheel"
+        );
+    }
+
+    /// Contracts 2 and 3: a user scroll after a request drops it; a request
+    /// issued after a user scroll wins. And the newest request replaces an
+    /// older one - a caret move after a selection op reveals the caret.
+    #[test]
+    fn the_newest_of_a_request_and_a_user_scroll_wins() {
+        let mut sm = ScrollManager::new();
+        sm.request_reveal(RevealRequest::Selection);
+        sm.note_user_scroll();
+        assert_eq!(sm.pending_reveal(), None, "the wheel came last");
+
+        sm.note_user_scroll();
+        sm.request_reveal(RevealRequest::Caret);
+        assert_eq!(sm.pending_reveal(), Some(RevealRequest::Caret), "the key came last");
+
+        sm.request_reveal(RevealRequest::Selection);
+        assert_eq!(
+            sm.pending_reveal(),
+            Some(RevealRequest::Selection),
+            "the newest request replaces the older one"
+        );
+    }
+
+    /// A thumb drag is the user's hand too: it drops a pending reveal.
+    #[test]
+    fn a_scrollbar_thumb_drag_drops_a_pending_reveal() {
+        use azul_core::{
+            dom::{DomId, NodeId, ScrollbarOrientation},
+            task::Instant,
+        };
+        let mut sm = ScrollManager::new();
+        sm.request_reveal(RevealRequest::Caret);
+        sm.begin_thumb_drag(
+            DomId::ROOT_ID,
+            NodeId::new(1),
+            ScrollbarOrientation::Vertical,
+            Instant::now(),
+        );
+        assert_eq!(sm.pending_reveal(), None);
+    }
+
+    /// Only the user's own hand counts as a user scroll. The engine puts its
+    /// own motion through the same queue - a caret glide rides `AnimateTo`,
+    /// an app's `scroll_to` rides `Programmatic` - and a reveal must not be
+    /// read back as the user having scrolled away from it.
+    #[test]
+    fn the_engines_own_scrolling_is_not_the_user_scrolling() {
+        for user in [
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputSource::TrackpadMomentum,
+            ScrollInputSource::TrackpadEnd,
+        ] {
+            assert!(user.is_user_scroll(), "{user:?} is the user's own hand");
+        }
+        for engine in [
+            ScrollInputSource::Programmatic,
+            ScrollInputSource::AnimateTo,
+        ] {
+            assert!(
+                !engine.is_user_scroll(),
+                "{engine:?} is the engine moving the view, not the user",
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod spring_easing_laws {
     use azul_core::events::EasingFunction;
 
@@ -1695,6 +2337,20 @@ impl crate::managers::NodeIdRemap for ScrollManager {
     /// map" unambiguously means "unmounted".
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.states, dom, map);
+        // Ancestor lists hold node ids of the OLD tree in their values too;
+        // `register_scroll_nodes` publishes them afresh after the layout the
+        // new tree gets, so the stale ones are simply dropped.
+        self.scroll_ancestors.retain(|(d, _), _| *d != dom);
+        // The same for the placements that name the dom's nodes (as a host)
+        // or the dom itself.
+        self.nested_doms.retain(|nested, placement| {
+            *nested != dom
+                && placement
+                    .host_frames
+                    .iter()
+                    .chain(placement.viewports.iter().flat_map(|(_, frames, _)| frames.iter()))
+                    .all(|(d, _)| *d != dom)
+        });
 
         let old = core::mem::take(&mut self.scrollbar_states);
         for ((d, old_node_id, orientation), state) in old {
@@ -1806,10 +2462,8 @@ mod natural_scroll_tests {
                 height: 1000.0,
             },
             now.clone(),
-            8.0,
-            8.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 8.0 },
         );
         // Inner: 100x100 viewport over 100x300 content → max_y = 200.
         m.register_or_update_scroll_node(
@@ -1827,10 +2481,8 @@ mod natural_scroll_tests {
                 height: 300.0,
             },
             now,
-            8.0,
-            8.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 8.0 },
         );
         (m, dom, outer, inner)
     }
@@ -1898,7 +2550,6 @@ mod autotest_generated {
         events::EasingFunction,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         hit_test::{FullHitTest, HitTest, OverflowingScrollNode, ScrollHitTestItem},
-        styled_dom::NodeHierarchyItem,
         task::{Duration, Instant, SystemTick, SystemTickDiff, SystemTimeDiff},
     };
 
@@ -1948,10 +2599,8 @@ mod autotest_generated {
             LogicalRect::new(LogicalPosition::zero(), container),
             content,
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m
     }
@@ -2154,8 +2803,10 @@ mod autotest_generated {
         assert_eq!(s.content_rect, LogicalRect::zero());
         assert!(s.virtual_scroll_size.is_none());
         assert!(s.virtual_scroll_offset.is_none());
-        assert!(!s.has_horizontal_scrollbar);
-        assert!(!s.has_vertical_scrollbar);
+        // No bar until registration says there is one: a state a programmatic
+        // scroll or a VirtualView callback created has nothing to press.
+        assert_eq!(s.bar(ScrollbarOrientation::Horizontal), ScrollbarPresence::None);
+        assert_eq!(s.bar(ScrollbarOrientation::Vertical), ScrollbarPresence::None);
         // A zero-sized state has no travel: clamp must pin everything to origin.
         assert_eq!(s.clamp(pos(1e9, 1e9)), LogicalPosition::zero());
     }
@@ -2791,10 +3442,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(2),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
         assert!(
@@ -3085,10 +3734,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 300.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.scroll_to(
             DOM,
@@ -3125,10 +3772,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(2),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert_eq!(
             m.debug_counts(),
@@ -3153,12 +3798,73 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 150.0), // content shrank: max_y is now 50
             at(2),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 50.0)));
+    }
+
+    /// A box whose content FITS again (`register_scroll_nodes` refreshes it
+    /// with no bars) goes back to its start - and the move is reported, or
+    /// the CPU path keeps painting the content scrolled out of its box.
+    #[test]
+    fn re_registering_content_that_fits_moves_the_view_home_and_says_so() {
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        m.set_scroll_position(DOM, node(0), pos(0.0, 300.0), at(1));
+        m.clear_scroll_dirty();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 80.0),
+            at(2),
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
+        );
+        assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 0.0)));
+        assert!(m.has_pending_scroll_changes(), "the view moved");
+        m.calculate_scrollbar_states();
+        assert_eq!(m.debug_counts().1, 0, "and it has no bar left");
+
+        // Refreshing it again with nothing changed moves nothing.
+        m.clear_scroll_dirty();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 80.0),
+            at(3),
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
+        );
+        assert!(!m.has_pending_scroll_changes());
+    }
+
+    #[test]
+    fn remove_scroll_node_forgets_the_offset_and_the_bars_and_lets_go_of_the_thumb() {
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(1));
+        m.calculate_scrollbar_states();
+        m.begin_thumb_drag(DOM, node(0), ScrollbarOrientation::Vertical, at(2));
+        m.clear_scroll_dirty();
+
+        m.remove_scroll_node(DOM, node(0));
+        assert!(m.get_current_offset(DOM, node(0)).is_none());
+        assert!(m
+            .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+            .is_none());
+        assert!(m.hit_test_scrollbars(pos(90.0, 50.0)).is_none());
+        assert!(m.thumb_drag().is_none(), "no bar left to hold");
+        assert!(
+            m.has_pending_scroll_changes(),
+            "the content it scrolled is painted where it lies now"
+        );
+
+        // An unknown node (or the same one twice) is a no-op.
+        m.clear_scroll_dirty();
+        m.remove_scroll_node(DOM, node(0));
+        m.remove_scroll_node(DOM1, node(7));
+        assert!(!m.has_pending_scroll_changes());
     }
 
     #[test]
@@ -3170,10 +3876,8 @@ mod autotest_generated {
             rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
             size(f32::NAN, f32::NAN),
             at(0),
-            f32::NAN,
-            f32::NAN,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
         assert!(
@@ -3192,10 +3896,8 @@ mod autotest_generated {
             rect(0.0, 0.0, f32::INFINITY, f32::INFINITY),
             size(f32::INFINITY, f32::INFINITY),
             at(0),
-            f32::MAX,
-            f32::MAX,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let off = m.get_current_offset(DOM, node(1)).unwrap();
         assert!(!off.x.is_nan() && !off.y.is_nan());
@@ -3211,10 +3913,8 @@ mod autotest_generated {
             LogicalRect::zero(),
             LogicalSize::zero(),
             at(0),
-            0.0,
-            0.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         assert!(!m.is_node_scrollable(DOM, node(0)));
         assert!(m.a11y_scroll_info(DOM, node(0)).is_none());
@@ -3236,10 +3936,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 100.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         assert!(!m.is_node_scrollable(DOM, node(0)));
         // One extra pixel of height => scrollable.
@@ -3249,10 +3947,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 100.1),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert!(m.is_node_scrollable(DOM, node(1)));
         // Unknown node / unknown DOM => false, never a panic.
@@ -3270,10 +3966,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 50.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         assert!(!m.is_node_scrollable(DOM, node(0)));
         m.update_virtual_scroll_bounds(DOM, node(0), size(100.0, 100_000.0), None);
@@ -3405,10 +4099,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 50.0, 50.0),
             size(50.0, 200.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let inner_first = [(DOM, node(9)), (DOM, node(0))];
         assert_eq!(
@@ -3445,10 +4137,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(10.0, 10.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         assert!(m.a11y_scroll_info(DOM, node(1)).is_none());
         assert!(m.a11y_scroll_info(DOM, node(404)).is_none());
@@ -3643,10 +4333,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 10.0, 10.0),
             size(10.0, 100.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
 
         let states = m.get_scroll_states_for_dom(DOM);
@@ -3704,10 +4392,8 @@ mod autotest_generated {
             rect(250.0, 120.0, 300.0, 400.0),
             size(900.0, 1200.0),
             at(0),
-            THICKNESS,
-            THICKNESS,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: THICKNESS },
+            ScrollbarPresence::Classic { thickness: THICKNESS },
         );
 
         // Exactly what `paint_scrollbars` does: read the state, take the offset
@@ -3786,10 +4472,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.register_or_update_scroll_node(
             DOM1,
@@ -3797,10 +4481,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 500.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
 
         // Empty id map => empty offset map (and no panic).
@@ -3844,10 +4526,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 200.0, 200.0),
             size(200.0, 2000.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.set_scroll_position(DOM, node(2), pos(0.0, 300.0), at(1));
 
@@ -3878,117 +4558,6 @@ mod autotest_generated {
             map.get(&100),
             Some(&(0.0, 0.0)),
             "the unscrolled root still reports (0,0)"
-        );
-    }
-
-    // ====================================================== find_scroll_parent
-    // (other: no_panic_smoke)
-
-    #[test]
-    fn find_scroll_parent_walks_up_to_the_nearest_registered_ancestor() {
-        // hierarchy: 0 (root) <- 1 <- 2  (parent field is 1-based encoded)
-        let hierarchy = [
-            NodeHierarchyItem {
-                parent: 0,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 2,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 3,
-            },
-            NodeHierarchyItem {
-                parent: 2,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ];
-        let m = mgr(size(100.0, 100.0), size(100.0, 500.0)); // node 0 registered
-        for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
-            assert_eq!(
-                m.find_scroll_parent(DOM, node(2), &hierarchy, incl),
-                Some(node(0)),
-                "must skip the unregistered node 1 and find the root scroll container"
-            );
-            // No scroll container anywhere in this DOM.
-            assert_eq!(m.find_scroll_parent(DOM1, node(2), &hierarchy, incl), None);
-        }
-    }
-
-    #[test]
-    fn find_scroll_parent_inclusivity_decides_whether_the_node_answers_itself() {
-        // REGRESSION: this was hardcoded to ancestors-only, so "which scroll
-        // box does this node live in?" could never answer "this one" — which
-        // is why drag-autoscroll inside an overflowing TextInput scrolled the
-        // PAGE instead of the field (the caret's node IS the scroll box).
-        let hierarchy = [
-            NodeHierarchyItem {
-                parent: 0,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 2,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ];
-        let m = mgr(size(100.0, 100.0), size(100.0, 500.0)); // node 0 registered
-        assert_eq!(
-            m.find_scroll_parent(DOM, node(0), &hierarchy, Inclusivity::SelfAndAncestors),
-            Some(node(0)),
-            "a registered node IS its own scroll box"
-        );
-        assert_eq!(
-            m.find_scroll_parent(DOM, node(0), &hierarchy, Inclusivity::AncestorsOnly),
-            None,
-            "...but never the container to CHAIN to"
-        );
-    }
-
-    #[test]
-    fn find_scroll_parent_handles_empty_and_out_of_range_hierarchies() {
-        let m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
-            // Empty slice: the budget is 0 => None, no index panic.
-            assert_eq!(m.find_scroll_parent(DOM, node(0), &[], incl), None);
-            assert_eq!(m.find_scroll_parent(DOM, node(9999), &[], incl), None);
-            // Node id past the end of the hierarchy: still no panic.
-            let hierarchy = [NodeHierarchyItem::zeroed()];
-            assert_eq!(
-                m.find_scroll_parent(DOM, node(9999), &hierarchy, incl),
-                None
-            );
-        }
-    }
-
-    #[test]
-    fn find_scroll_parent_terminates_on_a_cyclic_hierarchy() {
-        // 0 -> 1 -> 0 (parent is 1-based encoded, so `parent: 2` means node 1).
-        let hierarchy = [
-            NodeHierarchyItem {
-                parent: 2,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ];
-        let m = ScrollManager::new();
-        assert_eq!(
-            m.find_scroll_parent(DOM, node(0), &hierarchy, Inclusivity::AncestorsOnly),
-            None
         );
     }
 
@@ -4031,10 +4600,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 50.0),
             at(1),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         m.calculate_scrollbar_states();
         assert_eq!(m.debug_counts().1, 0);
@@ -4050,10 +4617,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(1000.0, 1000.0),
             at(0),
-            16.0,
-            16.0,
-            true,
-            true,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         m.calculate_scrollbar_states();
         assert_eq!(m.debug_counts(), (1, 2), "both axes overflow");
@@ -4069,10 +4634,78 @@ mod autotest_generated {
         }
     }
 
+    /// `scrollbar-width: none` scrolls WITHOUT a bar. What registration hands
+    /// the manager for such a box - the TextInput's value `<p>`, 200x14 over
+    /// 400px of text - reserves nothing and draws nothing, and the manager
+    /// must not invent a bar of its own: every shell hit-tests the bars before
+    /// the content, so an invented one takes every press on the text.
     #[test]
-    fn calculate_scrollbar_states_zero_thickness_falls_back_to_the_default_width() {
-        // An overlay scrollbar reports thickness 0 from layout; the geometry must
-        // still divide by a non-zero width (otherwise `scale` becomes inf/NaN).
+    fn a_box_whose_style_draws_no_bar_has_no_bar_to_press() {
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 200.0, 14.0),
+            size(400.0, 14.0),
+            at(0),
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
+        );
+        m.calculate_scrollbar_states();
+        assert!(
+            m.get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Horizontal)
+                .is_none(),
+            "a box whose style draws no bar has no horizontal bar state"
+        );
+        let press = m.hit_test_scrollbars(pos(100.0, 7.0));
+        assert!(
+            press.is_none(),
+            "a press on the text of a bar-less box is the text's, got {press:?}"
+        );
+    }
+
+    /// An `overflow-y: hidden` axis never has a bar, however far its content
+    /// reaches: CSS gives bars to `scroll` and `auto` only, and layout never
+    /// asks for one on the hidden axis. The size comparison alone put a
+    /// vertical bar down the right edge of every such box whose content was
+    /// taller than it.
+    #[test]
+    fn a_hidden_axis_gets_no_bar_even_when_its_content_overflows() {
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 200.0, 100.0),
+            size(400.0, 120.0),
+            at(0),
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            ScrollbarPresence::None,
+        );
+        m.calculate_scrollbar_states();
+        assert!(
+            m.get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+                .is_none(),
+            "the hidden vertical axis has no bar"
+        );
+        let press = m.hit_test_scrollbars(pos(195.0, 40.0));
+        assert!(
+            press.is_none(),
+            "a press where a vertical bar would run is the content's, got {press:?}"
+        );
+        assert!(
+            m.get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Horizontal)
+                .is_some(),
+            "the auto axis keeps the bar it asked for"
+        );
+    }
+
+    /// The bar is exactly the one layout described - its thickness, and arrow
+    /// buttons only for a classic one - with no width of the manager's own.
+    /// (This used to pin the opposite: a zero thickness from layout fell back
+    /// to a 16px bar, and the only production case that reached the fallback
+    /// was `scrollbar-width: none`, which draws no bar at all.)
+    #[test]
+    fn calculate_scrollbar_states_builds_the_bar_layout_described() {
         let mut m = ScrollManager::new();
         m.register_or_update_scroll_node(
             DOM,
@@ -4080,39 +4713,81 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 400.0),
             at(0),
-            0.0, // scrollbar_thickness (overlay)
-            0.0, // visual_width_px
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Overlay { thickness: 8.0 },
         );
         m.calculate_scrollbar_states();
         let sb = m
             .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
-            .unwrap();
-        assert_eq!(sb.base_size, crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX);
+            .expect("the vertical axis has an overlay bar");
+        assert_eq!(sb.base_size, 8.0, "the overlay's own thickness, not 16px");
         assert_eq!(
             sb.button_size, 0.0,
             "overlay scrollbars have no arrow buttons"
+        );
+        assert_eq!(
+            sb.track_rect,
+            rect(92.0, 0.0, 8.0, 100.0),
+            "an 8px track down the right edge"
         );
         assert!(
             sb.scale.x.is_finite() && sb.scale.y.is_finite(),
             "no div-by-zero"
         );
+
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 400.0),
+            at(1),
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 12.0 },
+        );
+        m.calculate_scrollbar_states();
+        let sb = m
+            .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+            .expect("the vertical axis has a classic bar");
+        assert_eq!(
+            (sb.base_size, sb.button_size),
+            (12.0, 12.0),
+            "a classic bar has square arrow buttons of its own thickness"
+        );
+    }
+
+    /// An `overflow: scroll` axis keeps its (classic) bar when there is
+    /// nothing to scroll - `paint_scrollbars` draws it, so the press must find
+    /// it; the thumb fills the track.
+    #[test]
+    fn a_bar_layout_asked_for_exists_with_nothing_to_scroll() {
+        let mut m = ScrollManager::new();
+        m.register_or_update_scroll_node(
+            DOM,
+            node(0),
+            rect(0.0, 0.0, 100.0, 100.0),
+            size(100.0, 50.0),
+            at(0),
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+        );
+        m.calculate_scrollbar_states();
+        let sb = m
+            .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
+            .expect("the painted bar is hit-testable");
+        assert_eq!(sb.thumb_size_ratio, 1.0, "nothing to scroll: a full thumb");
     }
 
     #[test]
     fn calculate_scrollbar_state_from_geometry_survives_nan_input() {
         let mut s = state(size(f32::NAN, f32::NAN), size(f32::NAN, f32::NAN));
-        s.scrollbar_thickness = f32::NAN;
-        s.visual_width_px = f32::NAN;
-        // `NaN > 0.0` is false for both width sources, so it falls back to the
-        // default width instead of dividing by NaN.
+        s.vertical_bar = ScrollbarPresence::Classic { thickness: 16.0 };
         let sb = ScrollManager::calculate_scrollbar_state_from_geometry(
             &s,
             ScrollbarOrientation::Vertical,
-        );
+        )
+        .expect("a 16px bar over NaN geometry is still a bar");
         assert!(sb.visible);
-        assert_eq!(sb.base_size, crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX);
+        assert_eq!(sb.base_size, 16.0);
         // `.max(0.0)` rescues every length: NaN geometry degrades to a zero-length
         // thumb on a zero-length track rather than propagating NaN.
         assert_eq!(sb.usable_track_length, 0.0);
@@ -4130,6 +4805,24 @@ mod autotest_generated {
             sb.hit_test_component(pos(0.0, 5.0)),
             ScrollbarComponent::TopButton
         );
+    }
+
+    #[test]
+    fn a_bar_without_a_usable_thickness_is_no_bar() {
+        // `scale` divides by the thickness; a bar nothing could be drawn with
+        // is not built at all rather than given a width of the manager's own.
+        let mut s = state(size(100.0, 100.0), size(100.0, 400.0));
+        for t in [0.0, -4.0, f32::NAN, f32::INFINITY] {
+            s.vertical_bar = ScrollbarPresence::Classic { thickness: t };
+            assert!(
+                ScrollManager::calculate_scrollbar_state_from_geometry(
+                    &s,
+                    ScrollbarOrientation::Vertical
+                )
+                .is_none(),
+                "thickness {t}"
+            );
+        }
     }
 
     // ================================== hit_test_scrollbar / hit_test_scrollbars
@@ -4312,6 +5005,67 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_vetoed_wheel_takes_its_queued_container_scroll_back() {
+        // THE WHEEL HAS ONE CONSUMER: a `Scroll` callback that claimed the
+        // gesture (the map zooms, a spinner column spins) leaves nothing for
+        // the physics timer, so the page under the widget does not move too.
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        let hover = hover_over(&[0]);
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -10.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(1),
+        )
+        .expect("node 0 is scrollable and under the cursor");
+        assert!(m.get_input_queue().has_pending());
+
+        assert!(
+            m.cancel_queued_scroll_input(),
+            "the veto found nothing to take back"
+        );
+        assert!(
+            !m.get_input_queue().has_pending(),
+            "a vetoed wheel still moves the container"
+        );
+        assert_eq!(m.pending_wheel_event, None, "the delta outlived its veto");
+
+        // The veto applies to ONE pass: a second call has nothing to cancel,
+        // so a later `preventDefault` cannot eat a scroll the user got.
+        assert!(!m.cancel_queued_scroll_input());
+    }
+
+    #[test]
+    fn forgetting_the_pass_leaves_the_queued_scroll_alone() {
+        // End of pass with no veto: the input stays queued for the physics
+        // timer, and the NEXT pass's veto can no longer reach it.
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        let hover = hover_over(&[0]);
+        m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -10.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(1),
+        )
+        .expect("node 0 is scrollable and under the cursor");
+
+        m.forget_queued_scroll_input();
+
+        assert!(
+            !m.cancel_queued_scroll_input(),
+            "the veto reached back a pass"
+        );
+        assert!(
+            m.get_input_queue().has_pending(),
+            "forgetting the pass threw the scroll away"
+        );
+    }
+
+    #[test]
     fn record_scroll_from_hit_test_ignores_hovered_nodes_that_cannot_scroll() {
         let mut m = ScrollManager::new();
         // Registered, but the content fits => not scrollable.
@@ -4321,10 +5075,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 100.0, 100.0),
             size(100.0, 100.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            false,
+            ScrollbarPresence::None,
+            ScrollbarPresence::None,
         );
         let hover = hover_over(&[0]);
         let out = m.record_scroll_from_hit_test_test_shim(
@@ -4387,10 +5139,8 @@ mod autotest_generated {
             rect(0.0, 0.0, 50.0, 50.0),
             size(50.0, 200.0),
             at(0),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         let hover = hover_over(&[0, 5]);
         let (_, node_id, _) = m

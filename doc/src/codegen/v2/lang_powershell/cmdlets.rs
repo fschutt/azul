@@ -26,7 +26,8 @@ use anyhow::Result;
 use super::super::{
     config::CodegenConfig,
     generator::CodeBuilder,
-    ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    ir::{CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
+    lang_csharp::wrappers::{cs_param_type, cs_user_args},
 };
 
 /// Maximum number of functions to emit a `Verb-Noun` shim for. The full
@@ -59,6 +60,10 @@ pub fn generate_cmdlets(
     builder.blank();
 
     let mut emitted: usize = 0;
+    // Cmdlet names already declared: a second `function X` would silently
+    // replace the first (two constructors, or a constructor and the
+    // `Default`, both map to `New-Azul<Type>`).
+    let mut declared: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     // Emit shims by walking structs that have wrapper classes (i.e. that
     // have a `_delete`). For each wrapper class we also pull in its
@@ -74,7 +79,7 @@ pub fn generate_cmdlets(
             if !should_emit_function(func) {
                 continue;
             }
-            emit_shim(builder, s, func);
+            emit_shim(builder, s, func, ir, &mut declared);
             emitted += 1;
         }
     }
@@ -91,6 +96,7 @@ pub fn generate_cmdlets(
     builder.line("'Remove-Azul*',");
     builder.line("'Add-Azul*',");
     builder.line("'Clear-Azul*',");
+    builder.line("'Copy-Azul*',");
     builder.line("'Update-Azul*',");
     builder.line("'Start-Azul*',");
     builder.line("'Stop-Azul*'");
@@ -146,10 +152,26 @@ fn should_emit_function(func: &FunctionDef) -> bool {
 // Shim emission
 // ============================================================================
 
-fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
+fn emit_shim(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    declared: &mut std::collections::BTreeSet<String>,
+) {
     let verb = pick_verb(&func.method_name, &func.kind);
     let noun = pick_noun(&s.name, &func.method_name, &func.kind);
-    let func_name = format!("{}-{}{}", verb, NOUN_PREFIX, noun);
+    let func_name = unique_cmdlet_name(
+        declared,
+        format!("{}-{}{}", verb, NOUN_PREFIX, noun),
+        format!(
+            "{}-{}{}{}",
+            verb,
+            NOUN_PREFIX,
+            s.name,
+            snake_to_pascal_param(&func.method_name)
+        ),
+    );
 
     let is_static = matches!(
         func.kind,
@@ -160,8 +182,10 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
 
-    // User-facing arguments — strip the implicit receiver.
-    let user_args: Vec<&FunctionArg> = func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect();
+    // User-facing arguments: exactly the parameters of the C# method the
+    // shim forwards to (the implicit self of an instance or clone method
+    // is `$Instance`, whatever api.json named it).
+    let user_args: Vec<&FunctionArg> = cs_user_args(func);
 
     // Doc comment block (PowerShell comment-based help).
     builder.line(&format!("function {} {{", func_name));
@@ -204,7 +228,7 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
     }
     for (idx, a) in user_args.iter().enumerate() {
         let position = if takes_self { idx + 1 } else { idx };
-        let pstype = ps_type_of(a, takes_self);
+        let pstype = ps_type_of(a, ir);
         let mut name_pascal = snake_to_pascal_param(&a.name);
         // Avoid colliding with the implicit `$Instance` (the self param)
         // when an api.json arg is also named `instance`. PowerShell
@@ -338,31 +362,52 @@ fn pick_noun(class_name: &str, method_name: &str, kind: &FunctionKind) -> String
     }
 }
 
-/// PowerShell-friendly type annotation for an argument. We map blittable
-/// primitives to their `[type]` literal; everything else falls back to
-/// the C# wrapper or FFI struct under `[Azul.*]`.
-fn ps_type_of(arg: &FunctionArg, _takes_self: bool) -> String {
-    // Anything that the C# layer surfaces as `IntPtr` is opaque on the
-    // PS side too — annotate as `[IntPtr]` so the binder doesn't try to
-    // coerce it.
-    match arg.ref_kind {
-        ArgRefKind::Owned => match arg.type_name.trim() {
-            "bool" => "[bool]".to_string(),
-            "u8" | "i8" => "[byte]".to_string(),
-            "u16" | "i16" => "[uint16]".to_string(),
-            "u32" | "c_uint" => "[uint32]".to_string(),
-            "i32" | "c_int" => "[int32]".to_string(),
-            "u64" => "[uint64]".to_string(),
-            "i64" => "[int64]".to_string(),
-            "f32" => "[single]".to_string(),
-            "f64" => "[double]".to_string(),
-            "usize" | "isize" => "[IntPtr]".to_string(),
-            other => format!("[Azul.Az{}]", other),
-        },
-        ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-            "[IntPtr]".to_string()
+/// `preferred`, or - when a shim of that name was already declared -
+/// `fallback`, then `fallback2`, `fallback3`, ...
+fn unique_cmdlet_name(
+    declared: &mut std::collections::BTreeSet<String>,
+    preferred: String,
+    fallback: String,
+) -> String {
+    let mut name = preferred;
+    if declared.contains(&name) {
+        name = fallback.clone();
+        let mut n = 2;
+        while declared.contains(&name) {
+            name = format!("{}{}", fallback, n);
+            n += 1;
         }
     }
+    declared.insert(name.clone());
+    name
+}
+
+/// PowerShell type annotation for an argument: the C# parameter type of
+/// the wrapper method the shim forwards to ([`cs_param_type`]), so the
+/// binder hands the method what it declares - an owned heap-owning
+/// argument is the wrapper class (`[Azul.WindowCreateOptions]`, consumed
+/// by the call), a string a native `[string]`, a value its `Az*` struct,
+/// a reference an opaque `[IntPtr]`.
+fn ps_type_of(arg: &FunctionArg, ir: &CodegenIR) -> String {
+    let cs = cs_param_type(arg, ir);
+    let ps = match cs.as_str() {
+        "string" => "string",
+        "bool" => "bool",
+        "byte" => "byte",
+        "sbyte" => "sbyte",
+        "short" => "int16",
+        "ushort" => "uint16",
+        "int" => "int32",
+        "uint" => "uint32",
+        "long" => "int64",
+        "ulong" => "uint64",
+        "float" => "single",
+        "double" => "double",
+        "IntPtr" => "IntPtr",
+        "UIntPtr" => "UIntPtr",
+        other => return format!("[Azul.{}]", other),
+    };
+    format!("[{}]", ps)
 }
 
 /// PowerShell parameter names are PascalCase by convention.
@@ -407,4 +452,57 @@ fn idiomatic_cs_method(method_name: &str) -> String {
 /// upstream — but `#>` inside doc text is fatal.
 fn ps_doc_escape(s: &str) -> String {
     s.replace("#>", "# >")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::lang_csharp::wrappers::tests::field_fixture_ir;
+    use super::*;
+
+    fn gen() -> String {
+        let ir = field_fixture_ir();
+        let mut b = CodeBuilder::new("    ");
+        generate_cmdlets(&mut b, &ir, &CodegenConfig::c_header()).expect("cmdlets");
+        b.finish()
+    }
+
+    /// The text of `function <name> { ... }`.
+    fn function_body(out: &str, name: &str) -> String {
+        let head = format!("function {} {{\n", name);
+        let start = out.find(&head).unwrap_or_else(|| panic!("no {name}:\n{out}"));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").map(|e| e + 3).unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn every_argument_is_typed_like_the_csharp_method_it_forwards_to() {
+        let out = gen();
+        let run = function_body(&out, "Invoke-AzulAppRun");
+        // An owned heap-owning argument is the wrapper class (consumed by the
+        // call), a string argument a native string, a POD one its struct.
+        assert!(run.contains("[Azul.WindowCreateOptions]$RootWindow"), "{run}");
+        assert!(run.contains("[string]$Label"), "{run}");
+        assert!(run.contains("[Azul.AzWindowSize]$Size"), "{run}");
+        assert!(!run.contains("[Azul.AzWindowCreateOptions]"), "{run}");
+    }
+
+    #[test]
+    fn a_clone_cmdlet_takes_only_the_piped_instance() {
+        let out = gen();
+        let clone = function_body(&out, "Copy-AzulFullWindowStateClone");
+        assert!(!clone.contains("$InstanceArg"), "{clone}");
+        assert!(clone.contains("$Instance.Clone()"), "{clone}");
+    }
+
+    #[test]
+    fn every_cmdlet_name_is_declared_once() {
+        let out = gen();
+        let mut seen = std::collections::BTreeSet::new();
+        for line in out.lines().filter(|l| l.starts_with("function ")) {
+            assert!(seen.insert(line.to_string()), "declared twice: {line}\n{out}");
+        }
+        assert!(out.contains("function New-AzulWindowCreateOptions {\n"), "{out}");
+        assert!(out.contains("[Azul.WindowCreateOptions]::Default()"), "{out}");
+    }
 }

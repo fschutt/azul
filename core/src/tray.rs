@@ -33,7 +33,9 @@ use alloc::{string::String, vec::Vec};
 use azul_css::{corety::U8Vec, AzString, OptionString};
 
 use crate::{
-    menu::{Menu, OptionMenu},
+    callbacks::CoreCallback,
+    menu::{CoreMenuCallback, Menu, OptionCoreMenuCallback, OptionMenu},
+    refany::RefAny,
     window::IconKey,
 };
 
@@ -324,6 +326,13 @@ pub struct TrayIconData {
     /// and on Linux the `Menu` property is left unset and hosts fall back to
     /// calling `ContextMenu()`.
     pub menu: OptionMenu,
+    /// Runs for every [`TrayEvent`] that no menu item's own callback handled:
+    /// a click on the icon ([`TrayEventType::Activate`]), a middle click, a
+    /// scroll, a context-menu request, a menu item without a callback. It
+    /// reads which one with `CallbackInfo::get_tray_event`, and runs against
+    /// the app's most recently focused window (else its oldest), like a tray
+    /// menu item's callback. `None`: those events are dropped.
+    pub callback: OptionCoreMenuCallback,
 }
 
 impl Default for TrayIconData {
@@ -337,6 +346,7 @@ impl Default for TrayIconData {
             category: TrayCategory::ApplicationStatus,
             status: TrayStatus::Active,
             menu: OptionMenu::None,
+            callback: OptionCoreMenuCallback::None,
         }
     }
 }
@@ -377,6 +387,18 @@ impl TrayIconData {
     #[must_use]
     pub fn with_tooltip(mut self, tooltip: AzString) -> Self {
         self.tooltip = OptionString::Some(tooltip);
+        self
+    }
+
+    /// Call `callback` with `data` for every tray event no menu item's own
+    /// callback handles - above all a plain click on the icon. Inside it,
+    /// `CallbackInfo::get_tray_event` says which event it runs for.
+    #[must_use]
+    pub fn with_callback<I: Into<CoreCallback>>(mut self, data: RefAny, callback: I) -> Self {
+        self.callback = OptionCoreMenuCallback::Some(CoreMenuCallback {
+            refany: data,
+            callback: callback.into(),
+        });
         self
     }
 

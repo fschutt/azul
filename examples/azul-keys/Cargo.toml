@@ -1,0 +1,62 @@
+[package]
+name = "AzKeys"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzKeys - the password manager of the Azlin apps. One encrypted vault
+    FILE per vault, keys/vaults/<uuid>.azkv in the user's data folder
+    (Argon2id derives the key that wraps the vault key, XChaCha20-Poly1305
+    seals the items), written on an azul Thread through azul-storage (a
+    LocalDrive today, the user's S3 bucket later). Master password, or the
+    OS keyring with biometrics after a first password unlock; logins,
+    cards, notes, identities and SSH keys with custom fields, tags and
+    favourites, one-time codes (RFC 6238 TOTP), a password generator,
+    search, copy with clipboard auto-clear, auto-lock, CSV (browsers,
+    Bitwarden, 1Password, KeePassXC, LastPass) and Bitwarden JSON import.
+    Built on azul's S4 PimShell with the shared skeleton of azul-appkit.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Azlin app skeleton: the switches, the data root, the settings file and page, About, shortcuts,
+# file jobs on a Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The PIM logic the Azlin apps share: the search (diacritics folded), initials, base64.
+azul-pim = { path = "../azul-pim" }
+# The drive every durable write goes through (LocalDrive today, S3Drive later), the file ids.
+azul-storage = { path = "../azul-storage" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# ---- crypto (KEYS9 decision, scripts/KEYS9_2026_10_03.md "Crypto") ----
+# NEW crate: Argon2id, the memory-hard password KDF (RFC 9106; OWASP's first choice). RustCrypto,
+# the same project as chacha20poly1305 below. Brings blake2 0.10 (new) and base64ct (in the lock).
+# No default features: no password-hash string API, no rand; `alloc` for `hash_password_into`,
+# `zeroize` to wipe its memory blocks.
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+# In Cargo.lock (rustls-rustcrypto): XChaCha20-Poly1305 AEAD; a random 192-bit nonce per save is
+# safe without a counter (two devices, a synced bucket). Zeroizes its key on drop.
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+# In Cargo.lock: wiping keys, the master password and decrypted bytes.
+zeroize = { version = "1.8", features = ["alloc"] }
+# In Cargo.lock: the OS random source (salts, nonces, the vault key, the generator).
+getrandom = "0.2"
+# In Cargo.lock (azul-storage, zip, tungstenite): HMAC-SHA1 / SHA-256 / SHA-512 for TOTP (RFC 6238).
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
+[lib]
+name = "azkeys"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzKeys"
+path = "src/main.rs"

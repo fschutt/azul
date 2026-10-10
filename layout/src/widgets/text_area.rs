@@ -41,7 +41,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         layout::{
@@ -391,9 +390,8 @@ impl Default for TextArea {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No opinion: the area follows the app theme (`dom`).
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 }
@@ -454,8 +452,8 @@ impl TextArea {
         self
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -567,16 +565,17 @@ impl TextArea {
     /// the engine records an edit against the *focused* node. Its two children
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node.
+    ///
+    /// Unpinned (`theme: None`, the default), the area follows the APP theme:
+    /// built in the structure of the theme its DOM is built for, every node
+    /// carrying flat's and flora's blocks (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme {
-            crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::text_area(self)
-            }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::text_area(self)
-            }
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::text_area(self),
+            Some(UiTheme::Flora) => flora::text_area(self),
+            None => theme_blocks::follow_app_theme(self, flat::text_area, flora::text_area),
         }
     }
 }
@@ -605,46 +604,34 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
-/// The engine owns the buffer, so its answer wins — except that an empty answer
-/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
-/// whose text sits under a block wrapper it does not descend into. An empty
-/// read therefore never clears a non-empty mirror.
+/// The engine owns the buffer, so its answer wins - an EMPTY answer too: it is
+/// the text the user just cleared. `get_node_text_content` answers `None` for a
+/// node it cannot read, and the read descends into the value `<p>`, so
+/// `Some("")` is an empty text area. (`TextInput`'s `adopt_engine_text` is this
+/// function's twin; both ignored an empty read over a non-empty mirror, so a
+/// cleared field never reached the app's `on_text_input`.)
 fn adopt_engine_text(state: &mut TextAreaState, info: &CallbackInfo, node: DomNodeId) {
-    let Some(text) = info.get_node_text_content(node) else {
+    let Some(text) = crate::widgets::text_mirror::engine_text(info, node) else {
         return;
     };
-    if text.is_empty() && !state.text.is_empty() {
-        return;
-    }
     state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
 }
 
-/// Mirrors the insertion the engine is about to apply.
-///
-/// The engine inserts at the caret, so the mirror does too whenever the caret
-/// is readable and lands on a character boundary; otherwise it appends, which
-/// is where the caret sits for every append-only path. `cursor_pos` stays a
-/// byte offset, as it has always been.
-fn mirror_insertion(state: &mut TextAreaState, inserted: &str, caret: Option<usize>) {
-    let text = state.get_text();
-    let at = caret
-        .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
-        .unwrap_or(text.len());
-
-    let mut next = String::with_capacity(text.len() + inserted.len());
-    next.push_str(&text[..at]);
-    next.push_str(inserted);
-    next.push_str(&text[at..]);
-
+/// Mirrors the insertion the engine is about to apply (`text_mirror::insertion`:
+/// a live selection is replaced, else the text goes in at the caret).
+fn mirror_insertion(
+    state: &mut TextAreaState,
+    inserted: &str,
+    caret: Option<usize>,
+    selected: Option<(usize, usize)>,
+) {
+    let (next, cursor) =
+        crate::widgets::text_mirror::insertion(&state.get_text(), inserted, caret, selected);
     state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
-    state.cursor_pos = at.saturating_add(inserted.len());
+    state.cursor_pos = cursor;
 }
 
-/// The caret's byte offset inside the edited node, if the engine has one.
-fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
-    info.get_node_cursor_position(node)
-        .map(|c| c.cluster_id.start_byte_in_run as usize)
-}
+use crate::widgets::text_mirror::{engine_caret, engine_selected_bytes};
 
 #[must_use]
 pub extern "C" fn default_on_focus_received(
@@ -752,6 +739,8 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_area.inner, &info, container);
+    // The live selection the engine replaces with the typed text.
+    let selected = engine_selected_bytes(&info, container, &text_area.inner.get_text());
 
     // maxlength: veto an insertion that would GROW the value past `max_len`
     // (counted in characters, the stored unit). Replacement-aware: the engine
@@ -762,21 +751,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     {
         let current = text_area.inner.get_text();
         let current_chars = current.chars().count();
-        let selected_chars = info
-            .get_node_selection_ranges(container)
-            .as_ref()
-            .first()
-            .map_or(0, |range| {
-                let from = range.start.cluster_id.start_byte_in_run as usize;
-                let to = range.end.cluster_id.start_byte_in_run as usize;
-                let (a, b) = (from.min(to), from.max(to));
-                if b <= current.len() && current.is_char_boundary(a) && current.is_char_boundary(b)
-                {
-                    current[a..b].chars().count()
-                } else {
-                    0
-                }
-            });
+        let selected_chars = selected.map_or(0, |(a, b)| current[a..b].chars().count());
         let prospective = current_chars
             .saturating_sub(selected_chars)
             .saturating_add(inserted_text.chars().count());
@@ -792,7 +767,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
 
         // inner_clone has the new (would-be) text
         let mut inner_clone = text_area.inner.clone();
-        mirror_insertion(&mut inner_clone, &inserted_text, caret);
+        mirror_insertion(&mut inner_clone, &inserted_text, caret, selected);
 
         match ontextinput.as_mut() {
             Some(TextAreaOnTextInput { callback, refany }) => {
@@ -808,7 +783,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     if result.valid == TextInputValid::Yes {
         // No placeholder bookkeeping: the first accepted character makes the
         // value non-empty and the engine stops painting the prompt.
-        mirror_insertion(&mut text_area.inner, &inserted_text, caret);
+        mirror_insertion(&mut text_area.inner, &inserted_text, caret, selected);
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -1162,8 +1137,14 @@ mod autotest_generated {
     /// `styled_dom.node_hierarchy`, so no real layout (and no font) is needed.
     /// The DOM here is a pure *navigation skeleton*: the state a handler edits
     /// is always the `RefAny` passed to it, never this DOM's own dataset.
-    fn skeleton() -> (StyledDom, Nodes) {
-        let styled = StyledDom::create_from_dom(TextArea::create().dom());
+    /// The widget's tree holding `text` - the ENGINE's buffer. The handlers
+    /// adopt it as the truth (an emptied field included), so a harness that
+    /// rendered an empty tree under a non-empty mirror told them the user had
+    /// cleared it; the real window's tree always shows the mirror's text
+    /// before the event.
+    fn skeleton(text: &str) -> (StyledDom, Nodes) {
+        let styled =
+            StyledDom::create_from_dom(TextArea::create().with_text(AzString::from(text)).dom());
 
         fn one(styled: &StyledDom, class: &str) -> usize {
             let found = nodes_with_class(styled, class);
@@ -1228,6 +1209,8 @@ mod autotest_generated {
         changeset: Option<PendingTextEdit>,
         keycode: Option<VirtualKeyCode>,
         hit: Hit,
+        /// A live selection in the area, as the engine holds it.
+        selection: Option<azul_core::selection::SelectionRange>,
     }
 
     impl Default for Env {
@@ -1237,6 +1220,7 @@ mod autotest_generated {
                 changeset: None,
                 keycode: None,
                 hit: Hit::Container,
+                selection: None,
             }
         }
     }
@@ -1264,6 +1248,26 @@ mod autotest_generated {
             self.hit = hit;
             self
         }
+
+        /// A live selection: from before the cluster at byte `from` to after the cluster
+        /// at byte `last` (a Ctrl+A over "krug" is `selecting(0, 3)`).
+        fn selecting(mut self, from: u32, last: u32) -> Self {
+            use azul_core::selection::{
+                CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor,
+            };
+            let cursor = |byte: u32, affinity: CursorAffinity| TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity,
+            };
+            self.selection = Some(SelectionRange {
+                start: cursor(from, CursorAffinity::Leading),
+                end: cursor(last, CursorAffinity::Trailing),
+            });
+            self
+        }
     }
 
     /// Invokes `call` against a `LayoutWindow` built from `env`. Returns the
@@ -1273,7 +1277,14 @@ mod autotest_generated {
         data: &RefAny,
         call: impl FnOnce(RefAny, CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>, Nodes) {
-        let (styled, nodes) = skeleton();
+        // (A foreign payload - the "ignores a foreign payload" tests - has no
+        // text: the tree is empty.)
+        let mirror = data
+            .clone()
+            .downcast_ref::<TextAreaStateWrapper>()
+            .map(|w| w.inner.get_text())
+            .unwrap_or_default();
+        let (styled, nodes) = skeleton(&mirror);
 
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
@@ -1284,6 +1295,16 @@ mod autotest_generated {
         }
         if let Some(changeset) = env.changeset {
             layout_window.text_input_manager.set_changeset(changeset);
+        }
+        if let Some(range) = env.selection {
+            use azul_core::selection::{MultiCursorState, TextBlock, TextBlockKey};
+            let block = TextBlock::from_resolved(
+                DomId::ROOT_ID,
+                TextBlockKey::Element(NodeId::new(nodes.container)),
+            );
+            let mut session = MultiCursorState::new_with_cursor(range.end, block, 0);
+            session.set_single_range(range);
+            layout_window.text_edit_manager.multi_cursor = Some(session);
         }
 
         let renderer_resources = RendererResources::default();
@@ -2005,8 +2026,11 @@ mod autotest_generated {
         // The rules moved OUT of `TEXT_AREA_CONTAINER_PROPS` and into the theme
         // modules, which is a move nothing else in this suite would notice: no
         // compiler error, and every other assertion here still passes if the
-        // theme silently forgets to append them. Hence this test.
-        let dom = TextArea::create().dom();
+        // theme silently forgets to append them. Hence this test. (One
+        // theme's field: unpinned, each theme's block carries its own set.)
+        let dom = TextArea::create()
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
+            .dom();
 
         let conditioned = |want_dark: bool, want_focus: bool| -> usize {
             dom.root
@@ -2024,7 +2048,7 @@ mod autotest_generated {
                     let mut state_matches = false;
                     for c in conds.as_ref() {
                         match c {
-                            DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark) => dark = true,
                             DynamicSelector::PseudoState(PseudoStateType::Focus) => {
                                 state_matches = want_focus;
                             }
@@ -2226,7 +2250,7 @@ mod autotest_generated {
         // that walk ever stops matching the DOM, all of them silently no-op.
         // (It used to hop container -> placeholder -> next sibling; the
         // prompt is an attribute now, so the value line IS the first child.)
-        let (styled, nodes) = skeleton();
+        let (styled, nodes) = skeleton("");
         let hierarchy = styled.node_hierarchy.as_container();
 
         let label = hierarchy[NodeId::new(nodes.container)]
@@ -2555,6 +2579,21 @@ mod autotest_generated {
             opacity_writes(&changes).is_empty(),
             "no transition, no placeholder write: {changes:?}"
         );
+    }
+
+    /// Typing over a selection REPLACES it, as the engine does: TextInput's mirror learned it
+    /// (E2E-A, 2026-10-06), its TextArea twin appended - select-all + "e" over "krug" mirrored
+    /// "kruge".
+    #[test]
+    fn typing_over_a_select_all_replaces_the_text() {
+        let data = RefAny::new(wrapper("krug"));
+        let (out, _, _) = run(
+            Env::typed("e").selecting(0, 3),
+            &data,
+            default_on_text_input_inner,
+        );
+        assert_eq!(out, Some(Update::DoNothing));
+        assert_eq!(read(&data).get_text(), "e");
     }
 
     #[test]
@@ -3027,6 +3066,42 @@ mod autotest_generated {
             assert_eq!(out, None, "{key:?}");
             assert!(changes.is_empty(), "{key:?}");
             assert_eq!(read(&data).get_text(), "abc", "{key:?}");
+        }
+    }
+}
+
+/// R5: a text area's STRUCTURE (display, flex, overflow, cursor, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::TextArea;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_text_area_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let areas = [
+                ("empty", TextArea::create()),
+                ("with text", TextArea::create().with_text(AzString::from("Dear diary"))),
+                (
+                    "with a placeholder",
+                    TextArea::create().with_placeholder(AzString::from("Notes")),
+                ),
+            ];
+            for (what, area) in areas {
+                let dom = under(t, move || area.dom());
+                assert_structure_is_shared(
+                    &format!("text area {what}, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
         }
     }
 }

@@ -55,6 +55,7 @@ impl PrintAsCssValue for FlowFrom {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for FlowInto {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -67,6 +68,7 @@ impl crate::codegen::format::FormatAsRustCode for FlowInto {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for FlowFrom {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {

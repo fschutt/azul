@@ -124,7 +124,7 @@ mod tests {
         };
 
         let component_map = ComponentMap::default();
-        let dom = xml_node_to_dom_fast(&img_node, &component_map, false, 0)
+        let dom = xml_node_to_dom_fast(&img_node, &component_map, false, None, 0)
             .expect("xml_node_to_dom_fast for <img> should succeed");
 
         match dom.root.get_node_type() {
@@ -161,7 +161,7 @@ mod tests {
         };
 
         let component_map = ComponentMap::default();
-        let dom = xml_node_to_dom_fast(&text_form, &component_map, false, 0)
+        let dom = xml_node_to_dom_fast(&text_form, &component_map, false, None, 0)
             .expect("xml_node_to_dom_fast for <icon>text</icon> should succeed");
 
         match dom.root.get_node_type() {
@@ -267,11 +267,12 @@ mod tests {
             .spawn(|| {
                 let deep = nested_divs(2000);
                 let component_map = ComponentMap::default();
-                let dom = xml_node_to_dom_fast(&deep, &component_map, false, 0);
+                let dom = xml_node_to_dom_fast(&deep, &component_map, false, None, 0);
                 assert!(dom.is_ok(), "deep DOM build must not overflow the stack");
 
                 let mut builder = CompactDomBuilder::new();
-                let fast = xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
+                let fast =
+                    xml_node_to_fast_dom(&deep, &component_map, false, None, &mut builder, 0);
                 assert!(
                     fast.is_ok(),
                     "deep FastDom build must not overflow the stack"
@@ -316,10 +317,107 @@ mod tests {
 }
 
 #[cfg(test)]
+mod webview_markup_tests {
+    use super::*;
+    use crate::{
+        dom::NodeType,
+        webview::WebViewStorage,
+        window::{AzStringPair, StringPairVec},
+    };
+
+    fn element(tag: &str, attributes: &[(&str, &str)]) -> XmlNode {
+        XmlNode {
+            node_type: tag.into(),
+            attributes: XmlAttributeMap::from(StringPairVec::from_vec(
+                attributes
+                    .iter()
+                    .map(|(key, value)| AzStringPair {
+                        key: (*key).into(),
+                        value: (*value).into(),
+                    })
+                    .collect(),
+            )),
+            children: Vec::new().into(),
+        }
+    }
+
+    fn attribute(node: &crate::dom::NodeData, name: &str) -> Option<String> {
+        node.get_attribute(name).map(|v| v.as_str().to_string())
+    }
+
+    /// `<webview src width height storage>`: a web view whose `src` is its
+    /// page, whose `storage` is its config, and whose `width` / `height` are
+    /// the presentational hints HTML gives an iframe (15.4.3) - kept on the
+    /// node here, turned into `width` / `height` declarations when the DOM is
+    /// styled (`attributes::apply_presentational_hints`).
+    #[test]
+    fn a_webview_tag_becomes_a_webview_node_with_its_page_storage_and_size() {
+        let node = element(
+            "webview",
+            &[
+                ("src", "https://login.example.com/authorize?client_id=1"),
+                ("width", "640"),
+                ("height", "480"),
+                ("storage", "persistent"),
+            ],
+        );
+        let dom = xml_node_to_dom_fast(&node, &ComponentMap::default(), false, None, 0)
+            .expect("a <webview> builds");
+        match dom.root.get_node_type() {
+            NodeType::WebView(cfg) => assert_eq!(cfg.storage, WebViewStorage::Persistent),
+            other => panic!("expected a web view node, got {other:?}"),
+        }
+        assert_eq!(
+            attribute(&dom.root, "src").as_deref(),
+            Some("https://login.example.com/authorize?client_id=1")
+        );
+        assert_eq!(attribute(&dom.root, "width").as_deref(), Some("640"));
+        assert_eq!(attribute(&dom.root, "height").as_deref(), Some("480"));
+        assert!(
+            dom.children.as_ref().is_empty(),
+            "a web view takes no content from markup"
+        );
+
+        let bare = xml_node_to_dom_fast(
+            &element("webview", &[("src", "x")]),
+            &ComponentMap::default(),
+            false,
+            None,
+            0,
+        )
+        .expect("a bare <webview> builds");
+        assert!(
+            matches!(
+                bare.root.get_node_type(),
+                NodeType::WebView(cfg) if cfg.storage == WebViewStorage::Ephemeral
+            ),
+            "no `storage` keeps nothing past the app"
+        );
+    }
+
+    /// HTML maps an iframe's `width` / `height` to the dimension properties,
+    /// ignoring zero (15.4.3) - the same reading a table cell gets.
+    #[test]
+    fn a_webviews_size_attributes_are_its_dimension_properties() {
+        let css = attributes::presentational_css(
+            "webview",
+            &[("width", "640"), ("height", "50%")],
+            &[],
+        );
+        assert!(css.contains("width: 640px"), "{css}");
+        assert!(css.contains("height: 50%"), "{css}");
+        assert_eq!(
+            attributes::presentational_css("webview", &[("width", "0")], &[]),
+            "",
+            "a zero width is ignored"
+        );
+        assert_eq!(tag_to_node_type("webview").get_path(), azul_css::css::NodeTypeTag::WebView);
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::all, clippy::pedantic, clippy::nursery)]
 mod autotest_generated {
-    use azul_css::css::{CssNthChildPattern, CssNthChildSelector};
-
     use super::*;
     use crate::dom::{NodeData, NodeType};
 
@@ -381,9 +479,8 @@ mod autotest_generated {
             source: ComponentSource::UserDefined,
             data_model: dm("WidgetData", fields),
             render_fn: user_defined_render_fn,
-            compile_fn: user_defined_compile_fn,
+            codegen: ComponentCodegen::RenderFunction,
             render_fn_source: None.into(),
-            compile_fn_source: None.into(),
         }
     }
 
@@ -2028,140 +2125,91 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // decode_numeric_entity  (parser)
+    // the one decoder (`html::decode_character_references`, XML rules)
+    // - what `prepare_string` decodes with (DEDUP_WIDGETS_API F31)
     // ================================================================
 
-    #[test]
-    fn decode_numeric_entity_valid_minimal() {
-        assert_eq!(decode_numeric_entity("#65"), Some('A'));
-        assert_eq!(decode_numeric_entity("#x41"), Some('A'));
-        assert_eq!(
-            decode_numeric_entity("#X41"),
-            Some('A'),
-            "uppercase X accepted"
-        );
-        assert_eq!(decode_numeric_entity("#x1F600"), Some('\u{1F600}'));
+    fn xml_decode(s: &str) -> String {
+        html::decode_character_references(s, html::CharRefMode::Xml).into_owned()
     }
 
     #[test]
-    fn decode_numeric_entity_empty_whitespace_garbage() {
-        assert_eq!(decode_numeric_entity(""), None);
-        assert_eq!(decode_numeric_entity("   "), None);
-        assert_eq!(decode_numeric_entity("\t\n"), None);
-        assert_eq!(
-            decode_numeric_entity("amp"),
-            None,
-            "named entity is not numeric"
-        );
-        assert_eq!(decode_numeric_entity("#"), None);
-        assert_eq!(decode_numeric_entity("#x"), None);
-        assert_eq!(decode_numeric_entity("#zz"), None);
-        assert_eq!(decode_numeric_entity("# 65"), None);
-        assert_eq!(decode_numeric_entity("#65junk"), None);
-        assert_eq!(decode_numeric_entity("\u{1F600}"), None);
+    fn a_numeric_reference_decodes_to_its_character() {
+        assert_eq!(xml_decode("&#65;"), "A");
+        assert_eq!(xml_decode("&#x41;"), "A");
+        assert_eq!(xml_decode("&#X41;"), "A", "uppercase X accepted");
+        assert_eq!(xml_decode("&#x1F600;"), "\u{1F600}");
     }
 
     #[test]
-    fn decode_numeric_entity_boundary_code_points() {
-        assert_eq!(
-            decode_numeric_entity("#0"),
-            Some('\u{0}'),
-            "NUL is a valid char"
-        );
-        assert_eq!(
-            decode_numeric_entity("#x10FFFF"),
-            Some('\u{10FFFF}'),
-            "max scalar"
-        );
-        assert_eq!(
-            decode_numeric_entity("#x110000"),
-            None,
-            "one past the max scalar value"
-        );
-        assert_eq!(
-            decode_numeric_entity("#xD800"),
-            None,
-            "a lone surrogate is not a char"
-        );
-        assert_eq!(
-            decode_numeric_entity("#4294967295"),
-            None,
-            "u32::MAX is not a scalar value"
-        );
-        assert_eq!(
-            decode_numeric_entity("#4294967296"),
-            None,
-            "one past u32::MAX must not wrap — it must fail to parse"
-        );
-        assert_eq!(
-            decode_numeric_entity("#-1"),
-            None,
-            "negative is rejected by u32"
-        );
-        assert_eq!(
-            decode_numeric_entity("#xFFFFFFFFFFFF"),
-            None,
-            "hex overflow is rejected, not truncated"
-        );
+    fn a_malformed_numeric_reference_stays_as_written() {
+        for s in ["&#;", "&#x;", "&#zz;", "&# 65;", "&#65junk;", "&#65"] {
+            assert_eq!(xml_decode(s), s);
+        }
     }
 
     #[test]
-    fn decode_numeric_entity_extremely_long_terminates() {
-        let s = format!("#{}", "9".repeat(LONG));
-        assert_eq!(s.len(), LONG + 1);
-        assert_eq!(decode_numeric_entity(&s), None, "overflows u32 => None");
+    fn a_numeric_reference_outside_the_scalar_values_stays_as_written() {
+        assert_eq!(xml_decode("&#0;"), "\u{0}", "NUL is a valid char");
+        assert_eq!(xml_decode("&#x10FFFF;"), "\u{10FFFF}", "max scalar");
+        for s in [
+            "&#x110000;",       // one past the max scalar value
+            "&#xD800;",         // a lone surrogate is not a char
+            "&#4294967295;",    // u32::MAX is not a scalar value
+            "&#4294967296;",    // one past u32::MAX must not wrap
+            "&#-1;",            // a sign is not a digit
+            "&#xFFFFFFFFFFFF;", // hex overflow is rejected, not truncated
+        ] {
+            assert_eq!(xml_decode(s), s);
+        }
     }
 
-    // ================================================================
-    // decode_entities / prepare_string
-    // ================================================================
+    #[test]
+    fn an_extremely_long_numeric_reference_terminates() {
+        let s = format!("&#{};", "9".repeat(LONG));
+        assert_eq!(xml_decode(&s), s, "overflows u32: stays as written");
+    }
 
     #[test]
-    fn decode_entities_leaves_unrecognized_sequences_verbatim() {
-        assert_eq!(decode_entities(""), "");
+    fn an_unknown_or_empty_reference_stays_as_written() {
+        assert_eq!(xml_decode(""), "");
+        assert_eq!(xml_decode("&"), "&", "a bare '&' at EOF must not panic");
+        assert_eq!(xml_decode("&;"), "&;", "empty reference body");
+        assert_eq!(xml_decode("&bogus;"), "&bogus;");
         assert_eq!(
-            decode_entities("&"),
-            "&",
-            "a bare '&' at EOF must not panic"
-        );
-        assert_eq!(
-            decode_entities("&;"),
-            "&;",
-            "empty entity body is not decoded"
-        );
-        assert_eq!(decode_entities("&bogus;"), "&bogus;");
-        assert_eq!(
-            decode_entities("&nbsp;"),
-            "&nbsp;",
-            "&nbsp; is deliberately kept"
-        );
-        // A ';' further away than MAX_ENTITY_BODY is not treated as an entity end.
-        assert_eq!(
-            decode_entities("&averyveryverylongbody;"),
+            xml_decode("&averyveryverylongbody;"),
             "&averyveryverylongbody;"
         );
     }
 
     #[test]
-    fn decode_entities_single_pass_prevents_double_decoding() {
+    fn decoding_is_one_pass_so_an_ampersand_never_reopens_a_reference() {
         assert_eq!(
-            decode_entities("&amp;lt;"),
+            xml_decode("&amp;lt;"),
             "&lt;",
             "&amp; must not re-open an entity"
         );
-        assert_eq!(decode_entities("&lt;&gt;&amp;&quot;&apos;"), "<>&\"'");
+        assert_eq!(xml_decode("&lt;&gt;&amp;&quot;&apos;"), "<>&\"'");
     }
 
     #[test]
-    fn decode_entities_unicode_and_long_input_terminate() {
+    fn decoding_keeps_unicode_and_terminates_on_long_input() {
         assert_eq!(
-            decode_entities("\u{1F600}\u{0301}\u{130}"),
+            xml_decode("\u{1F600}\u{0301}\u{130}"),
             "\u{1F600}\u{0301}\u{130}"
         );
-        // NOTE: each '&' triggers a `find(';')` over the whole remaining suffix, so
-        // this is quadratic in the number of '&'. Keep the input modest.
         let amps = "&".repeat(20_000);
-        assert_eq!(decode_entities(&amps).len(), 20_000);
+        assert_eq!(xml_decode(&amps).len(), 20_000);
+    }
+
+    /// `&nbsp;` is a space `prepare_string`'s trimming keeps: decoded to
+    /// U+00A0 before the per-line trim, it would be trimmed away (U+00A0 is
+    /// white space to `str::trim`).
+    #[test]
+    fn prepare_string_turns_nbsp_into_a_space_the_trim_keeps() {
+        assert_eq!(prepare_string("a&nbsp;b"), "a b");
+        assert_eq!(prepare_string("&nbsp;x&nbsp;"), " x ");
+        assert_eq!(prepare_string("&nbsp;&amp;&nbsp;"), " & ");
     }
 
     #[test]
@@ -2380,639 +2428,6 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // compile_and_format_dynamic_items / format_args_for_rust_code
-    // ================================================================
-
-    #[test]
-    fn format_args_for_rust_code_empty_and_single_items() {
-        assert_eq!(
-            format_args_for_rust_code(""),
-            "AzString::from_const_str(\"\")"
-        );
-        assert_eq!(
-            format_args_for_rust_code("hi"),
-            "AzString::from_const_str(\"hi\")"
-        );
-        assert_eq!(
-            format_args_for_rust_code("{a}"),
-            "a",
-            "a lone var becomes a bare ident"
-        );
-        assert_eq!(
-            format_args_for_rust_code("{a:?}"),
-            "format!(\"{:?}\", a).into()"
-        );
-    }
-
-    #[test]
-    fn format_args_for_rust_code_multi_item_builds_a_format_call() {
-        assert_eq!(
-            format_args_for_rust_code("x={a} y={b}"),
-            "format!(\"x={a} y={b}\", a, b).into()"
-        );
-    }
-
-    #[test]
-    fn format_args_for_rust_code_escapes_quotes_in_literals() {
-        let out = format_args_for_rust_code("say \"hi\" {a}");
-        assert!(
-            out.contains("say \\\"hi\\\""),
-            "double quotes must be escaped for the emitted literal, got {out}"
-        );
-    }
-
-    #[test]
-    fn compile_and_format_dynamic_items_edge_values() {
-        assert_eq!(
-            compile_and_format_dynamic_items(&[]),
-            "AzString::from_const_str(\"\")"
-        );
-        assert_eq!(
-            compile_and_format_dynamic_items(&[DynamicItem::Str(String::new())]),
-            "AzString::from_const_str(\"\")"
-        );
-        assert_eq!(
-            compile_and_format_dynamic_items(&[DynamicItem::Var {
-                name: "  spaced  ".to_string(),
-                format_spec: None,
-            }]),
-            "spaced",
-            "the var name is trimmed + normalized"
-        );
-    }
-
-    // ================================================================
-    // cap_first / camel_to_snake / esc_lit / c_creator_suffix
-    // ================================================================
-
-    #[test]
-    fn cap_first_edge_inputs() {
-        assert_eq!(cap_first(""), "", "empty input must not panic");
-        assert_eq!(cap_first("h1"), "H1");
-        assert_eq!(cap_first("button"), "Button");
-        assert_eq!(cap_first("A"), "A", "already-uppercase is idempotent");
-        assert_eq!(
-            cap_first("\u{1F600}x"),
-            "\u{1F600}x",
-            "emoji has no uppercase form"
-        );
-        // 'ß' uppercases to TWO chars — the fn must not assume 1:1.
-        assert_eq!(cap_first("\u{df}x"), "SSx");
-        assert_eq!(cap_first(&"a".repeat(10_000)).len(), 10_000);
-    }
-
-    #[test]
-    fn camel_to_snake_documented_forms() {
-        assert_eq!(camel_to_snake("ButtonNoA11y"), "button_no_a11y");
-        assert_eq!(camel_to_snake("PWithText"), "p_with_text");
-        assert_eq!(camel_to_snake("ANoA11y"), "a_no_a11y");
-        assert_eq!(camel_to_snake("H1WithText"), "h1_with_text");
-        assert_eq!(camel_to_snake("Div"), "div");
-    }
-
-    #[test]
-    fn camel_to_snake_edge_inputs() {
-        assert_eq!(camel_to_snake(""), "");
-        assert_eq!(camel_to_snake("A"), "a");
-        assert_eq!(camel_to_snake("AB"), "ab", "an all-caps run is not split");
-        assert_eq!(
-            camel_to_snake("ABc"),
-            "a_bc",
-            "a caps run splits before the last cap"
-        );
-        assert_eq!(camel_to_snake("\u{1F600}"), "\u{1F600}");
-        assert_eq!(camel_to_snake(&"a".repeat(10_000)).len(), 10_000);
-    }
-
-    #[test]
-    fn esc_lit_escapes_backslash_before_quote() {
-        assert_eq!(esc_lit(""), "");
-        assert_eq!(esc_lit("plain"), "plain");
-        assert_eq!(esc_lit("a\"b"), "a\\\"b");
-        assert_eq!(esc_lit("a\\b"), "a\\\\b");
-        // The backslash pass must run FIRST so an escaped quote is not double-escaped.
-        assert_eq!(esc_lit("\\\""), "\\\\\\\"");
-        assert_eq!(esc_lit("\u{1F600}"), "\u{1F600}");
-    }
-
-    #[test]
-    fn c_creator_suffix_edge_inputs() {
-        assert_eq!(
-            c_creator_suffix(""),
-            "Div",
-            "empty debug name falls back to Div"
-        );
-        assert_eq!(c_creator_suffix("Div"), "Div");
-        assert_eq!(c_creator_suffix("H1"), "H1");
-        assert_eq!(c_creator_suffix("BlockQuote"), "Blockquote");
-        assert_eq!(c_creator_suffix("FigCaption"), "Figcaption");
-        assert_eq!(c_creator_suffix("\u{1F600}"), "\u{1F600}");
-    }
-
-    // ================================================================
-    // safe_container_tag
-    // ================================================================
-
-    #[test]
-    fn safe_container_tag_falls_back_to_div_for_arg_taking_widgets() {
-        assert_eq!(safe_container_tag(""), "Div");
-        assert_eq!(safe_container_tag("Div"), "Div");
-        assert_eq!(safe_container_tag("Span"), "Span");
-        assert_eq!(safe_container_tag("H1"), "H1");
-        // Interactive / arg-taking elements deliberately degrade to a container.
-        assert_eq!(safe_container_tag("Button"), "Div");
-        assert_eq!(safe_container_tag("Input"), "Div");
-        assert_eq!(safe_container_tag("A"), "Div");
-        assert_eq!(safe_container_tag("\u{1F600}"), "Div");
-        assert_eq!(safe_container_tag(&"z".repeat(10_000)), "Div");
-    }
-
-    /// BUG (reported): `SAFE_CONTAINER_TAGS` is documented as holding the
-    /// `NodeType`/`NodeTypeTag` **debug names**, and `safe_container_tag` compares
-    /// against `format!("{:?}", tag_to_node_type(tag))`. But six entries are spelled
-    /// with a different inner capitalization than the actual variant, so the
-    /// comparison never matches and `<blockquote>`/`<figcaption>`/`<thead>`/`<tbody>`
-    /// /`<tfoot>`/`<colgroup>` silently compile down to a plain `div`.
-    #[test]
-    fn safe_container_tag_matches_the_real_nodetype_debug_names() {
-        for tag in [
-            "blockquote",
-            "figcaption",
-            "thead",
-            "tbody",
-            "tfoot",
-            "colgroup",
-        ] {
-            let dbg = format!("{:?}", tag_to_node_type(tag));
-            assert_ne!(
-                safe_container_tag(&dbg),
-                "Div",
-                "<{tag}> (NodeType debug name {dbg:?}) is a pure container and must keep its own \
-                 creator instead of degrading to a div"
-            );
-        }
-    }
-
-    // ================================================================
-    // fmt_f32_lit  (numeric)
-    // ================================================================
-
-    #[test]
-    fn fmt_f32_lit_zero_and_negative() {
-        assert_eq!(
-            fmt_f32_lit(0.0),
-            "0.0",
-            "an integral value gains a decimal point"
-        );
-        assert_eq!(fmt_f32_lit(-0.0), "-0.0");
-        assert_eq!(fmt_f32_lit(-1.0), "-1.0");
-        assert_eq!(fmt_f32_lit(1.5), "1.5");
-        assert_eq!(fmt_f32_lit(-1.5), "-1.5");
-    }
-
-    #[test]
-    fn fmt_f32_lit_min_max_stay_parseable_float_literals() {
-        for f in [f32::MAX, f32::MIN, f32::MIN_POSITIVE, f32::EPSILON] {
-            let s = fmt_f32_lit(f);
-            assert_eq!(
-                s.parse::<f32>(),
-                Ok(f),
-                "{f:e} must round-trip through its emitted literal ({s})"
-            );
-        }
-    }
-
-    #[test]
-    fn fmt_f32_lit_nan_inf_produce_a_defined_result_and_do_not_panic() {
-        // NOTE: these are NOT valid Rust/C float literals — a page with
-        // `<progress value="NaN">` emits `create_progress_no_a11y(NaN, 1.0)`.
-        // Pinned so a fix (e.g. clamping to 0.0) is a visible change.
-        assert_eq!(fmt_f32_lit(f32::NAN), "NaN");
-        assert_eq!(fmt_f32_lit(f32::INFINITY), "inf");
-        assert_eq!(fmt_f32_lit(f32::NEG_INFINITY), "-inf");
-    }
-
-    // ================================================================
-    // node_direct_text / node_aria_label / node_attr_or / node_attr_f32
-    // first_caption_text
-    // ================================================================
-
-    #[test]
-    fn node_direct_text_trims_and_skips_elements() {
-        assert_eq!(node_direct_text(&XmlNode::default()), "");
-        assert_eq!(node_direct_text(&node("p", &[], vec![txt("  Go  ")])), "Go");
-        assert_eq!(
-            node_direct_text(&node(
-                "p",
-                &[],
-                vec![
-                    txt("a"),
-                    elem(node("b", &[], vec![txt("IGNORED")])),
-                    txt("b")
-                ]
-            )),
-            "a b",
-            "direct text children are joined with a single space"
-        );
-        assert_eq!(
-            node_direct_text(&node("p", &[], vec![txt("   "), txt("\t\n")])),
-            "",
-            "whitespace-only children are dropped"
-        );
-    }
-
-    #[test]
-    fn node_aria_label_ignores_empty_and_whitespace() {
-        assert_eq!(node_aria_label(&XmlNode::default()), None);
-        assert_eq!(
-            node_aria_label(&node("b", &[("aria-label", "")], vec![])),
-            None
-        );
-        assert_eq!(
-            node_aria_label(&node("b", &[("aria-label", "   ")], vec![])),
-            None
-        );
-        assert_eq!(
-            node_aria_label(&node("b", &[("aria-label", "  Save  ")], vec![])),
-            Some("Save".to_string())
-        );
-    }
-
-    #[test]
-    fn node_attr_or_returns_the_default_when_absent() {
-        let n = node("a", &[("href", "/x"), ("empty", "")], vec![]);
-        assert_eq!(node_attr_or(&n, "href", "FALLBACK"), "/x");
-        assert_eq!(node_attr_or(&n, "missing", "FALLBACK"), "FALLBACK");
-        assert_eq!(
-            node_attr_or(&n, "empty", "FALLBACK"),
-            "",
-            "a present-but-empty attribute wins over the default"
-        );
-        assert_eq!(node_attr_or(&XmlNode::default(), "x", ""), "");
-    }
-
-    #[test]
-    fn node_attr_f32_zero_negative_and_defaults() {
-        let n = node(
-            "meter",
-            &[
-                ("zero", "0"),
-                ("negzero", "-0"),
-                ("neg", "-2.5"),
-                ("pad", "  1.5  "),
-            ],
-            vec![],
-        );
-        assert_eq!(node_attr_f32(&n, "zero", 9.0), 0.0);
-        assert!(node_attr_f32(&n, "negzero", 9.0).is_sign_negative());
-        assert_eq!(node_attr_f32(&n, "neg", 9.0), -2.5);
-        assert_eq!(
-            node_attr_f32(&n, "pad", 9.0),
-            1.5,
-            "the value is trimmed first"
-        );
-        assert_eq!(node_attr_f32(&n, "missing", 9.0), 9.0);
-    }
-
-    #[test]
-    fn node_attr_f32_unparsable_falls_back_and_min_max_saturate() {
-        let n = node(
-            "meter",
-            &[
-                ("junk", "abc"),
-                ("empty", ""),
-                ("huge", "1e400"),
-                ("tiny", "-1e400"),
-                ("big", "340282350000000000000000000000000000000"),
-            ],
-            vec![],
-        );
-        assert_eq!(node_attr_f32(&n, "junk", 7.0), 7.0);
-        assert_eq!(node_attr_f32(&n, "empty", 7.0), 7.0);
-        assert!(
-            node_attr_f32(&n, "huge", 7.0).is_infinite(),
-            "an out-of-range literal saturates to inf, it does not panic"
-        );
-        assert_eq!(node_attr_f32(&n, "tiny", 7.0), f32::NEG_INFINITY);
-        assert_eq!(node_attr_f32(&n, "big", 7.0), f32::MAX);
-    }
-
-    #[test]
-    fn node_attr_f32_accepts_nan_and_inf_spellings() {
-        // Rust's f32 FromStr accepts "NaN"/"inf", so hostile markup can inject a
-        // non-finite value straight into codegen (see fmt_f32_lit above).
-        let n = node("progress", &[("value", "NaN"), ("max", "inf")], vec![]);
-        assert!(node_attr_f32(&n, "value", 0.0).is_nan());
-        assert_eq!(node_attr_f32(&n, "max", 1.0), f32::INFINITY);
-    }
-
-    #[test]
-    fn node_attr_f32_nan_default_is_returned_verbatim() {
-        assert!(node_attr_f32(&XmlNode::default(), "x", f32::NAN).is_nan());
-        assert_eq!(
-            node_attr_f32(&XmlNode::default(), "x", f32::INFINITY),
-            f32::INFINITY
-        );
-    }
-
-    #[test]
-    fn first_caption_text_edges() {
-        assert_eq!(first_caption_text(&XmlNode::default()), None);
-        assert_eq!(
-            first_caption_text(&node(
-                "table",
-                &[],
-                vec![elem(node("caption", &[], vec![]))]
-            )),
-            None,
-            "an empty caption yields None"
-        );
-        assert_eq!(
-            first_caption_text(&node(
-                "table",
-                &[],
-                vec![elem(node("CAPTION", &[], vec![txt("  Hi  ")]))]
-            )),
-            Some("Hi".to_string()),
-            "the tag match is ASCII-case-insensitive and the text is trimmed"
-        );
-    }
-
-    // ================================================================
-    // analyze_node_ctor / CtorArg / NodeCtor
-    // ================================================================
-
-    #[test]
-    fn analyze_node_ctor_plain_for_unknown_and_empty_tags() {
-        assert!(matches!(
-            analyze_node_ctor("div", &XmlNode::default()),
-            NodeCtor::Plain
-        ));
-        assert!(matches!(
-            analyze_node_ctor("", &XmlNode::default()),
-            NodeCtor::Plain
-        ));
-        assert!(matches!(
-            analyze_node_ctor("\u{1F600}", &XmlNode::default()),
-            NodeCtor::Plain
-        ));
-        let plain = analyze_node_ctor("div", &XmlNode::default());
-        assert_eq!(plain.render_rust(), None);
-        assert_eq!(plain.render_c(), None);
-        assert_eq!(plain.render_fluent(&CompileTarget::Cpp), None);
-        assert!(!plain.consumes_text());
-        assert!(!plain.skip_caption());
-    }
-
-    #[test]
-    fn analyze_node_ctor_with_text_tier_requires_actual_text() {
-        // Empty <p> stays a plain container (has_only_text_children() is vacuously
-        // true for a childless node, so `has_text` is the real gate).
-        assert!(matches!(
-            analyze_node_ctor("p", &XmlNode::default()),
-            NodeCtor::Plain
-        ));
-        // <p> with an element child is not "pure text" either.
-        let mixed = node("p", &[], vec![txt("a"), elem(XmlNode::create("span"))]);
-        assert!(matches!(analyze_node_ctor("p", &mixed), NodeCtor::Plain));
-
-        let pure = node("p", &[], vec![txt("  Hello  ")]);
-        let ctor = analyze_node_ctor("p", &pure);
-        assert!(
-            ctor.consumes_text(),
-            "the text is folded into the constructor"
-        );
-        assert_eq!(
-            ctor.render_rust().as_deref(),
-            Some("Dom::create_p_with_text(AzString::from(\"Hello\"))")
-        );
-        assert_eq!(
-            ctor.render_c().as_deref(),
-            Some("AzDom_createPWithText(AZ_STR(\"Hello\"))")
-        );
-        assert_eq!(
-            ctor.render_fluent(&CompileTarget::Python).as_deref(),
-            Some("azul.Dom.create_p_with_text(\"Hello\")")
-        );
-    }
-
-    #[test]
-    fn analyze_node_ctor_button_with_and_without_aria() {
-        let plain_btn = node("button", &[], vec![txt("Go")]);
-        assert_eq!(
-            analyze_node_ctor("button", &plain_btn)
-                .render_rust()
-                .as_deref(),
-            Some("Dom::create_button_no_a11y(AzString::from(\"Go\"))")
-        );
-
-        let aria_btn = node("button", &[("aria-label", "Save")], vec![txt("Go")]);
-        assert_eq!(
-            analyze_node_ctor("button", &aria_btn)
-                .render_rust()
-                .as_deref(),
-            Some(
-                "Dom::create_button(AzString::from(\"Go\"), \
-                 SmallAriaInfo::label(AzString::from(\"Save\")))"
-            )
-        );
-    }
-
-    #[test]
-    fn analyze_node_ctor_escapes_quotes_and_backslashes_in_text() {
-        let btn = node("button", &[], vec![txt("say \"hi\"\\now")]);
-        let rust = analyze_node_ctor("button", &btn)
-            .render_rust()
-            .expect("semantic");
-        assert!(
-            rust.contains("say \\\"hi\\\"\\\\now"),
-            "quotes and backslashes must be escaped for the literal, got {rust}"
-        );
-    }
-
-    #[test]
-    fn analyze_node_ctor_anchor_uses_option_string_when_it_has_no_text() {
-        let bare = node("a", &[], vec![]);
-        assert_eq!(
-            analyze_node_ctor("a", &bare).render_rust().as_deref(),
-            Some("Dom::create_a_no_a11y(AzString::from(\"\"), OptionString::None)"),
-            "a missing href defaults to an empty string, missing text to OptionString::None"
-        );
-
-        let full = node("a", &[("href", "/x")], vec![txt("Home")]);
-        assert_eq!(
-            analyze_node_ctor("a", &full).render_rust().as_deref(),
-            Some(
-                "Dom::create_a_no_a11y(AzString::from(\"/x\"), \
-                 OptionString::Some(AzString::from(\"Home\")))"
-            )
-        );
-        assert_eq!(
-            analyze_node_ctor("a", &full).render_c().as_deref(),
-            Some("AzDom_createANoA11y(AZ_STR(\"/x\"), AzOptionString_some(AZ_STR(\"Home\")))")
-        );
-    }
-
-    #[test]
-    fn analyze_node_ctor_table_aria_form_skips_the_literal_caption() {
-        let t = node(
-            "table",
-            &[("aria-label", "Prices")],
-            vec![elem(node("caption", &[], vec![txt("Q1")]))],
-        );
-        let ctor = analyze_node_ctor("table", &t);
-        assert!(
-            ctor.skip_caption(),
-            "the aria form injects its own caption child"
-        );
-        assert_eq!(
-            ctor.render_rust().as_deref(),
-            Some(
-                "Dom::create_table(AzString::from(\"Q1\"), \
-                 SmallAriaInfo::label(AzString::from(\"Prices\")))"
-            )
-        );
-
-        let plain = analyze_node_ctor("table", &node("table", &[], vec![]));
-        assert!(!plain.skip_caption());
-        assert_eq!(
-            plain.render_rust().as_deref(),
-            Some("Dom::create_table_no_a11y()")
-        );
-    }
-
-    #[test]
-    fn analyze_node_ctor_scalar_widgets_use_defaults_and_emit_float_literals() {
-        let p = node("progress", &[], vec![]);
-        assert_eq!(
-            analyze_node_ctor("progress", &p).render_rust().as_deref(),
-            Some("Dom::create_progress_no_a11y(0.0, 1.0)"),
-            "missing value/max fall back to 0.0 / 1.0 as float literals"
-        );
-
-        let m = node(
-            "meter",
-            &[("value", "5"), ("min", "-1"), ("max", "10")],
-            vec![],
-        );
-        assert_eq!(
-            analyze_node_ctor("meter", &m).render_c().as_deref(),
-            Some("AzDom_createMeterNoA11y(5.0f, -1.0f, 10.0f)")
-        );
-    }
-
-    /// Non-finite attribute values flow straight into the emitted literal. Pinned
-    /// so that a fix (clamping / rejecting them) shows up as a change.
-    #[test]
-    fn analyze_node_ctor_non_finite_attributes_emit_non_finite_literals() {
-        let p = node("progress", &[("value", "NaN"), ("max", "inf")], vec![]);
-        let rust = analyze_node_ctor("progress", &p)
-            .render_rust()
-            .expect("semantic");
-        assert_eq!(rust, "Dom::create_progress_no_a11y(NaN, inf)");
-    }
-
-    #[test]
-    fn ctor_arg_render_targets_are_distinct() {
-        let s = CtorArg::Str("a\"b".to_string());
-        assert_eq!(s.render_rust(), "AzString::from(\"a\\\"b\")");
-        assert_eq!(s.render_c(), "AZ_STR(\"a\\\"b\")");
-        assert_eq!(s.render_cpp(), "String(\"a\\\"b\")");
-        assert_eq!(s.render_python(), "\"a\\\"b\"");
-
-        assert_eq!(CtorArg::OptNone.render_rust(), "OptionString::None");
-        assert_eq!(CtorArg::OptNone.render_c(), "AzOptionString_none()");
-        assert_eq!(CtorArg::OptNone.render_cpp(), "OptionString::none()");
-        assert_eq!(CtorArg::OptNone.render_python(), "azul.OptionString.none()");
-
-        assert_eq!(CtorArg::Float(0.0).render_rust(), "0.0");
-        assert_eq!(CtorArg::Float(0.0).render_c(), "0.0f");
-        assert_eq!(CtorArg::Float(f32::NAN).render_c(), "NaNf");
-    }
-
-    #[test]
-    fn node_ctor_render_fluent_returns_none_for_non_fluent_targets() {
-        let ctor = analyze_node_ctor("p", &node("p", &[], vec![txt("x")]));
-        assert!(ctor.render_fluent(&CompileTarget::Rust).is_none());
-        assert!(ctor.render_fluent(&CompileTarget::C).is_none());
-        assert!(ctor.render_fluent(&CompileTarget::Cpp).is_some());
-        assert!(ctor.render_fluent(&CompileTarget::Python).is_some());
-    }
-
-    // ================================================================
-    // format_component_args / compile_component / compile_components
-    // ================================================================
-
-    #[test]
-    fn format_component_args_empty_and_ordering() {
-        assert_eq!(format_component_args(&no_args()), "");
-        // Args are sorted DESCENDING by their rendered "name: type" string.
-        assert_eq!(
-            format_component_args(&args(&[("a", "u32"), ("b", "String")])),
-            "b: String, a: u32"
-        );
-    }
-
-    #[test]
-    fn format_component_args_edge_values_no_panic() {
-        let a = args(&[("", ""), ("\u{1F600}", "\u{130}")]);
-        let out = format_component_args(&a);
-        assert!(
-            out.contains(": "),
-            "still emits `name: type` pairs, got {out:?}"
-        );
-    }
-
-    #[test]
-    fn compile_component_emits_a_render_fn() {
-        let ca = ComponentArguments {
-            args: args(&[("count", "u32")]),
-            accepts_text: false,
-        };
-        let out = compile_component("MyWidget", &ca, "Dom::create_div()");
-        assert!(
-            out.contains("pub fn render(count: u32) -> Dom {"),
-            "got:\n{out}"
-        );
-        assert!(out.contains("#[inline]"), "a one-line body is inlined");
-    }
-
-    #[test]
-    fn compile_component_accepts_text_prepends_the_text_param() {
-        let ca = ComponentArguments {
-            args: args(&[("count", "u32")]),
-            accepts_text: true,
-        };
-        let out = compile_component("my-widget", &ca, "Dom::create_div()");
-        assert!(
-            out.contains("pub fn render(text: AzString, count: u32) -> Dom {"),
-            "got:\n{out}"
-        );
-
-        let ca_no_args = ComponentArguments {
-            args: no_args(),
-            accepts_text: true,
-        };
-        let out = compile_component("w", &ca_no_args, "Dom::create_div()");
-        assert!(
-            out.contains("pub fn render(text: AzString) -> Dom {"),
-            "no trailing comma when there are no extra args, got:\n{out}"
-        );
-    }
-
-    #[test]
-    fn compile_component_empty_name_and_body_no_panic() {
-        let ca = ComponentArguments::default();
-        let out = compile_component("", &ca, "");
-        assert!(out.contains("pub fn render() -> Dom {"), "got:\n{out}");
-    }
-
-    #[test]
-    fn compile_components_of_an_empty_list_is_empty() {
-        assert_eq!(compile_components(Vec::new()), "");
-    }
-
-    // ================================================================
     // parse_svg_float / parse_svg_points  (parser / numeric)
     // ================================================================
 
@@ -3020,36 +2435,36 @@ mod autotest_generated {
     fn parse_svg_float_none_empty_whitespace_garbage() {
         assert_eq!(parse_svg_float(None), None);
         let empty = AzString::from("");
-        assert_eq!(parse_svg_float(Some(&empty)), None);
+        assert_eq!(parse_svg_float(Some(empty.as_str())), None);
         let ws = AzString::from("   \t\n");
-        assert_eq!(parse_svg_float(Some(&ws)), None);
+        assert_eq!(parse_svg_float(Some(ws.as_str())), None);
         let junk = AzString::from("10px");
-        assert_eq!(parse_svg_float(Some(&junk)), None, "units are not stripped");
+        assert_eq!(parse_svg_float(Some(junk.as_str())), None, "units are not stripped");
         let uni = AzString::from("\u{1F600}");
-        assert_eq!(parse_svg_float(Some(&uni)), None);
+        assert_eq!(parse_svg_float(Some(uni.as_str())), None);
     }
 
     #[test]
     fn parse_svg_float_valid_and_boundary_numbers() {
         let padded = AzString::from("  1.5  ");
         assert_eq!(
-            parse_svg_float(Some(&padded)),
+            parse_svg_float(Some(padded.as_str())),
             Some(1.5),
             "value is trimmed"
         );
         let zero = AzString::from("0");
-        assert_eq!(parse_svg_float(Some(&zero)), Some(0.0));
+        assert_eq!(parse_svg_float(Some(zero.as_str())), Some(0.0));
         let negzero = AzString::from("-0");
-        assert!(parse_svg_float(Some(&negzero)).unwrap().is_sign_negative());
+        assert!(parse_svg_float(Some(negzero.as_str())).unwrap().is_sign_negative());
         let huge = AzString::from("1e400");
         assert!(
-            parse_svg_float(Some(&huge)).unwrap().is_infinite(),
+            parse_svg_float(Some(huge.as_str())).unwrap().is_infinite(),
             "overflow saturates to inf rather than erroring"
         );
         let nan = AzString::from("NaN");
-        assert!(parse_svg_float(Some(&nan)).unwrap().is_nan());
+        assert!(parse_svg_float(Some(nan.as_str())).unwrap().is_nan());
         let inf = AzString::from("-inf");
-        assert_eq!(parse_svg_float(Some(&inf)), Some(f32::NEG_INFINITY));
+        assert_eq!(parse_svg_float(Some(inf.as_str())), Some(f32::NEG_INFINITY));
     }
 
     #[test]
@@ -3196,8 +2611,110 @@ mod autotest_generated {
     fn xml_node_to_dom_fast_depth_zero_builds_children() {
         let map = ComponentMap::default();
         let n = node("div", &[], vec![txt("hi"), elem(XmlNode::create("span"))]);
-        let dom = xml_node_to_dom_fast(&n, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&n, &map, false, None, 0).expect("ok");
         assert_eq!(dom.children.as_ref().len(), 2);
+    }
+
+    /// Every text node in `dom`, in document order.
+    fn all_text(dom: &Dom, out: &mut Vec<String>) {
+        if let NodeType::Text(t) = dom.root.get_node_type() {
+            out.push(t.as_ref().as_str().to_string());
+        }
+        for child in dom.children.as_ref() {
+            all_text(child, out);
+        }
+    }
+
+    /// An icon theme is a directory of Inkscape-authored SVGs, and Inkscape
+    /// writes an RDF block into every file it saves:
+    ///
+    /// ```text
+    /// <metadata><rdf:RDF><cc:Work><dc:format>image/svg+xml</dc:format>…
+    /// ```
+    ///
+    /// None of it is drawing. `<metadata>` is defined to render nothing, and
+    /// an element in a foreign namespace is not rendered either - so the only
+    /// thing a renderer takes out of that file is the `<path>`.
+    ///
+    /// Here every unrecognised tag became a `<div>` and every text child
+    /// became a text node, so an icon drew the literal string
+    /// `image/svg+xml`, clipped to the 16px icon box. That is what the window
+    /// controls of a client-side titlebar came out as: the letters `im`, in
+    /// place of a minimise bar.
+    #[test]
+    fn an_svg_metadata_block_is_not_drawn_as_text() {
+        let map = ComponentMap::default();
+        let svg = node(
+            "svg",
+            &[("width", "16"), ("height", "16")],
+            vec![
+                elem(node(
+                    "metadata",
+                    &[],
+                    vec![elem(node(
+                        "rdf:RDF",
+                        &[],
+                        vec![elem(node(
+                            "cc:Work",
+                            &[],
+                            vec![elem(node("dc:format", &[], vec![txt("image/svg+xml")]))],
+                        ))],
+                    ))],
+                )),
+                elem(node("path", &[("d", "M4 10v1h8v-1z")], vec![])),
+            ],
+        );
+
+        let dom = xml_node_to_dom_fast(&svg, &map, false, None, 0).expect("ok");
+
+        let mut texts = Vec::new();
+        all_text(&dom, &mut texts);
+        assert!(
+            texts.is_empty(),
+            "an icon's metadata is ABOUT the drawing, not in it - but it drew {texts:?}"
+        );
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "and the <path> is the one thing that survives"
+        );
+    }
+
+    /// The same law, on the other half of what Inkscape leaves behind:
+    /// `<sodipodi:namedview>` and `<inkscape:grid>` are editor state in a
+    /// foreign namespace. They carry no text, so they were invisible - but
+    /// they still became boxes in the middle of the artwork.
+    #[test]
+    fn a_foreign_namespaced_element_is_not_a_box() {
+        let map = ComponentMap::default();
+        let svg = node(
+            "svg",
+            &[],
+            vec![
+                elem(node(
+                    "sodipodi:namedview",
+                    &[],
+                    vec![elem(node("inkscape:grid", &[], vec![]))],
+                )),
+                elem(node("path", &[], vec![])),
+            ],
+        );
+        let dom = xml_node_to_dom_fast(&svg, &map, false, None, 0).expect("ok");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "only the <path> is part of the drawing"
+        );
+    }
+
+    /// A prefix is not by itself foreign: `<svg:path>` is the same element as
+    /// `<path>`, written by a document that declares the SVG namespace.
+    #[test]
+    fn the_svg_prefix_still_draws() {
+        let map = ComponentMap::default();
+        let svg = node("svg", &[], vec![elem(node("svg:path", &[], vec![]))]);
+        let dom = xml_node_to_dom_fast(&svg, &map, false, None, 0).expect("ok");
+        assert_eq!(dom.children.as_ref().len(), 1, "<svg:path> IS a path");
     }
 
     #[test]
@@ -3205,17 +2722,19 @@ mod autotest_generated {
         let map = ComponentMap::default();
         let n = node("div", &[], vec![txt("hi")]);
 
-        let at_cap = xml_node_to_dom_fast(&n, &map, false, MAX_XML_NESTING_DEPTH).expect("ok");
+        let at_cap =
+            xml_node_to_dom_fast(&n, &map, false, None, MAX_XML_NESTING_DEPTH).expect("ok");
         assert!(
             at_cap.children.as_ref().is_empty(),
             "at the cap the node is emitted without children"
         );
 
-        let saturated = xml_node_to_dom_fast(&n, &map, false, usize::MAX)
+        let saturated = xml_node_to_dom_fast(&n, &map, false, None, usize::MAX)
             .expect("usize::MAX depth must not overflow when computing depth + 1");
         assert!(saturated.children.as_ref().is_empty());
 
-        let below = xml_node_to_dom_fast(&n, &map, false, MAX_XML_NESTING_DEPTH - 1).expect("ok");
+        let below =
+            xml_node_to_dom_fast(&n, &map, false, None, MAX_XML_NESTING_DEPTH - 1).expect("ok");
         assert_eq!(
             below.children.as_ref().len(),
             1,
@@ -3229,7 +2748,7 @@ mod autotest_generated {
         let n = node("div", &[], vec![txt("hi")]);
 
         let mut b = CompactDomBuilder::new();
-        xml_node_to_fast_dom(&n, &map, false, &mut b, usize::MAX).expect("no overflow");
+        xml_node_to_fast_dom(&n, &map, false, None, &mut b, usize::MAX).expect("no overflow");
         let fd = b.finish();
         assert_eq!(
             fd.node_data.as_ref().len(),
@@ -3238,7 +2757,7 @@ mod autotest_generated {
         );
 
         let mut b2 = CompactDomBuilder::new();
-        xml_node_to_fast_dom(&n, &map, false, &mut b2, 0).expect("ok");
+        xml_node_to_fast_dom(&n, &map, false, None, &mut b2, 0).expect("ok");
         assert_eq!(b2.finish().node_data.as_ref().len(), 2, "node + text child");
     }
 
@@ -3258,7 +2777,7 @@ mod autotest_generated {
         ] {
             let n = node("div", &[("tabindex", v), ("focusable", "true")], vec![]);
             assert!(
-                xml_node_to_dom_fast(&n, &map, false, 0).is_ok(),
+                xml_node_to_dom_fast(&n, &map, false, None, 0).is_ok(),
                 "tabindex={v:?} must not panic"
             );
         }
@@ -3276,7 +2795,7 @@ mod autotest_generated {
             ],
             vec![],
         );
-        let dom = xml_node_to_dom_fast(&n, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&n, &map, false, None, 0).expect("ok");
         match dom.root.get_node_type() {
             NodeType::Image(_) => {}
             other => panic!("expected an Image node, got {other:?}"),
@@ -3284,292 +2803,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // set_stringified_attributes  (numeric: tabs / tabindex)
-    // ================================================================
-
-    #[test]
-    fn set_stringified_attributes_zero_tabs_and_empty_attrs() {
-        let mut s = String::new();
-        set_stringified_attributes(&mut s, &attrs(&[]), &no_args(), 0);
-        assert_eq!(s, "", "nothing to emit for an attribute-less node");
-    }
-
-    #[test]
-    fn set_stringified_attributes_splits_ids_and_classes_on_whitespace() {
-        let mut s = String::new();
-        set_stringified_attributes(
-            &mut s,
-            &attrs(&[("id", "a  b"), ("class", "c\td")]),
-            &no_args(),
-            0,
-        );
-        assert!(s.contains(".with_id(\"a\")"), "got {s:?}");
-        assert!(s.contains(".with_id(\"b\")"));
-        assert!(s.contains(".with_class(\"c\")"));
-        assert!(s.contains(".with_class(\"d\")"));
-    }
-
-    #[test]
-    fn set_stringified_attributes_tabindex_boundaries() {
-        let cases: &[(&str, &str)] = &[
-            ("0", "TabIndex::Auto"),
-            ("5", "TabIndex::OverrideInParent(5)"),
-            ("-1", "TabIndex::NoKeyboardFocus"),
-        ];
-        for (val, expected) in cases {
-            let mut s = String::new();
-            set_stringified_attributes(&mut s, &attrs(&[("tabindex", val)]), &no_args(), 0);
-            assert!(s.contains(expected), "tabindex={val:?} => {s:?}");
-        }
-
-        // Unparsable / overflowing values emit nothing rather than panicking.
-        for val in ["abc", "", "99999999999999999999999999999999", "1.5"] {
-            let mut s = String::new();
-            set_stringified_attributes(&mut s, &attrs(&[("tabindex", val)]), &no_args(), 0);
-            assert!(
-                !s.contains("TabIndex"),
-                "tabindex={val:?} must be ignored, got {s:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn set_stringified_attributes_focusable_only_accepts_exact_true_false() {
-        let mut s = String::new();
-        set_stringified_attributes(&mut s, &attrs(&[("focusable", "true")]), &no_args(), 0);
-        assert!(s.contains("TabIndex::Auto"));
-
-        let mut s = String::new();
-        set_stringified_attributes(&mut s, &attrs(&[("focusable", "false")]), &no_args(), 0);
-        assert!(s.contains("TabIndex::NoKeyboardFocus"));
-
-        let mut s = String::new();
-        set_stringified_attributes(&mut s, &attrs(&[("focusable", "TRUE")]), &no_args(), 0);
-        assert!(
-            s.is_empty(),
-            "casing other than `true`/`false` is ignored, got {s:?}"
-        );
-    }
-
-    #[test]
-    fn set_stringified_attributes_large_tab_depth_does_not_overflow() {
-        // `tabs` becomes `"    ".repeat(tabs)`; a large-but-sane nesting depth must
-        // stay linear and allocate without panicking.
-        let mut s = String::new();
-        set_stringified_attributes(&mut s, &attrs(&[("id", "x")]), &no_args(), 1_000);
-        assert!(s.contains(".with_id(\"x\")"));
-        assert!(s.len() > 4_000, "the 1000-level indent is actually emitted");
-    }
-
-    // ================================================================
-    // group_matches / CssMatcher  (numeric: indices)
-    // ================================================================
-
-    fn refs(v: &[CssPathSelector]) -> Vec<&CssPathSelector> {
-        v.iter().collect()
-    }
-
-    #[test]
-    fn group_matches_global_matches_at_any_index() {
-        let a = vec![CssPathSelector::Global];
-        assert!(group_matches(&refs(&a), &[], 0, 0));
-        assert!(
-            group_matches(&refs(&a), &[], usize::MAX, usize::MAX),
-            "usize::MAX indices must not overflow"
-        );
-    }
-
-    #[test]
-    fn group_matches_type_class_id() {
-        let div = vec![CssPathSelector::Type(NodeTypeTag::Div)];
-        let p = vec![CssPathSelector::Type(NodeTypeTag::P)];
-        assert!(group_matches(&refs(&div), &refs(&div), 0, 1));
-        assert!(!group_matches(&refs(&div), &refs(&p), 0, 1));
-        assert!(
-            !group_matches(&refs(&div), &[], 0, 1),
-            "an empty haystack never matches"
-        );
-
-        let cls = vec![CssPathSelector::Class(AzString::from("x"))];
-        assert!(group_matches(&refs(&cls), &refs(&cls), 0, 1));
-        let id = vec![CssPathSelector::Id(AzString::from("x"))];
-        assert!(
-            !group_matches(&refs(&id), &refs(&cls), 0, 1),
-            "an id is not a class"
-        );
-    }
-
-    #[test]
-    fn group_matches_first_and_last_pseudo_at_boundaries() {
-        let first = vec![CssPathSelector::PseudoSelector(
-            CssPathPseudoSelector::First,
-        )];
-        assert!(group_matches(&refs(&first), &[], 0, 10));
-        assert!(!group_matches(&refs(&first), &[], 1, 10));
-
-        let last = vec![CssPathSelector::PseudoSelector(CssPathPseudoSelector::Last)];
-        assert!(group_matches(&refs(&last), &[], 9, 10));
-        assert!(!group_matches(&refs(&last), &[], 8, 10));
-        assert!(
-            group_matches(&refs(&last), &[], 0, 0),
-            "parent_children == 0 saturates to 0, so index 0 counts as last"
-        );
-    }
-
-    #[test]
-    fn group_matches_nth_child_even_odd_and_number() {
-        let even = vec![CssPathSelector::PseudoSelector(
-            CssPathPseudoSelector::NthChild(CssNthChildSelector::Even),
-        )];
-        assert!(group_matches(&refs(&even), &[], 0, 0));
-        assert!(!group_matches(&refs(&even), &[], 1, 0));
-        assert!(
-            !group_matches(&refs(&even), &[], usize::MAX, 0),
-            "usize::MAX is odd"
-        );
-
-        let odd = vec![CssPathSelector::PseudoSelector(
-            CssPathPseudoSelector::NthChild(CssNthChildSelector::Odd),
-        )];
-        assert!(group_matches(&refs(&odd), &[], 1, 0));
-        assert!(!group_matches(&refs(&odd), &[], 2, 0));
-
-        let n = vec![CssPathSelector::PseudoSelector(
-            CssPathPseudoSelector::NthChild(CssNthChildSelector::Number(u32::MAX)),
-        )];
-        assert!(group_matches(&refs(&n), &[], u32::MAX as usize, 0));
-        assert!(!group_matches(&refs(&n), &[], 0, 0));
-    }
-
-    #[test]
-    fn group_matches_nth_child_pattern_zero_repeat_does_not_divide_by_zero() {
-        let zero = vec![CssPathSelector::PseudoSelector(
-            CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(CssNthChildPattern {
-                pattern_repeat: 0,
-                offset: 0,
-            })),
-        )];
-        // `is_multiple_of(0)` is `self == 0` — no division by zero.
-        assert!(group_matches(&refs(&zero), &[], 0, 0));
-        assert!(!group_matches(&refs(&zero), &[], 5, 0));
-
-        let offset_past = vec![CssPathSelector::PseudoSelector(
-            CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(CssNthChildPattern {
-                pattern_repeat: 2,
-                offset: u32::MAX,
-            })),
-        )];
-        assert!(
-            group_matches(&refs(&offset_past), &[], 0, 0),
-            "index - offset saturates to 0 rather than underflowing"
-        );
-    }
-
-    #[test]
-    fn group_matches_structural_combinators_never_match() {
-        for sel in [
-            CssPathSelector::Children,
-            CssPathSelector::DirectChildren,
-            CssPathSelector::AdjacentSibling,
-            CssPathSelector::GeneralSibling,
-        ] {
-            let a = vec![sel.clone()];
-            assert!(
-                !group_matches(&refs(&a), &refs(&a), 0, 1),
-                "{sel:?} is a combinator, not a matchable group member"
-            );
-        }
-    }
-
-    #[test]
-    fn css_matcher_empty_path_never_matches() {
-        let m = CssMatcher {
-            path: Vec::new(),
-            indices_in_parent: vec![0],
-            children_length: vec![0],
-        };
-        let path = CssPath {
-            selectors: vec![CssPathSelector::Type(NodeTypeTag::Body)].into(),
-        };
-        assert!(!m.matches(&path), "an empty matcher path can never match");
-
-        let m2 = CssMatcher {
-            path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
-            indices_in_parent: vec![0],
-            children_length: vec![0],
-        };
-        let empty_path = CssPath {
-            selectors: Vec::new().into(),
-        };
-        assert!(
-            !m2.matches(&empty_path),
-            "an empty CSS path can never match"
-        );
-    }
-
-    #[test]
-    fn css_matcher_get_hash_is_deterministic_and_path_sensitive() {
-        let a = CssMatcher {
-            path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
-            indices_in_parent: vec![0],
-            children_length: vec![0],
-        };
-        let b = CssMatcher {
-            path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
-            indices_in_parent: vec![9],
-            children_length: vec![9],
-        };
-        let c = CssMatcher {
-            path: vec![CssPathSelector::Type(NodeTypeTag::Div)],
-            indices_in_parent: vec![0],
-            children_length: vec![0],
-        };
-        assert_eq!(a.get_hash(), a.get_hash(), "stable across calls");
-        assert_eq!(
-            a.get_hash(),
-            b.get_hash(),
-            "the hash covers only `path`, not the sibling indices"
-        );
-        assert_ne!(a.get_hash(), c.get_hash());
-
-        let empty = CssMatcher {
-            path: Vec::new(),
-            indices_in_parent: Vec::new(),
-            children_length: Vec::new(),
-        };
-        let _ = empty.get_hash(); // must not panic
-    }
-
-    #[test]
-    fn css_matcher_mismatched_bookkeeping_vec_lengths_bail_out() {
-        // `indices_in_parent` / `children_length` must be as long as the group list.
-        let m = CssMatcher {
-            path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
-            indices_in_parent: Vec::new(),
-            children_length: Vec::new(),
-        };
-        let path = CssPath {
-            selectors: vec![CssPathSelector::Type(NodeTypeTag::Body)].into(),
-        };
-        assert!(
-            !m.matches(&path),
-            "a desynced matcher must return false, not index out of bounds"
-        );
-    }
-
-    #[test]
-    fn get_css_blocks_and_inline_string_on_empty_css() {
-        let m = CssMatcher {
-            path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
-            indices_in_parent: vec![0],
-            children_length: vec![0],
-        };
-        assert!(get_css_blocks(&Css::empty(), &m).is_empty());
-        assert_eq!(css_blocks_to_inline_string(&[]), "");
-    }
-
-    // ================================================================
-    // str_to_dom / str_to_dom_unstyled / parse_page_style_and_body / body_matcher
+    // str_to_dom / str_to_dom_unstyled
     // ================================================================
 
     #[test]
@@ -3634,153 +2868,34 @@ mod autotest_generated {
         );
     }
 
-    #[test]
-    fn parse_page_style_and_body_and_body_matcher() {
-        let d = doc("body { color: red; }", vec![elem(XmlNode::create("div"))]);
-        let (css, body) = parse_page_style_and_body(&d).expect("well-formed page");
-        assert_eq!(body.node_type.as_str(), "body");
-        assert!(
-            !css.rules.as_ref().is_empty(),
-            "the <style> block is parsed"
-        );
-
-        let m = body_matcher(&body);
-        assert!(m.path.is_empty(), "the matcher starts with an empty path");
-        assert_eq!(m.indices_in_parent, vec![0]);
-        assert_eq!(m.children_length, vec![body.children.as_ref().len()]);
-    }
-
-    #[test]
-    fn parse_page_style_and_body_with_no_style_block() {
-        let head = node("head", &[], vec![]);
-        let body = node("body", &[], vec![]);
-        let d = vec![elem(node("html", &[], vec![elem(head), elem(body)]))];
-        let (css, body) = parse_page_style_and_body(&d).expect("ok");
-        assert!(css.rules.as_ref().is_empty());
-        assert_eq!(body.children.as_ref().len(), 0);
-    }
-
     // ================================================================
-    // str_to_rust_code / str_to_c_code / str_to_cpp_code / str_to_python_code
+    // builtin_render_fn / how code builds a builtin (ComponentCodegen)
     // ================================================================
 
     #[test]
-    fn str_to_rust_code_empty_input_compiles_to_an_empty_document() {
-        // Empty input is a document with nothing in it, not a malformed one:
-        // the root is synthesised the same way it is for a fragment. What
-        // matters is that it does not PANIC and every backend agrees.
+    fn builtin_elements_are_elements_and_the_structural_builtins_render_functions() {
         let map = ComponentMap::with_builtin();
-        assert!(str_to_rust_code(&[], "", &map).is_ok());
-        assert!(str_to_c_code(&[], &map).is_ok());
-        assert!(str_to_cpp_code(&[], &map).is_ok());
-        assert!(str_to_python_code(&[], &map).is_ok());
-    }
-
-    #[test]
-    fn str_to_rust_code_text_only_roots_compile_to_a_body_with_that_text() {
-        // Text with no element around it is a fragment, and a fragment now
-        // gets a synthesised root - so this compiles rather than failing. The
-        // text has to actually SURVIVE the wrapping, which is the part worth
-        // pinning: dropping it would be a silent data loss that still
-        // "succeeded".
-        let map = ComponentMap::with_builtin();
-        let src = str_to_rust_code(&[txt("garbage")], "", &map).expect("a fragment compiles");
-        assert!(src.contains("garbage"), "the text must survive:\n{src}");
-
-        for roots in [vec![txt("   ")], vec![txt("\t\n")]] {
-            assert!(
-                str_to_rust_code(&roots, "", &map).is_ok(),
-                "whitespace-only input is an empty document, not a malformed one"
-            );
+        for def in map.all_components() {
+            // `builtin:map` names two builtins: HTML's image map (an element)
+            // and the structural map (a render function).
+            let structural = match def.id.name.as_str() {
+                "if" | "for" => true,
+                "map" => def.display_name.as_str() != "Image Map",
+                _ => false,
+            };
+            let want = if structural {
+                ComponentCodegen::RenderFunction
+            } else {
+                ComponentCodegen::Element
+            };
+            assert_eq!(def.codegen, want, "{}", def.id.qualified_name());
         }
-    }
-
-    #[test]
-    fn str_to_rust_code_valid_minimal() {
-        let map = ComponentMap::with_builtin();
-        let d = doc("", vec![elem(node("p", &[], vec![txt("Hi")]))]);
-        let src = str_to_rust_code(&d, "// imports", &map).expect("compiles");
-        assert!(src.contains("Dom::create_body()"), "got:\n{src}");
-        assert!(src.contains("Dom::create_p_with_text(AzString::from(\"Hi\"))"));
-        assert!(src.contains("// imports"), "the imports blob is spliced in");
-        assert!(src.contains("fn main()"));
-    }
-
-    #[test]
-    fn str_to_c_cpp_python_code_valid_minimal() {
-        let map = ComponentMap::with_builtin();
-        let d = doc("", vec![elem(node("p", &[], vec![txt("Hi")]))]);
-
-        let c = str_to_c_code(&d, &map).expect("compiles");
-        assert!(c.contains("#include \"azul.h\""), "got:\n{c}");
-        assert!(c.contains("AzDom n0 = AzDom_createBody();"));
-        assert!(c.contains("AzDom_createPWithText(AZ_STR(\"Hi\"))"));
-
-        let cpp = str_to_cpp_code(&d, &map).expect("compiles");
-        assert!(cpp.contains("#include \"azul20.hpp\""), "got:\n{cpp}");
-        assert!(cpp.contains("Dom::create_p_with_text(String(\"Hi\"))"));
-
-        let py = str_to_python_code(&d, &map).expect("compiles");
-        assert!(py.contains("import azul"), "got:\n{py}");
-        assert!(py.contains("azul.Dom.create_p_with_text(\"Hi\")"));
-    }
-
-    #[test]
-    fn compile_targets_escape_quotes_in_text_content() {
-        let map = ComponentMap::with_builtin();
-        let d = doc("", vec![elem(node("div", &[], vec![txt("say \"hi\"")]))]);
-
-        let rust = str_to_rust_code(&d, "", &map).expect("compiles");
-        assert!(rust.contains("say \\\"hi\\\""), "got:\n{rust}");
-        let c = str_to_c_code(&d, &map).expect("compiles");
-        assert!(c.contains("say \\\"hi\\\""), "got:\n{c}");
-    }
-
-    #[test]
-    fn compile_body_node_to_rust_code_on_an_empty_body() {
-        let map = ComponentMap::with_builtin();
-        let body = node("body", &[], vec![]);
-        let mut extra = VecContents::default();
-        let mut blocks = BTreeMap::new();
-        let out = compile_body_node_to_rust_code(
-            &body,
-            &map,
-            &mut extra,
-            &mut blocks,
-            &Css::empty(),
-            body_matcher(&body),
-        )
-        .expect("ok");
+        // A zero-initialised C struct is a render-function component.
         assert_eq!(
-            out, "Dom::create_body()",
-            "no children => no .with_children()"
+            ComponentCodegen::render_function(),
+            ComponentCodegen::RenderFunction
         );
     }
-
-    #[test]
-    fn compile_body_node_to_rust_code_skips_whitespace_only_text_children() {
-        let map = ComponentMap::with_builtin();
-        let body = node("body", &[], vec![txt("   \n\t ")]);
-        let mut extra = VecContents::default();
-        let mut blocks = BTreeMap::new();
-        let out = compile_body_node_to_rust_code(
-            &body,
-            &map,
-            &mut extra,
-            &mut blocks,
-            &Css::empty(),
-            body_matcher(&body),
-        )
-        .expect("ok");
-        assert!(
-            !out.contains("create_text"),
-            "a whitespace-only text child emits nothing, got:\n{out}"
-        );
-    }
-
-    // ================================================================
-    // builtin_render_fn / builtin_compile_fn  (numeric: indent)
-    // ================================================================
 
     #[test]
     fn builtin_render_fn_for_a_text_and_a_textless_element() {
@@ -3799,59 +2914,66 @@ mod autotest_generated {
     }
 
     #[test]
-    fn builtin_compile_fn_ignores_indent_so_usize_max_is_safe() {
+    fn a_builtins_preview_adds_its_example_but_what_it_renders_is_what_a_drop_inserts() {
         let map = ComponentMap::with_builtin();
-        let div = map.get_unqualified("div").expect("builtin div");
-        for indent in [0usize, 1, 1024, usize::MAX] {
-            match builtin_compile_fn(div, &CompileTarget::Rust, &div.data_model, indent) {
-                ResultStringCompileError::Ok(s) => assert_eq!(
-                    s.as_str(),
-                    "Dom::create_node(NodeType::Div)",
-                    "indent is unused by builtin_compile_fn (indent={indent})"
-                ),
-                ResultStringCompileError::Err(e) => panic!("unexpected error: {e:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn builtin_compile_fn_emits_text_and_escapes_it() {
-        let map = ComponentMap::with_builtin();
-        let p = map.get_unqualified("p").expect("builtin p");
-        let data = p.data_model.clone().with_default(
-            "text",
-            ComponentDefaultValue::String(AzString::from("a\"b\\c")),
+        let ul = map.get_unqualified("ul").expect("builtin ul");
+        assert_eq!(
+            builtin_preview_dom("ul", &ul.data_model)
+                .children
+                .as_ref()
+                .len(),
+            2,
+            "the preview of a <ul> holds two example items"
         );
-
-        match builtin_compile_fn(p, &CompileTarget::Rust, &data, 0) {
-            ResultStringCompileError::Ok(s) => {
-                assert!(s.as_str().contains("a\\\"b\\\\c"), "got {}", s.as_str());
-            }
-            ResultStringCompileError::Err(e) => panic!("unexpected error: {e:?}"),
-        }
+        assert!(
+            builtin_dom("ul", &ul.data_model, false)
+                .children
+                .as_ref()
+                .is_empty(),
+            "a dropped <ul> is empty: the example is the preview's only"
+        );
+        // A text element previews its text default, which a drop inserts too.
+        let span = map.get_unqualified("span").expect("builtin span");
+        assert_eq!(
+            span.data_model
+                .get_default_string("text")
+                .map(AzString::as_str),
+            Some("Span text")
+        );
+        // An example attribute goes through the XML attribute table.
+        let input = map.get_unqualified("input").expect("builtin input");
+        let preview = builtin_preview_dom("input", &input.data_model);
+        assert!(preview
+            .root
+            .attributes()
+            .iter()
+            .any(|a| a.name().eq_ignore_ascii_case("placeholder")));
     }
 
     #[test]
-    fn builtin_compile_fn_covers_every_target() {
-        let map = ComponentMap::with_builtin();
-        let div = map.get_unqualified("div").expect("builtin div");
-        for target in [
-            CompileTarget::Rust,
-            CompileTarget::C,
-            CompileTarget::Cpp,
-            CompileTarget::Python,
-        ] {
-            match builtin_compile_fn(div, &target, &div.data_model, 0) {
-                ResultStringCompileError::Ok(s) => {
-                    assert!(!s.as_str().is_empty(), "{target:?} emitted nothing");
-                }
-                ResultStringCompileError::Err(e) => panic!("{target:?}: {e:?}"),
-            }
+    fn a_builtin_without_a_box_of_its_own_says_why_and_the_rest_do_not() {
+        for tag in ["br", "option", "source", "head", "col"] {
+            assert!(builtin_no_visual(tag).is_some(), "<{tag}> has no visual");
+        }
+        for tag in ["p", "div", "ul", "input", "hr", "svg"] {
+            assert!(builtin_no_visual(tag).is_none(), "<{tag}> shows something");
+        }
+        assert!(builtin_no_visual("not-an-element").is_none());
+        // Every element of the table is a registered builtin, once.
+        let lib = register_builtin_components();
+        for e in BUILTIN_ELEMENTS {
+            let n = lib
+                .components
+                .as_ref()
+                .iter()
+                .filter(|c| c.id.name.as_str() == e.tag && c.codegen == ComponentCodegen::Element)
+                .count();
+            assert_eq!(n, 1, "<{}> is registered once", e.tag);
         }
     }
 
     // ================================================================
-    // user_defined_render_fn / user_defined_compile_fn
+    // user_defined_render_fn
     // ================================================================
 
     fn every_default_kind() -> Vec<ComponentDataField> {
@@ -3963,61 +3085,6 @@ mod autotest_generated {
     }
 
     #[test]
-    fn user_defined_compile_fn_indent_zero_and_every_target() {
-        let def = user_def("", every_default_kind());
-        for target in [
-            CompileTarget::Rust,
-            CompileTarget::C,
-            CompileTarget::Cpp,
-            CompileTarget::Python,
-        ] {
-            match user_defined_compile_fn(&def, &target, &def.data_model, 0) {
-                ResultStringCompileError::Ok(s) => {
-                    assert!(!s.as_str().is_empty(), "{target:?} emitted nothing");
-                }
-                ResultStringCompileError::Err(e) => panic!("{target:?}: {e:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn user_defined_compile_fn_indent_scales_the_leading_whitespace() {
-        // NOTE: `indent` is used as `" ".repeat(indent * 4)`, so it is NOT safe at
-        // usize::MAX (the multiply overflows). Exercise the realistic range.
-        let def = user_def("", Vec::new());
-        let mut prev = 0usize;
-        for indent in [0usize, 1, 2, 8] {
-            match user_defined_compile_fn(&def, &CompileTarget::Rust, &def.data_model, indent) {
-                ResultStringCompileError::Ok(s) => {
-                    let len = s.as_str().len();
-                    assert!(len > prev, "indent={indent} must widen the output");
-                    prev = len;
-                }
-                ResultStringCompileError::Err(e) => panic!("indent={indent}: {e:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn user_defined_compile_fn_escapes_string_defaults() {
-        let def = user_def(
-            "",
-            vec![data_field(
-                "s",
-                ComponentFieldType::String,
-                Some(ComponentDefaultValue::String(AzString::from("a\"b\\c"))),
-                "",
-            )],
-        );
-        match user_defined_compile_fn(&def, &CompileTarget::Rust, &def.data_model, 0) {
-            ResultStringCompileError::Ok(s) => {
-                assert!(s.as_str().contains("a\\\"b\\\\c"), "got:\n{}", s.as_str());
-            }
-            ResultStringCompileError::Err(e) => panic!("{e:?}"),
-        }
-    }
-
-    #[test]
     fn push_scalar_field_appends_one_div_per_call() {
         let mut children: Vec<Dom> = Vec::new();
         push_scalar_field(&mut children, "n", &i64::MIN);
@@ -4113,35 +3180,6 @@ mod autotest_generated {
         );
     }
 
-    #[test]
-    fn structural_builtin_compile_fns_ignore_indent_entirely() {
-        let cases: [(ComponentDef, ComponentCompileFn); 3] = [
-            (builtin_if_component(), builtin_if_compile_fn),
-            (builtin_for_component(), builtin_for_compile_fn),
-            (builtin_map_component(), builtin_map_compile_fn),
-        ];
-        for (def, f) in cases {
-            for target in [
-                CompileTarget::Rust,
-                CompileTarget::C,
-                CompileTarget::Cpp,
-                CompileTarget::Python,
-            ] {
-                for indent in [0usize, usize::MAX] {
-                    match f(&def, &target, &def.data_model, indent) {
-                        ResultStringCompileError::Ok(s) => {
-                            assert!(
-                                !s.as_str().is_empty(),
-                                "{target:?}/{indent} emitted nothing"
-                            );
-                        }
-                        ResultStringCompileError::Err(e) => panic!("{target:?}: {e:?}"),
-                    }
-                }
-            }
-        }
-    }
-
     // ================================================================
     // data_field / builtin_data_model / builtin_component_def
     // ================================================================
@@ -4168,7 +3206,8 @@ mod autotest_generated {
     #[test]
     fn builtin_data_model_unknown_tag_is_empty() {
         assert!(builtin_data_model("").is_empty());
-        assert!(builtin_data_model("div").is_empty());
+        // not "div": div takes its presentational `align` (39813667c)
+        assert!(builtin_data_model("frobnicate").is_empty());
         assert!(builtin_data_model("\u{1F600}").is_empty());
         assert!(builtin_data_model(&"z".repeat(10_000)).is_empty());
     }
@@ -4223,13 +3262,22 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // xml_attrs_to_data_model
+    // data_model_with_attributes
     // ================================================================
 
+    /// The test attribute map as the loaders hand it in: name / value pairs.
+    fn pairs(map: &XmlAttributeMap) -> Vec<(&str, &str)> {
+        map.inner
+            .as_ref()
+            .iter()
+            .map(|p| (p.key.as_str(), p.value.as_str()))
+            .collect()
+    }
+
     #[test]
-    fn xml_attrs_to_data_model_overrides_defaults_from_attributes() {
+    fn data_model_with_attributes_overrides_defaults_from_attributes() {
         let base = builtin_component_def("a", "Link", Some("Link text"), "").data_model;
-        let model = xml_attrs_to_data_model(&base, &attrs(&[("href", "/x")]), None);
+        let model = data_model_with_attributes(&base, pairs(&attrs(&[("href", "/x")])));
         assert_eq!(
             model.get_default_string("href").map(AzString::as_str),
             Some("/x")
@@ -4246,33 +3294,27 @@ mod autotest_generated {
         );
     }
 
+    /// Text content is the loader's, not an attribute's: the `text` field is
+    /// filled from the element's children and prepared at render
+    /// (`prepare_string`), so the attribute pass leaves it alone.
     #[test]
-    fn xml_attrs_to_data_model_text_content_is_prepared_and_empty_text_is_ignored() {
+    fn data_model_with_attributes_leaves_text_content_to_the_loader() {
         let base = builtin_component_def("a", "Link", Some("Link text"), "").data_model;
-
-        let with_text = xml_attrs_to_data_model(&base, &attrs(&[]), Some("  Hello &amp; bye  "));
+        let model = data_model_with_attributes(&base, pairs(&attrs(&[("text", "  Hello &amp; bye  ")])));
         assert_eq!(
-            with_text.get_default_string("text").map(AzString::as_str),
-            Some("Hello & bye"),
-            "text content is trimmed and entity-decoded"
-        );
-
-        let blank = xml_attrs_to_data_model(&base, &attrs(&[]), Some("   \n\t "));
-        assert_eq!(
-            blank.get_default_string("text").map(AzString::as_str),
-            Some("Link text"),
-            "whitespace-only text content leaves the default intact"
+            model.get_default_string("text").map(AzString::as_str),
+            Some("  Hello &amp; bye  "),
+            "an explicit text attribute is taken as written; content is prepared at render"
         );
     }
 
     #[test]
-    fn xml_attrs_to_data_model_ignores_unknown_attributes() {
+    fn data_model_with_attributes_ignores_unknown_attributes() {
         let base = builtin_component_def("a", "Link", Some(""), "").data_model;
         let before = base.fields.as_ref().len();
-        let model = xml_attrs_to_data_model(
+        let model = data_model_with_attributes(
             &base,
-            &attrs(&[("data-nonsense", "1"), ("", ""), ("\u{1F600}", "x")]),
-            None,
+            pairs(&attrs(&[("data-nonsense", "1"), ("", ""), ("\u{1F600}", "x")])),
         );
         assert_eq!(
             model.fields.as_ref().len(),
@@ -4579,5 +3621,169 @@ mod autotest_generated {
         let json = m.to_json().expect("serializes");
         assert!(json.contains("\"fields\""), "got {json}");
         assert!(ComponentDataModel::from_json(&json).is_ok());
+    }
+
+    // ---- Fluent l10n: data-l10n attribute parsing ----
+
+    #[test]
+    fn test_data_l10n_creates_localizable_text_node() {
+        // `<p data-l10n="greeting">` stays a `<p>` (its UA style, its `p`
+        // selectors, its a11y role) and gets ONE text child: the key
+        // "greeting", marked localizable. The guide's own example reads
+        // "Result: <p>Welcome back, Alice!</p>".
+        use crate::dom::NodeType;
+
+        let xml_node = XmlNode {
+            node_type: "p".into(),
+            attributes: {
+                let mut v = crate::window::StringPairVec::from_const_slice(&[]);
+                let mut pairs = v.into_library_owned_vec();
+                pairs.push(crate::window::AzStringPair {
+                    key: "data-l10n".into(),
+                    value: "greeting".into(),
+                });
+                crate::window::StringPairVec::from_vec(pairs)
+            }.into(),
+            children: crate::xml::XmlNodeChildVec::from_const_slice(&[]),
+        };
+
+        let component_map = ComponentMap::with_builtin();
+        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, None, 0)
+            .expect("parse ok");
+
+        assert_eq!(dom.root.node_type, NodeType::P, "the element keeps its tag");
+        assert_eq!(dom.children.as_ref().len(), 1, "exactly one child: the key");
+        match &dom.children.as_ref()[0].root.node_type {
+            NodeType::Text(boxed) => {
+                let s = boxed.as_ref();
+                assert!(s.is_localizable(), "text node must be flagged localizable");
+                assert_eq!(s.as_str(), "greeting", "text node must carry the l10n key");
+            }
+            other => panic!("expected Text child, got {:?}", other),
+        }
+        assert!(dom.root.fluent_args.is_none(), "no fluent args expected");
+    }
+
+    #[test]
+    fn a_data_l10n_element_keeps_its_tag_in_the_arena_builder_too() {
+        // `xml_node_to_fast_dom` shares `apply_xml_node_attributes` with the
+        // tree builder above and must produce the same shape: p > text(key).
+        use crate::dom::NodeType;
+
+        let xml_node = XmlNode {
+            node_type: "p".into(),
+            attributes: {
+                let mut pairs = Vec::new();
+                pairs.push(crate::window::AzStringPair { key: "data-l10n".into(), value: "greeting".into() });
+                crate::window::StringPairVec::from_vec(pairs)
+            }.into(),
+            children: crate::xml::XmlNodeChildVec::from_const_slice(&[]),
+        };
+
+        let component_map = ComponentMap::with_builtin();
+        let mut builder = CompactDomBuilder::new();
+        xml_node_to_fast_dom(&xml_node, &component_map, false, None, &mut builder, 0)
+            .expect("parse ok");
+        let fast = builder.finish();
+        let nodes = fast.node_data.as_ref();
+
+        assert_eq!(nodes.len(), 2, "p + its key text, got {nodes:?}");
+        assert_eq!(nodes[0].node_type, NodeType::P, "the element keeps its tag");
+        match &nodes[1].node_type {
+            NodeType::Text(boxed) => {
+                assert!(boxed.as_ref().is_localizable());
+                assert_eq!(boxed.as_ref().as_str(), "greeting");
+            }
+            other => panic!("expected Text child, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_data_l10n_with_fluent_args() {
+        // `<p data-l10n="user-count" data-l10n-count="42">` should produce a
+        // localizable Text node AND a FluentArgKV with key="count", value=I32(42).
+        use crate::dom::{NodeType, FluentArg};
+
+        let xml_node = XmlNode {
+            node_type: "p".into(),
+            attributes: {
+                let mut pairs = Vec::new();
+                pairs.push(crate::window::AzStringPair { key: "data-l10n".into(), value: "user-count".into() });
+                pairs.push(crate::window::AzStringPair { key: "data-l10n-count".into(), value: "42".into() });
+                crate::window::StringPairVec::from_vec(pairs)
+            }.into(),
+            children: crate::xml::XmlNodeChildVec::from_const_slice(&[]),
+        };
+
+        let component_map = ComponentMap::with_builtin();
+        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, None, 0)
+            .expect("parse ok");
+
+        assert_eq!(dom.root.node_type, NodeType::P, "the element keeps its tag");
+        match &dom.children.as_ref()[0].root.node_type {
+            NodeType::Text(boxed) => {
+                assert!(boxed.as_ref().is_localizable());
+                assert_eq!(boxed.as_ref().as_str(), "user-count");
+            }
+            other => panic!("expected Text child, got {:?}", other),
+        }
+
+        // The arguments stay on the ELEMENT; its text child formats with
+        // them (`translate_texts_in_dom` reads a text node's parent's args).
+        let args = dom.root.fluent_args.as_ref().expect("fluent_args must be set");
+        assert_eq!(args.as_slice().len(), 1);
+        let kv = &args.as_slice()[0];
+        assert_eq!(kv.key.as_str(), "count");
+        assert!(matches!(kv.value, FluentArg::I32(42)));
+    }
+
+    #[test]
+    fn test_azstring_tr_is_localizable() {
+        // `AzString::tr("key")` should be flagged localizable; a regular string should not.
+        let regular = azul_css::corety::AzString::from("hello");
+        assert!(!regular.is_localizable(), "plain string must NOT be localizable");
+
+        let tr = azul_css::corety::AzString::tr("greeting");
+        assert!(tr.is_localizable(), "tr() string MUST be localizable");
+        assert_eq!(tr.as_str(), "greeting", "key stored correctly");
+    }
+
+    /// A `style` attribute's value keeps every colon after the first: the
+    /// widgets' `font-family: system:ui` (SYSUI8) and `url(https://...)`
+    /// were cut at their second colon (`system`, `url(https`), so the
+    /// declaration named a family no font has, or did not parse at all.
+    #[test]
+    fn a_style_attribute_value_keeps_its_colons() {
+        use azul_css::props::{basic::font::StyleFontFamily, property::CssProperty};
+
+        let map = azul_css::props::property::get_css_key_map();
+        let decls = attributes::style_declarations(
+            "font-family: system:ui; background-image: url(https://example.com/a.png)",
+            &map,
+        );
+        let family = decls.iter().find_map(|d| match &d.property {
+            CssProperty::FontFamily(v) => v.get_property().cloned(),
+            _ => None,
+        });
+        let family = family.expect("the font-family declaration parses");
+        assert!(
+            matches!(
+                family.as_ref().first(),
+                Some(StyleFontFamily::SystemType(
+                    azul_css::system::SystemFontType::Ui
+                ))
+            ),
+            "font-family: system:ui is the system UI font role: {family:?}"
+        );
+        let background = decls
+            .iter()
+            .find(|d| matches!(d.property, CssProperty::BackgroundContent(_)))
+            .map(|d| format!("{:?}", d.property));
+        assert!(
+            background
+                .as_deref()
+                .is_some_and(|b| b.contains("https://example.com/a.png")),
+            "the image url keeps its scheme: {background:?}"
+        );
     }
 }

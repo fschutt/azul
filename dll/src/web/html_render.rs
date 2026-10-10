@@ -18,9 +18,12 @@ use azul_core::{
     refany::RefAny,
     resources::{ImageCache, ImageRef, RouteMatch},
     styled_dom::StyledDom,
+    xml::html::{encode_attribute, encode_text},
 };
 use azul_css::{
-    dynamic_selector::PseudoStateType, props::property::CssPropertyType, system::SystemStyle,
+    dynamic_selector::{PseudoStateType, ResolveSystemColors},
+    props::property::CssPropertyType,
+    system::SystemStyle,
 };
 use azul_layout::window_state::FullWindowState;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
@@ -177,7 +180,7 @@ pub fn render_initial_page(
         let font_id = ctx.fonts.len();
         ctx.font_face_rules.push(format!(
             "@font-face {{ font-family: \"{}\"; src: url(\"/az/font/{}\"); }}",
-            html_escape_attr(named_font.name.as_str()),
+            encode_attribute(named_font.name.as_str()),
             font_id,
         ));
         ctx.fonts.push(CollectedFont {
@@ -244,8 +247,8 @@ pub fn render_initial_page(
     // Honor document metadata from the DOM (`<html lang>` / `<title>`); fall back
     // to sensible defaults when the app's DOM doesn't carry a <head>/<title>.
     let (dom_title, dom_lang) = extract_head_meta(&styled_dom);
-    let page_title_esc = html_escape(dom_title.as_deref().unwrap_or("Azul Web App"));
-    let page_lang_esc = html_escape_attr(dom_lang.as_deref().unwrap_or("en"));
+    let page_title_esc = encode_text(dom_title.as_deref().unwrap_or("Azul Web App"));
+    let page_lang_esc = encode_attribute(dom_lang.as_deref().unwrap_or("en"));
 
     let html = format!(
         r#"<!DOCTYPE html>
@@ -367,7 +370,7 @@ impl RenderContext {
         self.node_counter += 1;
 
         if let NodeType::Text(ref text) = nd.node_type {
-            return html_escape(text.as_str());
+            return encode_text(text.as_str());
         }
 
         let tag = match &nd.node_type {
@@ -399,18 +402,18 @@ impl RenderContext {
             let name = attr.name();
             if name == "id" {
                 if let Some(id) = attr.as_id() {
-                    html_attrs.push(format!("data-az-id=\"{}\"", html_escape_attr(id)));
+                    html_attrs.push(format!("data-az-id=\"{}\"", encode_attribute(id)));
                 }
             } else if name == "class" {
                 if let Some(class) = attr.as_class() {
-                    classes.push(html_escape_attr(class));
+                    classes.push(encode_attribute(class));
                 }
             } else if attr.is_boolean() {
                 html_attrs.push(name.to_string());
             } else {
                 let value = attr.value();
                 if !value.as_str().is_empty() {
-                    html_attrs.push(format!("{}=\"{}\"", name, html_escape_attr(value.as_str())));
+                    html_attrs.push(format!("{}=\"{}\"", name, encode_attribute(value.as_str())));
                 }
             }
         }
@@ -449,6 +452,10 @@ impl RenderContext {
         // no cursor on a static page and falls back to "below".
         let edge = match cfg.anchor {
             TransientAnchor::Bottom | TransientAnchor::Cursor => "top:100%;left:0;",
+            // The page's top layer: the whole viewport, above everything.
+            TransientAnchor::Viewport => {
+                "position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483000;"
+            }
             TransientAnchor::Top => "bottom:100%;top:auto;left:0;",
             TransientAnchor::Left => "right:100%;top:0;left:auto;",
             TransientAnchor::Right => "left:100%;top:0;",
@@ -542,7 +549,7 @@ impl RenderContext {
         let mut children_html = String::new();
 
         if let Some(text) = node_type_inline_text(&nd.node_type) {
-            children_html.push_str(&html_escape(text));
+            children_html.push_str(&encode_text(text));
         }
 
         if let Some(first_child) = hierarchy.get(idx).and_then(|h| h.first_child_id(node_id)) {
@@ -580,6 +587,14 @@ impl RenderContext {
         // `computed_values` here used to work because the cascade stored every
         // property in it; it no longer does, and emitting a page with no
         // `display` or `margin` would be silently wrong.
+        //
+        // A `system:` colour keyword is resolved against the cascade's own
+        // context before it is written out: the browser knows neither the
+        // keyword nor its token (which reads as a transparent colour).
+        let ctx = cache.dynamic_context.as_deref();
+        let css_of = |p: &azul_css::props::property::CssProperty| {
+            p.clone().resolve_system_colors(ctx).format_css()
+        };
         let mut decls: Vec<String> = Vec::new();
         for slice in [
             cache.cascaded_props.get_slice(node_idx),
@@ -587,7 +602,7 @@ impl RenderContext {
         ] {
             for sp in slice {
                 if sp.state == azul_css::dynamic_selector::PseudoStateType::Normal {
-                    decls.push(sp.property.format_css());
+                    decls.push(css_of(&sp.property));
                 }
             }
         }
@@ -599,7 +614,7 @@ impl RenderContext {
                 .computed_values
                 .values_for(node_idx)
                 .iter()
-                .map(|(_t, p)| p.property.format_css()),
+                .map(|(_t, p)| css_of(&p.property)),
         );
         if !decls.is_empty() {
             self.css_rules
@@ -616,7 +631,7 @@ impl RenderContext {
                     pseudo_groups
                         .entry(css_pseudo)
                         .or_default()
-                        .push(sp.property.format_css());
+                        .push(css_of(&sp.property));
                 }
                 // Normal state properties are already in computed_values, skip them here
             }
@@ -656,8 +671,20 @@ fn call_layout(
     let image_cache = ImageCache::default();
     let gl_context = OptionGlContextPtr::None;
     let system_style = Arc::new(SystemStyle::default());
+    // What `LayoutCallbackInfo::get_locale` / `is_rtl` answer: the (default)
+    // system language - the web target has no OS locale to read.
+    let locale = system_style.language.id.clone();
+    let text_direction = if system_style.language.is_rtl {
+        azul_core::callbacks::TextDirection::RightToLeft
+    } else {
+        azul_core::callbacks::TextDirection::LeftToRight
+    };
 
     let ref_data = LayoutCallbackInfoRefData {
+        locale: &locale,
+        accessed_locale: core::cell::Cell::new(false),
+        accessed_text_direction: core::cell::Cell::new(false),
+        text_direction,
         image_cache: &image_cache,
         gl_context: &gl_context,
         system_fonts: fc_cache.as_ref(),
@@ -667,10 +694,16 @@ fn call_layout(
         monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
         // The web target has no system bars to avoid.
         safe_area: azul_css::system::SafeAreaInsets::default(),
+        // A page cannot grab system-wide keys: nothing is ever held.
+        global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+        window_id: &window_state.window_id,
     };
 
     let info =
         LayoutCallbackInfo::new(&ref_data, window_state.size.clone(), window_state.theme);
+    // The page this DOM is built for, for the widgets whose structure depends
+    // on its width (the ribbon scales a tab that does not fit down to it).
+    let _window_scope = azul_core::callbacks::WindowSizeScope::enter(window_state.size.dimensions);
     // `invoke` hands the host-invoker thunk its host handle (through
     // `info.get_ctx()`); calling `cb` directly would return the kind's
     // default (empty body).
@@ -939,7 +972,7 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::SvgLine => "line",
         NodeType::SvgPolygon => "polygon",
         NodeType::SvgPolyline => "polyline",
-        NodeType::SvgText(_) => "text",
+        NodeType::SvgText => "text",
         NodeType::SvgTspan => "tspan",
         NodeType::SvgTextPath => "textPath",
         NodeType::SvgLinearGradient => "linearGradient",
@@ -971,7 +1004,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
 fn node_type_inline_text(node_type: &NodeType) -> Option<&str> {
     match node_type {
         NodeType::Text(s) => Some(s.as_str()),
-        NodeType::SvgText(s) => Some(s.as_str()),
         _ => None,
     }
 }
@@ -1059,32 +1091,6 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
     }
 }
 
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
-fn html_escape_attr(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '"' => out.push_str("&quot;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
 
 const RESET_CSS: &str = r#"
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1093,16 +1099,18 @@ html, body { width: 100%; height: 100%; }
 "#;
 
 /// Light dismiss for `<transient-window>` on the web: a press outside an open
-/// popup (and outside its anchor, which toggles it itself) or Escape closes
-/// every `dismiss=outside` popup; Escape alone also closes `dismiss=escape`
-/// ones. Mirrors the native engine's rules — see `common::transient`.
+/// popup (and outside its anchor, which toggles it itself) closes every
+/// `dismiss=outside` and `dismiss=outside-only` popup; Escape closes
+/// `dismiss=outside` and `dismiss=escape` ones (an `outside-only` popup's
+/// content answers Escape itself). Mirrors the native engine's rules — see
+/// `common::transient`.
 const TRANSIENT_DISMISS_JS: &str = r#"
 (function(){
   function openPopups(){return Array.prototype.slice.call(document.querySelectorAll('.az-transient-window[data-open="true"]'));}
   function close(el){el.setAttribute('data-open','false');el.style.display='none';el.dispatchEvent(new CustomEvent('az-dismissed',{bubbles:true}));}
   document.addEventListener('pointerdown',function(e){
     openPopups().forEach(function(el){
-      if(el.getAttribute('data-dismiss')!=='outside')return;
+      var dm=el.getAttribute('data-dismiss');if(dm!=='outside'&&dm!=='outside-only')return;
       if(el.contains(e.target))return;
       var anchor=el.parentElement;
       if(anchor&&anchor.contains(e.target)){

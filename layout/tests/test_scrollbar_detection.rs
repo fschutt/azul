@@ -34,7 +34,11 @@ fn create_window_state(width: f32, height: f32) -> FullWindowState {
 /// Layout a DOM and return the count of scrollbar items in the display list
 fn layout_dom_and_count_scrollbars(dom: Dom, css_str: &str, width: f32, height: f32) -> usize {
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let mut dom = dom;
+    // The element under test must not BE the root: CSS Overflow 3 §3.3
+    // propagates the root element's overflow to the viewport and gives the
+    // element itself a used value of `visible`, so a root that scrolled
+    // itself would be testing the viewport, not an ordinary scroll box.
+    let mut dom = Dom::create_body().with_css("margin: 0; padding: 0;").with_child(dom);
     let styled_dom = StyledDom::create(&mut dom, css);
     let dom_id = styled_dom.dom_id;
 
@@ -337,7 +341,9 @@ fn layout_dom_and_get_content_width(
     };
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let mut dom = dom;
+    // See `layout_dom_and_count_scrollbars`: the scroll box under test must
+    // not be the root, whose overflow belongs to the viewport.
+    let mut dom = Dom::create_body().with_css("margin: 0; padding: 0;").with_child(dom);
     let styled_dom = StyledDom::create(&mut dom, css);
     let dom_id = styled_dom.dom_id;
 
@@ -357,10 +363,10 @@ fn layout_dom_and_get_content_width(
         )
         .unwrap();
 
-    // Get the content node (node 1, which is the first child of container at node 0)
+    // The content node: body(0) > container(1) > content(2).
     let content_node_id = DomNodeId {
         dom: dom_id,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
     };
 
     layout_window
@@ -550,7 +556,9 @@ fn layout_dom_and_get_scrollbar_bounds(
     // Returns (x, y, width, height, orientation)
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let mut dom = dom;
+    // See `layout_dom_and_count_scrollbars`: the element under test must not be
+    // the root, whose overflow belongs to the viewport.
+    let mut dom = Dom::create_body().with_css("margin: 0; padding: 0;").with_child(dom);
     let styled_dom = StyledDom::create(&mut dom, css);
     let dom_id = styled_dom.dom_id;
 
@@ -820,7 +828,11 @@ fn layout_dom_and_get_scrollbar_info(
     height: f32,
 ) -> Vec<(f32, f32, f32, f32, String)> {
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let mut dom = dom;
+    // See `layout_dom_and_count_scrollbars`: a scroll box that IS the root is
+    // the viewport, whose bar is the window's, not the box's.
+    let mut dom = Dom::create_body()
+        .with_css("margin: 0; padding: 0;")
+        .with_child(dom);
     let styled_dom = StyledDom::create(&mut dom, css);
     let dom_id = styled_dom.dom_id;
 

@@ -35,9 +35,17 @@
 //! TODO2 — like [`Popover`], the list is placed at a fixed offset below the field
 //! (it does not measure the field's height, flip near a screen edge, escape an
 //! `overflow: hidden` ancestor, or raise its z-order — it relies on being the
-//! later sibling to paint on top). There is no click-outside / blur dismissal
-//! (closing on focus-lost races the option click and could swallow the
-//! selection); the list closes on selection or on clicking the field again.
+//! later sibling to paint on top). The list closes on selection, on clicking
+//! the field again, on a click outside it, and when the field loses focus
+//! (Tab, a click elsewhere - WAI-ARIA combobox). The blur cannot swallow a
+//! pick: options are never focused and the list popup is never the key
+//! window, so a click on an option does not blur the field.
+//!
+//! Typing while the list shows an ACTIVE option clears it (WAI-ARIA
+//! combobox): Enter then keeps the typed text, the next arrow starts over.
+//! The popup still paints the stale highlight until its next key - the
+//! field (parent window) cannot restyle the popup window's nodes; the shared
+//! state (`active_option_cleared`) carries only the decision across.
 //!
 //! Key types: [`ComboBox`], [`ComboBoxState`], [`ComboBoxOnSelect`].
 
@@ -48,6 +56,7 @@ use azul_core::{
     dom::{
         ComponentEventFilter, Dom, DomVec, EventFilter, FocusEventFilter, HoverEventFilter,
         IdOrClass, IdOrClass::Class, IdOrClassVec, NodeData, NodeType, TabIndex,
+        WindowEventFilter,
     },
     refany::{OptionRefAny, RefAny},
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
@@ -57,7 +66,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{
             color::ColorU,
@@ -83,7 +91,10 @@ use azul_css::{
     AzString, OptionString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{OptionUiTheme, UiTheme},
+};
 
 static COMBOBOX_WRAPPER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-combobox"))];
@@ -99,9 +110,31 @@ static COMBOBOX_ARROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static COMBOBOX_LIST_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-combobox-list",
 ))];
+/// An option row's class - what the list's key handler finds its options by.
+const COMBOBOX_OPTION_CLASS_NAME: &str = "__azul-native-combobox-option";
 static COMBOBOX_OPTION_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-combobox-option",
+    COMBOBOX_OPTION_CLASS_NAME,
 ))];
+/// The class the list puts on its ACTIVE option - the one the arrow keys
+/// moved to while the field keeps focus (WAI-ARIA combobox,
+/// `aria-activedescendant`). It lives in the popup window's own dom, so a
+/// list shown afresh starts with none.
+const COMBOBOX_OPTION_ACTIVE_CLASS_NAME: &str = "__azul-native-combobox-option-active";
+/// The list's status line ([`ComboBox::status`]) - not an option.
+static COMBOBOX_STATUS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-combobox-status",
+))];
+
+/// A quieter line in the row's own ink: `px` text at 70% opacity - an
+/// option's detail, the list's status. Inheriting the ink is what makes it
+/// right in every theme and mode without a colour of its own.
+fn quiet_line(px: isize) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::style::StyleOpacity;
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(px))),
+        CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(70))),
+    ]
+}
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -113,7 +146,7 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 /// simplification - see the module-level `TODO2`; the field is ~26px tall).
 const LIST_OFFSET_Y: isize = 28;
 /// Minimum width of the field and the list.
-const MIN_WIDTH: isize = 160;
+pub(crate) const MIN_WIDTH: isize = 160;
 const RADIUS: isize = 4;
 const ARROW_FONT_SIZE_PX: isize = 18;
 
@@ -163,6 +196,34 @@ azul_core::impl_managed_callback! {
     setter_fn:      AzApp_setComboBoxOnSelectCallbackInvoker,
     from_handle_fn: AzComboBoxOnSelectCallback_createFromHostHandle,
     from_handle_byref_fn: AzComboBoxOnSelectCallback_createFromHostHandleByref,
+    extra_args:     [ state: ComboBoxState ],
+}
+
+/// Callback invoked when the user TYPES into the field (each insertion and
+/// deletion): the [`ComboBoxState`] carries the field's new `text` - HTML's
+/// `input` event on an `<input list>`. What the user typed is the value,
+/// whether or not it matches a suggestion; a pick from the list reports
+/// through `on_select`.
+pub type ComboBoxOnTextInputCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, ComboBoxState) -> Update;
+impl_widget_callback!(
+    ComboBoxOnTextInput,
+    OptionComboBoxOnTextInput,
+    ComboBoxOnTextInputCallback,
+    ComboBoxOnTextInputCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        ComboBoxOnTextInputCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: COMBOBOX_ON_TEXT_INPUT_INVOKER,
+    invoker_ty:     AzComboBoxOnTextInputCallbackInvoker,
+    thunk_fn:       az_combobox_on_text_input_callback_thunk,
+    setter_fn:      AzApp_setComboBoxOnTextInputCallbackInvoker,
+    from_handle_fn: AzComboBoxOnTextInputCallback_createFromHostHandle,
+    from_handle_byref_fn: AzComboBoxOnTextInputCallback_createFromHostHandleByref,
     extra_args:     [ state: ComboBoxState ],
 }
 
@@ -226,6 +287,73 @@ pub struct ComboBox {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// A line at the end of the list that is NOT an option ("Searching...",
+    /// "No matches", "40 more - type to narrow"): what the list says about
+    /// its options while the app finds them. `None`: no line.
+    pub status: OptionString,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). A theme is a DOM-level choice: it picks the
+    /// skin the field, its arrow, the list and its rows are built from, so
+    /// switching it rebuilds the combobox.
+    pub theme: OptionUiTheme,
+}
+
+/// What a theme supplies for a combobox: the style of every part a caller
+/// did not style itself, and the theme it belongs to (whose marker class
+/// goes on the wrapper). Built by `themes::flat::combobox_skin` /
+/// `themes::flora::combobox_skin`.
+pub(crate) struct ComboBoxSkin {
+    pub theme: UiTheme,
+    /// The `position: relative` wrapper.
+    pub wrapper: CssPropertyWithConditionsVec,
+    /// The editable field - focusable, so it owes the focus ring.
+    pub field: CssPropertyWithConditionsVec,
+    /// The text inside the field.
+    pub text: CssPropertyWithConditionsVec,
+    /// The drop-down arrow.
+    pub arrow: CssPropertyWithConditionsVec,
+    /// One option row - a Tab stop too, so it owes the focus ring.
+    pub option: CssPropertyWithConditionsVec,
+    /// The options panel; a caller's `list_style` extras are appended to it.
+    pub list: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws comboboxes with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> ComboBoxSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::combobox_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::combobox_skin(),
+    }
+}
+
+/// The skin an UNPINNED combobox is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the wrapper) and every
+/// part in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> ComboBoxSkin {
+    use crate::widgets::themes::theme_blocks::follow_props as both;
+    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
+    ComboBoxSkin {
+        theme: structure,
+        wrapper: both(flat.wrapper.as_slice(), flora.wrapper.as_slice()),
+        field: both(flat.field.as_slice(), flora.field.as_slice()),
+        text: both(flat.text.as_slice(), flora.text.as_slice()),
+        arrow: both(flat.arrow.as_slice(), flora.arrow.as_slice()),
+        option: both(flat.option.as_slice(), flora.option.as_slice()),
+        list: both(flat.list.as_slice(), flora.list.as_slice()),
+    }
+}
+
+/// The skin a combobox carrying `theme` renders with: the pinned theme's, or
+/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
+/// built for. What the render and the style resolvers both ask.
+#[must_use]
+pub(crate) fn skin_of(theme: OptionUiTheme) -> ComboBoxSkin {
+    match theme.into_option() {
+        Some(pinned) => skin_for(pinned),
+        None => follow_skin(UiTheme::current()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,6 +365,27 @@ pub struct ComboBoxStateWrapper {
     pub items: StringVec,
     /// Optional: function to call when an option is selected.
     pub on_select: OptionComboBoxOnSelect,
+    /// Optional: function to call when the user types into the field (the
+    /// typed text is the value, picked or not). Appended at the END of the
+    /// `repr(C)` struct.
+    pub on_text_input: OptionComboBoxOnTextInput,
+    /// A second, quieter line under each option (`item_details[i]` under
+    /// `items[i]`): a record's details in a reference picker, a font's
+    /// sample, a command's shortcut. Empty (the default) or an empty string
+    /// for one item: that option is its label alone.
+    pub item_details: StringVec,
+    /// The user typed into the field (or deleted) since the list last made
+    /// an option ACTIVE: that option no longer counts (WAI-ARIA combobox -
+    /// typing clears the active option). The list's next arrow starts over
+    /// from no active option, and Enter keeps the typed text instead of
+    /// picking it. The list clears the flag when it makes an option active.
+    /// The shared state is the one channel from the field (parent window) to
+    /// the list (popup window). Appended at the END of the `repr(C)` struct.
+    pub active_option_cleared: bool,
+    /// Typing into the field opens its list when it is closed: suggestions
+    /// as you type (a reference picker, a search with results). Off by
+    /// default - a plain combobox opens on a click or Down.
+    pub open_on_type: bool,
 }
 
 impl Default for ComboBoxStateWrapper {
@@ -245,6 +394,10 @@ impl Default for ComboBoxStateWrapper {
             inner: ComboBoxState::default(),
             items: StringVec::from_const_slice(&[]),
             on_select: None.into(),
+            on_text_input: None.into(),
+            item_details: StringVec::from_const_slice(&[]),
+            active_option_cleared: false,
+            open_on_type: false,
         }
     }
 }
@@ -276,7 +429,7 @@ impl Default for ComboBoxState {
 
 /// Wrapper: an inline-block positioning context so the absolutely-positioned list
 /// is placed relative to it.
-static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -287,13 +440,40 @@ static COMBOBOX_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
 ];
 
-/// The clickable, focusable, editable input field (text + arrow).
-static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
+// ---- the structure: the same in every theme (R5) ----
+//
+// A part's layout - display, flex, alignment, cursor, user-select - is the
+// widget's, not a theme's: every theme's skin comes AFTER its base, so the
+// merge (`themes::theme_blocks`) declares the base once, outside every
+// `@theme` block, and it holds under any app theme.
+
+/// The field's structure: a row centring the text and the arrow, never
+/// growing, with the text cursor of an editable value.
+pub(crate) static COMBOBOX_FIELD_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
+];
+
+/// The options panel's structure: a block filling its popup window (the
+/// WINDOW opens and closes, never the panel - see [`build_list_style`]).
+pub(crate) static COMBOBOX_LIST_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+];
+
+/// An option row's structure: a block, a pointer target whose label is not
+/// selectable text.
+pub(crate) static COMBOBOX_OPTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The clickable, focusable, editable input field (text + arrow): flat's
+/// skin of it, after [`COMBOBOX_FIELD_BASE`].
+pub(crate) static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     // padding: 3px 4px
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         3,
@@ -352,6 +532,13 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    // Dark twins of the resting edges - BEFORE the focus-ring rules below, so
+    // the ring still wins on focus (last match wins, and a `dark_theme` twin
+    // matches in every pseudo-state).
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // border-radius: 4px
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(RADIUS),
@@ -366,9 +553,11 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
         StyleBorderBottomRightRadius::const_px(RADIUS),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    crate::widgets::themes::system_palette::DARK_CONTROL_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    crate::widgets::themes::system_palette::DARK_TEXT,
     // Focus ring, light and dark. Declared in the theme module — see
     // `themes::flat::FOCUS_BORDER_TOP` — because the dark half needs the
     // palette's `DARK_ACC`, which this file cannot see. All four edges, because
@@ -384,7 +573,7 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The editable text inside the field - takes the remaining horizontal space.
-static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
@@ -393,7 +582,7 @@ static COMBOBOX_TEXT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// The drop-down arrow icon on the right of the field.
-static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
         ARROW_FONT_SIZE_PX,
@@ -413,10 +602,11 @@ static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
 ///
 /// `open` therefore no longer selects `display` — the WINDOW opens and closes —
 /// but the parameter stays so the caller keeps one entry point, and the panel
-/// is explicitly `display: block` in both states.
-fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+/// is explicitly `display: block` in both states ([`COMBOBOX_LIST_BASE`], the
+/// structure every theme's panel starts from; the rest is flat's skin).
+pub(crate) fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
+    let mut style = COMBOBOX_LIST_BASE.to_vec();
+    style.extend(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             MIN_WIDTH,
         ))),
@@ -473,6 +663,10 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
                 inner: BORDER_COLOR,
             },
         )),
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_TOP,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_LEFT,
+        crate::widgets::themes::system_palette::DARK_SEPARATOR_BORDER_RIGHT,
         // border-radius: 4px
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
             StyleBorderBottomLeftRadius::const_px(RADIUS),
@@ -481,12 +675,15 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
             StyleBorderBottomRightRadius::const_px(RADIUS),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
-    ])
+        // The list is a field surface: the desktop's field colour in dark.
+        crate::widgets::themes::system_palette::DARK_CONTROL_BACKGROUND,
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
-/// Per-option row style: a padded, pointer-cursor block highlighted on hover.
-static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+/// Per-option row style: flat's skin of a row - padded, highlighted on hover
+/// - after [`COMBOBOX_OPTION_BASE`] (the pointer-cursor block).
+pub(crate) static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         6,
     ))),
@@ -499,11 +696,10 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(10),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    crate::widgets::themes::system_palette::DARK_TEXT,
     // Option-row hover, light and dark — see `themes::flat::OPTION_HOVER`.
     crate::widgets::themes::flat::OPTION_HOVER,
     crate::widgets::themes::flat::OPTION_HOVER_DARK,
@@ -522,9 +718,8 @@ impl ComboBox {
     pub fn new(items: StringVec) -> Self {
         Self {
             combo_state: ComboBoxStateWrapper {
-                inner: ComboBoxState::default(),
                 items,
-                on_select: None.into(),
+                ..ComboBoxStateWrapper::default()
             },
             placeholder: AzString::from_const_str(""),
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
@@ -534,13 +729,69 @@ impl ComboBox {
             option_style: OptionCssPropertyWithConditionsVec::None,
             list_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            status: OptionString::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// A second line under each option (`details[i]` under item `i`; see
+    /// [`ComboBoxStateWrapper::item_details`]).
+    pub fn set_item_details(&mut self, details: StringVec) {
+        self.combo_state.item_details = details;
+    }
+
+    /// [`Self::set_item_details`] for the builder chain.
+    #[must_use]
+    pub fn with_item_details(mut self, details: StringVec) -> Self {
+        self.set_item_details(details);
+        self
+    }
+
+    /// A line at the end of the list that is not an option (see
+    /// [`Self::status`]).
+    pub fn set_status(&mut self, status: AzString) {
+        self.status = OptionString::Some(status);
+    }
+
+    /// [`Self::set_status`] for the builder chain.
+    #[must_use]
+    pub fn with_status(mut self, status: AzString) -> Self {
+        self.set_status(status);
+        self
+    }
+
+    /// Typing opens the closed list (see
+    /// [`ComboBoxStateWrapper::open_on_type`]).
+    pub const fn set_open_on_type(&mut self, open_on_type: bool) {
+        self.combo_state.open_on_type = open_on_type;
+    }
+
+    /// [`Self::set_open_on_type`] for the builder chain.
+    #[must_use]
+    pub const fn with_open_on_type(mut self, open_on_type: bool) -> Self {
+        self.set_open_on_type(open_on_type);
+        self
     }
 
     /// Creates an empty combobox.
     #[must_use]
     pub fn create() -> Self {
         Self::new(StringVec::from_const_slice(&[]))
+    }
+
+    /// Pick the widget theme. Unset (`None`), the combobox follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the initially-selected option index.
@@ -607,16 +858,43 @@ impl ComboBox {
         self
     }
 
+    /// Sets the callback invoked when the user types into the field.
+    #[inline]
+    pub fn set_on_text_input<C: Into<ComboBoxOnTextInputCallback>>(
+        &mut self,
+        data: RefAny,
+        on_text_input: C,
+    ) {
+        self.combo_state.on_text_input = Some(ComboBoxOnTextInput {
+            callback: on_text_input.into(),
+            refany: data,
+        })
+        .into();
+    }
+
+    /// Builder-style setter for the text-input callback.
+    #[inline]
+    #[must_use]
+    pub fn with_on_text_input<C: Into<ComboBoxOnTextInputCallback>>(
+        mut self,
+        data: RefAny,
+        on_text_input: C,
+    ) -> Self {
+        self.set_on_text_input(data, on_text_input);
+        self
+    }
+
     /// The wrapper CSS this combobox renders with.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift. The
+    /// `None` means no opinion, so the theme's part applies - asked of the
+    /// same skin the render uses (`skin_of`), so the two cannot drift. The
     /// five resolvers below follow the same rule.
     #[must_use]
     pub fn resolved_wrapper_style(&self) -> CssPropertyWithConditionsVec {
-        self.wrapper_style.clone().into_option().unwrap_or_else(|| {
-            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_WRAPPER_STYLE)
-        })
+        self.wrapper_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin_of(self.theme).wrapper)
     }
 
     /// The input-field CSS this combobox renders with.
@@ -625,7 +903,7 @@ impl ComboBox {
         self.field_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_INPUT_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).field)
     }
 
     /// The field-text CSS this combobox renders with.
@@ -634,7 +912,7 @@ impl ComboBox {
         self.text_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_TEXT_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).text)
     }
 
     /// The arrow CSS this combobox renders with.
@@ -643,19 +921,20 @@ impl ComboBox {
         self.arrow_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).arrow)
     }
 
     /// The option-row CSS this combobox renders with.
     #[must_use]
     pub fn resolved_option_style(&self) -> CssPropertyWithConditionsVec {
-        self.option_style.clone().into_option().unwrap_or_else(|| {
-            CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE)
-        })
+        self.option_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin_of(self.theme).option)
     }
 
-    /// The panel CSS this combobox renders with: the widget's own open/closed
-    /// `display` toggle, with the caller's extras appended so they win.
+    /// The panel CSS this combobox renders with: the theme's panel, with the
+    /// caller's extras appended so they win.
     ///
     /// Unlike the others this MERGES rather than replaces — see
     /// [`Self::list_style`]. `None` and `Some(empty)` therefore resolve alike
@@ -663,14 +942,23 @@ impl ComboBox {
     /// a caller asking a second time.
     #[must_use]
     pub fn resolved_list_style(&self, open: bool) -> CssPropertyWithConditionsVec {
-        let base = build_list_style(open);
-        match self.list_style.as_ref() {
+        Self::list_style_on(skin_of(self.theme).list, self.list_style.as_ref(), open)
+    }
+
+    /// `base` (a theme's panel) with the caller's `extra` stacked on it, so
+    /// the extras win under every app theme (`theme_blocks::stack_parts`: a
+    /// panel that follows the app theme carries themed declarations, which
+    /// would otherwise outrank a plain extra). The panel is `display: block`
+    /// open or closed - the popup WINDOW is what opens and closes
+    /// (`build_list_style`) - so `open` changes nothing.
+    fn list_style_on(
+        base: CssPropertyWithConditionsVec,
+        extra: Option<&CssPropertyWithConditionsVec>,
+        _open: bool,
+    ) -> CssPropertyWithConditionsVec {
+        match extra {
             None => base,
-            Some(extra) => {
-                let mut merged = base.into_library_owned_vec();
-                merged.extend(extra.as_ref().iter().cloned());
-                CssPropertyWithConditionsVec::from_vec(merged)
-            }
+            Some(extra) => crate::widgets::themes::theme_blocks::stack_parts(&base, extra),
         }
     }
 
@@ -685,8 +973,25 @@ impl ComboBox {
 
     /// Renders the combobox into a [`Dom`] subtree with the `__azul-native-combobox`
     /// class.
+    ///
+    /// Rendering goes through the theme modules (as `Button::dom` does): each
+    /// hands [`Self::build`] its skin. Unpinned (`theme: None`), the combobox
+    /// follows the APP theme: built in the structure of the theme its DOM is
+    /// built for, carrying every theme's blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::combobox(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::combobox(self),
+            None => self.build(follow_skin(UiTheme::current())),
+        }
+    }
+
+    /// Renders the combobox with `skin` supplying every part the caller did
+    /// not style - what `themes::flat::combobox` / `themes::flora::combobox`
+    /// call.
+    #[must_use]
+    pub(crate) fn build(self, skin: ComboBoxSkin) -> Dom {
         // Initial field text: the typed/selected text if present, else the
         // placeholder (a simplification — there is no separate placeholder node,
         // so the placeholder is just the initial label and is replaced on the
@@ -699,15 +1004,19 @@ impl ComboBox {
 
         let open = self.combo_state.inner.open;
         let items = self.combo_state.items.clone();
+        let details = self.combo_state.item_details.clone();
+        let status = self.status.clone();
 
         // Resolved before `self.combo_state` is moved into the shared RefAny
-        // below; the resolvers borrow `&self`.
-        let wrapper_style = self.resolved_wrapper_style();
-        let field_style = self.resolved_field_style();
-        let text_style = self.resolved_text_style();
-        let arrow_style = self.resolved_arrow_style();
-        let option_style = self.resolved_option_style();
-        let list_style = self.resolved_list_style(open);
+        // below. A caller's style replaces the skin's part; the list's extras
+        // are appended to the skin's panel.
+        let theme = skin.theme;
+        let wrapper_style = self.wrapper_style.into_option().unwrap_or(skin.wrapper);
+        let field_style = self.field_style.into_option().unwrap_or(skin.field);
+        let text_style = self.text_style.into_option().unwrap_or(skin.text);
+        let arrow_style = self.arrow_style.into_option().unwrap_or(skin.arrow);
+        let option_style = self.option_style.into_option().unwrap_or(skin.option);
+        let list_style = Self::list_style_on(skin.list, self.list_style.as_ref(), open);
 
         // ONE shared RefAny: the field handlers and every option handler all
         // read/mutate the same ComboBoxStateWrapper (the text_input shared-state
@@ -729,9 +1038,12 @@ impl ComboBox {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_INPUT_CLASS))
             .with_css_props(field_style)
             .with_tab_index(TabIndex::Auto)
-            // The field itself: an editable value with a list of choices.
+            // The field itself: an editable value with a list of choices,
+            // saying whether that list is open (aria-expanded). Focus never
+            // leaves it - the list only shows an ACTIVE option.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::ComboBox,
+                states: expanded_states(open),
                 ..Default::default()
             })
             .with_callbacks(
@@ -760,6 +1072,15 @@ impl ComboBox {
                         },
                         refany: state_ref.clone(),
                     },
+                    // Focus leaving the field closes its list.
+                    CoreCallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::FocusLost),
+                        callback: CoreCallback {
+                            cb: on_combobox_blur as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: state_ref.clone(),
+                    },
                 ]
                 .into(),
             )
@@ -767,13 +1088,30 @@ impl ComboBox {
 
         // Build the option rows. Each carries a CLONE of the shared state so its
         // click handler can mutate selected/open and read the chosen label.
-        let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len());
-        for option in items.as_ref() {
+        let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len() + 1);
+        for (i, option) in items.as_ref().iter().enumerate() {
+            // An option with a detail is a box of two lines - the label, then
+            // the detail, smaller and quieter (it inherits the row's ink, so
+            // it follows every theme and mode); without one it is the label
+            // `<p>` itself, as it always was.
+            let detail = details
+                .as_ref()
+                .get(i)
+                .filter(|d| !d.as_str().is_empty())
+                .cloned();
+            let row = match detail {
+                Some(detail) => Dom::create_div().with_children(DomVec::from_vec(alloc::vec![
+                    crate::widgets::widget_p_with_text(option.clone()),
+                    crate::widgets::widget_p_with_text(detail)
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(quiet_line(11))),
+                ])),
+                None => crate::widgets::widget_p_with_text(option.clone()),
+            };
             option_doms.push(
-                crate::widgets::widget_p_with_text(option.clone())
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
+                row.with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
                     .with_css_props(option_style.clone())
-                    .with_tab_index(TabIndex::Auto)
+                    // NOT a tab stop: an option is never focused - the field
+                    // keeps focus and the list shows an ACTIVE option.
                     // Each option is an item within the popup list.
                     .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                         role: azul_core::a11y::AccessibilityRole::ListItem,
@@ -792,10 +1130,52 @@ impl ComboBox {
                     ),
             );
         }
+        // The list's own word about its options ("Searching...", "No
+        // matches"): after them, so an option's index is still its place
+        // among its siblings; no option class, so the keys never make it
+        // active; no click. A live region: it changes while the app looks.
+        if let Some(status) = status.into_option() {
+            let mut style = quiet_line(12);
+            style.extend(crate::widgets::themes::decl::padding(6, 10, 6, 10));
+            option_doms.push(
+                crate::widgets::widget_p_with_text(status)
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_STATUS_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::StaticText,
+                        is_live_region: true,
+                        ..Default::default()
+                    }),
+            );
+        }
 
+        // A LIST, not a panel: that role is what tells the engine this popup
+        // leaves focus on the field (`transient_takes_focus`), the WAI-ARIA
+        // combobox model - typing keeps editing the field while it is open.
+        // Its window key handler moves the ACTIVE option on the navigation
+        // keys the field's window forwards to it; the theme marker tells that
+        // handler, inside the popup window (no wrapper there), which theme's
+        // fill the active option wears.
+        let mut list_classes: Vec<IdOrClass> = COMBOBOX_LIST_CLASS.to_vec();
+        list_classes.push(crate::widgets::themes::style_kit::marker(theme));
         let list = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_LIST_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(list_classes))
             .with_css_props(list_style)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::List,
+                ..Default::default()
+            })
+            .with_callbacks(
+                alloc::vec![CoreCallbackData {
+                    event: EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: on_combobox_list_key as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: state_ref.clone(),
+                }]
+                .into(),
+            )
             .with_children(DomVec::from_vec(option_doms));
 
         // The list is a REAL OS popup anchored under the field, not an
@@ -813,14 +1193,19 @@ impl ComboBox {
         ));
         transient.add_callback(
             EventFilter::Component(ComponentEventFilter::Dismissed),
-            state_ref,
+            state_ref.clone(),
             Callback::from_ptr(on_combobox_dismissed).to_core(),
         );
         let popup = Dom::create_from_data(transient).with_child(list);
 
+        let mut classes: Vec<IdOrClass> = COMBOBOX_WRAPPER_CLASS.to_vec();
+        classes.push(crate::widgets::themes::style_kit::marker(theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_WRAPPER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(wrapper_style)
+            // The state on the root, where the combobox IS: a form reads its
+            // value (the field's text, typed or picked) there.
+            .with_dataset(Some(state_ref).into())
             // children: [field, popup] — the popup (holding the list) is the
             // field's next sibling, so `get_next_sibling(field)` still names it.
             .with_children(DomVec::from_vec(alloc::vec![field, popup]))
@@ -842,18 +1227,90 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
     let Some(popup) = info.get_next_sibling(field) else {
         return Update::DoNothing;
     };
+    // The ENGINE knows whether the popup is open: its latch survives the
+    // app's rebuilds, the payload's flag does not (a rebuilt combobox starts
+    // "closed" over a list that is still showing).
+    let engine_open = info.is_transient_window_open(popup);
 
     let now_open = {
         let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
             return Update::DoNothing;
         };
-        combo.inner.open = !combo.inner.open;
+        combo.inner.open = !(combo.inner.open || engine_open);
         combo.inner.open
     };
 
-    info.set_transient_window_open(popup, now_open);
+    show_list(&mut info, field, popup, now_open);
 
     Update::DoNothing
+}
+
+/// Opens or closes the field's list - its popup WINDOW (`popup`, the
+/// field's next sibling) - and the field says so. The one place a field
+/// handler shows or hides the list: a click, Down / Up, Tab, a blur.
+fn show_list(
+    info: &mut CallbackInfo,
+    field: azul_core::dom::DomNodeId,
+    popup: azul_core::dom::DomNodeId,
+    open: bool,
+) {
+    info.set_transient_window_open(popup, open);
+    announce_expanded(info, field, open);
+}
+
+/// Closes the field's list if it is open - what a blur and Tab do
+/// (WAI-ARIA combobox): `open` cleared, the popup window closed, the field
+/// says Collapsed. The field's text stays the value. `false`, and nothing
+/// written, when the list is closed already or the state is not a
+/// combobox's.
+fn close_list(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    field: azul_core::dom::DomNodeId,
+) -> bool {
+    let Some(popup) = info.get_next_sibling(field) else {
+        return false;
+    };
+    {
+        let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
+            return false;
+        };
+        if !combo.inner.open {
+            return false;
+        }
+        combo.inner.open = false;
+    }
+    show_list(info, field, popup, false);
+    true
+}
+
+/// The field lost focus - Tab, Shift+Tab, a click elsewhere: its list
+/// closes (WAI-ARIA combobox). A pick is not lost to this: an option is
+/// never focused and the list popup is never the key window, so a click on
+/// an option does not blur the field.
+extern "C" fn on_combobox_blur(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let field = info.get_hit_node();
+    close_list(&mut data, &mut info, field);
+    Update::DoNothing
+}
+
+/// The field's accessibility states: its list open or closed
+/// (aria-expanded).
+fn expanded_states(open: bool) -> azul_core::a11y::AccessibilityStateVec {
+    use azul_core::a11y::AccessibilityState::{Collapsed, Expanded};
+
+    azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![if open {
+        Expanded
+    } else {
+        Collapsed
+    }])
+}
+
+/// The field says, live, whether its list is open - opening and closing the
+/// list rebuilds nothing, so the state published at build time would go
+/// stale.
+fn announce_expanded(info: &mut CallbackInfo, field: azul_core::dom::DomNodeId, open: bool) {
+    info.set_accessibility_state(field, expanded_states(open));
 }
 
 /// The popup dismissed itself (outside click / Escape / an option was picked
@@ -882,6 +1339,14 @@ extern "C" fn on_combobox_dismissed(mut data: RefAny, mut info: CallbackInfo) ->
             Some(text)
         }
     };
+
+    // The list closed: the field says so (popup -> wrapper -> field).
+    let field = info
+        .get_parent(info.get_hit_node())
+        .and_then(|wrapper| info.get_first_child(wrapper));
+    if let Some(field) = field {
+        announce_expanded(&mut info, field, false);
+    }
 
     // popup (= the event's target, the <transient-window> node) -> wrapper ->
     // field -> label <p> -> text leaf, all in the parent dom.
@@ -919,31 +1384,55 @@ fn on_combobox_text_input_inner(mut data: RefAny, mut info: CallbackInfo) -> Opt
         return None;
     }
 
-    let new_text = {
+    let (new_text, open_now) = {
         let mut combo = data.downcast_mut::<ComboBoxStateWrapper>()?;
         let mut s: String = combo.inner.text.as_str().into();
         s.push_str(&inserted_text);
         combo.inner.text = s.clone().into();
-        s
+        // Typing clears the list's active option (WAI-ARIA combobox).
+        combo.active_option_cleared = true;
+        // Suggestions as you type: the closed list opens.
+        let open_now = combo.open_on_type && !combo.inner.open;
+        if open_now {
+            combo.inner.open = true;
+        }
+        (s, open_now)
     };
 
     info.change_node_text(text_node, new_text.into());
-    Some(Update::DoNothing)
+    if open_now {
+        if let Some(popup) = info.get_next_sibling(field) {
+            show_list(&mut info, field, popup, true);
+        }
+    }
+    Some(report_typed_text(&mut data, info))
 }
 
-/// Field key-down handler - implements backspace deletion (mirroring `text_input`).
+/// Field key-down handler - implements backspace deletion (mirroring
+/// `text_input`), opens the list on Down / Up and closes it on Tab.
 extern "C" fn on_combobox_key_down(data: RefAny, info: CallbackInfo) -> Update {
     on_combobox_key_down_inner(data, info).unwrap_or(Update::DoNothing)
 }
 
 fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Option<Update> {
     let field = info.get_hit_node();
+    let key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option();
+    // Tab (and Shift+Tab) closes the list - the blur that follows closes
+    // it too, but the field may be the window's only stop, and then no blur
+    // follows. The key stays Tab: not consumed, focus moves on.
+    if key == Some(VirtualKeyCode::Tab) {
+        return close_list(&mut data, &mut info, field).then_some(Update::DoNothing);
+    }
+    if let Some(update) = open_list_from_the_keyboard(&mut data, &mut info, field) {
+        return Some(update);
+    }
     // field -> label `<p>` -> bare text leaf (see `on_combobox_text_input_inner`).
     let text_node = info.get_first_child(info.get_first_child(field)?)?;
 
-    let keyboard_state = info.get_current_keyboard_state();
-    let c = keyboard_state.current_virtual_keycode.into_option()?;
-    if c != VirtualKeyCode::Back {
+    if key? != VirtualKeyCode::Back {
         return None;
     }
 
@@ -952,11 +1441,194 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
         let mut s: String = combo.inner.text.as_str().into();
         s.pop();
         combo.inner.text = s.clone().into();
+        // Deleting is typing: it clears the list's active option too.
+        combo.active_option_cleared = true;
         s
     };
 
     info.change_node_text(text_node, new_text.into());
-    Some(Update::DoNothing)
+    Some(report_typed_text(&mut data, info))
+}
+
+/// The user typed into the field: hand the app its new text through
+/// `on_text_input` - the typed text is the value, picked or not. Taken out of
+/// the state before it runs, so a hook that reads the combobox finds it free.
+/// Its `Update`, or `DoNothing` without a hook.
+fn report_typed_text(data: &mut RefAny, info: CallbackInfo) -> Update {
+    let (hook, state) = match data.downcast_ref::<ComboBoxStateWrapper>() {
+        Some(combo) => (combo.on_text_input.clone(), combo.inner.clone()),
+        None => return Update::DoNothing,
+    };
+    match hook.as_ref() {
+        Some(ComboBoxOnTextInput { callback, refany }) => {
+            callback.invoke(refany.clone(), info, state)
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// Down or Up on the field while its list is CLOSED opens it (WAI-ARIA
+/// combobox; Alt+Down is the classic spelling, so Alt is allowed). While the
+/// list is open its navigation keys are the list's - the field's window
+/// forwards them (`parent_key_route` in the shell) - and one that still
+/// reaches the field (before the list has a window) is only kept from
+/// walking focus off the field. `None`: not a key of the list's; the field's
+/// other keys go on as before.
+fn open_list_from_the_keyboard(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    field: azul_core::dom::DomNodeId,
+) -> Option<Update> {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let key = {
+        let ks = info.get_current_keyboard_state();
+        if ks.ctrl_down() || ks.super_down() || ks.shift_down() {
+            return None;
+        }
+        ks.current_virtual_keycode.into_option()?
+    };
+    let open = data.downcast_ref::<ComboBoxStateWrapper>()?.inner.open;
+    match key {
+        K::Down | K::Up if !open => {
+            let popup = info.get_next_sibling(field)?;
+            data.downcast_mut::<ComboBoxStateWrapper>()?.inner.open = true;
+            show_list(info, field, popup, true);
+            info.prevent_default();
+            Some(Update::DoNothing)
+        }
+        K::Down | K::Up | K::Home | K::End | K::PageUp | K::PageDown if open => {
+            info.prevent_default();
+            Some(Update::DoNothing)
+        }
+        _ => None,
+    }
+}
+
+/// The list's key handler. It runs in the POPUP window, on the navigation
+/// keys the field's window forwards to it: the field keeps focus (WAI-ARIA
+/// combobox, `aria-activedescendant`), the list only moves its ACTIVE
+/// option. Down / Up step to the next / previous option (the first / the
+/// last when none is active), Home / `PageUp` and End / `PageDown` jump to the
+/// ends, holding there. Enter picks the active option exactly as a click on
+/// it would; with none active it just closes the list. Every other key, and
+/// every key held with Alt, Ctrl, Cmd or Shift, is left alone.
+///
+/// The list node exists in the PARENT's dom too (a popup is the parent's
+/// extracted subtree), where a window key handler hears every key the parent
+/// gets; only the popup window's copy - the list right under the window's
+/// root - acts.
+///
+/// Typing into the field since the active option was shown clears it
+/// (`ComboBoxStateWrapper::active_option_cleared`): the list then acts as
+/// with no option active - Enter keeps the typed text, Down starts at the
+/// first option.
+extern "C" fn on_combobox_list_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    let step = match key {
+        K::Down => Some(Step::Next),
+        K::Up => Some(Step::Previous),
+        K::Home | K::PageUp => Some(Step::First),
+        K::End | K::PageDown => Some(Step::Last),
+        K::Return | K::NumpadEnter => None,
+        _ => return Update::DoNothing,
+    };
+    let list = info.get_hit_node();
+    let Some(popup) = info.get_parent(list) else {
+        return Update::DoNothing;
+    };
+    if info.get_parent(popup).is_some() {
+        // The parent's copy of the list, not the popup window's.
+        return Update::DoNothing;
+    }
+    let options = roving::items_of(&info, list, COMBOBOX_OPTION_CLASS_NAME);
+    let cleared = data
+        .downcast_ref::<ComboBoxStateWrapper>()
+        .is_some_and(|combo| combo.active_option_cleared);
+    let active = if cleared {
+        None
+    } else {
+        options
+            .iter()
+            .position(|o| roving::has_class(&info, *o, COMBOBOX_OPTION_ACTIVE_CLASS_NAME))
+    };
+    info.prevent_default();
+
+    let Some(step) = step else {
+        // Enter: the active option is picked like a click on it; with none
+        // active the list just closes (the field keeps what was typed).
+        return if let Some(a) = active { pick_option(data, info, options[a]) } else {
+            info.set_transient_window_open(popup, false);
+            Update::DoNothing
+        };
+    };
+    let target = match (active, step) {
+        (None, Step::Next | Step::First) => (!options.is_empty()).then_some(0),
+        (None, Step::Previous | Step::Last) => options.len().checked_sub(1),
+        (Some(a), step) => roving::step_target(a, options.len(), step, false),
+    };
+    let Some(target) = target.filter(|t| Some(*t) != active) else {
+        return Update::DoNothing;
+    };
+    // An option is active again: it counts until the next typing.
+    if let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() {
+        combo.active_option_cleared = false;
+    }
+    show_active_option(&mut info, list, &options, target);
+    Update::DoNothing
+}
+
+/// Makes `options[active]` the list's ACTIVE option: it gets the marker class
+/// (how the next key finds it again), the theme's option-hover fill and the
+/// `Selected` state; every other option loses all three. The fill is the
+/// theme the list was built in (its marker class) in the mode the window
+/// renders in - these writes are plain overrides and beat the dark twins.
+fn show_active_option(
+    info: &mut CallbackInfo,
+    list: azul_core::dom::DomNodeId,
+    options: &[azul_core::dom::DomNodeId],
+    active: usize,
+) {
+    use crate::widgets::themes::{decl, flat, flora, style_kit};
+
+    let theme = style_kit::theme_of_classes(info.get_node_classes(list).as_ref());
+    // THE mode decision (`get_resolved_mode`: the AZ_MODE pin, the app's
+    // mode, the window's own) - the widgets' `window_is_dark` twins are gone.
+    let mode = usize::from(info.get_resolved_mode() == azul_core::window::DarkLightMode::Dark);
+    let fill = match theme {
+        UiTheme::Flat => flat::COMBOBOX_ACTIVE_OPTION[mode],
+        UiTheme::Flora => flora::COMBOBOX_ACTIVE_OPTION[mode],
+    };
+    for (i, option) in options.iter().enumerate() {
+        let Some(node) = option.node.into_crate_internal() else {
+            continue;
+        };
+        let is_active = i == active;
+        let mut classes: Vec<IdOrClass> = COMBOBOX_OPTION_CLASS.to_vec();
+        if is_active {
+            classes.push(Class(AzString::from_const_str(
+                COMBOBOX_OPTION_ACTIVE_CLASS_NAME,
+            )));
+        }
+        info.set_node_ids_and_classes(option.dom, node, IdOrClassVec::from_vec(classes));
+        info.set_css_property(
+            *option,
+            decl::fill(if is_active { fill } else { ColorU::TRANSPARENT }),
+        );
+    }
+    crate::widgets::roving::announce_chosen(
+        info,
+        options,
+        active,
+        azul_core::a11y::AccessibilityState::Selected,
+        None,
+    );
 }
 
 /// Option click handler. The hit node is the clicked option's `<p>`; its index is
@@ -981,9 +1653,19 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
 ///     parent's mailbox and closes the window), and the parent applies the field text in its
 ///     `Dismissed` handler, where the parent's field node is addressable
 ///     ([`on_combobox_dismissed`]).
-extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_combobox_option_click(data: RefAny, info: CallbackInfo) -> Update {
     let option = info.get_hit_node();
+    pick_option(data, info, option)
+}
 
+/// Picks `option`: a click on it ([`on_combobox_option_click`], whose doc
+/// says what this does in which dom) or Enter on the list's ACTIVE option
+/// ([`on_combobox_list_key`]).
+fn pick_option(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    option: azul_core::dom::DomNodeId,
+) -> Update {
     // index = number of previous siblings.
     let mut index = 0usize;
     let mut cursor = option;
@@ -1066,7 +1748,7 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, NodeId, NodeType},
+        dom::{DomId, DomNodeId, NodeId, NodeType, WindowEventFilter},
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
@@ -1307,6 +1989,9 @@ mod autotest_generated {
         styled: Option<StyledDom>,
         changeset: Option<PendingTextEdit>,
         keycode: Option<VirtualKeyCode>,
+        /// `<transient-window>` nodes the ENGINE holds open (a
+        /// `set_transient_window_open(true)` that survived a rebuild).
+        forced_open: Vec<usize>,
     }
 
     /// Invokes `call` against a `LayoutWindow` built from `env`, with `hit` as the
@@ -1326,6 +2011,11 @@ mod autotest_generated {
         }
         if let Some(changeset) = env.changeset {
             layout_window.text_input_manager.set_changeset(changeset);
+        }
+        for popup in env.forced_open {
+            let _ = layout_window
+                .transient_windows
+                .set_forced_open(NodeId::new(popup), true);
         }
 
         let renderer_resources = RendererResources::default();
@@ -1435,6 +2125,7 @@ mod autotest_generated {
             },
             items: sv(items),
             on_select: None.into(),
+            ..ComboBoxStateWrapper::default()
         })
     }
 
@@ -1839,10 +2530,16 @@ mod autotest_generated {
         assert!(has_class(arrow, "__azul-native-combobox-arrow"));
         assert_eq!(icon_of(arrow), Some("arrow_drop_down"));
 
-        // the field is focusable and wires exactly toggle / text-input / key-down
+        // the field is focusable and wires exactly toggle / text-input /
+        // key-down / focus-lost (its list closes when it loses focus)
         assert!(matches!(field.root.get_tab_index(), Some(TabIndex::Auto)));
         let cbs = field.root.get_callbacks();
-        assert_eq!(cbs.len(), 3);
+        assert_eq!(cbs.len(), 4);
+        assert_eq!(
+            cbs.as_ref()[3].event,
+            EventFilter::Focus(FocusEventFilter::FocusLost)
+        );
+        assert_eq!(cbs.as_ref()[3].callback.cb, on_combobox_blur as usize);
         assert_eq!(
             cbs.as_ref()[0].event,
             EventFilter::Hover(HoverEventFilter::Click)
@@ -1859,11 +2556,28 @@ mod autotest_generated {
         );
         assert_eq!(cbs.as_ref()[2].callback.cb, on_combobox_key_down as usize);
 
-        // every option is focusable and carries exactly one click handler
+        // The list answers the keys the field forwards to it (WAI-ARIA
+        // combobox: focus stays on the field, the list moves its ACTIVE
+        // option) - a WINDOW key handler, since nothing in the list window is
+        // ever focused.
+        assert!(
+            list.root
+                .get_callbacks()
+                .as_ref()
+                .iter()
+                .any(|cb| cb.event == EventFilter::Window(WindowEventFilter::VirtualKeyDown)),
+            "the list carries the key handler for its active option"
+        );
+
+        // every option is clickable (exactly one click handler) and NEVER
+        // focused - not even reachable by Tab inside the list window
         for (i, option) in list.children.as_ref().iter().enumerate() {
             assert!(has_class(option, "__azul-native-combobox-option"));
             assert_eq!(text_of(option), Some(["one", "two"][i]));
-            assert!(matches!(option.root.get_tab_index(), Some(TabIndex::Auto)));
+            assert!(
+                option.root.get_tab_index().is_none(),
+                "option {i} must not be focusable: the field keeps focus"
+            );
             let cbs = option.root.get_callbacks();
             assert_eq!(cbs.len(), 1);
             assert_eq!(
@@ -2122,6 +2836,112 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
         assert!(!inner_of(&mut data).open);
+    }
+
+    // ------------------------------------------------------------------
+    // The keyboard and the field (WAI-ARIA combobox): focus stays on the
+    // field, Down / Up open the list, and the field says whether it is open.
+    // ------------------------------------------------------------------
+
+    /// Down (or Up) on a CLOSED field opens its list - the keyboard's way to
+    /// what a click on the field does. The key is the field's: spatial
+    /// navigation must not also move focus off it.
+    #[test]
+    fn down_or_up_on_a_closed_field_opens_the_list() {
+        for key in [VirtualKeyCode::Down, VirtualKeyCode::Up] {
+            let fx = fixture(&["a", "b"]);
+            let mut data = state(&["a", "b"], "", false, 0);
+            let (_, changes) = run(
+                Env {
+                    styled: Some(fx.styled),
+                    keycode: Some(key),
+                    ..Env::default()
+                },
+                fx.field,
+                data.clone(),
+                |r, ci| on_combobox_key_down(r, ci),
+            );
+            assert_eq!(
+                transient_writes(&changes),
+                alloc::vec![(fx.popup, true)],
+                "{key:?} opens the list"
+            );
+            assert!(inner_of(&mut data).open, "{key:?}");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "{key:?} is the field's key"
+            );
+        }
+    }
+
+    /// The field says whether its list is open (aria-expanded) from the
+    /// moment it is built.
+    #[test]
+    fn the_field_says_whether_its_list_is_open() {
+        use azul_core::a11y::AccessibilityState::{Collapsed, Expanded};
+
+        for (open, expected) in [(false, Collapsed), (true, Expanded)] {
+            let mut combo = ComboBox::new(sv(&["a"]));
+            combo.combo_state.inner.open = open;
+            let dom = combo.dom();
+            let states = parts(&dom)
+                .0
+                .root
+                .get_accessibility_info()
+                .map(|a| a.states.as_ref().to_vec());
+            assert_eq!(states, Some(alloc::vec![expected]), "open={open}");
+        }
+    }
+
+    /// ...and says it LIVE when a click opens or closes the list, or the
+    /// list is dismissed - none of which rebuilds the field.
+    #[test]
+    fn opening_and_closing_the_list_is_announced_on_the_field() {
+        use azul_core::a11y::AccessibilityState::{Collapsed, Expanded};
+
+        use crate::widgets::roving::test_support::announced_states;
+
+        let fx = fixture(&["a", "b"]);
+        let data = state(&["a", "b"], "", false, 0);
+        let toggle = |data: &RefAny| {
+            run(
+                Env {
+                    styled: Some(fx.styled.clone()),
+                    ..Env::default()
+                },
+                fx.field,
+                data.clone(),
+                |r, ci| on_combobox_toggle(r, ci),
+            )
+            .1
+        };
+        assert_eq!(
+            announced_states(&toggle(&data)),
+            alloc::vec![(node(fx.field), alloc::vec![Expanded])],
+            "a click opens it"
+        );
+        assert_eq!(
+            announced_states(&toggle(&data)),
+            alloc::vec![(node(fx.field), alloc::vec![Collapsed])],
+            "a second click closes it"
+        );
+
+        let (_, changes) = run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                ..Env::default()
+            },
+            fx.popup,
+            state(&["a", "b"], "", true, 0),
+            |r, ci| on_combobox_dismissed(r, ci),
+        );
+        assert_eq!(
+            announced_states(&changes),
+            alloc::vec![(node(fx.field), alloc::vec![Collapsed])],
+            "a dismissal closes it"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -2884,6 +3704,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
+            ..ComboBoxStateWrapper::default()
         });
 
         let (update, changes) = run(
@@ -2925,6 +3746,160 @@ mod autotest_generated {
             text_writes(&changes).is_empty(),
             "no field exists in the popup dom — a text write here would land on an arbitrary node",
         );
+    }
+
+    // ------------------------------------------------------------------
+    // on_combobox_list_key: the ACTIVE option (WAI-ARIA combobox)
+    // ------------------------------------------------------------------
+
+    /// The options a handler marked ACTIVE (the class it wrote), as
+    /// flattened indices.
+    fn marked_active(changes: &[CallbackChange]) -> Vec<usize> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::SetNodeIdsAndClasses {
+                    node_id,
+                    ids_and_classes,
+                    ..
+                } if ids_and_classes.as_ref().iter().any(
+                    |c| matches!(c, Class(s) if s.as_str() == COMBOBOX_OPTION_ACTIVE_CLASS_NAME),
+                ) =>
+                {
+                    Some(node_id.index())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The options a handler announced as selected, as flattened indices.
+    fn announced_selected(changes: &[CallbackChange]) -> Vec<usize> {
+        crate::widgets::roving::test_support::announced_states(changes)
+            .into_iter()
+            .filter(|(_, states)| states.contains(&azul_core::a11y::AccessibilityState::Selected))
+            .filter_map(|(n, _)| n.node.into_crate_internal().map(|n| n.index()))
+            .collect()
+    }
+
+    /// Presses `key` on the list of `styled` (a popup-window dom).
+    fn press_list(
+        styled: &StyledDom,
+        key: VirtualKeyCode,
+        data: &RefAny,
+    ) -> (Update, Vec<CallbackChange>) {
+        let list = nodes_with_class(styled, "__azul-native-combobox-list")[0];
+        run(
+            Env {
+                styled: Some(styled.clone()),
+                keycode: Some(key),
+                ..Env::default()
+            },
+            list,
+            data.clone(),
+            |r, ci| on_combobox_list_key(r, ci),
+        )
+    }
+
+    #[test]
+    fn the_list_makes_an_option_active_and_never_focuses_one() {
+        let (styled, options) = popup_window_fixture(&["a", "b", "c"]);
+        let data = state(&["a", "b", "c"], "", true, 0);
+        for (key, expected) in [
+            (VirtualKeyCode::Down, 0),
+            (VirtualKeyCode::Home, 0),
+            (VirtualKeyCode::Up, 2),
+            (VirtualKeyCode::End, 2),
+        ] {
+            // Nothing is active in the fixture yet: Down / Home take the
+            // first option, Up / End the last.
+            let (update, changes) = press_list(&styled, key, &data);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(marked_active(&changes), alloc::vec![options[expected]], "{key:?}");
+            assert_eq!(announced_selected(&changes), alloc::vec![options[expected]], "{key:?}");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault)),
+                "{key:?} is the list's"
+            );
+            assert!(
+                !changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::SetFocusTarget { .. })),
+                "{key:?}: the field keeps focus, no option takes it"
+            );
+        }
+    }
+
+    /// Marks `option` of the popup-window dom `styled` ACTIVE, as a previous
+    /// key left it (the marker class the list handler writes and reads).
+    fn mark_active(styled: &mut StyledDom, option: usize) {
+        styled.node_data.as_container_mut()[NodeId::new(option)].set_ids_and_classes(
+            IdOrClassVec::from_vec(alloc::vec![
+                Class(AzString::from_const_str(COMBOBOX_OPTION_CLASS_NAME)),
+                Class(AzString::from_const_str(COMBOBOX_OPTION_ACTIVE_CLASS_NAME)),
+            ]),
+        );
+    }
+
+    #[test]
+    fn the_active_option_steps_and_holds_at_the_ends() {
+        let (mut styled, options) = popup_window_fixture(&["a", "b", "c"]);
+        // Option 1 is active, as a previous key left it.
+        mark_active(&mut styled, options[1]);
+        let data = state(&["a", "b", "c"], "", true, 0);
+        let (_, down) = press_list(&styled, VirtualKeyCode::Down, &data);
+        assert_eq!(marked_active(&down), alloc::vec![options[2]]);
+        let (_, up) = press_list(&styled, VirtualKeyCode::Up, &data);
+        assert_eq!(marked_active(&up), alloc::vec![options[0]]);
+        let (_, home) = press_list(&styled, VirtualKeyCode::Home, &data);
+        assert_eq!(marked_active(&home), alloc::vec![options[0]]);
+    }
+
+    /// Enter picks the active option exactly like a click on it; with none
+    /// active it only closes the list.
+    #[test]
+    fn enter_on_the_list_picks_its_active_option() {
+        let (mut styled, options) = popup_window_fixture(&["a", "b", "c"]);
+        let mut data = state(&["a", "b", "c"], "", true, 0);
+        let (_, none_active) = press_list(&styled, VirtualKeyCode::Return, &data);
+        assert_eq!(
+            transient_writes(&none_active),
+            alloc::vec![(0, false)],
+            "nothing active: Enter closes the list (its root)"
+        );
+        assert_eq!(inner_of(&mut data).selected, 0, "and picks nothing");
+
+        mark_active(&mut styled, options[2]);
+        let (_, picked) = press_list(&styled, VirtualKeyCode::Return, &data);
+        let inner = inner_of(&mut data);
+        assert_eq!(inner.selected, 2, "Enter picked the active option");
+        assert_eq!(inner.text.as_str(), "c");
+        assert_eq!(transient_writes(&picked), alloc::vec![(0, false)], "and closed the list");
+    }
+
+    /// In the PARENT's dom the list sits under the `<transient-window>`
+    /// node, not under a window root: its window key handler hears every
+    /// key the parent gets there and must leave them alone.
+    #[test]
+    fn the_parents_copy_of_the_list_ignores_the_keys() {
+        let fx = fixture(&["a", "b"]);
+        let data = state(&["a", "b"], "", true, 0);
+        for key in [VirtualKeyCode::Down, VirtualKeyCode::Return] {
+            let (update, changes) = run(
+                Env {
+                    styled: Some(fx.styled.clone()),
+                    keycode: Some(key),
+                    ..Env::default()
+                },
+                fx.list,
+                data.clone(),
+                |r, ci| on_combobox_list_key(r, ci),
+            );
+            assert_eq!(update, Update::DoNothing);
+            assert!(changes.is_empty(), "{key:?}: {changes:?}");
+        }
     }
 
     #[test]
@@ -2975,8 +3950,10 @@ mod autotest_generated {
 
         assert_eq!(update, Update::DoNothing);
         assert!(!inner_of(&mut data).open);
+        // (The field still hears that its list closed - an accessibility
+        // state, not a text write.)
         assert!(
-            changes.is_empty(),
+            text_writes(&changes).is_empty(),
             "an empty shared text must not blank the field's placeholder"
         );
     }
@@ -2997,6 +3974,7 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
+            ..ComboBoxStateWrapper::default()
         });
 
         let (update, changes) = run(
@@ -3045,6 +4023,7 @@ mod autotest_generated {
                 refany: RefAny::new(0u8),
             })
             .into(),
+            ..ComboBoxStateWrapper::default()
         });
 
         SHARED_ALIAS.with(|a| *a.borrow_mut() = Some(data.clone()));
@@ -3068,5 +4047,489 @@ mod autotest_generated {
         );
 
         SHARED_ALIAS.with(|a| *a.borrow_mut() = None);
+    }
+
+    // ------------------------------------------------------------------
+    // WAI-ARIA combobox (APG): typing clears the active option; the list
+    // closes when the field loses focus (Tab, Shift+Tab, a click elsewhere).
+    // ------------------------------------------------------------------
+
+    /// Types `typed` into the field of the PARENT dom (`fx`), sharing `data`
+    /// with the popup's list - the one channel between the two windows.
+    fn type_into_field(fx: &Fixture, data: &RefAny, typed: &str) -> Vec<CallbackChange> {
+        let old = inner_of(&mut data.clone()).text;
+        run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                changeset: Some(PendingTextEdit {
+                    node: node(fx.text),
+                    inserted_text: AzString::from(typed),
+                    old_text: old,
+                }),
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| on_combobox_text_input(r, ci),
+        )
+        .1
+    }
+
+    /// Presses `key` on the field of the PARENT dom (`fx`).
+    fn press_field(fx: &Fixture, data: &RefAny, key: VirtualKeyCode) -> Vec<CallbackChange> {
+        run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                keycode: Some(key),
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| on_combobox_key_down(r, ci),
+        )
+        .1
+    }
+
+    /// Runs the field's own `FocusLost` handler, as the engine does when
+    /// focus leaves the field; panics when the field registers none.
+    fn blur_field(fx: &Fixture, data: &RefAny) -> (Update, Vec<CallbackChange>) {
+        let blur = EventFilter::Focus(FocusEventFilter::FocusLost);
+        let handler = fx.styled.node_data.as_ref()[fx.field]
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .find(|cb| cb.event == blur)
+            .map(|cb| cb.callback.clone())
+            .expect("the field must close its list when it loses focus (a FocusLost handler)");
+        run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| Callback::from_core(handler).invoke(r, ci),
+        )
+    }
+
+    /// APG: typing while an option is active clears it - the field's text is
+    /// the value again. Enter then keeps what was typed and just closes the
+    /// list; it no longer picks the option the list showed before the typing.
+    #[test]
+    fn typing_while_an_option_is_active_clears_it_so_enter_keeps_the_typed_text() {
+        let items = ["a", "b", "c"];
+        let fx = fixture(&items);
+        let (mut styled, options) = popup_window_fixture(&items);
+        mark_active(&mut styled, options[1]);
+        let mut data = state(&items, "", true, 0);
+
+        type_into_field(&fx, &data, "x");
+        let (_, enter) = press_list(&styled, VirtualKeyCode::Return, &data);
+
+        let inner = inner_of(&mut data);
+        assert_eq!(inner.text.as_str(), "x", "the typed text is the value");
+        assert_eq!(
+            inner.selected, 0,
+            "the option active before the typing was not picked"
+        );
+        assert_eq!(
+            transient_writes(&enter),
+            alloc::vec![(0, false)],
+            "Enter closes the list (its root)"
+        );
+    }
+
+    /// ...and the list's next arrow starts over, as from no active option:
+    /// Down lands on the first option, not on the one after the stale one.
+    #[test]
+    fn after_typing_the_next_arrow_starts_over_from_no_active_option() {
+        let items = ["a", "b", "c"];
+        let fx = fixture(&items);
+        let (mut styled, options) = popup_window_fixture(&items);
+        mark_active(&mut styled, options[1]);
+        let data = state(&items, "", true, 0);
+
+        type_into_field(&fx, &data, "x");
+        let (_, down) = press_list(&styled, VirtualKeyCode::Down, &data);
+        assert_eq!(marked_active(&down), alloc::vec![options[0]]);
+        assert_eq!(announced_selected(&down), alloc::vec![options[0]]);
+
+        // Once an arrow made an option active again, it counts again.
+        mark_active(&mut styled, options[0]);
+        let mut data_after = data.clone();
+        let (_, enter) = press_list(&styled, VirtualKeyCode::Return, &data);
+        assert_eq!(transient_writes(&enter), alloc::vec![(0, false)]);
+        assert_eq!(
+            inner_of(&mut data_after).text.as_str(),
+            "a",
+            "Enter picked it"
+        );
+    }
+
+    /// Deleting is typing too: Backspace clears the active option.
+    #[test]
+    fn backspace_while_an_option_is_active_clears_it_too() {
+        let items = ["a", "b", "c"];
+        let fx = fixture(&items);
+        let (mut styled, options) = popup_window_fixture(&items);
+        mark_active(&mut styled, options[2]);
+        let mut data = state(&items, "xy", true, 0);
+
+        press_field(&fx, &data, VirtualKeyCode::Back);
+        press_list(&styled, VirtualKeyCode::Return, &data);
+
+        let inner = inner_of(&mut data);
+        assert_eq!(inner.text.as_str(), "x", "the edited text is the value");
+        assert_eq!(inner.selected, 0, "the stale active option was not picked");
+    }
+
+    /// APG: the list closes when focus leaves the field - Tab, Shift+Tab, a
+    /// click elsewhere - and the field says so.
+    #[test]
+    fn the_list_closes_when_the_field_loses_focus() {
+        use azul_core::a11y::AccessibilityState::Collapsed;
+
+        use crate::widgets::roving::test_support::announced_states;
+
+        let fx = fixture(&["a", "b"]);
+        let mut data = state(&["a", "b"], "a", true, 0);
+        let (update, changes) = blur_field(&fx, &data);
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(!inner_of(&mut data).open, "the list is closed");
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
+        assert_eq!(
+            announced_states(&changes),
+            alloc::vec![(node(fx.field), alloc::vec![Collapsed])],
+            "the field says its list closed"
+        );
+        assert!(text_writes(&changes).is_empty(), "the value is left alone");
+        assert_eq!(inner_of(&mut data).text.as_str(), "a");
+    }
+
+    /// Losing focus with the list already closed changes nothing.
+    #[test]
+    fn losing_focus_with_the_list_closed_changes_nothing() {
+        let fx = fixture(&["a", "b"]);
+        let data = state(&["a", "b"], "", false, 0);
+        let (update, changes) = blur_field(&fx, &data);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "{changes:?}");
+    }
+
+    /// Tab closes the list even when it has nowhere else to go (the field
+    /// is the window's only stop, so it keeps focus and no blur follows) -
+    /// and it stays Tab: focus moves on, the key is not consumed.
+    #[test]
+    fn tab_in_the_field_closes_its_list_and_still_moves_focus() {
+        let fx = fixture(&["a", "b"]);
+        let mut data = state(&["a", "b"], "", true, 0);
+        let changes = press_field(&fx, &data, VirtualKeyCode::Tab);
+
+        assert!(!inner_of(&mut data).open, "the list is closed");
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "Tab still moves focus"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Suggestions the app rebuilds (the reference picker): the list stays
+    // open across the app's rebuilds, options carry a detail line, the
+    // list can say something that is not an option, typing opens it.
+    // ------------------------------------------------------------------
+
+    /// The app rebuilt the combobox (its payload says "closed") while the
+    /// ENGINE holds the popup open: one click closes it. It used to take
+    /// two - the stale flag "opened" the open list first.
+    #[test]
+    fn a_click_closes_a_list_the_engine_holds_open_after_a_rebuild() {
+        let fx = fixture(&["a", "b"]);
+        let mut data = state(&["a", "b"], "", false, 0);
+        let (_, changes) = run(
+            Env {
+                styled: Some(fx.styled.clone()),
+                forced_open: alloc::vec![fx.popup],
+                ..Env::default()
+            },
+            fx.field,
+            data.clone(),
+            |r, ci| on_combobox_toggle(r, ci),
+        );
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
+        assert!(!inner_of(&mut data).open);
+    }
+
+    /// The text of every node under `node`, in order.
+    fn texts_under(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            out.push(t.as_str().to_string());
+        }
+        for child in node.children.as_ref() {
+            out.extend(texts_under(child));
+        }
+        out
+    }
+
+    /// Every node of `dom` carrying `class`, in order.
+    fn all_with_class<'a>(dom: &'a Dom, class: &str) -> Vec<&'a Dom> {
+        let mut out = Vec::new();
+        if has_class(dom, class) {
+            out.push(dom);
+        }
+        for child in dom.children.as_ref() {
+            out.extend(all_with_class(child, class));
+        }
+        out
+    }
+
+    #[test]
+    fn an_option_shows_its_detail_line_under_its_label() {
+        let dom = ComboBox::new(sv(&["ACME GmbH", "Globex"]))
+            .with_item_details(sv(&["Customer 1042, Berlin", ""]))
+            .dom();
+        let options = all_with_class(&dom, COMBOBOX_OPTION_CLASS_NAME);
+        assert_eq!(options.len(), 2, "still one option per item");
+        assert_eq!(
+            texts_under(options[0]),
+            alloc::vec![
+                String::from("ACME GmbH"),
+                String::from("Customer 1042, Berlin")
+            ]
+        );
+        assert_eq!(texts_under(options[1]), alloc::vec![String::from("Globex")]);
+    }
+
+    #[test]
+    fn the_status_line_follows_the_options_and_is_not_one() {
+        let dom = ComboBox::new(sv(&["a", "b"]))
+            .with_status(AzString::from_const_str("Searching..."))
+            .dom();
+        let list = all_with_class(&dom, "__azul-native-combobox-list")[0];
+        let kids = list.children.as_ref();
+        assert_eq!(kids.len(), 3, "two options, then the status");
+        assert_eq!(texts_under(&kids[2]), alloc::vec![String::from("Searching...")]);
+        assert!(
+            !has_class(&kids[2], COMBOBOX_OPTION_CLASS_NAME),
+            "the status is no option: no click, no active state"
+        );
+        assert!(kids[2].root.get_callbacks().as_ref().is_empty());
+    }
+
+    #[test]
+    fn typing_opens_the_closed_list_when_asked_to() {
+        let fx = fixture(&["a", "b"]);
+        let data = RefAny::new(ComboBoxStateWrapper {
+            items: sv(&["a", "b"]),
+            open_on_type: true,
+            ..ComboBoxStateWrapper::default()
+        });
+        let changes = type_into_field(&fx, &data, "a");
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, true)]);
+        assert!(inner_of(&mut data.clone()).open);
+        // Without the flag typing leaves the list alone (as before).
+        let plain = state(&["a", "b"], "", false, 0);
+        let changes = type_into_field(&fx, &plain, "a");
+        assert!(transient_writes(&changes).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The combobox takes a theme like every other widget: the field, its
+    //! arrow, the options list and its rows are built from the skin of the
+    //! theme it carries - and, with none, it follows the app theme. Flat is the
+    //! established look; flora is a field of flora paper over a leaf.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, PseudoStateType},
+        props::{basic::color::ColorU, property::CssProperty, style::StyleTextColor},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn items() -> StringVec {
+        StringVec::from_vec(alloc::vec![AzString::from("One"), AzString::from("Two")])
+    }
+
+    fn combo(theme: Option<UiTheme>) -> Dom {
+        let c = ComboBox::new(items()).with_accessibility_name("Pick");
+        match theme {
+            Some(t) => c.with_theme(t).dom(),
+            None => c.dom(),
+        }
+    }
+
+    fn field(dom: &Dom) -> &Dom {
+        tc::find(dom, "__azul-native-combobox-input").expect("the combobox has a field")
+    }
+
+    fn list(dom: &Dom) -> &Dom {
+        tc::find(dom, "__azul-native-combobox-list").expect("the combobox has a list")
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_combobox_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let c = ComboBox::new(items());
+        assert_eq!(c.theme, OptionUiTheme::None, "no opinion until the app picks one");
+        assert!(tc::has_class(&combo(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            combo(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = ComboBox::new(items());
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, ComboBox::new(items()).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_combobox_keeps_its_established_field_and_list() {
+        let dom = combo(Some(UiTheme::Flat));
+        assert!(tc::has_class(&dom, FLAT));
+        let f = field(&dom);
+        assert_eq!(bg(f, false), Some(ColorU::rgb(255, 255, 255)), "white field");
+        assert_eq!(
+            tc::border_top_color(f, false, None),
+            Some(ColorU::rgb(172, 172, 172)),
+            "the #acacac hairline"
+        );
+        assert_eq!(bg(list(&dom), false), Some(ColorU::rgb(255, 255, 255)));
+    }
+
+    #[test]
+    fn a_flora_combobox_is_a_field_of_flora_paper_over_a_leaf() {
+        let dom = combo(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let f = field(&dom);
+        assert_eq!(bg(f, false), Some(flora::LIGHT_FLD), "the field's paper by day");
+        assert_eq!(bg(f, true), Some(flora::DARK_SUR), "flora's night field");
+        assert_eq!(tc::border_top_color(f, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(f, true, None), Some(flora::DARK_BD));
+        assert_eq!(tc::text_color(f, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(f, true), Some(flora::DARK_INK));
+        let l = list(&dom);
+        assert_eq!(bg(l, false), Some(flora::LIGHT_SUR), "the list is a leaf");
+        assert_eq!(bg(l, true), Some(flora::DARK_SUR));
+        assert_eq!(tc::border_top_color(l, true, None), Some(flora::DARK_BD2));
+        for row in tc::find_all(&dom, "__azul-native-combobox-option") {
+            assert_eq!(tc::text_color(row, false), Some(flora::LIGHT_INK));
+            assert_eq!(tc::text_color(row, true), Some(flora::DARK_INK));
+        }
+    }
+
+    #[test]
+    fn every_combobox_tab_stop_is_ringed_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = combo(Some(theme));
+            // The field is the one stop: the options are never focused (the
+            // field keeps focus and the list moves its ACTIVE option).
+            assert_eq!(tc::focusable(&dom).len(), 1, "{theme:?}: the field alone");
+            tc::assert_theme_invariants(&format!("combobox {theme:?}"), &dom);
+        }
+    }
+
+    #[test]
+    fn a_flora_focus_ring_lifts_to_the_glow_in_the_dark() {
+        let dom = combo(Some(UiTheme::Flora));
+        let focus = Some(PseudoStateType::Focus);
+        assert_eq!(tc::border_top_color(field(&dom), false, focus), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::border_top_color(field(&dom), true, focus), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = combo(Some(UiTheme::Flat));
+        let flora_dom = combo(Some(UiTheme::Flora));
+        assert!(!tc::a11y_outline(&flat).is_empty());
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+
+    #[test]
+    fn a_caller_field_style_wins_over_either_theme() {
+        let own = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(1, 2, 3),
+            })),
+        ]);
+        for theme in [None, Some(UiTheme::Flat), Some(UiTheme::Flora)] {
+            let mut c = ComboBox::new(items());
+            c.field_style = OptionCssPropertyWithConditionsVec::Some(own.clone());
+            if let Some(t) = theme {
+                c.set_theme(t);
+            }
+            let dom = c.dom();
+            let props: alloc::vec::Vec<CssPropertyWithConditions> = field(&dom)
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, c)| CssPropertyWithConditions {
+                    property: p.clone(),
+                    apply_if: c.clone(),
+                })
+                .collect();
+            assert_eq!(props, own.as_ref().to_vec(), "{theme:?}");
+        }
+    }
+
+    #[test]
+    fn the_style_resolvers_answer_for_the_theme() {
+        let flora_combo = ComboBox::new(items()).with_theme(UiTheme::Flora);
+        assert!(flora_combo
+            .resolved_field_style()
+            .as_ref()
+            .iter()
+            .any(|p| tc::bg_color(&p.property) == Some(flora::LIGHT_FLD)));
+        let flat_combo = ComboBox::new(items()).with_theme(UiTheme::Flat);
+        assert_eq!(
+            flat_combo.resolved_field_style(),
+            CssPropertyWithConditionsVec::from_vec(
+                [COMBOBOX_FIELD_BASE, COMBOBOX_INPUT_STYLE].concat()
+            ),
+            "flat's field: the widget's structure, then flat's skin"
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_combobox_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_blocks::checks::{under, BOTH};
+        for theme in BOTH {
+            for open in [false, true] {
+                let dom = under(theme, || {
+                    let mut c = ComboBox::new(items()).with_accessibility_name("Pick");
+                    c.combo_state.inner.open = open;
+                    c.combo_state.inner.selected = 1;
+                    c.dom()
+                });
+                tc::assert_structure_is_shared(
+                    &format!("combobox (open: {open}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

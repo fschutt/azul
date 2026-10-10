@@ -71,6 +71,8 @@ A test file is either one test object or an array of them.
 {
   "name": "string",
   "description": "string?",
+  "expect": "string?",
+  "only_on": ["linux", "windows"],
   "config": {
     "continue_on_failure": false,
     "delay_between_steps_ms": 0
@@ -86,6 +88,10 @@ A test file is either one test object or an array of them.
   ]
 }
 ```
+
+`expect: "fail"` marks a known failure: its FAIL is reported as XFAIL (green), and a PASS as XPASS (red: the bug is fixed, remove the marker).
+
+`only_on` (optional) lists the hosts the test holds on: `"linux"`, `"windows"`, `"macos"`, `"ios"`, `"android"`, `"web"`. Use it when the app itself differs per platform, for example a global hotkey that is `Cmd+Shift+K` on a Mac and `Ctrl+Alt+K` elsewhere: write one variant per host, each gated to its host (`examples/azul-widgets/e2e/global_hotkey.json`). On any other host the test runs no step, not even its `setup`, and reports `SKIP` with the reason (`only on linux, windows; this host is macos`). A skip is never a pass and never a failure: it does not fail the run, whatever `expect` says, and the summary line counts it as `skipped`. Without `only_on` a test runs everywhere. An unknown name (`"macOS"`) or an empty list fails the test, so a typo cannot skip it on every host.
 
 `config.continue_on_failure` keeps running steps after the first failure (still reports the test as failed). `config.delay_between_steps_ms` inserts a sleep, useful for visually inspecting a test that runs against a visible window. `setup.app_state` puts each test into a known state without restarting the process.
 
@@ -184,6 +190,9 @@ A *request* (`FileDialog::open_file`, `HttpRequestConfig::http_get`, `FilePath::
   - `http: { "<pattern>": { "status": 200, "text": "...", "content_type": "..." } }` or `{ "error": "..." }` per pattern - canned answers for `http_get`, `http_post`, `http_request`, `download_bytes`, `is_url_reachable` and the Db sync endpoints. A pattern is an exact URL, a prefix ending in `*`, or `*`; `b64` replaces `text` for binary bodies.
   - `audio_devices: { "outputs": [...], "inputs": [...] }` - `AudioDeviceList::enumerate`.
   - `video_decode: { "none": true }` - `decode_mp4_h264` resumes without a video.
+  - `microphone: "tone"`, `camera: "pattern"`, `screen: "pattern"`, `audio_sink: "count"` (or `null`) - the synthetic stand-in a device opened after this step gets, see below.
+
+**Devices.** While the store is armed no microphone, camera, screen capture or audio output is opened for real: no camera light, no sound, no permission prompt. `MicrophoneWidget`, `CameraWidget`, `ScreenCaptureWidget` and `AudioSink::open` get the synthetic stand-in the run asked for (a 440 Hz tone, a colour-cycle pattern, a moving band, a sink that counts frames and plays nothing), else nothing: the widget delivers no frame, `AudioSink::is_open` is `false`, stderr says `not available in a headless run` once, and each attempt is recorded (`assert_unmocked_request` with `"CameraWidget capture"`, `"MicrophoneWidget capture"`, `"ScreenCaptureWidget capture"` or `"AudioSink::open"`). Name the stand-ins at launch with `AZ_SYNTHETIC_DEVICES=microphone,camera,screen,audio_sink` (or `all`), or with the `mock` keys above. The `mock` op makes a run scripted, so an unmocked HTTP request is then refused; a bare headless run that needs the network (two AzMeet clients meeting through a local server) names its devices with the environment variable instead.
 
 A request that runs while the store is armed but has no queued answer never opens a native dialog and never touches the network: it resumes as cancelled (dialogs), unreachable (HTTP) or empty (devices), **and is recorded**. That keeps a scenario that forgot to mock something from hanging on a dialog nobody can click; three assertions turn the record into a verdict:
 
@@ -202,6 +211,28 @@ A request that runs while the store is armed but has no queued answer never open
 ```
 
 Mocked answers are delivered by the pump that also runs timers, and the pump keeps going while a resume callback issues further requests, so one `wait_frame` after the click settles a whole chain such as open -> read. The `resume` example (`examples/rust/src/resume.rs`) has one button per request kind, and the specs in `tests/e2e/resume_*.json` drive all of them, including the "forgot to mock" case.
+
+### Native notifications
+
+Under `AZ_BACKEND=headless` the notification backend records what the app posts and withdraws instead of showing it. A scenario asserts on the recording and plays the user's side:
+
+- `assert_notification` (params, all optional: `id`, `title`, `body`, `action`, `payload`, `withdrawn`, `count`). `id` / `title` / `body` pick the most recent matching post; `action` requires a button with that id; `payload` requires exactly the payload the app attached (`Notification::with_payload`); `withdrawn` requires it to be withdrawn or not; `count` is the number of posts with that `id`.
+- `notification_event` (params: `id`, `kind`, `action?`, `reason?`, `payload?`, `launched_app?`). Reports what the user did to the notification with that `id`, as if the OS had: `kind` is `click` (the notification itself), `action` (a button: `action` is its id), `dismiss` or `failed` (both take an optional `reason`). A `payload` rides along like the one a platform carries back; without one, the notification's own payload is filled in. The run loop's notification pump runs the notification's callback (or the app-level handler), which reads the event with `CallbackInfo::get_notification_event`, before the next `wait_frame` completes. An unknown `kind`, an `action` kind without `action`, or an empty `id` fails the step.
+
+```json
+{ "op": "click", "text": "Post a notification" },
+{ "op": "wait_frame" },
+{ "op": "assert_notification", "id": "azul-widgets-demo", "action": "show-me",
+  "payload": "azul-widgets-demo:show" },
+{ "op": "notification_event", "id": "azul-widgets-demo", "kind": "action", "action": "show-me" },
+{ "op": "wait_frame" },
+{ "op": "find_node_by_text", "text": "Button pressed: \"show-me\"." },
+{ "op": "assert_response", "contains": "\"found\":true" }
+```
+
+(`examples/azul-widgets/e2e/notifications.json` is the whole scenario.) `find_node_by_text` answers `found: false` rather than failing, so pair it with `assert_response`.
+
+The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
 
 ## Step results
 
@@ -253,7 +284,7 @@ Default request timeout is 30 s; tests that take longer must either pass `"timeo
 
 Some steps (`resize`, `set_node_text`, `delete_node`) require a relayout pass to complete before the next step can read the resulting state. The runner detects these and yields back to the timer; the test resumes on the next tick. From the test author's perspective this is invisible: write `resize` followed by `assert_layout` and the runner handles the suspension.
 
-This is why `AZ_E2E` requires the application to reach the event loop. The test cannot make progress while the timer is not running. With `AZ_BACKEND=headless` (or `AZUL_HEADLESS=1`) the event loop runs without an OS window, which is the standard CI configuration.
+This is why `AZ_E2E` requires the application to reach the event loop. The test cannot make progress while the timer is not running. With `AZ_BACKEND=headless` the event loop runs without an OS window, which is the standard CI configuration.
 
 ## CI integration
 

@@ -11,11 +11,21 @@
 //! flat namespace, e.g. `azul_dll::desktop::extra::permission::apply_diff_events`.
 
 /// Audio playback (P7). The `AudioSink` handle is always present (codegen-
-/// exposed, no feature gating); the real rodio / AVAudio output behind it is
-/// on-device (the stub counts frames). The playback counterpart to
-/// `MicrophoneWidget` (capture). See `audio/mod.rs`.
+/// exposed, no feature gating); it is open only where an output device
+/// opened (ALSA / WASAPI / AAudio / AVAudioEngine), else closed with a reason.
+/// The playback counterpart to `MicrophoneWidget` (capture). See
+/// `audio/mod.rs`.
 pub mod audio;
+/// Sign-in sessions (OAuth 2.0 for native apps): `ASWebAuthenticationSession` on Apple, the
+/// system browser with a loopback listener on the desktops, a Custom Tab on Android, a fake
+/// in headless runs. See `auth_session/mod.rs`.
+pub mod auth_session;
 pub mod biometric;
+/// The bytes of a media file read where they are - a local file, an HTTP(S)
+/// URL by range requests (a download a window ahead of its readers, shared by
+/// a video's picture and sound), bytes in memory - so a player never needs
+/// the whole file before its first frame. See `byte_source.rs`.
+pub(crate) mod byte_source;
 /// Camera capture backend registration (v4l2 on Linux via rscam); plugs into
 /// the capture_common seam. See camera/mod.rs.
 pub mod camera;
@@ -51,11 +61,17 @@ pub mod permission;
 /// behind the `capture_common::register_frame_resampler` seam.
 pub mod resample;
 pub mod screencap;
-/// Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
-/// platform subscription once via [`sensors::ensure_started`] (CoreMotion on
-/// Apple — pending; `SensorManager` JNI on Android) and the backends park
-/// each sample through `azul_layout::managers::sensors::push_sensor_reading`,
-/// which the layout pass folds into the per-`App` `SensorManager`.
+/// The device's sensors and states, every reading of the device in one place.
+///
+/// - Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
+///   platform subscription once via [`sensors::ensure_started`] (CoreMotion on
+///   Apple — pending; `SensorManager` JNI on Android) and the backends park
+///   each sample through `azul_layout::managers::sensors::push_sensor_reading`,
+///   which the layout pass folds into the per-`App` `SensorManager`.
+/// - The device-state readings for background work: the power state
+///   ([`sensors::power`]), the battery and the device's temperature ([`sensors::battery`]) and
+///   the network ([`sensors::network`]), each a synchronous query
+///   of a cached or cheap reading; a fixed reading (or a test's switch file) in headless runs.
 pub mod sensors;
 /// SQLite-backed `Db` engine (P4.3). The `Db` handle is always present
 /// (so it flows through the normal api.json codegen with no feature
