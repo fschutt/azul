@@ -82,10 +82,21 @@ pub fn receive_drops(
             &session.drive_id,
             provider.as_ref(),
         )?;
-        let report = drops::ingest(bucket.as_ref(), &secret, &session.drive_id, &mut |dropped| {
+        let mut delivered = drops::ingest(bucket.as_ref(), &secret, &session.drive_id, &mut |dropped| {
             file_drop(&drive, dropped)
-        })?;
-        Ok(report.delivered)
+        })?
+        .delivered;
+        // After a key rotation: the drops the Worker sealed to the old drop key before it got
+        // the new one.
+        if let Some(previous) =
+            drops::load_previous_drop_key(bucket.as_ref(), &drive_key, &session.drive_id)?
+        {
+            delivered += drops::ingest(bucket.as_ref(), &previous, &session.drive_id, &mut |dropped| {
+                file_drop(&drive, dropped)
+            })?
+            .delivered;
+        }
+        Ok(delivered)
     }
     #[cfg(not(feature = "encryption"))]
     {
