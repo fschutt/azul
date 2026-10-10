@@ -32,13 +32,17 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     expired
     POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
                                                     approves (the drive is made), others decline
-    POST /v1/checkout {"tier", "months",            201 cash by post (cash contract v1):
-                       "method": "cash",            awaiting_cash with its amount, currency, the
-                       "claim_key"}                 activation code AZC1-... (scripts/
-                                                    azlin_cash.py, MAC'd with the test key
+    POST /v1/checkout {"tier", "months",            201 cash by post (cash contract v1; 400
+                       "method": "cash",            cash_unavailable after set_cash(False), and
+                       "claim_key"}                 GET /v1/tiers lists cash only while it is
+                                                    taken): awaiting_cash with its amount,
+                                                    currency, the activation code AZC1-...
+                                                    (scripts/azlin_cash.py: the id's 16 bytes,
+                                                    MAC'd with the token server's test key
                                                     azlin_cash.MOCK_KEY), the address to post to
                                                     and an end 60 days on; its poll answers
-                                                    awaiting_cash until the operator's switch -
+                                                    awaiting_cash (the code, the address and the
+                                                    end again) until the operator's switch -
                                                     activate_cash(id): approved, the drive sealed
                                                     to its claim key; reject_cash(id, reason):
                                                     rejected with the reason - and expired after
@@ -415,14 +419,15 @@ def page(title, body):
             % (html.escape(title), html.escape(title), body))
 
 
-def tier_list():
-    """GET /v1/tiers as azlin-token answers it (tiers.rs `ladder`)."""
+def tier_list(cash=False):
+    """GET /v1/tiers as azlin-token answers it (tiers.rs `ladder`): `cash` among the methods only
+    where the server takes cash by post."""
     return {
         'tiers': [{'id': tier, 'quota_bytes': quota, 'price_cents_month': month,
                    'price_cents_year': year, 'currency': 'EUR', 'first_month_free': True,
                    'prepay_months': PREPAY_MONTHS}
                   for tier, quota, month, year in TIER_LADDER],
-        'methods': METHODS,
+        'methods': METHODS + (['cash'] if cash else []),
         'legal': {
             'withdrawal_consent': 'I agree that the service starts immediately and acknowledge '
                                   'that I lose my right of withdrawal once the service has begun.',
@@ -521,8 +526,16 @@ class TokenState:
         # The lookup challenges' MAC key, and the recovery routes' rate windows per address.
         self.challenge_secret = secrets.token_bytes(32)
         self.rate = {}
-        # The key cash checkouts' activation codes are MAC'd with (a test key).
+        # The key cash checkouts' activation codes are MAC'd with (the token server's test key);
+        # cash by post is taken while it is set (set_cash): without it, as a token server whose
+        # configuration names no cash key or address, 400 cash_unavailable.
         self.cash_key = azlin_cash.MOCK_KEY
+
+    def set_cash(self, on):
+        """The operator's configuration (a test's switch): cash by post taken (the test key, the
+        test operator's address) or not."""
+        with self.lock:
+            self.cash_key = azlin_cash.MOCK_KEY if on else None
 
     def oauth_token(self, provider, form):
         """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
@@ -732,6 +745,8 @@ class TokenState:
         months = body.get('months', 1)
         if months not in PREPAY_MONTHS:
             raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
+        if self.cash_key is None:
+            raise ApiError(400, 'cash_unavailable', 'this server takes no cash by post')
         provider = body.get('provider')
         if provider is not None:
             if provider != 'cash' or 'cash' not in self.providers:
@@ -1139,6 +1154,14 @@ class TokenState:
                 out['reason'] = checkout['reason']
             if checkout.get('provider'):
                 out['settles'] = 'days' if checkout['method'] == 'sepa_debit' else 'instant'
+            # Cash by post: its end; while it awaits the cash the code and the address again
+            # (an app that lost its page prints it anew).
+            if checkout.get('method') == 'cash':
+                out['expires_at'] = rfc3339(checkout['expires_at'])
+                if checkout['status'] == 'awaiting_cash' and self.cash_key is not None:
+                    out['activation_code'] = checkout['activation_code']
+                    out['mail_to'] = {'name': CASH_MAIL_TO['name'],
+                                      'lines': list(CASH_MAIL_TO['lines'])}
             return out
 
     def pay(self, checkout_id, body):
@@ -2021,7 +2044,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.command == 'GET' and segments == ['v1', 'tiers']:
-            self.answer(200, tier_list())
+            self.answer(200, tier_list(cash=state.cash_key is not None))
             return
         if self.command == 'POST' and segments == ['v1', 'drives']:
             body = self.body()
