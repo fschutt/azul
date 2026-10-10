@@ -763,6 +763,9 @@ pub struct Settings {
     /// The drives that sync with a folder on this computer, each with its settings
     /// (auto-download, local copies, the size cap, paused): Options > Drives > Sync.
     pub synced: Vec<azcloud_kit::sync::session::SyncSetup>,
+    /// Each encrypted drive's recovery (the code's checks, the drills, the trusted contacts)
+    /// and the shares this computer holds for others.
+    pub recovery: crate::recovery_health::RecoverySettings,
 }
 
 impl Default for Settings {
@@ -789,6 +792,7 @@ impl Default for Settings {
             index_cloud_files: false,
             index_download_cap_mb: 25,
             synced: Vec::new(),
+            recovery: crate::recovery_health::RecoverySettings::default(),
         }
     }
 }

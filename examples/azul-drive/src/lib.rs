@@ -160,6 +160,9 @@ mod encryption;
 /// drills, trusted contacts, the methods list.
 #[cfg(feature = "encryption")]
 mod recovery;
+/// A drive's recovery state (the code's checks, the drills, the trusted contacts) and its
+/// Recovery health: plain data in the settings.
+pub mod recovery_health;
 mod jobs;
 pub mod keys;
 /// The open folder's listing as it streams in, and the window of it the views build.
