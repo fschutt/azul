@@ -81,7 +81,10 @@ node layout, AzDrive's stdout markers and the files on disk:
         drive's own listing shows the sync index's files (not only its hidden `.azlin`); a
         cloud-only row deleted asks "Delete from the drive?" and the next pass deletes it there;
         an Azlin drive synced from the start whose token server says it takes no writes says
-        "Read-only (payment due)". `--sync-only` runs step 25 alone.
+        "Read-only (payment due)"; 12 of its files turned random at once pause the uploads
+        (what the drive changes still comes down) until "These changes are mine"; again with
+        other files, "I was hacked..." restores the drive as of before the change and the
+        encrypted copies here wait for a choice (D52). `--sync-only` runs step 25 alone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
 the open folder's trail: a folder's ITEM is found through its name label (`item_node`), in
@@ -1559,29 +1562,44 @@ def sync_step(args, logs, binary, out):
             "the drive (cloud only here)")
 
         # 25i. Files turned random at once on the Azlin drive: uploads pause, downloads go on;
-        # I was hacked... -> Restore as of before the change; then "These changes are mine".
+        # the question waits (Decide later), Sync now asks again, "These changes are mine" sends
+        # them.
         paid_bucket = paid["drive"]["location"]["bucket"]
         paid_folder = os.path.join(home, "AzDrive", PAID_NAME)
         os.makedirs(paid_folder, exist_ok=True)
         prose = (b"the quarterly report says the numbers look fine for now " * 40)[:2048]
-        for i in range(12):
-            with open(os.path.join(paid_folder, "p%d.txt" % i), "wb") as f:
-                f.write(prose[:2040] + b"%08d" % i)
-        app.until("the Azlin drive's files uploaded", lambda: all(
-            "p%d.txt" % i in sync_index(s3_root, paid_bucket).get("files", {})
-            for i in range(12)))
-        done = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
-        app.until("one more pass (the guard learns them)", lambda: app.count(
-            "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > done)
-        time.sleep(1.2)
-        as_of = int(time.time())
-        time.sleep(1.2)
-        for i in range(12):
-            with open(os.path.join(paid_folder, "p%d.txt" % i), "wb") as f:
-                f.write(os.urandom(2048))
-        app.until("uploads paused", lambda: app.printed(
-            "AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+"))
-        app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+        paid_row = "#__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid_id).lower()
+
+        def text_files(stem):
+            """12 text files `<stem><i>.txt` in the Azlin drive's folder, up on the drive, and
+            one more pass (the burst guard learns they are text-like)."""
+            for i in range(12):
+                with open(os.path.join(paid_folder, "%s%d.txt" % (stem, i)), "wb") as f:
+                    f.write(prose[:2040] + b"%08d" % i)
+            app.until("the Azlin drive's %s files uploaded" % stem, lambda: all(
+                "%s%d.txt" % (stem, i) in sync_index(s3_root, paid_bucket).get("files", {})
+                for i in range(12)))
+            done = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
+            app.until("one more pass (the guard learns them)", lambda: app.count(
+                "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > done)
+
+        def prose_of(i):
+            """The BLAKE3 of the i-th text file's words (what the drive's index names)."""
+            return azlin_blake3.hex_digest(prose[:2040] + b"%08d" % i)
+
+        def turn_random(stem):
+            """The 12 files `<stem><i>.txt` rewritten as random bytes at once (ransomware's
+            work): uploads pause, the question shows."""
+            bursts = app.count("AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+")
+            for i in range(12):
+                with open(os.path.join(paid_folder, "%s%d.txt" % (stem, i)), "wb") as f:
+                    f.write(os.urandom(2048))
+            app.until("uploads paused", lambda: app.count(
+                "AZDRIVE_SYNC_BURST", re.escape(paid_id) + r" encryption \d+") > bursts)
+            app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+
+        text_files("p")
+        turn_random("p")
         app.screenshot(os.path.join(out, "25-sync-burst.png"))
         before = sync_index(s3_root, paid_bucket)["files"]["p0.txt"]["hash"]
         other_device_writes(s3_root, "from-desktop.txt", b"while paused\n", bucket=paid_bucket)
@@ -1589,6 +1607,37 @@ def sync_step(args, logs, binary, out):
             os.path.join(paid_folder, "from-desktop.txt")) == b"while paused\n")
         if sync_index(s3_root, paid_bucket)["files"]["p0.txt"]["hash"] != before:
             raise Failure("a paused folder sent its changes")
+        app.click(text="Decide later")
+        app.until("Decide later", lambda: not app.has("#" + I("sync-burst")))
+        app.after("the Azlin drive", "AZDRIVE_PLACE", re.escape(paid_id) + r" .*",
+                  lambda: app.click(selector=paid_row))
+        app.tab("Share")
+        app.after("Sync now asks again", "AZDRIVE_SYNC_QUESTION", re.escape(paid_id) + r" burst",
+                  lambda: app.ribbon("Sync now"))
+        app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
+        app.after("These changes are mine", "AZDRIVE_SYNC_ANSWERED",
+                  re.escape(paid_id) + r" burst mine",
+                  lambda: (app.must("click", selector="#" + I("sync-burst-mine")), app.frame()))
+        mine = azlin_blake3.hex_digest(read_file(os.path.join(paid_folder, "p0.txt")))
+        app.until("sent with the next pass", lambda: sync_index(
+            s3_root, paid_bucket).get("files", {}).get("p0.txt", {}).get("hash") == mine)
+        log("25i. 12 files of the Azlin drive turned random: uploads paused (a download came on); "
+            "the question waited, Sync now asked again, These changes are mine sent them")
+
+        # 25j. Again with other files, and this time it was ransomware - on the other computer
+        # too, which sent its encrypted q0.txt: I was hacked... -> Restore as of before the
+        # change. The drive has q0.txt back; the encrypted copies here never went up, and against
+        # the restored drive (its index older than this folder's last pass) each waits for a
+        # choice (D52) instead of overwriting either side.
+        text_files("q")
+        time.sleep(1.2)
+        as_of = int(time.time())
+        time.sleep(1.2)
+        turn_random("q")
+        passes = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
+        other_device_writes(s3_root, "q0.txt", os.urandom(2048), bucket=paid_bucket)
+        app.until("a pass saw the other computer's q0.txt", lambda: app.count(
+            "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > passes)
         app.after("I was hacked...", "AZDRIVE_SYNC_HACKED", re.escape(paid_id),
                   lambda: (app.must("click", selector="#" + I("sync-burst-hacked")), app.frame()))
         app.until("lock down / restore", lambda: app.has("#" + I("sync-hacked")))
@@ -1602,28 +1651,22 @@ def sync_step(args, logs, binary, out):
             app.key("backspace", frames=1)
         app.must("text_input", text=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(as_of)))
         app.frame(2)
+        held = app.count("AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q1\.txt")
         app.after("restored as of before the change", "AZDRIVE_RESTORED",
                   r"%s \S+ objects \d+" % re.escape(paid_id),
                   lambda: app.must("click", selector="#__azdrive_restore_go"))
         if app.has("#__azdrive_restore"):
             app.key("escape")
-        log("25i. 12 files of the Azlin drive turned random: uploads paused (a download came "
-            "on), I was hacked... restored the drive as of before the change")
-        # "These changes are mine": asked again by Sync now, then sent.
-        paid_row = "#__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid_id).lower()
-        app.after("the Azlin drive", "AZDRIVE_PLACE", re.escape(paid_id) + r" .*",
-                  lambda: app.click(selector=paid_row))
-        app.tab("Share")
-        app.after("Sync now asks again", "AZDRIVE_SYNC_QUESTION", re.escape(paid_id) + r" burst",
-                  lambda: app.ribbon("Sync now"))
-        app.until("the guard's question", lambda: app.has("#" + I("sync-burst")))
-        app.after("These changes are mine", "AZDRIVE_SYNC_ANSWERED",
-                  re.escape(paid_id) + r" burst mine",
-                  lambda: (app.must("click", selector="#" + I("sync-burst-mine")), app.frame()))
-        mine = azlin_blake3.hex_digest(read_file(os.path.join(paid_folder, "p0.txt")))
-        app.until("sent with the next pass", lambda: sync_index(
-            s3_root, paid_bucket).get("files", {}).get("p0.txt", {}).get("hash") == mine)
-        log("25j. These changes are mine: the next pass sent them")
+        app.until("the drive has q0.txt back", lambda: sync_index(
+            s3_root, paid_bucket).get("files", {}).get("q0.txt", {}).get("hash") == prose_of(0))
+        app.until("the encrypted copies here wait for a choice", lambda: app.count(
+            "AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q1\.txt") > held)
+        files = sync_index(s3_root, paid_bucket)["files"]
+        if any(files.get("q%d.txt" % i, {}).get("hash") != prose_of(i) for i in range(12)):
+            raise Failure("an encrypted copy went up over the restored drive")
+        log("25j. again with other files, and it was ransomware (on the other computer too): I "
+            "was hacked... restored the drive as of before the change; the encrypted copies "
+            "here wait for a choice (D52)")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
