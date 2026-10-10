@@ -821,6 +821,40 @@ pub(crate) fn ask_encrypt(s: &mut DriveState, drive_id: &str) {
     }
 }
 
+/// Asks the drive index of every open encrypted Azlin drive whose totals are due for them (the
+/// files' size before compression, their stored bytes): the usage line's extra information.
+pub(crate) fn request_totals(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let now = azul_storage::time::now_unix();
+    let due: Vec<(String, Arc<AutoEncrypted>)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| {
+            let (azlin_id, _) = slot.entry.azlin()?;
+            let auto = slot.auto.clone()?;
+            (auto.is_encrypted() == Some(true)
+                && crate::usage_view::totals_due(s.usage.get(azlin_id), now))
+            .then(|| (azlin_id.to_string(), auto))
+        })
+        .collect();
+    for (azlin_id, auto) in due {
+        // Asked once: a second look before the answer does not ask again.
+        let previous = s.usage.get(&azlin_id).copied().unwrap_or_default();
+        s.usage.insert(
+            azlin_id.clone(),
+            crate::usage_view::DriveUsage {
+                totals_at: Some(now),
+                ..previous
+            },
+        );
+        spawn(
+            info,
+            app,
+            s,
+            Job::Encryption(EncryptionJob::Totals { azlin_id, auto }),
+        );
+    }
+}
+
 /// "I was hacked: new keys...": the question.
 pub(crate) fn ask_rotate(s: &mut DriveState, drive_id: &str) {
     if s.popup.is_none() {
@@ -1139,6 +1173,11 @@ pub(crate) enum EncryptionJob {
         auto: Arc<AutoEncrypted>,
         azlin: Arc<azcloud_kit::AzlinDrive>,
     },
+    /// The drive index's totals (the usage line's original size).
+    Totals {
+        azlin_id: String,
+        auto: Arc<AutoEncrypted>,
+    },
     /// Every file into a new object, the state in `state_file`.
     Reencrypt {
         drive_id: String,
@@ -1224,6 +1263,11 @@ pub(crate) enum EncryptionOutcome {
     Reencrypted {
         drive_id: String,
         result: Result<ReencryptState, String>,
+    },
+    /// (the files' size before compression, their stored bytes)
+    Totals {
+        azlin_id: String,
+        result: Result<(u64, u64), String>,
     },
     RecoveryKeyRegistered {
         drive_id: String,
@@ -1401,6 +1445,22 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 })
             })();
             EncryptionOutcome::Rotated { drive_id, result }
+        }
+        EncryptionJob::Totals { azlin_id, auto } => {
+            let result = (|| -> Result<(u64, u64), String> {
+                let provider = index_provider()
+                    .ok_or_else(|| String::from("this build of AzDrive has no drive index"))?;
+                let drive = open_encrypted(
+                    Arc::clone(auto.bucket()),
+                    &keyring,
+                    auto.drive(),
+                    provider.as_ref(),
+                )
+                .map_err(|e| e.to_string())?;
+                let totals = drive.totals().map_err(|e| e.to_string())?;
+                Ok((totals.original_bytes, totals.stored_bytes))
+            })();
+            EncryptionOutcome::Totals { azlin_id, result }
         }
         EncryptionJob::Reencrypt {
             drive_id,
@@ -1709,6 +1769,17 @@ pub(crate) fn on_outcome(
                     ),
                 }));
             }
+        },
+        // Quiet: the usage line goes without its extra information until the next look.
+        EncryptionOutcome::Totals { azlin_id, result } => match result {
+            Ok((original, stored)) => crate::usage_view::totals_seen(
+                s,
+                &azlin_id,
+                original,
+                stored,
+                azul_storage::time::now_unix(),
+            ),
+            Err(why) => eprintln!("AZDRIVE_TOTALS_FAILED {azlin_id}: {why}"),
         },
         EncryptionOutcome::Reencrypted { drive_id, result } => {
             let name = drive_name(s, &drive_id);

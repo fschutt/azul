@@ -343,6 +343,11 @@ pub(crate) fn status_text(s: &DriveState) -> String {
             }
             if let Some((_, free)) = s.disk.get(drive) {
                 parts.push(format!("{} available", browse::format_size(Some(*free))));
+            } else if let Some(available) =
+                crate::usage_view::usage_of_slot(s, drive).and_then(crate::usage_view::available_part)
+            {
+                // An Azlin drive: its quota less its stored (compressed) bytes.
+                parts.push(available);
             }
             // A synced folder: its drive's sync ("Up to date", "Syncing 12 files (340 MB)").
             if let Some(sync) = crate::sync_view::status_for_place(s) {
@@ -580,6 +585,16 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                     pane = pane.with_property(
                         AzString::from("Recovery health"),
                         AzString::from(health),
+                    );
+                }
+                // An Azlin drive's space: its stored bytes against the quota, the files' size
+                // before compression as extra information.
+                if let Some(seen) = crate::usage_view::usage_of_slot(s, &slot.entry.id)
+                    .filter(|seen| seen.usage.quota > 0)
+                {
+                    pane = pane.with_property(
+                        AzString::from("Space used"),
+                        AzString::from(seen.usage.text()),
                     );
                 }
                 match &slot.entry.location {

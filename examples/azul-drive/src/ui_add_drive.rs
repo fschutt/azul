@@ -325,6 +325,11 @@ fn buy(d: &AddDialog, development: bool, app: &RefAny) -> Dom {
             "Storage for AzDrive, AzMail and every Azlin app, paid monthly or yearly. The first \
              month is free.",
         ),
+        note(
+            "Every file is compressed and encrypted on this computer before it leaves it, and a \
+             tier counts the bytes stored: what compresses well - text, documents, mail - takes \
+             less of it than its size.",
+        ),
     ];
     match &d.tiers {
         TiersState::NotLoaded | TiersState::Loading => {

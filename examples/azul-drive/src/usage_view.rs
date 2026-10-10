@@ -6,7 +6,12 @@
 //! the files' sizes (an encrypted drive's totals, asked for at most every
 //! [`TOTALS_EVERY_SECS`]). A drive nearly full or full says so once a run.
 
-use azcloud_kit::{usage::Usage, DriveStatus};
+use azcloud_kit::{
+    usage::{size_text, Level, Usage},
+    DriveStatus,
+};
+
+use crate::DriveState;
 
 /// How long a drive's totals (its files' size before compression) are good for.
 pub(crate) const TOTALS_EVERY_SECS: u64 = 1800;
@@ -29,8 +34,16 @@ pub(crate) fn merge_status(
     previous: Option<DriveUsage>,
     status: &DriveStatus,
 ) -> Option<DriveUsage> {
-    let _ = status;
-    previous
+    let Some(quota) = status.quota_bytes else {
+        return previous;
+    };
+    let mut seen = previous.unwrap_or_default();
+    seen.usage.quota = quota;
+    if let Some(used) = status.used_bytes {
+        seen.usage.used = used;
+        seen.server_counted = true;
+    }
+    Some(seen)
 }
 
 /// `previous` with the drive index's totals at `now`: the files' size before compression, and
@@ -42,22 +55,71 @@ pub(crate) fn merge_totals(
     stored_bytes: u64,
     now: u64,
 ) -> Option<DriveUsage> {
-    let _ = (original_bytes, stored_bytes, now);
-    previous
+    let mut seen = previous.unwrap_or_default();
+    seen.usage.original = Some(original_bytes);
+    if !seen.server_counted {
+        seen.usage.used = stored_bytes;
+    }
+    seen.totals_at = Some(now);
+    Some(seen)
 }
 
 /// Whether the drive index's totals are due again.
 #[must_use]
 pub(crate) fn totals_due(usage: Option<&DriveUsage>, now: u64) -> bool {
-    let _ = (usage, now);
-    false
+    usage
+        .and_then(|u| u.totals_at)
+        .map_or(true, |at| now.saturating_sub(at) >= TOTALS_EVERY_SECS)
 }
 
 /// The status line's part: "38 GB available" (of the quota, in stored bytes).
 #[must_use]
 pub(crate) fn available_part(usage: &DriveUsage) -> Option<String> {
-    let _ = usage;
-    None
+    (usage.usage.quota > 0).then(|| format!("{} available", size_text(usage.usage.available())))
+}
+
+/// The token server's word on the Azlin drive `azlin_id` (the periods' look): its quota and its
+/// stored bytes; a drive nearly full or full says so once a run.
+pub(crate) fn status_seen(s: &mut DriveState, azlin_id: &str, status: &DriveStatus) {
+    let previous = s.usage.get(azlin_id).copied();
+    let Some(mut seen) = merge_status(previous, status) else {
+        return;
+    };
+    if seen.usage.level() != Level::Fine && !seen.warned {
+        if let Some(warning) = seen.usage.warning() {
+            let name = s.drive_name(&crate::browse::Place::folder(
+                &slot_id_of(s, azlin_id).unwrap_or_else(|| azlin_id.to_string()),
+                "",
+            ));
+            println!("AZDRIVE_DRIVE_NEARLY_FULL {azlin_id}");
+            s.warn(format!("\"{name}\": {warning}"));
+        }
+        seen.warned = true;
+    }
+    s.usage.insert(azlin_id.to_string(), seen);
+}
+
+/// The drive index's totals of the Azlin drive `azlin_id` arrived.
+pub(crate) fn totals_seen(s: &mut DriveState, azlin_id: &str, original: u64, stored: u64, now: u64) {
+    let previous = s.usage.get(azlin_id).copied();
+    if let Some(seen) = merge_totals(previous, original, stored, now) {
+        s.usage.insert(azlin_id.to_string(), seen);
+    }
+}
+
+/// The slot of the Azlin drive `azlin_id`.
+fn slot_id_of(s: &DriveState, azlin_id: &str) -> Option<String> {
+    s.slots
+        .iter()
+        .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == azlin_id))
+        .map(|slot| slot.entry.id.clone())
+}
+
+/// What AzDrive knows of the space of the drive in slot `slot_id` (an Azlin drive).
+pub(crate) fn usage_of_slot<'a>(s: &'a DriveState, slot_id: &str) -> Option<&'a DriveUsage> {
+    let slot = s.slots.iter().find(|slot| slot.entry.id == slot_id)?;
+    let (azlin_id, _) = slot.entry.azlin()?;
+    s.usage.get(azlin_id)
 }
 
 #[cfg(test)]

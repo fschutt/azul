@@ -778,6 +778,9 @@ pub(crate) struct DriveState {
     pub root_counts: HashMap<String, usize>,
     /// A local drive's volume: (total, free) bytes.
     pub disk: HashMap<String, (u64, u64)>,
+    /// An Azlin drive's space, by its Azlin id: the quota counts stored bytes
+    /// ([`usage_view`]).
+    pub usage: HashMap<String, usage_view::DriveUsage>,
     pub message: Option<Message>,
     pub popup: Option<Popup>,
     pub popups_opened: u64,
@@ -2513,6 +2516,9 @@ pub(crate) extern "C" fn on_job_done(
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
         Outcome::PeriodsRedeemed { results } => {
             periods::periods_redeemed(&mut info, s, results);
+            // An encrypted drive's files' size before compression, for its usage line.
+            #[cfg(feature = "encryption")]
+            encryption::request_totals(&mut info, &handle, s);
         }
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
@@ -3119,6 +3125,7 @@ pub fn start() {
         metadata: HashMap::new(),
         root_counts: HashMap::new(),
         disk: HashMap::new(),
+        usage: HashMap::new(),
         message,
         popup: None,
         popups_opened: 0,

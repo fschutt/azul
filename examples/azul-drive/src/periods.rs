@@ -200,6 +200,8 @@ pub(crate) fn periods_redeemed(
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
             // A synced drive's status line says "Read-only (payment due)" by this word.
             crate::sync_jobs::drive_status_seen(s, &drive_id, status.read_only);
+            // Its space: the quota and the stored bytes the token server counts.
+            crate::usage_view::status_seen(s, &drive_id, status);
         }
         for member in new_devices(&look.new_members) {
             println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");
