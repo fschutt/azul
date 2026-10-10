@@ -10,6 +10,9 @@ mod index;
 mod merge;
 mod objects;
 mod pack;
+/// The policy and the member wraps (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod policy;
 /// The local query cache (feature `index-cache`).
 #[cfg(feature = "index-cache")]
 mod query_cache;
