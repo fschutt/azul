@@ -33,8 +33,11 @@
 //!   filters are not applied), GET / HEAD, PUT (`If-Match`, `If-None-Match: *`), DELETE
 //!   (`If-Match`), MKCALENDAR (a new AzCalendar calendar: its name, the nearest AzCalendar
 //!   colour, under the program's path). PROPPATCH sets a calendar's name and colour; any other
-//!   property is dead and refused (403, the rest of the request 424). MKCOL is refused. Not yet:
-//!   sync-collection (programs fall back to the CTag), scheduling (iTIP), tasks (VTODO).
+//!   property is dead and refused (403, the rest of the request 424). MKCOL is refused.
+//! - sync-collection (RFC 6578) on a calendar and the address book: what changed and what went
+//!   since a token; the tokens of the last 32 states of each collection are kept in
+//!   memory (one from before a start is refused and the program lists again). Not yet:
+//!   scheduling (iTIP), tasks (VTODO).
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -101,7 +104,7 @@ const ALL_PROPS: [(&str, &str); 6] = [
 ];
 
 /// What `propname` lists (every property the bridge answers but the data itself).
-const PROP_NAMES: [(&str, &str); 20] = [
+const PROP_NAMES: [(&str, &str); 21] = [
     (DAV, "resourcetype"),
     (DAV, "displayname"),
     (DAV, "getetag"),
@@ -122,6 +125,7 @@ const PROP_NAMES: [(&str, &str); 20] = [
     (CALSERVER, "getctag"),
     (CALSERVER, "email-address-set"),
     (APPLE, "calendar-color"),
+    (DAV, "sync-token"),
 ];
 
 const READ_ONLY: &str = "<D:privilege><D:read/></D:privilege>\
@@ -130,9 +134,19 @@ const READ_WRITE: &str = "<D:privilege><D:read/></D:privilege><D:privilege><D:wr
      <D:privilege><D:write-content/></D:privilege><D:privilege><D:bind/></D:privilege>\
      <D:privilege><D:unbind/></D:privilege><D:privilege><D:read-current-user-privilege-set/></D:privilege>";
 const CALENDAR_REPORTS: &str = "<D:supported-report><D:report><C:calendar-multiget/></D:report></D:supported-report>\
-     <D:supported-report><D:report><C:calendar-query/></D:report></D:supported-report>";
+     <D:supported-report><D:report><C:calendar-query/></D:report></D:supported-report>\
+     <D:supported-report><D:report><D:sync-collection/></D:report></D:supported-report>";
 const BOOK_REPORTS: &str = "<D:supported-report><D:report><CR:addressbook-multiget/></D:report></D:supported-report>\
-     <D:supported-report><D:report><CR:addressbook-query/></D:report></D:supported-report>";
+     <D:supported-report><D:report><CR:addressbook-query/></D:report></D:supported-report>\
+     <D:supported-report><D:report><D:sync-collection/></D:report></D:supported-report>";
+/// The start of every sync token (RFC 6578 wants a URI); the rest is a hash of the collection's
+/// members and their versions.
+const SYNC_PREFIX: &str = "http://azlin-bridge.localhost/sync/";
+/// Sync tokens kept per collection; a program with an older one lists the collection again.
+const SYNC_KEPT: usize = 32;
+
+/// What a sync token names: a collection's members (href to version) when it was given out.
+type Snapshot = BTreeMap<String, String>;
 const ADDRESS_DATA_TYPES: &str = "<CR:address-data-type content-type=\"text/vcard\" version=\"3.0\"/>\
      <CR:address-data-type content-type=\"text/vcard\" version=\"4.0\"/>";
 
@@ -389,6 +403,20 @@ impl Item {
     }
 }
 
+/// The href of a collection `place` names (a calendar, the address book; the others' own).
+fn collection_href(place: &Place) -> String {
+    match place {
+        Place::Calendar(segment) => format!("{CALENDAR_HOME}{}/", dav::encode_segment(segment)),
+        Place::Book => format!("{BOOK_HOME}{BOOK}/"),
+        Place::Principal => String::from(PRINCIPAL),
+        Place::CalendarHome => String::from(CALENDAR_HOME),
+        Place::BookHome => String::from(BOOK_HOME),
+        Place::Event(segment, name) => event_href(segment, name),
+        Place::Card(name) => card_href(name),
+        Place::Root | Place::WellKnown => String::from("/"),
+    }
+}
+
 /// An event's href.
 #[must_use]
 pub fn event_href(segment: &str, name: &str) -> String {
@@ -514,6 +542,8 @@ enum ReportKind {
     CalendarQuery,
     BookMultiget,
     BookQuery,
+    /// RFC 6578's sync-collection.
+    Sync,
 }
 
 /// A REPORT's body.
@@ -528,6 +558,8 @@ struct Report {
     range: Option<(Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>)>,
     /// The vCard version address-data asks for (3.0 unless it says `version="4.0"`).
     vcard: cards::Version,
+    /// sync-collection: the token the program has (empty: none yet).
+    token: String,
 }
 
 /// Why a REPORT is not answered.
@@ -569,6 +601,7 @@ fn report_of(body: &[u8]) -> Result<Report, Refusal> {
         (CALDAV, "calendar-query") => ReportKind::CalendarQuery,
         (CARDDAV, "addressbook-multiget") => ReportKind::BookMultiget,
         (CARDDAV, "addressbook-query") => ReportKind::BookQuery,
+        (DAV, "sync-collection") => ReportKind::Sync,
         _ => return Err(Refusal::Unsupported),
     };
     let mut report = Report {
@@ -578,6 +611,7 @@ fn report_of(body: &[u8]) -> Result<Report, Refusal> {
         component: None,
         range: None,
         vcard: cards::Version::V3,
+        token: String::new(),
     };
     for child in root.children().filter(roxmltree::Node::is_element) {
         if dav::is_dav(&child, "prop") {
@@ -591,6 +625,8 @@ fn report_of(body: &[u8]) -> Result<Report, Refusal> {
             if asks_4 {
                 report.vcard = cards::Version::V4;
             }
+        } else if dav::is_dav(&child, "sync-token") {
+            report.token = child.text().unwrap_or_default().trim().to_string();
         } else if dav::is_dav(&child, "propname") {
             report.props = PropRequest::Names;
         } else if dav::is_dav(&child, "href") {
@@ -692,6 +728,8 @@ pub struct Pim {
     /// The events read so far, by key, with the version they were read at: a listing reads a
     /// file again only when it changed.
     events: Mutex<HashMap<String, (String, Event)>>,
+    /// The sync tokens given out, per collection href, with what they name.
+    sync: Mutex<HashMap<String, Vec<(String, Snapshot)>>>,
 }
 
 impl std::fmt::Debug for Pim {
@@ -713,6 +751,7 @@ impl Pim {
             names,
             address: address.trim().to_string(),
             events: Mutex::new(HashMap::new()),
+            sync: Mutex::new(HashMap::new()),
         }
     }
 
@@ -878,6 +917,7 @@ impl Pim {
                 }
                 _ => return None,
             },
+            (DAV, "sync-token") => element(DAV, name, &dav::xml_escape(&self.sync_token(item)?)),
             (CALSERVER, "getctag") => match item {
                 Item::Calendar { ctag, .. } | Item::Book { ctag } => element(CALSERVER, name, &dav::xml_escape(ctag)),
                 _ => return None,
@@ -957,8 +997,12 @@ impl Pim {
             Err(Refusal::Unsupported) => return Ok(dav_error(Status::FORBIDDEN, "<D:supported-report/>")),
             Err(Refusal::Bad) => return Ok(Response::text(Status::BAD_REQUEST, "Not a REPORT body the bridge reads.")),
         };
+        if report.kind == ReportKind::Sync {
+            return self.sync_collection(place, &report);
+        }
         let mut out = String::from(MULTISTATUS);
         match report.kind {
+            ReportKind::Sync => {}
             ReportKind::CalendarMultiget | ReportKind::BookMultiget => {
                 for href in &report.hrefs {
                     let item = match place_of(href) {
@@ -1043,6 +1087,88 @@ impl Pim {
                 "Calendars and the address book are deleted in AzCalendar and AzContacts.",
             )),
         }
+    }
+
+    // ---- sync-collection (RFC 6578) ----
+
+    fn lock_sync(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<(String, Snapshot)>>> {
+        self.sync
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The collection `place`'s members, its current sync token (a hash of their hrefs and
+    /// versions) and what the token names - kept, so a program can ask what changed since.
+    fn current_sync(&self, place: &Place) -> Result<(String, Vec<Item>, Snapshot), DriveError> {
+        let items = self.children(place)?;
+        let snapshot: Snapshot = items
+            .iter()
+            .filter_map(|item| Some((item.href(), version_of(item.info()?))))
+            .collect();
+        let text: String = snapshot.iter().map(|(href, version)| format!("{href}\n{version}\n")).collect();
+        let token = format!("{SYNC_PREFIX}{}", ctag_of(&text));
+        let mut sync = self.lock_sync();
+        let kept = sync.entry(collection_href(place)).or_default();
+        if !kept.iter().any(|(given, _)| *given == token) {
+            kept.push((token.clone(), snapshot.clone()));
+            if kept.len() > SYNC_KEPT {
+                kept.remove(0);
+            }
+        }
+        Ok((token, items, snapshot))
+    }
+
+    /// A calendar's or the address book's current sync token (its `sync-token` property).
+    fn sync_token(&self, item: &Item) -> Option<String> {
+        let place = match item {
+            Item::Calendar { segment, .. } => Place::Calendar(segment.clone()),
+            Item::Book { .. } => Place::Book,
+            _ => return None,
+        };
+        self.current_sync(&place).ok().map(|(token, _, _)| token)
+    }
+
+    /// sync-collection: the members new or changed since the program's token (with the
+    /// properties it asks for), the ones gone since (404), the new token. No token: every
+    /// member. A token the bridge does not know (given before it started): 403 valid-sync-token,
+    /// and the program lists again.
+    fn sync_collection(&self, place: &Place, report: &Report) -> Result<Response, DriveError> {
+        if !matches!(place, Place::Calendar(_) | Place::Book) {
+            return Ok(Response::text(
+                Status::FORBIDDEN,
+                "sync-collection asks a calendar or the address book.",
+            ));
+        }
+        let known = self
+            .lock_sync()
+            .get(&collection_href(place))
+            .and_then(|kept| kept.iter().find(|(given, _)| *given == report.token))
+            .map(|(_, snapshot)| snapshot.clone());
+        let (token, items, now) = self.current_sync(place)?;
+        let old = if report.token.is_empty() {
+            Snapshot::new()
+        } else if let Some(old) = known {
+            old
+        } else if report.token == token {
+            now
+        } else {
+            return Ok(dav_error(Status::FORBIDDEN, "<D:valid-sync-token/>"));
+        };
+        let mut out = String::from(MULTISTATUS);
+        let mut present = HashSet::new();
+        for item in &items {
+            let href = item.href();
+            let version = item.info().map(version_of).unwrap_or_default();
+            if old.get(&href) != Some(&version) {
+                out.push_str(&self.response_of(item, &report.props, report.vcard));
+            }
+            present.insert(href);
+        }
+        for href in old.keys().filter(|href| !present.contains(*href)) {
+            out.push_str(&missing_response(href));
+        }
+        out.push_str(&format!("<D:sync-token>{}</D:sync-token>", dav::xml_escape(&token)));
+        Ok(multistatus(out))
     }
 
     /// A calendar's name and colour are set (AzCalendar's calendar file); every other property is
