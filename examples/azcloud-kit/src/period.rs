@@ -11,14 +11,16 @@
 //!    salt) into `m`;
 //! 2. blinds `m` with a random `r` coprime to the modulus: `m * r^e mod n`, as many bytes as
 //!    the modulus, standard base64 - what `POST /v1/tokens/issue` takes, with the sealed
-//!    sign-up's issue key ([`issue_tokens`]);
+//!    sign-up's issue key and the id of the key it was blinded for ([`issue_tokens`]); the
+//!    request is kept ([`IssueRequest`]) before it is sent: the token server answers the same
+//!    request with the same signatures, counted once, so a lost answer is asked for again;
 //! 3. finalizes each blind signature `z` into `z * r^-1 mod n` and checks it as an RSASSA-PSS
 //!    signature of `randomizer || message` ([`Issuer::finalize`]);
 //! 4. keeps the token ([`PeriodTokenStore`], one 0600 file per drive) until
 //!    `POST /v1/drives/{id}/redeem` takes it ([`TokenServer::redeem_period_token`]).
 //!
-//! The token server counts what it signed: a lost answer, or tokens that do not verify, are
-//! months the app does not get (support: a voucher).
+//! The token server counts what it signed: tokens that do not verify are months the app does
+//! not get (support: a voucher).
 
 use std::{
     fmt::{self, Write as _},
@@ -42,9 +44,9 @@ use sha2::{Digest, Sha384};
 
 use crate::{
     bundle::PeriodTokens,
-    error::{CloudResult, Context},
+    error::{CloudError, CloudResult, Context},
     state::{create_private_dir, read_json, write_json},
-    token::{check_id, TokenError, TokenServer, MAX_BLINDED},
+    token::{check_id, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
 };
 
 /// What every token message starts with.
@@ -313,22 +315,166 @@ impl Issuer {
     }
 }
 
-/// The period tokens a paid checkout's sign-up grants (`grant`), for the drive's `tier`: the
-/// tier's issuer key (`GET /v1/tokens/keys`), one blinded message per month, one
-/// `POST /v1/tokens/issue` against the grant's issue key, every signature finalized and
-/// checked.
+/// One blinded message of a kept [`IssueRequest`]: everything its finalization needs.
+#[derive(Clone, Serialize, Deserialize)]
+struct KeptBlinding {
+    nonce: String,
+    /// Standard base64.
+    randomizer: String,
+    /// `r^-1 mod n`, big-endian, standard base64.
+    inverse: String,
+    /// The blinded message as sent.
+    message: String,
+}
+
+impl Blinded {
+    fn kept(&self) -> KeptBlinding {
+        KeptBlinding {
+            nonce: self.nonce.clone(),
+            randomizer: STANDARD.encode(self.randomizer),
+            inverse: STANDARD.encode(self.inverse.to_bytes_be()),
+            message: self.message.clone(),
+        }
+    }
+
+    fn from_kept(kept: &KeptBlinding) -> Result<Blinded, TokenError> {
+        let unreadable =
+            || TokenError::Protocol(String::from("a kept issue request is unreadable"));
+        let randomizer: [u8; RANDOMIZER_BYTES] = STANDARD
+            .decode(&kept.randomizer)
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(unreadable)?;
+        let inverse = STANDARD.decode(&kept.inverse).map_err(|_| unreadable())?;
+        Ok(Blinded {
+            nonce: kept.nonce.clone(),
+            randomizer,
+            inverse: BigUint::from_bytes_be(&inverse),
+            message: kept.message.clone(),
+        })
+    }
+}
+
+/// The format of a kept issue request.
+const ISSUE_REQUEST_FORMAT: u32 = 1;
+
+/// A `POST /v1/tokens/issue` request of a checkout - its issuer key and its blinded messages,
+/// with what finalizes their signatures - kept (0600, [`PeriodTokenStore`]) from before it is
+/// sent until its tokens are: the token server answers the same request (same key, messages and
+/// order) with the same signatures, counted once, so a lost answer is asked for again with it
+/// (AZDRIVE-INTEGRATION §4). `Debug` shows no blinding.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IssueRequest {
+    format: u32,
+    checkout_id: String,
+    tier: String,
+    year: u32,
+    key_id: String,
+    public_key_pem: String,
+    blindings: Vec<KeptBlinding>,
+}
+
+impl fmt::Debug for IssueRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IssueRequest")
+            .field("checkout_id", &self.checkout_id)
+            .field("key_id", &self.key_id)
+            .field("messages", &self.blindings.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl IssueRequest {
+    /// `months` fresh token messages of the checkout `checkout_id`, blinded for `key`.
+    ///
+    /// # Errors
+    ///
+    /// A key that is no RSA public key; the OS random source failed.
+    pub fn new(
+        key: &IssuerKey,
+        checkout_id: &str,
+        months: usize,
+    ) -> Result<IssueRequest, TokenError> {
+        let issuer = Issuer::new(&key.tier, key.year, &key.public_key_pem)?;
+        let blindings = (0..months)
+            .map(|_| issuer.blind().map(|blinded| blinded.kept()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(IssueRequest {
+            format: ISSUE_REQUEST_FORMAT,
+            checkout_id: checkout_id.trim().to_string(),
+            tier: issuer.tier().to_string(),
+            year: key.year,
+            key_id: key.key_id.clone(),
+            public_key_pem: key.public_key_pem.clone(),
+            blindings,
+        })
+    }
+
+    #[must_use]
+    pub fn checkout_id(&self) -> &str {
+        &self.checkout_id
+    }
+
+    /// The issuer key the messages are blinded for (`<tier>/<year>`).
+    #[must_use]
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    /// The blinded messages, in the order they are sent.
+    #[must_use]
+    pub fn messages(&self) -> Vec<String> {
+        self.blindings.iter().map(|b| b.message.clone()).collect()
+    }
+
+    /// The tokens `signatures` (the answer's, in the order of the messages) finalize into,
+    /// every one checked.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Protocol`]: another number of signatures, or one that does not verify.
+    pub fn finalize(&self, signatures: &[String]) -> Result<Vec<PeriodToken>, TokenError> {
+        if signatures.len() != self.blindings.len() {
+            return Err(TokenError::Protocol(format!(
+                "{} blind signatures for {} blinded messages",
+                signatures.len(),
+                self.blindings.len()
+            )));
+        }
+        let issuer = Issuer::new(&self.tier, self.year, &self.public_key_pem)?;
+        self.blindings
+            .iter()
+            .zip(signatures)
+            .map(|(kept, signature)| issuer.finalize(&Blinded::from_kept(kept)?, signature))
+            .collect()
+    }
+}
+
+/// How often one issue follows a changed issuer key before it gives up.
+const KEY_CHANGES: usize = 3;
+
+/// The period tokens a paid checkout's sign-up grants (`grant`), for the drive `drive_id` of
+/// `tier`, kept in `store` under the drive: the tier's issuer key (`GET /v1/tokens/keys`), one
+/// blinded message per month, kept as an [`IssueRequest`] BEFORE it is sent, then
+/// `POST /v1/tokens/issue` with the grant's issue key and the key's id, every signature
+/// finalized and checked, the tokens kept and the request forgotten. A request kept by an
+/// earlier try whose answer was lost is sent again as it is (no new keys, no new blinding): the
+/// token server answers it with the same signatures, counted once. A key that changed since the
+/// keys were read (`409 key_changed`, the year turned) gets the messages blinded anew.
 ///
 /// # Errors
 ///
 /// [`TokenError::Config`] for no months or more than one call takes ([`MAX_BLINDED`]; nothing
-/// is sent); the token server's refusals (`issue_key_wrong`, `already_issued`, ...);
-/// [`TokenError::Protocol`] when it names no key for the tier, or signed with another key than
-/// the one the messages were blinded for (its year turned between the two calls: those months
-/// are lost) or something that does not verify.
+/// is sent), or a request or tokens that could not be kept; no answer (the request stays kept
+/// for the next try); the token server's refusals (`issue_key_wrong`, `already_issued`, ...);
+/// [`TokenError::Protocol`] when it names no key for the tier, answers with another key than
+/// the request named, or with something that does not verify.
 pub fn issue_tokens(
     server: &TokenServer<'_>,
+    store: &PeriodTokenStore,
     grant: &PeriodTokens,
     tier: &str,
+    drive_id: &str,
 ) -> Result<Vec<PeriodToken>, TokenError> {
     let months = usize::try_from(grant.months).unwrap_or(usize::MAX);
     if months == 0 || months > MAX_BLINDED {
@@ -338,32 +484,101 @@ pub fn issue_tokens(
         )));
     }
     let tier = tier.trim();
-    let key = server
+    let fresh = |key: &IssuerKey| {
+        let request = IssueRequest::new(key, &grant.checkout_id, months)?;
+        store.keep_issue_request(&request).map_err(not_kept)?;
+        Ok::<IssueRequest, TokenError>(request)
+    };
+    let mut request = match store.issue_request(&grant.checkout_id) {
+        Ok(Some(kept)) if kept.blindings.len() == months && kept.tier == tier => kept,
+        _ => fresh(&issuer_key(server, tier, None)?)?,
+    };
+    for _ in 0..KEY_CHANGES {
+        let answer = server.issue_period_tokens(
+            &grant.checkout_id,
+            &grant.issue_key,
+            &request.key_id,
+            &request.messages(),
+        )?;
+        match answer {
+            IssueAnswer::Signed(signed) => {
+                if signed.key_id != request.key_id {
+                    return Err(TokenError::Protocol(format!(
+                        "the token server signed the period tokens with the issuer key {}, not \
+                         with {} they were blinded for",
+                        signed.key_id, request.key_id
+                    )));
+                }
+                let tokens = request.finalize(&signed.signatures)?;
+                store.add(drive_id, &tokens).map_err(not_kept)?;
+                // A request left behind is harmless: its checkout is done.
+                let _ = store.forget_issue_request(&grant.checkout_id);
+                return Ok(tokens);
+            }
+            IssueAnswer::KeyChanged {
+                key_id,
+                public_key_pem,
+            } => {
+                let key = match public_key_pem {
+                    Some(pem) => issuer_key_named(tier, &key_id, pem)?,
+                    None => issuer_key(server, tier, Some(&key_id))?,
+                };
+                request = fresh(&key)?;
+            }
+        }
+    }
+    Err(TokenError::Protocol(format!(
+        "the token server's issuer key for {tier} changed {KEY_CHANGES} times in one issue"
+    )))
+}
+
+/// A request or tokens the store did not keep.
+fn not_kept(e: CloudError) -> TokenError {
+    TokenError::Config(format!(
+        "The period tokens' issue request or tokens could not be kept: {e}"
+    ))
+}
+
+/// The issuer key of `tier` the token server lists (`key_id`, when one is named).
+fn issuer_key(
+    server: &TokenServer<'_>,
+    tier: &str,
+    key_id: Option<&str>,
+) -> Result<IssuerKey, TokenError> {
+    server
         .issuer_keys()?
         .into_iter()
-        .find(|key| key.tier == tier)
+        .find(|key| key.tier == tier && key_id.is_none_or(|id| key.key_id == id))
         .ok_or_else(|| {
-            TokenError::Protocol(format!("the token server names no issuer key for {tier}"))
+            TokenError::Protocol(format!(
+                "the token server names no issuer key {} for {tier}",
+                key_id.unwrap_or_default()
+            ))
+        })
+}
+
+/// The issuer key `key_id` (`<tier>/<year>`) of `tier` with `public_key_pem`, as a
+/// `key_changed` answer names it.
+fn issuer_key_named(
+    tier: &str,
+    key_id: &str,
+    public_key_pem: String,
+) -> Result<IssuerKey, TokenError> {
+    let year = key_id
+        .rsplit_once('/')
+        .filter(|(named, _)| *named == tier)
+        .and_then(|(_, year)| year.parse::<u32>().ok())
+        .ok_or_else(|| {
+            TokenError::Protocol(format!(
+                "the token server named the issuer key {key_id:?}, which is none of {tier}"
+            ))
         })?;
-    let issuer = Issuer::new(&key.tier, key.year, &key.public_key_pem)?;
-    let blinded = (0..months)
-        .map(|_| issuer.blind())
-        .collect::<Result<Vec<_>, _>>()?;
-    let messages: Vec<String> = blinded.iter().map(|b| b.message().to_string()).collect();
-    let signed = server.issue_period_tokens(&grant.checkout_id, &grant.issue_key, &messages)?;
-    if signed.key_id != issuer.key_id() {
-        return Err(TokenError::Protocol(format!(
-            "the token server signed the period tokens with the issuer key {}, not with {} they \
-             were blinded for",
-            signed.key_id,
-            issuer.key_id()
-        )));
-    }
-    blinded
-        .iter()
-        .zip(&signed.signatures)
-        .map(|(blinded, signature)| issuer.finalize(blinded, signature))
-        .collect()
+    Ok(IssuerKey {
+        tier: tier.to_string(),
+        year,
+        key_id: key_id.to_string(),
+        public_key_pem,
+    })
 }
 
 // ==== RFC 9474 / RFC 8017 pieces ====
@@ -552,5 +767,41 @@ impl PeriodTokenStore {
         };
         write_json(&path, &stored, true)?;
         Ok(count)
+    }
+
+    /// The file of the checkout `checkout_id`'s kept issue request (`<dir>/issues/<id>.json`).
+    pub fn issue_request_path(&self, checkout_id: &str) -> CloudResult<PathBuf> {
+        Ok(self
+            .dir
+            .join("issues")
+            .join(format!("{}.json", check_id(checkout_id)?)))
+    }
+
+    /// The checkout `checkout_id`'s kept issue request; none without one (or of another format).
+    pub fn issue_request(&self, checkout_id: &str) -> CloudResult<Option<IssueRequest>> {
+        let path = self.issue_request_path(checkout_id)?;
+        Ok(read_json::<IssueRequest>(&path)?
+            .filter(|request| request.format == ISSUE_REQUEST_FORMAT))
+    }
+
+    /// Keeps `request` (readable by this user only) until [`Self::forget_issue_request`].
+    pub fn keep_issue_request(&self, request: &IssueRequest) -> CloudResult<()> {
+        let path = self.issue_request_path(&request.checkout_id)?;
+        create_private_dir(&self.dir).with_context(|| self.dir.display().to_string())?;
+        if let Some(dir) = path.parent() {
+            create_private_dir(dir).with_context(|| dir.display().to_string())?;
+        }
+        write_json(&path, request, true)
+    }
+
+    /// Forgets the checkout `checkout_id`'s kept issue request (its tokens are kept, or it is
+    /// done without them).
+    pub fn forget_issue_request(&self, checkout_id: &str) -> CloudResult<()> {
+        let path = self.issue_request_path(checkout_id)?;
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e).context(path.display()),
+        }
     }
 }

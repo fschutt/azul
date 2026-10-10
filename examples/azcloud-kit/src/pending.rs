@@ -402,7 +402,9 @@ fn finish_lock(checkout_id: &str) -> String {
 
 /// Issues the period tokens `owed` for the claimed `checkout` at `server` (its own token server)
 /// against their issue key, keeps them in `store` under their drive and then takes the
-/// checkout off the list - its claim secret and issue key with it. See [`Finished`].
+/// checkout off the list - its claim secret and issue key with it. A try whose answer was lost
+/// left its request kept in `store`: the next one sends it again as it is
+/// ([`crate::period::issue_tokens`]). See [`Finished`].
 #[must_use]
 pub fn finish(
     server: &TokenServer<'_>,
@@ -421,9 +423,13 @@ pub fn finish(
         Ok(_) => {}
         Err(e) => return Finished::Kept(e.to_string()),
     }
-    let done = |finished: Finished| match remove(shared, id) {
-        Ok(_) => finished,
-        Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
+    // Done: its kept issue request goes, then the checkout leaves the list.
+    let done = |finished: Finished| {
+        let _ = store.forget_issue_request(id);
+        match remove(shared, id) {
+            Ok(_) => finished,
+            Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
+        }
     };
     // A grant no token server issues: nothing to wait for.
     let months_ok = usize::try_from(owed.months).is_ok_and(|m| (1..=MAX_BLINDED).contains(&m));
@@ -434,17 +440,11 @@ pub fn finish(
             owed.months
         )));
     }
-    match issue_tokens(server, &owed.grant(id), &checkout.tier) {
-        Ok(tokens) => match store.add(&owed.drive_id, &tokens) {
-            Ok(_) => done(Finished::Issued {
-                drive_id: owed.drive_id.clone(),
-                count: tokens.len(),
-            }),
-            Err(e) => Finished::Kept(format!(
-                "the {} period tokens could not be kept: {e}",
-                tokens.len()
-            )),
-        },
+    match issue_tokens(server, store, &owed.grant(id), &checkout.tier, &owed.drive_id) {
+        Ok(tokens) => done(Finished::Issued {
+            drive_id: owed.drive_id.clone(),
+            count: tokens.len(),
+        }),
         Err(TokenError::Refused { status, code, .. }) if code == "already_issued" => {
             done(Finished::Dropped(format!(
                 "its period tokens were issued before (HTTP {status}): this device has none of \
