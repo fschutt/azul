@@ -116,6 +116,8 @@ fn a_hit_becomes_a_row_under_the_drive_prefix() {
             name: String::from("needle.txt"),
             is_dir: false,
             range: (0, 6),
+            size: None,
+            modified: None,
         },
     );
     assert_eq!(file.entry.key, "Docs/deep/needle.txt");
@@ -128,6 +130,8 @@ fn a_hit_becomes_a_row_under_the_drive_prefix() {
             name: String::from("deep"),
             is_dir: true,
             range: (0, 4),
+            size: None,
+            modified: None,
         },
     );
     assert_eq!((folder.entry.key.as_str(), folder.entry.is_folder), ("deep/", true));
@@ -146,6 +150,8 @@ fn a_hit_becomes_a_row_under_the_drive_prefix() {
                 after: Vec::new(),
             }],
             more: true,
+            size: None,
+            modified: None,
         },
     );
     assert_eq!(content.entry.key, "Docs/a/plan.md");

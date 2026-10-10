@@ -29,8 +29,6 @@ pub(crate) enum FileResult {
     Nothing,
     /// A binary file: passed over.
     Binary,
-    /// Larger than the limit: not read.
-    TooLarge,
     /// It could not be opened or read.
     Failed,
     /// The search was stopped while it was read.
@@ -48,11 +46,9 @@ pub(crate) fn searcher(context: usize) -> Searcher {
         .build()
 }
 
-/// How a file is read for a content search.
+/// How a file is read for a content search (its size was checked against the limit already).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Reading {
-    /// A larger file is not read (bytes).
-    pub(crate) max_size: u64,
     /// The most matching lines kept.
     pub(crate) keep: usize,
     /// A file with a UTF-16 byte-order mark is read as text; `false`: it is binary.
@@ -75,11 +71,6 @@ pub(crate) fn search_file(
     let Ok(mut file) = File::open(path) else {
         return FileResult::Failed;
     };
-    match file.metadata() {
-        Ok(meta) if meta.len() > reading.max_size => return FileResult::TooLarge,
-        Ok(_) => {}
-        Err(_) => return FileResult::Failed,
-    }
     if !reading.utf16 {
         let mut head = [0u8; 2];
         if file.read_exact(&mut head).is_ok() && utf16_mark(head) {

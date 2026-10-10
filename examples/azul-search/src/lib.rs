@@ -45,7 +45,7 @@ mod walk;
 mod tests;
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -69,6 +69,11 @@ pub struct Filters {
     /// below it and above it; not the user's global excludes file, which would make a search
     /// depend on the machine).
     pub ignore_files: bool,
+    /// How deep the walk goes: `Some(1)` the searched folder's own items (Explorer's "Current
+    /// folder"), `None` every folder below it.
+    pub max_depth: Option<usize>,
+    /// Only the kinds, sizes and dates this lets through ([`Refine`]).
+    pub refine: Refine,
 }
 
 impl Default for Filters {
@@ -78,7 +83,76 @@ impl Default for Filters {
             exclude: Vec::new(),
             hidden: false,
             ignore_files: true,
+            max_depth: None,
+            refine: Refine::default(),
         }
+    }
+}
+
+/// Explorer's Refine: a kind (the files of some extensions), a size range (files), a date range
+/// (files and folders). What a range leaves open is open; an empty refine lets everything
+/// through, and only a refine with a size or a date costs a stat per entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Refine {
+    /// Modified at or after this (seconds since 1970).
+    pub modified_from: Option<u64>,
+    /// Modified before this (seconds since 1970).
+    pub modified_until: Option<u64>,
+    /// At least this many bytes.
+    pub min_size: Option<u64>,
+    /// At most this many bytes.
+    pub max_size: Option<u64>,
+    /// Only files with one of these extensions (without the dot; any case).
+    pub extensions: Vec<String>,
+}
+
+impl Refine {
+    /// Whether it lets everything through.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Refine::default()
+    }
+
+    /// Whether only files pass: a size or a kind says nothing of a folder.
+    fn files_only(&self) -> bool {
+        self.min_size.is_some() || self.max_size.is_some() || !self.extensions.is_empty()
+    }
+
+    /// Whether an item of this name passes the kind (a folder: unless only files pass).
+    #[must_use]
+    pub fn admits_name(&self, name: &str, is_dir: bool) -> bool {
+        if is_dir {
+            return !self.files_only();
+        }
+        if self.extensions.is_empty() {
+            return true;
+        }
+        let Some((_, extension)) = name.rsplit_once('.') else {
+            return false;
+        };
+        self.extensions
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(extension))
+    }
+
+    /// Whether a size (a file's; `None` for a folder) and a date pass.
+    #[must_use]
+    pub fn admits_facts(&self, size: Option<u64>, modified: Option<u64>) -> bool {
+        let size_ok = match (self.min_size, self.max_size, size) {
+            (None, None, _) => true,
+            (_, _, None) => false,
+            (low, high, Some(size)) => {
+                low.is_none_or(|low| size >= low) && high.is_none_or(|high| size <= high)
+            }
+        };
+        let date_ok = match (self.modified_from, self.modified_until, modified) {
+            (None, None, _) => true,
+            (_, _, None) => false,
+            (from, until, Some(at)) => {
+                from.is_none_or(|from| at >= from) && until.is_none_or(|until| at < until)
+            }
+        };
+        size_ok && date_ok
     }
 }
 
@@ -197,6 +271,10 @@ pub struct NameHit {
     pub is_dir: bool,
     /// The bytes of `name` the pattern matched (a glob: all of it).
     pub range: (usize, usize),
+    /// A file's size (bytes; `None` for a folder, or when it could not be read).
+    pub size: Option<u64>,
+    /// When it was last modified (seconds since 1970).
+    pub modified: Option<u64>,
 }
 
 /// A matching line of a file.
@@ -233,6 +311,20 @@ pub struct ContentHit {
     pub lines: Vec<LineMatch>,
     /// It has more matching lines than `lines` holds (a limit).
     pub more: bool,
+    /// Its size (bytes).
+    pub size: Option<u64>,
+    /// When it was last modified (seconds since 1970).
+    pub modified: Option<u64>,
+}
+
+/// A file [`list_files`] found: its path below the folder, its size and date.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEntry {
+    /// `/`-separated, below the listed folder.
+    pub path: String,
+    pub size: u64,
+    /// Seconds since 1970.
+    pub modified: Option<u64>,
 }
 
 /// How far a search got.
@@ -314,25 +406,27 @@ pub fn search(
         counters: walk::Counters::default(),
     };
     let mut gate = walk::Gate::new(request.limits, shared.stop);
-    if let Some(names) = &names {
-        if !shared.stop.is_set() {
-            on_event(Event::Phase(Phase::Names));
-            walk::run(&shared, walk::Look::Names(names), true, &mut gate, on_event);
+    let walks = [
+        names.as_ref().map(|m| (Phase::Names, walk::Look::Names(m), true)),
+        contents
+            .as_ref()
+            .map(|m| (Phase::Contents, walk::Look::Contents(m), names.is_none())),
+    ];
+    for (phase, look, count_walked) in walks.into_iter().flatten() {
+        if shared.stop.is_set() {
+            break;
         }
+        on_event(Event::Phase(phase));
+        walk::run(&shared, look, count_walked, &mut |delivery| match delivery {
+            walk::Delivery::Found(found) => gate.pass(found, &mut *on_event),
+            walk::Delivery::Progress(progress) => on_event(Event::Progress(progress)),
+        });
     }
-    if let Some(contents) = &contents {
-        if !shared.stop.is_set() {
-            on_event(Event::Phase(Phase::Contents));
-            walk::run(
-                &shared,
-                walk::Look::Contents(contents),
-                names.is_none(),
-                &mut gate,
-                on_event,
-            );
-        }
-    }
-    let mut summary = gate.summary;
+    Ok(summarize(gate.summary, &shared, cancel))
+}
+
+/// `summary` with what the walkers counted, and whether the search was cancelled.
+fn summarize(mut summary: Summary, shared: &walk::Shared<'_>, cancel: &AtomicBool) -> Summary {
     let counters = &shared.counters;
     summary.walked = counters.walked.load(Ordering::Relaxed);
     summary.searched = counters.searched.load(Ordering::Relaxed);
@@ -340,5 +434,100 @@ pub fn search(
     summary.too_large = counters.too_large.load(Ordering::Relaxed);
     summary.errors = counters.errors.load(Ordering::Relaxed);
     summary.cancelled = cancel.load(Ordering::SeqCst);
-    Ok(summary)
+    summary
+}
+
+/// Every file below `root` the filters let through (the refine too), with its size and date, as
+/// the parallel walk finds it (in no order): what a full-text index compares with what it holds.
+/// `cancel` stops it within milliseconds.
+///
+/// # Errors
+///
+/// A filter glob that does not compile.
+pub fn list_files(
+    root: &Path,
+    filters: &Filters,
+    cancel: &AtomicBool,
+    on_file: &mut dyn FnMut(FileEntry),
+) -> Result<Summary, PatternError> {
+    let overrides = walk::overrides(root, filters)?;
+    let limit = AtomicBool::new(false);
+    let shared = walk::Shared {
+        root,
+        filters,
+        overrides,
+        limits: Limits::default(),
+        context: 0,
+        utf16: true,
+        stop: walk::Stop {
+            cancel,
+            limit: &limit,
+        },
+        counters: walk::Counters::default(),
+    };
+    if !shared.stop.is_set() {
+        walk::run(&shared, walk::Look::Files, true, &mut |delivery| {
+            if let walk::Delivery::Found(walk::Found::File(file)) = delivery {
+                if !shared.stop.is_set() {
+                    on_file(file);
+                }
+            }
+        });
+    }
+    Ok(summarize(Summary::default(), &shared, cancel))
+}
+
+/// Searches the files `paths` (`/`-separated, below `request.root`) for `request.contents` with
+/// the request's limits, context and refine - the files a full-text index named; no walk, on
+/// this thread, in the order given. A path that cannot be read counts as an error. Without
+/// contents to look for, nothing is read.
+///
+/// # Errors
+///
+/// A pattern or a filter glob that does not compile.
+pub fn search_listed(
+    request: &Request,
+    paths: &[String],
+    cancel: &AtomicBool,
+    on_event: &mut dyn FnMut(Event),
+) -> Result<Summary, PatternError> {
+    let Some(pattern) = &request.contents else {
+        return Ok(Summary::default());
+    };
+    let matcher = ContentMatcher::new(pattern)?;
+    let overrides = walk::overrides(&request.root, &request.filters)?;
+    let limit = AtomicBool::new(false);
+    let shared = walk::Shared {
+        root: &request.root,
+        filters: &request.filters,
+        overrides,
+        limits: request.limits,
+        context: request.context,
+        utf16: request.utf16,
+        stop: walk::Stop {
+            cancel,
+            limit: &limit,
+        },
+        counters: walk::Counters::default(),
+    };
+    let mut gate = walk::Gate::new(request.limits, shared.stop);
+    let mut searcher = content::searcher(request.context);
+    if !shared.stop.is_set() {
+        on_event(Event::Phase(Phase::Contents));
+    }
+    for path in paths {
+        if shared.stop.is_set() {
+            break;
+        }
+        let Some(full) = walk::full_path(&request.root, path) else {
+            shared.counters.errors.fetch_add(1, Ordering::Relaxed);
+            continue;
+        };
+        match walk::search_one(&shared, &matcher, &mut searcher, &full, path.clone()) {
+            walk::OneFile::Hit(hit) => gate.pass(walk::Found::Content(hit), on_event),
+            walk::OneFile::Passed => {}
+            walk::OneFile::Stop => break,
+        }
+    }
+    Ok(summarize(gate.summary, &shared, cancel))
 }

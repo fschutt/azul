@@ -4,12 +4,12 @@
 
 use std::{
     fs,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, RecvTimeoutError, SyncSender},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use ignore::{
@@ -17,10 +17,12 @@ use ignore::{
     DirEntry, WalkBuilder, WalkState,
 };
 
+use grep_searcher::Searcher;
+
 use crate::{
-    content::{self, FileResult},
-    ContentHit, ContentMatcher, Event, Filters, Limits, NameHit, NameMatcher, PatternError,
-    Progress, Summary, PROGRESS_MS,
+    content::{self, FileResult, Reading},
+    ContentHit, ContentMatcher, Event, FileEntry, Filters, Limits, NameHit, NameMatcher,
+    PatternError, Progress, Summary, PROGRESS_MS,
 };
 
 /// Results on their way to the calling thread at most (the walkers wait while it is full):
@@ -73,12 +75,126 @@ pub(crate) struct Shared<'a> {
 pub(crate) enum Look<'a> {
     Names(&'a NameMatcher),
     Contents(&'a ContentMatcher),
+    /// Every file, with its size and date ([`crate::list_files`]).
+    Files,
 }
 
 /// A result on its way from a walker's thread.
-enum Found {
+pub(crate) enum Found {
     Name(NameHit),
     Content(ContentHit),
+    File(FileEntry),
+}
+
+/// What a walk hands the calling thread: a result, or how far it got.
+pub(crate) enum Delivery {
+    Found(Found),
+    Progress(Progress),
+}
+
+/// When `meta` was last modified, in seconds since 1970.
+fn modified_secs(meta: &fs::Metadata) -> Option<u64> {
+    meta.modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// A file's size (`None` for a folder) and date, from one stat that follows a symbolic link;
+/// neither when it cannot be read.
+fn facts(path: &Path) -> (Option<u64>, Option<u64>) {
+    match fs::metadata(path) {
+        Ok(meta) => (meta.is_file().then(|| meta.len()), modified_secs(&meta)),
+        Err(_) => (None, None),
+    }
+}
+
+/// The file or folder `path` (`/`-separated) names below `root`; `None` for a path that would
+/// leave it.
+pub(crate) fn full_path(root: &Path, path: &str) -> Option<PathBuf> {
+    let mut full = root.to_path_buf();
+    for segment in path.split('/').filter(|s| !s.is_empty()) {
+        if segment == "." || segment == ".." {
+            return None;
+        }
+        full.push(segment);
+    }
+    Some(full)
+}
+
+/// What the contents' search of one file came to.
+pub(crate) enum OneFile {
+    /// Its matching lines.
+    Hit(ContentHit),
+    /// Nothing to hand over (no match, binary, too large, refined away, unreadable).
+    Passed,
+    /// The search was stopped while it was read.
+    Stop,
+}
+
+/// Searches the file `full` (its path below the root: `path`) for `matcher`: the refine and the
+/// size limit first (one stat), then its lines - counted as the walk counts them.
+pub(crate) fn search_one(
+    shared: &Shared<'_>,
+    matcher: &ContentMatcher,
+    searcher: &mut Searcher,
+    full: &Path,
+    path: String,
+) -> OneFile {
+    let counters = &shared.counters;
+    let refine = &shared.filters.refine;
+    let name = path.rsplit('/').next().unwrap_or("");
+    if !refine.admits_name(name, false) {
+        return OneFile::Passed;
+    }
+    let meta = match fs::metadata(full) {
+        Ok(meta) if meta.is_file() => meta,
+        Ok(_) => return OneFile::Passed,
+        Err(_) => {
+            count(&counters.errors);
+            return OneFile::Passed;
+        }
+    };
+    let size = meta.len();
+    let modified = modified_secs(&meta);
+    if !refine.admits_facts(Some(size), modified) {
+        return OneFile::Passed;
+    }
+    if size > shared.limits.max_file_size {
+        count(&counters.too_large);
+        return OneFile::Passed;
+    }
+    let reading = Reading {
+        keep: shared.limits.max_lines_per_file,
+        utf16: shared.utf16,
+    };
+    match content::search_file(full, matcher, searcher, reading, shared.stop) {
+        FileResult::Lines(lines, more) => {
+            count(&counters.searched);
+            OneFile::Hit(ContentHit {
+                path,
+                lines,
+                more,
+                size: Some(size),
+                modified,
+            })
+        }
+        FileResult::Nothing => {
+            count(&counters.searched);
+            OneFile::Passed
+        }
+        FileResult::Binary => {
+            count(&counters.searched);
+            count(&counters.binary);
+            OneFile::Passed
+        }
+        FileResult::Failed => {
+            count(&counters.errors);
+            OneFile::Passed
+        }
+        FileResult::Stopped => OneFile::Stop,
+    }
 }
 
 /// The include (`glob`) and exclude (`!glob`) globs as `ignore`'s overrides, relative to `root`.
@@ -114,6 +230,7 @@ fn walker(shared: &Shared<'_>) -> WalkBuilder {
         .require_git(false)
         .git_global(false)
         .follow_links(false)
+        .max_depth(shared.filters.max_depth)
         .overrides(shared.overrides.clone());
     builder
 }
@@ -194,11 +311,22 @@ fn name_visitor<'s>(
         let Some(range) = matcher.find(name, &path) else {
             return WalkState::Continue;
         };
+        let refine = &shared.filters.refine;
+        if !refine.admits_name(name, folder) {
+            return WalkState::Continue;
+        }
+        // One stat for a match: the row knows its size and date, a refine its range.
+        let (size, modified) = facts(entry.path());
+        if !refine.admits_facts(size, modified) {
+            return WalkState::Continue;
+        }
         let hit = NameHit {
             path: if folder { format!("{path}/") } else { path },
             name: name.to_string(),
             is_dir: folder,
             range,
+            size,
+            modified,
         };
         if tx.send(Found::Name(hit)).is_err() {
             return WalkState::Quit;
@@ -234,34 +362,58 @@ fn content_visitor<'s>(
         let Some(path) = relative(shared.root, entry.path()) else {
             return WalkState::Continue;
         };
-        let limits = &shared.limits;
-        let counters = &shared.counters;
-        match content::search_file(
-            entry.path(),
-            matcher,
-            &mut searcher,
-            content::Reading {
-                max_size: limits.max_file_size,
-                keep: limits.max_lines_per_file,
-                utf16: shared.utf16,
-            },
-            shared.stop,
-        ) {
-            FileResult::Lines(lines, more) => {
-                count(&counters.searched);
-                let hit = ContentHit { path, lines, more };
+        match search_one(shared, matcher, &mut searcher, entry.path(), path) {
+            OneFile::Hit(hit) => {
                 if tx.send(Found::Content(hit)).is_err() {
                     return WalkState::Quit;
                 }
             }
-            FileResult::Nothing => count(&counters.searched),
-            FileResult::Binary => {
-                count(&counters.searched);
-                count(&counters.binary);
-            }
-            FileResult::TooLarge => count(&counters.too_large),
-            FileResult::Failed => count(&counters.errors),
-            FileResult::Stopped => return WalkState::Quit,
+            OneFile::Passed => {}
+            OneFile::Stop => return WalkState::Quit,
+        }
+        WalkState::Continue
+    })
+}
+
+/// The visitor of a walk for files: every file below the root the refine lets through, with
+/// its size and date.
+fn file_visitor<'s>(shared: &'s Shared<'s>, count_walked: bool, tx: SyncSender<Found>) -> Visitor<'s> {
+    Box::new(move |result: Result<DirEntry, ignore::Error>| -> WalkState {
+        if shared.stop.is_set() {
+            return WalkState::Quit;
+        }
+        let Ok(entry) = result else {
+            count(&shared.counters.errors);
+            return WalkState::Continue;
+        };
+        if count_walked {
+            count(&shared.counters.walked);
+        }
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            return WalkState::Continue;
+        }
+        let Some(path) = relative(shared.root, entry.path()) else {
+            return WalkState::Continue;
+        };
+        let refine = &shared.filters.refine;
+        if !refine.admits_name(path.rsplit('/').next().unwrap_or(""), false) {
+            return WalkState::Continue;
+        }
+        let Ok(meta) = fs::metadata(entry.path()) else {
+            count(&shared.counters.errors);
+            return WalkState::Continue;
+        };
+        let (size, modified) = (meta.len(), modified_secs(&meta));
+        if !refine.admits_facts(Some(size), modified) {
+            return WalkState::Continue;
+        }
+        let file = FileEntry {
+            path,
+            size,
+            modified,
+        };
+        if tx.send(Found::File(file)).is_err() {
+            return WalkState::Quit;
         }
         WalkState::Continue
     })
@@ -290,7 +442,7 @@ impl<'a> Gate<'a> {
         self.stop.limit.store(true, Ordering::SeqCst);
     }
 
-    fn pass(&mut self, found: Found, on_event: &mut dyn FnMut(Event)) {
+    pub(crate) fn pass(&mut self, found: Found, on_event: &mut dyn FnMut(Event)) {
         if self.stop.is_set() {
             return;
         }
@@ -321,19 +473,20 @@ impl<'a> Gate<'a> {
                     self.full();
                 }
             }
+            // A file list is no result: list_files hands its files over itself.
+            Found::File(_) => {}
         }
     }
 }
 
 /// One walk of the searched folder for `look`: the walkers run on their own threads, this
-/// thread hands their results through `gate` to `on_event` - and says how far they got every
-/// [`PROGRESS_MS`] - until the walk ends (a stop ends it within milliseconds).
+/// thread hands their results to `deliver` - and how far they got every [`PROGRESS_MS`] -
+/// until the walk ends (a stop ends it within milliseconds).
 pub(crate) fn run(
     shared: &Shared<'_>,
     look: Look<'_>,
     count_walked: bool,
-    gate: &mut Gate<'_>,
-    on_event: &mut dyn FnMut(Event),
+    deliver: &mut dyn FnMut(Delivery),
 ) {
     let (tx, rx) = mpsc::sync_channel::<Found>(CHANNEL_DEPTH);
     let every = Duration::from_millis(PROGRESS_MS);
@@ -348,18 +501,19 @@ pub(crate) fn run(
                 Look::Contents(matcher) => {
                     content_visitor(shared, matcher, count_walked, tx.clone())
                 }
+                Look::Files => file_visitor(shared, count_walked, tx.clone()),
             });
         });
         let mut said = Instant::now();
         loop {
             match rx.recv_timeout(every) {
-                Ok(found) => gate.pass(found, &mut *on_event),
+                Ok(found) => deliver(Delivery::Found(found)),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             if said.elapsed() >= every && !shared.stop.is_set() {
                 said = Instant::now();
-                on_event(Event::Progress(Progress {
+                deliver(Delivery::Progress(Progress {
                     walked: shared.counters.walked.load(Ordering::Relaxed),
                     searched: shared.counters.searched.load(Ordering::Relaxed),
                 }));
