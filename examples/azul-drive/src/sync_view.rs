@@ -21,8 +21,9 @@
 //! - Options > Drives > Sync: per synced drive the auto-download, the local copies (an
 //!   encrypted drive), the size cap, Sync now, Pause, Stop syncing.
 //!
-//! TODO(SYNC17): the "indexed" / "not indexable" overlays of §13.7 wait for azul-search-index to
-//! answer per file whether it is in the index (it answers per walk, `DriveIndex::unread`).
+//! - An indexed drive's files carry §13.7's overlays from its search index (azul-search-index's
+//!   `indexed_files`, read at each listing): a magnifier (`manage_search`) on a file the index
+//!   read as it is now, a slashed one (`search_off`) on a file it never reads.
 //!
 //! SEAM for the kit's guards that stop a pass by themselves (the mass-delete guard today, the
 //! burst / ransomware guard of CLIENT17 round 6): a guard's pause should travel in the pass's
@@ -88,6 +89,9 @@ pub(crate) struct SyncView {
     pub asked: HashSet<String>,
     /// Every synced drive's file states, shared with the search (its `SyncLookup`).
     pub store: SyncStore,
+    /// The files each indexed drive's search index read, as of its last listing here (§13.7's
+    /// "indexed" / "not indexable" overlays), by drive id.
+    pub indexed: HashMap<String, azul_search_index::IndexedFiles>,
 }
 
 /// What the ribbon, the menus and the Options ask of a synced drive.
@@ -358,6 +362,48 @@ pub(crate) fn badge_dom(s: &DriveState, entry: &Entry) -> Option<Dom> {
     )
 }
 
+/// §13.7's overlay from a drive's search index: a magnifier on a file it read as it is now, a
+/// slashed one on a file it never reads; nothing on one not read yet.
+#[must_use]
+pub(crate) fn index_overlay(
+    indexing: azul_search_index::FileIndexing,
+) -> Option<(&'static str, &'static str)> {
+    match indexing {
+        azul_search_index::FileIndexing::Indexed => Some(("manage_search", "In the search index")),
+        azul_search_index::FileIndexing::NotIndexable => {
+            Some(("search_off", "Not indexable: no text, or too big"))
+        }
+        azul_search_index::FileIndexing::Unread => None,
+    }
+}
+
+/// A row as a drive's index lists its files: its key, size and date; `None` for a folder or a
+/// row whose size and date are not known yet (not stat'ed).
+#[must_use]
+pub(crate) fn index_entry(entry: &Entry) -> Option<azul_search::FileEntry> {
+    if entry.is_folder || !entry.known {
+        return None;
+    }
+    Some(azul_search::FileEntry {
+        path: entry.key.clone(),
+        size: entry.size?,
+        modified: entry.modified,
+    })
+}
+
+/// The index overlay after a row's name, when the open drive is indexed.
+pub(crate) fn index_overlay_dom(s: &DriveState, entry: &Entry) -> Option<Dom> {
+    let drive = s.current_drive_id()?;
+    let files = s.sync_view.indexed.get(&drive)?;
+    let (icon, says) = index_overlay(files.indexing(&index_entry(entry)?))?;
+    Some(
+        Dom::create_icon(AzString::from(icon))
+            .with_class(ids::INDEX_STATE_CLASS)
+            .with_accessibility_name(says)
+            .with_css("font-size: 12px; margin-left: 2px; flex-shrink: 0; opacity: 0.55;"),
+    )
+}
+
 /// The open folder's status line part: its pairing's status.
 pub(crate) fn status_for_place(s: &DriveState) -> Option<String> {
     let (drive_id, _) = place_in_pair(s)?;
@@ -405,12 +451,21 @@ pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static 
     Some((glyph, text))
 }
 
-/// The open folder of a drive on this computer that lies in a pairing gets its cloud-only
-/// files as rows (when its listing is in).
-pub(crate) fn add_placeholders(s: &mut DriveState) {
+/// The open folder's listing is in: an indexed drive's index answers are read again (its
+/// overlays), and a folder of a drive on this computer that lies in a pairing gets its
+/// cloud-only files as rows.
+pub(crate) fn on_listed(s: &mut DriveState) {
     let Place::Folder { drive, prefix } = s.place.clone() else {
         return;
     };
+    if s.settings.indexed_drives.contains(&drive) {
+        if let Some(dir) = crate::index_folder(s, &drive) {
+            let files = azul_search_index::indexed_files(&dir);
+            s.sync_view.indexed.insert(drive.clone(), files);
+        }
+    } else {
+        s.sync_view.indexed.remove(&drive);
+    }
     if !s.is_local_drive(&drive) || s.find.is_some() {
         return;
     }

@@ -2145,7 +2145,7 @@ fn scanned(
         s.entries = fresh;
     }
     // A synced folder lists its cloud-only files too.
-    sync_view::add_placeholders(s);
+    sync_view::on_listed(s);
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);

@@ -213,6 +213,60 @@ fn full_path(root: &Path, path: &str) -> PathBuf {
     full
 }
 
+/// What an index says of one file: an app's "indexed" / "not indexable" overlays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileIndexing {
+    /// Read as it is now: its words are in the index (a file without any was read too).
+    Indexed,
+    /// Never read: its kind holds no text, or it is a document over [`MAX_DOCUMENT_BYTES`].
+    NotIndexable,
+    /// Not read as it is now (new, or changed since the last update): the next update reads it.
+    Unread,
+}
+
+/// Whether a file of `name` and `size` bytes is read for its text at all (a text is read in
+/// part however long it is; a document only up to [`MAX_DOCUMENT_BYTES`]).
+#[must_use]
+pub fn indexable(name: &str, size: u64) -> bool {
+    match kind_of(name) {
+        None => false,
+        Some(Kind::Text) => true,
+        Some(_) => size <= MAX_DOCUMENT_BYTES,
+    }
+}
+
+/// The files an index has read as it last committed them, to ask one file at a time without
+/// reading the list again ([`indexed_files`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IndexedFiles {
+    files: std::collections::HashMap<String, (u64, Option<u64>)>,
+}
+
+impl IndexedFiles {
+    /// What the index says of `file` (its path below the drive's folder, its size and date now).
+    #[must_use]
+    pub fn indexing(&self, file: &FileEntry) -> FileIndexing {
+        let name = file.path.rsplit('/').next().unwrap_or(&file.path);
+        if !indexable(name, file.size) {
+            return FileIndexing::NotIndexable;
+        }
+        if self.files.get(&file.path) == Some(&(file.size, file.modified)) {
+            FileIndexing::Indexed
+        } else {
+            FileIndexing::Unread
+        }
+    }
+}
+
+/// The files the index in `dir` has read: the list it keeps beside it, read once - the index
+/// itself is not opened (an empty answer for a folder without an index).
+#[must_use]
+pub fn indexed_files(dir: &Path) -> IndexedFiles {
+    IndexedFiles {
+        files: state::read(&dir.join(STATE_FILE)).files,
+    }
+}
+
 /// The files of `files` that `state` does not hold as they are: new, or of another size or date.
 fn unread_in<'a>(state: &state::State, files: &'a [FileEntry]) -> Vec<&'a FileEntry> {
     files
