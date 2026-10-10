@@ -840,6 +840,122 @@ mod tests {
         );
     }
 
+    /// A bare iroh endpoint on the tests' protocol that answers each bidirectional stream with
+    /// `answer:` and the request: a request starting with `*` once this side finished its stream
+    /// (it reads the request to its end), any other once its line arrived (this side's stream
+    /// still open, as an HTTP/1.1 server reads). It finishes its side after the answer. Its id
+    /// and its IPv4 socket on this computer.
+    fn answering_peer() -> (String, String) {
+        let runtime = runtime().expect("the runtime");
+        let peer = runtime
+            .block_on(
+                Endpoint::builder(presets::Minimal)
+                    .alpns(vec![b"azul/iroh-test/1".to_vec()])
+                    .relay_mode(RelayMode::Disabled)
+                    .bind(),
+            )
+            .expect("the peer binds");
+        let port = peer
+            .bound_sockets()
+            .iter()
+            .find(|socket| socket.is_ipv4())
+            .expect("an IPv4 socket")
+            .port();
+        let id = peer.id().to_string();
+        runtime.spawn(async move {
+            while let Some(incoming) = peer.accept().await {
+                tokio::spawn(async move {
+                    let Ok(conn) = incoming.await else { return };
+                    while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                        tokio::spawn(async move {
+                            let mut request = vec![0u8; 1];
+                            if recv.read_exact(&mut request).await.is_err() {
+                                return;
+                            }
+                            if request[0] == b'*' {
+                                let Ok(rest) = recv.read_to_end(1024).await else {
+                                    return;
+                                };
+                                request.extend_from_slice(&rest);
+                            } else {
+                                let mut byte = [0u8; 1];
+                                while !request.ends_with(b"\n") {
+                                    if recv.read_exact(&mut byte).await.is_err() {
+                                        return;
+                                    }
+                                    request.push(byte[0]);
+                                }
+                            }
+                            let mut answer = b"answer:".to_vec();
+                            answer.extend_from_slice(&request);
+                            let _ = send.write_all(&answer).await;
+                            let _ = send.finish();
+                            let _ = send.stopped().await;
+                        });
+                    }
+                });
+            }
+        });
+        (id, format!("127.0.0.1:{port}"))
+    }
+
+    /// `request` dials a peer by its id at the socket it is given (no discovery, no relay), sends
+    /// on a new bidirectional stream and returns what the peer wrote until it finished its side:
+    /// with this side kept open until then (an HTTP/1.1 server, which reads a finished stream as
+    /// a broken request), or finished at once for a peer that reads the request to its end. The
+    /// connection is kept for the next request.
+    #[test]
+    fn a_request_gets_the_answer_of_a_peer_dialed_by_id_at_its_socket() {
+        let (id, socket) = answering_peer();
+        let client = local_endpoint();
+        let at = [socket];
+        let timeout = Duration::from_secs(20);
+        let answer = client
+            .request(&id, &at, "", b"GET /a\n", false, timeout)
+            .expect("the peer answers");
+        assert_eq!(answer, b"answer:GET /a\n");
+        let again = client
+            .request(&id, &at, "", b"GET /b\n", false, timeout)
+            .expect("the peer answers again");
+        assert_eq!(again, b"answer:GET /b\n");
+        let whole = client
+            .request(&id, &at, "", b"*all of it", true, timeout)
+            .expect("a peer that reads to the end answers once this side finished");
+        assert_eq!(whole, b"answer:*all of it");
+        assert!(client
+            .request("not an id", &at, "", b"x\n", false, timeout)
+            .is_err());
+        assert!(client
+            .request(
+                &id,
+                &[String::from("not a socket")],
+                "",
+                b"x\n",
+                false,
+                timeout
+            )
+            .is_err());
+    }
+
+    /// A peer that does not answer: the request gives up within its time.
+    #[test]
+    fn a_request_to_a_socket_nobody_answers_gives_up_within_its_time() {
+        let silent = local_endpoint();
+        let id = silent.endpoint_id();
+        let client = local_endpoint();
+        let started = Instant::now();
+        let result = client.request(
+            &id,
+            &[String::from("127.0.0.1:9")],
+            "",
+            b"GET /\n",
+            false,
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(15));
+    }
+
     /// Relay-only with the relays disabled leaves nothing to carry a packet: refused at bind.
     #[test]
     fn relay_only_without_a_relay_is_refused() {
