@@ -420,6 +420,22 @@ mod tests {
     }
 
     #[test]
+    fn a_language_switch_names_the_language_of_the_run() {
+        assert_eq!(parse(&[]).unwrap().language, None, "the settings decide");
+        assert_eq!(
+            parse(&["--language", "en"]).unwrap().language,
+            Some(LanguagePref::English)
+        );
+        assert_eq!(
+            parse(&["--language=system"]).unwrap().language,
+            Some(LanguagePref::System)
+        );
+        assert!(parse(&["--language", "klingon"])
+            .unwrap_err()
+            .contains("system|en|de"));
+    }
+
+    #[test]
     fn both_spellings_of_a_valued_switch_work() {
         assert_eq!(
             parse(&["--size", "800x600"]).unwrap().size,

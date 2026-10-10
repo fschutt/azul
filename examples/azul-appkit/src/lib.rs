@@ -68,6 +68,8 @@ pub mod qr;
 pub mod settings;
 pub mod shared_endpoint;
 pub mod shortcuts;
+#[cfg(test)]
+mod l10n_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
