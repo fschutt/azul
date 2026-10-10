@@ -32,6 +32,8 @@
 pub mod args;
 pub mod editor;
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 mod jobs;
 pub mod look;
 pub mod markdown;
