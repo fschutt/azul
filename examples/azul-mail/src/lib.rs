@@ -398,7 +398,7 @@ impl MailApp {
     }
 
     /// Why the account `account_id` sends nothing (its Azlin drive is banned), if it does not.
-    pub(crate) fn sending_refused(&self, account_id: &str) -> Option<String> {
+    pub(crate) fn sending_refused(&self, account_id: &str) -> Option<Text> {
         let now = u64::try_from(now_unix()).unwrap_or(0);
         azlin_sync::sending_refused(self.azlin_bans.get(account_id), now)
     }

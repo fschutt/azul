@@ -816,15 +816,20 @@ pub fn fetch_message(
 /// Why an Azlin account on a drive under `ban` sends nothing at `now` (ban contract v1): the
 /// banner every Azlin app shows, and that its mail waits; `None` for a drive in good standing.
 #[must_use]
-pub fn sending_refused(ban: Option<&azcloud_kit::Ban>, now: u64) -> Option<String> {
+pub fn sending_refused(
+    ban: Option<&azcloud_kit::Ban>,
+    now: u64,
+) -> Option<azul_appkit::l10n::Text> {
+    use azul_appkit::l10n::{Phrase, Text};
     let ban = ban?;
     if ban.is_closed(now) {
-        return Some(ban.closed_text());
+        return Some(ban.closed_phrase().into());
     }
-    Some(format!(
-        "{} AzMail sends nothing from this account: its mail waits in the Outbox.",
-        ban.banner(now)
-    ))
+    Some(
+        Text::from(ban.banner_phrase(now))
+            .then(" ")
+            .then(Phrase::new("azmail-ban-sends-nothing")),
+    )
 }
 
 #[cfg(test)]
@@ -1378,7 +1383,9 @@ mod tests {
             until: Some(until),
             closed: false,
         };
+        crate::l10n::in_english();
         let why = sending_refused(Some(&ban), until - 10 * 3_600).expect("sending stops");
+        let why = azul_appkit::l10n::t_text(&why);
         assert!(
             why.starts_with(
                 "Due to spam distribution, your account has been banned, but you have 10 hours \
@@ -1387,7 +1394,7 @@ mod tests {
             "the same banner as AzDrive's: {why}"
         );
         assert!(why.contains("AzMail sends nothing"), "{why}");
-        let closed = sending_refused(Some(&ban), until + 1).expect("closed");
+        let closed = azul_appkit::l10n::t_text(&sending_refused(Some(&ban), until + 1).expect("closed"));
         assert!(closed.starts_with("This drive was closed on 2026-10-12"), "{closed}");
         assert_eq!(sending_refused(None, until), None, "a drive in good standing sends");
     }

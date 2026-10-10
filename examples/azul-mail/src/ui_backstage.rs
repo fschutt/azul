@@ -41,7 +41,10 @@ use azul::{
     vec::{CssPropertyWithConditionsVec, U8VecRef},
     widgets::{Backstage, BackstageNavItem},
 };
-use azul_appkit::backstage::{self as pieces, card, command, command_button, facts, note, section};
+use azul_appkit::{
+    backstage::{self as pieces, card, command, command_button, facts, note, section},
+    l10n::{self, t, t_args, Arg},
+};
 
 use crate::{
     ids, message,
@@ -63,8 +66,15 @@ pub(crate) const PAGE_ADD_ACCOUNT: usize = 5;
 /// File > Info > Account Settings.
 pub(crate) const PAGE_SETTINGS: usize = 6;
 
-/// The navigation column (Outlook 2010: Info, Open, Print, Help, then Options and Exit).
-const NAV: [&str; 5] = ["Info", "Print", "Help", "Options", "Exit"];
+/// The navigation column (Outlook 2010: Info, Open, Print, Help, then Options and Exit): keys of
+/// the resources.
+const NAV: [&str; 5] = [
+    "azmail-file-info",
+    "azmail-file-print",
+    "azmail-file-help",
+    "azmail-file-options",
+    "azmail-file-exit",
+];
 
 /// The nav item lit for `page`: Add Account and Account Settings are Info's.
 fn nav_item(page: usize) -> usize {
@@ -106,7 +116,7 @@ fn backstage(s: &MailApp, app: &RefAny, page: usize) -> Dom {
         .iter()
         .enumerate()
         .map(|(i, label)| {
-            let item = BackstageNavItem::create(*label);
+            let item = BackstageNavItem::create(l10n::label(label));
             if i == PAGE_OPTIONS {
                 item.with_gap_before()
             } else {
@@ -186,9 +196,8 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
     if s.accounts.is_empty() {
         children.push(card(
             "person_add",
-            "No account yet",
-            &["Add an e-mail account to receive and send mail. AzMail keeps a copy of every \
-               folder as files on this computer."],
+            "azmail-no-account-yet",
+            &["azmail-info-no-account"],
             false,
         ));
     }
@@ -201,18 +210,32 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
             .get(i)
             .map_or(0, |list| list.iter().filter(synced).map(|f| f.unread).sum());
         let server = match &account.azlin {
-            Some(link) => format!(
-                "Azlin drive {} ({}) - {folders} folders, {unread} unread",
-                link.drive_id,
-                if link.token_url.is_empty() {
-                    "the token server of this run"
-                } else {
-                    link.token_url.as_str()
-                }
+            Some(link) => t_args(
+                "azmail-info-azlin",
+                &[
+                    ("drive", Arg::from(link.drive_id.as_str())),
+                    (
+                        "server",
+                        Arg::from(if link.token_url.is_empty() {
+                            t("azmail-info-run-server")
+                        } else {
+                            link.token_url.clone()
+                        }),
+                    ),
+                    ("folders", Arg::from(folders)),
+                    ("unread", Arg::from(unread)),
+                ],
             ),
-            None => format!(
-                "IMAP {}:{} - {folders} folders, {unread} unread",
-                account.imap.host, account.imap.port
+            None => t_args(
+                "azmail-info-imap",
+                &[
+                    (
+                        "server",
+                        Arg::from(format!("{}:{}", account.imap.host, account.imap.port)),
+                    ),
+                    ("folders", Arg::from(folders)),
+                    ("unread", Arg::from(unread)),
+                ],
             ),
         };
         let settings = crate::send::SendSettings::load(&s.root, &account.id);
@@ -241,7 +264,7 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; margin-bottom: 8px;")
             .with_child(command_button(
-                "Add Account",
+                "azmail-info-add-account",
                 "person_add",
                 ids::ADD_ACCOUNT,
                 action_ref(app, Action::AddAccount),
@@ -252,67 +275,66 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
         // Writing needs no account.
         children.push(command(
             command_button(
-                "New E-mail",
+                "azmail-cmd-new-mail",
                 "mail",
                 ids::INFO_NEW_MAIL,
                 action_ref(app, Action::NewMail),
                 on_action as ButtonOnClickCallbackType,
             ),
-            "New E-mail",
-            "Write a message without an account: AzMail sends it from this computer, straight \
-             to the recipients' mail servers, and Local Folders keep it (Send/Receive sends \
-             what waits in their Outbox).",
+            "azmail-cmd-new-mail",
+            "azmail-info-new-mail",
         ));
     }
     if !s.accounts.is_empty() {
         children.push(command(
             command_button(
-                "Account Settings",
+                "azmail-info-account-settings",
                 "manage_accounts",
                 ids::ACCOUNT_SETTINGS,
                 action_ref(app, Action::AccountSettings),
                 on_action as ButtonOnClickCallbackType,
             ),
-            "Account Settings",
-            "Modify the settings of this account: your name and password, the incoming \
-             server, how mail is sent and signed.",
+            "azmail-info-account-settings",
+            "azmail-info-account-settings-what",
         ));
         let status = match &s.sync {
             SyncState::Running {
                 status, percent, ..
-            } => format!("Now: {status} ({percent:.0}%)."),
-            SyncState::Done(text) | SyncState::Failed(text) => format!("Last time: {text}"),
+            } => t_args(
+                "azmail-info-now",
+                &[
+                    ("status", Arg::from(l10n::t_label(status))),
+                    ("percent", Arg::from(format!("{percent:.0}"))),
+                ],
+            ),
+            SyncState::Done(text) | SyncState::Failed(text) => {
+                t_args("azmail-info-last-time", &[("text", Arg::from(l10n::t_label(text)))])
+            }
             SyncState::Idle => String::new(),
         };
         children.push(command(
             command_button(
-                "Send/Receive",
+                "azmail-info-send-receive",
                 "sync",
                 ids::INFO_SEND_RECEIVE,
                 action_ref(app, Action::SendReceive),
                 on_action as ButtonOnClickCallbackType,
             ),
-            "Send/Receive",
-            &format!(
-                "Receive every folder of this account and send what waits in the Outbox (F9). \
-                 {status}"
-            ),
+            "azmail-info-send-receive",
+            &t_args("azmail-info-send-receive-what", &[("status", Arg::from(status))]),
         ));
     }
     let kept = if s.accounts.is_empty() {
-        "Mail will be kept"
+        "azmail-info-mail-will-be-kept"
     } else {
-        "Mail is kept"
+        "azmail-info-mail-is-kept"
     };
     children.push(command(
         Dom::create_div(),
-        "Mailbox",
-        &format!(
-            "{kept} as plain files, one per message, in {}.",
-            s.root.path().display()
-        ),
+        "azmail-info-mailbox",
+        &t_args(kept, &[("folder", Arg::from(s.root.path().display().to_string()))]),
     ));
-    pieces::page("Account Information", children)
+    pieces::page("azmail-info-title", children)
 }
 
 /// A click on an account's card: that account is shown.
@@ -339,30 +361,29 @@ extern "C" fn on_account_card(mut data: RefAny, _info: CallbackInfo) -> Update {
 fn help_page(s: &MailApp, app: &RefAny) -> Dom {
     let about = crate::args::ABOUT;
     let left = vec![
-        section("Support"),
+        section("azmail-help-support"),
         command(
             command_button(
-                "Keyboard Shortcuts",
+                "azmail-help-shortcuts",
                 "keyboard",
                 ids::HELP_SHORTCUTS,
                 action_ref(app, Action::Shortcuts),
                 on_action as ButtonOnClickCallbackType,
             ),
-            "Keyboard Shortcuts",
-            "Every key AzMail knows, on one page (F1).",
+            "azmail-help-shortcuts",
+            "azmail-help-shortcuts-what",
         ),
-        section(&format!("Tools for Working With {}", about.name)),
+        section(&t_args("azmail-help-tools", &[("app", Arg::from(about.name))])),
         command(
             command_button(
-                "Options",
+                "azmail-file-options",
                 "settings",
                 ids::HELP_OPTIONS,
                 action_ref(app, Action::Options),
                 on_action as ButtonOnClickCallbackType,
             ),
-            "Options",
-            "The reading pane, the To-Do bar, the theme, the mode and the other program \
-             settings.",
+            "azmail-file-options",
+            "azmail-help-options-what",
         ),
     ];
     let mut right = vec![
@@ -373,15 +394,15 @@ fn help_page(s: &MailApp, app: &RefAny) -> Dom {
                     .with_css("font-size: 40px; margin-right: 12px; color: system:accent;"),
             )
             .with_child(Dom::create_span_with_text(about.name).with_css("font-size: 28px;")),
-        section(&format!("About {}", about.name)),
+        section(&t_args("kit-about-title", &[("app", Arg::from(about.name))])),
         facts(&[
-            (String::from("Version"), String::from(about.version)),
-            (String::from("License"), String::from(about.license)),
-            (String::from("Mail folder"), s.root.path().display().to_string()),
-            (String::from("Accounts"), s.accounts.len().to_string()),
+            (String::from("kit-about-version"), String::from(about.version)),
+            (String::from("kit-about-license"), String::from(about.license)),
+            (String::from("azmail-help-mail-folder"), s.root.path().display().to_string()),
+            (String::from("azmail-help-accounts"), s.accounts.len().to_string()),
         ]),
-        note(about.summary),
-        section("Built with"),
+        note(&l10n::app_word("AzMail", "about-summary", about.summary)),
+        section("kit-about-built-with"),
     ];
     let credits: Vec<(String, String)> = ui_main::CREDITS
         .iter()
@@ -392,14 +413,14 @@ fn help_page(s: &MailApp, app: &RefAny) -> Dom {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; margin-top: 12px;")
             .with_child(command_button(
-                &format!("About {}\u{2026}", about.name),
+                &t_args("kit-about-open", &[("app", Arg::from(about.name))]),
                 "info",
                 ids::HELP_ABOUT,
                 action_ref(app, Action::About),
                 on_action as ButtonOnClickCallbackType,
             )),
     );
-    pieces::columns("Help", left, right)
+    pieces::columns("azmail-file-help", left, right)
 }
 
 // ==== Print: to a PDF file, with a picture of its first page ====
@@ -465,22 +486,25 @@ fn print_dom(owner: &str, view: &MessageView, sent: &str) -> Dom {
             .with_child(Dom::create_span_with_text(owner)),
     );
     let subject = if view.subject.is_empty() {
-        String::from("(no subject)")
+        t("azmail-no-subject")
     } else {
         view.subject.clone()
     };
-    let mut rows: Vec<(&str, String)> =
-        vec![("From:", view.from.clone()), ("Sent:", sent.to_string())];
+    // The header lines in the window's language (the keys of the resources).
+    let mut rows: Vec<(&str, String)> = vec![
+        ("azmail-print-from", view.from.clone()),
+        ("azmail-print-sent", sent.to_string()),
+    ];
     if !view.to.is_empty() {
-        rows.push(("To:", view.to.clone()));
+        rows.push(("azmail-print-to", view.to.clone()));
     }
     if !view.cc.is_empty() {
-        rows.push(("Cc:", view.cc.clone()));
+        rows.push(("azmail-print-cc", view.cc.clone()));
     }
-    rows.push(("Subject:", subject));
+    rows.push(("azmail-print-subject", subject));
     if !view.attachments.is_empty() {
         let names: Vec<&str> = view.attachments.iter().map(|a| a.name.as_str()).collect();
-        rows.push(("Attachments:", names.join("; ")));
+        rows.push(("azmail-print-attachments", names.join("; ")));
     }
     for (label, value) in rows {
         body.add_child(
@@ -489,7 +513,7 @@ fn print_dom(owner: &str, view: &MessageView, sent: &str) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css("width: 110px; flex-shrink: 0; font-weight: bold;")
-                        .with_child(Dom::create_span_with_text(label)),
+                        .with_child(Dom::create_span_with_text(l10n::label(label))),
                 )
                 .with_child(
                     Dom::create_div()
@@ -554,8 +578,7 @@ pub(crate) fn prepare_print(s: &mut MailApp, info: &mut CallbackInfo, app: &RefA
         saved: None,
     };
     if job.bytes.is_empty() {
-        job.error =
-            String::from("azul's PDF writer made no file (a build without its `pdf` feature?).");
+        job.error = t("azmail-print-no-pdf");
     } else {
         println!("AZMAIL_PRINT_PDF {} {uid} {}", folder, job.bytes.len());
         let preview = PreviewJob {
@@ -574,7 +597,7 @@ pub(crate) fn prepare_print(s: &mut MailApp, info: &mut CallbackInfo, app: &RefA
 /// Print: the PDF into `exports/` in the AzMail folder (written on a Thread).
 pub(crate) fn print_now(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
     let Some(job) = s.print.as_ref().filter(|j| !j.bytes.is_empty()) else {
-        s.notice = String::from("Select a message to print first.");
+        s.notice = t("azmail-print-select-first");
         return;
     };
     crate::spawn_io(
@@ -591,7 +614,7 @@ pub(crate) fn print_now(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
 /// The PDF is written (`IoDone::PdfSaved`).
 pub(crate) fn printed(s: &mut MailApp, key: &str, path: PathBuf) {
     println!("AZMAIL_PRINTED {}", path.display());
-    s.notice = format!("Printed to {}", path.display());
+    s.notice = t_args("azmail-printed-to", &[("path", Arg::from(path.display().to_string()))]);
     if let Some(job) = s.print.as_mut().filter(|j| j.key == key) {
         job.saved = Some(path);
     }
@@ -605,13 +628,13 @@ struct PreviewJob {
     bytes: Vec<u8>,
 }
 
-/// What it drew.
+/// What it drew (its error said on the UI thread).
 struct PreviewDone {
     folder: String,
     uid: u32,
     pages: usize,
     image: Option<RawImage>,
-    error: String,
+    error: l10n::Text,
 }
 
 /// The PDF's first page drawn `PREVIEW_WIDTH` px wide on white paper: the page's SVG (azul's
@@ -644,9 +667,9 @@ extern "C" fn preview_thread(mut init: RefAny, mut sender: ThreadSender, _receiv
     let done = if pdf.is_valid() {
         let image = render_first_page(&pdf);
         let error = if image.is_none() {
-            String::from("The first page could not be drawn.")
+            l10n::Text::key("azmail-print-not-drawn")
         } else {
-            String::new()
+            l10n::Text::default()
         };
         PreviewDone {
             folder: job.folder,
@@ -661,7 +684,9 @@ extern "C" fn preview_thread(mut init: RefAny, mut sender: ThreadSender, _receiv
             uid: job.uid,
             pages: 0,
             image: None,
-            error: format!("The PDF could not be read back: {}", pdf.get_error().as_str()),
+            error: l10n::Phrase::new("azmail-print-not-read")
+                .arg("why", pdf.get_error().as_str())
+                .into(),
         }
     };
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
@@ -690,7 +715,7 @@ extern "C" fn on_preview_done(mut app: RefAny, mut payload: RefAny, _info: Callb
             return Update::DoNothing;
         };
         job.pages = pages;
-        job.error = error;
+        job.error = l10n::t_text(&error);
         if let Some(raw) = image {
             let (width, height) = (raw.width, raw.height);
             job.preview = ImageRef::create_rawimage(raw)
@@ -710,26 +735,29 @@ extern "C" fn on_preview_done(mut app: RefAny, mut payload: RefAny, _info: Callb
 /// the right (Outlook's Print page).
 fn print_page(s: &MailApp, app: &RefAny) -> Dom {
     let job = s.print.as_ref();
-    let into = format!("Into {}", s.root.path().join(EXPORTS).display());
+    let into = t_args(
+        "azmail-print-into",
+        &[("folder", Arg::from(s.root.path().join(EXPORTS).display().to_string()))],
+    );
     let mut left = vec![
         command(
             command_button(
-                "Print",
+                "azmail-file-print",
                 "print",
                 ids::PRINT,
                 action_ref(app, Action::Print),
                 on_action as ButtonOnClickCallbackType,
             ),
-            "Print",
-            "Prints the open message to a PDF file: A4, Memo Style.",
+            "azmail-file-print",
+            "azmail-print-what",
         ),
-        section("Printer"),
-        card("picture_as_pdf", "PDF file", &[into.as_str()], true),
-        section("Settings"),
+        section("azmail-print-printer"),
+        card("picture_as_pdf", "azmail-print-pdf-file", &[into.as_str()], true),
+        section("azmail-print-settings"),
         card(
             "description",
-            "Memo Style",
-            &["Your name over the message's header lines, then its text."],
+            "azmail-print-memo",
+            &["azmail-print-memo-what"],
             true,
         ),
     ];
@@ -737,15 +765,15 @@ fn print_page(s: &MailApp, app: &RefAny) -> Dom {
         Some(job) if !job.error.is_empty() => left.push(note(&job.error)),
         Some(PrintJob {
             saved: Some(path), ..
-        }) => left.push(note(&format!("Printed to {}", path.display()))),
+        }) => left.push(note(&t_args(
+            "azmail-printed-to",
+            &[("path", Arg::from(path.display().to_string()))],
+        ))),
         _ => {}
     }
-    let mut right = vec![section("Preview")];
+    let mut right = vec![section("azmail-print-preview")];
     match job {
-        None => right.push(note(
-            "No message is open: select one in the message list, then come back to File > \
-             Print.",
-        )),
+        None => right.push(note("azmail-print-nothing-open")),
         Some(PrintJob {
             preview: Some((image, width, height)),
             pages,
@@ -766,17 +794,13 @@ fn print_page(s: &MailApp, app: &RefAny) -> Dom {
                             .with_id(ids::PRINT_PREVIEW),
                     ),
             );
-            let count = if *pages == 1 {
-                String::from("1 page")
-            } else {
-                format!("Page 1 of {pages}")
-            };
+            let count = t_args("azmail-print-pages", &[("pages", Arg::from(*pages))]);
             right.push(note(&count));
         }
-        Some(job) if job.error.is_empty() => right.push(note("Drawing the preview\u{2026}")),
+        Some(job) if job.error.is_empty() => right.push(note("azmail-print-drawing")),
         Some(_) => {}
     }
-    pieces::columns("Print", left, right)
+    pieces::columns("azmail-file-print", left, right)
 }
 
 #[cfg(test)]

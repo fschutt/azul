@@ -13,8 +13,8 @@ pub(crate) const EN: &str = include_str!("../resources/en.ftl");
 /// AzMail's words in German.
 pub(crate) const DE: &str = include_str!("../resources/de.ftl");
 
-/// AzMail's resources per language: its own words, then azcloud-kit's error table and the Azlin
-/// Bridge's settings.
+/// AzMail's resources per language: its own words, then azcloud-kit's error table, the Azlin
+/// Bridge's settings and a ban's words.
 fn resources() -> Vec<(&'static str, String)> {
     Lang::ALL
         .iter()
@@ -24,9 +24,10 @@ fn resources() -> Vec<(&'static str, String)> {
                 Lang::De => DE,
             };
             let kit = format!(
-                "{}\n{}",
+                "{}\n{}\n{}",
                 fluent_source(*lang),
-                azcloud_kit::bridge::fluent_source(*lang)
+                azcloud_kit::bridge::fluent_source(*lang),
+                azcloud_kit::token::ban_fluent_source(*lang)
             );
             (lang.tag(), format!("{own}\n{kit}"))
         })

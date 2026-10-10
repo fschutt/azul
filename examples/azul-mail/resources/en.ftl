@@ -356,3 +356,127 @@ azmail-dkim-bad-selector = The selector "{ $selector }" cannot be a DNS name: le
 azmail-dkim-create-key-first = Create a key first: AzMail signs with a key of its own, whose public half goes into your domain's DNS.
 azmail-smtp-enter-server = Enter the SMTP server's name, e.g. smtp.example.org.
 azmail-smtp-bad-port = The port is a number from 1 to 65535.
+
+## File: Info, Help, Print
+
+azmail-file-info = Info
+azmail-file-print = Print
+azmail-file-help = Help
+azmail-file-options = Options
+azmail-file-exit = Exit
+azmail-info-no-account = Add an e-mail account to receive and send mail. AzMail keeps a copy of every folder as files on this computer.
+azmail-info-azlin = Azlin drive { $drive } ({ $server }) - { $folders } folders, { $unread } unread
+azmail-info-run-server = the token server of this run
+azmail-info-imap = IMAP { $server } - { $folders } folders, { $unread } unread
+azmail-info-add-account = Add Account
+azmail-info-new-mail = Write a message without an account: AzMail sends it from this computer, straight to the recipients' mail servers, and Local Folders keep it (Send/Receive sends what waits in their Outbox).
+azmail-info-account-settings = Account Settings
+azmail-info-account-settings-what = Modify the settings of this account: your name and password, the incoming server, how mail is sent and signed.
+azmail-info-now = Now: { $status } ({ $percent }%).
+azmail-info-last-time = Last time: { $text }
+azmail-info-send-receive = Send/Receive
+azmail-info-send-receive-what = Receive every folder of this account and send what waits in the Outbox (F9). { $status }
+azmail-info-mail-will-be-kept = Mail will be kept as plain files, one per message, in { $folder }.
+azmail-info-mail-is-kept = Mail is kept as plain files, one per message, in { $folder }.
+azmail-info-mailbox = Mailbox
+azmail-info-title = Account Information
+azmail-help-support = Support
+azmail-help-shortcuts = Keyboard Shortcuts
+azmail-help-shortcuts-what = Every key AzMail knows, on one page (F1).
+azmail-help-tools = Tools for Working With { $app }
+azmail-help-options-what = The reading pane, the To-Do bar, the theme, the mode and the other program settings.
+azmail-help-mail-folder = Mail folder
+azmail-help-accounts = Accounts
+azmail-print-from = From:
+azmail-print-sent = Sent:
+azmail-print-to = To:
+azmail-print-cc = Cc:
+azmail-print-subject = Subject:
+azmail-print-attachments = Attachments:
+azmail-print-no-pdf = azul's PDF writer made no file (a build without its `pdf` feature?).
+azmail-print-select-first = Select a message to print first.
+azmail-printed-to = Printed to { $path }
+azmail-print-not-drawn = The first page could not be drawn.
+azmail-print-into = Into { $folder }
+azmail-print-what = Prints the open message to a PDF file: A4, Memo Style.
+azmail-print-printer = Printer
+azmail-print-pdf-file = PDF file
+azmail-print-settings = Settings
+azmail-print-memo = Memo Style
+azmail-print-memo-what = Your name over the message's header lines, then its text.
+azmail-print-preview = Preview
+azmail-print-nothing-open = No message is open: select one in the message list, then come back to File > Print.
+azmail-print-pages = { $pages ->
+    [one] 1 page
+   *[other] Page 1 of { $pages }
+ }
+azmail-print-drawing = Drawing the preview…
+azmail-print-not-read = The PDF could not be read back: { $why }
+
+## The message window
+
+azmail-compose-untitled = Untitled - Message (HTML)
+azmail-compose-title = { $subject } - Message (HTML)
+azmail-forward-separator = ---------- Forwarded message ----------
+azmail-forward-from = From: { $value }
+azmail-forward-date = Date: { $value }
+azmail-forward-subject = Subject: { $value }
+azmail-forward-to = To: { $value }
+azmail-forward-cc = Cc: { $value }
+azmail-quote-wrote = { $from } wrote:
+azmail-quote-on-wrote = On { $date }, { $from } wrote:
+azmail-quote-date = { $weekday }, { $day } { $month } { $year } at { $time }
+azmail-compose-no-recipient = Add at least one recipient.
+azmail-compose-bad-address = "{ $address }" is not an e-mail address.
+azmail-compose-no-sender = Type your e-mail address in From: the message is sent from it.
+azmail-compose-from-placeholder = Your name <you@example.org>
+azmail-compose-closed = This message was closed.
+azmail-compose-tab-message = Message
+azmail-compose-group-basic-text = Basic Text
+azmail-compose-bold = Bold
+azmail-compose-italic = Italic
+azmail-compose-underline = Underline
+azmail-compose-bullets = Bullets
+azmail-compose-numbering = Numbering
+azmail-compose-group-include = Include
+azmail-compose-attach = Attach File
+azmail-compose-link = Link
+azmail-compose-group-save = Save
+azmail-compose-save-draft = Save Draft
+azmail-compose-discard = Discard
+azmail-compose-local-queued = In the Outbox of Local Folders. { $reason } AzMail tries again at every Send/Receive (F9); with an account (File > Info > Add Account) it can send through your provider instead.
+azmail-compose-local-note = No account: AzMail sends this message from this computer, straight to the recipients' mail servers. Local Folders keep its draft and the sent mail.
+azmail-compose-azlin-queued = In the Outbox. { $reason } AzMail tries again at every Send/Receive (F9).
+azmail-compose-azlin-note = Azlin account: the drive keeps this message's draft and, after the next Send/Receive, its copy in Sent Items. The mail itself leaves from this computer, as Account Settings, Sending says.
+azmail-compose-sending = Sending…
+azmail-compose-queued = Queued
+azmail-compose-send = Send
+azmail-compose-from = From
+azmail-compose-to = To...
+azmail-compose-cc = Cc...
+azmail-compose-bcc = Bcc...
+azmail-compose-subject = Subject:
+azmail-compose-link-address = Address:
+azmail-compose-insert-link = Insert Link
+azmail-compose-save-question = Do you want to save changes to this message?
+azmail-compose-save-question-detail = A saved message is kept in Drafts.
+azmail-compose-dont-save = Don't Save
+azmail-compose-attached = Attached:
+azmail-compose-remove = Remove
+azmail-compose-body = Message body
+azmail-compose-draft = Draft
+azmail-compose-new = New message
+azmail-compose-saving = Saving the draft…
+azmail-compose-saved = Draft saved at { $time }.
+azmail-compose-status-queued = In the Outbox, sent with the next Send/Receive: { $reason }
+azmail-compose-not-sent = Not sent: { $reason }
+azmail-compose-attachments = { $count ->
+    [one] 1 attachment
+   *[other] { $count } attachments
+ }
+azmail-compose-link-first = Type the link's address first.
+azmail-compose-account-gone = The account is gone.
+azmail-compose-draft-not-saved = The draft could not be saved: { $why }
+azmail-compose-in-outbox = In the Outbox: { $subject }
+azmail-compose-draft-later = The draft is saved here; the next Send/Receive puts it into the Azlin drive ({ $why }).
+azmail-ban-sends-nothing = AzMail sends nothing from this account: its mail waits in the Outbox.

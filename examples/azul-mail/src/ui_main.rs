@@ -246,7 +246,7 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
 /// kit's words, AzDrive's too), and that AzMail sends nothing from it.
 fn ban_bar(s: &MailApp) -> Option<Dom> {
     let account = s.current_account()?;
-    let text = s.sending_refused(&account.id)?;
+    let text = azul_appkit::l10n::t_text(&s.sending_refused(&account.id)?);
     Some(
         Dom::create_div()
             .with_id(crate::ids::BAN_BAR)

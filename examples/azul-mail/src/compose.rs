@@ -24,6 +24,8 @@ use azul::{
     widgets::{RichBlock, RichTextDoc},
 };
 
+use azul_appkit::l10n::{t, t_args, Arg, Phrase};
+
 use crate::{
     message::MessageView,
     send::{Attachment, OutgoingMail},
@@ -62,9 +64,9 @@ impl ComposeKind {
 pub fn window_title(subject: &str) -> String {
     let subject = subject.trim();
     if subject.is_empty() {
-        String::from("Untitled - Message (HTML)")
+        t("azmail-compose-untitled")
     } else {
-        format!("{subject} - Message (HTML)")
+        t_args("azmail-compose-title", &[("subject", Arg::from(subject))])
     }
 }
 
@@ -219,22 +221,27 @@ pub fn reply_quote(original: &MessageView, header: &str) -> RichTextDoc {
 pub fn forward_quote(original: &MessageView, date: &str) -> RichTextDoc {
     let mut blocks = vec![
         paragraph(0, ""),
-        paragraph(0, "---------- Forwarded message ----------"),
-        paragraph(0, &format!("From: {}", original.from)),
+        paragraph(0, &t("azmail-forward-separator")),
+        paragraph(0, &header_line("azmail-forward-from", &original.from)),
     ];
     if !date.is_empty() {
-        blocks.push(paragraph(0, &format!("Date: {date}")));
+        blocks.push(paragraph(0, &header_line("azmail-forward-date", date)));
     }
-    blocks.push(paragraph(0, &format!("Subject: {}", original.subject)));
+    blocks.push(paragraph(0, &header_line("azmail-forward-subject", &original.subject)));
     if !original.to.is_empty() {
-        blocks.push(paragraph(0, &format!("To: {}", original.to)));
+        blocks.push(paragraph(0, &header_line("azmail-forward-to", &original.to)));
     }
     if !original.cc.is_empty() {
-        blocks.push(paragraph(0, &format!("Cc: {}", original.cc)));
+        blocks.push(paragraph(0, &header_line("azmail-forward-cc", &original.cc)));
     }
     blocks.push(paragraph(0, ""));
     blocks.extend(quoted_blocks(&original.text, 0));
     body_of(blocks)
+}
+
+/// A forwarded header line in the window's language: `From: Ben <ben@example.org>`.
+fn header_line(key: &str, value: &str) -> String {
+    t_args(key, &[("value", Arg::from(value))])
 }
 
 /// A reopened draft's body: its HTML part (formats and links kept), else its text.
@@ -254,9 +261,12 @@ pub fn html_part(body: &RichTextDoc) -> String {
 /// wrote:` (`date` as the reader's zone shows it; without a date: `<sender> wrote:`).
 pub fn quote_header(date: &str, from: &str) -> String {
     if date.is_empty() {
-        format!("{from} wrote:")
+        t_args("azmail-quote-wrote", &[("from", Arg::from(from))])
     } else {
-        format!("On {date}, {from} wrote:")
+        t_args(
+            "azmail-quote-on-wrote",
+            &[("date", Arg::from(date)), ("from", Arg::from(from))],
+        )
     }
 }
 
@@ -266,8 +276,28 @@ pub fn header_date_in<Tz: chrono::TimeZone>(rfc3339: &str, tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
+    use chrono::Datelike;
     chrono::DateTime::parse_from_rfc3339(rfc3339.trim())
-        .map(|date| date.with_timezone(tz).format("%a, %-d %b %Y at %H:%M").to_string())
+        .map(|date| {
+            // The weekday and the month in the window's language (azul-appkit's words).
+            let local = date.with_timezone(tz);
+            t_args(
+                "azmail-quote-date",
+                &[
+                    (
+                        "weekday",
+                        Arg::from(t(azul_pim::dates::weekday_short_message_id(local.weekday()))),
+                    ),
+                    ("day", Arg::from(local.day())),
+                    (
+                        "month",
+                        Arg::from(t(azul_pim::dates::month_short_message_id(local.month()))),
+                    ),
+                    ("year", Arg::from(local.year())),
+                    ("time", Arg::from(local.format("%H:%M").to_string())),
+                ],
+            )
+        })
         .unwrap_or_default()
 }
 
@@ -280,6 +310,21 @@ pub enum ComposeError {
     BadAddress(String),
     /// No address to send from: the From line typed without an account has none.
     NoSender,
+}
+
+impl ComposeError {
+    /// What is wrong, as a phrase of AzMail's messages (said where it is shown: a worker thread
+    /// has no language).
+    #[must_use]
+    pub fn phrase(&self) -> Phrase {
+        match self {
+            ComposeError::NoRecipient => Phrase::new("azmail-compose-no-recipient"),
+            ComposeError::BadAddress(a) => {
+                Phrase::new("azmail-compose-bad-address").arg("address", a.as_str())
+            }
+            ComposeError::NoSender => Phrase::new("azmail-compose-no-sender"),
+        }
+    }
 }
 
 impl std::fmt::Display for ComposeError {
@@ -529,6 +574,7 @@ mod tests {
 
     #[test]
     fn a_reopened_draft_starts_with_all_its_fields_and_the_thread_it_continues() {
+        crate::l10n::in_english();
         let draft = MessageView {
             subject: String::from("Re: Garden plan for October"),
             from: String::from("Ada Lovelace <ada@example.org>"),
@@ -567,6 +613,7 @@ mod tests {
 
     #[test]
     fn subjects_get_one_prefix_whatever_language_the_last_one_was_in() {
+        crate::l10n::in_english();
         assert_eq!(reply_subject("Garden plan"), "Re: Garden plan");
         assert_eq!(reply_subject("Re: Garden plan"), "Re: Garden plan");
         assert_eq!(reply_subject("RE: Garden plan"), "RE: Garden plan");
@@ -584,6 +631,7 @@ mod tests {
 
     #[test]
     fn address_lines_split_outside_quotes_and_brackets() {
+        crate::l10n::in_english();
         assert_eq!(
             split_addresses(r#"Ada <ada@example.org>, "Okafor, Ben" <ben@example.org>; cleo@example.org,,"#),
             vec![
@@ -604,6 +652,7 @@ mod tests {
 
     #[test]
     fn a_reply_goes_to_the_sender_and_reply_all_to_everyone_but_me() {
+        crate::l10n::in_english();
         let me = "ada@example.org";
         let reply = reply_fields(&original(), me, false);
         assert_eq!(reply.to, "Ben Okafor <ben@example.org>");
@@ -633,6 +682,7 @@ mod tests {
 
     #[test]
     fn a_forward_has_no_recipients_and_keeps_the_thread() {
+        crate::l10n::in_english();
         let f = forward_fields(&original());
         assert_eq!((f.to.as_str(), f.cc.as_str()), ("", ""));
         assert_eq!(f.subject, "Fwd: Garden plan for October");
@@ -641,6 +691,7 @@ mod tests {
 
     #[test]
     fn a_reply_starts_with_an_empty_line_then_the_header_then_the_quote_one_level_deeper() {
+        crate::l10n::in_english();
         let header = quote_header("Wed, 30 Sep 2026 at 10:42", "Ben Okafor <ben@example.org>");
         assert_eq!(header, "On Wed, 30 Sep 2026 at 10:42, Ben Okafor <ben@example.org> wrote:");
         assert_eq!(quote_header("", "Ben"), "Ben wrote:");
@@ -660,6 +711,7 @@ mod tests {
 
     #[test]
     fn the_quote_headers_date_is_the_readers() {
+        crate::l10n::in_english();
         let berlin = chrono::FixedOffset::east_opt(2 * 3600).unwrap();
         assert_eq!(header_date_in("2026-09-30T08:42:00Z", &berlin), "Wed, 30 Sep 2026 at 10:42");
         assert_eq!(header_date_in("", &berlin), "");
@@ -668,6 +720,7 @@ mod tests {
 
     #[test]
     fn a_forward_carries_the_header_block_and_the_text_unquoted() {
+        crate::l10n::in_english();
         let doc = forward_quote(&original(), "Wed, 30 Sep 2026 at 10:42");
         let lines = runs(&doc);
         assert_eq!(lines[0], (0, String::new()));
@@ -690,6 +743,7 @@ mod tests {
 
     #[test]
     fn the_mail_parts_are_the_shared_writers_text_and_html() {
+        crate::l10n::in_english();
         let body = formatted_body();
         let mail = outgoing(
             &ComposeFields {
@@ -718,6 +772,7 @@ mod tests {
 
     #[test]
     fn a_reopened_draft_keeps_its_bold_its_link_and_its_quote() {
+        crate::l10n::in_english();
         // A draft came back from its text/plain part and lost its formats
         // (DEDUP_EDITORS F3).
         let body = formatted_body();
@@ -757,6 +812,7 @@ mod tests {
 
     #[test]
     fn the_outgoing_mail_has_every_address_split_and_both_parts() {
+        crate::l10n::in_english();
         let mail = outgoing(&fields(), Vec::new()).unwrap();
         assert_eq!(mail.from, "Ada <ada@example.org>");
         assert_eq!(mail.to, vec![String::from("Ben <ben@example.org>"), String::from("cleo@example.org")]);
@@ -771,6 +827,7 @@ mod tests {
 
     #[test]
     fn a_mail_without_recipients_or_with_a_bad_address_is_refused() {
+        crate::l10n::in_english();
         let none = ComposeFields {
             to: String::from(" , "),
             bcc: String::new(),
@@ -794,6 +851,7 @@ mod tests {
 
     #[test]
     fn a_draft_is_saved_as_typed_even_without_recipients() {
+        crate::l10n::in_english();
         let half = ComposeFields {
             to: String::from("Ben Okaf"),
             cc: String::new(),
@@ -812,6 +870,7 @@ mod tests {
 
     #[test]
     fn attachments_get_their_type_from_the_extension() {
+        crate::l10n::in_english();
         assert_eq!(mime_type_for("plan.PDF"), "application/pdf");
         assert_eq!(mime_type_for("photo.jpeg"), "image/jpeg");
         assert_eq!(mime_type_for("notes.txt"), "text/plain");
@@ -822,6 +881,7 @@ mod tests {
 
     #[test]
     fn a_draft_is_sends_message_with_its_bcc_and_mail_parser_reads_it_back() {
+        crate::l10n::in_english();
         let attachment = Attachment {
             file_name: String::from("plan.txt"),
             mime_type: String::from("text/plain"),
@@ -851,6 +911,7 @@ mod tests {
 
     #[test]
     fn a_saved_draft_is_filed_like_synced_mail_and_replaced_when_saved_again() {
+        crate::l10n::in_english();
         let dir = TempDir::new("drafts");
         let store = MailStore::new(dir.folder());
         let mail = outgoing(&fields(), Vec::new()).unwrap();

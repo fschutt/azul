@@ -53,6 +53,8 @@ use azul::{
     window::WindowDecorations,
 };
 
+use azul_appkit::l10n::{label, t, t_args, t_label, t_phrase, t_text, Arg, Phrase, Text};
+
 use crate::{
     account::{self, Account},
     compose::{self, ComposeFields, ComposeKind, StartFields},
@@ -64,8 +66,8 @@ use crate::{
 /// The settings.json value that remembers the From line typed without an account (the next
 /// message window starts with it).
 pub(crate) const SET_LOCAL_FROM: &str = "local_from";
-/// What the From field asks for without an account.
-const FROM_PLACEHOLDER: &str = "Your name <you@example.org>";
+/// What the From field asks for without an account (a key of the resources).
+const FROM_PLACEHOLDER: &str = "azmail-compose-from-placeholder";
 
 /// A compose window's state.
 pub(crate) struct Compose {
@@ -400,7 +402,7 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
     let s = &*guard;
     let Some(c) = s.composes.iter().find(|c| c.id == id) else {
         return Dom::create_body()
-            .with_child(Dom::create_span_with_text("This message was closed."));
+            .with_child(Dom::create_span_with_text(label("azmail-compose-closed")));
     };
     let mut document = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
@@ -493,42 +495,43 @@ fn action_ref(app: &RefAny, id: u64, action: ComposeAction) -> RefAny {
 }
 
 fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
-    let button = |icon: &str, label: &str, action: ComposeAction| {
-        RibbonButton::create(icon, label).with_on_click(
+    // The pieces take keys of the resources (appkit's label).
+    let button = |icon: &str, text: &str, action: ComposeAction| {
+        RibbonButton::create(icon, label(text)).with_on_click(
             action_ref(app, c.id, action),
             on_compose_action as ButtonOnClickCallbackType,
         )
     };
-    let small = |icon: &str, label: &str, action: ComposeAction| {
-        RibbonItem::SmallButton(button(icon, label, action))
+    let small = |icon: &str, text: &str, action: ComposeAction| {
+        RibbonItem::SmallButton(button(icon, text, action))
     };
     // Pressed: what the caret's text and block are. Icon only, named for assistive technology:
     // Outlook 2010's Basic Text group is rows of such buttons (B I U over the list buttons).
     let toggle = |icon: &str, name: &str, action: ComposeAction, on: bool| {
-        RibbonItem::SmallButton(button(icon, "", action).with_toggled(on).with_alt(name))
+        RibbonItem::SmallButton(button(icon, "", action).with_toggled(on).with_alt(label(name)))
     };
     let row = |items: Vec<RibbonItem>| RibbonItem::Row(RibbonRow::create().with_items(items));
     let body = &c.body;
-    let message = RibbonTab::create("Message")
+    let message = RibbonTab::create(label("azmail-compose-tab-message"))
         .with_group(
-            RibbonGroup::create("Basic Text").with_item(RibbonItem::Column(
+            RibbonGroup::create(label("azmail-compose-group-basic-text")).with_item(RibbonItem::Column(
                 RibbonColumn::create().with_items(vec![
                     row(vec![
                         toggle(
                             "format_bold",
-                            "Bold",
+                            "azmail-compose-bold",
                             ComposeAction::Bold,
                             body.is_current_format(RichFormat::Bold),
                         ),
                         toggle(
                             "format_italic",
-                            "Italic",
+                            "azmail-compose-italic",
                             ComposeAction::Italic,
                             body.is_current_format(RichFormat::Italic),
                         ),
                         toggle(
                             "format_underlined",
-                            "Underline",
+                            "azmail-compose-underline",
                             ComposeAction::Underline,
                             body.is_current_format(RichFormat::Underline),
                         ),
@@ -536,13 +539,13 @@ fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
                     row(vec![
                         toggle(
                             "format_list_bulleted",
-                            "Bullets",
+                            "azmail-compose-bullets",
                             ComposeAction::Bullets,
                             body.is_current_kind(RichBlockKind::Bullet(0)),
                         ),
                         toggle(
                             "format_list_numbered",
-                            "Numbering",
+                            "azmail-compose-numbering",
                             ComposeAction::Numbering,
                             body.is_current_kind(RichBlockKind::Numbered(0)),
                         ),
@@ -551,20 +554,21 @@ fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
             )),
         )
         .with_group(
-            RibbonGroup::create("Include")
+            RibbonGroup::create(label("azmail-compose-group-include"))
                 .with_item(RibbonItem::LargeButton(button(
                     "attach_file",
-                    "Attach File",
+                    "azmail-compose-attach",
                     ComposeAction::AttachFile,
                 )))
                 .with_item(RibbonItem::SmallButton(
-                    button("link", "Link", ComposeAction::ToggleLink).with_toggled(c.show_link),
+                    button("link", "azmail-compose-link", ComposeAction::ToggleLink)
+                        .with_toggled(c.show_link),
                 )),
         )
         .with_group(
-            RibbonGroup::create("Save")
-                .with_item(small("save", "Save Draft", ComposeAction::Save))
-                .with_item(small("delete", "Discard", ComposeAction::Discard)),
+            RibbonGroup::create(label("azmail-compose-group-save"))
+                .with_item(small("save", "azmail-compose-save-draft", ComposeAction::Save))
+                .with_item(small("delete", "azmail-compose-discard", ComposeAction::Discard)),
         );
     Ribbon::create(vec![message]).dom_desktop()
 }
@@ -613,17 +617,12 @@ fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: 
 /// Outbox and when it goes.
 fn local_bar(c: &Compose) -> Dom {
     let bar = match &c.status {
-        ComposeStatus::Queued(reason) => InfoBar::create(format!(
-            "In the Outbox of Local Folders. {reason} AzMail tries again at every Send/Receive \
-             (F9); with an account (File > Info > Add Account) it can send through your \
-             provider instead."
+        ComposeStatus::Queued(reason) => InfoBar::create(t_args(
+            "azmail-compose-local-queued",
+            &[("reason", Arg::from(t_label(reason)))],
         ))
         .with_icon("outbox"),
-        _ => InfoBar::create(
-            "No account: AzMail sends this message from this computer, straight to the \
-             recipients' mail servers. Local Folders keep its draft and the sent mail.",
-        )
-        .with_icon("info"),
+        _ => InfoBar::create(label("azmail-compose-local-note")).with_icon("info"),
     };
     bar.dom()
 }
@@ -632,35 +631,32 @@ fn local_bar(c: &Compose) -> Dom {
 /// mail itself leaves from this computer (Azlin never sends mail).
 fn azlin_bar(c: &Compose) -> Dom {
     let text = match &c.status {
-        ComposeStatus::Queued(reason) => format!(
-            "In the Outbox. {reason} AzMail tries again at every Send/Receive (F9)."
+        ComposeStatus::Queued(reason) => t_args(
+            "azmail-compose-azlin-queued",
+            &[("reason", Arg::from(t_label(reason)))],
         ),
-        _ => String::from(
-            "Azlin account: the drive keeps this message's draft and, after the next \
-             Send/Receive, its copy in Sent Items. The mail itself leaves from this computer, as \
-             Account Settings, Sending says.",
-        ),
+        _ => t("azmail-compose-azlin-note"),
     };
     InfoBar::create(text).with_icon("info").dom()
 }
 
 /// Send beside the From / To / Cc / Bcc / Subject rows; without an account From is typed.
 fn header_block(c: &Compose, app: &RefAny) -> Dom {
-    let row = |label: &str, field: Dom| {
+    let row = |text: &str, field: Dom| {
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; margin-bottom: 4px;")
             .with_child(
-                Dom::create_span_with_text(label)
+                Dom::create_span_with_text(label(text))
                     .with_css("width: 64px; flex-shrink: 0; font-size: 13px;"),
             )
             .with_child(field)
     };
     let send_label = match &c.status {
-        ComposeStatus::Sending => "Sending...",
-        ComposeStatus::Queued(_) => "Queued",
-        _ => "Send",
+        ComposeStatus::Sending => "azmail-compose-sending",
+        ComposeStatus::Queued(_) => "azmail-compose-queued",
+        _ => "azmail-compose-send",
     };
-    let send = Button::with_type(send_label, ButtonType::Primary)
+    let send = Button::with_type(label(send_label), ButtonType::Primary)
         .with_icon("send")
         .with_on_click(
             action_ref(app, c.id, ComposeAction::Send),
@@ -672,7 +668,7 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
     // An account's address, or - without one - the address the mail is sent from, typed.
     let from = if c.is_local() {
         field_widget(app, c.id, ComposeField::From, &c.from)
-            .with_placeholder(FROM_PLACEHOLDER)
+            .with_placeholder(label(FROM_PLACEHOLDER))
             .dom()
             .with_id(ids::COMPOSE_FROM)
             .with_css("flex-grow: 1;")
@@ -681,21 +677,21 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
     };
     let fields = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-        .with_child(row("From", from))
+        .with_child(row("azmail-compose-from", from))
         .with_child(row(
-            "To...",
+            "azmail-compose-to",
             field_input(app, c.id, ComposeField::To, &c.to, ids::COMPOSE_TO),
         ))
         .with_child(row(
-            "Cc...",
+            "azmail-compose-cc",
             field_input(app, c.id, ComposeField::Cc, &c.cc, ids::COMPOSE_CC),
         ))
         .with_child(row(
-            "Bcc...",
+            "azmail-compose-bcc",
             field_input(app, c.id, ComposeField::Bcc, &c.bcc, ids::COMPOSE_BCC),
         ))
         .with_child(row(
-            "Subject:",
+            "azmail-compose-subject",
             field_input(app, c.id, ComposeField::Subject, &c.subject, ids::COMPOSE_SUBJECT),
         ));
     Dom::create_div()
@@ -711,10 +707,13 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
             "display: flex; flex-direction: row; align-items: center; padding: 0px 14px 6px \
              96px; flex-shrink: 0;",
         )
-        .with_child(Dom::create_span_with_text("Address:").with_css("font-size: 13px; margin-right: 8px;"))
+        .with_child(
+            Dom::create_span_with_text(label("azmail-compose-link-address"))
+                .with_css("font-size: 13px; margin-right: 8px;"),
+        )
         .with_child(field_input(app, c.id, ComposeField::Link, &c.link, ids::COMPOSE_LINK))
         .with_child(
-            Button::create("Insert Link")
+            Button::create(label("azmail-compose-insert-link"))
                 .with_on_click(
                     action_ref(app, c.id, ComposeAction::InsertLink),
                     on_compose_action as ButtonOnClickCallbackType,
@@ -729,14 +728,14 @@ fn link_bar(c: &Compose, app: &RefAny) -> Dom {
 fn save_changes_question(c: &Compose, app: &RefAny) -> Dom {
     let question = MessageBox::create(
         MessageBoxKind::Question,
-        "Do you want to save changes to this message?",
-        "A saved message is kept in Drafts.",
+        label("azmail-compose-save-question"),
+        label("azmail-compose-save-question-detail"),
     )
     .with_buttons(
         vec![
-            AzString::from("Save"),
-            AzString::from("Don't Save"),
-            AzString::from("Cancel"),
+            label("azmail-acct-save"),
+            label("azmail-compose-dont-save"),
+            label("kit-button-cancel"),
         ],
         0,
     )
@@ -760,19 +759,22 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
         "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 0px \
          14px 6px 96px; flex-shrink: 0;",
     );
-    row.add_child(Dom::create_span_with_text("Attached:").with_css("font-size: 13px; margin-right: 8px;"));
+    row.add_child(
+        Dom::create_span_with_text(label("azmail-compose-attached"))
+            .with_css("font-size: 13px; margin-right: 8px;"),
+    );
     for (i, file) in c.attachments.iter().enumerate() {
         row.add_child(
             // azul's one byte-size format (the reading pane's attachments use it too).
             Dom::create_span_with_text(format!(
                 "{} ({})",
                 file.name,
-                azul::file::DiskSpace::format_bytes(file.size)
+                azul_appkit::l10n::decimal(azul::file::DiskSpace::format_bytes(file.size).as_str())
             ))
                 .with_css("font-size: 13px; margin-right: 4px;"),
         );
         row.add_child(
-            Button::create("Remove")
+            Button::create(label("azmail-compose-remove"))
                 .with_on_click(
                     action_ref(app, c.id, ComposeAction::RemoveAttachment(i)),
                     on_compose_action as ButtonOnClickCallbackType,
@@ -790,7 +792,7 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
 fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
     let editor = RichTextEditor::create(c.body.clone())
         .with_id(ids::COMPOSE_BODY)
-        .with_accessibility_name("Message body")
+        .with_accessibility_name(label("azmail-compose-body"))
         .with_paragraph_spacing(0.0)
         .with_on_change(
             compose_ref(app, c.id),
@@ -816,26 +818,28 @@ fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
 /// The status line: what Save / Send did.
 fn status_bar(c: &Compose) -> Dom {
     let text = match &c.status {
-        ComposeStatus::Editing => match c.kind {
-            ComposeKind::Reply | ComposeKind::ReplyAll => String::from("Reply"),
-            ComposeKind::Forward => String::from("Forward"),
-            ComposeKind::Draft => String::from("Draft"),
-            ComposeKind::New => String::from("New message"),
-        },
-        ComposeStatus::Saving => String::from("Saving the draft..."),
-        ComposeStatus::Saved(at) => format!("Draft saved at {at}."),
-        ComposeStatus::Sending => String::from("Sending..."),
+        ComposeStatus::Editing => t(match c.kind {
+            ComposeKind::Reply | ComposeKind::ReplyAll => "azmail-cmd-reply",
+            ComposeKind::Forward => "azmail-cmd-forward",
+            ComposeKind::Draft => "azmail-compose-draft",
+            ComposeKind::New => "azmail-compose-new",
+        }),
+        ComposeStatus::Saving => t("azmail-compose-saving"),
+        ComposeStatus::Saved(at) => t_args("azmail-compose-saved", &[("time", Arg::from(at.as_str()))]),
+        ComposeStatus::Sending => t("azmail-compose-sending"),
         ComposeStatus::Queued(reason) => {
-            format!("In the Outbox, sent with the next Send/Receive: {reason}")
+            t_args("azmail-compose-status-queued", &[("reason", Arg::from(t_label(reason)))])
         }
-        ComposeStatus::Failed(reason) => format!("Not sent: {reason}"),
+        ComposeStatus::Failed(reason) => {
+            t_args("azmail-compose-not-sent", &[("reason", Arg::from(t_label(reason)))])
+        }
         ComposeStatus::Problem(text) => text.clone(),
     };
     let mut segments = vec![StatusBarSegment::create(text)];
     if !c.attachments.is_empty() {
-        segments.push(StatusBarSegment::create(format!(
-            "{} attachment(s)",
-            c.attachments.len()
+        segments.push(StatusBarSegment::create(t_args(
+            "azmail-compose-attachments",
+            &[("count", Arg::from(c.attachments.len()))],
         )));
     }
     StatusBar::create(segments).dom()
@@ -1033,7 +1037,7 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                 let href = s.composes[at].link.trim().to_string();
                 if href.is_empty() {
                     s.composes[at].status =
-                        ComposeStatus::Problem(String::from("Type the link's address first."));
+                        ComposeStatus::Problem(t("azmail-compose-link-first"));
                     return Update::RefreshDom;
                 }
                 let href = if href.contains("://") || href.starts_with("mailto:") {
@@ -1053,7 +1057,7 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
             }
             ComposeAction::AttachFile => {
                 let _request = FileDialog::open_multiple_files(
-                    "Attach File",
+                    label("azmail-compose-attach"),
                     OptionString::None,
                     OptionFileTypeList::None,
                     compose_ref(&app, id),
@@ -1089,13 +1093,13 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                 if send {
                     // Refused before anything is written: no recipient, a bad address.
                     if let Err(e) = compose::outgoing(&fields, Vec::new()) {
-                        s.composes[at].status = ComposeStatus::Problem(e.to_string());
+                        s.composes[at].status = ComposeStatus::Problem(t_phrase(&e.phrase()));
                         return Update::RefreshDom;
                     }
                     // An Azlin account on a banned drive sends nothing (ban contract v1).
                     if let Some(why) = s.sending_refused(&s.composes[at].account_id) {
                         println!("AZMAIL_SEND_REFUSED {}", s.composes[at].window_id);
-                        s.composes[at].status = ComposeStatus::Problem(why);
+                        s.composes[at].status = ComposeStatus::Problem(t_text(&why));
                         return Update::RefreshDom;
                     }
                 }
@@ -1111,7 +1115,7 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                         .cloned()
                     else {
                         s.composes[at].status =
-                            ComposeStatus::Problem(String::from("The account is gone."));
+                            ComposeStatus::Problem(t("azmail-compose-account-gone"));
                         return Update::RefreshDom;
                     };
                     (
@@ -1241,7 +1245,8 @@ enum OutgoingDone {
     /// The draft's local UID, and for an Azlin account its key in the drive (or why it is not
     /// there yet).
     DraftSaved(u32, Option<Result<String, String>>),
-    Problem(String),
+    /// Why not (said on the UI thread).
+    Problem(Text),
 }
 
 struct OutgoingMessage {
@@ -1285,7 +1290,12 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
                     bytes,
                 }),
                 Err(e) => {
-                    return OutgoingDone::Problem(format!("Could not read {}: {e}", file.name));
+                    return OutgoingDone::Problem(
+                        Phrase::new("azmail-error-read")
+                            .arg("path", file.name.as_str())
+                            .arg("why", e.to_string())
+                            .into(),
+                    );
                 }
             },
             AttachSource::Carried { mime_type, bytes } => attachments.push(send::Attachment {
@@ -1324,12 +1334,14 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
                 });
                 OutgoingDone::DraftSaved(entry.uid, uploaded)
             }
-            Err(e) => OutgoingDone::Problem(format!("The draft could not be saved: {e}")),
+            Err(e) => OutgoingDone::Problem(
+                Phrase::new("azmail-compose-draft-not-saved").arg("why", e.to_string()).into(),
+            ),
         };
     }
     let mail = match compose::outgoing(&job.fields, attachments) {
         Ok(mail) => mail,
-        Err(e) => return OutgoingDone::Problem(e.to_string()),
+        Err(e) => return OutgoingDone::Problem(e.phrase().into()),
     };
     let mut settings = send::SendSettings::load(&job.root, &job.account_id);
     settings.dkim_key = job.dkim_key.clone();
@@ -1381,7 +1393,10 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                     c.status = ComposeStatus::Queued(reason);
                     // Out of Drafts, into the Outbox (`run_outgoing`).
                     c.draft_uid = None;
-                    s.notice = format!("In the Outbox: {}", s.composes[at].subject);
+                    s.notice = t_args(
+                        "azmail-compose-in-outbox",
+                        &[("subject", Arg::from(s.composes[at].subject.as_str()))],
+                    );
                 }
                 Update::RefreshDomAllWindows
             }
@@ -1398,10 +1413,7 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
                     Some(Ok(key)) => println!("AZMAIL_DRAFT_UPLOADED {window_id} {key}"),
                     Some(Err(e)) => {
                         println!("AZMAIL_DRAFT_UPLOAD_FAILED {window_id} {e}");
-                        s.notice = format!(
-                            "The draft is saved here; the next Send/Receive puts it into the \
-                             Azlin drive ({e})."
-                        );
+                        s.notice = t_args("azmail-compose-draft-later", &[("why", Arg::from(t_label(&e)))]);
                     }
                     None => {}
                 }
@@ -1422,7 +1434,7 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
             OutgoingDone::Problem(text) => {
                 if let Some(at) = at {
                     let c = &mut s.composes[at];
-                    c.status = ComposeStatus::Problem(text);
+                    c.status = ComposeStatus::Problem(t_text(&text));
                     c.close_after_save = false;
                 }
                 Update::RefreshDom

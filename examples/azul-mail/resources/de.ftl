@@ -356,3 +356,127 @@ azmail-dkim-bad-selector = Der Selektor „{ $selector }“ kann kein DNS-Name s
 azmail-dkim-create-key-first = Erstelle zuerst einen Schlüssel: AzMail signiert mit einem eigenen Schlüssel, dessen öffentliche Hälfte ins DNS deiner Domain kommt.
 azmail-smtp-enter-server = Gib den Namen des SMTP-Servers ein, z. B. smtp.example.org.
 azmail-smtp-bad-port = Der Port ist eine Zahl von 1 bis 65535.
+
+## File: Info, Help, Print
+
+azmail-file-info = Informationen
+azmail-file-print = Drucken
+azmail-file-help = Hilfe
+azmail-file-options = Optionen
+azmail-file-exit = Beenden
+azmail-info-no-account = Füge ein E-Mail-Konto hinzu, um E-Mails zu empfangen und zu senden. AzMail bewahrt eine Kopie jedes Ordners als Dateien auf diesem Computer auf.
+azmail-info-azlin = Azlin-Laufwerk { $drive } ({ $server }) – { $folders } Ordner, { $unread } ungelesen
+azmail-info-run-server = der Tokenserver dieses Laufs
+azmail-info-imap = IMAP { $server } – { $folders } Ordner, { $unread } ungelesen
+azmail-info-add-account = Konto hinzufügen
+azmail-info-new-mail = Schreibe eine Nachricht ohne Konto: AzMail sendet sie von diesem Computer direkt an die Mailserver der Empfänger, und die lokalen Ordner behalten sie (Senden/Empfangen sendet, was in ihrem Postausgang wartet).
+azmail-info-account-settings = Kontoeinstellungen
+azmail-info-account-settings-what = Ändere die Einstellungen dieses Kontos: deinen Namen und dein Kennwort, den Posteingangsserver, wie E-Mails gesendet und signiert werden.
+azmail-info-now = Jetzt: { $status } ({ $percent } %).
+azmail-info-last-time = Letztes Mal: { $text }
+azmail-info-send-receive = Senden/Empfangen
+azmail-info-send-receive-what = Empfange jeden Ordner dieses Kontos und sende, was im Postausgang wartet (F9). { $status }
+azmail-info-mail-will-be-kept = E-Mails werden als einfache Dateien aufbewahrt, eine pro Nachricht, in { $folder }.
+azmail-info-mail-is-kept = E-Mails werden als einfache Dateien aufbewahrt, eine pro Nachricht, in { $folder }.
+azmail-info-mailbox = Postfach
+azmail-info-title = Kontoinformationen
+azmail-help-support = Support
+azmail-help-shortcuts = Tastenkombinationen
+azmail-help-shortcuts-what = Jede Taste, die AzMail kennt, auf einer Seite (F1).
+azmail-help-tools = Tools für die Arbeit mit { $app }
+azmail-help-options-what = Der Lesebereich, die Aufgabenleiste, das Design, der Modus und die anderen Programmeinstellungen.
+azmail-help-mail-folder = E-Mail-Ordner
+azmail-help-accounts = Konten
+azmail-print-from = Von:
+azmail-print-sent = Gesendet:
+azmail-print-to = An:
+azmail-print-cc = Cc:
+azmail-print-subject = Betreff:
+azmail-print-attachments = Anlagen:
+azmail-print-no-pdf = Der PDF-Writer von azul hat keine Datei erstellt (ein Build ohne sein Feature `pdf`?).
+azmail-print-select-first = Wähle zuerst eine Nachricht zum Drucken aus.
+azmail-printed-to = Gedruckt nach { $path }
+azmail-print-not-drawn = Die erste Seite konnte nicht gezeichnet werden.
+azmail-print-into = Nach { $folder }
+azmail-print-what = Druckt die geöffnete Nachricht in eine PDF-Datei: A4, Memoformat.
+azmail-print-printer = Drucker
+azmail-print-pdf-file = PDF-Datei
+azmail-print-settings = Einstellungen
+azmail-print-memo = Memoformat
+azmail-print-memo-what = Dein Name über den Kopfzeilen der Nachricht, dann ihr Text.
+azmail-print-preview = Vorschau
+azmail-print-nothing-open = Keine Nachricht ist geöffnet: Wähle eine in der Nachrichtenliste aus und komm dann zu Datei > Drucken zurück.
+azmail-print-pages = { $pages ->
+    [one] 1 Seite
+   *[other] Seite 1 von { $pages }
+ }
+azmail-print-drawing = Die Vorschau wird gezeichnet…
+azmail-print-not-read = Die PDF-Datei konnte nicht zurückgelesen werden: { $why }
+
+## The message window
+
+azmail-compose-untitled = Unbenannt - Nachricht (HTML)
+azmail-compose-title = { $subject } - Nachricht (HTML)
+azmail-forward-separator = ---------- Weitergeleitete Nachricht ----------
+azmail-forward-from = Von: { $value }
+azmail-forward-date = Datum: { $value }
+azmail-forward-subject = Betreff: { $value }
+azmail-forward-to = An: { $value }
+azmail-forward-cc = Cc: { $value }
+azmail-quote-wrote = { $from } schrieb:
+azmail-quote-on-wrote = Am { $date } schrieb { $from }:
+azmail-quote-date = { $weekday }., { $day }. { $month } { $year } um { $time }
+azmail-compose-no-recipient = Füge mindestens einen Empfänger hinzu.
+azmail-compose-bad-address = „{ $address }“ ist keine E-Mail-Adresse.
+azmail-compose-no-sender = Gib deine E-Mail-Adresse bei „Von“ ein: Die Nachricht wird von ihr gesendet.
+azmail-compose-from-placeholder = Dein Name <du@example.org>
+azmail-compose-closed = Diese Nachricht wurde geschlossen.
+azmail-compose-tab-message = Nachricht
+azmail-compose-group-basic-text = Basistext
+azmail-compose-bold = Fett
+azmail-compose-italic = Kursiv
+azmail-compose-underline = Unterstrichen
+azmail-compose-bullets = Aufzählungszeichen
+azmail-compose-numbering = Nummerierung
+azmail-compose-group-include = Einfügen
+azmail-compose-attach = Datei anfügen
+azmail-compose-link = Link
+azmail-compose-group-save = Speichern
+azmail-compose-save-draft = Entwurf speichern
+azmail-compose-discard = Verwerfen
+azmail-compose-local-queued = Im Postausgang der lokalen Ordner. { $reason } AzMail versucht es bei jedem Senden/Empfangen (F9) erneut; mit einem Konto (Datei > Informationen > Konto hinzufügen) kann es stattdessen über deinen Anbieter senden.
+azmail-compose-local-note = Kein Konto: AzMail sendet diese Nachricht von diesem Computer direkt an die Mailserver der Empfänger. Die lokalen Ordner behalten ihren Entwurf und die gesendete E-Mail.
+azmail-compose-azlin-queued = Im Postausgang. { $reason } AzMail versucht es bei jedem Senden/Empfangen (F9) erneut.
+azmail-compose-azlin-note = Azlin-Konto: Das Laufwerk behält den Entwurf dieser Nachricht und nach dem nächsten Senden/Empfangen ihre Kopie in „Gesendete Elemente“. Die E-Mail selbst verlässt diesen Computer, wie es Kontoeinstellungen, Senden sagt.
+azmail-compose-sending = Wird gesendet…
+azmail-compose-queued = Wartet
+azmail-compose-send = Senden
+azmail-compose-from = Von
+azmail-compose-to = An...
+azmail-compose-cc = Cc...
+azmail-compose-bcc = Bcc...
+azmail-compose-subject = Betreff:
+azmail-compose-link-address = Adresse:
+azmail-compose-insert-link = Link einfügen
+azmail-compose-save-question = Möchtest du die Änderungen an dieser Nachricht speichern?
+azmail-compose-save-question-detail = Eine gespeicherte Nachricht wird in „Entwürfe“ aufbewahrt.
+azmail-compose-dont-save = Nicht speichern
+azmail-compose-attached = Angefügt:
+azmail-compose-remove = Entfernen
+azmail-compose-body = Nachrichtentext
+azmail-compose-draft = Entwurf
+azmail-compose-new = Neue Nachricht
+azmail-compose-saving = Der Entwurf wird gespeichert…
+azmail-compose-saved = Entwurf um { $time } gespeichert.
+azmail-compose-status-queued = Im Postausgang, wird beim nächsten Senden/Empfangen gesendet: { $reason }
+azmail-compose-not-sent = Nicht gesendet: { $reason }
+azmail-compose-attachments = { $count ->
+    [one] 1 Anlage
+   *[other] { $count } Anlagen
+ }
+azmail-compose-link-first = Gib zuerst die Adresse des Links ein.
+azmail-compose-account-gone = Das Konto gibt es nicht mehr.
+azmail-compose-draft-not-saved = Der Entwurf konnte nicht gespeichert werden: { $why }
+azmail-compose-in-outbox = Im Postausgang: { $subject }
+azmail-compose-draft-later = Der Entwurf ist hier gespeichert; das nächste Senden/Empfangen legt ihn ins Azlin-Laufwerk ({ $why }).
+azmail-ban-sends-nothing = AzMail sendet nichts von diesem Konto: Seine E-Mails warten im Postausgang.
