@@ -26,6 +26,7 @@ use azul::{
     },
 };
 use azul_appkit::args::Theme;
+use azul_appkit::l10n::{label, t, t_args, Arg};
 use azul_appkit::ribbon::{self as ribbon_kit, column, RibbonCommand};
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
@@ -101,32 +102,40 @@ impl Command {
         Command::ModeSystem,
     ];
 
+    /// The command's name in the window's language (the palette, the ribbon, the shortcuts).
     #[must_use]
     pub fn label(self) -> String {
-        match self {
-            Command::NewTask => "New task".into(),
-            Command::NewList => "New list".into(),
-            Command::Complete => "Complete".into(),
-            Command::Flag => "Flag".into(),
-            Command::Delete => "Delete".into(),
-            Command::MoveUp => "Move up".into(),
-            Command::MoveDown => "Move down".into(),
-            Command::Show(s) => format!("Show {}", s.label()),
-            Command::Search => "Search".into(),
-            Command::Settings => "Settings".into(),
-            Command::Shortcuts => "Keyboard shortcuts".into(),
-            Command::About => "About AzTasks".into(),
-            Command::ToggleTodoBar => "To-Do bar".into(),
-            Command::ToggleNavigation => "Navigation pane".into(),
-            Command::ToggleCompleted => "Completed tasks in lists".into(),
-            Command::Sort(m) => format!("Sort by {}", m.label().to_lowercase()),
-            Command::ThemeFlat => "Flat theme".into(),
-            Command::ThemeFlora => "Flora theme".into(),
-            Command::ModeLight => "Light mode".into(),
-            Command::ModeDark => "Dark mode".into(),
-            Command::ModeSystem => "Mode of the system".into(),
-            Command::Palette => "Command palette".into(),
-        }
+        let key = match self {
+            Command::NewTask => "aztasks-cmd-new-task",
+            Command::NewList => "aztasks-cmd-new-list",
+            Command::Complete => "aztasks-cmd-complete",
+            Command::Flag => "aztasks-cmd-flag",
+            Command::Delete => "aztasks-cmd-delete",
+            Command::MoveUp => "aztasks-cmd-move-up",
+            Command::MoveDown => "aztasks-cmd-move-down",
+            Command::Show(s) => {
+                return t_args("aztasks-cmd-show", &[("view", Arg::from(s.label()))])
+            }
+            Command::Search => "aztasks-cmd-search",
+            Command::Settings => "aztasks-cmd-settings",
+            Command::Shortcuts => "aztasks-cmd-shortcuts",
+            Command::About => "aztasks-cmd-about",
+            Command::ToggleTodoBar => "aztasks-cmd-todo-bar",
+            Command::ToggleNavigation => "aztasks-cmd-navigation",
+            Command::ToggleCompleted => "aztasks-cmd-completed",
+            Command::Sort(SortMode::Manual) => "aztasks-cmd-sort-manual",
+            Command::Sort(SortMode::Due) => "aztasks-cmd-sort-due",
+            Command::Sort(SortMode::Priority) => "aztasks-cmd-sort-priority",
+            Command::Sort(SortMode::Title) => "aztasks-cmd-sort-title",
+            Command::Sort(SortMode::Created) => "aztasks-cmd-sort-created",
+            Command::ThemeFlat => "aztasks-cmd-theme-flat",
+            Command::ThemeFlora => "aztasks-cmd-theme-flora",
+            Command::ModeLight => "aztasks-cmd-mode-light",
+            Command::ModeDark => "aztasks-cmd-mode-dark",
+            Command::ModeSystem => "aztasks-cmd-mode-system",
+            Command::Palette => "aztasks-cmd-palette",
+        };
+        t(key)
     }
 
     #[must_use]
@@ -178,20 +187,23 @@ impl Command {
         }
     }
 
+    /// The command's group in the palette and on the shortcuts page, in the window's language.
     #[must_use]
-    pub fn category(self) -> &'static str {
-        match self {
+    pub fn category(self) -> String {
+        t(match self {
             Command::NewTask
             | Command::NewList
             | Command::Complete
             | Command::Flag
             | Command::Delete
             | Command::MoveUp
-            | Command::MoveDown => "Task",
-            Command::Show(_) | Command::Search => "Go",
-            Command::Settings | Command::Shortcuts | Command::About | Command::Palette => "App",
-            _ => "View",
-        }
+            | Command::MoveDown => "aztasks-category-task",
+            Command::Show(_) | Command::Search => "aztasks-category-go",
+            Command::Settings | Command::Shortcuts | Command::About | Command::Palette => {
+                "aztasks-category-app"
+            }
+            _ => "aztasks-category-view",
+        })
     }
 }
 
@@ -213,11 +225,13 @@ pub fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut Tasks, command: Comman
             focus_id(info, ids::QUICK_ADD);
         }
         Command::NewList => {
-            let id = s.new_list("New list", "");
+            // A list's name in its file: the first one in the window's language.
+            let name = t("aztasks-cmd-new-list");
+            let id = s.new_list(&name, "");
             s.show(View::List(id.clone()));
             s.editing_list = Some(id.clone());
             s.drafts.list = id;
-            s.drafts.list_name = "New list".to_string();
+            s.drafts.list_name = name;
             s.drafts.list_group.clear();
         }
         Command::Complete => s.toggle_selected(now),
@@ -310,77 +324,98 @@ fn small(app: &RefAny, command: Command, toggled: bool) -> RibbonItem {
 }
 
 /// A short label for a toggled small button.
-fn labelled(app: &RefAny, command: Command, label: &str, toggled: bool) -> RibbonItem {
-    ribbon_kit::toggle(app, command.icon(), label, command, toggled)
+fn labelled(app: &RefAny, command: Command, text: &str, toggled: bool) -> RibbonItem {
+    ribbon_kit::toggle(app, command.icon(), text, command, toggled)
 }
 
 /// HOME (new, manage, arrange, move) and VIEW (sort, show, appearance); FILE opens the
 /// backstage.
 pub fn ribbon(s: &Tasks, app: &RefAny, theme: &str, dark: bool) -> Dom {
     let order = views::lists_in_nav_order(&s.lists);
-    let mut names = vec![AzString::from("Move to...")];
-    names.extend(order.iter().map(|&i| AzString::from(s.lists[i].name.as_str())));
+    let mut names = vec![label("aztasks-move-to")];
+    names.extend(
+        order
+            .iter()
+            .map(|&i| AzString::from(s.lists[i].name.as_str())),
+    );
     let move_to = DropDown::create(StringVec::from(names))
         .with_selected(0)
-        .with_accessibility_name("Move the selected tasks to")
-        .with_on_choice_change(app.clone(), on_ribbon_move as DropDownOnChoiceChangeCallbackType);
-    let home = RibbonTab::create("HOME")
+        .with_accessibility_name(label("aztasks-move-selected-to"))
+        .with_on_choice_change(
+            app.clone(),
+            on_ribbon_move as DropDownOnChoiceChangeCallbackType,
+        );
+    let home = RibbonTab::create(label("aztasks-tab-home"))
         .with_group(
-            RibbonGroup::create("New")
+            RibbonGroup::create(label("aztasks-group-new"))
                 .with_item(large(app, Command::NewTask))
                 .with_item(column(vec![small(app, Command::NewList, false)])),
         )
         .with_group(
-            RibbonGroup::create("Manage")
+            RibbonGroup::create(label("aztasks-group-manage"))
                 .with_item(large(app, Command::Complete))
                 .with_item(column(vec![
                     small(app, Command::Flag, false),
                     small(app, Command::Delete, false),
                 ])),
         )
-        .with_group(RibbonGroup::create("Arrange").with_item(column(vec![
-            small(app, Command::MoveUp, false),
-            small(app, Command::MoveDown, false),
-        ])))
-        .with_group(RibbonGroup::create("Move").with_item(RibbonItem::Drop(move_to)));
+        .with_group(
+            RibbonGroup::create(label("aztasks-group-arrange")).with_item(column(vec![
+                small(app, Command::MoveUp, false),
+                small(app, Command::MoveDown, false),
+            ])),
+        )
+        .with_group(
+            RibbonGroup::create(label("aztasks-group-move")).with_item(RibbonItem::Drop(move_to)),
+        );
     let sort = s.settings.sort;
     let flora = Theme::parse(theme).is_some_and(Theme::is_flora);
-    let view = RibbonTab::create("VIEW")
-        .with_group(RibbonGroup::create("Sort by").with_item(column(vec![
-            labelled(app, Command::Sort(SortMode::Manual), "Manual", sort == SortMode::Manual),
-            labelled(app, Command::Sort(SortMode::Due), "Due date", sort == SortMode::Due),
-            labelled(app, Command::Sort(SortMode::Priority), "Priority", sort == SortMode::Priority),
-        ])).with_item(column(vec![
-            labelled(app, Command::Sort(SortMode::Title), "Title", sort == SortMode::Title),
-            labelled(app, Command::Sort(SortMode::Created), "Created", sort == SortMode::Created),
-        ])))
-        .with_group(RibbonGroup::create("Show").with_item(column(vec![
-            small(app, Command::ToggleCompleted, s.settings.show_completed),
-            small(app, Command::ToggleTodoBar, s.show_todo_bar),
-            small(app, Command::ToggleNavigation, !s.nav_collapsed),
-        ])))
+    let sorted =
+        |mode: SortMode| labelled(app, Command::Sort(mode), mode.message_id(), sort == mode);
+    let view = RibbonTab::create(label("aztasks-tab-view"))
         .with_group(
-            RibbonGroup::create("Appearance")
+            RibbonGroup::create(label("aztasks-group-sort-by"))
                 .with_item(column(vec![
-                    // Flora or a spin of it ("flora:green") checks Flora.
-                    labelled(app, Command::ThemeFlat, "Flat", !flora),
-                    labelled(app, Command::ThemeFlora, "Flora", flora),
+                    sorted(SortMode::Manual),
+                    sorted(SortMode::Due),
+                    sorted(SortMode::Priority),
                 ]))
                 .with_item(column(vec![
-                    labelled(app, Command::ModeLight, "Light", !dark),
-                    labelled(app, Command::ModeDark, "Dark", dark),
-                    labelled(app, Command::ModeSystem, "System", false),
+                    sorted(SortMode::Title),
+                    sorted(SortMode::Created),
+                ])),
+        )
+        .with_group(
+            RibbonGroup::create(label("aztasks-group-show")).with_item(column(vec![
+                small(app, Command::ToggleCompleted, s.settings.show_completed),
+                small(app, Command::ToggleTodoBar, s.show_todo_bar),
+                small(app, Command::ToggleNavigation, !s.nav_collapsed),
+            ])),
+        )
+        .with_group(
+            RibbonGroup::create(label("aztasks-group-appearance"))
+                .with_item(column(vec![
+                    // Flora or a spin of it ("flora:green") checks Flora.
+                    labelled(app, Command::ThemeFlat, "kit-theme-flat", !flora),
+                    labelled(app, Command::ThemeFlora, "kit-theme-flora", flora),
+                ]))
+                .with_item(column(vec![
+                    labelled(app, Command::ModeLight, "kit-mode-light", !dark),
+                    labelled(app, Command::ModeDark, "kit-mode-dark", dark),
+                    labelled(app, Command::ModeSystem, "kit-mode-system", false),
                 ])),
         );
     let mut ribbon = Ribbon::create(vec![home, view])
         .with_active_tab(s.ribbon_tab)
-        .with_app_button(RibbonAppButton::create("FILE").with_on_click(
-            RefAny::new(CommandRef {
-                app: app.clone(),
-                command: Command::Settings,
-            }),
-            on_command as ButtonOnClickCallbackType,
-        ));
+        .with_app_button(
+            RibbonAppButton::create(label("aztasks-tab-file")).with_on_click(
+                RefAny::new(CommandRef {
+                    app: app.clone(),
+                    command: Command::Settings,
+                }),
+                on_command as ButtonOnClickCallbackType,
+            ),
+        );
     ribbon.set_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType);
     ribbon.dom_desktop()
 }
@@ -412,26 +447,45 @@ extern "C" fn on_ribbon_move(mut data: RefAny, mut info: CallbackInfo, index: us
 /// (a click on a failure retries).
 pub fn status_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
     let (due_today, overdue) = views::summary(&s.tasks, now);
-    let mut first = format!("{due_today} due today");
+    let mut first = t_args(
+        "aztasks-status-due-today",
+        &[("count", Arg::from(due_today))],
+    );
     if overdue > 0 {
-        first.push_str(&format!(" \u{b7} {overdue} overdue"));
+        first.push_str(" \u{b7} ");
+        first.push_str(&t_args(
+            "aztasks-status-overdue",
+            &[("count", Arg::from(overdue))],
+        ));
     }
     let open = views::smart_count(Smart::All, &s.tasks, now.date());
     let failures = s.queue.failures();
     let waiting = s.queue.pending() + s.queue.in_flight();
     let sync = if !failures.is_empty() {
-        StatusBarSync::create(format!("{} not saved - retry", failures.len()), StatusBarSyncKind::Error)
-            .with_on_click(app.clone(), on_retry as ButtonOnClickCallbackType)
+        StatusBarSync::create(
+            t_args(
+                "aztasks-status-not-saved",
+                &[("count", Arg::from(failures.len()))],
+            ),
+            StatusBarSyncKind::Error,
+        )
+        .with_on_click(app.clone(), on_retry as ButtonOnClickCallbackType)
     } else if waiting > 0 || s.files.running > 0 {
-        StatusBarSync::create(format!("Saving {}...", waiting.max(1)), StatusBarSyncKind::Syncing)
+        StatusBarSync::create(
+            t_args(
+                "aztasks-status-saving",
+                &[("count", Arg::from(waiting.max(1)))],
+            ),
+            StatusBarSyncKind::Syncing,
+        )
     } else if !s.loaded {
-        StatusBarSync::create("Reading...", StatusBarSyncKind::Syncing)
+        StatusBarSync::create(label("aztasks-status-reading"), StatusBarSyncKind::Syncing)
     } else {
-        StatusBarSync::create("Saved", StatusBarSyncKind::Connected)
+        StatusBarSync::create(label("aztasks-status-saved"), StatusBarSyncKind::Connected)
     };
     StatusBar::create(vec![
         StatusBarSegment::create(first).with_icon("today"),
-        StatusBarSegment::create(format!("{open} open")),
+        StatusBarSegment::create(t_args("aztasks-status-open", &[("count", Arg::from(open))])),
         StatusBarSegment::create(s.root.display().to_string()).with_icon("folder"),
     ])
     .with_sync(sync)
@@ -493,19 +547,22 @@ pub fn todo_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Dom {
         })
         .collect();
     let line = if day == today {
-        "New task for today".to_string()
+        t("aztasks-todo-new-today")
     } else {
-        format!("New task for {}", model::day_label(day, today))
+        t_args(
+            "aztasks-todo-new-for",
+            &[("day", Arg::from(model::day_label(day, today)))],
+        )
     };
     ToDoBar::create(y, m, d)
         .with_today(ty, tm, td)
         .with_appointments(StringVec::from(appointments))
-        .with_appointments_empty("No reminders on this day.")
+        .with_appointments_empty(label("aztasks-todo-no-reminders"))
         // The calendar's rows start on the settings' week start (WIDGETS7's ToDoBar week start).
         .with_week_start(crate::repeat_form::picker_week_start(s.settings.week_start))
         .with_task_line(line, s.drafts.todo.as_str())
         .with_tasks(tasks)
-        .with_accessibility_name("To-Do bar")
+        .with_accessibility_name(label("aztasks-cmd-todo-bar"))
         .with_on_pick(app.clone(), on_todo as ToDoBarOnEventCallbackType)
         .with_on_task(app.clone(), on_todo as ToDoBarOnEventCallbackType)
         .with_on_appointment(app.clone(), on_todo as ToDoBarOnEventCallbackType)
@@ -564,7 +621,7 @@ extern "C" fn on_todo(mut data: RefAny, mut info: CallbackInfo, event: ToDoBarEv
 /// The palette over the window (closed: an empty node).
 pub fn palette(s: &Tasks, app: &RefAny) -> Dom {
     let mut p = ShellCommandPalette::create()
-        .with_placeholder("Type a command")
+        .with_placeholder(label("aztasks-palette-placeholder"))
         .with_query(s.palette.clone().unwrap_or_default())
         .with_open(s.palette.is_some())
         .with_on_query(app.clone(), on_palette_query as ShellCommandPaletteOnQueryCallbackType)
@@ -608,15 +665,21 @@ pub fn confirm_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
     let question = match s.confirm.as_ref()? {
         Confirm::DeleteList(id) => {
             let n = s.tasks.iter().filter(|t| t.list == *id).count();
-            format!(
-                "Delete the list \"{}\" and its {n} task(s)? This cannot be undone.",
-                s.list_name(id)
+            t_args(
+                "aztasks-confirm-delete-list",
+                &[
+                    ("name", Arg::from(s.list_name(id))),
+                    ("count", Arg::from(n)),
+                ],
             )
         }
         Confirm::ClearCompleted => {
             let cutoff = now - chrono::Duration::days(30);
             let n = s.tasks.iter().filter(|t| t.completed.is_some_and(|c| c < cutoff)).count();
-            format!("Delete the {n} task(s) completed more than 30 days ago?")
+            t_args(
+                "aztasks-confirm-clear-completed",
+                &[("count", Arg::from(n))],
+            )
         }
     };
     Some(
@@ -631,13 +694,13 @@ pub fn confirm_bar(s: &Tasks, app: &RefAny, now: NaiveDateTime) -> Option<Dom> {
                     .with_css("flex-grow: 1;"),
             )
             .with_child(
-                Button::with_type("Delete", ButtonType::Danger)
+                Button::with_type(label("aztasks-cmd-delete"), ButtonType::Danger)
                     .with_on_click(app.clone(), on_confirm_yes as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::CONFIRM_YES),
             )
             .with_child(
-                Button::create("Cancel")
+                Button::create(label("kit-button-cancel"))
                     .with_on_click(app.clone(), on_confirm_no as ButtonOnClickCallbackType)
                     .dom()
                     .with_id(ids::CONFIRM_NO),
@@ -669,6 +732,7 @@ mod tests {
 
     #[test]
     fn the_command_table_names_every_command_once() {
+        crate::l10n::in_english();
         let labels: Vec<String> = Command::ALL.iter().map(|c| c.label()).collect();
         let mut unique = labels.clone();
         unique.sort();
