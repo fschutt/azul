@@ -1031,3 +1031,5 @@ mod a_screen_reader_reads_only_what_is_rendered;
 mod an_assistive_technology_never_sees_a_stale_tree;
 #[path = "the_accessibility_tree_speaks_the_apps_language.rs"]
 mod the_accessibility_tree_speaks_the_apps_language;
+#[path = "a_screen_reader_announces_a_controls_declared_name.rs"]
+mod a_screen_reader_announces_a_controls_declared_name;
