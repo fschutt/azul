@@ -50,6 +50,12 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
     pending lockdown; the pending family cannot cancel it (403), the owner can (200), and then
     there is none to cancel (409 `no_pending_lockdown`).
+13. Vouchers (AZLINSEC17 F29), with a development server's test codes (`AZLIN-TEST-1M`: a month,
+    `AZLIN-TEST-EUR10`: EUR 10, any case, never used up): one without a drive is 201 with a new
+    drive's sign-up; one on a drive (its drive token) is 200 with `days_added` (its value pro
+    rata, more than a month on 100GB) and a later `period_until`; an unknown code is 400
+    `voucher_invalid`. A server that takes no test code (a production one) skips the section;
+    `--skip-vouchers` skips it anyway; `--mock` never skips it.
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -102,7 +108,14 @@ def unix_of(text):
         return None
 
 
-def run(token_url, s3_url=None):
+# A development token server's test vouchers (azlin-proto's voucher module).
+TEST_ONE_MONTH = 'AZLIN-TEST-1M'
+TEST_EUR10 = 'AZLIN-TEST-EUR10'
+
+
+def run(token_url, s3_url=None, vouchers='auto'):
+    """`vouchers`: 'auto' (section 13 unless the server takes no test code), 'required' (the
+    mock: never skipped), 'skip'."""
     suite = Suite()
     client = azlin_client.TokenClient(token_url)
     print('token server %s' % token_url, flush=True)
@@ -175,7 +188,43 @@ def run(token_url, s3_url=None):
                 status == 404 and error_code(value) == 'not_found', '(HTTP %d %r)' % (status, value))
     claim_checks(suite, client)
     recovery_checks(suite, client)
+    if vouchers == 'skip':
+        print('skipped: vouchers (--skip-vouchers)', flush=True)
+    else:
+        voucher_checks(suite, client, required=vouchers == 'required')
     return suite.failures
+
+
+def voucher_checks(suite, client, required):
+    """13. Vouchers with the development server's test codes."""
+    status, bundle, text = client.call('POST', '/v1/vouchers/redeem',
+                                       {'code': TEST_ONE_MONTH.lower(), 'tier': '100GB'})
+    if not required and status == 400 and error_code(bundle) == 'voucher_invalid':
+        print('skipped: vouchers (the server takes no test voucher - a production one)',
+              flush=True)
+        return
+    drive_id = ((bundle or {}).get('drive') or {}).get('id') or ''
+    token = (bundle or {}).get('drive_token') or ''
+    if not suite.check('a test voucher without a drive is 201 with a new drive',
+                       status == 201 and drive_id.startswith('d_') and bool(token),
+                       '(HTTP %d %r %s)' % (status, error_code(bundle), text[:120])):
+        return
+    before = unix_of(bundle.get('period_until'))
+    status, value, _ = client.call('POST', '/v1/vouchers/redeem',
+                                   {'code': TEST_EUR10, 'drive_id': drive_id}, bearer=token)
+    days = (value or {}).get('days_added')
+    after = unix_of((value or {}).get('period_until'))
+    suite.check('a test voucher on the drive is 200 with the days it added (its value pro rata)',
+                status == 200 and isinstance(days, int) and days > 30
+                and (value or {}).get('months_added') == days // 30
+                and after is not None and before is not None and after > before,
+                '(HTTP %d %r, %r days)' % (status, error_code(value), days))
+    status, value, _ = client.call('POST', '/v1/vouchers/redeem',
+                                   {'code': 'AZLIN-NOT-A-CODE', 'drive_id': drive_id},
+                                   bearer=token)
+    suite.check('an unknown voucher is 400 voucher_invalid',
+                status == 400 and error_code(value) == 'voucher_invalid',
+                '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def recovery_checks(suite, client):
@@ -409,17 +458,21 @@ def main():
     parser.add_argument('--s3-url', help="reach the bucket here instead of the bundle's endpoint")
     parser.add_argument('--mock', action='store_true',
                         help='start scripts/azlin_mock_stack.py on free ports and check it')
+    parser.add_argument('--skip-vouchers', action='store_true',
+                        help='skip section 13 (vouchers with the test codes)')
     args = parser.parse_args()
     if args.mock:
         import azlin_mock_stack  # noqa: PLC0415 - only for --mock
         root = tempfile.mkdtemp(prefix='azlin-conformance-')
         stack = azlin_mock_stack.start(root)
         try:
-            failures = run(stack.token_url)
+            failures = run(stack.token_url,
+                           vouchers='skip' if args.skip_vouchers else 'required')
         finally:
             stack.stop()
     else:
-        failures = run(azlin_client.token_url_from(args.token_url), args.s3_url)
+        failures = run(azlin_client.token_url_from(args.token_url), args.s3_url,
+                       vouchers='skip' if args.skip_vouchers else 'auto')
     print('PASS' if failures == 0 else 'FAIL: %d check(s)' % failures, flush=True)
     sys.exit(min(failures, 100))
 
