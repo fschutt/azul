@@ -58,7 +58,9 @@ commands:
                                  incoming mail for the encrypted drive: its drop key; with your
                                  Cloudflare account and API token, set on your mail Worker
                                  (default azlin-mail-worker; the token goes to Cloudflare only)
-                                 (encryption .. mail-drop: builds with the feature `encryption`)
+  git-remote <remote> <url>      git's remote helper over the drive index (git-remote-azlin
+                                 runs it for `git clone azlin::drive://<drive id>`)
+                                 (encryption .. git-remote: builds with the feature `encryption`)
   info                           the token server's view of the drive
   refresh                        new credentials and node list now
   transport                      which transport requests take (iroh or https) and why
@@ -1058,6 +1060,25 @@ fn cmd_recover(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     ))
 }
 
+/// git's remote helper for this account's drive: `git clone azlin::drive://<drive id>` runs
+/// azul-storage's `git-remote-azlin`, which hands the URL here as `azcloud --drive <id>
+/// git-remote <remote> <url>`. The drive index in the drive's bucket is served over this
+/// run's signed S3 requests, with the key this device keeps. stdin and stdout belong to git's
+/// protocol, so the command prints nothing else (errors go to stderr).
+#[cfg(feature = "encryption")]
+fn cmd_git_remote(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let account = encrypted_account(settings, net, args)?;
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    account.serve_git_remote(
+        &account.state().secrets(),
+        stdin.lock(),
+        stdout.lock(),
+        &mut azul_storage::meta::git::index_pack,
+    )?;
+    Ok((json!({"ok": true}), String::new()))
+}
+
 /// The drive index encrypted drives' files are named in: none in this build yet (the bucket's
 /// encrypted metadata repository), so `rotate` and `reencrypt` say so.
 #[cfg(feature = "encryption")]
@@ -1221,8 +1242,11 @@ fn run(args: &Args, net: &Net) -> Result<Output> {
         "rotate" => cmd_rotate(&settings, net, args),
         #[cfg(feature = "encryption")]
         "reencrypt" => cmd_reencrypt(&settings, net, args),
+        #[cfg(feature = "encryption")]
+        "git-remote" => cmd_git_remote(&settings, net, args),
         #[cfg(not(feature = "encryption"))]
-        "encryption" | "encrypt" | "unlock" | "recover" | "mail-drop" | "rotate" | "reencrypt" => {
+        "encryption" | "encrypt" | "unlock" | "recover" | "mail-drop" | "rotate" | "reencrypt"
+        | "git-remote" => {
             bail!("{command}: this azcloud was built without the feature `encryption`")
         }
         "info" => cmd_info(&settings, net, args),

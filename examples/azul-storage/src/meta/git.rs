@@ -15,15 +15,25 @@
 //!
 //! Without the drive key there is nothing to read: the helper needs it (the binary takes it
 //! from a file, never from the command line). Pushing is not offered.
+//!
+//! [`serve_bucket`] is the helper's whole run over a bucket, and it is used in two places.
+//! The `git-remote-azlin` binary uses it for a bucket in a folder (`folder://<path>`). An
+//! Azlin drive (`drive://<drive id>`) lives in an S3 bucket, so the binary hands that URL to
+//! `azcloud git-remote`: the azcloud command line holds the account's credentials, signs the
+//! S3 requests and sends them through its own HTTPS transport (azcloud-kit's
+//! `Account::serve_git_remote`), with the drive key it keeps.
 
-use std::io::{self, BufRead, Write};
+use std::{
+    io::{self, BufRead, Write},
+    process::{Command, Stdio},
+};
 
 use sha2::{Digest, Sha256};
 
 use super::{
     bucket::Bucket,
     objects::{Kind, ObjectId, Objects},
-    repo::{MetaRepo, MAIN},
+    repo::{MetaRepo, RepoOptions, MAIN},
     seal::Sealer,
     MetaError,
 };
@@ -148,7 +158,13 @@ fn io_error(e: MetaError) -> io::Error {
     io::Error::other(e.to_string())
 }
 
-/// The helper's whole run over the repository in `bucket`, opened with `sealer`.
+/// The device id of the helper's copy in the drive's log and leases: it only reads.
+const HELPER_DEVICE: &str = "git-remote-azlin";
+
+/// The helper's whole run over the repository in `bucket`, opened with `sealer`: a bucket in
+/// a folder (`FolderBucket`) or an S3 bucket (`DriveBucket` over a signed S3 drive, as the
+/// azcloud command line has it). The copy is lazy: a `list` reads the head, and only a
+/// `fetch` reads the packs.
 pub fn serve_bucket<B: Bucket, S: Sealer>(
     bucket: B,
     sealer: S,
@@ -156,8 +172,36 @@ pub fn serve_bucket<B: Bucket, S: Sealer>(
     output: impl Write,
     index_pack: &mut dyn FnMut(&[u8]) -> io::Result<()>,
 ) -> io::Result<()> {
-    let _ = (bucket, sealer, input, output, index_pack);
-    Ok(())
+    let options = RepoOptions {
+        cache_dir: None,
+        lazy: true,
+    };
+    let mut repo = MetaRepo::open_with(bucket, sealer, HELPER_DEVICE, "git", &options)
+        .map_err(io_error)?;
+    serve(&mut repo, input, output, index_pack)
+}
+
+/// Takes a pack into the repository git runs the helper for (`GIT_DIR`): `git index-pack
+/// --stdin`, its own output kept off the protocol.
+pub fn index_pack(pack: &[u8]) -> io::Result<()> {
+    let mut child = Command::new("git")
+        .args(["index-pack", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()?;
+    {
+        let mut input = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("git index-pack took no input"))?;
+        input.write_all(pack)?;
+    }
+    let status = child.wait()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("git index-pack: {status}")))
+    }
 }
 
 /// Serves git's remote-helper commands from `input` to `output` over `repo` until git sends

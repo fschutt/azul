@@ -15,6 +15,8 @@
 //! - [`Account::rotate_drive_key`]: "I was hacked" - the lockdown, then a new drive key
 //!   (azul-storage's `rotation`); [`Account::reencrypt`]: every file into a new object
 //!   afterwards (recommended after a compromise).
+//! - [`Account::serve_git_remote`]: git's remote helper over the drive index in the bucket
+//!   (`git clone azlin::drive://<drive id>`, through `azcloud git-remote`).
 //! - [`Account::enable_mail_drop`]: incoming mail for the encrypted drive - its drop key
 //!   (azul-storage's `crypto::drops`), whose public half the customer's mail Worker seals to
 //!   (set there with the customer's own Cloudflare token: [`crate::cloudflare`]).
@@ -38,6 +40,7 @@ use azul_storage::{
     },
     encrypted::EncryptedDrive,
     keyring::KeyringStore,
+    meta::{git, DriveBucket},
     rotation::{self, ReencryptState, Rotated},
     Drive, DriveError, S3Config, S3Drive,
 };
@@ -148,7 +151,13 @@ impl Account {
         Ok(device::unlock(&bucket, keyring, &self.record().id)?)
     }
 
-    /// git's remote helper over this drive's index.
+    /// git's remote helper over this drive's index (`git clone azlin::drive://<drive id>`:
+    /// azul-storage's `git-remote-azlin` hands the URL to `azcloud git-remote`, which calls
+    /// this). It serves git's commands from `input` to `output` over the drive's metadata
+    /// repository in its bucket (azul-storage's `meta::git::serve_bucket`). The S3 requests
+    /// are signed with the account's credentials (no refresh: call [`Account::ensure_fresh`]
+    /// first) and sent through its transports, and the repository opens with the drive key
+    /// `keyring` keeps. `index_pack` takes each pack into git's repository.
     ///
     /// # Errors
     ///
@@ -160,7 +169,15 @@ impl Account {
         output: impl Write,
         index_pack: &mut dyn FnMut(&[u8]) -> io::Result<()>,
     ) -> CloudResult<()> {
-        let _ = (keyring, input, output, index_pack);
+        let Some(drive_key) = self.unlock_key(keyring)? else {
+            fail!(
+                "this device has no key for drive {}: a join code from a device that has it, or \
+                 the recovery code",
+                self.record().id
+            );
+        };
+        let bucket = DriveBucket::new(self.bucket_drive()?);
+        git::serve_bucket(bucket, drive_key, input, output, index_pack)?;
         Ok(())
     }
 
