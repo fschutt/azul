@@ -342,3 +342,97 @@ pub const fn layout_class(layout: ViewLayout) -> AzString {
         ViewLayout::Content => AzString::from_const_str("__azdrive_layout_content"),
     }
 }
+
+// ==== An encrypted drive's recovery methods (recovery.rs) ====
+
+/// The emergency kit's buttons on the recovery sheet: Print, Save as PDF, Save to a USB stick.
+pub const KIT_PRINT: AzString = AzString::from_const_str("__azdrive_kit_print");
+pub const KIT_SAVE: AzString = AzString::from_const_str("__azdrive_kit_save");
+pub const KIT_USB: AzString = AzString::from_const_str("__azdrive_kit_usb");
+/// The recovery sheet's boxes of the groups typed back: `__azdrive_sheet_group_<n>` (0-based,
+/// in the order asked).
+#[must_use]
+pub fn sheet_group(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_sheet_group_{slot}"))
+}
+/// The recovery sheet's "I have written it down".
+pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done");
+/// A drill's code, "Later" and "Check".
+pub const DRILL_CODE: AzString = AzString::from_const_str("__azdrive_drill_code");
+pub const DRILL_LATER: AzString = AzString::from_const_str("__azdrive_drill_later");
+pub const DRILL_CHECK: AzString = AzString::from_const_str("__azdrive_drill_check");
+/// Trusted contacts, the owner's "Add": the code, each person's name and contact key, Make.
+pub const CONTACTS_CODE: AzString = AzString::from_const_str("__azdrive_contacts_code");
+pub const CONTACTS_MAKE: AzString = AzString::from_const_str("__azdrive_contacts_make");
+#[must_use]
+pub fn contacts_name(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_name_{slot}"))
+}
+#[must_use]
+pub fn contacts_key(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_key_{slot}"))
+}
+/// The shares made: a sealed share's text (by row), Done.
+#[must_use]
+pub fn contacts_share(row: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_share_{row}"))
+}
+pub const CONTACTS_DONE: AzString = AzString::from_const_str("__azdrive_contacts_done");
+/// A contact's side: the key made, the text pasted and Continue, the safety number, an answer
+/// for a held share (by its place in the list), the reply.
+pub const CONTACT_KEY_TEXT: AzString = AzString::from_const_str("__azdrive_contact_key_text");
+pub const CONTACT_PASTE: AzString = AzString::from_const_str("__azdrive_contact_paste");
+pub const CONTACT_PASTE_OK: AzString = AzString::from_const_str("__azdrive_contact_paste_ok");
+pub const SAFETY_NUMBER: AzString = AzString::from_const_str("__azdrive_safety_number");
+#[must_use]
+pub fn contact_answer(index: usize) -> AzString {
+    AzString::from(format!("__azdrive_contact_answer_{index}"))
+}
+pub const CONTACT_REPLY: AzString = AzString::from_const_str("__azdrive_contact_reply");
+/// Options > Drives > Shares you hold for others: its three doors.
+pub const CONTACT_BE: AzString = AzString::from_const_str("__azdrive_contact_be");
+pub const CONTACT_TAKE: AzString = AzString::from_const_str("__azdrive_contact_take");
+pub const CONTACT_HELP: AzString = AzString::from_const_str("__azdrive_contact_help");
+/// Recover with trusted contacts: the request, the two answers' boxes, Recover; the code back.
+pub const CONTACTS_REQUEST: AzString = AzString::from_const_str("__azdrive_contacts_request");
+#[must_use]
+pub fn contacts_answer_box(slot: usize) -> AzString {
+    AzString::from(format!("__azdrive_contacts_answer_{slot}"))
+}
+pub const CONTACTS_RECOVER: AzString = AzString::from_const_str("__azdrive_contacts_recover");
+pub const REBUILT_CODE: AzString = AzString::from_const_str("__azdrive_rebuilt_code");
+/// Options > Drives' Recovery section, a drive's warning below two methods, a method's button:
+/// `__azdrive_method_<drive>_<code|contacts|devices|passkey>_<test|add|remove|count>`.
+pub const RECOVERY_METHODS: AzString = AzString::from_const_str("__azdrive_recovery_methods");
+#[must_use]
+pub fn method_warning(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_method_warning_{}", id_part(drive_id)))
+}
+#[must_use]
+pub fn method_button(
+    drive_id: &str,
+    method: crate::recovery_health::Method,
+    action: crate::recovery_health::MethodAction,
+) -> AzString {
+    use crate::recovery_health::{Method, MethodAction};
+    let method = match method {
+        Method::Code => "code",
+        Method::Contacts => "contacts",
+        Method::OtherDevice => "devices",
+        Method::Passkey => "passkey",
+    };
+    let action = match action {
+        MethodAction::Test => "test",
+        MethodAction::Add => "add",
+        MethodAction::Remove => "remove",
+        MethodAction::CountAgain => "count",
+    };
+    AzString::from(format!("__azdrive_method_{}_{method}_{action}", id_part(drive_id)))
+}
+/// A printed share's paper buttons on the shares made: `__azdrive_share_<print|save|usb>_<row>`.
+#[must_use]
+pub fn share_paper(row: usize, what: &str) -> AzString {
+    AzString::from(format!("__azdrive_share_{what}_{row}"))
+}
+/// "Unlock with the recovery code": the code's box.
+pub const UNLOCK_CODE: AzString = AzString::from_const_str("__azdrive_unlock_code");

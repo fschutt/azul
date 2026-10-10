@@ -24,6 +24,8 @@
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
+//! - [`qr`]: QR codes for paper (byte mode, level M, versions 1 to 10): the
+//!   recovery code on AzDrive's emergency kit, a trusted contact's share.
 //! - [`options`]: the settings page's model - Outlook 2010's Options dialog
 //!   (the categories, the header line over each, the ids, what Cancel puts
 //!   back).
@@ -62,6 +64,7 @@ pub mod history;
 pub mod migrate;
 pub mod oauth_clients;
 pub mod options;
+pub mod qr;
 pub mod settings;
 pub mod shared_endpoint;
 pub mod shortcuts;

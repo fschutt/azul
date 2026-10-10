@@ -63,7 +63,7 @@ fn line(text: &str) -> Dom {
     Dom::create_span_with_text(AzString::from(text)).with_css(TEXT)
 }
 
-fn clipboard(info: &mut CallbackInfo, text: &str) {
+pub(crate) fn clipboard(info: &mut CallbackInfo, text: &str) {
     info.set_clipboard_content(ClipboardContent {
         plain_text: AzString::from(text),
         styled_runs: StyledTextRunVec::create(),

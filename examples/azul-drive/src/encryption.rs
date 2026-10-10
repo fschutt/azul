@@ -57,8 +57,8 @@ use azul_storage::{
     azul_transport::AzulTransport,
     crypto::{
         device,
-        keys::{RecoveryCode, RecoveryKdf},
-        random_bytes, Zeroizing,
+        keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf},
+        random_bytes, CryptoError, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
     keyring::KeyringStore,
@@ -103,19 +103,24 @@ static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// Sets the run's cache folder (the start, once): the drives' index copies live in it.
 pub(crate) fn set_cache_dir(dir: Option<PathBuf>) {
     let _ = CACHE_DIR.set(dir);
+    // Print's copies of an emergency kit a run before left behind.
+    crate::recovery::forget_print_copies();
+}
+
+/// The run's cache folder: `--cache-dir`, else `<cache>/AzDrive` (before the start set it too);
+/// `None` in a `--shot` run without the switch.
+pub(crate) fn run_cache_dir() -> Option<PathBuf> {
+    match CACHE_DIR.get() {
+        Some(dir) => dir.clone(),
+        None => crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+            .map(|dir| dir.join("AzDrive")),
+    }
 }
 
 /// The folder of this computer's copies of the encrypted drives' indexes: `drive-index/` in the
 /// run's cache folder (before the start set it: in `<cache>/AzDrive`).
 pub(crate) fn drive_index_root() -> Option<PathBuf> {
-    match CACHE_DIR.get() {
-        Some(dir) => drive_index_root_in(dir.as_deref()),
-        None => {
-            let default = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
-                .map(|dir| dir.join("AzDrive"));
-            drive_index_root_in(default.as_deref())
-        }
-    }
+    drive_index_root_in(run_cache_dir().as_deref())
 }
 
 /// `drive-index/` in the cache folder `cache_dir`; `None` without one (the copies in memory).
@@ -207,6 +212,12 @@ pub(crate) fn start_recompression(info: &mut CallbackInfo, app: &RefAny) {
 extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     if !offered() {
         return TimerCallbackReturn::terminate_unchanged();
+    }
+    // A recovery drill that is due opens (once a minute, when no dialog shows).
+    if let Some(mut s) = data.downcast_mut::<DriveState>() {
+        if crate::recovery::drill_if_due(&mut s, now_unix()) {
+            return TimerCallbackReturn::continue_and_refresh_dom();
+        }
     }
     if RECOMPRESSING.load(Ordering::SeqCst) || !idle_on_mains() {
         return TimerCallbackReturn::continue_unchanged();
@@ -311,18 +322,25 @@ fn run_maintenance(
 
 // ==== The dialog ====
 
-/// The recovery sheet: the code, then one of its groups typed back.
+/// How many groups of the code the sheet asks for (the plan's four, of five).
+pub(crate) const SETUP_CHECKS: usize = 4;
+
+/// The recovery sheet: the code, then four of its groups typed back.
 pub(crate) struct Sheet {
     pub drive_id: String,
     /// The code as shown (`XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX`). A secret: never printed.
     pub code: Zeroizing<String>,
-    /// Which group (0-based) the user types back.
-    pub check: usize,
-    pub typed: Zeroizing<String>,
+    /// Which groups (0-based, in order) the user types back: [`SETUP_CHECKS`] of them, chosen
+    /// at random.
+    pub checks: Vec<usize>,
+    /// What the user typed for each of them.
+    pub typed: Vec<Zeroizing<String>>,
     pub error: String,
     /// The sheet of a key rotation's new code: re-encryption is offered next (else the
     /// migration of a newly encrypted drive starts).
     pub after_rotation: bool,
+    /// What the emergency kit's last button did (printed, saved, why not).
+    pub kit_note: String,
 }
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
@@ -339,21 +357,28 @@ fn normalized(text: &str) -> String {
 }
 
 impl Sheet {
-    /// The sheet of `code`, asking for a random group.
+    /// The sheet of `code`, asking for [`SETUP_CHECKS`] of its groups chosen at random (a
+    /// shuffle by the OS random source; the first groups when it fails).
     pub(crate) fn new(drive_id: &str, code: Zeroizing<String>) -> Sheet {
         let groups = code.split('-').count().max(1);
-        let mut pick = [0u8; 1];
-        let check = match random_bytes(&mut pick) {
-            Ok(()) => usize::from(pick[0]) % groups,
-            Err(_) => groups - 1,
-        };
+        let mut order: Vec<usize> = (0..groups).collect();
+        let mut random = [0u8; 16];
+        if random_bytes(&mut random).is_ok() {
+            for i in (1..groups).rev() {
+                order.swap(i, usize::from(random[i % random.len()]) % (i + 1));
+            }
+        }
+        let mut checks: Vec<usize> = order.into_iter().take(SETUP_CHECKS.min(groups)).collect();
+        checks.sort_unstable();
+        let typed = checks.iter().map(|_| Zeroizing::new(String::new())).collect();
         Sheet {
             drive_id: drive_id.to_string(),
             code,
-            check,
-            typed: Zeroizing::new(String::new()),
+            checks,
+            typed,
             error: String::new(),
             after_rotation: false,
+            kit_note: String::new(),
         }
     }
 
@@ -364,12 +389,37 @@ impl Sheet {
         self
     }
 
-    /// Whether the typed group is the one asked for.
+    /// The groups (0-based) the user types back, in order.
+    pub(crate) fn asked(&self) -> Vec<usize> {
+        self.checks.clone()
+    }
+
+    /// What the user typed into the box of the `slot`-th group asked for.
+    pub(crate) fn set_typed(&mut self, slot: usize, text: Zeroizing<String>) {
+        if let Some(typed) = self.typed.get_mut(slot) {
+            *typed = text;
+        }
+    }
+
+    /// The groups asked for as people count them: `1, 3, 4 and 5`.
+    pub(crate) fn asked_words(&self) -> String {
+        let numbers: Vec<String> = self.checks.iter().map(|g| (g + 1).to_string()).collect();
+        match numbers.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            Some((last, _)) => last.clone(),
+            None => String::new(),
+        }
+    }
+
+    /// Whether every group typed is the one asked for.
     pub(crate) fn confirmed(&self) -> bool {
-        self.code
-            .split('-')
-            .nth(self.check)
-            .is_some_and(|group| normalized(group) == normalized(&self.typed))
+        let groups: Vec<&str> = self.code.split('-').collect();
+        !self.checks.is_empty()
+            && self.checks.iter().zip(&self.typed).all(|(&group, typed)| {
+                groups
+                    .get(group)
+                    .is_some_and(|code| normalized(code) == normalized(typed))
+            })
     }
 }
 
@@ -400,6 +450,22 @@ pub(crate) enum Dialog {
         typed: Zeroizing<String>,
         error: String,
     },
+    /// "Do you still have your recovery kit?": the code typed for a drill.
+    Drill {
+        drive_id: String,
+        typed: Zeroizing<String>,
+        error: String,
+    },
+    /// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
+    Contacts(crate::recovery_contacts::Page),
+}
+
+impl Dialog {
+    /// Whether its close box and Escape take it away: not the recovery sheet, whose code shows
+    /// only this once - the setup finishes when its groups are typed back.
+    pub(crate) fn may_close(&self) -> bool {
+        !matches!(self, Dialog::Sheet(_))
+    }
 }
 
 fn drive_name(s: &DriveState, drive_id: &str) -> String {
@@ -456,15 +522,38 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                     "font-family: monospace; font-size: 20px; margin-top: 14px; \
                      margin-bottom: 14px; letter-spacing: 1px;",
                 ),
-                label(&format!(
-                    "To check that you have it, type group {} of the code:",
-                    sheet.check + 1
-                )),
-                TextInput::create()
-                    .with_text(AzString::from(sheet.typed.as_str()))
-                    .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
-                    .dom(),
             ]);
+            // The emergency kit: Print, Save as PDF, Save to a USB stick, and its QR code.
+            for piece in crate::recovery::kit_pieces(app, &sheet.code, &sheet.kit_note) {
+                body.add_child(piece);
+            }
+            body.add_child(label(&format!(
+                "To check that you have it, type groups {} of the code:",
+                sheet.asked_words()
+            )));
+            let mut boxes = Dom::create_div().with_css("display: flex; flex-direction: row;");
+            for (slot, (&group, typed)) in sheet.checks.iter().zip(&sheet.typed).enumerate() {
+                boxes.add_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: column; margin-right: 8px;")
+                        .with_child(label(&format!("Group {}", group + 1)))
+                        .with_child(
+                            TextInput::create()
+                                .with_text(AzString::from(typed.as_str()))
+                                .with_placeholder(AzString::from("XXXXX"))
+                                .with_on_text_input(
+                                    RefAny::new(GroupRef {
+                                        app: app.clone(),
+                                        slot,
+                                    }),
+                                    on_group_typed as TextInputOnTextInputCallbackType,
+                                )
+                                .dom()
+                                .with_id(crate::ids::sheet_group(slot)),
+                        ),
+                );
+            }
+            body.add_child(boxes);
             if !sheet.error.is_empty() {
                 body.add_child(line(&sheet.error).with_css("color: #C42B1C;"));
             }
@@ -473,7 +562,8 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 ButtonType::Primary,
                 app,
                 on_sheet_done,
-            )]));
+            )
+            .with_id(crate::ids::SHEET_DONE)]));
             (String::from("Your recovery code"), body)
         }
         Dialog::Unlock {
@@ -488,7 +578,8 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 TextInput::create()
                     .with_placeholder(AzString::from("XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX"))
                     .with_on_text_input(app.clone(), on_typed as TextInputOnTextInputCallbackType)
-                    .dom(),
+                    .dom()
+                    .with_id(crate::ids::UNLOCK_CODE),
             ]);
             if !error.is_empty() {
                 body.add_child(line(error).with_css("color: #C42B1C;"));
@@ -573,6 +664,8 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
                 ]),
             ]),
         ),
+        Dialog::Drill { .. } => crate::recovery::drill_parts(dialog, s, app),
+        Dialog::Contacts(page) => crate::recovery_contacts::dialog_parts(page, s, app),
         Dialog::OfferReencrypt { drive_id } => (
             String::from("Re-encrypt every file?"),
             column(vec![
@@ -751,7 +844,7 @@ pub(crate) fn ask_unlock(s: &mut DriveState, drive_id: &str) {
     }
 }
 
-extern "C" fn on_typed(
+pub(crate) extern "C" fn on_typed(
     mut data: RefAny,
     _info: CallbackInfo,
     state: TextInputState,
@@ -765,17 +858,47 @@ extern "C" fn on_typed(
     };
     let text = Zeroizing::new(state.get_text().as_str().to_string());
     match s.popup.as_mut() {
-        Some(Popup::Encryption(Dialog::Sheet(sheet))) => {
-            sheet.typed = text;
-            sheet.error.clear();
-        }
         Some(Popup::Encryption(
-            Dialog::Unlock { typed, error, .. } | Dialog::RecoveryLockdown { typed, error, .. },
+            Dialog::Unlock { typed, error, .. }
+            | Dialog::RecoveryLockdown { typed, error, .. }
+            | Dialog::Drill { typed, error, .. },
         )) => {
             *typed = text;
             error.clear();
         }
         _ => {}
+    }
+    keep
+}
+
+/// What a group's box on the recovery sheet carries: which of the groups asked for it is.
+struct GroupRef {
+    app: RefAny,
+    slot: usize,
+}
+
+/// A group typed on the recovery sheet.
+extern "C" fn on_group_typed(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let keep = OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    };
+    let Some((mut app, slot)) = data
+        .downcast_ref::<GroupRef>()
+        .map(|group| (group.app.clone(), group.slot))
+    else {
+        return keep;
+    };
+    let Some(mut s) = app.downcast_mut::<DriveState>() else {
+        return keep;
+    };
+    if let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() {
+        sheet.set_typed(slot, Zeroizing::new(state.get_text().as_str().to_string()));
+        sheet.error.clear();
     }
     keep
 }
@@ -810,13 +933,18 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         };
         if !sheet.confirmed() {
             sheet.error = format!(
-                "That is not group {} of the code. Look at what you wrote down.",
-                sheet.check + 1
+                "Groups {} are not all the code's. Look at what you wrote down: the setup \
+                 finishes when they are.",
+                sheet.asked_words()
             );
             return;
         }
         let drive_id = sheet.drive_id.clone();
         let code = RecoveryCode::parse(&sheet.code);
+        // The sheet closes: Print's copies of the kit go; the setup's check is kept.
+        crate::recovery::forget_print_copies();
+        crate::recovery::setup_verified(s, &drive_id);
+        crate::save_settings(info, app, s);
         // The token server's recovery key from this code: what a lockdown without a drive token
         // is signed with ("Lock down with the recovery code...").
         if let Some(code) = code {
@@ -963,6 +1091,24 @@ pub(crate) enum EncryptionJob {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
     },
+    /// The emergency kit written into the folder picked (a USB stick).
+    SaveKit {
+        path: PathBuf,
+        bytes: Zeroizing<Vec<u8>>,
+    },
+    /// A drill's code against the bucket's recovery wrap (a drive set up before the drills).
+    CheckCode {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+        code: RecoveryCode,
+    },
+    /// A task of the trusted contacts (keys in the keyring, a recovery's lockdown).
+    Contacts(crate::recovery_contacts::ContactsJob),
+    /// The drive's other devices counted (member wraps beside this computer's).
+    CountDevices {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+    },
 }
 
 /// What a rotation brings back to the UI thread.
@@ -1016,6 +1162,25 @@ pub(crate) enum EncryptionOutcome {
     Maintained {
         drive_id: String,
         result: Result<Option<Maintained>, String>,
+    },
+    /// The emergency kit is in the folder picked (its bytes), or why not.
+    KitSaved {
+        path: PathBuf,
+        len: usize,
+        result: Result<(), String>,
+    },
+    /// Whether a drill's code opens the bucket's recovery wrap; the code's public recovery key.
+    CodeChecked {
+        drive_id: String,
+        recovery_key: String,
+        result: Result<bool, String>,
+    },
+    /// What a task of the trusted contacts found.
+    Contacts(crate::recovery_contacts::ContactsDone),
+    /// How many other devices have the drive's key.
+    DevicesCounted {
+        drive_id: String,
+        result: Result<u32, String>,
     },
 }
 
@@ -1225,6 +1390,38 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             );
             EncryptionOutcome::Maintained { drive_id, result }
         }
+        EncryptionJob::SaveKit { path, bytes } => EncryptionOutcome::KitSaved {
+            result: crate::recovery::save_kit(&path, &bytes),
+            len: bytes.len(),
+            path,
+        },
+        EncryptionJob::CheckCode {
+            drive_id,
+            auto,
+            code,
+        } => {
+            let recovery_key = recovery_key_of(&code, &drive_id).public_base64();
+            let result = load_recovery_wrap(auto.bucket().as_ref())
+                .map_err(|e| e.to_string())
+                .and_then(|wrap| match wrap.open(auto.drive(), &code) {
+                    Ok(_) => Ok(true),
+                    Err(CryptoError::WrongKey) => Ok(false),
+                    Err(e) => Err(e.to_string()),
+                });
+            EncryptionOutcome::CodeChecked {
+                drive_id,
+                recovery_key,
+                result,
+            }
+        }
+        EncryptionJob::Contacts(job) => {
+            EncryptionOutcome::Contacts(crate::recovery_contacts::run(job))
+        }
+        EncryptionJob::CountDevices { drive_id, auto } => {
+            let result = device::other_devices(auto.bucket().as_ref(), &keyring, auto.drive())
+                .map_err(|e| e.to_string());
+            EncryptionOutcome::DevicesCounted { drive_id, result }
+        }
     }
 }
 
@@ -1235,7 +1432,7 @@ pub(crate) fn recovery_key_of(code: &RecoveryCode, drive_id: &str) -> azcloud_ki
 }
 
 /// The drive's token server, from its entry (else this run's).
-fn token_url_of(s: &DriveState, drive_id: &str) -> Option<String> {
+pub(crate) fn token_url_of(s: &DriveState, drive_id: &str) -> Option<String> {
     let fallback = s.token.url.clone();
     s.slot_index(drive_id)
         .and_then(|index| crate::periods::azlin_drive(&s.slots[index].entry, fallback.as_deref()))
@@ -1265,7 +1462,7 @@ fn register_recovery_key(
 /// A lockdown signed with the drive's recovery key (a fresh nonce, no drive token); the
 /// pending family's token kept as this computer's session (its credentials come with the
 /// first refresh, once the lockdown takes effect).
-fn recovery_lockdown(
+pub(crate) fn recovery_lockdown(
     drive_id: &str,
     code: &RecoveryCode,
     token_url: &str,
@@ -1312,6 +1509,8 @@ pub(crate) fn on_outcome(
     match outcome {
         EncryptionOutcome::SetUp { drive_id, result } => match result {
             Ok(code) => {
+                crate::recovery::code_made(s, &drive_id, &code);
+                crate::save_settings(info, app, s);
                 s.popup = Some(Popup::Encryption(Dialog::Sheet(Sheet::new(&drive_id, code))));
             }
             Err(why) => {
@@ -1380,6 +1579,8 @@ pub(crate) fn on_outcome(
         }
         EncryptionOutcome::Rotated { drive_id, result } => match result {
             Ok(done) => {
+                crate::recovery::code_made(s, &drive_id, &done.code);
+                crate::save_settings(info, app, s);
                 let name = drive_name(s, &drive_id);
                 let mail = if done.drop_key.is_some() {
                     " Incoming mail has a new drop key: give it to your mail Worker (AzMail, or \
@@ -1472,7 +1673,60 @@ pub(crate) fn on_outcome(
                 eprintln!("AZDRIVE_MAINTAIN_STOPPED {drive_id}: {why}");
             }
         }
+        EncryptionOutcome::KitSaved { path, len, result } => {
+            crate::recovery::kit_saved(s, &path, len, result);
+        }
+        EncryptionOutcome::CodeChecked {
+            drive_id,
+            recovery_key,
+            result,
+        } => crate::recovery::bucket_answered(info, app, s, &drive_id, recovery_key, result),
+        EncryptionOutcome::Contacts(done) => crate::recovery_contacts::on_done(info, app, s, done),
+        EncryptionOutcome::DevicesCounted { drive_id, result } => {
+            crate::recovery::devices_counted(info, app, s, &drive_id, result);
+        }
     }
+}
+
+/// A drill's code checked against the bucket's recovery wrap, on a worker thread (a drive set
+/// up before the drills kept no recovery key).
+pub(crate) fn check_code_in_bucket(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    code: RecoveryCode,
+) {
+    let Some(auto) = auto_of(s, drive_id) else {
+        return;
+    };
+    s.popup = Some(Popup::Encryption(Dialog::Busy {
+        title: String::from("Checking the recovery code"),
+        text: String::from("Opening the drive's recovery key with the code (a few seconds)..."),
+    }));
+    let job = EncryptionJob::CheckCode {
+        drive_id: drive_id.to_string(),
+        auto,
+        code,
+    };
+    spawn(info, app, s, Job::Encryption(job));
+}
+
+/// Counts the drive's other devices on a worker thread (Options > Drives' Count again).
+pub(crate) fn count_devices(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let Some(auto) = auto_of(s, drive_id) else {
+        return;
+    };
+    let job = EncryptionJob::CountDevices {
+        drive_id: drive_id.to_string(),
+        auto,
+    };
+    spawn(info, app, s, Job::Encryption(job));
 }
 
 /// "Lock down with the recovery code...": the dialog.
@@ -1603,28 +1857,63 @@ mod tests {
         assert!(!at(false, 3_600), "on battery");
     }
 
+    /// The groups of the code a sheet asks for, as the user types them in.
+    fn type_groups(sheet: &mut Sheet, change: impl Fn(&str) -> String) {
+        let groups: Vec<String> = sheet.code.split('-').map(str::to_string).collect();
+        for (slot, group) in sheet.asked().into_iter().enumerate() {
+            sheet.set_typed(slot, Zeroizing::new(change(&groups[group])));
+        }
+    }
+
     #[test]
-    fn the_recovery_sheet_takes_the_group_it_asks_for_as_people_type_it() {
+    fn the_recovery_sheet_asks_for_four_different_groups_of_the_code() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        for _ in 0..20 {
+            let sheet = Sheet::new("d_1", code.to_text());
+            let asked = sheet.asked();
+            assert_eq!(asked.len(), SETUP_CHECKS, "four groups: {asked:?}");
+            assert_eq!(SETUP_CHECKS, 4);
+            assert!(asked.windows(2).all(|w| w[0] < w[1]), "different, in order: {asked:?}");
+            assert!(asked.iter().all(|&group| group < 5), "groups of the code: {asked:?}");
+        }
+        let left_out: std::collections::HashSet<Vec<usize>> = (0..60)
+            .map(|_| Sheet::new("d_1", code.to_text()).asked())
+            .collect();
+        assert!(left_out.len() > 1, "chosen at random: {left_out:?}");
+    }
+
+    #[test]
+    fn the_recovery_sheet_takes_the_four_groups_as_people_type_them() {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         let mut sheet = Sheet::new("d_1", code.to_text());
-        assert!(sheet.check < 5, "one of five groups");
-        let group = sheet
-            .code
-            .split('-')
-            .nth(sheet.check)
-            .unwrap()
-            .to_string();
-        sheet.typed = Zeroizing::new(group.to_lowercase());
+        assert!(!sheet.confirmed(), "nothing typed");
+        type_groups(&mut sheet, str::to_lowercase);
         assert!(sheet.confirmed());
-        sheet.typed = Zeroizing::new(format!(
-            " {} ",
-            group.replace('0', "O").replace('1', "l")
-        ));
+        type_groups(&mut sheet, |g| format!(" {} ", g.replace('0', "O").replace('1', "l")));
         assert!(sheet.confirmed(), "O for 0, l for 1, spaces around");
-        sheet.typed = Zeroizing::new(String::from("WRONG"));
-        assert!(!sheet.confirmed());
-        sheet.typed = Zeroizing::new(String::new());
-        assert!(!sheet.confirmed());
+    }
+
+    #[test]
+    fn the_signup_does_not_finish_until_all_four_groups_are_right() {
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let mut sheet = Sheet::new("d_1", code.to_text());
+        type_groups(&mut sheet, str::to_string);
+        assert!(sheet.confirmed());
+        for slot in 0..SETUP_CHECKS {
+            let mut wrong = Sheet::new("d_1", code.to_text());
+            type_groups(&mut wrong, str::to_string);
+            wrong.set_typed(slot, Zeroizing::new(String::from("WRONG")));
+            assert!(!wrong.confirmed(), "group {slot} wrong");
+            wrong.set_typed(slot, Zeroizing::new(String::new()));
+            assert!(!wrong.confirmed(), "group {slot} empty");
+        }
+        // Neither its close box nor Escape takes the sheet away: the code shows only now.
+        assert!(!Dialog::Sheet(Sheet::new("d_1", code.to_text())).may_close());
+        assert!(Dialog::Message {
+            title: String::new(),
+            text: String::new()
+        }
+        .may_close());
     }
 
     #[test]

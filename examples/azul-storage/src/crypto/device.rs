@@ -487,3 +487,99 @@ pub fn recover(
     enroll(bucket, keyring, drive, &drive_key)?;
     Ok(drive_key)
 }
+
+// ==== Trusted contacts' keys (super::contacts) ====
+
+/// The keyring entry of a contact key - the key this device made to hold one owner's share of a
+/// recovery code - by its public key's id.
+#[must_use]
+pub fn contact_key_entry(id: &str) -> String {
+    format!("azul-storage/contact-key/{id}")
+}
+
+/// The keyring entry of a drive's recovery request key, kept while trusted contacts answer.
+#[must_use]
+pub fn request_key_entry(drive: &str) -> String {
+    format!("azul-storage/recovery-request/{drive}")
+}
+
+const KIND_CONTACT_KEY: &str = "contact-key";
+const KIND_REQUEST_KEY: &str = "request-key";
+
+/// A new contact key kept in the keyring; its public half (what the owner seals a share to).
+pub fn new_contact_key(keyring: &dyn KeyringStore) -> Result<super::keys::MemberPublic, DriveError> {
+    let secret = MemberSecret::generate().map_err(|e| e.for_key("a contact key"))?;
+    let public = secret.public();
+    store_key(
+        keyring,
+        &contact_key_entry(&public.id()),
+        KIND_CONTACT_KEY,
+        &secret.to_bytes(),
+    )?;
+    Ok(public)
+}
+
+/// The contact key whose public half is `public`; `None` when this device has none.
+pub fn load_contact_key(
+    keyring: &dyn KeyringStore,
+    public: &super::keys::MemberPublic,
+) -> Result<Option<MemberSecret>, DriveError> {
+    let secret = load_key(keyring, &contact_key_entry(&public.id()), KIND_CONTACT_KEY)?
+        .map(|bytes| MemberSecret::from_bytes(*bytes));
+    // An entry under the id of another key is no key of this one.
+    Ok(secret.filter(|secret| secret.public() == *public))
+}
+
+/// The drive's recovery request key: the keyring's, else a new one kept there.
+pub fn request_key(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberSecret, DriveError> {
+    let entry = request_key_entry(drive);
+    if let Some(bytes) = load_key(keyring, &entry, KIND_REQUEST_KEY)? {
+        return Ok(MemberSecret::from_bytes(*bytes));
+    }
+    let secret = MemberSecret::generate().map_err(|e| e.for_key(drive))?;
+    store_key(keyring, &entry, KIND_REQUEST_KEY, &secret.to_bytes())?;
+    Ok(secret)
+}
+
+/// Removes the drive's recovery request key (the recovery is done).
+pub fn forget_request_key(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
+    let entry = request_key_entry(drive);
+    keyring.delete(&entry).map_err(|e| keyring_error(&entry, e))
+}
+
+/// Members of the drive other than this device - its other devices (and, in a shared drive,
+/// the other people): the member key files in `.azlin/keys/`, the recovery code's and the
+/// invites' left out.
+pub fn other_devices(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<u32, DriveError> {
+    let own = load_member_secret(keyring, drive)?
+        .and_then(|secret| member_key_file(&secret.public().id()).ok());
+    let mut request = ListRequest::recursive(KEYS_PREFIX);
+    let mut count = 0u32;
+    loop {
+        let page = bucket.list(&request)?;
+        for object in &page.objects {
+            let key = object.key.as_str();
+            let member = key
+                .strip_prefix(KEYS_PREFIX)
+                .and_then(|rest| rest.strip_suffix(".key"))
+                .unwrap_or("");
+            let counts = !member.is_empty()
+                && !member.contains('/')
+                && key != RECOVERY_KEY_FILE
+                && !member.starts_with("invite-")
+                && own.as_deref() != Some(key);
+            if counts {
+                count = count.saturating_add(1);
+            }
+        }
+        match page.next {
+            Some(next) => request.continuation = Some(next),
+            None => break,
+        }
+    }
+    Ok(count)
+}
