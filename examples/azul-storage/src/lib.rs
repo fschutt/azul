@@ -98,6 +98,9 @@ pub use encrypted::{
 /// A plaintext drive's files moved into its encrypted namespace, resumably.
 #[cfg(feature = "encryption")]
 pub mod migrate;
+/// An encrypted drive's files written again, smaller, while the computer is idle.
+#[cfg(feature = "encryption")]
+pub mod recompress;
 
 use std::{fmt, io::Read, path::PathBuf};
 

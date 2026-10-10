@@ -41,6 +41,9 @@ mod device;
 /// A plaintext drive moved into its encrypted namespace (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod migrate;
+/// The recompression pass (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod recompress;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
