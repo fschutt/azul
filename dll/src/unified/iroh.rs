@@ -24,7 +24,8 @@ pub use self::wasm_stub::IrohEndpoint;
 mod wasm_stub {
     use core::ffi::c_void;
 
-    use azul_css::{AzString, U8Vec};
+    use azul_css::{AzString, StringVec, U8Vec};
+    use azul_layout::callbacks::ResultU8VecString;
 
     use super::{IrohConfig, IrohPeerStats, OptionIrohEvent};
 
@@ -73,6 +74,19 @@ mod wasm_stub {
         }
         pub fn connect(&self, _ticket: AzString) -> bool {
             false
+        }
+        pub fn request(
+            &self,
+            _endpoint_id: AzString,
+            _addresses: StringVec,
+            _relay_url: AzString,
+            _data: U8Vec,
+            _half_close: bool,
+            _timeout_secs: u32,
+        ) -> ResultU8VecString {
+            ResultU8VecString::Err(AzString::from_const_str(
+                "iroh is not available in the browser yet",
+            ))
         }
         pub fn send_frame(&self, _peer: u64, _track: u32, _data: U8Vec) -> bool {
             false
