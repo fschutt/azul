@@ -277,7 +277,16 @@ mod tests {
         assert!(!rows[1].selected);
         assert!(matches!(rows[2].status, ImportStatus::Duplicate(0, s) if (s - 0.93).abs() < 1e-6));
         assert!(!rows[2].selected);
-        assert_eq!(import_summary(&rows), "1 new \u{b7} 1 possible duplicate \u{b7} 1 update");
+        let summary = import_summary(&rows);
+        assert_eq!(
+            summary.keys(),
+            vec!["azcontacts-import-new", "azcontacts-import-duplicates", "azcontacts-import-updates"]
+        );
+        assert_eq!(
+            summary.to_string(),
+            "azcontacts-import-new(count=1) \u{b7} azcontacts-import-duplicates(count=1) \u{b7} \
+             azcontacts-import-updates(count=1)"
+        );
     }
 
     #[test]

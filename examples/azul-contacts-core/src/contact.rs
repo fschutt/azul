@@ -832,7 +832,7 @@ mod tests {
         let only_fn = parse_vcf("BEGIN:VCARD\nVERSION:3.0\nFN:Dr. Who\nEND:VCARD\n").0.remove(0);
         assert_eq!(only_fn.display_name(), "Dr. Who");
         assert_eq!(robin().subtitle(), "Product lead \u{b7} Northwind");
-        assert_eq!(Contact::default().display_name(), "(no name)");
+        assert_eq!(Contact::default().display_name(), NO_NAME, "the app says it in its language");
     }
 
     #[test]
