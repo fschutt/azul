@@ -465,3 +465,48 @@ mod encrypted_copies {
         );
     }
 }
+
+/// Deleting through the session (a synced folder's file kept in the cloud only; a file of a
+/// plain drive's own listing, which shows the sync's names): the next pass deletes it on the
+/// drive - and here, for a file that was here.
+#[test]
+fn a_file_deleted_through_the_session_goes_from_the_drive_with_the_next_pass() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    let b = paired("dev-b", &store, |s| s.auto_download = AutoDownload::Nothing);
+    a.write("cloud.txt", b"only in the cloud for b");
+    a.write("here.txt", b"on a");
+    a.pass();
+    let (states, _) = b.pass();
+    assert_eq!(states.state_of("cloud.txt"), Some(FileState::CloudOnly));
+    let deleted = b.session.delete(&[String::from("cloud.txt")]).unwrap();
+    assert_eq!(deleted, vec![String::from("cloud.txt")]);
+    assert_eq!(b.session.states().state_of("cloud.txt"), None, "gone from the states at once");
+    b.pass();
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(!index.contains("\"cloud.txt\""), "{index}");
+    let (states, _) = a.pass();
+    assert!(a.read("cloud.txt").is_none(), "the other device deletes it too");
+    assert_eq!(states.state_of("cloud.txt"), None);
+
+    let deleted = a.session.delete(&[String::from("here.txt")]).unwrap();
+    assert_eq!(deleted, vec![String::from("here.txt")]);
+    assert!(a.read("here.txt").is_none(), "its copy here goes at once");
+    a.pass();
+    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
+    assert!(!index.contains("\"here.txt\""), "{index}");
+}
+
+/// Opening a file that is on this device already marks it used: the size cap frees it last.
+#[test]
+fn touching_a_file_marks_it_used_now() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("old.txt", b"old");
+    a.pass();
+    let before = a.session.states().files["old.txt"].last_used;
+    a.session.touch("old.txt").unwrap();
+    let after = a.session.states().files["old.txt"].last_used;
+    assert!(after >= crate::now() - 60 && after >= before, "{before} -> {after}");
+    assert!(a.session.touch("missing.txt").is_ok(), "a file the drive does not have: nothing");
+}

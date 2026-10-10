@@ -43,11 +43,11 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
     let mut states = SyncStates::default();
     let mut paired = setup();
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true),
+        sync_view::status_text(&paired, &states, None, true, false),
         "Not synced yet"
     );
     states.last_pass = Some(1);
-    assert_eq!(sync_view::status_text(&paired, &states, None, true), "Up to date");
+    assert_eq!(sync_view::status_text(&paired, &states, None, true, false), "Up to date");
     let running = Running {
         cancel: Arc::new(AtomicBool::new(false)),
         progress: PassProgress {
@@ -58,7 +58,7 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
             moving: None,
         },
     };
-    let syncing = sync_view::status_text(&paired, &states, Some(&running), true);
+    let syncing = sync_view::status_text(&paired, &states, Some(&running), true, false);
     assert!(syncing.starts_with("Syncing 12 files ("), "{syncing}");
     assert!(syncing.contains("340"), "{syncing}");
     states.files.insert(
@@ -75,17 +75,23 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
         },
     );
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true),
+        sync_view::status_text(&paired, &states, None, true, false),
         "Waiting for you: 1 conflict"
     );
+    // An Azlin drive is read-only when its token server says so (its drive status), not
+    // because a write was refused; another drive when it refuses writes.
     states.read_only = true;
-    assert_eq!(
-        sync_view::status_text(&paired, &states, None, true),
+    assert_ne!(
+        sync_view::status_text(&paired, &states, None, true, false),
         "Read-only (payment due)"
     );
-    assert_eq!(sync_view::status_text(&paired, &states, None, false), "Read-only");
+    assert_eq!(
+        sync_view::status_text(&paired, &states, None, true, true),
+        "Read-only (payment due)"
+    );
+    assert_eq!(sync_view::status_text(&paired, &states, None, false, false), "Read-only");
     paired.paused = true;
-    assert_eq!(sync_view::status_text(&paired, &states, None, true), "Paused");
+    assert_eq!(sync_view::status_text(&paired, &states, None, true, false), "Paused");
 }
 
 /// The store the window and the search share: a synced folder's file through a drive on this
@@ -128,8 +134,9 @@ fn the_sync_store_finds_a_file_through_the_folder_and_says_where_its_copy_is() {
         Some(folder.path().join("here.txt"))
     );
     assert_eq!(store.local_copy("home", &key("cloud.txt")), None, "no bytes here");
-    // A plain drive's own listing holds the sync's blobs, not its files.
-    assert_eq!(store.file_state("d_photos", "Photos/here.txt"), None);
+    // A plain drive's own listing shows the sync's files too (by the index's names).
+    assert_eq!(store.file_state("d_photos", "Photos/here.txt"), Some(FileState::OnDevice));
+    assert_eq!(store.file_state("d_photos", "Other/here.txt"), None, "outside the pairing");
     // An encrypted drive's own listing names its files.
     store.set_pairs(
         &[SyncSetup::new("d_photos", "Photos/", folder.path())],
@@ -611,4 +618,92 @@ fn an_indexed_drives_rows_say_whether_the_index_holds_them() {
         ("docs/a.txt", 3, Some(1_700_000_000))
     );
     assert!(sync_view::index_entry(&row(false)).is_none());
+}
+
+/// A plain synced drive's own listing shows the sync index's files and folders - its bucket
+/// holds only the sync's bookkeeping (`.azlin/`) under them.
+#[test]
+fn a_plain_synced_drive_lists_the_files_of_its_sync_index() {
+    let mut states = SyncStates::default();
+    let file = |size: u64, cloud_only: bool| FileRecord {
+        size,
+        modified: 1_700_000_000,
+        cloud_only,
+        ..FileRecord::default()
+    };
+    states.files.insert(String::from("a.txt"), file(1, false));
+    states.files.insert(String::from("docs/b.txt"), file(2, true));
+    states.files.insert(String::from("docs/deep/c.txt"), file(3, false));
+    states.files.insert(String::from("pics/d.png"), file(4, false));
+    let top = sync_view::index_rows(&states, "", "Photos/");
+    let keys: Vec<(&str, bool)> = top.iter().map(|e| (e.key.as_str(), e.is_folder)).collect();
+    assert_eq!(
+        keys,
+        [("Photos/a.txt", false), ("Photos/docs/", true), ("Photos/pics/", true)]
+    );
+    assert_eq!(top[0].size, Some(1));
+    assert_eq!(top[1].name, "docs");
+    let docs = sync_view::index_rows(&states, "docs/", "Photos/docs/");
+    let keys: Vec<&str> = docs.iter().map(|e| e.key.as_str()).collect();
+    assert_eq!(keys, ["Photos/docs/b.txt", "Photos/docs/deep/"]);
+}
+
+/// A cloud-only row previews as a sentence (its bytes are not here); a file shown from a plain
+/// drive's sync index previews from the synced folder, so its own listing says where.
+#[test]
+fn a_cloud_only_row_previews_as_a_sentence() {
+    assert!(sync_view::preview_note(&FileState::CloudOnly, false)
+        .is_some_and(|note| note.contains("cloud only")));
+    assert!(sync_view::preview_note(&FileState::OnDevice, true)
+        .is_some_and(|note| note.contains("synced folder")));
+    assert_eq!(sync_view::preview_note(&FileState::OnDevice, false), None);
+    assert_eq!(sync_view::preview_note(&FileState::Pinned, false), None);
+}
+
+#[test]
+fn deleting_and_touching_through_a_job_answer_the_new_states() {
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("delete-a", &drive, AutoDownload::Everything);
+    a.write("gone.txt", b"to be deleted");
+    a.write("kept.txt", b"to be kept");
+    a.pass();
+    let touched = sync_jobs::run(
+        SyncJob::Touch {
+            work: a.work(),
+            key: String::from("kept.txt"),
+        },
+        &mut |_| {},
+    );
+    assert!(matches!(
+        &touched,
+        Outcome::Sync(SyncOutcome::Changed {
+            done: SyncChange::Touched,
+            result: Ok(_),
+            ..
+        })
+    ));
+    let deleted = sync_jobs::run(
+        SyncJob::Delete {
+            work: a.work(),
+            keys: vec![String::from("gone.txt")],
+        },
+        &mut |_| {},
+    );
+    assert!(matches!(
+        &deleted,
+        Outcome::Sync(SyncOutcome::Changed {
+            done: SyncChange::Deleted,
+            result: Ok(_),
+            ..
+        })
+    ));
+    assert_eq!(states_of(&deleted).state_of("gone.txt"), None);
+    assert!(!a.folder.path().join("gone.txt").exists());
+    let (_, answer) = a.pass();
+    match &answer {
+        Outcome::Sync(SyncOutcome::Passed { result: Ok(done), .. }) => {
+            assert_eq!(done.deleted, 1, "deleted on the drive with the next pass");
+        }
+        _ => panic!("not a pass's answer"),
+    }
 }

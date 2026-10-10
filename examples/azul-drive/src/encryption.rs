@@ -1374,6 +1374,22 @@ mod tests {
         assert_eq!(search_index_dir(None, "drive-a"), None, "no cache folder, no index");
     }
 
+    /// An encrypted drive's local copies kept encrypted (its AZL1 objects) live in the drive's
+    /// own cache folder too, beside its drive index - in the run's cache folder.
+    #[test]
+    fn an_encrypted_drives_kept_objects_live_in_the_drives_own_cache_folder() {
+        let cache = PathBuf::from("/run/cache/drive-index");
+        let a = objects_dir(Some(cache.clone()), "drive-a").expect("a folder");
+        assert!(a.starts_with(&cache) && a.ends_with("objects"), "{}", a.display());
+        assert_eq!(
+            a.parent(),
+            search_index_dir(Some(cache), "drive-a")
+                .as_deref()
+                .and_then(std::path::Path::parent)
+        );
+        assert_eq!(objects_dir(None, "drive-a"), None, "no cache folder, nothing kept");
+    }
+
     /// This computer's copies of the drives' indexes (and the search indexes beside them) live
     /// in the run's cache folder - `--cache-dir`, else `<cache>/AzDrive` - so a test run keeps
     /// them in its own folder; a run without one (`--shot`) keeps them in memory.
