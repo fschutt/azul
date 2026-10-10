@@ -2025,4 +2025,49 @@ mod tests {
             None
         );
     }
+
+    /// The device-state readings live in `sensor`, with the accelerometer and the compass
+    /// (DEVHEALTH17, the user: "the Azul API should expose this under the sensors module"):
+    /// named so by their names, and confirmed by their unified path.
+    #[test]
+    fn test_device_state_readings_live_in_sensor() {
+        for name in [
+            "PowerState",
+            "NetworkState",
+            "NetworkKind",
+            "BatteryState",
+            "ThermalState",
+        ] {
+            let path = format!("azul_dll::unified::sensors::{name}");
+            assert_eq!(
+                determine_module(name),
+                ("sensor".to_string(), false),
+                "{name} by its name"
+            );
+            assert_eq!(
+                get_correct_module_with_path(name, "window", Some(&path)).as_deref(),
+                Some("sensor"),
+                "{name} moves out of window"
+            );
+            assert_eq!(
+                get_correct_module_with_path(name, "sensor", Some(&path)),
+                None,
+                "{name} stays in sensor"
+            );
+            assert_eq!(
+                new_type_module(name, &path),
+                ("sensor".to_string(), false),
+                "{name} added"
+            );
+        }
+        // The motion sensors keep their place.
+        assert_eq!(
+            get_correct_module_with_path(
+                "SensorReading",
+                "sensor",
+                Some("azul_core::sensors::SensorReading")
+            ),
+            None
+        );
+    }
 }
