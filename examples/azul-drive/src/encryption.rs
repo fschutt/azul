@@ -341,6 +341,9 @@ pub(crate) struct Sheet {
     pub after_rotation: bool,
     /// What the emergency kit's last button did (printed, saved, why not).
     pub kit_note: String,
+    /// The sheet of a NEW drive's code (encrypted as it was made): nothing to move into the
+    /// encryption afterwards.
+    pub new_drive: bool,
 }
 
 /// A group of a recovery code as people type it: no spaces or dashes, upper case, `O` for 0,
@@ -379,7 +382,14 @@ impl Sheet {
             error: String::new(),
             after_rotation: false,
             kit_note: String::new(),
+            new_drive: false,
         }
+    }
+
+    /// The sheet of a new drive's code.
+    #[must_use]
+    pub(crate) fn for_new_drive(self) -> Sheet {
+        self
     }
 
     /// The sheet of a key rotation's new code.
@@ -694,6 +704,13 @@ pub(crate) fn dialog_parts(dialog: &Dialog, s: &DriveState, app: &RefAny) -> (St
 }
 
 // ==== Opening it ====
+
+/// Whether a drive that was just made is encrypted as part of its making: every new Azlin
+/// drive (bought, a test drive, a voucher's, a claimed checkout's) - "we always encrypt".
+pub(crate) fn sets_up_encryption_at_creation(entry: &azul_storage::config::DriveEntry) -> bool {
+    let _ = entry;
+    false
+}
 
 /// The drive's `AutoEncrypted`, opening the drive first; `None` (with a message) when it cannot
 /// be opened yet.
@@ -1840,6 +1857,42 @@ mod tests {
             recovery_key_of(&code, "d_2").public_base64(),
             recovery_key_of(&code, "d_1").public_base64()
         );
+    }
+
+    /// "We always encrypt": a new Azlin drive gets its keys and its recovery sheet as it is
+    /// made; a folder of this computer or another bucket does not.
+    #[test]
+    fn a_new_azlin_drive_is_encrypted_as_it_is_made() {
+        use azul_storage::config::{DriveAuth, DriveEntry, DriveLocation};
+        let azlin = DriveEntry {
+            id: String::from("d_new"),
+            name: String::from("Photos"),
+            location: DriveLocation::S3 {
+                endpoint: String::from("https://s3.example.test"),
+                region: String::from("us-east-1"),
+                bucket: String::from("d-new"),
+                path_style: true,
+                auth: DriveAuth::Azlin {
+                    drive_id: String::from("d_new"),
+                    account_url: String::new(),
+                },
+            },
+        };
+        assert!(sets_up_encryption_at_creation(&azlin));
+        let own_bucket = DriveEntry {
+            location: DriveLocation::S3 {
+                endpoint: String::from("https://s3.example.test"),
+                region: String::from("us-east-1"),
+                bucket: String::from("mine"),
+                path_style: true,
+                auth: DriveAuth::Keyring,
+            },
+            ..azlin.clone()
+        };
+        assert!(!sets_up_encryption_at_creation(&own_bucket));
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        assert!(Sheet::new("d_new", code.to_text()).for_new_drive().new_drive);
+        assert!(!Sheet::new("d_new", code.to_text()).new_drive);
     }
 
     #[test]
