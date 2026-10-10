@@ -265,7 +265,8 @@ fn the_first_segment_decides_whether_the_rest_of_a_file_is_tried() {
     assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
     assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Zstd);
 
-    // Noise first: the file is not tried again, not even for text that would compress.
+    // Noise first: the next segment is not tried, not even text that would compress (only
+    // every RETRY_EVERY-th one is).
     let mut encoder = Encoder::new(Compression::Auto);
     assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
     assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Stored);
