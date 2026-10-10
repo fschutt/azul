@@ -181,6 +181,9 @@ pub fn fluent_args(args: &[(&str, Arg)]) -> FluentArgKVVec {
                 key: AzString::from(*key),
                 value: match value {
                     Arg::Str(text) => FluentArg::String(AzString::from(text.as_str())),
+                    Arg::Word { key, fallback } => {
+                        FluentArg::String(AzString::from(word(key, fallback)))
+                    }
                     Arg::Int(count) => FluentArg::I32(
                         i32::try_from(*count).unwrap_or(if *count < 0 { i32::MIN } else { i32::MAX }),
                     ),
@@ -205,13 +208,26 @@ pub fn t_args(key: &str, args: &[(&str, Arg)]) -> String {
         keep(&sources(&[]));
     }
     let locale = locale();
+    // The words of the arguments first: a word argument is a message of its own.
+    let args = fmt_args(args);
     LOCALIZER.with(|l| match l.borrow().as_ref() {
         Some(localizer) => localizer
-            .translate(locale.as_str(), key, fmt_args(args))
+            .translate(locale.as_str(), key, args)
             .as_str()
             .to_string(),
         None => key.to_string(),
     })
+}
+
+/// The message `key` in the language of the layout pass, `fallback` when the resources have
+/// none (an [`Arg::Word`], a kit word outside a window).
+fn word(key: &str, fallback: &str) -> String {
+    let said = t(key);
+    if said == key {
+        fallback.to_string()
+    } else {
+        said
+    }
 }
 
 /// [`t`] of a [`label`]: a key translated, plain words as they are.
@@ -231,7 +247,14 @@ pub fn t_label(text: &str) -> String {
 /// the layout pass; the name as it is when the app has no such message.
 #[must_use]
 pub fn named(app: &str, what: &str, name: &str) -> String {
-    app_word(app, &format!("{what}-{}", slug(name, true)), name)
+    word(&named_key(app, what, name), name)
+}
+
+/// The key [`named`] looks `name` up by: `<app>-<what>-<name>` (`azdrive-category-view`) - for
+/// a worker thread's [`Arg::word`], which has no resources.
+#[must_use]
+pub fn named_key(app: &str, what: &str, name: &str) -> String {
+    format!("{}-{what}-{}", slug(app, false), slug(name, true))
 }
 
 /// An app's own sentence of the kit's pages (the About page's summary): the message
@@ -239,13 +262,7 @@ pub fn named(app: &str, what: &str, name: &str) -> String {
 /// layout pass, else `fallback` (the words the app gave the kit).
 #[must_use]
 pub fn app_word(app: &str, what: &str, fallback: &str) -> String {
-    let key = format!("{}-{what}", slug(app, false));
-    let said = t(&key);
-    if said == key {
-        fallback.to_string()
-    } else {
-        said
-    }
+    word(&format!("{}-{what}", slug(app, false)), fallback)
 }
 
 /// `n` with its digits grouped by threes as the language of the layout pass groups them
@@ -254,7 +271,7 @@ pub fn app_word(app: &str, what: &str, fallback: &str) -> String {
 /// the number, for the plural form).
 #[must_use]
 pub fn grouped(n: u64) -> String {
-    let separator = kit_word("kit-number-group-separator", ",");
+    let separator = word("kit-number-group-separator", ",");
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3 * separator.len());
     for (i, c) in digits.chars().enumerate() {
@@ -271,7 +288,7 @@ pub fn grouped(n: u64) -> String {
 /// a point between two digits. For a text without grouped digits.
 #[must_use]
 pub fn decimal(text: &str) -> String {
-    let mark = kit_word("kit-number-decimal-separator", ".");
+    let mark = word("kit-number-decimal-separator", ".");
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     for (i, &c) in chars.iter().enumerate() {
@@ -296,7 +313,7 @@ pub fn money(cents: u64, currency: &str) -> String {
     let amount = format!(
         "{}{}{:02}",
         grouped(cents / 100),
-        kit_word("kit-number-decimal-separator", "."),
+        word("kit-number-decimal-separator", "."),
         cents % 100
     );
     let said = t_args(
@@ -308,17 +325,6 @@ pub fn money(cents: u64, currency: &str) -> String {
     );
     if said == "kit-money" {
         format!("{currency} {amount}")
-    } else {
-        said
-    }
-}
-
-/// The kit's word `key` in the language of the layout pass, else `fallback` (no resources on
-/// this thread).
-fn kit_word(key: &str, fallback: &str) -> String {
-    let said = t(key);
-    if said == key {
-        fallback.to_string()
     } else {
         said
     }
@@ -368,6 +374,9 @@ fn fmt_args(args: &[(&str, Arg)]) -> FmtArgVec {
                 key: AzString::from(*key),
                 value: match value {
                     Arg::Str(text) => FmtValue::Str(AzString::from(text.as_str())),
+                    Arg::Word { key, fallback } => {
+                        FmtValue::Str(AzString::from(word(key, fallback)))
+                    }
                     Arg::Int(count) => FmtValue::Slong(*count),
                 },
             })

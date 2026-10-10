@@ -12,6 +12,23 @@ pub enum Arg {
     Str(String),
     /// A count: Fluent picks the plural form by it (`{ $count -> [one] ... *[other] ... }`).
     Int(i64),
+    /// A word of the app's resources, said when the phrase is shown (in the window's language),
+    /// `fallback` when the resources have none: a worker thread's reason, which has no language.
+    Word {
+        key: String,
+        fallback: String,
+    },
+}
+
+impl Arg {
+    /// The word `key`, said when its phrase is shown; `fallback` without it.
+    #[must_use]
+    pub fn word(key: &str, fallback: &str) -> Arg {
+        Arg::Word {
+            key: key.to_string(),
+            fallback: fallback.to_string(),
+        }
+    }
 }
 
 impl From<&str> for Arg {
@@ -67,6 +84,7 @@ impl std::fmt::Display for Arg {
         match self {
             Arg::Str(text) => f.write_str(text),
             Arg::Int(count) => write!(f, "{count}"),
+            Arg::Word { key, .. } => f.write_str(key),
         }
     }
 }
