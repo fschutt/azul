@@ -182600,6 +182600,9 @@
                                 },
                                 "Other": {
                                     "type": "String"
+                                },
+                                "DnsFailed": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -182665,6 +182668,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::http::HttpError::other(msg)"
+                            },
+                            "dns_failed": {
+                                "fn_args": [
+                                    {
+                                        "msg": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::http::HttpError::dns_failed(msg)"
                             }
                         },
                         "repr": "C, u8"
@@ -200274,6 +200285,38 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.set_message_priority(priority)"
+                            },
+                            "request": {
+                                "doc": [
+                                    "Sends `data` to the endpoint `endpoint_id` (an id or a ticket), dialed at `addresses` (`ip:port`, no discovery needed) and through `relay_url` (empty: none), on a new bidirectional stream of this endpoint's protocol, and returns what the peer writes until it finishes its side (at most `max_frame_bytes`). With `half_close` this side is finished right after `data` (a peer that reads the request to its end); without, it stays open until the answer ended (an HTTP/1.1 server). One connection per peer serves every request; it is not a peer of `recv`. Blocks up to `timeout_secs`: call it from a thread, never from a UI callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "endpoint_id": "String"
+                                    },
+                                    {
+                                        "addresses": "StringVec"
+                                    },
+                                    {
+                                        "relay_url": "String"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    },
+                                    {
+                                        "half_close": "bool"
+                                    },
+                                    {
+                                        "timeout_secs": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultU8VecString"
+                                },
+                                "fn_body": "object.request(endpoint_id, addresses, relay_url, data, half_close, timeout_secs)"
                             }
                         },
                         "repr": "C"
