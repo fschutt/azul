@@ -54,30 +54,24 @@ fn first_free(
     last
 }
 
-/// The name Explorer gives a copy pasted into the folder it came from:
-/// `a - Copy.txt`, then `a - Copy (2).txt`, ...
+/// The name Explorer gives a copy pasted into the folder it came from: `a - Copy.txt`, then
+/// `a - Copy (2).txt`, ... - `copy` the window's language's word ("Kopie").
 #[must_use]
-pub fn copy_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
+pub fn copy_name(name: &str, copy: &str, taken: &dyn Fn(&str) -> bool) -> String {
     let (stem, ext) = split_extension(name);
-    first_free(
-        stem,
-        ext,
-        std::iter::once(String::from(" - Copy"))
-            .chain((2..10_000).map(|n| format!(" - Copy ({n})"))),
-        taken,
-    )
+    first_free(stem, ext, copy_suffixes(copy), taken)
 }
 
 /// [`copy_name`] for a folder (a dot in its name is not an extension).
 #[must_use]
-pub fn copy_folder_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    first_free(
-        name,
-        "",
-        std::iter::once(String::from(" - Copy"))
-            .chain((2..10_000).map(|n| format!(" - Copy ({n})"))),
-        taken,
-    )
+pub fn copy_folder_name(name: &str, copy: &str, taken: &dyn Fn(&str) -> bool) -> String {
+    first_free(name, "", copy_suffixes(copy), taken)
+}
+
+/// ` - Copy`, ` - Copy (2)`, ...
+fn copy_suffixes(copy: &str) -> impl Iterator<Item = String> + '_ {
+    std::iter::once(format!(" - {copy}"))
+        .chain((2..10_000).map(move |n| format!(" - {copy} ({n})")))
 }
 
 /// The name "Keep both files" gives the newcomer: `a (2).txt`, `a (3).txt`.
@@ -102,21 +96,19 @@ pub fn new_name(name: &str, taken: &dyn Fn(&str) -> bool) -> String {
 pub const FORBIDDEN_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
 /// Whether `name` can name a file or folder, or why not (a sentence).
-pub fn check_name(name: &str) -> Result<(), String> {
+pub fn check_name(name: &str) -> Result<(), Text> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(String::from("A name cannot be empty."));
+        return Err(Text::key("azdrive-name-empty"));
     }
     if trimmed == "." || trimmed == ".." {
-        return Err(format!("\"{trimmed}\" is reserved."));
+        return Err(Phrase::new("azdrive-name-reserved").arg("name", trimmed).into());
     }
     if name.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
-        return Err(String::from(
-            "A name cannot contain any of these characters: \\ / : * ? \" < > |",
-        ));
+        return Err(Text::key("azdrive-name-forbidden-chars"));
     }
     if name.chars().any(char::is_control) {
-        return Err(String::from("A name cannot contain control characters."));
+        return Err(Text::key("azdrive-name-control-chars"));
     }
     Ok(())
 }
@@ -319,6 +311,7 @@ pub fn plan_transfer(
     target_prefix: &str,
     same_drive: bool,
     kind: TransferKind,
+    copy: &str,
 ) -> Result<Plan, DriveError> {
     let mut plan = Plan {
         same_drive,
@@ -339,12 +332,12 @@ pub fn plan_transfer(
         }
         let target_name = if same_place {
             if item.is_folder {
-                copy_folder_name(&name, &|n: &str| {
+                copy_folder_name(&name, copy, &|n: &str| {
                     storage_ops::folder_exists(target, &format!("{target_prefix}{n}/"))
                         .unwrap_or(true)
                 })
             } else {
-                copy_name(&name, &|n: &str| {
+                copy_name(&name, copy, &|n: &str| {
                     storage_ops::exists(target, &format!("{target_prefix}{n}")).unwrap_or(true)
                 })
             }
@@ -882,9 +875,10 @@ mod tests {
     #[test]
     fn explorer_names_a_copy_in_the_same_folder_and_a_kept_duplicate() {
         let taken = |n: &str| ["a.txt", "a - Copy.txt", "b (2).txt", "New folder"].contains(&n);
-        assert_eq!(copy_name("a.txt", &taken), "a - Copy (2).txt");
-        assert_eq!(copy_name("c.txt", &taken), "c - Copy.txt");
-        assert_eq!(copy_name("dir", &|_| false), "dir - Copy");
+        assert_eq!(copy_name("a.txt", "Copy", &taken), "a - Copy (2).txt");
+        assert_eq!(copy_name("c.txt", "Copy", &taken), "c - Copy.txt");
+        assert_eq!(copy_name("dir", "Copy", &|_| false), "dir - Copy");
+        assert_eq!(copy_name("c.txt", "Kopie", &taken), "c - Kopie.txt");
         assert_eq!(keep_both_name("b.txt", &taken), "b (3).txt");
         assert_eq!(keep_both_name("a.txt", &taken), "a (2).txt");
         assert_eq!(new_name("New folder", &taken), "New folder (2)");
@@ -923,6 +917,7 @@ mod tests {
             "in/",
             false,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         let targets: Vec<&str> = plan.files.iter().map(|f| f.target_key.as_str()).collect();
@@ -951,6 +946,7 @@ mod tests {
             "",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         assert_eq!(plan.files[0].target_key, "readme - Copy.txt");
@@ -963,6 +959,7 @@ mod tests {
             "",
             true,
             TransferKind::Move,
+            "Copy",
         )
         .unwrap();
         assert!(noop.files.is_empty() && noop.folders.is_empty());
@@ -972,7 +969,8 @@ mod tests {
             &home,
             "docs/sub/",
             true,
-            TransferKind::Move
+            TransferKind::Move,
+            "Copy",
         )
         .is_err());
     }
@@ -991,6 +989,7 @@ mod tests {
             "",
             false,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         assert_eq!(plan.conflicts().len(), 2);
@@ -1040,6 +1039,7 @@ mod tests {
             "",
             false,
             TransferKind::Move,
+            "Copy",
         )
         .unwrap();
         for i in plan.conflicts() {
@@ -1075,6 +1075,7 @@ mod tests {
             "archive/",
             true,
             TransferKind::Move,
+            "Copy",
         )
         .unwrap();
         let report = run_transfer(
@@ -1095,6 +1096,7 @@ mod tests {
             "",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         let cancelled = AtomicBool::new(true);
@@ -1277,6 +1279,7 @@ mod tests {
             "backup/",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         assert!(plan.same_drive);
@@ -1319,6 +1322,7 @@ mod tests {
             "backup/",
             true,
             TransferKind::Copy,
+            "Copy",
         )
         .unwrap();
         let mut seen = Vec::new();

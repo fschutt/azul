@@ -949,3 +949,46 @@ azdrive-side-activity-progress = { $done } von { $total ->
     } ({ $percent } %)
 azdrive-side-add = Laufwerk hinzufügen oder Ordner anheften
 azdrive-side-sources = Quellen
+
+## Keyring, results of the file operations
+
+azdrive-keyring-reading = Die Schlüssel von „{ $name }“ werden aus dem Schlüsselbund gelesen…
+azdrive-keyring-not-found = Der Schlüsselbund hat keinen Eintrag dafür.
+azdrive-keyring-denied = Der Schlüsselbund hat abgelehnt.
+azdrive-keyring-unavailable = Auf diesem System ist kein Schlüsselbund verfügbar.
+azdrive-keyring-failed = Der Schlüsselbund hat einen Fehler gemeldet.
+azdrive-keyring-unreadable = Die Schlüssel von „{ $name }“ können nicht gelesen werden: { $detail }.
+azdrive-keyring-cannot-open = „{ $name }“ kann nicht geöffnet werden:
+azdrive-keyring-token-gone = Sein Laufwerkstoken ist weg; entferne das Laufwerk und füge es erneut hinzu.
+azdrive-keyring-enter-keys = Gib seine Schlüssel erneut ein.
+azdrive-keyring-saved = „{ $name }“ ist gespeichert; seine Schlüssel liegen im Schlüsselbund des Systems.
+azdrive-keyring-not-saved = Die Schlüssel von „{ $name }“ konnten nicht gespeichert werden:
+azdrive-keyring-kept-until-close = Sie bleiben erhalten, bis AzDrive geschlossen wird.
+azdrive-keyring-bridge-unreadable = Das Kennwort der Brücke konnte nicht gelesen werden:
+azdrive-keyring-bridge-new = „azul-bridge password“ erstellt ein neues.
+azdrive-os-cannot-open = Das System konnte { $path } nicht öffnen.
+azdrive-os-not-a-url = { $url } ist keine URL: { $detail }
+azdrive-list-folder-failed = Der Ordner konnte nicht aufgelistet werden:
+azdrive-deleted-for-good = { $count ->
+        [one] Ein Element wurde endgültig gelöscht.
+       *[other] { $count } Elemente wurden endgültig gelöscht.
+    }
+azdrive-trashed = { $count ->
+        [one] Ein Element wurde
+       *[other] { $count } Elemente wurden
+    } in den Papierkorbordner verschoben. Strg+Z holt sie zurück.
+azdrive-delete-failed = Konnte nicht gelöscht werden:
+azdrive-rename-failed = „{ $name }“ konnte nicht umbenannt werden:
+azdrive-create-failed = „{ $name }“ konnte nicht erstellt werden:
+azdrive-undone = Rückgängig gemacht.
+azdrive-undo-failed = Konnte nicht rückgängig gemacht werden:
+azdrive-zipped = In „{ $name }“ komprimiert ({ $size }).
+azdrive-zip-failed = Konnte nicht komprimiert werden:
+azdrive-settings-not-saved = Die Einstellungen konnten nicht gespeichert werden:
+azdrive-index-not-removed = Der Index konnte nicht entfernt werden: { $detail }
+azdrive-drives-file-unreadable = Die Laufwerksdatei konnte nicht gelesen werden: { $detail }
+azdrive-name-empty = Ein Name darf nicht leer sein.
+azdrive-name-reserved = „{ $name }“ ist reserviert.
+azdrive-name-forbidden-chars = Ein Name darf keines dieser Zeichen enthalten: \ / : * ? " < > |
+azdrive-name-control-chars = Ein Name darf keine Steuerzeichen enthalten.
+azdrive-copy-word = Kopie

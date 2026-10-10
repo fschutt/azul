@@ -239,7 +239,9 @@ use azul_storage::{
     config::{self, DriveEntry, DriveLocation, DrivesFile},
     key, Credentials, Drive, DriveError, LocalDrive,
 };
+use azul_appkit::l10n::{Phrase, Text};
 use browse::{Entry, History, Place};
+use l10n::drive_error_text;
 use fileops::{ConflictChoice, Plan, SourceItem, TransferKind, TransferQueue};
 use jobs::{Done, FolderSize, Job, JobInit, Outcome, PreviewContent};
 use model::{Selection, Settings, TypeAhead};
@@ -565,8 +567,7 @@ pub(crate) enum UndoOp {
 impl UndoOp {
     /// "Undo rename of "a.txt"" (the ribbon's Undo, the message while it runs).
     #[must_use]
-    pub fn label(&self) -> azul_appkit::l10n::Text {
-        use azul_appkit::l10n::Phrase;
+    pub fn label(&self) -> Text {
         let phrase = match self {
             UndoOp::Rename { to, .. } => {
                 Phrase::new("azdrive-undo-rename").arg("name", key::last_segment(to))
@@ -619,10 +620,10 @@ pub(crate) struct PropertiesState {
     /// General (0) or Details (1).
     pub tab: usize,
     /// The size count of the folders, once back.
-    pub size: Option<Result<FolderSize, String>>,
+    pub size: Option<Result<FolderSize, Text>>,
     pub serial: u64,
     /// One file's metadata, once back.
-    pub metadata: Option<Result<Vec<(String, String)>, String>>,
+    pub metadata: Option<Result<Vec<(String, String)>, Text>>,
 }
 
 /// The dialog (or the inline sheet) open over the window.
@@ -789,7 +790,7 @@ pub(crate) struct DriveState {
     pub undo: Vec<UndoOp>,
     pub preview: Option<PreviewState>,
     /// One file's metadata for the details pane, by key.
-    pub metadata: HashMap<String, Result<Vec<(String, String)>, String>>,
+    pub metadata: HashMap<String, Result<Vec<(String, String)>, Text>>,
     /// Items listed at a drive's root (the first page), once listed.
     pub root_counts: HashMap<String, usize>,
     /// A local drive's volume: (total, free) bytes.
@@ -1700,7 +1701,7 @@ pub(crate) fn unlock(info: &mut CallbackInfo, s: &mut DriveState, index: usize) 
         return;
     }
     let name = s.slots[index].entry.name.clone();
-    s.info(format!("Reading the keys of \"{name}\" from the keyring..."));
+    s.info(Phrase::new("azdrive-keyring-reading").arg("name", name.as_str()));
     keyring(
         info,
         s,
@@ -1989,13 +1990,22 @@ pub(crate) fn keyring(
     }
 }
 
+/// What went wrong with the keyring (a key of the resources).
 fn keyring_problem(result: &KeyringResult) -> &'static str {
     match result {
-        KeyringResult::NotFound => "the keyring has no entry for it",
-        KeyringResult::Denied => "the keyring refused",
-        KeyringResult::Unavailable => "no keyring is available on this system",
-        _ => "the keyring reported an error",
+        KeyringResult::NotFound => "azdrive-keyring-not-found",
+        KeyringResult::Denied => "azdrive-keyring-denied",
+        KeyringResult::Unavailable => "azdrive-keyring-unavailable",
+        _ => "azdrive-keyring-failed",
     }
+}
+
+/// "<what>: <the keyring's problem>. <what to do>" in the window's language.
+fn keyring_text(what: Phrase, result: &KeyringResult, then: &str) -> Text {
+    what.then(" ")
+        .then(Text::key(keyring_problem(result)))
+        .then(" ")
+        .then(Text::key(then))
 }
 
 /// The keyring answered the request in flight.
@@ -2046,7 +2056,11 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                                 s.listing_done = true;
                                 s.listing_failed = true;
                             }
-                            s.error(format!("The keys of \"{name}\" cannot be read: {e}."));
+                            s.error(
+                                Phrase::new("azdrive-keyring-unreadable")
+                                    .arg("name", name.as_str())
+                                    .arg("detail", e),
+                            );
                         }
                     }
                 }
@@ -2060,15 +2074,16 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                     s.tree.pending.retain(|node| node.0 != drive_id);
                     if s.slots[index].entry.azlin().is_some() {
                         // A drive token cannot be typed in: the drive is bought (or joined) again.
-                        s.error(format!(
-                            "\"{name}\" cannot be opened: {}. Its drive token is gone; remove \
-                             the drive and add it again.",
-                            keyring_problem(other)
+                        s.error(keyring_text(
+                            Phrase::new("azdrive-keyring-cannot-open").arg("name", name.as_str()),
+                            other,
+                            "azdrive-keyring-token-gone",
                         ));
                     } else {
-                        s.error(format!(
-                            "\"{name}\" cannot be opened: {}. Enter its keys again.",
-                            keyring_problem(other)
+                        s.error(keyring_text(
+                            Phrase::new("azdrive-keyring-cannot-open").arg("name", name.as_str()),
+                            other,
+                            "azdrive-keyring-enter-keys",
                         ));
                         if is_current && matches!(other, KeyringResult::NotFound) {
                             actions::open_drive_form(s, Some(index));
@@ -2083,23 +2098,22 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                 .map(|i| s.slots[i].entry.name.clone())
                 .unwrap_or_default();
             if matches!(result, KeyringResult::Stored) {
-                s.success(format!(
-                    "\"{name}\" is saved; its keys are in the system keyring."
-                ));
+                s.success(Phrase::new("azdrive-keyring-saved").arg("name", name.as_str()));
             } else {
-                s.error(format!(
-                    "The keys of \"{name}\" could not be saved: {}. They are kept until AzDrive \
-                     closes.",
-                    keyring_problem(&result)
+                s.error(keyring_text(
+                    Phrase::new("azdrive-keyring-not-saved").arg("name", name.as_str()),
+                    &result,
+                    "azdrive-keyring-kept-until-close",
                 ));
             }
         }
         KeyringOp::Forget => {}
         KeyringOp::BridgePassword => match &result {
             KeyringResult::Retrieved(secret) => ui_bridge::copy_password(&mut info, s, secret.as_str()),
-            other => s.error(format!(
-                "The bridge's password could not be read: {}. azul-bridge password makes a new one.",
-                keyring_problem(other)
+            other => s.error(keyring_text(
+                Phrase::new("azdrive-keyring-bridge-unreadable"),
+                other,
+                "azdrive-keyring-bridge-new",
             )),
         },
     }
@@ -2112,13 +2126,23 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 // ==== Answers of the worker threads ====
 
+/// "<what failed:> <the drive's error>" in the window's language.
+fn failed(what: &str, e: &DriveError) -> Text {
+    Text::key(what).then(" ").then(drive_error_text(e))
+}
+
 /// Opens `path` with the OS's default app.
-pub(crate) fn open_with_os(path: &Path) -> Result<(), String> {
+pub(crate) fn open_with_os(path: &Path) -> Result<(), Text> {
     let url = browse::file_url(path);
     match Url::parse(url.as_str()).into_result() {
         Ok(url) if url.open() => Ok(()),
-        Ok(_) => Err(format!("the system could not open {}", path.display())),
-        Err(e) => Err(format!("{} is not a URL: {}", url, e.message.as_str())),
+        Ok(_) => Err(Phrase::new("azdrive-os-cannot-open")
+            .arg("path", path.display().to_string())
+            .into()),
+        Err(e) => Err(Phrase::new("azdrive-os-not-a-url")
+            .arg("url", url.as_str())
+            .arg("detail", e.message.as_str())
+            .into()),
     }
 }
 
@@ -2339,7 +2363,7 @@ pub(crate) extern "C" fn on_job_done(
                 }
                 Err(e) => {
                     s.tree.expanded.remove(&node);
-                    s.error(format!("Could not list the folder: {e}"));
+                    s.error(failed("azdrive-list-folder-failed", &e));
                 }
             }
         }
@@ -2361,12 +2385,9 @@ pub(crate) extern "C" fn on_job_done(
                         .cloned()
                         .collect();
                     if trashed.is_empty() {
-                        s.success(format!("Deleted {} item(s) for good.", gone.len()));
+                        s.success(Phrase::new("azdrive-deleted-for-good").arg("count", gone.len()));
                     } else {
-                        s.success(format!(
-                            "Moved {} item(s) to the trash folder. Ctrl+Z brings them back.",
-                            trashed.len()
-                        ));
+                        s.success(Phrase::new("azdrive-trashed").arg("count", trashed.len()));
                         s.undo.push(UndoOp::Trash {
                             drive: drive_id.clone(),
                             gone: trashed,
@@ -2374,7 +2395,7 @@ pub(crate) extern "C" fn on_job_done(
                     }
                     s.selection.clear();
                 }
-                Err(e) => s.error(format!("Could not delete: {e}")),
+                Err(e) => s.error(failed("azdrive-delete-failed", &e)),
             }
             let prefix = s.prefix().to_string();
             changed(&mut info, &handle, s, &drive_id, &prefix);
@@ -2396,10 +2417,12 @@ pub(crate) extern "C" fn on_job_done(
                 let prefix = s.prefix().to_string();
                 changed(&mut info, &handle, s, &drive_id, &prefix);
             }
-            Err(e) => s.error(format!(
-                "Could not rename \"{}\": {e}",
-                key::last_segment(&from)
-            )),
+            Err(e) => s.error(
+                Phrase::new("azdrive-rename-failed")
+                    .arg("name", key::last_segment(&from))
+                    .then(" ")
+                    .then(drive_error_text(&e)),
+            ),
         },
         Outcome::Created {
             drive_id,
@@ -2423,15 +2446,17 @@ pub(crate) extern "C" fn on_job_done(
                 let prefix = s.prefix().to_string();
                 changed(&mut info, &handle, s, &drive_id, &prefix);
             }
-            Err(e) => s.error(format!(
-                "Could not create \"{}\": {e}",
-                key::last_segment(&key)
-            )),
+            Err(e) => s.error(
+                Phrase::new("azdrive-create-failed")
+                    .arg("name", key::last_segment(&key))
+                    .then(" ")
+                    .then(drive_error_text(&e)),
+            ),
         },
         Outcome::Undone { result } => {
             match result {
-                Ok(()) => s.success("Undone."),
-                Err(e) => s.error(format!("Could not undo: {e}")),
+                Ok(()) => s.success(Text::key("azdrive-undone")),
+                Err(e) => s.error(failed("azdrive-undo-failed", &e)),
             }
             changed_here(&mut info, &handle, s);
         }
@@ -2451,12 +2476,12 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Measured { serial, result } => {
             if let Some(Popup::Properties(props)) = s.popup.as_mut() {
                 if props.serial == serial {
-                    props.size = Some(result.map_err(|e| e.to_string()));
+                    props.size = Some(result.map_err(|e| drive_error_text(&e)));
                 }
             }
         }
         Outcome::Metadata { key, result } => {
-            let result = result.map_err(|e| e.to_string());
+            let result = result.map_err(|e| drive_error_text(&e));
             if let Some(Popup::Properties(props)) = s.popup.as_mut() {
                 if props.items.len() == 1 && props.items[0].key == key {
                     props.metadata = Some(result.clone());
@@ -2467,15 +2492,15 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Zipped { zip_key, result } => match result {
             Ok(bytes) => {
                 println!("AZDRIVE_DONE zipped {zip_key}");
-                s.success(format!(
-                    "Compressed into \"{}\" ({}).",
-                    key::last_segment(&zip_key),
-                    browse::format_size(Some(bytes))
-                ));
+                s.success(
+                    Phrase::new("azdrive-zipped")
+                        .arg("name", key::last_segment(&zip_key))
+                        .arg("size", browse::format_size(Some(bytes))),
+                );
                 s.selection.set(vec![zip_key]);
                 changed_here(&mut info, &handle, s);
             }
-            Err(e) => s.error(format!("Could not compress: {e}")),
+            Err(e) => s.error(failed("azdrive-zip-failed", &e)),
         },
         Outcome::Opened { key, result } => match result {
             Ok(path) => {
@@ -2484,10 +2509,12 @@ pub(crate) extern "C" fn on_job_done(
                     s.error(e);
                 }
             }
-            Err(e) => s.error(format!(
-                "Could not open \"{}\": {e}",
-                key::last_segment(&key)
-            )),
+            Err(e) => s.error(
+                Phrase::new("azdrive-sync-open-failed")
+                    .arg("name", key::last_segment(&key))
+                    .then(" ")
+                    .then(drive_error_text(&e)),
+            ),
         },
         Outcome::Tested { serial, result } => {
             add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
@@ -2532,7 +2559,7 @@ pub(crate) extern "C" fn on_job_done(
         }
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
-                s.error(format!("The settings could not be saved: {e}"));
+                s.error(failed("azdrive-settings-not-saved", &e));
             }
         }
         Outcome::Thumbnail { key, image } => {
@@ -2616,7 +2643,9 @@ pub(crate) extern "C" fn on_job_done(
         }
         Outcome::IndexRemoved { drive_id, error } => match error {
             None => println!("AZDRIVE_INDEX_REMOVED {drive_id}"),
-            Some(error) => s.error(format!("The index could not be removed: {error}")),
+            Some(error) => {
+                s.error(Phrase::new("azdrive-index-not-removed").arg("detail", error.as_str()));
+            }
         },
         #[cfg(feature = "encryption")]
         Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
@@ -3026,7 +3055,9 @@ pub fn start() {
         Some(Err(e)) => {
             message = Some(Message {
                 kind: MessageKind::Error,
-                text: format!("The drives file could not be read: {e}"),
+                text: Phrase::new("azdrive-drives-file-unreadable")
+                    .arg("detail", e.to_string())
+                    .into(),
             });
         }
         None => {}

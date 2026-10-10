@@ -951,3 +951,46 @@ azdrive-side-activity-progress = { $done } of { $total ->
     } ({ $percent }%)
 azdrive-side-add = Add a drive or pin a folder
 azdrive-side-sources = Sources
+
+## Keyring, results of the file operations
+
+azdrive-keyring-reading = Reading the keys of "{ $name }" from the keyring…
+azdrive-keyring-not-found = The keyring has no entry for it.
+azdrive-keyring-denied = The keyring refused.
+azdrive-keyring-unavailable = No keyring is available on this system.
+azdrive-keyring-failed = The keyring reported an error.
+azdrive-keyring-unreadable = The keys of "{ $name }" cannot be read: { $detail }.
+azdrive-keyring-cannot-open = "{ $name }" cannot be opened:
+azdrive-keyring-token-gone = Its drive token is gone; remove the drive and add it again.
+azdrive-keyring-enter-keys = Enter its keys again.
+azdrive-keyring-saved = "{ $name }" is saved; its keys are in the system keyring.
+azdrive-keyring-not-saved = The keys of "{ $name }" could not be saved:
+azdrive-keyring-kept-until-close = They are kept until AzDrive closes.
+azdrive-keyring-bridge-unreadable = The bridge's password could not be read:
+azdrive-keyring-bridge-new = "azul-bridge password" makes a new one.
+azdrive-os-cannot-open = The system could not open { $path }.
+azdrive-os-not-a-url = { $url } is not a URL: { $detail }
+azdrive-list-folder-failed = Could not list the folder:
+azdrive-deleted-for-good = { $count ->
+        [one] Deleted one item for good.
+       *[other] Deleted { $count } items for good.
+    }
+azdrive-trashed = { $count ->
+        [one] Moved one item
+       *[other] Moved { $count } items
+    } to the trash folder. Ctrl+Z brings them back.
+azdrive-delete-failed = Could not delete:
+azdrive-rename-failed = "{ $name }" could not be renamed:
+azdrive-create-failed = "{ $name }" could not be created:
+azdrive-undone = Undone.
+azdrive-undo-failed = Could not undo:
+azdrive-zipped = Compressed into "{ $name }" ({ $size }).
+azdrive-zip-failed = Could not compress:
+azdrive-settings-not-saved = The settings could not be saved:
+azdrive-index-not-removed = The index could not be removed: { $detail }
+azdrive-drives-file-unreadable = The drives file could not be read: { $detail }
+azdrive-name-empty = A name cannot be empty.
+azdrive-name-reserved = "{ $name }" is reserved.
+azdrive-name-forbidden-chars = A name cannot contain any of these characters: \ / : * ? " < > |
+azdrive-name-control-chars = A name cannot contain control characters.
+azdrive-copy-word = Copy

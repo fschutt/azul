@@ -1902,6 +1902,7 @@ pub(crate) fn pump_queue(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         target_prefix: job.target_prefix.clone(),
         same_drive: job.same_drive,
         kind: job.kind,
+        copy: t("azdrive-copy-word"),
     };
     s.queue.start(id, now_ms());
     spawn(info, app, s, plan_job);

@@ -164,6 +164,8 @@ pub(crate) enum Job {
         target_prefix: String,
         same_drive: bool,
         kind: TransferKind,
+        /// The window's language's word of a copy's name ("a - Copy.txt").
+        copy: String,
     },
     /// Runs transfer `id`, sending its progress while it copies.
     Run {
@@ -2498,6 +2500,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             target_prefix,
             same_drive,
             kind,
+            copy,
         } => Outcome::Planned {
             id,
             result: fileops::plan_transfer(
@@ -2507,6 +2510,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &target_prefix,
                 same_drive,
                 kind,
+                &copy,
             ),
         },
         Job::Run {

@@ -562,7 +562,7 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
                             ));
                         }
                         Some(Err(e)) => {
-                            general.push((String::from("azdrive-props-size"), e.clone()));
+                            general.push((String::from("azdrive-props-size"), t_text(e)));
                         }
                     }
                 } else {
@@ -606,7 +606,7 @@ fn properties_dialog(s: &DriveState, app: &RefAny, props: &PropertiesState) -> (
                         details.extend(browse::metadata_rows(pairs, &shown, &chrono::Local));
                     }
                     Some(Err(e)) => {
-                        details.push((String::from("azdrive-props-metadata"), e.clone()));
+                        details.push((String::from("azdrive-props-metadata"), t_text(e)));
                     }
                     None => {}
                 }
