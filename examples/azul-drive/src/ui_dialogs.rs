@@ -15,8 +15,8 @@ use azul::{
     str::String as AzString,
     vec::{BackstageNavItemVec, StringVec},
     widgets::{
-        AboutDialog, Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogState,
-        DropDown, MessageBox, MessageBoxKind, OnTextInputReturn, ProgressDialog, StandardDialogEvent,
+        AboutDialog, Backstage, BackstageNavItem, ButtonType, CheckBoxState, DialogClosedBy,
+        DialogState, DropDown, MessageBox, MessageBoxKind, OnTextInputReturn, ProgressDialog, StandardDialogEvent,
         StandardDialogEventKind, TabHeader, TabHeaderState, TextInputState, TextInputValid,
     },
 };
@@ -162,6 +162,12 @@ extern "C" fn on_form_text(
 }
 
 // ==== The dialogs ====
+
+/// What closes a popup's window besides the app: its `closedby` (Escape is the dialog window's
+/// own, so only `None` keeps the window up) and whether it has a close box.
+pub(crate) fn window_close(_popup: &Popup) -> (DialogClosedBy, bool) {
+    (DialogClosedBy::Auto, true)
+}
 
 /// A dialog's title and content.
 pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (String, Dom) {

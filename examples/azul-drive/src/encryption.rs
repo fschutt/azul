@@ -2809,6 +2809,22 @@ mod tests {
     }
 
     #[test]
+    fn the_recovery_sheets_window_has_no_close_box_and_escape_leaves_it_open() {
+        // Escape is the dialog window's own (azul's Dialog closes its window before the app
+        // hears of it): keeping the popup in close_popup is too late, only closedby="none"
+        // keeps the window up.
+        use azul::widgets::DialogClosedBy;
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        let sheet = crate::Popup::Encryption(Dialog::Sheet(Sheet::new("d_1", code.to_text())));
+        assert_eq!(crate::ui_dialogs::window_close(&sheet), (DialogClosedBy::None, false));
+        let message = crate::Popup::Encryption(Dialog::Message {
+            title: String::new(),
+            text: String::new(),
+        });
+        assert_eq!(crate::ui_dialogs::window_close(&message), (DialogClosedBy::Auto, true));
+    }
+
+    #[test]
     fn with_the_drive_index_the_flows_are_offered() {
         assert!(offered());
     }
