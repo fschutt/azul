@@ -524,6 +524,10 @@ pub struct A11yTreeInputs<'a> {
     pub hidpi_factor: f32,
     pub dirty_text_overrides: &'a BTreeMap<(DomId, NodeId), String>,
     pub cursor_info: Option<CursorA11yInfo>,
+    /// Every virtual view's dom with the view that hosts it (`(host dom,
+    /// host node)`): where its content is read, in the host's reading order.
+    /// Empty without virtual views.
+    pub nested_dom_hosts: &'a BTreeMap<DomId, (DomId, NodeId)>,
 }
 
 /// What one accessibility pass did ([`A11yManager::refresh`]) - the cost
@@ -942,6 +946,7 @@ impl A11yManager {
         dirty_text_overrides: &BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
     ) -> TreeUpdate {
+        let no_hosts = BTreeMap::new();
         let inputs = A11yTreeInputs {
             layout_results,
             scroll_manager,
@@ -951,6 +956,7 @@ impl A11yManager {
             hidpi_factor,
             dirty_text_overrides,
             cursor_info,
+            nested_dom_hosts: &no_hosts,
         };
         let mut retained = A11yRetainedTree::default();
         drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
@@ -1011,13 +1017,19 @@ impl A11yManager {
             },
         );
 
-        // Which nodes of the dom being walked are exposed, by node index.
-        let mut exposed: Vec<bool> = Vec::new();
+        // Which nodes of each dom are exposed, by node index. Kept for the
+        // link pass, which looks across doms: a virtual view's content hangs
+        // off the element around its view.
+        let mut exposed_by_dom: BTreeMap<DomId, Vec<bool>> = BTreeMap::new();
 
         for (dom_id, layout_result) in inputs.layout_results {
             let styled_dom = &layout_result.styled_dom;
-            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
             let node_data_slice = styled_dom.node_data.as_ref();
+            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+            // Where the dom's 0-relative space starts in the window: a
+            // virtual view's content is laid out from its own origin and
+            // composited at its view (zero for the window's own dom).
+            let dom_origin = inputs.scroll_manager.dom_window_origin(*dom_id);
             // Every box chain of this dom in one linear pass - see
             // `ancestor_scroll_offset`. Without a scroll id no frame moves
             // anything, and there is nothing to resolve.
@@ -1028,8 +1040,7 @@ impl A11yManager {
                     &layout_result.scroll_ids,
                 )
             });
-            exposed.clear();
-            exposed.resize(node_data_slice.len(), false);
+            let mut exposed = vec![false; node_data_slice.len()];
 
             let rendered = rendered_nodes(layout_result);
 
@@ -1074,8 +1085,8 @@ impl A11yManager {
                         Some((
                             hot,
                             abs_pos.map(|p| LogicalPosition {
-                                x: p.x - ancestor_scroll.x,
-                                y: p.y - ancestor_scroll.y,
+                                x: p.x - ancestor_scroll.x + dom_origin.x,
+                                y: p.y - ancestor_scroll.y + dom_origin.y,
                             }),
                         ))
                     });
@@ -1123,9 +1134,21 @@ impl A11yManager {
                     },
                 );
             }
+            exposed_by_dom.insert(*dom_id, exposed);
+        }
 
+        // Lists that took a node of another dom (a virtual view's content):
+        // sorted into reading order below.
+        let mut mixed_parents: Vec<A11yNodeId> = Vec::new();
+        for (dom_id, layout_result) in inputs.layout_results {
+            let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+            let Some(exposed) = exposed_by_dom.get(dom_id) else {
+                continue;
+            };
             // Second pass: link each exposed node to its nearest exposed
-            // ancestor (the DOM hierarchy, walked up), else the root.
+            // ancestor (the DOM hierarchy, walked up); a top-level node of a
+            // virtual view's dom to the element around its view; else the
+            // window root.
             for (dom_idx, &is_exposed) in exposed.iter().enumerate() {
                 if !is_exposed {
                     continue;
@@ -1160,9 +1183,22 @@ impl A11yManager {
                         .entry(parent_id)
                         .or_default()
                         .push(a11y_node_id);
+                } else if let Some(host) = Self::host_parent(
+                    *dom_id,
+                    inputs.nested_dom_hosts,
+                    &exposed_by_dom,
+                    inputs.layout_results,
+                ) {
+                    parent_children_map.entry(host).or_default().push(a11y_node_id);
+                    mixed_parents.push(host);
                 } else {
                     root_children.push(a11y_node_id);
                 }
+            }
+        }
+        for parent in mixed_parents {
+            if let Some(children) = parent_children_map.get_mut(&parent) {
+                children.sort_by_cached_key(|id| Self::reading_key(*id, inputs.nested_dom_hosts));
             }
         }
 
@@ -1258,6 +1294,63 @@ impl A11yManager {
             removed,
             focus_changed,
         }
+    }
+
+    /// The element the top-level nodes of a virtual view's dom hang off:
+    /// the nearest exposed ancestor-or-self of the view that hosts the dom,
+    /// in the host's dom - or, when the host's dom has none, of the host's
+    /// own host. `None`: the window root.
+    fn host_parent(
+        dom_id: DomId,
+        hosts: &BTreeMap<DomId, (DomId, NodeId)>,
+        exposed_by_dom: &BTreeMap<DomId, Vec<bool>>,
+        layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    ) -> Option<A11yNodeId> {
+        let mut dom = dom_id;
+        // Views nest a handful deep; a host map that loops must not hang.
+        for _ in 0..64 {
+            let &(host_dom, host_node) = hosts.get(&dom)?;
+            let exposed = exposed_by_dom.get(&host_dom)?;
+            let hierarchy = layout_results
+                .get(&host_dom)?
+                .styled_dom
+                .node_hierarchy
+                .as_ref();
+            let mut current = Some(host_node);
+            let mut steps = 0usize;
+            while let Some(node) = current {
+                if exposed.get(node.index()).copied().unwrap_or(false) {
+                    return Some(Self::encode_a11y_node_id(host_dom.inner, node.index()));
+                }
+                steps += 1;
+                if steps > 10_000 {
+                    break;
+                }
+                current = hierarchy
+                    .get(node.index())
+                    .and_then(NodeHierarchyItem::parent_id);
+            }
+            dom = host_dom;
+        }
+        None
+    }
+
+    /// Where a node stands in reading order across doms: the node index of
+    /// each view its dom is nested in (outermost first), then its own index.
+    /// A virtual view's content sorts right after the nodes before its view
+    /// and before the nodes after it.
+    fn reading_key(id: A11yNodeId, hosts: &BTreeMap<DomId, (DomId, NodeId)>) -> Vec<usize> {
+        let (mut dom, node) = decode_a11y_node_id(id);
+        let mut path = vec![node.index()];
+        for _ in 0..64 {
+            let Some(&(host_dom, host_node)) = hosts.get(&dom) else {
+                break;
+            };
+            path.push(host_node.index());
+            dom = host_dom;
+        }
+        path.reverse();
+        path
     }
 
     /// Whether an ancestor of `id` is hidden: accesskit leaves a hidden
@@ -4100,6 +4193,7 @@ mod retained_tree_tests {
             hidpi_factor: 1.0,
             dirty_text_overrides: &overrides,
             cursor_info: None,
+            nested_dom_hosts: &BTreeMap::new(),
         };
         let _ = m.refresh(&inputs);
         m.take_pending()
@@ -4183,6 +4277,7 @@ mod retained_tree_tests {
         let overrides: &'static BTreeMap<(DomId, NodeId), String> =
             Box::leak(Box::new(BTreeMap::new()));
         let title: &'static AzString = Box::leak(Box::new(AzString::from("t")));
+        let hosts: &'static BTreeMap<DomId, (DomId, NodeId)> = Box::leak(Box::new(BTreeMap::new()));
         A11yTreeInputs {
             layout_results: results,
             scroll_manager,
@@ -4192,6 +4287,7 @@ mod retained_tree_tests {
             hidpi_factor: 1.0,
             dirty_text_overrides: overrides,
             cursor_info: None,
+            nested_dom_hosts: hosts,
         }
     }
 

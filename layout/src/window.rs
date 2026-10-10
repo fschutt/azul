@@ -16629,6 +16629,17 @@ impl LayoutWindow {
             }
         }
 
+        // Every virtual view's dom and the view hosting it: its content is
+        // read at the view's place.
+        let mut nested_dom_hosts = BTreeMap::new();
+        for (host_dom, host_node) in self.virtual_view_manager.all_view_keys() {
+            if let Some(nested) = self
+                .virtual_view_manager
+                .get_nested_dom_id(host_dom, host_node)
+            {
+                nested_dom_hosts.insert(nested, (host_dom, host_node));
+            }
+        }
         let inputs = crate::managers::a11y::A11yTreeInputs {
             layout_results: &self.layout_results,
             scroll_manager: &self.scroll_manager,
@@ -16643,6 +16654,7 @@ impl LayoutWindow {
                 .get(),
             dirty_text_overrides: &dirty_text_overrides,
             cursor_info: cursor_a11y_info,
+            nested_dom_hosts: &nested_dom_hosts,
         };
         // A refused update keeps the last good state parked/delivered and the
         // next pass resends the whole tree; `last_rejection` records why (the
