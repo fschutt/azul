@@ -20,6 +20,11 @@ mod time;
 mod transfer;
 mod xml;
 
+/// An S3 service in memory with multipart uploads (the multipart and transfer tests).
+mod fake_bucket;
+/// Parts of 16 MiB four at once, resumable uploads, conditional uploads, racing writers.
+mod multipart;
+
 /// The OpenDAL drive (feature `opendal`).
 #[cfg(feature = "opendal")]
 mod opendal_drive;
