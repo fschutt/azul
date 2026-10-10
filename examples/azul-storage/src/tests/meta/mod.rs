@@ -21,6 +21,7 @@ mod race;
 #[cfg(feature = "encryption")]
 mod rekey;
 mod repo;
+mod scale;
 mod seal;
 mod shard;
 mod sweep;
