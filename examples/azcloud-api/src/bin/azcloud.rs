@@ -81,7 +81,8 @@ commands:
        [--parallel N]            (--allow-burst: the paused burst of changes is yours, send it)
   share <key> [--expires S]      a presigned link (with --prefix P: the synced file <key> of P)
   lockdown --yes                 revokes every other device, key and link of the drive
-  lockdown-cancel                cancels a pending recovery-key lockdown
+  lockdown-cancel <code> | --code-file F | -
+                                 cancels a pending recovery-key lockdown (the recovery code signs)
   restore <prefix> --as-of T     restores objects as they were at T (RFC 3339)
   restore-status <id>            a restore's progress
   gc <prefix> | gc --azlin [--grace-hours H] [--dry-run]
@@ -497,21 +498,40 @@ fn cmd_invite(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     }
 }
 
+/// A code from the command line: `<code>`, `--code-file F` or `-` (stdin). `what` names it in
+/// errors ("join", "recovery"), `command` in the usage.
+fn code_argument(args: &Args, what: &str, command: &str) -> Result<String> {
+    Ok(
+        match (
+            args.path("--code-file"),
+            args.rest().first().map(String::as_str),
+        ) {
+            (Some(path), _) => std::fs::read_to_string(&path)
+                .with_context(|| format!("the {what} code file {}", path.display()))?,
+            (None, Some("-")) => {
+                let mut text = String::new();
+                std::io::stdin().read_to_string(&mut text)?;
+                text
+            }
+            (None, Some(code)) => code.to_string(),
+            (None, None) => bail!("azcloud {command} <code> | --code-file <file> | - (stdin)"),
+        },
+    )
+}
+
+/// The recovery code from the command line ([`code_argument`]).
+#[cfg(feature = "encryption")]
+fn recovery_code_argument(
+    args: &Args,
+    command: &str,
+) -> Result<azul_storage::crypto::keys::RecoveryCode> {
+    let text = azul_storage::crypto::Zeroizing::new(code_argument(args, "recovery", command)?);
+    azul_storage::crypto::keys::RecoveryCode::parse(&text)
+        .ok_or_else(|| anyhow!("that is not a recovery code (26 letters and digits, in groups)"))
+}
+
 fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let text = match (
-        args.path("--code-file"),
-        args.rest().first().map(String::as_str),
-    ) {
-        (Some(path), _) => std::fs::read_to_string(&path)
-            .with_context(|| format!("the join code file {}", path.display()))?,
-        (None, Some("-")) => {
-            let mut text = String::new();
-            std::io::stdin().read_to_string(&mut text)?;
-            text
-        }
-        (None, Some(code)) => code.to_string(),
-        (None, None) => bail!("azcloud join <code> | --code-file <file> | - (stdin)"),
-    };
+    let text = code_argument(args, "join", "join")?;
     let code = JoinCode::decode(&text)?;
     let state = open_state(settings)?;
     let device = state.device(args.value("--device-name"))?;
@@ -996,11 +1016,26 @@ fn cmd_lockdown(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
+/// F12, "the recovery code always wins": a recovery-key lockdown is cancelled with the
+/// recovery code (its key signs; this device's token alone cancels nothing).
+#[cfg(feature = "encryption")]
 fn cmd_lockdown_cancel(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let code = recovery_code_argument(args, "lockdown-cancel")?;
     let account = open_account(settings, net, args)?;
-    let mut value = share::lockdown_cancel(&account)?;
+    let mut value = share::lockdown_cancel(&account, code.as_bytes())?;
+    if !value.is_object() {
+        value = json!({});
+    }
     value["ok"] = json!(true);
     Ok((value, String::from("the pending lockdown was cancelled\n")))
+}
+
+#[cfg(not(feature = "encryption"))]
+fn cmd_lockdown_cancel(_settings: &Settings, _net: &Net, _args: &Args) -> Result<Output> {
+    bail!(
+        "a lockdown is cancelled with the drive's recovery code, which this azcloud (built \
+         without the encryption feature) cannot read"
+    )
 }
 
 fn cmd_restore(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
@@ -1225,24 +1260,7 @@ fn cmd_unlock(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 
 #[cfg(feature = "encryption")]
 fn cmd_recover(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let text = match (
-        args.path("--code-file"),
-        args.rest().first().map(String::as_str),
-    ) {
-        (Some(path), _) => std::fs::read_to_string(&path)
-            .with_context(|| format!("the recovery code file {}", path.display()))?,
-        (None, Some("-")) => {
-            let mut text = String::new();
-            std::io::stdin().read_to_string(&mut text)?;
-            text
-        }
-        (None, Some(code)) => code.to_string(),
-        (None, None) => bail!("azcloud recover <code> | --code-file <file> | - (stdin)"),
-    };
-    let text = azul_storage::crypto::Zeroizing::new(text);
-    let Some(code) = azul_storage::crypto::keys::RecoveryCode::parse(&text) else {
-        bail!("that is not a recovery code (26 letters and digits, in groups)");
-    };
+    let code = recovery_code_argument(args, "recover")?;
     let account = encrypted_account(settings, net, args)?;
     account.recover_key(&code, &account.state().secrets())?;
     let id = account.record().id.clone();
