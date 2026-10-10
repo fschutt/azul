@@ -27,6 +27,8 @@ pub mod content;
 pub mod epub;
 pub mod ids;
 pub mod jobs;
+#[cfg(test)]
+mod l10n_tests;
 pub mod library;
 pub mod paginate;
 pub mod plainbook;
