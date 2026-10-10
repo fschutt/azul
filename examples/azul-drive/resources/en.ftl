@@ -697,3 +697,133 @@ azdrive-shortcut-list = List
 azdrive-shortcut-details = Details
 azdrive-shortcut-preview-pane = Preview pane
 azdrive-shortcut-details-pane = Details pane
+
+## Search, status line, preview and details panes
+
+azdrive-refine-date-any = Any date
+azdrive-refine-date-today = Today
+azdrive-refine-date-yesterday = Yesterday
+azdrive-refine-date-this-week = This week
+azdrive-refine-date-last-week = Last week
+azdrive-refine-date-this-month = This month
+azdrive-refine-date-last-month = Last month
+azdrive-refine-date-this-year = This year
+azdrive-refine-date-last-year = Last year
+azdrive-refine-kind-any = Any kind
+azdrive-refine-kind-document = Document
+azdrive-refine-kind-picture = Picture
+azdrive-refine-kind-music = Music
+azdrive-refine-kind-video = Video
+azdrive-refine-kind-archive = Archive
+azdrive-refine-kind-code = Code
+azdrive-refine-kind-mail = E-mail
+azdrive-refine-size-any = Any size
+azdrive-refine-size-empty = Empty (0 KB)
+azdrive-refine-size-tiny = Tiny (0 - 16 KB)
+azdrive-refine-size-small = Small (16 KB - 1 MB)
+azdrive-refine-size-medium = Medium (1 - 128 MB)
+azdrive-refine-size-large = Large (128 MB - 1 GB)
+azdrive-refine-size-huge = Huge (1 - 4 GB)
+azdrive-refine-size-gigantic = Gigantic (> 4 GB)
+azdrive-refine-part-date = Date modified:
+azdrive-refine-part-kind = Kind:
+azdrive-refine-part-size = Size:
+azdrive-find-status-contents = Searching file contents… { $n } found
+azdrive-find-status-drive-names = Searching the drive's names… { $n } found
+azdrive-find-status-cached = Searching the last listing, then the cloud… { $n } found
+azdrive-find-status-cloud = Searching names in the cloud (slower)… { $n } found
+azdrive-find-status-searching = Searching… { $n } found
+azdrive-find-status-stopped = The search stopped: { $error }
+azdrive-find-none = No items match your search.
+azdrive-find-status-found = { $count ->
+        [one] { $n } item found
+       *[other] { $n } items found
+    }
+azdrive-find-status-found-first = { $count ->
+        [one] { $n } item found (the first ones)
+       *[other] { $n } items found (the first ones)
+    }
+azdrive-find-note-index-contents = The drive's names come from its index on this computer, file contents from its search index (Index this drive).
+azdrive-find-note-index = The drive's names come from its index on this computer; Index this drive (the Search tab) searches its files' contents too.
+azdrive-find-note-cloud-contents = A cloud drive is searched by name over a listing of every file below this folder (slower than a folder on this computer), file contents from its search index.
+azdrive-find-note-cloud = A cloud drive is searched by name, over a listing of every file below this folder: slower than a folder on this computer, and file contents are not searched.
+azdrive-find-empty-searching = Searching…
+azdrive-find-empty-cloud = The search looked at the names in this folder and every folder below it; a cloud drive's files are not read.
+azdrive-find-empty-contents = The search looked at the names and the contents of the files in this folder and every folder below it.
+azdrive-find-empty-names = The search looked at the names in this folder and every folder below it; File contents (the Search tab) reads the files too.
+azdrive-index-status-looking = Indexing: looking at the files…
+azdrive-index-status-reading = Indexing: { $read } of { $total } { $count ->
+        [one] file
+       *[other] files
+    } read…
+azdrive-index-status-failed = The index could not be updated: { $error }
+azdrive-index-status-indexed = Indexed: { $n } { $count ->
+        [one] file
+       *[other] files
+    }
+azdrive-index-status-never = Not indexed yet
+azdrive-sync-lookup-online-only = Available when online
+azdrive-sync-lookup-on-device = Available on this device
+azdrive-sync-lookup-syncing = Syncing
+azdrive-sync-lookup-problem = Sync problem
+azdrive-find-column-name = Name
+azdrive-find-column-folder = Folder
+azdrive-find-column-match = Match
+azdrive-find-column-modified = Date modified
+azdrive-find-column-size = Size
+azdrive-find-column-status = Status
+azdrive-status-items = { $count ->
+        [one] { $n } item
+       *[other] { $n } items
+    }
+azdrive-status-items-so-far = { $count ->
+        [one] { $n } item so far
+       *[other] { $n } items so far
+    }
+azdrive-search-placeholder = Search { $place }
+azdrive-no-subfolders = This folder has no subfolders.
+azdrive-listing-folder = Listing the folder…
+azdrive-no-drive-for = There is no drive for "{ $path }".
+azdrive-path-bar = Path
+azdrive-status-selected = { $n } selected
+azdrive-status-drives = { $count ->
+        [one] one drive
+       *[other] { $count } drives
+    }
+azdrive-status-drive-selected = "{ $name }" selected, { $drives }
+azdrive-status-pins = { $count ->
+        [one] one pinned folder
+       *[other] { $count } pinned folders
+    }
+azdrive-status-loading = Loading…
+azdrive-status-selected-of = { $n } of { $shown } selected
+azdrive-status-available = { $size } available
+azdrive-status-clipboard = { $count } on the clipboard
+azdrive-status-transfers-failed = { $count ->
+        [one] one transfer failed
+       *[other] { $count } transfers failed
+    }
+azdrive-audio-no-output = no audio output
+azdrive-audio-cannot-play = The sound cannot play: { $why }
+azdrive-preview-select = Select a file to preview.
+azdrive-preview-loading = Loading the preview of "{ $name }"…
+azdrive-preview-image-size = { $name } - { $width } x { $height } pixels
+azdrive-preview-mono = mono
+azdrive-preview-stereo = stereo
+azdrive-preview-channels = { $count } channels
+azdrive-preview-stop = Stop
+azdrive-preview-play = Play
+azdrive-preview-video-note = { $name } (H.264, without sound: azul's video widget has no audio track)
+azdrive-details-recovery-health = Recovery health
+azdrive-details-used = Space used
+azdrive-details-free = Free space
+azdrive-details-total = Total size
+azdrive-details-path = Path
+azdrive-details-file-folder = File folder
+azdrive-details-items = Items
+azdrive-details-selected = { $count ->
+        [one] one item selected
+       *[other] { $count } items selected
+    }
+azdrive-details-files = Files
+azdrive-details-folders = Folders

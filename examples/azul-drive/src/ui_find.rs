@@ -7,6 +7,7 @@
 //! a note: where its names and contents come from.
 
 use azul::{prelude::*, str::String as AzString};
+use azul_appkit::l10n::label;
 
 use crate::{
     actions::{action_ref, on_action, Action},
@@ -19,15 +20,15 @@ use crate::{
 /// The columns: their headers, their widths (px), the column a click sorts by (`None`: Match
 /// puts the results back in the order they were found).
 const COLUMNS: [(&str, f32, Option<Column>); 5] = [
-    ("Name", 260.0, Some(Column::Name)),
-    ("Folder", 200.0, Some(Column::Path)),
-    ("Match", 380.0, None),
-    ("Date modified", 140.0, Some(Column::Modified)),
-    ("Size", 90.0, Some(Column::Size)),
+    ("azdrive-find-column-name", 260.0, Some(Column::Name)),
+    ("azdrive-find-column-folder", 200.0, Some(Column::Path)),
+    ("azdrive-find-column-match", 380.0, None),
+    ("azdrive-find-column-modified", 140.0, Some(Column::Modified)),
+    ("azdrive-find-column-size", 90.0, Some(Column::Size)),
 ];
 
 /// The Status column (where something syncs): its header and width (px).
-const STATUS: (&str, f32) = ("Status", 170.0);
+const STATUS: (&str, f32) = ("azdrive-find-column-status", 170.0);
 
 /// The width the rows draw in: the columns (each with its padding) and the check boxes'.
 pub(crate) fn width(s: &DriveState) -> f32 {
@@ -57,7 +58,7 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
     if s.settings.item_checkboxes {
         row.add_child(Dom::create_div().with_css("width: 28px; flex-shrink: 0;"));
     }
-    for (label, width, column) in COLUMNS {
+    for (header, width, column) in COLUMNS {
         let sorted = column.is_some() && sort.map(|s| s.column) == column;
         let mut cell = Dom::create_div()
             .with_class(ids::COLUMN_CLASS)
@@ -66,7 +67,7 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
                 look::COLUMN,
                 if sorted { look::COLUMN_SORTED } else { "" }
             ))
-            .with_child(Dom::create_span_with_text(AzString::from(label)).with_css(
+            .with_child(Dom::create_span_with_text(label(header)).with_css(
                 "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
             ));
         if let (true, Some(sort)) = (sorted, sort) {
@@ -86,7 +87,7 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
         ));
     }
     if s.sync.syncs() {
-        let (label, width) = STATUS;
+        let (header, width) = STATUS;
         row.add_child(
             Dom::create_div()
                 .with_class(ids::COLUMN_CLASS)
@@ -94,7 +95,7 @@ pub(crate) fn header(s: &DriveState, app: &RefAny) -> Dom {
                     "{} width: {width}px; min-width: {width}px;",
                     look::COLUMN
                 ))
-                .with_child(Dom::create_span_with_text(AzString::from(label))),
+                .with_child(Dom::create_span_with_text(label(header))),
         );
     }
     row
@@ -111,7 +112,7 @@ fn status_cell(s: &DriveState, entry: &Entry) -> Dom {
             Dom::create_icon(AzString::from(icon))
                 .with_css("font-size: 14px; margin-right: 4px; flex-shrink: 0;"),
         );
-        content.add_child(Dom::create_span_with_text(AzString::from(words)));
+        content.add_child(Dom::create_span_with_text(label(words)));
     }
     content
 }
@@ -126,9 +127,7 @@ pub(crate) fn cloud_note(find: &find::FindState) -> Dom {
             Dom::create_icon(AzString::from("cloud_queue"))
                 .with_css("font-size: 14px; margin-right: 6px; flex-shrink: 0;"),
         )
-        .with_child(Dom::create_span_with_text(AzString::from(
-            find.cloud_note_text(),
-        )))
+        .with_child(Dom::create_span_with_text(label(find.cloud_note_text())))
 }
 
 /// The Folder cell: where the result is, from its drive's root - the drive's name for its

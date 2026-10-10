@@ -1601,13 +1601,13 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
                 Dom::create_div()
                     .with_id(ids::FIND_EMPTY)
                     .with_css("padding: 16px; opacity: 0.7;")
-                    .with_child(Dom::create_span_with_text(AzString::from(title))),
+                    .with_child(Dom::create_span_with_text(azul_appkit::l10n::label(title))),
             );
         } else {
             empty.add_child(
-                ShellEmptyState::create(AzString::from(title))
+                ShellEmptyState::create(azul_appkit::l10n::label(title))
                     .with_icon(AzString::from("search_off"))
-                    .with_detail(AzString::from(detail))
+                    .with_detail(azul_appkit::l10n::label(detail))
                     .dom()
                     .with_id(ids::FIND_EMPTY),
             );

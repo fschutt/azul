@@ -695,3 +695,133 @@ azdrive-shortcut-list = Liste
 azdrive-shortcut-details = Details
 azdrive-shortcut-preview-pane = Vorschaufenster
 azdrive-shortcut-details-pane = Detailbereich
+
+## Search, status line, preview and details panes
+
+azdrive-refine-date-any = Beliebiges Datum
+azdrive-refine-date-today = Heute
+azdrive-refine-date-yesterday = Gestern
+azdrive-refine-date-this-week = Diese Woche
+azdrive-refine-date-last-week = Letzte Woche
+azdrive-refine-date-this-month = Dieser Monat
+azdrive-refine-date-last-month = Letzter Monat
+azdrive-refine-date-this-year = Dieses Jahr
+azdrive-refine-date-last-year = Letztes Jahr
+azdrive-refine-kind-any = Beliebige Art
+azdrive-refine-kind-document = Dokument
+azdrive-refine-kind-picture = Bild
+azdrive-refine-kind-music = Musik
+azdrive-refine-kind-video = Video
+azdrive-refine-kind-archive = Archiv
+azdrive-refine-kind-code = Code
+azdrive-refine-kind-mail = E-Mail
+azdrive-refine-size-any = Beliebige Größe
+azdrive-refine-size-empty = Leer (0 KB)
+azdrive-refine-size-tiny = Sehr klein (0–16 KB)
+azdrive-refine-size-small = Klein (16 KB–1 MB)
+azdrive-refine-size-medium = Mittel (1–128 MB)
+azdrive-refine-size-large = Groß (128 MB–1 GB)
+azdrive-refine-size-huge = Sehr groß (1–4 GB)
+azdrive-refine-size-gigantic = Riesig (> 4 GB)
+azdrive-refine-part-date = Änderungsdatum:
+azdrive-refine-part-kind = Art:
+azdrive-refine-part-size = Größe:
+azdrive-find-status-contents = Dateiinhalte werden durchsucht… { $n } gefunden
+azdrive-find-status-drive-names = Die Namen des Laufwerks werden durchsucht… { $n } gefunden
+azdrive-find-status-cached = Die letzte Auflistung wird durchsucht, dann die Cloud… { $n } gefunden
+azdrive-find-status-cloud = Namen in der Cloud werden durchsucht (langsamer)… { $n } gefunden
+azdrive-find-status-searching = Wird gesucht… { $n } gefunden
+azdrive-find-status-stopped = Die Suche wurde beendet: { $error }
+azdrive-find-none = Keine Elemente entsprechen der Suche.
+azdrive-find-status-found = { $count ->
+        [one] { $n } Element gefunden
+       *[other] { $n } Elemente gefunden
+    }
+azdrive-find-status-found-first = { $count ->
+        [one] { $n } Element gefunden (die ersten)
+       *[other] { $n } Elemente gefunden (die ersten)
+    }
+azdrive-find-note-index-contents = Die Namen des Laufwerks kommen aus seinem Index auf diesem Computer, die Dateiinhalte aus seinem Suchindex („Dieses Laufwerk indizieren“).
+azdrive-find-note-index = Die Namen des Laufwerks kommen aus seinem Index auf diesem Computer; „Dieses Laufwerk indizieren“ (Registerkarte „Suche“) durchsucht auch die Inhalte seiner Dateien.
+azdrive-find-note-cloud-contents = Ein Cloud-Laufwerk wird über eine Auflistung aller Dateien unter diesem Ordner nach Namen durchsucht (langsamer als ein Ordner auf diesem Computer), die Dateiinhalte über seinen Suchindex.
+azdrive-find-note-cloud = Ein Cloud-Laufwerk wird über eine Auflistung aller Dateien unter diesem Ordner nach Namen durchsucht: langsamer als ein Ordner auf diesem Computer, und Dateiinhalte werden nicht durchsucht.
+azdrive-find-empty-searching = Wird gesucht…
+azdrive-find-empty-cloud = Die Suche hat die Namen in diesem Ordner und allen Ordnern darunter angesehen; die Dateien eines Cloud-Laufwerks werden nicht gelesen.
+azdrive-find-empty-contents = Die Suche hat die Namen und die Inhalte der Dateien in diesem Ordner und allen Ordnern darunter angesehen.
+azdrive-find-empty-names = Die Suche hat die Namen in diesem Ordner und allen Ordnern darunter angesehen; „Dateiinhalte“ (Registerkarte „Suche“) liest auch die Dateien.
+azdrive-index-status-looking = Indizierung: Die Dateien werden angesehen…
+azdrive-index-status-reading = Indizierung: { $read } von { $total } { $count ->
+        [one] Datei
+       *[other] Dateien
+    } gelesen…
+azdrive-index-status-failed = Der Index konnte nicht aktualisiert werden: { $error }
+azdrive-index-status-indexed = Indiziert: { $n } { $count ->
+        [one] Datei
+       *[other] Dateien
+    }
+azdrive-index-status-never = Noch nicht indiziert
+azdrive-sync-lookup-online-only = Verfügbar, wenn online
+azdrive-sync-lookup-on-device = Auf diesem Gerät verfügbar
+azdrive-sync-lookup-syncing = Wird synchronisiert
+azdrive-sync-lookup-problem = Synchronisierungsproblem
+azdrive-find-column-name = Name
+azdrive-find-column-folder = Ordner
+azdrive-find-column-match = Treffer
+azdrive-find-column-modified = Änderungsdatum
+azdrive-find-column-size = Größe
+azdrive-find-column-status = Status
+azdrive-status-items = { $count ->
+        [one] { $n } Element
+       *[other] { $n } Elemente
+    }
+azdrive-status-items-so-far = { $count ->
+        [one] bisher { $n } Element
+       *[other] bisher { $n } Elemente
+    }
+azdrive-search-placeholder = { $place } durchsuchen
+azdrive-no-subfolders = Dieser Ordner hat keine Unterordner.
+azdrive-listing-folder = Der Ordner wird aufgelistet…
+azdrive-no-drive-for = Es gibt kein Laufwerk für „{ $path }“.
+azdrive-path-bar = Pfad
+azdrive-status-selected = { $n } ausgewählt
+azdrive-status-drives = { $count ->
+        [one] ein Laufwerk
+       *[other] { $count } Laufwerke
+    }
+azdrive-status-drive-selected = „{ $name }“ ausgewählt, { $drives }
+azdrive-status-pins = { $count ->
+        [one] ein angehefteter Ordner
+       *[other] { $count } angeheftete Ordner
+    }
+azdrive-status-loading = Wird geladen…
+azdrive-status-selected-of = { $n } von { $shown } ausgewählt
+azdrive-status-available = { $size } verfügbar
+azdrive-status-clipboard = { $count } in der Zwischenablage
+azdrive-status-transfers-failed = { $count ->
+        [one] eine Übertragung fehlgeschlagen
+       *[other] { $count } Übertragungen fehlgeschlagen
+    }
+azdrive-audio-no-output = keine Audioausgabe
+azdrive-audio-cannot-play = Der Ton kann nicht abgespielt werden: { $why }
+azdrive-preview-select = Wähle eine Datei für die Vorschau aus.
+azdrive-preview-loading = Die Vorschau von „{ $name }“ wird geladen…
+azdrive-preview-image-size = { $name } – { $width } × { $height } Pixel
+azdrive-preview-mono = mono
+azdrive-preview-stereo = stereo
+azdrive-preview-channels = { $count } Kanäle
+azdrive-preview-stop = Stopp
+azdrive-preview-play = Wiedergabe
+azdrive-preview-video-note = { $name } (H.264, ohne Ton: Das Video-Widget von azul hat keine Tonspur)
+azdrive-details-recovery-health = Zustand der Wiederherstellung
+azdrive-details-used = Belegter Speicher
+azdrive-details-free = Freier Speicher
+azdrive-details-total = Gesamtgröße
+azdrive-details-path = Pfad
+azdrive-details-file-folder = Dateiordner
+azdrive-details-items = Elemente
+azdrive-details-selected = { $count ->
+        [one] ein Element ausgewählt
+       *[other] { $count } Elemente ausgewählt
+    }
+azdrive-details-files = Dateien
+azdrive-details-folders = Ordner

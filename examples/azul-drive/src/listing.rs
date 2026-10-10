@@ -317,16 +317,17 @@ pub fn carry_stats(old: &[Entry], fresh: &mut [Entry]) {
 }
 
 /// What the status line says about a listing of `count` items: "12,345 items", while the scan
-/// still runs "12,345 items so far".
+/// still runs "12,345 items so far" (`$n` the count grouped in the window's language).
 #[must_use]
-pub fn count_text(count: usize, done: bool) -> String {
-    let n = grouped_digits(count);
-    let noun = if count == 1 { "item" } else { "items" };
-    if done {
-        format!("{n} {noun}")
+pub fn count_text(count: usize, done: bool) -> azul_appkit::l10n::Phrase {
+    let said = if done {
+        "azdrive-status-items"
     } else {
-        format!("{n} {noun} so far")
-    }
+        "azdrive-status-items-so-far"
+    };
+    azul_appkit::l10n::Phrase::new(said)
+        .arg("count", count)
+        .arg("n", azul_appkit::l10n::grouped(count as u64))
 }
 
 /// `12345` as `12,345` (the status line counts big folders).
@@ -647,9 +648,16 @@ mod tests {
 
     #[test]
     fn the_status_counts_big_folders_with_grouped_digits() {
-        assert_eq!(count_text(1, true), "1 item");
-        assert_eq!(count_text(12_345, true), "12,345 items");
-        assert_eq!(count_text(1_000_000, false), "1,000,000 items so far");
+        use azul_appkit::l10n::Arg;
+
+        let one = count_text(1, true);
+        assert_eq!(one.key, "azdrive-status-items");
+        assert_eq!(one.get("count"), Some(&Arg::Int(1)));
+        let big = count_text(12_345, true);
+        assert_eq!(big.get("count"), Some(&Arg::Int(12_345)));
+        let so_far = count_text(1_000_000, false);
+        assert_eq!(so_far.key, "azdrive-status-items-so-far");
+        assert_eq!(grouped_digits(12_345), "12,345");
         assert_eq!(grouped_digits(999), "999");
         assert_eq!(grouped_digits(0), "0");
     }

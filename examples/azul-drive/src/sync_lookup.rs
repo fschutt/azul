@@ -25,14 +25,14 @@ pub enum SyncState {
 }
 
 impl SyncState {
-    /// The Status cell: its icon and its words.
+    /// The Status cell: its icon and its words (a key of the resources).
     #[must_use]
     pub fn badge(self) -> (&'static str, &'static str) {
         match self {
-            SyncState::OnlineOnly => ("cloud_queue", "Available when online"),
-            SyncState::OnThisDevice => ("check_circle", "Available on this device"),
-            SyncState::Syncing => ("sync", "Syncing"),
-            SyncState::Problem => ("sync_problem", "Sync problem"),
+            SyncState::OnlineOnly => ("cloud_queue", "azdrive-sync-lookup-online-only"),
+            SyncState::OnThisDevice => ("check_circle", "azdrive-sync-lookup-on-device"),
+            SyncState::Syncing => ("sync", "azdrive-sync-lookup-syncing"),
+            SyncState::Problem => ("sync_problem", "azdrive-sync-lookup-problem"),
         }
     }
 }
