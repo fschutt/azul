@@ -8,6 +8,58 @@ pub fn decode(name: &str) -> String {
     decode_strict(name).unwrap_or_else(|| name.to_string())
 }
 
+/// The UTF-8 name in modified UTF-7, as an IMAP4rev1 server lists it (the Azlin Bridge lists
+/// the drive's folders so): printable ASCII stays, `&` is `&-`, every other run of characters
+/// is its UTF-16 (big-endian) in modified base64 between `&` and `-`. [`decode`] reads it back.
+pub fn encode(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut run: Vec<u16> = Vec::new();
+    for c in name.chars() {
+        if (' '..='~').contains(&c) {
+            if !run.is_empty() {
+                encode_run(&run, &mut out);
+                run.clear();
+            }
+            if c == '&' {
+                out.push_str("&-");
+            } else {
+                out.push(c);
+            }
+        } else {
+            let mut units = [0u16; 2];
+            run.extend_from_slice(c.encode_utf16(&mut units));
+        }
+    }
+    if !run.is_empty() {
+        encode_run(&run, &mut out);
+    }
+    out
+}
+
+/// One shifted run: `&`, the UTF-16 units in modified base64 (`,` for `/`, no padding), `-`.
+fn encode_run(units: &[u16], out: &mut String) {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+,";
+    out.push('&');
+    let mut bits: u32 = 0;
+    let mut nbits: u32 = 0;
+    for unit in units {
+        for byte in unit.to_be_bytes() {
+            bits = (bits << 8) | u32::from(byte);
+            nbits += 8;
+            while nbits >= 6 {
+                nbits -= 6;
+                out.push(char::from(ALPHABET[((bits >> nbits) & 63) as usize]));
+            }
+            bits &= (1 << nbits) - 1;
+        }
+    }
+    if nbits > 0 {
+        out.push(char::from(ALPHABET[((bits << (6 - nbits)) & 63) as usize]));
+    }
+    out.push('-');
+}
+
 /// The decoded name, or `None` when `name` is not valid modified UTF-7.
 fn decode_strict(name: &str) -> Option<String> {
     let mut out = String::with_capacity(name.len());
@@ -89,6 +141,24 @@ mod tests {
         );
         assert_eq!(decode("&Jjo-!"), "☺!");
         assert_eq!(decode("Gel&APY-schte Elemente"), "Gelöschte Elemente");
+    }
+
+    #[test]
+    fn utf_8_names_are_encoded_as_a_server_lists_them_and_read_back() {
+        assert_eq!(encode("INBOX"), "INBOX");
+        assert_eq!(encode("Entwürfe"), "Entw&APw-rfe");
+        assert_eq!(encode("Bills & Receipts"), "Bills &- Receipts");
+        assert_eq!(encode("Gelöschte Elemente"), "Gel&APY-schte Elemente");
+        // RFC 3501's own example.
+        assert_eq!(
+            encode("~peter/mail/台北/日本語"),
+            "~peter/mail/&U,BTFw-/&ZeVnLIqe-"
+        );
+        assert_eq!(encode("☺!"), "&Jjo-!");
+        for name in ["Entwürfe", "R&D/台北", "😀 Fotos", "tab\there", "ü", ""] {
+            assert_eq!(decode(&encode(name)), name, "{name:?}");
+            assert!(encode(name).is_ascii(), "{name:?}");
+        }
     }
 
     #[test]

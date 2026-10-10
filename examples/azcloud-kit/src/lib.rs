@@ -37,6 +37,8 @@
 //! - [`state`] and [`secrets`]: the state folder of one device - `drives.json` in
 //!   azul-storage's format, the drives' Azlin side, the secrets file (0600) under the OS
 //!   keyring's entry names, the device id.
+//! - [`bridge`]: the Azlin Bridge as the apps show it - its settings (`bridge.json` of its state
+//!   folder), the rows a mail, file or calendar program is to be told, where its password is.
 //! - [`account`]: sign-up, joining a drive from another device (each device its own token
 //!   family), credentials renewed six hours before they expire, the node list re-read on every
 //!   refresh, the invite, the lockdown, the restore.
@@ -66,6 +68,7 @@
 //! token). No azul types: tested without a window (`cargo test -p azcloud-kit`).
 
 pub mod account;
+pub mod bridge;
 pub mod bucket;
 pub mod bundle;
 pub mod claim;

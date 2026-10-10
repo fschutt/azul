@@ -19,6 +19,7 @@ mail/.state/<id>/seen                 empty object: the message is read
 mail/.state/<id>/flagged              empty object: flagged for follow-up
 mail/.state/<id>/answered             empty object: replied to (read; AzMail does not set it yet)
 mail/.state/<id>/label/<label>        empty object: a label (category), the name percent-encoded
+mail/.state/<id>/deleted              empty object: marked deleted by another program, not expunged (hidden)
 mail/.index/                          reserved for a folder summary cache (not written, see 4.4)
 ```
 
@@ -71,6 +72,7 @@ Every user action is ONE idempotent object operation (or two, for a move):
 | read / unread | PUT / DELETE `mail/.state/<id>/seen` (empty) |
 | flag / unflag | PUT / DELETE `mail/.state/<id>/flagged` |
 | label / unlabel | PUT / DELETE `mail/.state/<id>/label/<label>` |
+| mark deleted / undelete (a mail program through the Azlin Bridge, section 11) | PUT / DELETE `mail/.state/<id>/deleted`; AzMail hides a message while it has this marker |
 | move (Archive, Junk, Move to) | CopyObject to `mail/<To>/<name>.eml`, then DeleteObject of the old key; the markers stay |
 | delete | a move to `mail/Trash/`; deleting in Trash deletes the object, then its markers |
 | save a draft | PUT `mail/Drafts/<new name>.eml`, then DELETE the draft it replaces |
@@ -200,5 +202,30 @@ arrival is a later layer between the Worker and the bucket.
 - `scripts/azlin_client.py`: the scripts' one client of the token server and of a drive's
   bucket.
 - The Rust side's tests: `azlin.rs` (names, markers, the session, the token server client over
-  a fake transport, the endpoints) and `azlin_sync.rs` (Send/Receive and every action, with a
-  folder on disk as the drive).
+  a fake transport, the endpoints; now in examples/azul-mail-core) and `azlin_sync.rs`
+  (Send/Receive and every action, with a folder on disk as the drive).
+
+## 11. Other mail programs: the Azlin Bridge
+
+Apple Mail, Outlook and Thunderbird reach the same mailbox through the Azlin Bridge
+(examples/azul-bridge): IMAP and SMTP submission on 127.0.0.1 of the user's own computer. It
+reads and writes exactly this layout (through azul-mail-core's `azlin` module):
+
+- Mailboxes are the folders under `mail/` with the roles of section 1 (`INBOX`, and `\Sent`,
+  `\Drafts`, `\Archive`, `\Junk`, `\Trash` on the well-known ones), names in modified UTF-7.
+- `\Seen`, `\Flagged` and `\Answered` are the markers of section 3, so a mail read in Apple Mail
+  is read in AzMail. A keyword (`$Forwarded`, `Work`, ...) is a label marker
+  (`label/<keyword>`), so AzMail's categories and the programs' keywords are one thing.
+  `\Draft` is no marker: every message of the Drafts folder has it, no other one does.
+- `\Deleted` is the marker `mail/.state/<id>/deleted` (added for the bridge; older AzMails
+  ignore it, AzMail now hides a message while it is there). EXPUNGE deletes the object, then
+  every marker of the message when no other folder holds the same name - else only its
+  `deleted` marker, so the copy elsewhere is not hidden.
+- APPEND, COPY and MOVE write objects named by section 2 (APPEND: the time it gives, else now);
+  a copy shares its markers with the original (the same `<id>`).
+- IMAP's UIDs are the bridge's own: a map per mailbox in its state folder (names numbered in
+  name order when it first sees the mailbox, later names after them; UIDVALIDITY the map's
+  creation time). Nothing of it is written into the bucket.
+- A mail submitted over SMTP goes out through AzMail's sending path (section 8) and its copy
+  is put into `mail/Sent/` at once, read; the mail program's own APPEND of that copy to Sent
+  is recognised by its Message-ID and not filed twice.

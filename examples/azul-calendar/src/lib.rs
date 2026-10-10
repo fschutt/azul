@@ -60,11 +60,12 @@
 //! <pages>` when FILE > Print's preview was made, `AZCAL_PRINTED <style> <bytes>` when a
 //! printout was saved.
 
+// The events without azul types live in azul-calendar-core, so a headless process (the Azlin
+// Bridge's CalDAV) runs the same code; they keep their module names here (`crate::event`).
+pub use azcal_core::{calendars, event, ics, meet_rooms};
+
 pub mod args;
-pub mod calendars;
 pub mod editor;
-pub mod event;
-pub mod ics;
 pub mod meeting;
 pub mod print;
 pub use azul_pim::rrule;
@@ -85,11 +86,6 @@ mod print_ui;
 mod timegrid;
 mod views_ui;
 mod writes;
-
-/// AzMeet's meeting links and room keys: AzMeet's own `rooms.rs`, compiled into AzCalendar too,
-/// so the two apps read links the same way.
-#[path = "../../azul-meet/src/rooms.rs"]
-pub mod meet_rooms;
 
 /// AzMeet's invite secrets (`invite.rs`, CRYPTO.md section 4): a link made here carries one, and
 /// its room is registered with the invite key, so the meeting is end-to-end encrypted.

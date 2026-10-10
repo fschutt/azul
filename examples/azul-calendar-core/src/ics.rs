@@ -1063,10 +1063,16 @@ mod tests {
         a.reminder = Some(30);
         a.repeat = Some(Rule::new(Freq::Weekly).with_interval(2));
         a.except = vec![d(2026, 10, 14)];
-        a.meeting = Some(crate::meeting::pending_meeting(
-            "https://meet.example.com",
-            ROOM,
-        ));
+        // What AzCalendar's `meeting::pending_meeting` makes (a link made here, not registered).
+        a.meeting = Some(Meeting {
+            link: format!("{}{ROOM}", crate::meet_rooms::APP_LINK_PREFIX),
+            server: String::from("https://meet.example.com"),
+            code: String::new(),
+            expires: String::new(),
+            starts_at: String::new(),
+            ends_at: String::new(),
+            pending: true,
+        });
         let a = a.check().unwrap();
         let b = Event::create_all_day(
             "9d4c1f3a-2b7e-4d10-8f6a-51c2e7b9a0d3",

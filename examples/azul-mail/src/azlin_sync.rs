@@ -28,7 +28,7 @@ use azul_storage::{ops, time::parse_iso8601, ByteRange, Drive, DriveError, Objec
 
 use crate::{
     azlin::{self, MessageState},
-    folders::{self, LocalMailbox, Role, ServerMailbox},
+    folders::{LocalMailbox, Role},
     listing::{self, LocalFlags},
     message,
     store::{self, FolderState, IndexEntry, MailStore},
@@ -198,111 +198,9 @@ pub fn needs_fetch(store: &MailStore, entry: &IndexEntry) -> bool {
 
 // ==== The drive's folders ====
 
-/// One folder of the drive's mailbox: its path under `mail/` (`Inbox`, `Work/Projects`) and the
-/// listing's entries of its messages, in key order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteFolder {
-    pub path: String,
-    pub messages: Vec<ObjectInfo>,
-}
-
-/// Every folder of the drive's mailbox, at any depth, by path: one listing per folder (pages
-/// of 1000). AzMail's bookkeeping (`.state`, `.index`) is no folder.
-pub fn list_mailbox(drive: &dyn Drive) -> Result<Vec<RemoteFolder>, DriveError> {
-    let mut found = Vec::new();
-    let mut queue: Vec<String> = vec![String::new()];
-    while let Some(path) = queue.pop() {
-        let prefix = if path.is_empty() {
-            String::from(azlin::MAIL_PREFIX)
-        } else {
-            azlin::folder_prefix(&path)
-        };
-        let level = ops::list_folder_all(drive, &prefix)?;
-        for sub in &level.folders {
-            let name = sub
-                .strip_prefix(prefix.as_str())
-                .unwrap_or_default()
-                .trim_end_matches('/');
-            if name.is_empty() || name.starts_with('.') {
-                continue;
-            }
-            queue.push(if path.is_empty() {
-                name.to_string()
-            } else {
-                format!("{path}/{name}")
-            });
-        }
-        if !path.is_empty() {
-            let messages = level
-                .objects
-                .into_iter()
-                .filter(|object| azlin::message_id(&object.key).is_some())
-                .collect();
-            found.push(RemoteFolder { path, messages });
-        }
-    }
-    found.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(found)
-}
-
-/// Every message's state, from one listing of `mail/.state/`.
-pub fn list_states(drive: &dyn Drive) -> Result<HashMap<String, MessageState>, DriveError> {
-    let markers = ops::list_all(drive, azlin::STATE_PREFIX)?;
-    Ok(azlin::states_from_keys(
-        markers.iter().map(|m| m.key.as_str()),
-    ))
-}
-
-/// The IMAP special-use attribute that gives a well-known folder its role.
-fn special_use(role: Role) -> Option<&'static str> {
-    match role {
-        Role::Sent => Some("\\Sent"),
-        Role::Drafts => Some("\\Drafts"),
-        Role::Archive => Some("\\Archive"),
-        Role::Spam => Some("\\Junk"),
-        Role::Trash => Some("\\Trash"),
-        _ => None,
-    }
-}
-
-/// A folder of the drive as `folders::local_mailboxes` reads an IMAP server's: a well-known
-/// name with its special-use attribute, `/` the hierarchy, and `&` written `&-` (the drive's
-/// names are UTF-8, a server's modified UTF-7, which the folder rules decode).
-fn as_server_mailbox(path: &str) -> ServerMailbox {
-    let attributes = azlin::WELL_KNOWN
-        .iter()
-        .find(|(_, name)| name.eq_ignore_ascii_case(path))
-        .and_then(|(role, _)| special_use(*role))
-        .map(|attribute| vec![attribute.to_string()])
-        .unwrap_or_default();
-    ServerMailbox {
-        name: path.replace('&', "&-"),
-        delimiter: Some(String::from("/")),
-        attributes,
-    }
-}
-
-/// The local folders of the drive's folders `paths` and of the well-known ones it has none
-/// for (by role): a folder's key, role and sidebar name as an IMAP server's folder gets them
-/// (`folders.rs`: `Inbox` is `inbox`, `Junk` is the spam folder when there is no `Spam`),
-/// its `server_name` its path in the drive.
-pub fn local_folders(paths: &[String]) -> Vec<LocalMailbox> {
-    let mut listed: Vec<ServerMailbox> = paths.iter().map(|path| as_server_mailbox(path)).collect();
-    let roles: Vec<Role> = folders::local_mailboxes(&listed)
-        .iter()
-        .map(|mailbox| mailbox.role)
-        .collect();
-    for (role, name) in azlin::WELL_KNOWN {
-        if !roles.contains(&role) && !paths.iter().any(|path| path.eq_ignore_ascii_case(name)) {
-            listed.push(as_server_mailbox(name));
-        }
-    }
-    let mut boxes = folders::local_mailboxes(&listed);
-    for mailbox in &mut boxes {
-        mailbox.server_name = mailbox.server_name.replace("&-", "&");
-    }
-    boxes
-}
+// Listing the drive's mailbox is azul-mail-core's (`azlin.rs`): the Azlin Bridge lists it the
+// same way.
+pub use crate::azlin::{list_mailbox, list_states, local_folders, RemoteFolder};
 
 // ==== Send/Receive ====
 
@@ -380,6 +278,18 @@ fn sync_folder(
 ) -> Result<FolderReport, SyncError> {
     let key = mailbox.key.as_str();
     let path = mailbox.server_name.as_str();
+    // A message another program marked deleted (IMAP's \Deleted through the Azlin Bridge, not
+    // expunged yet) is hidden here as if it were gone, until the mark goes or the message does.
+    let visible: Vec<ObjectInfo> = listed
+        .iter()
+        .filter(|object| {
+            azlin::message_id(&object.key)
+                .and_then(|id| states.get(id))
+                .is_none_or(|state| !state.deleted)
+        })
+        .cloned()
+        .collect();
+    let listed = visible.as_slice();
     let mut index = read_index(store, key);
     let mut state = FolderState::create(path, &mailbox.display, AZLIN_UIDVALIDITY);
     state.last_uid = read_state(store, key).map_or(0, |old| old.last_uid);
@@ -1073,6 +983,30 @@ mod tests {
         assert_eq!(report.removed(), 1);
         assert!(index(&f.store, "inbox").is_empty());
         assert_eq!(f.store.size_of(&path), None);
+    }
+
+    #[test]
+    fn a_message_another_program_marked_deleted_is_hidden_here_until_the_mark_goes() {
+        let f = fixture();
+        let kept = deliver(&f, "Inbox", &mail(1, "Kept"), SEP_30);
+        let marked = deliver(&f, "Inbox", &mail(2, "Marked"), SEP_30 + 60);
+        let marked_id = azlin::message_id(&marked).unwrap().to_string();
+        // Apple Mail over the Azlin Bridge set \Deleted on it (and has not expunged yet).
+        let deleted = format!("{}{marked_id}/deleted", azlin::STATE_PREFIX);
+        f.bucket.inner.put(&deleted, &[]).unwrap();
+        run(&f);
+        let subjects: Vec<String> = index(&f.store, "inbox").into_iter().map(|e| e.subject).collect();
+        assert_eq!(subjects, ["Kept"]);
+        // Shown on this computer first, then marked: it leaves the local copy.
+        f.bucket.inner.delete(&deleted).unwrap();
+        run(&f);
+        assert_eq!(index(&f.store, "inbox").len(), 2);
+        f.bucket.inner.put(&deleted, &[]).unwrap();
+        let report = run(&f);
+        assert_eq!(report.removed(), 1);
+        let left: Vec<String> = index(&f.store, "inbox").into_iter().map(|e| e.remote).collect();
+        assert_eq!(left, [kept]);
+        assert!(!missing(&f.bucket, &marked), "hidden here, still in the drive");
     }
 
     #[test]

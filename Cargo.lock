@@ -26,6 +26,7 @@ name = "AzCalendar"
 version = "0.1.0"
 dependencies = [
  "azul-appkit",
+ "azul-calendar-core",
  "azul-dll",
  "azul-pim",
  "azul-storage",
@@ -141,6 +142,7 @@ dependencies = [
  "azul-appkit",
  "azul-dll",
  "azul-icons-haiku",
+ "azul-mail-core",
  "azul-pim",
  "azul-storage",
  "base64 0.22.1",
@@ -1174,6 +1176,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-bridge"
+version = "0.1.0"
+dependencies = [
+ "azcloud-kit",
+ "azul-appkit",
+ "azul-calendar-core",
+ "azul-dll",
+ "azul-mail-core",
+ "azul-storage",
+ "base64 0.22.1",
+ "chrono",
+ "dirs",
+ "getrandom 0.2.17",
+ "md-5 0.11.0",
+ "roxmltree 0.21.1",
+ "rustls-rustcrypto",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "azul-calendar-core"
+version = "0.1.0"
+dependencies = [
+ "azul-pim",
+ "azul-storage",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "azul-core"
 version = "0.0.16"
 dependencies = [
@@ -1421,6 +1456,27 @@ dependencies = [
  "xmlwriter",
  "zip 2.4.2",
  "zune-jpeg",
+]
+
+[[package]]
+name = "azul-mail-core"
+version = "0.1.0"
+dependencies = [
+ "azcloud-kit",
+ "azul-appkit",
+ "azul-pim",
+ "azul-storage",
+ "base64 0.22.1",
+ "chrono",
+ "lettre",
+ "mail-parser",
+ "microdns",
+ "micromail",
+ "rsa",
+ "rustls",
+ "rustls-rustcrypto",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
