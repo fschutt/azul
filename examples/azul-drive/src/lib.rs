@@ -117,6 +117,8 @@ mod find_tests;
 mod ids;
 /// The Azlin drives' paid months: when their periods are looked at, the redemptions.
 mod periods;
+/// A drive's errors as the user sees them: the table's words, the error ID, notifications.
+mod problems;
 #[cfg(test)]
 mod periods_tests;
 #[cfg(test)]
@@ -702,6 +704,8 @@ pub(crate) struct DriveState {
     pub period_tokens: azcloud_kit::PeriodTokenStore,
     /// When each Azlin drive's period is looked at next (a day, an hour after a failure).
     pub redemptions: periods::Schedule,
+    /// The drives' storage and token server problems as the user sees them.
+    pub problems: problems::Problems,
 }
 
 impl DriveState {
@@ -1940,6 +1944,8 @@ fn scanned(
     }
     s.listing_done = true;
     s.loading = false;
+    // The drive answered: its problem leaves the status line.
+    problems::drive_answered(s);
     if let Some(mut fresh) = s.refreshing.take() {
         // The rows read again show the old sizes and dates until their own stats are in.
         listing::carry_stats(&s.entries, &mut fresh);
@@ -2009,6 +2015,7 @@ pub(crate) extern "C" fn on_job_done(
             }
             | Outcome::Searched { end: None, .. }
             | Outcome::IndexProgress { .. }
+            | Outcome::DriveProblem { .. }
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
@@ -2362,6 +2369,9 @@ pub(crate) extern "C" fn on_job_done(
         },
         #[cfg(feature = "encryption")]
         Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
+        Outcome::DriveProblem { serial, problem } => {
+            problems::drive_problem(&mut info, s, serial, problem);
+        }
     }
     Update::RefreshDom
 }
@@ -2853,6 +2863,7 @@ pub fn start() {
         claiming: false,
         period_tokens,
         redemptions: periods::Schedule::default(),
+        problems: problems::Problems::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

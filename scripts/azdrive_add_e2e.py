@@ -381,9 +381,10 @@ def run(args, logs):
     # The headless keyring in a file of this run: it outlives AzDrive's restart (step 6). The
     # payer pays from Germany whatever this machine's locale is (the pills of steps 7 - 11).
     keyring_file = os.path.join(logs, "keyring.json")
-    # The daily look at the drives' periods every 3 s (step 6c).
+    # The daily look at the drives' periods every 3 s (step 6c); English texts whatever the
+    # computer's locale (step 6d reads them).
     env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE",
-           "AZDRIVE_PERIOD_CHECK_SECS": "3"}
+           "AZDRIVE_PERIOD_CHECK_SECS": "3", "LC_ALL": "en_US.UTF-8"}
     app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout, extra_env=env)
     try:
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))

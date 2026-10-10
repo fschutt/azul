@@ -26,6 +26,7 @@ use azcloud_kit::{
     pending::{self, Claimed, Finished, PendingTokens, Polled},
     redeem_due, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery,
     PendingCheckout, PeriodTokenStore, PeriodTokens, Redeemed, SharedKeyring, Tiers, TokenServer,
+    UserError,
 };
 use azul_pay::{Choice, Created, Look, SurfaceKind};
 use azul::{
@@ -545,6 +546,9 @@ pub(crate) enum Outcome {
     /// What an encryption job found.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionOutcome),
+    /// The listing `serial` (of the drive in view) met a storage or token server error, as
+    /// the user sees it ([`crate::problems`]); a message of a scan that still ends.
+    DriveProblem { serial: u64, problem: UserError },
 }
 
 /// A thread's start data: the job, taken out once.
@@ -919,12 +923,16 @@ fn scan_bucket(
         let page = match drive.list(&request) {
             Ok(page) => page,
             Err(e) => {
+                // A storage or token server error in the table's words, with its error ID.
+                if let Some(problem) = UserError::from_drive_error(&e) {
+                    emit(Outcome::DriveProblem { serial, problem });
+                }
                 return Outcome::Scanned {
                     serial,
                     batch: Vec::new(),
                     done: true,
-                    error: Some(e.to_string()),
-                }
+                    error: Some(crate::problems::describe(&e)),
+                };
             }
         };
         let batch = browse::entries_of(&page, prefix);
