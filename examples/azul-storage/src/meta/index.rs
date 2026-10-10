@@ -597,15 +597,26 @@ impl MetaIndexProvider {
         id
     }
 
-    /// One maintenance round of the index in `bucket` ([`MetaStore::maintain`]).
+    /// One maintenance round of the index in `bucket` ([`MetaStore::maintain`]). The round
+    /// runs under the bucket's maintenance lease and does four things: it sweeps orphans,
+    /// folds the live packs into one, writes a checkpoint, and deletes what was retired long
+    /// enough ago. It is meant for an app's idle time, because compaction reads every live
+    /// pack. It answers `None` when the bucket has no index yet or another device holds the
+    /// lease. It opens the store on its own, so this device's copies stay as they are, and
+    /// their next pull reads the new pack.
     pub fn maintain(
         &self,
         bucket: Arc<dyn Drive>,
         drive_key: &DriveKey,
         rules: &Maintenance,
     ) -> Result<Option<Maintained>, DriveError> {
-        let _ = (bucket, drive_key, rules);
-        Ok(None)
+        let bucket = DriveBucket::new(bucket);
+        let mut store = match MetaStore::open(bucket, drive_key.clone(), &self.device_id()) {
+            Ok(store) => store,
+            Err(MetaError::NoRepository) => return Ok(None),
+            Err(e) => return Err(to_drive(e)),
+        };
+        store.maintain(rules).map_err(to_drive)
     }
 }
 

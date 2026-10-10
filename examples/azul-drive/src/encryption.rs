@@ -25,12 +25,20 @@
 //! `PowerState`), the first open encrypted drive's files are written again, smaller, on a
 //! worker thread, and the pass stops at the first input or when the power cord goes. Its state
 //! sits beside the migration's, so the next idle minute continues where it stopped.
+//!
+//! The same timer keeps the drive index small. In an idle minute on mains power, before the
+//! pass, an encrypted drive whose index was not maintained from this computer in the last six
+//! hours gets one maintenance round (azul-storage's `MetaIndexProvider::maintain`). The round
+//! runs under the bucket's lease, so only one computer runs it at a time. It folds the index's
+//! packs into one, writes a checkpoint and deletes what was retired a day ago. One thing runs
+//! at a time: the round or the pass.
 
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -139,7 +147,8 @@ fn idle_on_mains() -> bool {
     PowerState::query().is_idle_on_mains(RECOMPRESS_IDLE_SECS)
 }
 
-/// Starts the timer that starts the pass (from the window's start).
+/// Starts the one timer that starts the pass and the drive index's maintenance rounds (from
+/// the window's start).
 pub(crate) fn start_recompression(info: &mut CallbackInfo, app: &RefAny) {
     if !offered() {
         return;
@@ -165,11 +174,38 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
-    let found = s.slots.iter().find_map(|slot| {
-        let auto = slot.auto.clone()?;
-        (auto.is_encrypted() == Some(true)).then(|| (slot.entry.id.clone(), auto))
-    });
-    let Some((drive_id, auto)) = found else {
+    let encrypted: Vec<(String, Arc<AutoEncrypted>)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| {
+            let auto = slot.auto.clone()?;
+            (auto.is_encrypted() == Some(true)).then(|| (slot.entry.id.clone(), auto))
+        })
+        .collect();
+    // The drive index's upkeep first: a short round, once every six hours per drive.
+    let now = now_unix();
+    let running = MAINTAINING.load(Ordering::SeqCst);
+    let due = encrypted
+        .iter()
+        .find(|(drive_id, _)| maintenance_due(now, maintained_at(drive_id), running));
+    if let Some((drive_id, auto)) = due.cloned() {
+        MAINTAINING.store(true, Ordering::SeqCst);
+        MAINTAINED_AT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(drive_id.clone(), now);
+        spawn(
+            &mut callback_info,
+            &app,
+            &mut *s,
+            Job::Encryption(EncryptionJob::Maintain { drive_id, auto }),
+        );
+        return TimerCallbackReturn::continue_unchanged();
+    }
+    if running {
+        return TimerCallbackReturn::continue_unchanged();
+    }
+    let Some((drive_id, auto)) = encrypted.into_iter().next() else {
         return TimerCallbackReturn::continue_unchanged();
     };
     let state_file = state_dir(&*s).join(format!("{drive_id}.recompress.json"));
@@ -192,15 +228,30 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
 /// How long after a drive's index was maintained from this computer the next round is due.
 const MAINTAIN_EVERY_SECS: u64 = 6 * 3_600;
 
+/// One round at a time (beside the recompression pass, never during it).
+static MAINTAINING: AtomicBool = AtomicBool::new(false);
+/// When a round of each drive's index last started from this computer (seconds since 1970),
+/// by drive id. Kept in memory only, so the first idle minute after a start runs one round.
+static MAINTAINED_AT: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+
 /// Whether a drive's index is due for a maintenance round at `now`: none running, and none
 /// started from this computer in the last [`MAINTAIN_EVERY_SECS`] (`last`).
 fn maintenance_due(now: u64, last: Option<u64>, running: bool) -> bool {
-    let _ = (now, last, running);
-    false
+    !running && last.map_or(true, |last| now.saturating_sub(last) >= MAINTAIN_EVERY_SECS)
 }
 
-/// One maintenance round of the drive `drive`'s index in `bucket`, with this computer's key
-/// from `keyring`.
+/// When the round of the drive `drive_id`'s index last started from this computer.
+fn maintained_at(drive_id: &str) -> Option<u64> {
+    MAINTAINED_AT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(drive_id)
+        .copied()
+}
+
+/// One maintenance round of the drive `drive`'s index in `bucket`
+/// (`MetaIndexProvider::maintain`), with this computer's key from `keyring`. `None`: there
+/// is no index yet, or another computer's round holds the lease.
 fn run_maintenance(
     provider: &MetaIndexProvider,
     bucket: &Arc<dyn Drive>,
@@ -208,8 +259,12 @@ fn run_maintenance(
     drive: &str,
     rules: &Maintenance,
 ) -> Result<Option<Maintained>, String> {
-    let _ = (provider, bucket, keyring, drive, rules);
-    Ok(None)
+    let drive_key = device::unlock(bucket.as_ref(), keyring, drive)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("this computer has no key for \"{drive}\""))?;
+    provider
+        .maintain(Arc::clone(bucket), &drive_key, rules)
+        .map_err(|e| e.to_string())
 }
 
 // ==== The dialog ====
@@ -820,6 +875,11 @@ pub(crate) enum EncryptionJob {
         token_url: String,
         keyring: azcloud_kit::SharedKeyring,
     },
+    /// A maintenance round of the drive's index, in idle time on mains power.
+    Maintain {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+    },
 }
 
 /// What a rotation brings back to the UI thread.
@@ -868,6 +928,11 @@ pub(crate) enum EncryptionOutcome {
     LockedDown {
         drive_id: String,
         result: Result<Option<u64>, String>,
+    },
+    /// What the round did (`None`: no index yet, or another computer's round was running).
+    Maintained {
+        drive_id: String,
+        result: Result<Option<Maintained>, String>,
     },
 }
 
@@ -1066,6 +1131,16 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         } => {
             let result = recovery_lockdown(&drive_id, &code, &token_url, &keyring);
             EncryptionOutcome::LockedDown { drive_id, result }
+        }
+        EncryptionJob::Maintain { drive_id, auto } => {
+            let result = run_maintenance(
+                &meta_provider(index_cache_root()),
+                auto.bucket(),
+                &keyring,
+                auto.drive(),
+                &Maintenance::default(),
+            );
+            EncryptionOutcome::Maintained { drive_id, result }
         }
     }
 }
@@ -1306,6 +1381,13 @@ pub(crate) fn on_outcome(
                     text: why,
                 },
             }));
+        }
+        // Quiet, like the recompression pass: a round that stopped runs again six hours on.
+        EncryptionOutcome::Maintained { drive_id, result } => {
+            MAINTAINING.store(false, Ordering::SeqCst);
+            if let Err(why) = result {
+                eprintln!("AZDRIVE_MAINTAIN_STOPPED {drive_id}: {why}");
+            }
         }
     }
 }
