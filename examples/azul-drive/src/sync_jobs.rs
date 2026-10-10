@@ -702,27 +702,20 @@ pub(crate) fn delete_through_sync(
     drive: &str,
     items: Vec<crate::fileops::SourceItem>,
 ) -> Vec<crate::fileops::SourceItem> {
-    let mut pair: Option<String> = None;
-    let mut keys = Vec::new();
-    let mut cloud_only = false;
-    for item in &items {
-        let Some((drive_id, rel)) = sync_view::pair_at(s, drive, &item.key) else {
-            return items;
-        };
-        if pair.as_ref().is_some_and(|p| *p != drive_id) {
-            return items;
-        }
-        if s.sync_view.store.states(&drive_id).state_of(&rel)
-            == Some(azcloud_kit::sync::session::FileState::CloudOnly)
-        {
-            cloud_only = true;
-        }
-        pair = Some(drive_id);
-        keys.push(rel);
-    }
-    let Some(drive_id) = pair else {
+    // Every item in one pairing, or the usual delete takes them all.
+    let found: Vec<(String, String)> = items
+        .iter()
+        .map_while(|item| sync_view::pair_at(s, drive, &item.key))
+        .collect();
+    let one_pairing = found.len() == items.len() && found.windows(2).all(|w| w[0].0 == w[1].0);
+    let Some(drive_id) = found.first().map(|(d, _)| d.clone()).filter(|_| one_pairing) else {
         return items;
     };
+    let states = s.sync_view.store.states(&drive_id);
+    let cloud_only = found.iter().any(|(_, rel)| {
+        states.state_of(rel) == Some(azcloud_kit::sync::session::FileState::CloudOnly)
+    });
+    let keys: Vec<String> = found.into_iter().map(|(_, rel)| rel).collect();
     let from_index = items
         .first()
         .is_some_and(|item| sync_view::from_index(s, drive, &item.key));
