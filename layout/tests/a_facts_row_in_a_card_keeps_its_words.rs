@@ -51,6 +51,8 @@
 //! chain printed first): the row is as wide as its card's body (at least 700 px), the label's
 //! box is 168 px wide and the value takes the rest of the row, and the painted text of each
 //! label and value starts inside its box on no more lines than it has words - one line here.
+//! It checks the window's first frame, a rebuild of the same page (AzCtl rebuilds its DOM when
+//! a poll brings news; the layout caches carry over) and a resize to 1200 px and back.
 //! A second test lays the same two cards out in a plain 763.2 px column, without the shell, to
 //! tell a shell bug from a card bug.
 //!
@@ -625,18 +627,23 @@ fn window() -> Dom {
 
 // ==== Laying out and reading back ====
 
-/// `build`'s DOM (built under the app theme flora, as AzCtl pins it), laid out in a
-/// `WINDOW_W` x `WINDOW_H` window.
-fn lay_out(build: impl FnOnce() -> Dom) -> LayoutWindow {
+/// A window in the app theme flora, as AzCtl pins it.
+fn new_window() -> LayoutWindow {
+    let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+    lw.app_theme = AzString::from("flora");
+    lw
+}
+
+/// One frame of `lw`: `build`'s DOM (built under the app theme flora) laid out at `width` x
+/// `WINDOW_H` - the first frame, a rebuild of the same DOM (AzCtl's poll), or a resize.
+fn frame(lw: &mut LayoutWindow, build: impl FnOnce() -> Dom, width: f32) {
     let dom = {
         let _scope = ThemeScope::enter(AzString::from("flora"));
         build()
     };
     let styled = StyledDom::create_from_dom(dom);
-    let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
-    lw.app_theme = AzString::from("flora");
     let mut ws = FullWindowState::default();
-    ws.size.dimensions = LogicalSize::new(WINDOW_W, WINDOW_H);
+    ws.size.dimensions = LogicalSize::new(width, WINDOW_H);
     lw.current_window_state = ws.clone();
     let mut dbg = None;
     lw.layout_and_generate_display_list(
@@ -647,7 +654,6 @@ fn lay_out(build: impl FnOnce() -> Dom) -> LayoutWindow {
         &mut dbg,
     )
     .expect("the window lays out");
-    lw
 }
 
 /// The DOM node with the id `name`, if any.
@@ -827,50 +833,72 @@ fn assert_facts_keep_their_words(
     }
 }
 
-#[test]
-fn a_facts_row_on_azctls_local_page_keeps_its_words() {
-    let lw = lay_out(window);
+/// The whole window's facts rows (`case` names the frame), the chain printed first.
+fn check_window(case: &str, lw: &LayoutWindow) {
     let mut names: Vec<String> = ["shell-sidebar", "shell-content", "page", "local"]
         .iter()
         .map(|n| n.to_string())
         .collect();
     names.extend(card_chain("state", STATE_FACTS.len()));
     names.extend(card_chain("apps", APPS_FACTS.len()));
-    print_chain("in the window", &lw, &names);
+    print_chain(case, lw, &names);
 
     // a classic scrollbar on the page takes at most 16 px of the rows' width
     let min_row_w = PAGE_CONTENT_W - CARD_INSET - 16.0;
-    assert_facts_keep_their_words("in the window", &lw, "state", &STATE_FACTS, min_row_w);
-    assert_facts_keep_their_words("in the window", &lw, "apps", &APPS_FACTS, min_row_w);
+    assert_facts_keep_their_words(case, lw, "state", &STATE_FACTS, min_row_w);
+    assert_facts_keep_their_words(case, lw, "apps", &APPS_FACTS, min_row_w);
 
-    let sidebar = rect_of_id(&lw, "shell-sidebar");
-    let content = rect_of_id(&lw, "shell-content");
+    let sidebar = rect_of_id(lw, "shell-sidebar");
+    let content = rect_of_id(lw, "shell-content");
     let share = WINDOW_W - DIVIDER;
     assert!(
         (sidebar.size.width - share * SIDEBAR_RATIO).abs() < 1.0
             && (content.size.width - share * (1.0 - SIDEBAR_RATIO)).abs() < 1.0,
-        "the panes share the {share} px the divider leaves 0.2 : 0.8 - sidebar {sidebar:?}, \
-         content {content:?}"
+        "{case}: the panes share the {share} px the divider leaves 0.2 : 0.8 - sidebar \
+         {sidebar:?}, content {content:?}"
     );
+}
+
+/// The window's first frame, a rebuild of the same page (AzCtl rebuilds its DOM when a poll
+/// brings news) and a resize to 1200 px and back: every frame keeps the words.
+#[test]
+fn a_facts_row_on_azctls_local_page_keeps_its_words() {
+    let mut lw = new_window();
+    frame(&mut lw, window, WINDOW_W);
+    check_window("in the window's first frame", &lw);
+    frame(&mut lw, window, WINDOW_W);
+    check_window("in the window rebuilt", &lw);
+    frame(&mut lw, window, 1200.0);
+    frame(&mut lw, window, WINDOW_W);
+    check_window("in the window resized to 1200 px and back", &lw);
+}
+
+/// The two cards in a plain column as wide as the page's content box.
+fn plain_column() -> Dom {
+    Dom::create_body().with_css("margin: 0px;").with_child(
+        div(&format!(
+            "display: flex; flex-direction: column; width: {PAGE_CONTENT_W}px; font-size: 13px;"
+        ))
+        .with_child(local_page()),
+    )
+}
+
+fn check_plain_column(case: &str, lw: &LayoutWindow) {
+    let mut names: Vec<String> = vec!["local".to_string()];
+    names.extend(card_chain("state", STATE_FACTS.len()));
+    names.extend(card_chain("apps", APPS_FACTS.len()));
+    print_chain(case, lw, &names);
+
+    let min_row_w = PAGE_CONTENT_W - CARD_INSET - 0.5;
+    assert_facts_keep_their_words(case, lw, "state", &STATE_FACTS, min_row_w);
+    assert_facts_keep_their_words(case, lw, "apps", &APPS_FACTS, min_row_w);
 }
 
 #[test]
 fn a_facts_row_in_a_card_in_a_plain_column_keeps_its_words() {
-    let lw = lay_out(|| {
-        Dom::create_body().with_css("margin: 0px;").with_child(
-            div(&format!(
-                "display: flex; flex-direction: column; width: {PAGE_CONTENT_W}px; \
-                 font-size: 13px;"
-            ))
-            .with_child(local_page()),
-        )
-    });
-    let mut names: Vec<String> = vec!["local".to_string()];
-    names.extend(card_chain("state", STATE_FACTS.len()));
-    names.extend(card_chain("apps", APPS_FACTS.len()));
-    print_chain("in a plain column", &lw, &names);
-
-    let min_row_w = PAGE_CONTENT_W - CARD_INSET - 0.5;
-    assert_facts_keep_their_words("in a plain column", &lw, "state", &STATE_FACTS, min_row_w);
-    assert_facts_keep_their_words("in a plain column", &lw, "apps", &APPS_FACTS, min_row_w);
+    let mut lw = new_window();
+    frame(&mut lw, plain_column, WINDOW_W);
+    check_plain_column("in a plain column", &lw);
+    frame(&mut lw, plain_column, WINDOW_W);
+    check_plain_column("in a plain column rebuilt", &lw);
 }
