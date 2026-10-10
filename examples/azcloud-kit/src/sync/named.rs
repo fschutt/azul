@@ -24,12 +24,12 @@ use std::{
     },
 };
 
-use azul_storage::{ops, Drive, DriveError, Precondition, CONTENT_HASH_METADATA};
+use azul_storage::{ops, transfer, Drive, DriveError, Precondition, CONTENT_HASH_METADATA};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    blob_job, job_bytes, local, lock, remote, uploaded_hash, Action, RemoteFile, RemoteIndex,
-    SyncEvent, SyncRemote, SyncReport, Uploads,
+    blob_job, job_bytes, local, lock, remote, streamed, uploaded_hash, Action, RemoteFile,
+    RemoteIndex, SyncEvent, SyncRemote, SyncReport, Uploads,
 };
 use crate::{
     error::{fail, CloudResult},
@@ -219,6 +219,26 @@ impl SyncRemote for NamedFiles<'_> {
         Ok(bytes)
     }
 
+    /// Into the file `dest` in ranges (never whole in memory), checked like [`Self::fetch`].
+    fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {
+        transfer::download_to_file(self.drive, &self.full(key), Some(size), dest, transfer::CHUNK)?;
+        let got = local::hash_file(dest)?;
+        if remote::is_hash(hash) {
+            if got != hash {
+                let _ = std::fs::remove_file(dest);
+                fail!("{key} changed on the drive while it was fetched; the next run takes it");
+            }
+            return Ok(got);
+        }
+        let seen = lock(&self.seen).get(key).cloned();
+        if let (Some(seen), Ok(Some(now))) = (seen, self.tag_now(key)) {
+            if seen == now {
+                self.remember(key, &now, &got);
+            }
+        }
+        Ok(got)
+    }
+
     fn fetch_hash(&self, hash: &str, _size: u64) -> CloudResult<Vec<u8>> {
         let key = lock(&self.memo)
             .versions
@@ -272,8 +292,29 @@ impl SyncRemote for NamedFiles<'_> {
                     error,
                 });
             };
-            let bytes = match job_bytes(&job) {
-                Ok(bytes) => bytes,
+            let condition = match seen.get(&target) {
+                Some(etag) if !etag.is_empty() => Precondition::Matches(etag.clone()),
+                _ => Precondition::Absent,
+            };
+            let full = self.full(&target);
+            // A big file streamed, checked against its hash as it is read; a small one at once.
+            let sent = match streamed(&job) {
+                Some(Ok(mut reader)) => {
+                    let result = self.drive.put_from_if(&full, &mut reader, &condition);
+                    if reader.changed() {
+                        Err(String::from("changed while it was synced"))
+                    } else {
+                        Ok((result, reader.bytes()))
+                    }
+                }
+                Some(Err(why)) => Err(why),
+                None => job_bytes(&job).map(|bytes| {
+                    let n = bytes.len() as u64;
+                    (self.drive.put_if(&full, &bytes, &condition), n)
+                }),
+            };
+            let (result, sent_bytes) = match sent {
+                Ok(sent) => sent,
                 Err(why) => {
                     report.changed_during_sync.push(format!("{key}: {why}"));
                     finished(Some(why));
@@ -281,11 +322,7 @@ impl SyncRemote for NamedFiles<'_> {
                     continue;
                 }
             };
-            let condition = match seen.get(&target) {
-                Some(etag) if !etag.is_empty() => Precondition::Matches(etag.clone()),
-                _ => Precondition::Absent,
-            };
-            match self.drive.put_if(&self.full(&target), &bytes, &condition) {
+            match result {
                 Ok(etag) => {
                     let etag = match etag {
                         Some(etag) => bare(&etag),
@@ -293,7 +330,7 @@ impl SyncRemote for NamedFiles<'_> {
                     };
                     self.remember(&target, &etag, hash);
                     report.blobs_up += 1;
-                    report.bytes_up += bytes.len() as u64;
+                    report.bytes_up += sent_bytes;
                     finished(None);
                 }
                 Err(DriveError::Conflict { .. }) => {

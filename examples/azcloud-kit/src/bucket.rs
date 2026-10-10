@@ -518,6 +518,18 @@ impl RemoteStore for Bucket {
         Bucket::delete(self, key)
     }
 
+    fn put_from(&self, key: &str, body: &mut dyn Read, _size: u64) -> CloudResult<String> {
+        Bucket::put_from(self, key, body)
+    }
+
+    fn fetch_to(&self, key: &str, _size: u64, dest: &Path) -> CloudResult<bool> {
+        match self.download_to(key, dest, &mut |_| {}) {
+            Ok(_) => Ok(true),
+            Err(CloudError::Drive(DriveError::NotFound { .. })) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
         Ok(self
             .list_all(prefix)?

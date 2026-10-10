@@ -2,7 +2,7 @@
 //! and "Upload" do in AzDrive, and what an export does in AzMail.
 //!
 //! - A download of more than one chunk fetches [`PARALLEL_RANGES`] ranges at once into a
-//!   hidden file next to the destination (`.<name>.azdownload`, with its state beside it), and
+//!   hidden file next to the destination (`.<name>.download.part`, its state beside it), and
 //!   renames it into place when it is whole and the object did not change meanwhile. A download
 //!   that failed half way resumes with the ranges it still lacks - when the object is still the
 //!   same version (its ETag, else its size and date); otherwise it starts over.
@@ -164,9 +164,10 @@ fn partial_paths(dest: &Path) -> (PathBuf, PathBuf) {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    // Both end in `.part`: a sync never takes them (its base rules leave `*.part` out).
     (
-        dest.with_file_name(format!(".{name}.azdownload")),
-        dest.with_file_name(format!(".{name}.azdownload.json")),
+        dest.with_file_name(format!(".{name}.download.part")),
+        dest.with_file_name(format!(".{name}.download-state.part")),
     )
 }
 

@@ -566,6 +566,61 @@ impl CloudDrive {
         self.run("ranged get", |b| b.get_big(key))
     }
 
+    /// PUT of what `body` reads, streamed (a big body in parts); the ETag. A body is read once,
+    /// so it goes over the current lane only: a failure over iroh makes the rest of the run take
+    /// HTTPS and is the caller's to retry.
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, or no endpoint answers.
+    pub fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> CloudResult<String> {
+        let iroh = match (self.lane(), self.iroh.as_ref()) {
+            (Lane::Iroh, Some(iroh)) => iroh,
+            _ => return self.https.put_from(key, body),
+        };
+        let result = iroh.put_from(key, body);
+        if let Err(e) = &result {
+            if self.pref == TransportPref::Auto && probe(iroh).is_err() {
+                self.fall_back("streamed put", e);
+            }
+        }
+        result
+    }
+
+    /// PUT of the local file `path`: its parts several at once, resumable after the app was
+    /// killed; the bytes sent.
+    ///
+    /// # Errors
+    ///
+    /// The file, the service's refusal, or no endpoint answers.
+    pub fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> CloudResult<u64> {
+        self.run("upload", |b| b.put_file(key, path, progress))
+    }
+
+    /// GET of `key` into the file `dest`: ranges several at once into a hidden file next to it,
+    /// resumed by the next download of the same version; the bytes written.
+    ///
+    /// # Errors
+    ///
+    /// The service's refusal, no endpoint answers, or the file cannot be written.
+    pub fn download_to(
+        &self,
+        key: &str,
+        dest: &std::path::Path,
+        progress: &mut dyn FnMut(u64),
+    ) -> CloudResult<u64> {
+        let progress = std::sync::Mutex::new(progress);
+        self.run("download", |b| {
+            let mut progress = lock(&progress);
+            b.download_to(key, dest, &mut **progress)
+        })
+    }
+
     /// HEAD: the size and ETag; `None` when there is none.
     ///
     /// # Errors
@@ -640,5 +695,15 @@ impl RemoteStore for CloudDrive {
 
     fn list(&self, prefix: &str) -> CloudResult<Vec<RemoteObject>> {
         self.run("list", |b| RemoteStore::list(b, prefix))
+    }
+
+    /// A body is read once: it goes over the current lane only (a failure there makes the next
+    /// requests take HTTPS, and is the caller's to retry).
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read, _size: u64) -> CloudResult<String> {
+        CloudDrive::put_from(self, key, body)
+    }
+
+    fn fetch_to(&self, key: &str, size: u64, dest: &std::path::Path) -> CloudResult<bool> {
+        self.run("ranged get", |b| RemoteStore::fetch_to(b, key, size, dest))
     }
 }
