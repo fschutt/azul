@@ -1015,3 +1015,5 @@ mod a_flex_items_negative_margin_overhangs_its_row_without_growing_it;
 mod a_node_mounted_inside_a_virtual_view_hears_its_after_mount;
 #[path = "a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it.rs"]
 mod a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it;
+#[path = "a_facts_row_in_a_card_keeps_its_words.rs"]
+mod a_facts_row_in_a_card_keeps_its_words;
