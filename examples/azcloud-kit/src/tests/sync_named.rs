@@ -32,7 +32,7 @@ use crate::sync::{
 const PREFIX: &str = "Documents/";
 
 /// An S3 drive on the fake service.
-fn s3_drive(s3: &Arc<FakeS3>) -> Arc<dyn Drive> {
+pub(super) fn s3_drive(s3: &Arc<FakeS3>) -> Arc<dyn Drive> {
     let config = S3Config {
         endpoint: S3.to_string(),
         region: String::from("us-east-1"),

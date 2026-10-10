@@ -26,6 +26,7 @@ mod sync_named;
 mod sync_ondemand;
 mod sync_remote;
 mod sync_rules;
+mod sync_session;
 mod token;
 mod transport;
 mod voucher;
