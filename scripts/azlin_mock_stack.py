@@ -30,13 +30,22 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
     GET /v1/tokens/keys                             200 the period tokens' issuer keys: one per
                                                     tier, of this year (SPKI PEM)
     POST /v1/tokens/issue {"checkout_id",           200 one blind signature per blinded message,
-        "issue_key", "blinded": ["<base64>"]}       up to the checkout's months in all (400
-                                                    issue_key_required, 403 issue_key_wrong, 404
-                                                    no_such_checkout, 409 not_paid /
-                                                    already_issued)
+        "issue_key", "key_id",                      up to the checkout's months in all (400
+        "blinded": ["<base64>"]}                    issue_key_required / key_id_required, 403
+                                                    issue_key_wrong, 404 no_such_checkout, 409
+                                                    not_paid / already_issued; 409 key_changed
+                                                    with the current key_id and its key for a
+                                                    key other than this or last year's, nothing
+                                                    counted); the identical request again (same
+                                                    key_id, messages, order) the same answer,
+                                                    counted once
     POST /v1/drives/<id>/redeem {"tier", "year",    200 the drive's period a month longer (400
         "nonce", "signature", "randomizer"}         bad_token / wrong_tier, 409 token_used); the
-        Authorization: Bearer <drive token>         drive token is checked, not spent
+        Authorization: Bearer <drive token>         drive token is checked, not spent - the one
+                                                    the family rotated from last counts too
+    GET /v1/drives/<id>                             200 the drive's tier, quota and period (a read:
+        Authorization: Bearer <drive token>         the previous token counts too; an older one
+                                                    is a reuse)
 
   With fake payment providers (`--providers`, `set_providers`; CHECKOUT-PLAN §3.11, §4.2 - see
   "The fake payment providers" below for their pages and webhooks):
@@ -312,9 +321,11 @@ def token_hash(token):
 
 
 class ApiError(Exception):
-    def __init__(self, status, code, message):
+    def __init__(self, status, code, message, extra=None):
         super().__init__(message)
         self.status, self.code, self.message = status, code, message
+        # More fields of the error answer (key_changed's key_id and public_key_pem).
+        self.extra = extra or {}
 
 
 class TokenState:
@@ -335,6 +346,9 @@ class TokenState:
         # the redeemed tokens' messages.
         self.issuer = (azlin_period.MOCK_N, azlin_period.MOCK_E, azlin_period.MOCK_D)
         self.redeemed = set()
+        # The answers of POST /v1/tokens/issue by checkout and request hash: the identical
+        # request again gets the same signatures, counted once (F37).
+        self.issue_answers = {}
         # The fake payment providers offered (none: no payment options, the v1 checkout).
         self.providers = []
         # Checkout ids by their provider reference (what the providers see).
@@ -843,7 +857,9 @@ class TokenState:
 
     def issue(self, body):
         """POST /v1/tokens/issue (blind.rs `issue`): blind signatures of a paid checkout's period
-        tokens, against the issue key of its sealed sign-up, up to its months in all."""
+        tokens, against the issue key of its sealed sign-up, for the `key_id` the messages were
+        blinded for (this year's or last year's; another: 409 key_changed, nothing counted), up
+        to its months in all; the identical request again gets the same answer, counted once."""
         checkout_id = body.get('checkout_id')
         if not isinstance(checkout_id, str):
             raise ApiError(400, 'bad_request', 'checkout_id required')
@@ -854,7 +870,12 @@ class TokenState:
         if not isinstance(issue_key, str):
             raise ApiError(400, 'issue_key_required',
                            'issue_key required: period_tokens.issue_key of the sealed signup')
-        n, _, d = self.issuer
+        key_id = body.get('key_id')
+        if not isinstance(key_id, str):
+            raise ApiError(400, 'key_id_required',
+                           'key_id required: the key the messages are blinded for')
+        n, e, d = self.issuer
+        pem = azlin_period.public_key_pem(n, e)
         with self.lock:
             checkout = self.checkouts.get(checkout_id)
             if checkout is None:
@@ -863,24 +884,36 @@ class TokenState:
                 raise ApiError(409, 'not_paid', 'the checkout is not approved')
             if not azlin_period.issue_key_ok(checkout.get('issue_key_hash'), issue_key):
                 raise ApiError(403, 'issue_key_wrong', "not this checkout's issue key")
+            tier = checkout['tier']
+            request = hashlib.sha256(('%s\n%s\n%s' % (checkout_id, key_id, ','.join(blinded)))
+                                     .encode('utf-8')).hexdigest()
+            earlier = self.issue_answers.get((checkout_id, request))
+            if earlier is not None:
+                return {'tier': tier, 'key_id': earlier[0], 'public_key_pem': pem,
+                        'blind_signatures': earlier[1]}
             issued, months = checkout['tokens_issued'], checkout['months']
             if issued + len(blinded) > months:
                 raise ApiError(409, 'already_issued',
                                '%d of %d tokens already issued' % (issued, months))
+            year = time.gmtime().tm_year
+            if key_id not in ('%s/%d' % (tier, year), '%s/%d' % (tier, year - 1)):
+                raise ApiError(409, 'key_changed', 'blind the messages for this key '
+                               '(GET /v1/tokens/keys)',
+                               {'key_id': '%s/%d' % (tier, year), 'public_key_pem': pem})
             try:
                 signatures = [azlin_period.blind_sign(n, d, b) for b in blinded]
-            except ValueError as e:
-                raise ApiError(400, 'bad_request', 'blind sign: %s' % e)
+            except ValueError as err:
+                raise ApiError(400, 'bad_request', 'blind sign: %s' % err)
             checkout['tokens_issued'] = issued + len(signatures)
-            tier = checkout['tier']
-        year = time.gmtime().tm_year
-        return {'tier': tier, 'key_id': '%s/%d' % (tier, year),
-                'public_key_pem': azlin_period.public_key_pem(n, self.issuer[1]),
+            self.issue_answers[(checkout_id, request)] = (key_id, signatures)
+        return {'tier': tier, 'key_id': key_id, 'public_key_pem': pem,
                 'blind_signatures': signatures}
 
-    def authenticate(self, drive_id, bearer):
+    def authenticate(self, drive_id, bearer, previous_ok=False):
         """drives.rs `authenticate`: the drive and its family's CURRENT token, not spent (a
-        rotated one is a reuse: the family is revoked). The caller holds the lock."""
+        rotated one is a reuse: the family is revoked) - on a read (`previous_ok`:
+        `authenticate_read`, F37) the token the family rotated from last too. The caller holds
+        the lock."""
         drive = self.drives.get(drive_id)
         if drive is None:
             raise ApiError(404, 'no_such_drive', 'unknown drive')
@@ -894,6 +927,8 @@ class TokenState:
         digest = token_hash(bearer)
         if digest == state['current']:
             return drive
+        if previous_ok and state['used'] and digest == state['used'][-1]:
+            return drive
         if digest in state['used']:
             state['revoked'] = 'reuse'
             raise ApiError(401, 'token_reuse',
@@ -904,7 +939,7 @@ class TokenState:
         """POST /v1/drives/<id>/redeem (blind.rs `redeem`): one period token, one month more."""
         n, e, _ = self.issuer
         with self.lock:
-            drive = self.authenticate(drive_id, bearer)
+            drive = self.authenticate(drive_id, bearer, previous_ok=True)
             token = {key: body.get(key) for key in ('tier', 'year', 'nonce', 'signature',
                                                     'randomizer')}
             if token['tier'] != drive['tier']:
@@ -920,6 +955,15 @@ class TokenState:
             tomorrow = (int(time.time()) // 86400 + 1) * 86400
             drive['period_until'] = max(drive['period_until'], tomorrow) + 30 * 86400
             return {'period_until': rfc3339(drive['period_until'])}
+
+    def info(self, drive_id, bearer):
+        """GET /v1/drives/<id> (drives.rs `info`, a read: the previous token too)."""
+        with self.lock:
+            drive = self.authenticate(drive_id, bearer, previous_ok=True)
+            return {'id': drive['id'], 'tier': drive['tier'],
+                    'quota_bytes': drive['quota_bytes'], 'read_only': False,
+                    'status': 'active', 'period_until': rfc3339(drive['period_until']),
+                    'lockdown_pending_until': None, 'members': [], 'usage_bytes': None}
 
     def refresh(self, drive_id, bearer):
         with self.lock:
@@ -1132,13 +1176,16 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
                 and segments[3] == 'redeem':
             self.answer(200, state.redeem(segments[2], self.bearer(), self.body() or {}))
             return
+        if self.command == 'GET' and len(segments) == 3 and segments[:2] == ['v1', 'drives']:
+            self.answer(200, state.info(segments[2], self.bearer()))
+            return
         raise ApiError(404, 'not_found', 'no route for %s /%s' % (self.command, path))
 
     def handle_any(self):
         try:
             self.route()
         except ApiError as e:
-            self.answer(e.status, {'error': e.code, 'message': e.message})
+            self.answer(e.status, dict({'error': e.code, 'message': e.message}, **e.extra))
 
     do_GET = handle_any
     do_POST = handle_any

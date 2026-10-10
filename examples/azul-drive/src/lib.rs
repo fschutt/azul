@@ -2055,7 +2055,8 @@ pub(crate) extern "C" fn on_job_done(
             checkout_id,
             result,
             ..
-        } => add_flow::checkout_finished(s, &checkout_id, result),
+        } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
+        Outcome::PeriodsRedeemed { results } => add_flow::periods_redeemed(results),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2300,6 +2301,8 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.backstage = backstage;
         // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
         add_flow::start_claims(info, app, s);
+        // An Azlin drive whose period nears its end gets its next month from a kept token.
+        add_flow::start_redemptions(info, app, s, None);
         // Encrypted drives get smaller while the computer is idle on mains power.
         #[cfg(feature = "encryption")]
         encryption::start_recompression(info, app);

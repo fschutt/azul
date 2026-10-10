@@ -346,3 +346,35 @@ fn a_lockdown_keeps_this_devices_new_grant_and_a_restore_wants_an_rfc_3339_time(
         "a time that is none is refused before anything is sent"
     );
 }
+
+#[test]
+fn a_grant_goes_with_the_newest_drive_token_behind_the_refresh_lock() {
+    // AZDRIVE-INTEGRATION §4 (2026-10-11): calls that grant (members, lockdown and its cancel,
+    // restores) take only the current token - an older one is a reuse that revokes the family -
+    // so they wait for a refresh another azcloud runs, one at a time, with its token.
+    let dir = TempDir::new("azcloud-grants");
+    let state = StateDir::open(dir.path()).unwrap();
+    let lock = dir.path().join("refresh.lock");
+    let held = lock.clone();
+    let server = Fake::new(move |call, _| {
+        let url = call.url.as_str();
+        if url.ends_with("/v1/drives") {
+            return Ok(reply(201, &answer("dt_f.0.a").to_string()));
+        }
+        assert!(held.exists(), "{url} goes behind the refresh lock");
+        assert_eq!(header(call, "authorization"), Some("Bearer dt_f.0.a"));
+        if url.ends_with("/members") {
+            return Ok(reply(
+                201,
+                r#"{"member": "m_laptop", "drive_token": "dt_m.0.joins"}"#,
+            ));
+        }
+        Ok(reply(200, r#"{"ok": true}"#))
+    });
+    let a = Account::signup(&state, TOKEN, factory(&server), "100GB", "Ann's drive").unwrap();
+    a.invite(Some("laptop")).unwrap();
+    a.lockdown_cancel().unwrap();
+    a.restore("docs/", "2026-10-08T09:00:00Z").unwrap();
+    assert_eq!(server.calls().len(), 4);
+    assert!(!lock.exists(), "released after each call");
+}

@@ -284,6 +284,21 @@ pub struct BlindSignatures {
 /// The most blinded messages one `POST /v1/tokens/issue` takes (24 months, prepaid).
 pub const MAX_BLINDED: usize = 24;
 
+/// What `POST /v1/tokens/issue` answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueAnswer {
+    /// The blind signatures, by the key the request named.
+    Signed(BlindSignatures),
+    /// 409 `key_changed`: the request named a key the token server no longer signs with
+    /// (the year turned since `GET /v1/tokens/keys`); nothing was signed or counted. Blind the
+    /// messages again for `key_id` - with `public_key_pem` when the server sent it, else from
+    /// the keys read again.
+    KeyChanged {
+        key_id: String,
+        public_key_pem: Option<String>,
+    },
+}
+
 /// What a recovery-key lockdown answers (202): the drive is read-only until `pending_until`
 /// (every device may cancel until then), and `drive_token` is the new family this side gets
 /// after it. `Debug` shows no token.
@@ -500,6 +515,21 @@ impl<'a> TokenServer<'a> {
         bearer: Option<&str>,
         body: Option<&Value>,
     ) -> Result<HttpReply, TokenError> {
+        let reply = self.exchange(method, path, bearer, body)?;
+        if !reply.is_success() {
+            return Err(refusal(&reply, bearer.is_some()));
+        }
+        Ok(reply)
+    }
+
+    /// One request and whatever it answers (a refusal too); only no answer is an error.
+    fn exchange(
+        &self,
+        method: Method,
+        path: &str,
+        bearer: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<HttpReply, TokenError> {
         let mut headers = vec![(String::from("accept"), String::from("application/json"))];
         if let Some(token) = bearer {
             headers.push((String::from("authorization"), format!("Bearer {token}")));
@@ -515,11 +545,7 @@ impl<'a> TokenServer<'a> {
             body,
             content_type,
         };
-        let reply = self.transport.send(&call).map_err(TokenError::Connect)?;
-        if !reply.is_success() {
-            return Err(refusal(&reply, bearer.is_some()));
-        }
-        Ok(reply)
+        self.transport.send(&call).map_err(TokenError::Connect)
     }
 
     /// The storage tiers and their prices.
@@ -728,25 +754,36 @@ impl<'a> TokenServer<'a> {
     /// message of `blinded` (standard base64, at most [`MAX_BLINDED`]), up to the checkout's
     /// months in all. Only with `issue_key`, the key its sealed sign-up carries
     /// ([`crate::bundle::PeriodTokens`]): the checkout id alone, which the payment provider sees,
-    /// issues nothing.
+    /// issues nothing. `key_id` names the issuer key the messages were blinded for
+    /// (`GET /v1/tokens/keys`); when it is no longer the one the token server signs with, the
+    /// answer is [`IssueAnswer::KeyChanged`] and nothing is signed or counted. The same request
+    /// again (same key, same messages, same order) is answered the same, counted once: what to
+    /// send when an answer was lost.
     ///
     /// # Errors
     ///
-    /// [`TokenError::Config`] without an issue key or messages (nothing is sent); the token
-    /// server's refusals with their codes - `issue_key_required`, `issue_key_wrong` (403, no
-    /// sign-in matter), `already_issued`, `not_paid`, `mandate_stopped`; an answer whose
-    /// signatures do not match the messages.
+    /// [`TokenError::Config`] without an issue key, a key id or messages (nothing is sent); the
+    /// token server's refusals with their codes - `issue_key_required`, `key_id_required`,
+    /// `issue_key_wrong` (403, no sign-in matter), `already_issued`, `not_paid`,
+    /// `mandate_stopped`; an answer whose signatures do not match the messages.
     pub fn issue_period_tokens(
         &self,
         checkout_id: &str,
         issue_key: &str,
+        key_id: &str,
         blinded: &[String],
-    ) -> Result<BlindSignatures, TokenError> {
+    ) -> Result<IssueAnswer, TokenError> {
         let issue_key = issue_key.trim();
         if issue_key.is_empty() {
             return Err(TokenError::Config(String::from(
                 "There is no issue key: a checkout's period tokens are issued only against the \
                  key its sealed sign-up carries.",
+            )));
+        }
+        let key_id = key_id.trim();
+        if key_id.is_empty() {
+            return Err(TokenError::Config(String::from(
+                "Period tokens name the issuer key they are blinded for.",
             )));
         }
         if blinded.is_empty() || blinded.len() > MAX_BLINDED {
@@ -758,9 +795,25 @@ impl<'a> TokenServer<'a> {
         let body = json!({
             "checkout_id": checkout_id.trim(),
             "issue_key": issue_key,
+            "key_id": key_id,
             "blinded": blinded,
         });
-        let value = self.call(Method::Post, "/v1/tokens/issue", None, Some(&body))?;
+        let reply = self.exchange(Method::Post, "/v1/tokens/issue", None, Some(&body))?;
+        if !reply.is_success() {
+            let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
+            if reply.status == 409 && value["error"] == "key_changed" {
+                return Ok(IssueAnswer::KeyChanged {
+                    key_id: value["key_id"].as_str().unwrap_or_default().trim().to_string(),
+                    public_key_pem: value["public_key_pem"]
+                        .as_str()
+                        .filter(|pem| !pem.trim().is_empty())
+                        .map(str::to_string),
+                });
+            }
+            return Err(refusal(&reply, false));
+        }
+        let value: Value = serde_json::from_slice(&reply.body)
+            .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))?;
         let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
         let signatures: Vec<String> = value["blind_signatures"]
             .as_array()
@@ -778,12 +831,12 @@ impl<'a> TokenServer<'a> {
                 blinded.len()
             )));
         }
-        Ok(BlindSignatures {
+        Ok(IssueAnswer::Signed(BlindSignatures {
             tier: text("tier"),
             key_id: text("key_id"),
             public_key_pem: text("public_key_pem"),
             signatures,
-        })
+        }))
     }
 
     /// One more month for `drive_id` paid with `token` (`POST /v1/drives/{id}/redeem`, with

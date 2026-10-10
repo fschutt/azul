@@ -30,13 +30,20 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     with a `sealed_signup` (and no plaintext `signup`) that opens with the claim secret for that
     checkout id to a drive bundle - and opens for no other checkout id; a second GET answers it
     again (kept, not deleted on read); an unknown checkout is 404.
-10. The period tokens (AZLINSEC17 F24, scripts/azlin_period.py): the sealed sign-up carries
+10. The period tokens (AZLINSEC17 F24, F36, scripts/azlin_period.py): the sealed sign-up carries
     `period_tokens` with the checkout's id, its months and an issue key; GET /v1/tokens/keys names
     the tier's issuer key; POST /v1/tokens/issue without the issue key is 400
-    `issue_key_required`, with another one 403 `issue_key_wrong`, with it 200 and one blind
-    signature per month that finalizes into a token the issuer key verifies; one more is 409
+    `issue_key_required`, with another one 403 `issue_key_wrong`, without the `key_id` the
+    messages were blinded for 400 `key_id_required`, with a key the server no longer signs with
+    409 `key_changed` naming the current one (nothing counted), with the key and the key id 200
+    and one blind signature per month that finalizes into a token the issuer key verifies; the
+    identical request again answers the same signatures (counted once); one more is 409
     `already_issued`; POST /v1/drives/<id>/redeem with the drive token takes a token for a month
     more, and the same token again is 409 `token_used`.
+11. The token just replaced still reads (F37): after a refresh, the previous drive token redeems
+    a period token and reads the drive (GET /v1/drives/<id>) without revoking the family - the
+    new token refreshes after that; a token older than the previous one is a reuse on a read
+    too (401 `token_reuse`).
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -245,17 +252,36 @@ def period_checks(suite, client, checkout_id, order, bundle):
                 status == 400 and error_code(value) == 'issue_key_required',
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('POST', '/v1/tokens/issue',
-                                   dict(request, issue_key=azlin_period.new_issue_key()[0]))
+                                   dict(request, issue_key=azlin_period.new_issue_key()[0],
+                                        key_id=key.get('key_id')))
     suite.check('period tokens with another issue key are 403 issue_key_wrong',
                 status == 403 and error_code(value) == 'issue_key_wrong',
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('POST', '/v1/tokens/issue', dict(request, issue_key=issue_key))
+    suite.check('period tokens without the key id they were blinded for are 400 key_id_required',
+                status == 400 and error_code(value) == 'key_id_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', '/v1/tokens/issue',
+                                   dict(request, issue_key=issue_key, key_id='%s/2000' % tier))
+    suite.check('period tokens for a key the server no longer signs with are 409 key_changed '
+                'naming the current one',
+                status == 409 and error_code(value) == 'key_changed'
+                and (value or {}).get('key_id') == key.get('key_id'),
+                '(HTTP %d %r %r)' % (status, error_code(value), (value or {}).get('key_id')))
+    request = dict(request, issue_key=issue_key, key_id=key.get('key_id'))
+    status, value, _ = client.call('POST', '/v1/tokens/issue', request)
     signatures = (value or {}).get('blind_signatures') or []
-    if not suite.check('period tokens with the issue key are 200, one blind signature a month',
+    if not suite.check('period tokens with the issue key and the key id are 200, one blind '
+                       'signature a month (nothing was counted for key_changed)',
                        status == 200 and len(signatures) == months
                        and (value or {}).get('key_id') == key.get('key_id'),
-                       '(HTTP %d, %d signatures)' % (status, len(signatures))):
+                       '(HTTP %d %r, %d signatures)' % (status, error_code(value),
+                                                         len(signatures))):
         return
+    status, again, _ = client.call('POST', '/v1/tokens/issue', request)
+    suite.check('the identical request again (its answer lost) answers the same signatures',
+                status == 200 and (again or {}).get('blind_signatures') == signatures,
+                '(HTTP %d %r)' % (status, error_code(again)))
     try:
         tokens = [azlin_period.finalize(n, e, state, signature)
                   for (state, _), signature in zip(blindings, signatures)]
@@ -267,8 +293,8 @@ def period_checks(suite, client, checkout_id, order, bundle):
     one_more = azlin_period.blind(n, e, tier, key['year'])[1]
     status, value, _ = client.call('POST', '/v1/tokens/issue',
                                    {'checkout_id': checkout_id, 'blinded': [one_more],
-                                    'issue_key': issue_key})
-    suite.check('a token past the paid months is 409 already_issued',
+                                    'issue_key': issue_key, 'key_id': key.get('key_id')})
+    suite.check('a token past the paid months (counted once) is 409 already_issued',
                 status == 409 and error_code(value) == 'already_issued',
                 '(HTTP %d %r)' % (status, error_code(value)))
     drive_id = (bundle.get('drive') or {}).get('id') or ''
@@ -282,6 +308,34 @@ def period_checks(suite, client, checkout_id, order, bundle):
     status, value, _ = client.call('POST', path, tokens[0], bearer=bundle.get('drive_token'))
     suite.check('the same period token again is 409 token_used',
                 status == 409 and error_code(value) == 'token_used',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    previous_token_checks(suite, client, drive_id, bundle.get('drive_token') or '', tokens[1])
+
+
+def previous_token_checks(suite, client, drive_id, first, token):
+    """11. The token just replaced still reads: a redemption and the drive's info with the token
+    a refresh rotated from, without revoking the family."""
+    status, renewed, _ = client.refresh(drive_id, first)
+    second = (renewed or {}).get('drive_token') or ''
+    if not suite.check('the paid drive refreshes with its first token', status == 200 and second,
+                       '(HTTP %d %r)' % (status, error_code(renewed))):
+        return
+    path = '/v1/drives/%s' % drive_id
+    status, value, _ = client.call('POST', path + '/redeem', token, bearer=first)
+    suite.check('the previous drive token redeems a period token',
+                status == 200 and unix_of((value or {}).get('period_until')) is not None,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('GET', path, bearer=first)
+    suite.check("the previous drive token reads the drive's period",
+                status == 200 and unix_of((value or {}).get('period_until')) is not None,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, renewed, _ = client.refresh(drive_id, second)
+    third = (renewed or {}).get('drive_token') or ''
+    suite.check('and the family is not revoked: the new token refreshes',
+                status == 200 and bool(third), '(HTTP %d %r)' % (status, error_code(renewed)))
+    status, value, _ = client.call('GET', path, bearer=first)
+    suite.check('a token older than the previous one is a reuse on a read too (401 token_reuse)',
+                status == 401 and error_code(value) == 'token_reuse',
                 '(HTTP %d %r)' % (status, error_code(value)))
 
 

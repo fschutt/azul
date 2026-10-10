@@ -342,9 +342,11 @@ fn a_claimed_checkout_keeps_its_issue_key_with_its_claim_secret_until_its_period
     assert_eq!(kept.len(), 3);
     let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
     assert!(kept.iter().all(|token| issuer.verify(token).is_ok()));
-    // Off the list: no claim secret, no issue key is left in the keyring.
+    // Off the list: no claim secret, no issue key is left in the keyring, and the issue request
+    // (kept for an identical resend) is gone too.
     assert!(pending::list(&shared).unwrap().is_empty());
     assert!(keyring.get(pending::PENDING_KEY).unwrap().is_none());
+    assert!(store.issue_request("ck_1").unwrap().is_none());
     // Another window finishing the same checkout afterwards issues nothing.
     let calls = fake.calls().len();
     assert!(matches!(
@@ -377,10 +379,11 @@ fn period_tokens_issued_before_or_refused_for_their_issue_key_drop_the_checkout_
         if call.url.ends_with("/v1/tokens/keys") {
             return Ok(json(200, &keys));
         }
+        // The keys once (call 0); the request kept after the first try is sent again as it is.
         match n {
             1 => Err(String::from("connection refused")),
-            3 => Ok(json(503, r#"{"error": "busy", "message": "try later"}"#)),
-            5 => Ok(json(
+            2 => Ok(json(503, r#"{"error": "busy", "message": "try later"}"#)),
+            3 => Ok(json(
                 409,
                 r#"{"error": "already_issued", "message": "3 of 3 tokens already issued"}"#,
             )),
@@ -405,13 +408,15 @@ fn period_tokens_issued_before_or_refused_for_their_issue_key_drop_the_checkout_
         ));
         let listed = pending::list(&shared).unwrap();
         assert_eq!(listed[0].period.as_ref(), Some(&owed));
+        assert!(store.issue_request("ck_1").unwrap().is_some(), "for the identical resend");
     }
-    // Issued before (the answer was lost): nothing to wait for any more - said once.
+    // Issued before (and its answer purged): nothing to wait for any more - said once.
     match pending::finish(&server, &shared, &store, &ck, &owed) {
         Finished::Dropped(why) => assert!(why.contains("issued"), "{why}"),
         other => panic!("not dropped: {other:?}"),
     }
     assert!(pending::list(&shared).unwrap().is_empty());
+    assert!(store.issue_request("ck_1").unwrap().is_none());
     // A checkout from before period tokens has no issue key the token server takes.
     pending::add(&shared, &checkout("ck_1", &claim)).unwrap();
     pending::claimed(&shared, "ck_1", "d_1", Some(&grant(3))).unwrap();

@@ -17,7 +17,9 @@
 //! `AZDRIVE_TIERS <n>`, `AZDRIVE_PILLS <method>:<provider> ...` (`-` for none: the v1 checkout),
 //! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_PAY <state>`, `AZDRIVE_PAY_SURFACE <kind> <host>`,
 //! `AZDRIVE_PAY_BLOCKED <host>`, `AZDRIVE_OPEN_BROWSER <host>`, `AZDRIVE_ABANDONED <checkout id>
-//! ok|error`, `AZDRIVE_CLAIMED <checkout id> <drive id>`, `AZDRIVE_ADDED <drive id>`. No secret,
+//! ok|error`, `AZDRIVE_CLAIMED <checkout id> <drive id>`, `AZDRIVE_ADDED <drive id>`,
+//! `AZDRIVE_PERIOD_TOKENS <checkout id> <drive id> <count>`, `AZDRIVE_PERIOD_REDEEMED <drive id>
+//! <count> <until>`. No secret,
 //! no cardholder name and no payment page address is printed - hosts only.
 
 use std::sync::{
@@ -27,7 +29,7 @@ use std::sync::{
 
 use azcloud_kit::{
     pending::{Claimed, Finished},
-    PendingCheckout, Tiers,
+    PendingCheckout, Redeemed, Tiers,
 };
 use azul::{css::DarkLightMode, prelude::*, str::String as AzString, url::Url};
 use azul_pay::{
@@ -36,7 +38,8 @@ use azul_pay::{
     Effect, Event, Method, SecretUrl, State as PayState,
 };
 use azul_storage::{
-    config::{self, DriveEntry, DrivesFile},
+    config::{self, DriveAuth, DriveEntry, DriveLocation, DrivesFile},
+    time::iso8601,
     DriveError,
 };
 
@@ -1208,6 +1211,8 @@ pub(crate) fn claims_done(s: &mut DriveState, problem: Option<String>) {
 /// A claimed checkout finished: off the keyring's list, its period tokens kept - or what kept it
 /// there (a failed issue is tried again by the claims and at the next start, quietly).
 pub(crate) fn checkout_finished(
+    info: &mut CallbackInfo,
+    app: &RefAny,
     s: &mut DriveState,
     checkout_id: &str,
     result: Result<Option<Finished>, String>,
@@ -1216,6 +1221,8 @@ pub(crate) fn checkout_finished(
         Ok(None | Some(Finished::Settled)) => {}
         Ok(Some(Finished::Issued { drive_id, count })) => {
             println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
+            // A drive whose free month is nearly gone gets its first paid one at once.
+            start_redemptions(info, app, s, Some(&drive_id));
         }
         Ok(Some(Finished::Dropped(why))) => s.warn(format!(
             "The paid months of the checkout {checkout_id} could not be fetched: {why}."
@@ -1230,5 +1237,76 @@ pub(crate) fn checkout_finished(
             "The checkout {checkout_id} could not be finished in the keyring's list ({why}); \
              AzDrive asks about it again at its next start."
         )),
+    }
+}
+
+// ==== The period tokens: a paid month bought when the period nears its end ====
+
+/// The Azlin drive of `entry`: its id at the token server and that server (the entry's
+/// `account_url`, else `fallback`); `None` for every other drive.
+fn azlin_drive(entry: &DriveEntry, fallback: Option<&str>) -> Option<(String, String)> {
+    let DriveLocation::S3 {
+        auth:
+            DriveAuth::Azlin {
+                drive_id,
+                account_url,
+            },
+        ..
+    } = &entry.location
+    else {
+        return None;
+    };
+    let url = if account_url.trim().is_empty() {
+        fallback?.to_string()
+    } else {
+        account_url.clone()
+    };
+    Some((drive_id.clone(), url))
+}
+
+/// Redeems the period tokens of the Azlin drives (`only`: of that drive) whose periods near
+/// their ends - at every start, and once a paid checkout's tokens are kept. Nothing runs
+/// without an Azlin drive; a drive without kept tokens asks the token server nothing.
+pub(crate) fn start_redemptions(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    only: Option<&str>,
+) {
+    let fallback = s.token.url.clone();
+    let drives: Vec<(String, String)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| azlin_drive(&slot.entry, fallback.as_deref()))
+        .filter(|(drive_id, _)| only.is_none_or(|only| only == drive_id.as_str()))
+        .collect();
+    if drives.is_empty() {
+        return;
+    }
+    let job = Job::RedeemPeriods {
+        keyring: s.keyring.clone(),
+        store: s.period_tokens.clone(),
+        drives,
+    };
+    spawn(info, app, s, job);
+}
+
+/// What the redemptions did: a month bought is printed (`AZDRIVE_PERIOD_REDEEMED <drive>
+/// <count> <until>`), a try that failed waits for the next start, quietly.
+pub(crate) fn periods_redeemed(results: Vec<(String, Redeemed)>) {
+    for (drive_id, redeemed) in results {
+        match redeemed {
+            Redeemed::Extended {
+                count,
+                period_until,
+            } => {
+                let until = period_until.map_or_else(|| String::from("-"), iso8601);
+                println!("AZDRIVE_PERIOD_REDEEMED {drive_id} {count} {until}");
+            }
+            Redeemed::Kept(why) => {
+                eprintln!("[azdrive] the period of {drive_id} waits for the next try: {why}");
+            }
+            Redeemed::Nothing | Redeemed::NotDue { .. } => {}
+        }
     }
 }

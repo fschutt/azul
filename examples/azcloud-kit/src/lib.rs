@@ -102,15 +102,18 @@ pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
 pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
-pub use period::{issue_tokens, Issuer, IssuerKey, PeriodToken, PeriodTokenStore};
+pub use period::{
+    issue_tokens, redeem_due, IssueRequest, Issuer, IssuerKey, PeriodToken, PeriodTokenStore,
+    Redeemed,
+};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
 pub use state::StateDir;
 pub use store::RemoteStore;
 pub use token::{
-    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, OptionsQuery, RecoveryLockdown, Tier,
-    Tiers, TokenError, TokenServer, VoucherRedeemed,
+    BlindSignatures, Checkout, CheckoutStatus, CheckoutVia, IssueAnswer, OptionsQuery,
+    RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
 
