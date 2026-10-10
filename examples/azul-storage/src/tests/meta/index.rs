@@ -7,8 +7,8 @@ use crate::{
     crypto::DriveKey,
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex},
     meta::{
-        merge::keep_both, open_encrypted_drive, pointer, MemoryBucket, MetaIndex, MetaIndexProvider,
-        MetaRepo, RepoOptions,
+        merge::keep_both, open_encrypted_drive, pointer, Maintenance, MemoryBucket, MetaIndex,
+        MetaIndexProvider, MetaRepo, RepoOptions,
     },
     Drive, DriveError, ListRequest, Precondition,
 };
@@ -274,6 +274,44 @@ fn the_provider_opens_a_drives_index_and_keeps_this_devices_copy_and_id() {
     assert_eq!(names.len(), 1, "{names:?}");
     assert_eq!(names[0].len(), 32);
     assert!(names[0].bytes().all(|b| b.is_ascii_hexdigit()));
+}
+
+#[test]
+fn the_provider_maintains_a_drives_index_while_a_copy_of_it_is_open() {
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let key = DriveKey::generate().unwrap();
+    let provider = MetaIndexProvider::new("Laptop");
+    let rules = Maintenance {
+        compact_at_packs: 2,
+        ..Maintenance::default()
+    };
+    assert_eq!(
+        provider.maintain(Arc::clone(&bucket), &key, &rules).unwrap(),
+        None,
+        "a bucket without an index has nothing to maintain"
+    );
+
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        drive.put(name, name.as_bytes()).unwrap();
+    }
+    let done = provider
+        .maintain(Arc::clone(&bucket), &key, &rules)
+        .unwrap()
+        .expect("no other device holds the lease");
+    assert!(done.compacted, "three packs folded into one");
+
+    // A copy opened afterwards reads every file; the one that was open goes on writing.
+    let again = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    assert!(again.get("c.txt").unwrap().is_some());
+    drive.put("d.txt", b"d").unwrap();
+    assert_eq!(drive.get("a.txt").unwrap(), b"a.txt");
+    assert_eq!(drive.get("d.txt").unwrap(), b"d");
 }
 
 #[test]

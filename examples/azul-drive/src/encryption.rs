@@ -53,7 +53,8 @@ use azul_storage::{
         random_bytes, Zeroizing,
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
-    meta::MetaIndexProvider,
+    keyring::KeyringStore,
+    meta::{Maintained, Maintenance, MetaIndexProvider},
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
@@ -184,6 +185,31 @@ extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> 
         }),
     );
     TimerCallbackReturn::continue_unchanged()
+}
+
+// ==== The drive index's upkeep ====
+
+/// How long after a drive's index was maintained from this computer the next round is due.
+const MAINTAIN_EVERY_SECS: u64 = 6 * 3_600;
+
+/// Whether a drive's index is due for a maintenance round at `now`: none running, and none
+/// started from this computer in the last [`MAINTAIN_EVERY_SECS`] (`last`).
+fn maintenance_due(now: u64, last: Option<u64>, running: bool) -> bool {
+    let _ = (now, last, running);
+    false
+}
+
+/// One maintenance round of the drive `drive`'s index in `bucket`, with this computer's key
+/// from `keyring`.
+fn run_maintenance(
+    provider: &MetaIndexProvider,
+    bucket: &Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    rules: &Maintenance,
+) -> Result<Option<Maintained>, String> {
+    let _ = (provider, bucket, keyring, drive, rules);
+    Ok(None)
 }
 
 // ==== The dialog ====
@@ -1432,5 +1458,48 @@ mod tests {
             .count();
         assert_eq!(packs_read, 0, "no pack read whole before the first listing");
         assert!(bucket.counts().range_reads > 0);
+    }
+
+    #[test]
+    fn a_drive_index_is_maintained_once_every_six_hours_and_one_round_at_a_time() {
+        let now = 1_760_000_000;
+        assert!(maintenance_due(now, None, false), "never maintained from here");
+        assert!(!maintenance_due(now, Some(now - 60), false), "a minute ago");
+        assert!(!maintenance_due(now, Some(now - 6 * 3_600 + 1), false));
+        assert!(maintenance_due(now, Some(now - 6 * 3_600), false), "six hours ago");
+        assert!(!maintenance_due(now, None, true), "a round is running");
+    }
+
+    #[test]
+    fn an_idle_rounds_maintenance_folds_the_drive_indexs_packs_into_one() {
+        use azul_storage::{
+            crypto::DriveKey, encrypted::EncryptedDrive, keyring::MemoryKeyring,
+            meta::MemoryBucket, ListRequest,
+        };
+        let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+        let keyring = MemoryKeyring::new();
+        let key = DriveKey::generate().unwrap();
+        device::store_drive_key(&keyring, "d_upkeep", &key).unwrap();
+        let index = meta_provider(None)
+            .open_index("d_upkeep", Arc::clone(&bucket), &key)
+            .unwrap();
+        let drive = EncryptedDrive::new(Arc::clone(&bucket), key, index);
+        for i in 0..3 {
+            drive.put(&format!("docs/{i}.txt"), b"x").unwrap();
+        }
+        let rules = Maintenance {
+            compact_at_packs: 2,
+            ..Maintenance::default()
+        };
+        let done = run_maintenance(&meta_provider(None), &bucket, &keyring, "d_upkeep", &rules)
+            .unwrap()
+            .expect("no other computer holds the lease");
+        assert!(done.compacted);
+        let page = drive.list(&ListRequest::folder("docs/")).unwrap();
+        assert_eq!(page.objects.len(), 4, "the folder's marker and three files");
+
+        // A computer without the drive's key maintains nothing.
+        let stranger = MemoryKeyring::new();
+        assert!(run_maintenance(&meta_provider(None), &bucket, &stranger, "d_upkeep", &rules).is_err());
     }
 }

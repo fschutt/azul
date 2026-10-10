@@ -35,7 +35,7 @@ use super::{
     seal::Sealer,
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
-    wal::{reseal, Packs, Publish, RefUpdate},
+    wal::{reseal, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
     MetaError,
 };
 use crate::{
@@ -595,6 +595,17 @@ impl MetaIndexProvider {
         let _ = std::fs::create_dir_all(root);
         let _ = crate::local::write_atomically(&file, id.as_bytes());
         id
+    }
+
+    /// One maintenance round of the index in `bucket` ([`MetaStore::maintain`]).
+    pub fn maintain(
+        &self,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        rules: &Maintenance,
+    ) -> Result<Option<Maintained>, DriveError> {
+        let _ = (bucket, drive_key, rules);
+        Ok(None)
     }
 }
 
