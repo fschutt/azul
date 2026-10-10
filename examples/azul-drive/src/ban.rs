@@ -21,7 +21,7 @@ use azul::{
     prelude::*,
     str::String as AzString,
 };
-use azul_appkit::l10n::{label, t, t_args, Arg, Phrase, Text};
+use azul_appkit::l10n::{label, t, t_args, Phrase, Text};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -38,30 +38,9 @@ use crate::{
 #[cfg(test)]
 pub(crate) use azcloud_kit::token::{banner_text, closed_text};
 
-/// The banner in the window's language: why, and the hours left to copy the files.
-#[must_use]
-pub(crate) fn banner_phrase(reason: &str, hours: Option<u64>) -> Phrase {
-    match hours {
-        Some(hours) => Phrase::new("azdrive-ban-banner")
-            .arg("reason", reason)
-            .arg("hours", hours),
-        None => Phrase::new("azdrive-ban-banner-no-end").arg("reason", reason),
-    }
-}
-
-/// What a closed drive says in the window's language: when (the ban's end) and why.
-#[must_use]
-pub(crate) fn closed_phrase(until: Option<u64>, reason: &str) -> Phrase {
-    match until {
-        Some(until) => {
-            let when = azul_storage::time::iso8601(until);
-            Phrase::new("azdrive-ban-closed")
-                .arg("day", when.get(..10).unwrap_or(&when))
-                .arg("reason", reason)
-        }
-        None => Phrase::new("azdrive-ban-closed-no-day").arg("reason", reason),
-    }
-}
+// The banner in the window's language (why, and the hours left to copy the files) and what a
+// closed drive says (when, and why): the kit's phrases, which AzMail says too.
+pub(crate) use azcloud_kit::token::{ban_reason_arg, banner_phrase, closed_phrase};
 
 /// Why `action` cannot run on a drive under `ban` at `now`: what writes, during the grace
 /// period; what writes or reads, once it is closed.
@@ -100,7 +79,7 @@ pub(crate) fn refusal(action: &Action, ban: &Ban, now: u64) -> Option<String> {
         return (writes || reads)
             .then(|| azul_appkit::l10n::t_phrase(&closed_phrase(ban.until, &ban.reason)));
     }
-    writes.then(|| t_args("azdrive-ban-refused", &[("reason", Arg::from(ban.reason.as_str()))]))
+    writes.then(|| t_args("azdrive-ban-refused", &[("reason", ban_reason_arg(&ban.reason))]))
 }
 
 /// The status line of a banned drive's sync.
@@ -109,7 +88,7 @@ pub(crate) fn sync_text(ban: &Ban, now: u64) -> Phrase {
     if ban.is_closed(now) {
         return closed_phrase(ban.until, &ban.reason);
     }
-    Phrase::new("azdrive-ban-sync-paused").arg("reason", ban.reason.as_str())
+    Phrase::new("azdrive-ban-sync-paused").arg("reason", ban_reason_arg(&ban.reason))
 }
 
 /// The folder "Copy everything" fills: the drive's name as a folder name (`Photos 2026/`).

@@ -1327,13 +1327,6 @@ azdrive-paper-send-to = Senden an:
 
 ## A banned drive, a drive's space
 
-azdrive-ban-banner = Wegen { $reason } wurde dein Konto gesperrt, aber du hast noch { $hours ->
-        [one] 1 Stunde
-       *[other] { $hours } Stunden
-    }, um deine Dateien zu übertragen.
-azdrive-ban-banner-no-end = Wegen { $reason } wurde dein Konto gesperrt: Kopiere deine Dateien jetzt auf diesen Computer.
-azdrive-ban-closed = Dieses Laufwerk wurde am { $day } geschlossen, wegen { $reason }.
-azdrive-ban-closed-no-day = Dieses Laufwerk wurde geschlossen, wegen { $reason }.
 azdrive-ban-refused = Dieses Laufwerk ist gesperrt ({ $reason }): Es nimmt keine Uploads, neuen Ordner oder Links an. Kopiere deine Dateien auf diesen Computer, bevor es geschlossen wird.
 azdrive-ban-sync-paused = Hochladen angehalten: Dieses Laufwerk ist gesperrt ({ $reason }) und nimmt nichts Neues an.
 azdrive-ban-copy-folder = Azlin-Laufwerk

@@ -485,7 +485,8 @@ pub fn ban_fluent_source(lang: crate::user_errors::Lang) -> String {
 
 /// A ban's reason as a phrase's argument: the default one a word of [`BAN_WORDS`] (said in the
 /// window's language), the token server's own as it is.
-fn reason_arg(reason: &str) -> azul_appkit::phrase::Arg {
+#[must_use]
+pub fn ban_reason_arg(reason: &str) -> azul_appkit::phrase::Arg {
     if reason == BAN_REASON {
         azul_appkit::phrase::Arg::word("azlin-ban-reason-terms", BAN_REASON)
     } else {
@@ -499,9 +500,9 @@ pub fn banner_phrase(reason: &str, hours: Option<u64>) -> azul_appkit::phrase::P
     use azul_appkit::phrase::Phrase;
     match hours {
         Some(hours) => Phrase::new("azlin-ban-banner")
-            .arg("reason", reason_arg(reason))
+            .arg("reason", ban_reason_arg(reason))
             .arg("hours", hours),
-        None => Phrase::new("azlin-ban-banner-no-end").arg("reason", reason_arg(reason)),
+        None => Phrase::new("azlin-ban-banner-no-end").arg("reason", ban_reason_arg(reason)),
     }
 }
 
@@ -514,9 +515,9 @@ pub fn closed_phrase(until: Option<u64>, reason: &str) -> azul_appkit::phrase::P
             let when = azul_storage::time::iso8601(until);
             Phrase::new("azlin-ban-closed")
                 .arg("day", when.get(..10).unwrap_or(&when))
-                .arg("reason", reason_arg(reason))
+                .arg("reason", ban_reason_arg(reason))
         }
-        None => Phrase::new("azlin-ban-closed-no-day").arg("reason", reason_arg(reason)),
+        None => Phrase::new("azlin-ban-closed-no-day").arg("reason", ban_reason_arg(reason)),
     }
 }
 

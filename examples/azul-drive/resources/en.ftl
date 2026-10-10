@@ -1329,13 +1329,6 @@ azdrive-paper-send-to = Send it to:
 
 ## A banned drive, a drive's space
 
-azdrive-ban-banner = Due to { $reason }, your account has been banned, but you have { $hours ->
-        [one] 1 hour
-       *[other] { $hours } hours
-    } to migrate your files.
-azdrive-ban-banner-no-end = Due to { $reason }, your account has been banned: copy your files to this computer now.
-azdrive-ban-closed = This drive was closed on { $day } because { $reason }.
-azdrive-ban-closed-no-day = This drive was closed because { $reason }.
 azdrive-ban-refused = This drive is banned ({ $reason }): it takes no uploads, new folders or links. Copy your files to this computer before it closes.
 azdrive-ban-sync-paused = Uploads paused: this drive is banned ({ $reason }) and takes nothing new.
 azdrive-ban-copy-folder = Azlin drive
