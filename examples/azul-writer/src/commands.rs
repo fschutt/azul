@@ -349,6 +349,7 @@ mod tests {
 
     #[test]
     fn the_answer_of_an_import_read_is_a_document_or_a_sentence() {
+        crate::l10n::in_english();
         let doc = imported("notes.md", Ok(Some(b"# Hello\n\nworld\n".to_vec()))).expect("markdown");
         assert_eq!(crate::model::title_of(&doc), "Hello");
         let docx = include_bytes!("../testdata/sample.docx").to_vec();
