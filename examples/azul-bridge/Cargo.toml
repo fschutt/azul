@@ -53,6 +53,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 base64 = "0.22"
 # The OS folders azcloud-kit's settings start from (the same `dirs` the azcloud CLI uses).
 dirs = "6"
+# The tray item (feature `tray`: the azul-bridge-tray binary) - azul's TrayIconData, linked as
+# the apps link libazul (AZ_LINK_PATH). Not in the default build.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
 
 [features]
 default = []
@@ -60,6 +63,8 @@ default = []
 # calls: azul-storage's AzulKeyring, which links libazul (AZ_LINK_PATH) - the build the apps
 # ship. Without it the secrets are the state folder's 0600 file.
 os-keyring = ["azul-storage/azul"]
+# azul-bridge-tray (src/tray_main.rs): `serve` with a menu-bar / tray item, with the OS keyring.
+tray = ["dep:azul", "os-keyring"]
 
 [dev-dependencies]
 # A temporary folder for the tests (azul_storage::testing::TempDir).
@@ -74,3 +79,8 @@ path = "src/lib.rs"
 [[bin]]
 name = "azul-bridge"
 path = "src/main.rs"
+
+[[bin]]
+name = "azul-bridge-tray"
+path = "src/tray_main.rs"
+required-features = ["tray"]

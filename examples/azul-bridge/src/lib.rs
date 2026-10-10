@@ -46,7 +46,9 @@
 //!
 //! Modules: [`imap`], [`smtp`], [`dav`] (+ [`http`]), [`pim`] are the servers; [`store`], [`uids`],
 //! [`mime`], [`sent`] serve mail; [`net`], [`auth`], [`limits`] keep the doors; [`config`],
-//! [`dates`], [`memory`] (a drive in memory for tests and `serve --memory`).
+//! [`dates`], [`memory`] (a drive in memory for tests and `serve --memory`); [`autostart`] (the
+//! login item) and [`tray`] (the menu of `azul-bridge-tray`, the `tray` feature's binary: `serve`
+//! with a menu-bar / tray item).
 
 pub mod account;
 pub mod auth;
@@ -70,4 +72,5 @@ pub mod sent;
 pub mod smtp;
 pub mod store;
 pub mod transport;
+pub mod tray;
 pub mod uids;

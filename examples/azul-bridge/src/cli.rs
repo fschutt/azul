@@ -221,12 +221,22 @@ fn say(line: &str) {
     let _ = out.flush();
 }
 
-/// Runs the command.
+/// What every run opens first: the state folder, its device state, the keyring chosen and its
+/// secrets (`azul-bridge-tray` opens the same before it starts `serve`).
+pub struct Opened {
+    pub state: PathBuf,
+    pub state_dir: StateDir,
+    pub choice: KeyringChoice,
+    pub secrets: Arc<dyn KeyringStore>,
+}
+
+/// The state folder (`--state-dir`, `$AZUL_BRIDGE_HOME`, the OS config folder) and the secrets:
+/// the keyring of the flag, else the one the bridge was set up with, else this build's.
 ///
 /// # Errors
 ///
-/// What went wrong, as a sentence (never a secret).
-pub fn run(options: &Options) -> Result<(), String> {
+/// No state folder, a state folder that cannot be opened, a keyring that is not there.
+pub fn open_state(options: &Options) -> Result<Opened, String> {
     let state = config::state_dir(
         options.state_dir.clone(),
         std::env::var(config::HOME_VAR).ok(),
@@ -234,7 +244,6 @@ pub fn run(options: &Options) -> Result<(), String> {
     )
     .ok_or("no state folder: pass --state-dir or set AZUL_BRIDGE_HOME")?;
     let state_dir = StateDir::open(&state).map_err(|e| e.to_string())?;
-    // The keyring: the flag, else the one the bridge was set up with, else this build's.
     let choice = match &options.keyring {
         Some(text) => KeyringChoice::parse(text).ok_or("--keyring takes os or file")?,
         None => BridgeConfig::load(&state)
@@ -244,6 +253,26 @@ pub fn run(options: &Options) -> Result<(), String> {
             .unwrap_or_else(KeyringChoice::default_for_build),
     };
     let secrets: Arc<dyn KeyringStore> = secrets::open(choice, state_dir.secrets())?;
+    Ok(Opened {
+        state,
+        state_dir,
+        choice,
+        secrets,
+    })
+}
+
+/// Runs the command.
+///
+/// # Errors
+///
+/// What went wrong, as a sentence (never a secret).
+pub fn run(options: &Options) -> Result<(), String> {
+    let Opened {
+        state,
+        state_dir,
+        choice,
+        secrets,
+    } = open_state(options)?;
     match options.command.as_str() {
         "init" => init(options, &state, &*secrets, choice),
         "password" => new_password(&*secrets),
