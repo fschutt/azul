@@ -2272,6 +2272,9 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         s.backstage = backstage;
         // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
         add_flow::start_claims(info, app, s);
+        // Encrypted drives get smaller while the computer is idle on mains power.
+        #[cfg(feature = "encryption")]
+        encryption::start_recompression(info, app);
     })
 }
 

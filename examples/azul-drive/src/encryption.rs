@@ -16,13 +16,27 @@
 //!   state file sits beside the drives file and the next "Encrypt" continues from it.
 //! - "Unlock with the recovery code...": a computer without the drive's key types the code;
 //!   the key is kept in its keyring and the computer gets a wrap of its own.
+//!
+//! In the background: the RECOMPRESSION PASS (azul-storage's `recompress`). A timer looks once
+//! a minute; when the computer has been idle for five minutes on mains power (azul's
+//! `PowerState`), the first open encrypted drive's files are written again, smaller, on a
+//! worker thread, and the pass stops at the first input or when the power cord goes. Its state
+//! sits beside the migration's, so the next idle minute continues where it stopped.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use azul::{
-    callbacks::TextInputOnTextInputCallbackType,
+    callbacks::{TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn},
     prelude::*,
     str::String as AzString,
+    task::{Timer, TimerId},
+    time::{Duration, SystemTimeDiff},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
 };
 use azul_storage::{
@@ -34,6 +48,8 @@ use azul_storage::{
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
     migrate::{migrate, MigrationState},
+    recompress::{run_pass, RecompressPolicy, RecompressState},
+    time::now_unix,
     Drive,
 };
 
@@ -70,12 +86,85 @@ pub(crate) fn offered() -> bool {
 
 /// Where a drive's migration keeps its state: beside the drives file.
 fn state_file(s: &DriveState, drive_id: &str) -> PathBuf {
-    let dir = s
-        .drives_file
+    state_dir(s).join(format!("{drive_id}.migration.json"))
+}
+
+/// The folder of the encryption's local state files: beside the drives file.
+fn state_dir(s: &DriveState) -> PathBuf {
+    s.drives_file
         .as_ref()
         .and_then(|file| file.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(std::env::temp_dir);
-    dir.join("encryption").join(format!("{drive_id}.migration.json"))
+        .unwrap_or_else(std::env::temp_dir)
+        .join("encryption")
+}
+
+// ==== The recompression pass ====
+
+/// Seconds without input before the pass starts (it stops at the first input).
+const RECOMPRESS_IDLE_SECS: u64 = 300;
+/// How often the timer looks.
+const RECOMPRESS_CHECK_MS: u64 = 60_000;
+/// One pass at a time.
+static RECOMPRESSING: AtomicBool = AtomicBool::new(false);
+
+/// The computer's power state: (on mains, seconds since the last input). `None` while azul's
+/// `PowerState` has no binding in this build (its api.json entry); the pass waits then.
+fn power_reading() -> Option<(bool, u64)> {
+    // With the binding: `let p = azul::window::PowerState::query(); Some((p.on_mains, p.idle_secs))`
+    None
+}
+
+/// Whether the pass may run: idle long enough, on mains power.
+fn idle_on_mains() -> bool {
+    power_reading().is_some_and(|(on_mains, idle)| on_mains && idle >= RECOMPRESS_IDLE_SECS)
+}
+
+/// Starts the timer that starts the pass (from the window's start).
+pub(crate) fn start_recompression(info: &mut CallbackInfo, app: &RefAny) {
+    if !offered() {
+        return;
+    }
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_recompress_timer, get_time).with_interval(
+            Duration::System(SystemTimeDiff::from_millis(RECOMPRESS_CHECK_MS)),
+        ),
+    );
+}
+
+extern "C" fn on_recompress_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    if !offered() {
+        return TimerCallbackReturn::terminate_unchanged();
+    }
+    if RECOMPRESSING.load(Ordering::SeqCst) || !idle_on_mains() {
+        return TimerCallbackReturn::continue_unchanged();
+    }
+    let mut callback_info = info.callback_info;
+    let app = data.clone();
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+        return TimerCallbackReturn::continue_unchanged();
+    };
+    let found = s.slots.iter().find_map(|slot| {
+        let auto = slot.auto.clone()?;
+        (auto.is_encrypted() == Some(true)).then(|| (slot.entry.id.clone(), auto))
+    });
+    let Some((drive_id, auto)) = found else {
+        return TimerCallbackReturn::continue_unchanged();
+    };
+    let state_file = state_dir(&*s).join(format!("{drive_id}.recompress.json"));
+    RECOMPRESSING.store(true, Ordering::SeqCst);
+    spawn(
+        &mut callback_info,
+        &app,
+        &mut *s,
+        Job::Encryption(EncryptionJob::Recompress {
+            drive_id,
+            auto,
+            state_file,
+        }),
+    );
+    TimerCallbackReturn::continue_unchanged()
 }
 
 // ==== The dialog ====
@@ -457,6 +546,13 @@ pub(crate) enum EncryptionJob {
         auto: Arc<AutoEncrypted>,
         state_file: PathBuf,
     },
+    /// The recompression pass, while the computer stays idle on mains; the state in
+    /// `state_file`.
+    Recompress {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+        state_file: PathBuf,
+    },
 }
 
 /// What an encryption task found.
@@ -473,6 +569,11 @@ pub(crate) enum EncryptionOutcome {
     Migrated {
         drive_id: String,
         result: Result<MigrationState, String>,
+    },
+    /// The pass stopped (`Ok(true)`: it finished).
+    Recompressed {
+        drive_id: String,
+        result: Result<bool, String>,
     },
 }
 
@@ -537,6 +638,45 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 Ok(state)
             })();
             EncryptionOutcome::Migrated { drive_id, result }
+        }
+        EncryptionJob::Recompress {
+            drive_id,
+            auto,
+            state_file,
+        } => {
+            let result = (|| -> Result<bool, String> {
+                let provider = index_provider()
+                    .ok_or_else(|| String::from("this build of AzDrive has no drive index"))?;
+                let drive = open_encrypted(
+                    Arc::clone(auto.bucket()),
+                    &keyring,
+                    auto.drive(),
+                    provider.as_ref(),
+                )
+                .map_err(|e| e.to_string())?;
+                let mut state = std::fs::read_to_string(&state_file)
+                    .ok()
+                    .and_then(|text| RecompressState::from_json(&text).ok())
+                    .unwrap_or_default();
+                if let Some(dir) = state_file.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                let mut save = |state: &RecompressState| {
+                    std::fs::write(&state_file, state.to_json())
+                        .map_err(|e| azul_storage::DriveError::Io(e.to_string()))
+                };
+                let stop = || !idle_on_mains();
+                run_pass(
+                    &drive,
+                    &mut state,
+                    &RecompressPolicy::default(),
+                    now_unix(),
+                    &mut save,
+                    &stop,
+                )
+                .map_err(|e| e.to_string())
+            })();
+            EncryptionOutcome::Recompressed { drive_id, result }
         }
     }
 }
@@ -609,12 +749,26 @@ pub(crate) fn on_outcome(
                 )),
             }
         }
+        // Quiet either way: the pass runs while nobody looks, and an error (no answer from the
+        // bucket) is tried again at the next idle minute, from where it stopped.
+        EncryptionOutcome::Recompressed { drive_id, result } => {
+            RECOMPRESSING.store(false, Ordering::SeqCst);
+            if let Err(why) = result {
+                eprintln!("AZDRIVE_RECOMPRESS_STOPPED {drive_id}: {why}");
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_recompression_pass_waits_while_the_power_state_is_unknown() {
+        assert_eq!(power_reading(), None, "no PowerState binding in this build yet");
+        assert!(!idle_on_mains());
+    }
 
     #[test]
     fn the_recovery_sheet_takes_the_group_it_asks_for_as_people_type_it() {
