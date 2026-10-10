@@ -92,7 +92,7 @@ pub mod wal;
 use std::fmt;
 
 pub use bucket::{
-    Bucket, DriveBucket, Fetched, FolderBucket, MemoryBucket, RequestCounts, Version,
+    Bucket, DriveBucket, Fetched, FolderBucket, Listed, MemoryBucket, RequestCounts, Version,
 };
 pub use merge::{Conflict, ConflictKind, Merged, Resolution, Resolved};
 pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEntry};

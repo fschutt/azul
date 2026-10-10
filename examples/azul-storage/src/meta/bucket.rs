@@ -57,6 +57,20 @@ pub trait Bucket: Send + Sync {
     fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError>;
     /// Removes the object; a missing object is not an error.
     fn remove(&self, key: &str) -> Result<(), MetaError>;
+    /// Every object under `prefix`, for maintenance only (the orphan sweep): the
+    /// repository never lists to read. By default unsupported.
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        let _ = prefix;
+        Err(MetaError::Unsupported("listing the bucket".to_string()))
+    }
+}
+
+/// One object of a [`Bucket::list_keys`] listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub key: String,
+    /// Last written, in seconds since 1970, when the bucket tells.
+    pub modified: Option<u64>,
 }
 
 impl<B: Bucket + ?Sized> Bucket for Arc<B> {
@@ -77,6 +91,9 @@ impl<B: Bucket + ?Sized> Bucket for Arc<B> {
     }
     fn remove(&self, key: &str) -> Result<(), MetaError> {
         (**self).remove(key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        (**self).list_keys(prefix)
     }
 }
 
@@ -289,6 +306,20 @@ impl Bucket for MemoryBucket {
         state.counts.removes += 1;
         state.objects.remove(key);
         Ok(())
+    }
+
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        let mut state = self.lock();
+        state.counts.lists += 1;
+        Ok(state
+            .objects
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .map(|key| Listed {
+                key: key.clone(),
+                modified: None,
+            })
+            .collect())
     }
 }
 
@@ -505,6 +536,23 @@ impl<D: Drive> Bucket for DriveBucket<D> {
     fn remove(&self, key: &str) -> Result<(), MetaError> {
         self.drive.delete(key).map_err(MetaError::Drive)
     }
+
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        let mut out = Vec::new();
+        let mut request = ListRequest::recursive(prefix);
+        loop {
+            let page = self.drive.list(&request)?;
+            out.extend(page.objects.into_iter().map(|o| Listed {
+                key: o.key,
+                modified: o.modified,
+            }));
+            match page.next {
+                Some(token) => request = request.with_continuation(token),
+                None => break,
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// What a lost conditional write of a drive is for the repository: 412 is
@@ -670,5 +718,46 @@ impl Bucket for FolderBucket {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
             Err(e) => Err(io_error(key, &e)),
         }
+    }
+
+    /// The files under the folder of `prefix` whose keys start with it; not the
+    /// lock files, not the temporary files of a write in progress.
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        fn visit(dir: &Path, key_prefix: &str, out: &mut Vec<Listed>) -> Result<(), MetaError> {
+            let entries = match fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+                Err(e) => return Err(io_error(key_prefix, &e)),
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let key = format!("{key_prefix}{name}");
+                let path = entry.path();
+                if path.is_dir() {
+                    visit(&path, &format!("{key}/"), out)?;
+                } else if !name.ends_with(".lock")
+                    && !(name.starts_with('.') && name.contains(".azul-storage-"))
+                {
+                    let modified = entry
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs());
+                    out.push(Listed { key, modified });
+                }
+            }
+            Ok(())
+        }
+        let folder = crate::key::folder_of(prefix);
+        let dir = match folder.trim_end_matches('/') {
+            "" => self.root.clone(),
+            trimmed => self.path_of(trimmed)?,
+        };
+        let mut out = Vec::new();
+        visit(&dir, folder, &mut out)?;
+        out.retain(|listed| listed.key.starts_with(prefix));
+        out.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(out)
     }
 }

@@ -13,6 +13,7 @@ mod race;
 mod repo;
 mod seal;
 mod shard;
+mod sweep;
 mod tree;
 mod wal;
 

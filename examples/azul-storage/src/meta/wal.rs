@@ -37,7 +37,7 @@
 //! older manifest; the revision counter catches that against what this device has
 //! seen ([`MetaError::Rollback`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -1113,13 +1113,18 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             self.sync()?;
             let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
             let now = self.now();
-            let (due, keep): (Vec<Retired>, Vec<Retired>) = synced
+            // A retired object the manifest names again (the pack of a slow writer
+            // that a sweep took for an orphan) is kept and no longer retired.
+            let live = live_keys(&synced.manifest);
+            let (named, retired): (Vec<Retired>, Vec<Retired>) = synced
                 .manifest
                 .retired
                 .iter()
                 .cloned()
-                .partition(|r| r.at + grace <= now);
-            if due.is_empty() {
+                .partition(|r| live.contains(&r.key));
+            let (due, keep): (Vec<Retired>, Vec<Retired>) =
+                retired.into_iter().partition(|r| r.at + grace <= now);
+            if due.is_empty() && named.is_empty() {
                 return Ok(0);
             }
             let mut next = synced.manifest.clone();
@@ -1157,6 +1162,62 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// and the bucket's lease is still the one the guard took (not released,
     /// not taken over). The lease only saves double work: every change of the
     /// manifest is a swap anyway.
+    /// Finds what no manifest names - the packs of lost swaps, the log entries
+    /// and checkpoints of writers that crashed between their write and their
+    /// swap - and retires it (under `guard`): [`MetaStore::collect_garbage`]
+    /// deletes it once its grace time has passed, unless a manifest names it by
+    /// then. Only objects at least `min_age` seconds old count (by the bucket's
+    /// dates, where it has them): a writer may be between its pack and its swap
+    /// right now. The repository's one listing of its own folders, for
+    /// maintenance; the number of objects retired.
+    pub fn sweep_orphans(&mut self, guard: &LeaseGuard, min_age: u64) -> Result<usize, MetaError> {
+        self.check_guard(guard)?;
+        for attempt in 1..=self.attempts {
+            self.sync()?;
+            let now = self.now();
+            let mut listed = Vec::new();
+            for dir in [keys::WAL_DIR, keys::LOG_DIR, keys::CHECKPOINT_DIR] {
+                listed.extend(self.bucket.list_keys(dir)?);
+            }
+            let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
+            let mut known = live_keys(&synced.manifest);
+            known.extend(synced.manifest.retired.iter().map(|r| r.key.clone()));
+            let orphans: Vec<String> = listed
+                .into_iter()
+                .filter(|listed| !known.contains(&listed.key))
+                .filter(|listed| listed.modified.map_or(true, |at| at + min_age <= now))
+                .map(|listed| listed.key)
+                .collect();
+            if orphans.is_empty() {
+                return Ok(0);
+            }
+            let mut next = synced.manifest.clone();
+            let version = synced.version.clone();
+            next.retired
+                .extend(orphans.iter().map(|key| Retired { key: key.clone(), at: now }));
+            next.revision += 1;
+            next.writer = self.device.clone();
+            next.updated_at = now;
+            match self.swap_manifest(&next, version.as_deref()) {
+                Ok(version) => {
+                    self.seen_revision = next.revision;
+                    self.state.revision = next.revision;
+                    self.synced = Some(Synced {
+                        manifest: next,
+                        version,
+                    });
+                    return Ok(orphans.len());
+                }
+                Err(MetaError::Conflict { .. }) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(MetaError::Contended {
+            attempts: self.attempts,
+        })
+    }
+
     fn check_guard(&self, guard: &LeaseGuard) -> Result<(), MetaError> {
         if guard.expires_at <= self.now() {
             return Err(MetaError::LeaseHeld {
@@ -1182,6 +1243,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             }),
         }
     }
+}
+
+/// Every key the manifest names: itself, the live packs and their indexes, the
+/// log entries, the checkpoint.
+fn live_keys(manifest: &Manifest) -> HashSet<String> {
+    let mut live = HashSet::new();
+    live.insert(keys::MANIFEST.to_string());
+    for pack in &manifest.packs {
+        live.insert(keys::pack(&pack.name));
+        live.insert(keys::idx(&pack.name));
+    }
+    live.extend(manifest.log.iter().map(|entry| entry.key.clone()));
+    if let Some(checkpoint) = &manifest.checkpoint {
+        live.insert(checkpoint.key.clone());
+    }
+    live
 }
 
 /// A manifest this code can work with: its format, and a log without gaps from
