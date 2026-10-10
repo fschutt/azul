@@ -4,7 +4,7 @@
 use azul_appkit::l10n::Arg;
 use azul_storage::time::iso8601;
 
-use crate::restore::{parse_as_of, restored_text, Restored, RESTORE_DAYS};
+use crate::restore::{not_restored_line, parse_as_of, restored_text, Restored, RESTORE_DAYS};
 
 const NOW: u64 = 1_791_450_000;
 
@@ -81,4 +81,23 @@ fn the_time_fields_first_words_parse_in_english_and_german() {
         assert_eq!(parse_as_of(&first, NOW), Ok(NOW - 3_600), "{locale}: {first}");
     }
     set_locale("en-US");
+}
+
+/// A restore refused (the time typed is no time) or failed says so on stdout for scripts, on
+/// one line: the drive and why, as its keys and arguments (the same in every language).
+#[test]
+fn a_restore_not_done_names_the_drive_and_why_on_one_line() {
+    use azul_appkit::l10n::{Phrase, Text};
+    let why = Text::from(
+        Phrase::new("azdrive-restore-unknown-time").arg("text", "1 hour ago\n2026-10-10T08:00Z"),
+    );
+    assert_eq!(
+        not_restored_line("AZDRIVE_RESTORE_REFUSED", "d1", &why),
+        "AZDRIVE_RESTORE_REFUSED d1 azdrive-restore-unknown-time(text=1 hour ago 2026-10-10T08:00Z)"
+    );
+    let failed = Text::key("azdrive-restore-node-failed").then(" ").then("disk\r\nfull");
+    assert_eq!(
+        not_restored_line("AZDRIVE_RESTORE_FAILED", "d1", &failed),
+        "AZDRIVE_RESTORE_FAILED d1 azdrive-restore-node-failed disk full"
+    );
 }
