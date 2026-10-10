@@ -21,7 +21,9 @@
 //! |                                       | (against the sealed sign-up's issue key)          |
 //! | `POST /v1/drives/{id}/redeem`         | a period token: the drive's next month            |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
-//! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
+//! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown, a ban |
+//! |                                       | (status banned, ban_reason, ban_until; past the   |
+//! |                                       | end 403 drive_banned)                             |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
 //! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
 //! |                                       | (or by the recovery key: a fresh nonce, 48 h)     |
@@ -344,6 +346,76 @@ pub struct DriveStatus {
     pub members: Vec<String>,
     /// The member whose token asked.
     pub you: Option<String>,
+    /// The drive is banned (ban contract v1): why, and until when it may still be read.
+    pub ban: Option<Ban>,
+}
+
+/// The error code of a banned drive's refusals: its writes during the grace period, everything
+/// (the credentials, its status) after it.
+pub const DRIVE_BANNED: &str = "drive_banned";
+
+/// What the token server says when a ban has no reason of its own.
+const BAN_REASON: &str = "a breach of the terms of service";
+
+/// A drive banned with a grace period (ban contract v1): its files can be read, listed and
+/// copied until `until`; nothing new is written; then the drive is closed.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Ban {
+    /// Why, as the token server says it ("spam distribution").
+    pub reason: String,
+    /// Reads and credentials work until then (seconds since 1970); `None`: no end said.
+    pub until: Option<u64>,
+    /// The token server refused the drive past the end (403 `drive_banned`): it is closed,
+    /// whatever this computer's clock says.
+    pub closed: bool,
+}
+
+impl Ban {
+    /// The ban an answer describes - `GET /v1/drives/{id}`, a credentials bundle (`status:
+    /// "banned"`, `ban_reason`, `ban_until`) or a 403 `drive_banned`; `None` for a drive in good
+    /// standing.
+    #[must_use]
+    pub fn of(value: &Value) -> Option<Ban> {
+        let banned = value["status"].as_str() == Some("banned")
+            || value["error"].as_str() == Some(DRIVE_BANNED)
+            || value["ban_reason"].is_string();
+        if !banned {
+            return None;
+        }
+        let reason = value["ban_reason"]
+            .as_str()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .unwrap_or(BAN_REASON);
+        let until = value["ban_until"].as_u64().or_else(|| {
+            value["ban_until"]
+                .as_str()
+                .and_then(azul_storage::time::parse_iso8601)
+        });
+        Some(Ban {
+            reason: reason.chars().take(200).collect(),
+            until,
+            closed: value["error"].as_str() == Some(DRIVE_BANNED),
+        })
+    }
+
+    /// Whether the drive is closed at `now` (seconds since 1970): the token server said so, or
+    /// its end has come.
+    #[must_use]
+    pub fn is_closed(&self, now: u64) -> bool {
+        self.closed || self.until.is_some_and(|until| until <= now)
+    }
+
+    /// The hours left at `now` to copy the files, rounded up (0 once it is closed, and when no
+    /// end was said).
+    #[must_use]
+    pub fn hours_left(&self, now: u64) -> u64 {
+        if self.is_closed(now) {
+            return 0;
+        }
+        self.until
+            .map_or(0, |until| until.saturating_sub(now).div_ceil(3_600))
+    }
 }
 
 /// What a voucher bought.
@@ -961,13 +1033,35 @@ impl<'a> TokenServer<'a> {
     }
 
     /// [`Self::info`] as a [`DriveStatus`]: the tier, the period's end, a pending recovery-key
-    /// lockdown, whether the drive takes no writes, its members and which one asked.
+    /// lockdown, whether the drive takes no writes, its members and which one asked, a ban.
+    /// Past a ban's end the token server refuses the drive (403 `drive_banned`): that answer is
+    /// the status of a closed drive, not an error.
     pub fn drive_status(
         &self,
         drive_id: &str,
         drive_token: &str,
     ) -> Result<DriveStatus, TokenError> {
-        let info = self.info(drive_id, drive_token)?;
+        let path = format!("/v1/drives/{}", check_id(drive_id)?);
+        let reply = self.exchange(Method::Get, &path, Some(token_of(drive_token)?), None)?;
+        if reply.status == 403 {
+            let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
+            if value["error"].as_str() == Some(DRIVE_BANNED) {
+                return Ok(DriveStatus {
+                    read_only: true,
+                    ban: Ban::of(&value),
+                    ..DriveStatus::default()
+                });
+            }
+        }
+        if !reply.is_success() {
+            return Err(refusal(&reply, true));
+        }
+        let info: Value = if reply.body.iter().all(u8::is_ascii_whitespace) {
+            Value::Null
+        } else {
+            serde_json::from_slice(&reply.body)
+                .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))?
+        };
         let time = |key: &str| info[key].as_str().and_then(azul_storage::time::parse_iso8601);
         let mut members: Vec<String> = info["members"]
             .as_array()
@@ -986,6 +1080,7 @@ impl<'a> TokenServer<'a> {
             read_only: info["read_only"].as_bool().unwrap_or(false),
             members,
             you: info["you"].as_str().map(str::to_string),
+            ban: Ban::of(&info),
         })
     }
 
