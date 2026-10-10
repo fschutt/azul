@@ -1023,3 +1023,7 @@ mod an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width;
 mod a_letter_spaced_line_is_aligned_by_its_spaced_width;
 #[path = "a_clipped_or_covered_scroll_box_takes_no_pointer.rs"]
 mod a_clipped_or_covered_scroll_box_takes_no_pointer;
+#[path = "a_screen_reader_walks_the_tree_both_ways.rs"]
+mod a_screen_reader_walks_the_tree_both_ways;
+#[path = "a_screen_reader_reads_only_what_is_rendered.rs"]
+mod a_screen_reader_reads_only_what_is_rendered;
