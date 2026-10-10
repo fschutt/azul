@@ -451,9 +451,35 @@ pub fn forget_request_key(keyring: &dyn KeyringStore, drive: &str) -> Result<(),
 /// the other people): the member key files in `.azlin/keys/`, the recovery code's and the
 /// invites' left out.
 pub fn other_devices(
-    _bucket: &dyn Drive,
-    _keyring: &dyn KeyringStore,
-    _drive: &str,
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
 ) -> Result<u32, DriveError> {
-    Ok(0)
+    let own = load_member_secret(keyring, drive)?
+        .and_then(|secret| member_key_file(&secret.public().id()).ok());
+    let mut request = ListRequest::recursive(KEYS_PREFIX);
+    let mut count = 0u32;
+    loop {
+        let page = bucket.list(&request)?;
+        for object in &page.objects {
+            let key = object.key.as_str();
+            let member = key
+                .strip_prefix(KEYS_PREFIX)
+                .and_then(|rest| rest.strip_suffix(".key"))
+                .unwrap_or("");
+            let counts = !member.is_empty()
+                && !member.contains('/')
+                && key != RECOVERY_KEY_FILE
+                && !member.starts_with("invite-")
+                && own.as_deref() != Some(key);
+            if counts {
+                count = count.saturating_add(1);
+            }
+        }
+        match page.next {
+            Some(next) => request.continuation = Some(next),
+            None => break,
+        }
+    }
+    Ok(count)
 }
