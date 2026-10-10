@@ -144,9 +144,9 @@ pub(crate) fn on_page(content: Dom) -> Dom {
 
 /// The InfoBar over the content: the last message, with Dismiss.
 fn info_bar(message: &Message, app: &RefAny) -> Dom {
-    InfoBar::create(AzString::from(message.text.as_str()))
+    InfoBar::create(AzString::from(azul_appkit::l10n::t_text(&message.text)))
         .with_kind(message.kind.alert())
-        .with_action(AzString::from("Dismiss"))
+        .with_action(azul_appkit::l10n::tr("azdrive-message-dismiss"))
         .with_on_action(app.clone(), on_dismiss as ButtonOnClickCallbackType)
         .dom()
         .with_id(ids::INFO_BAR)

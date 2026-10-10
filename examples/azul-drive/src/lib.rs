@@ -158,6 +158,8 @@ mod periods;
 mod problems;
 /// Vouchers on a drive (Options > Drives).
 mod vouchers;
+/// AzDrive's words through azul's localization: its resources, the kit's error table.
+mod l10n;
 /// "Restore as of..." of an Azlin drive (Options > Drives, the drive's menu).
 mod restore;
 #[cfg(test)]
@@ -513,11 +515,11 @@ impl MessageKind {
     }
 }
 
-/// What the InfoBar over the content says.
+/// What the InfoBar over the content says (its words in the window's language when shown).
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
     pub kind: MessageKind,
-    pub text: String,
+    pub text: azul_appkit::l10n::Text,
 }
 
 /// Copy or Cut: the items to paste, their drive, whether a paste moves them.
@@ -1012,28 +1014,28 @@ impl DriveState {
             .is_some_and(|i| self.slots[i].is_local())
     }
 
-    pub fn info(&mut self, text: impl Into<String>) {
+    pub fn info(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
         self.message = Some(Message {
             kind: MessageKind::Info,
             text: text.into(),
         });
     }
 
-    pub fn success(&mut self, text: impl Into<String>) {
+    pub fn success(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
         self.message = Some(Message {
             kind: MessageKind::Success,
             text: text.into(),
         });
     }
 
-    pub fn warn(&mut self, text: impl Into<String>) {
+    pub fn warn(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
         self.message = Some(Message {
             kind: MessageKind::Warning,
             text: text.into(),
         });
     }
 
-    pub fn error(&mut self, text: impl Into<String>) {
+    pub fn error(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
         let text = text.into();
         eprintln!("[azdrive] {text}");
         self.message = Some(Message {
@@ -2164,7 +2166,7 @@ fn scanned(
         s.listing_done = true;
         s.listing_failed = true;
         s.refreshing = None;
-        s.error(format!("Could not list this folder: {e}"));
+        s.error(azul_appkit::l10n::Text::key("azdrive-list-failed").then(" ").then(e));
         return;
     }
     if !done {
@@ -2683,6 +2685,9 @@ extern "C" fn on_pane_resize(
 }
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for the text that is no DOM text node (titles, tooltips, menus);
+    // reading it makes a language switch rebuild the window.
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let window = (info.get_window_width(), info.get_window_height());
@@ -3156,7 +3161,9 @@ pub fn start() {
     refresh_disks(&mut state);
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
-    let config = azul_appkit::ui::app_config(&state.kit);
+    let mut config = azul_appkit::ui::app_config(&state.kit);
+    // AzDrive's words, appkit's and the kit's error table for the engine's localization.
+    l10n::register(&mut config);
     let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,

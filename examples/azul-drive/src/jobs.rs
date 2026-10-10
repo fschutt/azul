@@ -453,7 +453,7 @@ pub(crate) enum Outcome {
         serial: u64,
         batch: Vec<Entry>,
         done: bool,
-        error: Option<String>,
+        error: Option<azul_appkit::l10n::Text>,
     },
     /// The sizes and dates a [`Job::Stat`] found.
     Stats { serial: u64, stats: Vec<Stat> },
@@ -942,7 +942,7 @@ fn scan_dir(
                 serial,
                 batch: Vec::new(),
                 done: true,
-                error: Some(e.to_string()),
+                error: Some(e.to_string().into()),
             }
         }
     };
@@ -1023,7 +1023,7 @@ fn scan_bucket(
                     serial,
                     batch: Vec::new(),
                     done: true,
-                    error: Some(crate::problems::describe(&e)),
+                    error: Some(crate::l10n::drive_error_text(&e)),
                 };
             }
         };

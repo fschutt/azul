@@ -444,7 +444,7 @@ pub struct TransferReport {
     pub done: usize,
     pub skipped: usize,
     /// What failed, and why.
-    pub failed: Vec<(String, String)>,
+    pub failed: Vec<(String, azul_appkit::l10n::Text)>,
     pub cancelled: bool,
 }
 
@@ -481,14 +481,14 @@ pub fn run_transfer(
         progress.current = key::last_segment(from).to_string();
         match source.rename(from, to) {
             Ok(()) => out.done += 1,
-            Err(e) => out.failed.push((from.clone(), crate::problems::describe(&e))),
+            Err(e) => out.failed.push((from.clone(), crate::l10n::drive_error_text(&e))),
         }
         progress.files_done += 1;
         report(&progress);
     }
     for folder in &plan.folders {
         if let Err(e) = target.create_folder(folder) {
-            out.failed.push((folder.clone(), crate::problems::describe(&e)));
+            out.failed.push((folder.clone(), crate::l10n::drive_error_text(&e)));
         }
     }
     let mut copied = Vec::new();
@@ -534,7 +534,7 @@ pub fn run_transfer(
                     out.done += 1;
                     copied.push(file.source_key.clone());
                 }
-                Err(e) => out.failed.push((file.source_key.clone(), crate::problems::describe(&e))),
+                Err(e) => out.failed.push((file.source_key.clone(), crate::l10n::drive_error_text(&e))),
             }
         } else {
             out.skipped += 1;
@@ -546,14 +546,14 @@ pub fn run_transfer(
     if kind.removes_source() && !out.cancelled {
         for key in &copied {
             if let Err(e) = source.delete(key) {
-                out.failed.push((key.clone(), crate::problems::describe(&e)));
+                out.failed.push((key.clone(), crate::l10n::drive_error_text(&e)));
             }
         }
         // A folder goes only when everything in it went.
         if out.failed.is_empty() && out.skipped == 0 {
             for folder in &plan.source_folders {
                 if let Err(e) = source.delete_folder(folder) {
-                    out.failed.push((folder.clone(), crate::problems::describe(&e)));
+                    out.failed.push((folder.clone(), crate::l10n::drive_error_text(&e)));
                 }
             }
         }

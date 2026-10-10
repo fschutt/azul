@@ -1,0 +1,85 @@
+//! AzDrive's words through azul's localization (doc/guide/en/architecture/localization.md;
+//! azul-appkit's `l10n` has the calls): `resources/en.ftl` and `resources/de.ftl` - every key
+//! the source names is in both (`l10n_tests.rs`) - and azcloud-kit's error table with them,
+//! given to the engine at the start ([`register`]). The engine's locale picks the language
+//! (the system's, or Options > General > Language).
+//!
+//! A storage or token server error is the table's message with its error ID ([`error_text`]);
+//! one the user caused (no such file, a name that cannot be one) its own words.
+
+use azcloud_kit::{
+    user_errors::{fluent_source, Lang, ID_LABEL_MESSAGE},
+    CloudError, TokenError, UserError,
+};
+use azul::prelude::AppConfig;
+use azul_appkit::l10n::{self, Phrase, Text};
+use azul_storage::DriveError;
+
+/// AzDrive's words in English.
+pub(crate) const EN: &str = include_str!("../resources/en.ftl");
+/// AzDrive's words in German.
+pub(crate) const DE: &str = include_str!("../resources/de.ftl");
+
+/// AzDrive's resources per language: its own words, then azcloud-kit's error table.
+fn resources() -> Vec<(&'static str, String)> {
+    Lang::ALL
+        .iter()
+        .map(|lang| {
+            let own = match lang {
+                Lang::En => EN,
+                Lang::De => DE,
+            };
+            (lang.tag(), format!("{own}\n{}", fluent_source(*lang)))
+        })
+        .collect()
+}
+
+/// Every resource the engine gets, per language: appkit's, AzDrive's, the error table.
+#[must_use]
+pub(crate) fn sources() -> Vec<(String, String)> {
+    let own = resources();
+    let pairs: Vec<(&str, &str)> = own.iter().map(|(tag, s)| (*tag, s.as_str())).collect();
+    l10n::sources(&pairs)
+}
+
+/// Gives the engine AzDrive's resources (where the app config is built).
+pub(crate) fn register(config: &mut AppConfig) {
+    let own = resources();
+    let pairs: Vec<(&str, &str)> = own.iter().map(|(tag, s)| (*tag, s.as_str())).collect();
+    l10n::register(config, &pairs);
+}
+
+/// A storage or token server error as the table words it: its message, then its error ID.
+#[must_use]
+pub(crate) fn error_text(e: &UserError) -> Text {
+    let mut phrase = Phrase::new(&e.message_id());
+    for (name, value) in e.fluent_args() {
+        phrase = phrase.arg(name, value);
+    }
+    let text = Text::from(phrase);
+    match e.error_id() {
+        Some(id) => text
+            .then(" ")
+            .then(Phrase::new(ID_LABEL_MESSAGE).arg("id", id)),
+        None => text,
+    }
+}
+
+/// A drive's error: the table's ([`error_text`]) for a storage or token server error, the
+/// error's own words for one the user caused.
+#[must_use]
+pub(crate) fn drive_error_text(e: &DriveError) -> Text {
+    UserError::from_drive_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
+}
+
+/// A token server's error ([`drive_error_text`]'s rule).
+#[must_use]
+pub(crate) fn token_error_text(e: &TokenError) -> Text {
+    UserError::from_token_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
+}
+
+/// An Azlin call's error ([`drive_error_text`]'s rule).
+#[must_use]
+pub(crate) fn cloud_error_text(e: &CloudError) -> Text {
+    UserError::from_cloud_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
+}

@@ -281,7 +281,7 @@ pub(crate) fn status_text(s: &DriveState) -> String {
     let mut parts = Vec::new();
     // The drive in view's storage problem first, in the table's words with its error ID.
     if let Some(problem) = crate::problems::status_of(s) {
-        parts.push(problem);
+        parts.push(azul_appkit::l10n::t_text(&problem));
     }
     if let Some(find) = &s.find {
         // The search's own line: "Searching... 1,234 found", then the count; the refine.

@@ -21,6 +21,7 @@ use azul::{
     url::Url,
     vec::StyledTextRunVec,
 };
+use azul_appkit::l10n::{translate_text, Phrase, Text};
 use azul_storage::{
     azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
@@ -2082,14 +2083,17 @@ pub(crate) fn transfer_ran(
         crate::sync_jobs::transfer_done(info, app, s, &source_id, &target_id);
     }
     let failed = report.failed.first().map(|(what, why)| {
-        format!(
-            "{} item(s) failed; \"{}\": {why}",
-            report.failed.len(),
-            key::last_segment(what)
+        Text::from(
+            Phrase::new("azdrive-transfer-failed")
+                .arg("count", report.failed.len())
+                .arg("name", key::last_segment(what)),
         )
+        .then(" ")
+        .then(why.clone())
     });
     if !report.cancelled {
-        s.queue.finish(id, failed.clone());
+        s.queue
+            .finish(id, failed.as_ref().map(|text| translate_text(info, text)));
     }
     let state = if report.cancelled {
         "cancelled"
