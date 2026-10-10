@@ -924,6 +924,52 @@ mod autotest_generated {
         );
     }
 
+    /// The software menu bar is a menu bar of named menu items to a screen
+    /// reader, ONE stop in the Tab order (its first item), and each item says
+    /// it opens a menu (collapsed until it does).
+    #[test]
+    fn a_menu_bar_is_a_menubar_of_named_menu_items_with_one_tab_stop() {
+        use azul_core::{
+            a11y::{AccessibilityRole, AccessibilityState},
+            dom::TabIndex,
+        };
+
+        let m = menu_of(vec![string_item("File"), string_item("Edit"), string_item("View")]);
+        let bar = build_menubar_dom(&m);
+        let role = bar.root.get_accessibility_info().map(|i| i.role);
+        assert_eq!(role, Some(AccessibilityRole::MenuBar), "the bar is a menu bar");
+
+        let items = bar.children.as_ref();
+        let declared: Vec<_> = items
+            .iter()
+            .map(|item| {
+                item.root.get_accessibility_info().map(|i| {
+                    (
+                        i.role,
+                        i.accessibility_name.as_option().map(|n| n.as_str().to_string()),
+                        i.states.as_ref().contains(&AccessibilityState::Collapsed),
+                    )
+                })
+            })
+            .collect();
+        let expected: Vec<_> = ["File", "Edit", "View"]
+            .iter()
+            .map(|n| Some((AccessibilityRole::MenuItem, Some(n.to_string()), true)))
+            .collect();
+        assert_eq!(declared, expected, "each item is a named, collapsed menu item");
+
+        let stops: Vec<_> = items.iter().map(|item| item.root.get_tab_index()).collect();
+        assert_eq!(
+            stops,
+            vec![
+                Some(TabIndex::Auto),
+                Some(TabIndex::NoKeyboardFocus),
+                Some(TabIndex::NoKeyboardFocus)
+            ],
+            "the bar is one Tab stop; the arrow keys move between its items"
+        );
+    }
+
     #[test]
     fn build_menubar_item_registers_exactly_one_mouseup_hover_callback() {
         let dom = build_menubar_item(&leaf("File"));
