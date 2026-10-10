@@ -2265,10 +2265,14 @@ impl CssPropertyCache {
             .filter_map(|(node_idx, node_data)| {
                 let node_id = NodeId::new(node_idx);
 
-                let should_auto_insert_tabindex = node_data
-                    .get_callbacks()
-                    .iter()
-                    .any(|cb| cb.event.is_focus_callback());
+                // A `<webview>` is focusable as an iframe is: its page takes
+                // the pointer and the keyboard without a callback of its own.
+                let should_auto_insert_tabindex =
+                    matches!(node_data.get_node_type(), NodeType::WebView(_))
+                        || node_data
+                            .get_callbacks()
+                            .iter()
+                            .any(|cb| cb.event.is_focus_callback());
 
                 let tab_index = node_data.get_tab_index().map_or(
                     if should_auto_insert_tabindex {

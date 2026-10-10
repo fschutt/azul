@@ -9,22 +9,38 @@
 //! |                                       | key the sign-up is sealed to)                     |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
 //! |                                       | / declined / expired                              |
+//! | `GET /v1/checkout/options`            | the providers' offer for a tier, period, country  |
+//! |                                       | (azul-pay narrows it to the app's registry)       |
+//! | `POST /v1/checkout` + provider        | a checkout through a provider: its surface (the   |
+//! |                                       | fields page, a hosted page, the browser)          |
+//! | `POST /v1/checkout/{id}/surface`      | the same checkout on the next surface             |
+//! | `POST /v1/checkout/{id}/abandon`      | the provider session expires (popover closed)     |
+//! | `GET /v1/tokens/keys`                 | the period tokens' issuer keys (tier and year)    |
+//! | `POST /v1/tokens/issue`               | a paid checkout's blind-signed period tokens      |
+//! |                                       | (against the sealed sign-up's issue key)          |
+//! | `POST /v1/drives/{id}/redeem`         | a period token: the drive's next month            |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
 //! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
 //! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
+//! |                                       | (or by the recovery key: a fresh nonce, 48 h)     |
 //! | `POST /v1/drives/{id}/lockdown/cancel`| a pending recovery-key lockdown called off        |
+//! | `POST /v1/vouchers/redeem`            | a voucher: days on a drive, or a new drive        |
 //! | `POST /v1/drives/{id}/restore`        | a prefix as it was at a time (queued)             |
 //! | `GET /v1/drives/{id}/restore/{req}`   | a restore's progress                              |
 //!
 //! Blocking, through azul-storage's [`Transport`]: call it from an azul `Thread`.
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
 
-use crate::{bundle::DriveBundle, claim::ClaimKey};
+use crate::{
+    bundle::DriveBundle,
+    claim::ClaimKey,
+    period::{IssuerKey, PeriodToken},
+};
 
 /// The tier a sign-up without one gets (the token server's default too).
 pub const DEFAULT_TIER: &str = "100GB";
@@ -214,6 +230,29 @@ pub struct Checkout {
     pub mock: bool,
 }
 
+/// What `GET /v1/checkout/options` is asked for (CHECKOUT-PLAN §3.11): the tier, the months
+/// paid at once, the payer's country and currency, the surfaces this app can show (`fields`,
+/// `page`, `browser`, ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptionsQuery<'a> {
+    pub tier: &'a str,
+    pub months: u32,
+    pub country: &'a str,
+    pub currency: &'a str,
+    pub surfaces: &'a [&'a str],
+}
+
+/// How a checkout is paid (claim contract v1, extended): the provider and method of the payer's
+/// pill, the first surface to open, the VAT country, the consent the order needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckoutVia<'a> {
+    pub provider: &'a str,
+    pub method: &'a str,
+    pub surface: &'a str,
+    pub vat_country: &'a str,
+    pub withdrawal_consent: bool,
+}
+
 /// Where a checkout stands (`GET /v1/checkout/{id}`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckoutStatus {
@@ -226,6 +265,76 @@ pub enum CheckoutStatus {
     Declined(String),
     /// The token server no longer has the checkout (it expired, or it is unknown: a 404): why.
     Gone(String),
+}
+
+/// What `POST /v1/tokens/issue` answers: one blind signature per blinded message, by the
+/// issuer key of the tier and year.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlindSignatures {
+    /// `100GB`.
+    pub tier: String,
+    /// `<tier>/<year>`: the issuer key's name.
+    pub key_id: String,
+    /// The issuer's public key (SPKI PEM): what the finished tokens verify against.
+    pub public_key_pem: String,
+    /// Standard base64, in the order of the blinded messages.
+    pub signatures: Vec<String>,
+}
+
+/// The most blinded messages one `POST /v1/tokens/issue` takes (24 months, prepaid).
+pub const MAX_BLINDED: usize = 24;
+
+/// What a recovery-key lockdown answers (202): the drive is read-only until `pending_until`
+/// (every device may cancel until then), and `drive_token` is the new family this side gets
+/// after it. `Debug` shows no token.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RecoveryLockdown {
+    /// The request's nonce (new for every request).
+    pub nonce: String,
+    /// In seconds since 1970.
+    pub pending_until: Option<u64>,
+    pub drive_token: String,
+}
+
+impl fmt::Debug for RecoveryLockdown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecoveryLockdown")
+            .field("nonce", &self.nonce)
+            .field("pending_until", &self.pending_until)
+            .field("drive_token", &"<hidden>")
+            .finish()
+    }
+}
+
+/// What a voucher bought.
+#[derive(Debug)]
+pub enum VoucherRedeemed {
+    /// The drive's period grew by `days_added` (its months and its value pro rata, AZLINSEC17
+    /// F29), to `period_until` (seconds since 1970).
+    Extended {
+        days_added: u32,
+        period_until: Option<u64>,
+    },
+    /// A new drive of the voucher's tier (its sign-up: save it before its first refresh).
+    NewDrive(Box<DriveBundle>),
+}
+
+/// What a recovery-key lockdown signs: `lockdown:<drive>:<nonce>`.
+#[must_use]
+pub fn recovery_lockdown_message(drive_id: &str, nonce: &str) -> String {
+    format!("lockdown:{drive_id}:{nonce}")
+}
+
+/// A lockdown nonce: 16 random bytes, hex (32 characters; the token server takes 16 to 128 and
+/// each once per drive).
+fn lockdown_nonce() -> Result<String, TokenError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::getrandom(&mut bytes).map_err(|_| {
+        TokenError::Config(String::from(
+            "This computer's random source does not answer: no lockdown request can be made.",
+        ))
+    })?;
+    Ok(crate::period::hex(&bytes))
 }
 
 // ==== The client ====
@@ -290,13 +399,15 @@ pub fn check_token_url(url: &str) -> Result<(), TokenError> {
     Ok(())
 }
 
-/// The token server's error answer as a [`TokenError`]: a refused drive token is
-/// [`TokenError::SignIn`], every other refusal [`TokenError::Refused`].
-fn refusal(reply: &HttpReply) -> TokenError {
+/// The token server's error answer as a [`TokenError`]: a 401 to a call with a drive token
+/// (`with_token`) is [`TokenError::SignIn`] - the token is gone (reused, revoked, unknown) -,
+/// every other refusal [`TokenError::Refused`]: a 403 refuses the call, not the token, and a 503
+/// (`not_verified`, `try_again`) asks for the same token again later.
+fn refusal(reply: &HttpReply, with_token: bool) -> TokenError {
     let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
     let code = value["error"].as_str().unwrap_or_default().to_string();
     let message = value["message"].as_str().unwrap_or_default().to_string();
-    if matches!(reply.status, 401 | 403) {
+    if reply.status == 401 && with_token {
         let why = match (code.is_empty(), message.is_empty()) {
             (true, true) => format!("HTTP {}", reply.status),
             (false, true) => code,
@@ -312,10 +423,17 @@ fn refusal(reply: &HttpReply) -> TokenError {
     }
 }
 
+/// How often a refresh is sent with one drive token while the token server answers 503 (the
+/// token is not spent then).
+const REFRESH_TRIES: u32 = 3;
+/// The pause between two such tries.
+const REFRESH_RETRY_PAUSE: Duration = Duration::from_secs(2);
+
 /// The token server at a base address. Blocking: call it from an azul `Thread`.
 pub struct TokenServer<'a> {
     base: String,
     transport: &'a dyn Transport,
+    retry_pause: Duration,
 }
 
 impl<'a> TokenServer<'a> {
@@ -327,7 +445,16 @@ impl<'a> TokenServer<'a> {
         Ok(TokenServer {
             base: base.trim().trim_end_matches('/').to_string(),
             transport,
+            retry_pause: REFRESH_RETRY_PAUSE,
         })
+    }
+
+    /// Pauses `pause` (instead of two seconds) before a refresh the token server answered 503
+    /// is sent again.
+    #[must_use]
+    pub fn with_retry_pause(mut self, pause: Duration) -> Self {
+        self.retry_pause = pause;
+        self
     }
 
     /// The base address, without a trailing slash.
@@ -390,7 +517,7 @@ impl<'a> TokenServer<'a> {
         };
         let reply = self.transport.send(&call).map_err(TokenError::Connect)?;
         if !reply.is_success() {
-            return Err(refusal(&reply));
+            return Err(refusal(&reply, bearer.is_some()));
         }
         Ok(reply)
     }
@@ -426,25 +553,82 @@ impl<'a> TokenServer<'a> {
             "claim_key": claim.public_base64(),
         });
         let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
-        let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
-        let checkout = Checkout {
-            checkout_id: text("checkout_id"),
-            pay_url: text("pay_url"),
-            tier: text("tier"),
-            months: value["months"]
-                .as_u64()
-                .and_then(|m| u32::try_from(m).ok())
-                .unwrap_or(months),
-            amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
-            currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
-            mock: value["mock"].as_bool().unwrap_or(false),
-        };
+        let checkout = checkout_of(&value, months);
         if checkout.checkout_id.is_empty() || checkout.pay_url.is_empty() {
             return Err(TokenError::Protocol(String::from(
                 "the checkout has no id or no payment page",
             )));
         }
         Ok(checkout)
+    }
+
+    /// The payment options for `query` (`GET /v1/checkout/options`): the offer's JSON text, for
+    /// azul-pay to read and narrow; `None` from a token server without them (a 404: an older one,
+    /// whose checkout is claim contract v1's - a payment page in the browser).
+    pub fn checkout_options(&self, query: &OptionsQuery<'_>) -> Result<Option<String>, TokenError> {
+        let path = format!(
+            "/v1/checkout/options?tier={}&months={}&country={}&currency={}&surfaces={}",
+            uri_encode(query.tier.trim(), true),
+            query.months,
+            uri_encode(&query.country.trim().to_ascii_uppercase(), true),
+            uri_encode(query.currency.trim(), true),
+            uri_encode(&query.surfaces.join(","), true),
+        );
+        match self.call(Method::Get, &path, None, None) {
+            Ok(value) => Ok(Some(value.to_string())),
+            Err(TokenError::Refused { status: 404, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A checkout of `tier` for `months` months paid through `via` (claim contract v1,
+    /// extended): its sign-up sealed to `claim` (the public half is sent), and the whole answer -
+    /// its `surface` (a fields page with a client secret, a hosted page, a page for the browser)
+    /// and `return` pages, for azul-pay to check. The answer holds a client secret: never print
+    /// or `Debug` it.
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal, or an answer without a checkout id.
+    pub fn checkout_via(
+        &self,
+        tier: &str,
+        months: u32,
+        via: &CheckoutVia<'_>,
+        claim: &ClaimKey,
+    ) -> Result<(Checkout, Value), TokenError> {
+        let body = json!({
+            "tier": tier.trim(),
+            "months": months,
+            "provider": via.provider.trim(),
+            "method": via.method.trim(),
+            "surface": via.surface.trim(),
+            "vat_country": via.vat_country.trim().to_ascii_uppercase(),
+            "withdrawal_consent": via.withdrawal_consent,
+            "claim_key": claim.public_base64(),
+        });
+        let value = self.call(Method::Post, "/v1/checkout", None, Some(&body))?;
+        let checkout = checkout_of(&value, months);
+        if checkout.checkout_id.is_empty() {
+            return Err(TokenError::Protocol(String::from("the checkout has no id")));
+        }
+        Ok((checkout, value))
+    }
+
+    /// The checkout `checkout_id` on another surface (`POST /v1/checkout/{id}/surface`, the
+    /// fallback chain: the hosted page, the browser): the answer, its `surface` for azul-pay to
+    /// check. It holds a client secret: never print it.
+    pub fn checkout_surface(&self, checkout_id: &str, kind: &str) -> Result<Value, TokenError> {
+        let path = format!("/v1/checkout/{}/surface", check_id(checkout_id.trim())?);
+        self.call_or_null(Method::Post, &path, None, Some(&json!({ "kind": kind.trim() })))
+    }
+
+    /// Abandons the checkout `checkout_id` (`POST /v1/checkout/{id}/abandon`): the provider
+    /// session expires, so a forgotten browser tab can never take money for it.
+    pub fn abandon_checkout(&self, checkout_id: &str) -> Result<(), TokenError> {
+        let path = format!("/v1/checkout/{}/abandon", check_id(checkout_id.trim())?);
+        self.send(Method::Post, &path, None, Some(&json!({})))
+            .map(|_| ())
     }
 
     /// Where the checkout `checkout_id` stands; once it is paid, the new drive - its sign-up
@@ -513,6 +697,124 @@ impl<'a> TokenServer<'a> {
         }
     }
 
+    /// The period tokens' issuer keys of this year, one per tier (`GET /v1/tokens/keys`): what
+    /// a token is blinded for ([`crate::period::Issuer`]). Entries without a tier, a year or a
+    /// key are left out.
+    pub fn issuer_keys(&self) -> Result<Vec<IssuerKey>, TokenError> {
+        let value = self.call(Method::Get, "/v1/tokens/keys", None, None)?;
+        let keys = value["keys"].as_array().ok_or_else(|| {
+            TokenError::Protocol(String::from("the answer lists no issuer keys"))
+        })?;
+        Ok(keys
+            .iter()
+            .filter_map(|key| {
+                let tier = key["tier"].as_str()?.trim().to_string();
+                let year = u32::try_from(key["year"].as_u64()?).ok()?;
+                let public_key_pem = key["public_key_pem"].as_str()?.to_string();
+                let key_id = key["key_id"]
+                    .as_str()
+                    .map_or_else(|| format!("{tier}/{year}"), str::to_string);
+                (!tier.is_empty()).then_some(IssuerKey {
+                    tier,
+                    year,
+                    key_id,
+                    public_key_pem,
+                })
+            })
+            .collect())
+    }
+
+    /// Blind signatures of a paid checkout's period tokens (`POST /v1/tokens/issue`): one per
+    /// message of `blinded` (standard base64, at most [`MAX_BLINDED`]), up to the checkout's
+    /// months in all. Only with `issue_key`, the key its sealed sign-up carries
+    /// ([`crate::bundle::PeriodTokens`]): the checkout id alone, which the payment provider sees,
+    /// issues nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] without an issue key or messages (nothing is sent); the token
+    /// server's refusals with their codes - `issue_key_required`, `issue_key_wrong` (403, no
+    /// sign-in matter), `already_issued`, `not_paid`, `mandate_stopped`; an answer whose
+    /// signatures do not match the messages.
+    pub fn issue_period_tokens(
+        &self,
+        checkout_id: &str,
+        issue_key: &str,
+        blinded: &[String],
+    ) -> Result<BlindSignatures, TokenError> {
+        let issue_key = issue_key.trim();
+        if issue_key.is_empty() {
+            return Err(TokenError::Config(String::from(
+                "There is no issue key: a checkout's period tokens are issued only against the \
+                 key its sealed sign-up carries.",
+            )));
+        }
+        if blinded.is_empty() || blinded.len() > MAX_BLINDED {
+            return Err(TokenError::Config(format!(
+                "1 to {MAX_BLINDED} blinded messages, not {}",
+                blinded.len()
+            )));
+        }
+        let body = json!({
+            "checkout_id": checkout_id.trim(),
+            "issue_key": issue_key,
+            "blinded": blinded,
+        });
+        let value = self.call(Method::Post, "/v1/tokens/issue", None, Some(&body))?;
+        let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
+        let signatures: Vec<String> = value["blind_signatures"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if signatures.len() != blinded.len() {
+            return Err(TokenError::Protocol(format!(
+                "{} blind signatures for {} blinded messages",
+                signatures.len(),
+                blinded.len()
+            )));
+        }
+        Ok(BlindSignatures {
+            tier: text("tier"),
+            key_id: text("key_id"),
+            public_key_pem: text("public_key_pem"),
+            signatures,
+        })
+    }
+
+    /// One more month for `drive_id` paid with `token` (`POST /v1/drives/{id}/redeem`, with
+    /// this device's drive token, which it does not spend): the period's new end, in seconds
+    /// since 1970, when the answer names it.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusals: `token_used` (409: redeemed before - drop it),
+    /// `wrong_tier`, `token_expired`, `bad_token`, `unknown_issuer`; a 401 is a sign-in.
+    pub fn redeem_period_token(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        token: &PeriodToken,
+    ) -> Result<Option<u64>, TokenError> {
+        let path = format!("/v1/drives/{}/redeem", check_id(drive_id)?);
+        let body = json!({
+            "tier": token.tier,
+            "year": token.year,
+            "nonce": token.nonce,
+            "signature": token.signature,
+            "randomizer": token.randomizer,
+        });
+        let value =
+            self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))?;
+        Ok(value["period_until"]
+            .as_str()
+            .and_then(azul_storage::time::parse_iso8601))
+    }
+
     /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the
     /// NEXT drive token: the one given is spent, and spending it again makes the token server
     /// revoke this device.
@@ -543,7 +845,19 @@ impl<'a> TokenServer<'a> {
         }
         let token = token_of(drive_token)?;
         let path = format!("/v1/drives/{}/credentials", uri_encode(drive_id, true));
-        let value = self.call(Method::Post, &path, Some(token), Some(body))?;
+        // A 503 (`not_verified`: the token family is not adopted after an upgrade yet;
+        // `try_again`: it changed between the check and the rotation) spent nothing: the SAME
+        // token again after a pause, and never a reason to drop it.
+        let mut tries = 1;
+        let value = loop {
+            match self.call(Method::Post, &path, Some(token), Some(body)) {
+                Err(TokenError::Refused { status: 503, .. }) if tries < REFRESH_TRIES => {
+                    tries += 1;
+                    std::thread::sleep(self.retry_pause);
+                }
+                answer => break answer?,
+            }
+        };
         let bundle = DriveBundle::from_value(&value)?;
         if bundle.drive_id() != drive_id {
             return Err(TokenError::Protocol(format!(
@@ -588,6 +902,87 @@ impl<'a> TokenServer<'a> {
         self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
     }
 
+    /// The lockdown by the drive's recovery key (`POST /v1/drives/{id}/lockdown {"nonce",
+    /// "signature"}`): `sign` signs [`recovery_lockdown_message`] of a nonce made new for this
+    /// request (the token server answers a request it saw before with 409 `nonce_used`) and
+    /// answers the signature as the token server takes it (base64). It takes effect after 48 h
+    /// unless a device cancels it; no drive token is sent.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] when `sign` cannot sign (nothing is sent); the token server's
+    /// refusals (`nonce_used`, `no_recovery_key`, a bad signature: 401 without a drive token is
+    /// a refusal too).
+    pub fn recovery_lockdown(
+        &self,
+        drive_id: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<RecoveryLockdown, TokenError> {
+        let id = check_id(drive_id)?;
+        let nonce = lockdown_nonce()?;
+        let signature = sign(recovery_lockdown_message(id, &nonce).as_bytes())
+            .map_err(|e| TokenError::Config(format!("The lockdown request is not signed: {e}")))?;
+        let path = format!("/v1/drives/{id}/lockdown");
+        let body = json!({ "nonce": nonce, "signature": signature });
+        let value = self.call(Method::Post, &path, None, Some(&body))?;
+        Ok(RecoveryLockdown {
+            nonce,
+            pending_until: value["pending_until"]
+                .as_str()
+                .and_then(azul_storage::time::parse_iso8601),
+            drive_token: value["drive_token"].as_str().unwrap_or_default().to_string(),
+        })
+    }
+
+    /// A voucher `code` (`POST /v1/vouchers/redeem`): on the drive `drive` (its id and this
+    /// device's drive token, which it does not spend) the days it added; without one a new drive
+    /// of `tier` (empty: the voucher's own, else the token server's default).
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] for an empty code (nothing is sent); the token server's refusals
+    /// (`voucher_invalid`, `voucher_too_small`, `bad_tier`).
+    pub fn redeem_voucher(
+        &self,
+        code: &str,
+        drive: Option<(&str, &str)>,
+        tier: &str,
+    ) -> Result<VoucherRedeemed, TokenError> {
+        let code = code.trim();
+        if code.is_empty() {
+            return Err(TokenError::Config(String::from("There is no voucher code.")));
+        }
+        let Some((drive_id, drive_token)) = drive else {
+            let mut body = json!({ "code": code });
+            if !tier.trim().is_empty() {
+                body["tier"] = json!(tier.trim());
+            }
+            let value = self.call(Method::Post, "/v1/vouchers/redeem", None, Some(&body))?;
+            return Ok(VoucherRedeemed::NewDrive(Box::new(
+                DriveBundle::from_value(&value)?,
+            )));
+        };
+        let body = json!({ "code": code, "drive_id": check_id(drive_id)? });
+        let value = self.call(
+            Method::Post,
+            "/v1/vouchers/redeem",
+            Some(token_of(drive_token)?),
+            Some(&body),
+        )?;
+        // An older token server answers whole months only.
+        let days_added = value["days_added"]
+            .as_u64()
+            .or_else(|| value["months_added"].as_u64().map(|m| m.saturating_mul(30)))
+            .and_then(|d| u32::try_from(d).ok())
+            .unwrap_or(0);
+        Ok(VoucherRedeemed::Extended {
+            days_added,
+            period_until: value["period_until"]
+                .as_str()
+                .and_then(azul_storage::time::parse_iso8601),
+        })
+    }
+
     /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel`; a 409
     /// when none is pending).
     pub fn lockdown_cancel(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
@@ -622,6 +1017,24 @@ impl<'a> TokenServer<'a> {
             check_id(request)?
         );
         self.call_or_null(Method::Get, &path, Some(token_of(drive_token)?), None)
+    }
+}
+
+/// The checkout an answer of `POST /v1/checkout` describes (`months`: asked for, when it names
+/// none). Its id and payment page may be empty: the caller says which it needs.
+fn checkout_of(value: &Value, months: u32) -> Checkout {
+    let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
+    Checkout {
+        checkout_id: text("checkout_id"),
+        pay_url: text("pay_url"),
+        tier: text("tier"),
+        months: value["months"]
+            .as_u64()
+            .and_then(|m| u32::try_from(m).ok())
+            .unwrap_or(months),
+        amount_cents: value["amount_cents"].as_u64().unwrap_or(0),
+        currency: value["currency"].as_str().unwrap_or("EUR").to_string(),
+        mock: value["mock"].as_bool().unwrap_or(false),
     }
 }
 

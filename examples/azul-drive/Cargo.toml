@@ -21,6 +21,10 @@ azul-storage = { path = "../azul-storage", features = ["azul"] }
 # The Azlin cloud client: Add drive > Buy storage (tiers, test drives, checkouts) and the
 # Azlin drives that refresh their credentials by themselves.
 azcloud-kit = { path = "../azcloud-kit" }
+# Buy storage's payment: the provider registry, the token server's offer narrowed to it, the
+# pills, the surfaces (hosted fields in a popover, a hosted page, the browser), the checkout's
+# state machine.
+azul-pay = { path = "../azul-pay" }
 # The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
 # Data, Shortcuts, About), the --shot timer.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
@@ -46,6 +50,15 @@ azul-storage = { path = "../azul-storage", features = ["testing"] }
 default = ["opendal", "sql"]
 opendal = ["azul-storage/opendal"]
 sql = ["azul-storage/sql"]
+# The fake payment providers of the local stacks (scripts/azlin_mock_stack.py): only for test
+# builds - a build without it cannot be pointed at a fake, and even with it a fake is only taken
+# from a token server on this computer.
+fake-providers = ["azul-pay/fake-providers"]
+# Encrypted drives (src/encryption.rs): an Azlin drive opens through azul-storage's AutoEncrypted,
+# the cloud drives' menu offers "Encrypt this drive" (keys, the recovery sheet, the files moved
+# into the encryption) and "Unlock with the recovery code". Off until the drive index (the
+# encrypted metadata repository) is in: without it encrypted drives cannot be opened.
+encryption = ["azul-storage/encryption", "azcloud-kit/encryption"]
 
 [lib]
 name = "azdrive"

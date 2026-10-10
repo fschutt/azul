@@ -161,7 +161,7 @@ impl Waveform {
 
     /// Replaces `self` with an empty waveform and returns the original.
     #[must_use]
-    pub fn swap_with_default(&mut self) -> Self {
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(azul_css::F32Vec::from_const_slice(&[]), 0.0, 0.0);
         core::mem::swap(&mut s, self);
         s

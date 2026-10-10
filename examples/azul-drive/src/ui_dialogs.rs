@@ -34,23 +34,23 @@ use crate::{
 
 // ==== Pieces ====
 
-fn label(text: &str) -> Dom {
+pub(crate) fn label(text: &str) -> Dom {
     Dom::create_span_with_text(AzString::from(text))
         .with_css("font-size: 12px; opacity: 0.75; margin-top: 10px; margin-bottom: 4px;")
 }
 
-fn line(text: &str) -> Dom {
+pub(crate) fn line(text: &str) -> Dom {
     Dom::create_span_with_text(AzString::from(text)).with_css("margin-top: 6px;")
 }
 
-fn buttons(children: Vec<Dom>) -> Dom {
+pub(crate) fn buttons(children: Vec<Dom>) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; justify-content: flex-end; margin-top: 16px;")
         .with_children(DomVec::from(children))
 }
 
 /// A dialog button running `callback`.
-fn button(text: &str, app: &RefAny, callback: ButtonOnClickCallbackType) -> Dom {
+pub(crate) fn button(text: &str, app: &RefAny, callback: ButtonOnClickCallbackType) -> Dom {
     Button::create(AzString::from(text))
         .with_on_click(app.clone(), callback)
         .dom()
@@ -58,7 +58,7 @@ fn button(text: &str, app: &RefAny, callback: ButtonOnClickCallbackType) -> Dom 
 }
 
 /// A dialog button of `kind` running `callback`.
-fn typed_button(
+pub(crate) fn typed_button(
     text: &str,
     kind: ButtonType,
     app: &RefAny,
@@ -155,7 +155,7 @@ extern "C" fn on_form_text(
 pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (String, Dom) {
     match popup {
         Popup::AddDrive(dialog) => {
-            crate::ui_add_drive::dialog(dialog, s, app)
+            crate::ui_add_drive::dialog(dialog, s.token.development, app)
         }
         Popup::ConfirmDelete { drive_id, items } => {
             let what = match items.as_slice() {
@@ -216,6 +216,8 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             (format!("{verb} the selected items to"), body)
         }
         Popup::Transfers { .. } => transfers_dialog(s, app),
+        #[cfg(feature = "encryption")]
+        Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
     }
 }
 
@@ -613,7 +615,7 @@ pub(crate) extern "C" fn on_dialog_closed(
     })
 }
 
-extern "C" fn on_cancel_popup(mut data: RefAny, mut info: CallbackInfo) -> Update {
+pub(crate) extern "C" fn on_cancel_popup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         actions::close_popup(info, app, s)
     })

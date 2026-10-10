@@ -115,6 +115,9 @@ pub mod find;
 #[cfg(test)]
 mod find_tests;
 mod ids;
+/// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
+#[cfg(feature = "encryption")]
+mod encryption;
 mod jobs;
 pub mod keys;
 /// The open folder's listing as it streams in, and the window of it the views build.
@@ -220,6 +223,10 @@ pub(crate) struct Slot {
     pub secret: Option<String>,
     /// The drive, once it could be opened; shared with the worker threads.
     pub drive: Option<Arc<dyn Drive>>,
+    /// An Azlin drive's encryption seam (the same drive as `drive`): its plain bucket for the
+    /// keys, and its decision to take again after the keys changed.
+    #[cfg(feature = "encryption")]
+    pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
 }
 
 impl Slot {
@@ -228,6 +235,8 @@ impl Slot {
             entry,
             secret: None,
             drive: None,
+            #[cfg(feature = "encryption")]
+            auto: None,
         }
     }
 
@@ -264,7 +273,7 @@ impl Slot {
             let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
                 Box::new(AzulTransport::new(USER_AGENT)) as Box<dyn azul_storage::Transport>
             });
-            Arc::new(azcloud_kit::AzlinDrive::new(
+            let azlin: Arc<dyn Drive> = Arc::new(azcloud_kit::AzlinDrive::new(
                 &self.entry,
                 session,
                 token_url.unwrap_or_default(),
@@ -281,7 +290,20 @@ impl Slot {
                         }
                     },
                 ),
-            )?)
+            )?);
+            // Plain or encrypted: the first call (a worker thread) decides.
+            #[cfg(feature = "encryption")]
+            let azlin: Arc<dyn Drive> = {
+                // The Azlin drive's id: the keys are kept and bound under it in every app.
+                let drive_id = self
+                    .entry
+                    .azlin()
+                    .map_or_else(|| self.entry.id.clone(), |(id, _)| id.to_string());
+                let auto = crate::encryption::wrap(&drive_id, azlin);
+                self.auto = Some(auto.clone());
+                auto
+            };
+            azlin
         } else {
             Arc::from(self.entry.open_with_secret(
                 self.secret.as_deref(),
@@ -489,6 +511,9 @@ pub(crate) enum Popup {
     /// The transfer queue, with Cancel: the running transfer as azul's ProgressDialog over the
     /// others. `auto`: it opened by itself (a long transfer) and closes when the queue is done.
     Transfers { auto: bool },
+    /// Encrypting a drive, its recovery sheet, unlocking it with the recovery code.
+    #[cfg(feature = "encryption")]
+    Encryption(encryption::Dialog),
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -652,6 +677,9 @@ pub(crate) struct DriveState {
     pub keyring: azcloud_kit::SharedKeyring,
     /// The background claims of unfinished checkouts run (one job at a time).
     pub claiming: bool,
+    /// The paid checkouts' period tokens until each buys its drive a month: one 0600 file per
+    /// drive in `period-tokens` beside the drives file.
+    pub period_tokens: azcloud_kit::PeriodTokenStore,
 }
 
 impl DriveState {
@@ -1922,6 +1950,10 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Scanned { done: false, .. }
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+            | Outcome::CheckoutFinished {
+                from_claims: true,
+                ..
+            }
             | Outcome::Searched { end: None, .. }
             | Outcome::IndexProgress { .. }
     );
@@ -2152,7 +2184,17 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Tested { serial, result } => {
             add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
         }
-        Outcome::Tiers { serial, result } => add_flow::tiers_answered(s, serial, result),
+        Outcome::Tiers { serial, result } => {
+            add_flow::tiers_answered(&mut info, &handle, s, serial, result);
+        }
+        Outcome::Options { serial, result } => add_flow::options_answered(s, serial, result),
+        Outcome::Surface { serial, result } => {
+            add_flow::surface_answered(&mut info, &handle, s, serial, result);
+        }
+        Outcome::Abandoned {
+            checkout_id,
+            result,
+        } => add_flow::abandoned(&checkout_id, result),
         Outcome::Bought { serial, result } => {
             add_flow::bought(&mut info, &handle, s, serial, result);
         }
@@ -2171,10 +2213,11 @@ pub(crate) extern "C" fn on_job_done(
             add_flow::checkout_dropped(s, &checkout_id, &why);
         }
         Outcome::ClaimsDone { problem } => add_flow::claims_done(s, problem),
-        Outcome::CheckoutForgotten {
+        Outcome::CheckoutFinished {
             checkout_id,
             result,
-        } => add_flow::checkout_forgotten(s, &checkout_id, result),
+            ..
+        } => add_flow::checkout_finished(s, &checkout_id, result),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2263,6 +2306,8 @@ pub(crate) extern "C" fn on_job_done(
             None => println!("AZDRIVE_INDEX_REMOVED {drive_id}"),
             Some(error) => s.error(format!("The index could not be removed: {error}")),
         },
+        #[cfg(feature = "encryption")]
+        Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
     }
     Update::RefreshDom
 }
@@ -2485,6 +2530,18 @@ fn lock_dir(drives_file: Option<&Path>) -> PathBuf {
         )
 }
 
+/// The folder of the paid checkouts' period tokens (one 0600 file per drive): beside the drives
+/// file (`<config dir>/azul-storage/period-tokens`), else in the temporary folder.
+fn period_tokens_dir(drives_file: Option<&Path>) -> PathBuf {
+    drives_file
+        .and_then(Path::parent)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map_or_else(
+            || std::env::temp_dir().join("azul-storage-period-tokens"),
+            |dir| dir.join("period-tokens"),
+        )
+}
+
 /// The data tree as a drive: the data root, opened as the data tree's `LocalDrive` (the one that
 /// keeps its `.azlin/` bookkeeping, which it never lists), named "Azlin".
 fn data_slot(data_root: &Path) -> Slot {
@@ -2643,6 +2700,8 @@ pub fn start() {
         Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
         azcloud_kit::LockDir::new(lock_dir(drives_file.as_deref())),
     );
+    let period_tokens =
+        azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
     let mut state = DriveState {
         slots,
         place,
@@ -2726,6 +2785,7 @@ pub fn start() {
         rotated: RotatedSessions::default(),
         keyring,
         claiming: false,
+        period_tokens,
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

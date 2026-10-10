@@ -59,6 +59,8 @@ use crate::{
 pub mod accessibility;
 pub mod clipboard;
 mod text_input;
+/// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
+mod webview;
 
 use crate::{
     desktop::wr_translate2::{AsyncHitTester, WrRenderApi},
@@ -235,6 +237,10 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         None => return,
     };
 
+    // `<webview>`s first: their reports (a delegate asked for this pass) may
+    // ask for a rebuild or a repaint, which this pass then makes.
+    window.pump_webviews_if_any();
+
     if window.common.regeneration_pending() {
         // A relayout re-rasters on its way through, so any pending
         // repaint-only request is satisfied by it.
@@ -248,6 +254,9 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         window.needs_rerender = false;
         window.rerender_cpu();
     }
+
+    // Where this frame put the `<webview>`s, and the ops queued for them.
+    let _ = crate::desktop::shell2::common::webview::sync(window);
 
     #[cfg(feature = "cpurender")]
     {
@@ -1621,6 +1630,9 @@ pub struct IOSWindow {
     /// panning with the finger that is left). Re-seeded on hand-over so the
     /// transfer is not read as a jump.
     pub pan_touch_id: Option<u64>,
+    /// The window's `<webview>`s (`webview::IosWebViews`), made at the
+    /// first one: an app without a web view never loads WebKit.
+    webviews: Option<webview::IosWebViews>,
 }
 
 impl IOSWindow {
@@ -1646,6 +1658,10 @@ impl IOSWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         layout_window.set_app_localization(&config);
+        // `<webview>`s are WKWebViews (`webview::IosWebViews`).
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
 
         // Build the native UI tree. Bounds come from `[[UIScreen mainScreen] bounds]`.
         let (ui_window, ui_view_controller, ui_view) = unsafe {
@@ -1809,6 +1825,7 @@ impl IOSWindow {
             touch_pan_last: None,
             primary_touch_id: None,
             pan_touch_id: None,
+            webviews: None,
         })
     }
 
@@ -1870,6 +1887,22 @@ impl IOSWindow {
         // `displayLayer:` re-rasters instead of blitting the previous frame.
         self.needs_rerender = true;
         let _ = self.present();
+    }
+
+    /// One turn of the window's `<webview>`s (`common::webview::pump`): what
+    /// WebKit reported (its delegate asked for this display pass) runs the
+    /// views' callbacks, and the queued ops reach WebKit. Only while a web
+    /// view exists or is owed something.
+    pub(crate) fn pump_webviews_if_any(&mut self) {
+        let busy = self.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if busy
+            && PlatformWindow::pump_webviews(self)
+                != azul_core::events::ProcessEventResult::DoNothing
+        {
+            self.needs_rerender = true;
+        }
     }
 
     /// Drain the accessibility actions UIKit queued and apply them.
@@ -2044,6 +2077,23 @@ impl PlatformWindow for IOSWindow {
     /// Mobile windows are managed by the system shell and are never dragged
     /// by the application.
     fn handle_begin_interactive_move(&mut self) {}
+
+    /// `WKWebView`s in the render view (`webview::IosWebViews`), made at the
+    /// first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        if self.webviews.is_none() {
+            let view = &*self.ui_view as *const Object as *mut objc2::runtime::AnyObject;
+            // SAFETY: the window's live render view; the retain keeps it for
+            // the web views that are its subviews.
+            let parent = unsafe { objc2::rc::Retained::retain(view) }?;
+            self.webviews = Some(webview::IosWebViews::new(parent));
+        }
+        self.webviews
+            .as_mut()
+            .map(|views| views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
 
     fn regenerate_layout_once(
         &mut self,

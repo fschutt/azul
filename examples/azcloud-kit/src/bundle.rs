@@ -15,7 +15,8 @@
 //! ```
 //!
 //! A token server that hands out long-lived keys says `"auth": {"type": "keyring"}` and no
-//! `expires_at`. `Debug` never shows a secret.
+//! `expires_at`. A paid checkout's sealed sign-up adds `"period_tokens": {"checkout_id",
+//! "months", "issue_key"}` ([`PeriodTokens`]). `Debug` never shows a secret.
 
 use std::fmt;
 
@@ -49,6 +50,45 @@ impl fmt::Debug for BundleCredentials {
     }
 }
 
+/// What a paid checkout's sign-up grants besides the drive (AZLINSEC17 F24): up to `months`
+/// blind-signed period tokens, issued by `POST /v1/tokens/issue` against `issue_key` only - the
+/// sealed sign-up is the one place it travels. `Debug` shows no key.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PeriodTokens {
+    pub checkout_id: String,
+    pub months: u32,
+    /// base64url of 32 bytes. A secret until the tokens are issued.
+    pub issue_key: String,
+}
+
+impl fmt::Debug for PeriodTokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PeriodTokens")
+            .field("checkout_id", &self.checkout_id)
+            .field("months", &self.months)
+            .field("issue_key", &"<hidden>")
+            .finish()
+    }
+}
+
+impl PeriodTokens {
+    /// The `period_tokens` object of a sign-up; `None` without one (a development sign-up, a
+    /// checkout from before F24) or with a part missing.
+    fn from_value(value: &Value) -> Option<PeriodTokens> {
+        let text = |key: &str| value[key].as_str().unwrap_or_default().trim().to_string();
+        let tokens = PeriodTokens {
+            checkout_id: text("checkout_id"),
+            months: value["months"]
+                .as_u64()
+                .and_then(|m| u32::try_from(m).ok())
+                .unwrap_or(0),
+            issue_key: text("issue_key"),
+        };
+        (!tokens.checkout_id.is_empty() && tokens.months > 0 && !tokens.issue_key.is_empty())
+            .then_some(tokens)
+    }
+}
+
 /// A drive as the token server describes it. `Debug` never shows a secret.
 #[derive(Clone, PartialEq, Eq)]
 pub struct DriveBundle {
@@ -71,6 +111,8 @@ pub struct DriveBundle {
     pub nodes: Vec<Value>,
     /// Where a request goes when the block endpoint does not answer.
     pub failover: Vec<String>,
+    /// A paid checkout's period tokens' grant (only in its sealed sign-up).
+    pub period_tokens: Option<PeriodTokens>,
 }
 
 /// The direct node URLs of `nodes` (each one's `url`, else its `public_url`) and then the
@@ -98,6 +140,7 @@ impl fmt::Debug for DriveBundle {
             .field("quota_bytes", &self.quota_bytes)
             .field("read_only", &self.read_only)
             .field("tier", &self.tier)
+            .field("period_tokens", &self.period_tokens)
             .finish_non_exhaustive()
     }
 }
@@ -167,6 +210,7 @@ impl DriveBundle {
                         .collect()
                 })
                 .unwrap_or_default(),
+            period_tokens: PeriodTokens::from_value(&value["period_tokens"]),
         })
     }
 

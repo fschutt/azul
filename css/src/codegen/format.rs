@@ -438,6 +438,7 @@ const fn system_color_ref_variant(r: crate::props::basic::color::SystemColorRef)
         SystemColorRef::ControlBackground => "ControlBackground",
         SystemColorRef::PlaceholderText => "PlaceholderText",
         SystemColorRef::TextSelectionBackground => "TextSelectionBackground",
+        SystemColorRef::Icon => "Icon",
     }
 }
 

@@ -1987,6 +1987,11 @@ pub fn run(
                         window.common.mark_os_synced();
                     }
 
+                    // `<webview>`s: what WebView2 reported (its events ran
+                    // during the dispatch above) and the ops of the last
+                    // frames.
+                    window.pump_webviews_if_any();
+
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
                         log_debug!(
@@ -2495,6 +2500,10 @@ fn run_linux_windows(
                 while window.poll_event().is_some() {
                     // Event handling is done inside poll_event
                 }
+
+                // `<webview>`s: what the `azul-webview` thread reported
+                // (it wakes this loop) and the frames it drew.
+                window.pump_webviews();
 
                 // A callback may have set flags.close_requested (e.g. a menu item
                 // click closing the menu, or a CSD close button). Honor it here so the

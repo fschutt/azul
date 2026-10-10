@@ -15,6 +15,7 @@
 
 use std::{
     fmt,
+    io::Read,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -22,7 +23,8 @@ use std::{
 use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, S3Drive, Transport,
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive,
+    Transport,
 };
 
 use crate::{
@@ -278,6 +280,27 @@ impl Drive for AzlinDrive {
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.with_bucket(|b| b.put(key, bytes))
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.with_bucket(|b| b.put_if(key, bytes, condition))
+    }
+    /// The bucket's streamed (multipart) upload. A body is read once, so a refusal of the
+    /// credentials half way is not tried again: the credentials are refreshed for the next
+    /// call and the error is the caller's to retry.
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        let (bucket, access_key) = self.bucket()?;
+        match bucket.put_from(key, body) {
+            Err(e) if refused_credentials(&e) => {
+                self.after_refusal(&access_key)?;
+                Err(e)
+            }
+            other => other,
+        }
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         self.with_bucket(|b| b.delete(key))

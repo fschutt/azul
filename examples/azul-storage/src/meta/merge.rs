@@ -16,11 +16,11 @@
 //! for "changed and deleted" it keeps the changed one. An unattended sync keeps
 //! both ([`keep_both`]).
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use super::{
     objects::{Mode, ObjectId, Objects, Tree, TreeEntry},
-    MetaError,
+    shard, MetaError,
 };
 
 /// One side's entry at a path: what it is and its id.
@@ -146,15 +146,20 @@ pub fn merge_trees(
     Ok(Merged { tree, conflicts })
 }
 
-fn load(objects: &Objects, id: Option<&ObjectId>) -> Result<Tree, MetaError> {
+/// A folder whole (its shards gathered), and whether it is stored in shards.
+fn load(objects: &Objects, id: Option<&ObjectId>) -> Result<(Tree, bool), MetaError> {
     match id {
-        Some(id) => objects.tree(id),
-        None => Ok(Tree::new()),
+        Some(id) => shard::read_folder_sharded(objects, id),
+        None => Ok((Tree::new(), false)),
     }
 }
 
-fn side(tree: &Tree, name: &str) -> Side {
-    tree.get(name).map(|e| (e.mode, e.id))
+/// Every entry of a folder by name (a huge folder is looked up once per name).
+fn sides(tree: &Tree) -> HashMap<&str, (Mode, ObjectId)> {
+    tree.entries()
+        .iter()
+        .map(|e| (e.name.as_str(), (e.mode, e.id)))
+        .collect()
 }
 
 /// Adds the entry `name` when the side has one.
@@ -179,9 +184,9 @@ fn merge_dir(
     resolve: &mut dyn FnMut(&Conflict) -> Resolution,
     out: &mut Vec<Resolved>,
 ) -> Result<ObjectId, MetaError> {
-    let b = load(objects, base)?;
-    let m = load(objects, mine)?;
-    let t = load(objects, theirs)?;
+    let (b, _) = load(objects, base)?;
+    let (m, mine_sharded) = load(objects, mine)?;
+    let (t, theirs_sharded) = load(objects, theirs)?;
     let mut names: BTreeSet<String> = BTreeSet::new();
     for tree in [&b, &m, &t] {
         for entry in tree.entries() {
@@ -190,8 +195,13 @@ fn merge_dir(
     }
     let mut taken: HashSet<String> = names.iter().cloned().collect();
     let mut entries: Vec<TreeEntry> = Vec::new();
+    let (b_sides, m_sides, t_sides) = (sides(&b), sides(&m), sides(&t));
     for name in &names {
-        let (bs, ms, ts) = (side(&b, name), side(&m, name), side(&t, name));
+        let (bs, ms, ts) = (
+            b_sides.get(name.as_str()).copied(),
+            m_sides.get(name.as_str()).copied(),
+            t_sides.get(name.as_str()).copied(),
+        );
         if ms == ts || ts == bs {
             put(&mut entries, name, ms);
             continue;
@@ -264,7 +274,7 @@ fn merge_dir(
         });
     }
     let tree = Tree::from_entries(entries)?;
-    Ok(objects.write_tree(&tree))
+    shard::write_folder(objects, &tree, mine_sharded || theirs_sharded)
 }
 
 /// The parents of the commit `id`.

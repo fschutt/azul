@@ -2,11 +2,21 @@
 //! objects and its merges.
 
 mod bucket;
+mod cache;
+/// The encrypted drive over the drive index (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod index;
 mod merge;
 mod objects;
 mod pack;
+/// The local query cache (feature `index-cache`).
+#[cfg(feature = "index-cache")]
+mod query_cache;
+mod race;
 mod repo;
 mod seal;
+mod shard;
+mod sweep;
 mod tree;
 mod wal;
 

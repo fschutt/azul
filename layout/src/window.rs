@@ -1289,7 +1289,7 @@ impl LandedTextEdit {
     /// The pass result the landing asks for: an incremental relayout when a
     /// landed edit changed its text's extent, a display-list rebuild when
     /// one landed without, and nothing when nothing landed.
-    pub fn event_result(&self) -> azul_core::events::ProcessEventResult {
+    pub const fn event_result(&self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         if !self.landed() {
             ProcessEventResult::DoNothing
@@ -6002,6 +6002,115 @@ impl LayoutWindow {
             &|d, n| self.painted_transform_of(d, n),
         );
         self.webviews.sync_placements(&painted);
+        // A composited page hears the keyboard focus move to or from it.
+        let focused = self.focus_manager.get_focused_node().copied();
+        self.webviews.sync_focus(focused);
+    }
+
+    /// Route a pointer `event` at window point `at` to the composited
+    /// web view page it is aimed at - the one whose node is the topmost
+    /// under the pointer in the last hit test (nothing stacked above it), or
+    /// the one a press went to, until its release
+    /// (`WebViewManager::route_pointer`). Called by a compositing shell for
+    /// each pointer event, after its hit test; returns whether a page took
+    /// it. The window's own events for the web view's node still run.
+    pub fn route_webview_pointer(
+        &mut self,
+        at: LogicalPosition,
+        event: crate::managers::webview::WebViewPointer,
+    ) -> bool {
+        use crate::managers::hover::InputPointId;
+
+        if !self.webviews.is_composited() || self.webviews.views().is_empty() {
+            return false;
+        }
+        // The topmost regular hit and the point in its content box: a web
+        // view's content box IS its page, and the hit tester has already
+        // undone every scroll and transform above it.
+        let target = self
+            .hover_manager
+            .get_current(&InputPointId::Mouse)
+            .and_then(|hit| {
+                hit.hovered_nodes
+                    .iter()
+                    .flat_map(|(dom, test)| {
+                        test.regular_hit_test_nodes
+                            .iter()
+                            .map(move |(node, item)| (*dom, *node, item))
+                    })
+                    .min_by_key(|(_, _, item)| item.hit_depth)
+                    .map(|(dom, node, item)| {
+                        (
+                            DomNodeId {
+                                dom,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                            },
+                            item.point_relative_to_item.get(),
+                        )
+                    })
+            });
+        self.webviews.route_pointer(target, at, event)
+    }
+
+    /// Route a key - in the shell's own codes, which only its backend reads
+    /// - to the composited web view page that has the keyboard focus.
+    /// Returns whether a page took it (the shell then leaves it out of the
+    /// window's own key handling).
+    pub fn route_webview_key(
+        &mut self,
+        native_key: u32,
+        native_scan: u32,
+        pressed: bool,
+        modifiers: azul_core::events::KeyModifiers,
+    ) -> bool {
+        let focused = self.focus_manager.get_focused_node().copied();
+        self.webviews.route_key(focused, native_key, native_scan, pressed, modifiers)
+    }
+
+    /// A composited backend's new `frame` of web view `id` - its page,
+    /// rendered offscreen - drawn at the view's content box from now on, as
+    /// an image of its node (the content overlay: it follows the node across
+    /// rebuilds and goes with it). The next frame replaces it in place, with
+    /// no layout and no rebuild of the list; only the first one rebuilds the
+    /// list of the view's DOM, which had no image for it yet.
+    ///
+    /// Returns what the window must do, as for every content change: `Paint`
+    /// (the patched list, repainted), `PaintHidden` (nothing of the view is
+    /// on screen), `RebuildDisplayList` for the first frame (the list was
+    /// rebuilt here; the GPU needs it whole), `Unchanged` for the same frame
+    /// again or a view that is gone.
+    pub fn set_webview_frame(
+        &mut self,
+        id: crate::managers::webview::WebViewId,
+        frame: &ImageRef,
+    ) -> crate::overlay::ContentDirtyTier {
+        use crate::{overlay::ContentDirtyTier, solver3::display_list::DisplayListItem};
+
+        let Some(node) = self.webviews.get(id).map(|view| view.node) else {
+            return ContentDirtyTier::Unchanged;
+        };
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return ContentDirtyTier::Unchanged;
+        };
+        let tier = self
+            .apply_image_change(node.dom, node_id, frame, true, None)
+            .tier;
+        if tier == ContentDirtyTier::Unchanged {
+            return tier;
+        }
+        let drawn = self.layout_results.get(&node.dom).is_some_and(|lr| {
+            let list = &lr.display_list;
+            list.items.iter().enumerate().any(|(i, item)| {
+                matches!(item, DisplayListItem::Image { .. })
+                    && list.node_mapping.get(i).copied().flatten() == Some(node_id)
+            })
+        });
+        if !drawn {
+            // The first frame: the list has no image of the view to patch.
+            self.regenerate_display_list_for_dom(node.dom);
+            return ContentDirtyTier::RebuildDisplayList;
+        }
+        tier
     }
 
     /// The user dismissed the popup hanging off `source_node` (outside click,
@@ -25619,6 +25728,12 @@ impl LayoutWindow {
 
         if !updated_vviews.is_empty() {
             self.collect_embedded_fonts();
+            // A re-render in place is no layout of the window, whose tail is
+            // where the web views follow the DOMs: a web view the view's new
+            // DOM added gets its native view now, a changed `src` navigates
+            // now (the remap of the re-render already moved the kept ones).
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            self.reconcile_webviews(&now);
         }
         updated_vviews
     }

@@ -5437,6 +5437,40 @@ pub trait PlatformWindow {
         super::webview::pump(self)
     }
 
+    /// A pointer event for a composited `<webview>` page, called by a
+    /// compositing shell (Linux) right after its hit test at `at`: routed
+    /// to the page it is aimed at (`LayoutWindow::route_webview_pointer`)
+    /// and handed to the backend at once. The window's own events for the
+    /// web view's node still run; returns whether a page took it.
+    fn route_webview_pointer(
+        &mut self,
+        at: LogicalPosition,
+        event: azul_layout::managers::webview::WebViewPointer,
+    ) -> bool {
+        let routed = self
+            .get_layout_window_mut()
+            .is_some_and(|lw| lw.route_webview_pointer(at, event));
+        if routed {
+            let _ = super::webview::sync(self);
+        }
+        routed
+    }
+
+    /// A key for the composited `<webview>` page that has the keyboard
+    /// focus, in the shell's own codes (a keysym and a keycode on Linux).
+    /// `true`: the page took it, and the shell leaves it out of the
+    /// window's own key handling.
+    fn route_webview_key(&mut self, native_key: u32, native_scan: u32, pressed: bool) -> bool {
+        let modifiers = self.get_current_window_state().keyboard_state.modifiers;
+        let routed = self.get_layout_window_mut().is_some_and(|lw| {
+            lw.route_webview_key(native_key, native_scan, pressed, modifiers)
+        });
+        if routed {
+            let _ = super::webview::sync(self);
+        }
+        routed
+    }
+
     /// `<transient-window>`, both sides, on every input transition:
     /// - a popup dismisses itself on Escape / focus loss (per its policy),
     /// - a parent dismisses its `outside`-dismissable popups on a fresh press.

@@ -191,7 +191,7 @@ fn a_system_border_colour_resolves_to_the_accent_of_the_theme() {
 
 /// One keyword per `SystemColors` slot - the slot's field name in kebab-case -
 /// in the order the struct declares them.
-const SLOT_KEYWORDS: [&str; 24] = [
+const SLOT_KEYWORDS: [&str; 25] = [
     "text",
     "secondary-text",
     "tertiary-text",
@@ -216,6 +216,7 @@ const SLOT_KEYWORDS: [&str; 24] = [
     "control-background",
     "placeholder-text",
     "text-selection-background",
+    "icon",
 ];
 
 /// A widget that wants the desktop's secondary label, its field background
@@ -238,6 +239,26 @@ fn every_colour_slot_has_a_system_keyword() {
         "{} of {} slot keywords do not parse and round-trip: {missing:#?}",
         missing.len(),
         SLOT_KEYWORDS.len()
+    );
+}
+
+/// A monochrome icon - a toolbar's, a list's, a sidebar's glyph - says
+/// `system:icon`. No desktop reports an icon ink of its own (the presets
+/// leave the slot empty), so the keyword is the desktop's secondary label
+/// colour there - in each theme, never one fixed grey.
+#[test]
+fn the_icon_keyword_is_the_secondary_label_where_the_desktop_names_no_icon_ink() {
+    for theme in THEMES {
+        assert_eq!(
+            text_color("color: system:icon;", theme, 1),
+            text_color("color: system:secondary-text;", theme, 1),
+            "{theme:?}: `color: system:icon` on the div"
+        );
+    }
+    assert_ne!(
+        text_color("color: system:icon;", DarkLightMode::Light, 1),
+        text_color("color: system:icon;", DarkLightMode::Dark, 1),
+        "the icon ink follows the theme"
     );
 }
 

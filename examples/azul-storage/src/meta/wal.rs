@@ -37,7 +37,7 @@
 //! older manifest; the revision counter catches that against what this device has
 //! seen ([`MetaError::Rollback`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -190,12 +190,26 @@ pub struct LeaseGuard {
 }
 
 /// The repository as a device knows it: the refs after `head_seq`, and the live packs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoState {
     pub head_seq: u64,
     pub revision: u64,
     pub refs: BTreeMap<String, String>,
     pub packs: Vec<PackRef>,
+}
+
+/// What a device keeps of its store between runs ([`MetaStore::snapshot`],
+/// [`MetaStore::resume`]): the manifest it last saw and its version (so the
+/// next poll is a conditional read), the state, and the highest revision seen
+/// (so an older manifest is refused after a restart too).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreSnapshot {
+    #[serde(default)]
+    pub manifest: Option<Manifest>,
+    #[serde(default)]
+    pub version: Option<Version>,
+    pub state: RepoState,
+    pub seen_revision: u64,
 }
 
 /// What a poll found.
@@ -249,6 +263,15 @@ fn corrupt(key: &str, reason: impl Into<String>) -> MetaError {
     }
 }
 
+/// Waits a little before the next attempt after a 409 (another conditional
+/// write of the object was in progress): 1 to 2^attempt ms, at most ~64 ms,
+/// at random, so racing devices do not meet again.
+fn back_off(attempt: u32) {
+    let ceiling = 1u64 << attempt.min(6);
+    let millis = 1 + crate::ids::random_seed() % ceiling;
+    std::thread::sleep(std::time::Duration::from_millis(millis));
+}
+
 /// 128 random bits as 32 hex digits: an attempt id.
 fn attempt_id() -> String {
     format!(
@@ -267,26 +290,72 @@ pub struct Packs<'a, B: Bucket, S: Sealer> {
 impl<B: Bucket, S: Sealer> Packs<'_, B, S> {
     /// Opens the index of `pack`.
     pub fn index(&self, pack: &PackRef) -> Result<PackIndex, MetaError> {
-        let key = keys::idx(&pack.name);
-        let (bytes, _) = self
-            .bucket
-            .read(&key)?
-            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
-        PackIndex::open(self.sealer, &pack.name, &bytes)
+        PackIndex::open(self.sealer, &pack.name, &self.idx_bytes(pack)?)
     }
 
     /// Reads every object of `pack` into `objects`, each checked against its
     /// id; the ids the pack holds.
     pub fn fetch(&self, pack: &PackRef, objects: &mut Objects) -> Result<Vec<ObjectId>, MetaError> {
-        let index = self.index(pack)?;
-        let key = keys::pack(&pack.name);
-        let (bytes, _) = self
-            .bucket
-            .read(&key)?
-            .ok_or_else(|| corrupt(&key, "the manifest names it, but it is missing"))?;
-        index.read_into(self.sealer, &bytes, objects)?;
-        Ok(index.entries().iter().map(|e| e.id).collect())
+        let (idx, bytes) = self.download(pack)?;
+        load_pack(self.sealer, &pack.name, &idx, &bytes, objects)
     }
+
+    /// The sealed `.idx` and `.pack` of `pack`, as the bucket holds them (a
+    /// device's cache keeps them so, encrypted).
+    pub fn download(&self, pack: &PackRef) -> Result<(Vec<u8>, Vec<u8>), MetaError> {
+        Ok((self.idx_bytes(pack)?, self.pack_bytes(pack)?))
+    }
+
+    /// The sealed `.idx` of `pack`.
+    pub fn idx_bytes(&self, pack: &PackRef) -> Result<Vec<u8>, MetaError> {
+        self.object(&keys::idx(&pack.name))
+    }
+
+    /// The sealed `.pack` of `pack`.
+    pub fn pack_bytes(&self, pack: &PackRef) -> Result<Vec<u8>, MetaError> {
+        self.object(&keys::pack(&pack.name))
+    }
+
+    fn object(&self, key: &str) -> Result<Vec<u8>, MetaError> {
+        self.bucket
+            .read(key)?
+            .map(|(bytes, _)| bytes)
+            .ok_or_else(|| corrupt(key, "the manifest names it, but it is missing"))
+    }
+
+    /// The sealer that opens the packs.
+    #[must_use]
+    pub fn sealer(&self) -> &S {
+        self.sealer
+    }
+
+    /// The sealed bytes of chunk `chunk` of `pack`: one ranged GET (C6).
+    pub fn read_chunk(
+        &self,
+        pack: &PackRef,
+        index: &PackIndex,
+        chunk: u32,
+    ) -> Result<Vec<u8>, MetaError> {
+        let key = keys::pack(&pack.name);
+        let range = index
+            .chunk_range(chunk)
+            .ok_or_else(|| corrupt(&key, "a chunk the pack does not have"))?;
+        self.bucket.read_range(&key, range)
+    }
+}
+
+/// Opens the sealed `idx` and reads every object of the sealed `pack` of the
+/// pack called `name` into `objects`, each checked; the ids it holds.
+pub fn load_pack(
+    sealer: &dyn Sealer,
+    name: &str,
+    idx: &[u8],
+    pack: &[u8],
+    objects: &mut Objects,
+) -> Result<Vec<ObjectId>, MetaError> {
+    let index = PackIndex::open(sealer, name, idx)?;
+    index.read_into(sealer, pack, objects)?;
+    Ok(index.entries().iter().map(|e| e.id).collect())
 }
 
 /// The manifest as this device last read or wrote it.
@@ -384,6 +453,36 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         Ok(store)
     }
 
+    /// What this device keeps of the store between runs.
+    #[must_use]
+    pub fn snapshot(&self) -> StoreSnapshot {
+        StoreSnapshot {
+            manifest: self.synced.as_ref().map(|s| s.manifest.clone()),
+            version: self.synced.as_ref().and_then(|s| s.version.clone()),
+            state: self.state.clone(),
+            seen_revision: self.seen_revision,
+        }
+    }
+
+    /// The store as [`MetaStore::snapshot`] left it, without a request: the
+    /// next [`MetaStore::sync`] is one conditional read.
+    pub fn resume(bucket: B, sealer: S, device: &str, snapshot: StoreSnapshot) -> Self {
+        let mut store = MetaStore::new(bucket, sealer, device);
+        store.synced = snapshot.manifest.map(|manifest| Synced {
+            manifest,
+            version: snapshot.version,
+        });
+        store.state = snapshot.state;
+        store.seen_revision = snapshot.seen_revision;
+        store
+    }
+
+    /// Seconds since 1970 by this store's clock.
+    #[must_use]
+    pub fn now(&self) -> u64 {
+        (self.clock)()
+    }
+
     /// Sets the clock (seconds since 1970): the tests' time.
     #[must_use]
     pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
@@ -396,10 +495,6 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     pub fn with_attempts(mut self, attempts: u32) -> Self {
         self.attempts = attempts.max(1);
         self
-    }
-
-    fn now(&self) -> u64 {
-        (self.clock)()
     }
 
     #[must_use]
@@ -618,7 +713,14 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             }
             let seq = self.state.head_seq + 1;
             let pack = match &publish.pack {
-                Some(writer) if !writer.is_empty() => Some(self.put_pack(writer, seq)?),
+                Some(writer) if !writer.is_empty() => match self.put_pack(writer, seq) {
+                    Ok(pack) => Some(pack),
+                    Err(MetaError::Raced { .. }) => {
+                        back_off(attempt);
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                },
                 _ => None,
             };
             let entry = LogEntry {
@@ -631,16 +733,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 created_at: self.now(),
                 message: publish.message.clone(),
             };
-            if self.commit_entry(&entry, |manifest| {
+            let committed = self.commit_entry(&entry, |manifest| {
                 if let Some(pack) = &pack {
                     manifest.packs.push(pack.clone());
                 }
-            })? {
-                return Ok(Some(Published {
-                    seq,
-                    pack,
-                    attempts: attempt,
-                }));
+            });
+            match committed {
+                Ok(true) => {
+                    return Ok(Some(Published {
+                        seq,
+                        pack,
+                        attempts: attempt,
+                    }))
+                }
+                Ok(false) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
+                Err(e) => return Err(e),
             }
         }
         Err(MetaError::Contended {
@@ -689,8 +797,9 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 });
                 Ok(true)
             }
-            Err(MetaError::Conflict { .. }) => {
-                // Nobody else names this key: removing it is safe.
+            Err(MetaError::Conflict { .. } | MetaError::Raced { .. }) => {
+                // Nothing was swapped, and nobody else names this key: removing
+                // it is safe. A race (409) is tried again like a lost swap.
                 let _ = self.bucket.remove(&log_key);
                 Ok(false)
             }
@@ -731,7 +840,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// entries and the checkpoint it replaces are retired. A device behind it
     /// starts from it.
     pub fn checkpoint(&mut self) -> Result<CheckpointRef, MetaError> {
-        for _ in 0..self.attempts {
+        for attempt in 1..=self.attempts {
             self.sync()?;
             let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
             if synced
@@ -754,7 +863,14 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             };
             let key = keys::checkpoint(checkpoint.seq, &attempt_id());
             let sealed = self.seal(&key, &checkpoint)?;
-            self.bucket.create(&key, &sealed)?;
+            match self.bucket.create(&key, &sealed) {
+                Ok(_) => {}
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
             let cp_ref = CheckpointRef {
                 seq: checkpoint.seq,
                 key: key.clone(),
@@ -783,6 +899,10 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 }
                 Err(MetaError::Conflict { .. }) => {
                     let _ = self.bucket.remove(&key);
+                }
+                Err(MetaError::Raced { .. }) => {
+                    let _ = self.bucket.remove(&key);
+                    back_off(attempt);
                 }
                 Err(e) => return Err(e),
             }
@@ -908,7 +1028,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// packs are retired. `Ok(None)` when there is at most one pack.
     pub fn compact(&mut self, guard: &LeaseGuard) -> Result<Option<Compacted>, MetaError> {
         self.check_guard(guard)?;
-        for _ in 0..self.attempts {
+        for attempt in 1..=self.attempts {
             self.sync()?;
             let old = self.state.packs.clone();
             if old.len() < 2 {
@@ -924,7 +1044,14 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 writer.add_from(&objects, id)?;
             }
             let seq = self.state.head_seq + 1;
-            let pack = self.put_pack(&writer, seq)?;
+            let pack = match self.put_pack(&writer, seq) {
+                Ok(pack) => pack,
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             let replaced: Vec<String> = old.iter().map(|p| p.name.clone()).collect();
             let entry = LogEntry {
                 seq,
@@ -955,7 +1082,15 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                         at: now,
                     });
                 }
-            })?;
+            });
+            let committed = match committed {
+                Ok(committed) => committed,
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             if committed {
                 return Ok(Some(Compacted {
                     seq,
@@ -974,17 +1109,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// Returns how many objects were deleted.
     pub fn collect_garbage(&mut self, guard: &LeaseGuard, grace: u64) -> Result<usize, MetaError> {
         self.check_guard(guard)?;
-        for _ in 0..self.attempts {
+        for attempt in 1..=self.attempts {
             self.sync()?;
             let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
             let now = self.now();
-            let (due, keep): (Vec<Retired>, Vec<Retired>) = synced
+            // A retired object the manifest names again (the pack of a slow writer
+            // that a sweep took for an orphan) is kept and no longer retired.
+            let live = live_keys(&synced.manifest);
+            let (named, retired): (Vec<Retired>, Vec<Retired>) = synced
                 .manifest
                 .retired
                 .iter()
                 .cloned()
-                .partition(|r| r.at + grace <= now);
-            if due.is_empty() {
+                .partition(|r| live.contains(&r.key));
+            let (due, keep): (Vec<Retired>, Vec<Retired>) =
+                retired.into_iter().partition(|r| r.at + grace <= now);
+            if due.is_empty() && named.is_empty() {
                 return Ok(0);
             }
             let mut next = synced.manifest.clone();
@@ -1009,6 +1149,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     return Ok(due.len());
                 }
                 Err(MetaError::Conflict { .. }) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
                 Err(e) => return Err(e),
             }
         }
@@ -1021,6 +1162,62 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// and the bucket's lease is still the one the guard took (not released,
     /// not taken over). The lease only saves double work: every change of the
     /// manifest is a swap anyway.
+    /// Finds what no manifest names - the packs of lost swaps, the log entries
+    /// and checkpoints of writers that crashed between their write and their
+    /// swap - and retires it (under `guard`): [`MetaStore::collect_garbage`]
+    /// deletes it once its grace time has passed, unless a manifest names it by
+    /// then. Only objects at least `min_age` seconds old count (by the bucket's
+    /// dates, where it has them): a writer may be between its pack and its swap
+    /// right now. The repository's one listing of its own folders, for
+    /// maintenance; the number of objects retired.
+    pub fn sweep_orphans(&mut self, guard: &LeaseGuard, min_age: u64) -> Result<usize, MetaError> {
+        self.check_guard(guard)?;
+        for attempt in 1..=self.attempts {
+            self.sync()?;
+            let now = self.now();
+            let mut listed = Vec::new();
+            for dir in [keys::WAL_DIR, keys::LOG_DIR, keys::CHECKPOINT_DIR] {
+                listed.extend(self.bucket.list_keys(dir)?);
+            }
+            let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
+            let mut known = live_keys(&synced.manifest);
+            known.extend(synced.manifest.retired.iter().map(|r| r.key.clone()));
+            let orphans: Vec<String> = listed
+                .into_iter()
+                .filter(|listed| !known.contains(&listed.key))
+                .filter(|listed| listed.modified.map_or(true, |at| at + min_age <= now))
+                .map(|listed| listed.key)
+                .collect();
+            if orphans.is_empty() {
+                return Ok(0);
+            }
+            let mut next = synced.manifest.clone();
+            let version = synced.version.clone();
+            next.retired
+                .extend(orphans.iter().map(|key| Retired { key: key.clone(), at: now }));
+            next.revision += 1;
+            next.writer = self.device.clone();
+            next.updated_at = now;
+            match self.swap_manifest(&next, version.as_deref()) {
+                Ok(version) => {
+                    self.seen_revision = next.revision;
+                    self.state.revision = next.revision;
+                    self.synced = Some(Synced {
+                        manifest: next,
+                        version,
+                    });
+                    return Ok(orphans.len());
+                }
+                Err(MetaError::Conflict { .. }) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(MetaError::Contended {
+            attempts: self.attempts,
+        })
+    }
+
     fn check_guard(&self, guard: &LeaseGuard) -> Result<(), MetaError> {
         if guard.expires_at <= self.now() {
             return Err(MetaError::LeaseHeld {
@@ -1046,6 +1243,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             }),
         }
     }
+}
+
+/// Every key the manifest names: itself, the live packs and their indexes, the
+/// log entries, the checkpoint.
+fn live_keys(manifest: &Manifest) -> HashSet<String> {
+    let mut live = HashSet::new();
+    live.insert(keys::MANIFEST.to_string());
+    for pack in &manifest.packs {
+        live.insert(keys::pack(&pack.name));
+        live.insert(keys::idx(&pack.name));
+    }
+    live.extend(manifest.log.iter().map(|entry| entry.key.clone()));
+    if let Some(checkpoint) = &manifest.checkpoint {
+        live.insert(checkpoint.key.clone());
+    }
+    live
 }
 
 /// A manifest this code can work with: its format, and a log without gaps from

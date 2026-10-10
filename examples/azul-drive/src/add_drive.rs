@@ -2,8 +2,12 @@
 //!
 //! - **Buy storage**: Azlin's storage tiers from the token server (`GET /v1/tiers`), each with
 //!   its size and price, monthly or yearly; on a development token server "Create test drive"
-//!   (a drive without payment), everywhere "Buy" - the payment page opens in the browser and
-//!   the dialog waits for the drive.
+//!   (a drive without payment), everywhere "Buy". With the token server's payment options
+//!   (`GET /v1/checkout/options`, narrowed by azul-pay's registry) Buy storage shows a pill per
+//!   payment method for the payer's country and period, the consent the order needs, and Buy
+//!   runs azul-pay's checkout machine: the provider's hosted fields in a popover, its hosted
+//!   page, or the system browser. Without them (an older token server) the v1 checkout's
+//!   payment page opens in the browser. Either way the dialog waits for the drive (the claim).
 //! - **Connect data source**: the sources of azul-storage's catalog this build can open, in
 //!   their groups (S3-compatible storage and a folder on this computer always; OpenDAL's
 //!   services with the feature `opendal`; databases as tables with `sql`), then the chosen
@@ -17,7 +21,14 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use azcloud_kit::{Tier, Tiers};
+use azcloud_kit::{PendingCheckout, Tier, Tiers};
+use azul_pay::{
+    offer::Offer,
+    pills::{self, Choice, Pill, PillContext},
+    registry::{Method, SurfaceKind},
+    surface::Look,
+    State as PayState,
+};
 use azul_storage::{
     catalog::{self, FieldKind, FormValues, NewDrive, ServiceGroup, ServiceSpec},
     config::DriveEntry,
@@ -100,6 +111,100 @@ pub(crate) struct AddDialog {
     pub step: BuyStep,
     /// Buy storage's status line: what it is doing, or why it stopped.
     pub notice: String,
+
+    // ---- Buy storage's payment (azul-pay) ----
+    /// The token server's payment options.
+    pub offer: OfferState,
+    /// The pill chosen (by its method); `None`: the default pill.
+    pub pill: Option<Method>,
+    /// The provider chosen in a pill of two (an index of the offer's providers).
+    pub pill_provider: Option<usize>,
+    /// The payer's country (ISO alpha-2): which pills show, the VAT country.
+    pub country: String,
+    /// The consent the order needs is ticked.
+    pub consent: bool,
+    /// The checkout's state machine.
+    pub pay: PayState,
+    /// The cardholder name typed in the popover (personal data: never printed).
+    pub card_name: String,
+    /// The checkout the machine runs, as the keyring's list keeps it (what the poll asks with).
+    pub kept: Option<PendingCheckout>,
+    /// The look the fields page should take (`flora-light`, `flat-dark`).
+    pub look_name: String,
+}
+
+/// The surfaces AzDrive can show: the popover's hosted fields, a hosted page in the web view,
+/// the system browser (no native sheet, no native IBAN field yet).
+pub(crate) const PAY_SURFACES: &[SurfaceKind] = &[
+    SurfaceKind::PopoverFields,
+    SurfaceKind::WebviewPage,
+    SurfaceKind::SystemBrowser,
+];
+
+/// The countries of Buy storage's "Country" choice (ISO alpha-2, the name shown).
+pub(crate) const COUNTRIES: &[(&str, &str)] = &[
+    ("DE", "Germany"),
+    ("AT", "Austria"),
+    ("CH", "Switzerland"),
+    ("FR", "France"),
+    ("NL", "Netherlands"),
+    ("BE", "Belgium"),
+    ("LU", "Luxembourg"),
+    ("IT", "Italy"),
+    ("ES", "Spain"),
+    ("PL", "Poland"),
+    ("SE", "Sweden"),
+    ("GB", "United Kingdom"),
+    ("US", "United States"),
+];
+
+/// The country of a locale (`de_DE.UTF-8`, `en-GB`, `nl_NL@euro`) when it is one of
+/// [`COUNTRIES`].
+#[must_use]
+pub(crate) fn country_of_locale(locale: &str) -> Option<String> {
+    let base = locale.split(['.', '@']).next().unwrap_or_default();
+    let (_, region) = base.split_once(['_', '-'])?;
+    let region = region.to_ascii_uppercase();
+    COUNTRIES
+        .iter()
+        .any(|(code, _)| *code == region)
+        .then_some(region)
+}
+
+/// The payer's country this run starts with ([`country_from`] the environment).
+#[must_use]
+pub(crate) fn default_country() -> String {
+    country_from(|name| std::env::var(name).ok())
+}
+
+/// The payer's country from the environment `var`: `AZLIN_COUNTRY` (a code of [`COUNTRIES`],
+/// any case), else the locale's (`LC_ALL`, `LC_MESSAGES`, `LANG`), else Germany.
+#[must_use]
+pub(crate) fn country_from(var: impl Fn(&str) -> Option<String>) -> String {
+    let named = var("AZLIN_COUNTRY")
+        .map(|code| code.trim().to_ascii_uppercase())
+        .filter(|code| COUNTRIES.iter().any(|(c, _)| c == code));
+    named
+        .or_else(|| {
+            ["LC_ALL", "LC_MESSAGES", "LANG"]
+                .iter()
+                .filter_map(|name| var(*name))
+                .find_map(|locale| country_of_locale(&locale))
+        })
+        .unwrap_or_else(|| String::from("DE"))
+}
+
+/// The token server's payment options for Buy storage.
+#[derive(Clone, Debug)]
+pub(crate) enum OfferState {
+    NotLoaded,
+    Loading,
+    /// The token server has none (an older one): the v1 checkout, a payment page in the
+    /// browser.
+    Legacy,
+    Loaded(Offer),
+    /// Why there are none (Buy storage falls back to the v1 checkout).
+    Failed(String),
 }
 
 impl fmt::Debug for AddDialog {
@@ -134,6 +239,13 @@ impl fmt::Debug for AddDialog {
             .field("tier", &self.tier)
             .field("yearly", &self.yearly)
             .field("step", &self.step)
+            .field("offer", &self.offer)
+            .field("pill", &self.pill)
+            .field("pill_provider", &self.pill_provider)
+            .field("country", &self.country)
+            .field("consent", &self.consent)
+            .field("pay", &self.pay)
+            .field("card_name", &"<hidden>")
             .finish_non_exhaustive()
     }
 }
@@ -158,6 +270,15 @@ impl AddDialog {
             buy_name: DEFAULT_CLOUD_NAME.to_string(),
             step: BuyStep::Idle,
             notice: String::new(),
+            offer: OfferState::NotLoaded,
+            pill: None,
+            pill_provider: None,
+            country: default_country(),
+            consent: false,
+            pay: PayState::Choosing,
+            card_name: String::new(),
+            kept: None,
+            look_name: String::from("flat-light"),
         }
     }
 
@@ -336,7 +457,123 @@ impl AddDialog {
     /// Something runs that the dialog waits for (a test, a sign-up, a checkout, a payment).
     #[must_use]
     pub(crate) fn busy(&self) -> bool {
-        self.testing || !matches!(self.step, BuyStep::Idle)
+        self.testing || !matches!(self.step, BuyStep::Idle) || self.pay.busy()
+    }
+
+    // ---- The payment (azul-pay) ----
+
+    /// The offer, once it is in.
+    #[must_use]
+    pub(crate) fn offer(&self) -> Option<&Offer> {
+        match &self.offer {
+            OfferState::Loaded(offer) => Some(offer),
+            _ => None,
+        }
+    }
+
+    /// The token server's offer is in: the default pill is chosen.
+    pub(crate) fn offer_loaded(&mut self, offer: Offer) {
+        self.offer = OfferState::Loaded(offer);
+        self.pill = None;
+        self.pill_provider = None;
+    }
+
+    /// Who pays what: this payer's country, the tier's currency, the months paid at once, what
+    /// AzDrive can show.
+    #[must_use]
+    pub(crate) fn pill_context(&self) -> PillContext<'_> {
+        PillContext {
+            country: &self.country,
+            currency: self.chosen_tier().map_or("EUR", |t| t.currency.as_str()),
+            months: self.months(),
+            recurring: false,
+            surfaces: PAY_SURFACES,
+        }
+    }
+
+    /// The pills to show (none without an offer).
+    #[must_use]
+    pub(crate) fn pills(&self) -> Vec<Pill> {
+        self.offer()
+            .map(|offer| pills::pills(offer, &self.pill_context()))
+            .unwrap_or_default()
+    }
+
+    /// Buy storage pays through the offer's pills (else on the v1 payment page).
+    #[must_use]
+    pub(crate) fn pays_with_pills(&self) -> bool {
+        !self.pills().is_empty()
+    }
+
+    /// The pill chosen - the default one when none is, or the chosen one went away - with the
+    /// provider switched to in it.
+    #[must_use]
+    pub(crate) fn chosen_pill(&self) -> Option<Pill> {
+        let shown = self.pills();
+        let pill = self
+            .pill
+            .and_then(|m| shown.iter().find(|p| p.method == m))
+            .or_else(|| shown.get(pills::default_pill(&shown)))?;
+        Some(match self.pill_provider {
+            Some(index) => pill.with_provider(index),
+            None => pill.clone(),
+        })
+    }
+
+    /// A pill was clicked: its method is chosen, with its default provider.
+    pub(crate) fn choose_pill(&mut self, method: Method) {
+        self.pill = Some(method);
+        self.pill_provider = None;
+        self.notice.clear();
+    }
+
+    /// The pill's other provider was chosen (an index of the offer's providers).
+    pub(crate) fn choose_provider(&mut self, index: usize) {
+        self.pill = self.chosen_pill().map(|p| p.method);
+        self.pill_provider = Some(index);
+    }
+
+    /// What the order button starts: the chosen pill's provider and method.
+    #[must_use]
+    pub(crate) fn choice(&self) -> Option<Choice> {
+        let offer = self.offer()?;
+        Choice::of(offer, &self.chosen_pill()?, &self.pill_context())
+    }
+
+    /// The payer's country is `code` now: whether it changed (a code of [`COUNTRIES`] only).
+    /// The options are asked for again.
+    pub(crate) fn set_country(&mut self, code: &str) -> bool {
+        let code = code.trim().to_ascii_uppercase();
+        if code == self.country || !COUNTRIES.iter().any(|(c, _)| *c == code) {
+            return false;
+        }
+        self.country = code;
+        self.offer = OfferState::NotLoaded;
+        self.pill = None;
+        self.pill_provider = None;
+        true
+    }
+
+    /// For scripts: each pill's method and chosen provider, `sepa_debit:gocardless card:stripe`.
+    #[must_use]
+    pub(crate) fn pills_line(&self) -> String {
+        let Some(offer) = self.offer() else {
+            return String::new();
+        };
+        self.pills()
+            .iter()
+            .map(|p| format!("{}:{}", p.method.as_str(), p.provider(offer).spec.id))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// How the fields page should look.
+    #[must_use]
+    pub(crate) fn look(&self) -> Look {
+        Look {
+            locale: String::from("en"),
+            look: self.look_name.clone(),
+        }
     }
 }
 

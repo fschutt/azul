@@ -52423,6 +52423,9 @@
                                 },
                                 "text_selection_background": {
                                     "type": "OptionColorU"
+                                },
+                                "icon": {
+                                    "type": "OptionColorU"
                                 }
                             }
                         ],
@@ -53102,7 +53105,8 @@
                                 "SidebarSelection": {},
                                 "ControlBackground": {},
                                 "PlaceholderText": {},
-                                "TextSelectionBackground": {}
+                                "TextSelectionBackground": {},
+                                "Icon": {}
                             }
                         ],
                         "repr": "C"

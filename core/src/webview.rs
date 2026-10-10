@@ -143,6 +143,7 @@ impl WebViewNavigation {
     /// ([`url_query_param`]); `None` when the query has none of that name.
     /// What a sign-in callback reads the `code` (or the `error`) with.
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // C API: api.json hands the AzString over by value
     pub fn get_query_param(&self, name: AzString) -> OptionString {
         url_query_param(self.url.as_str(), name.as_str())
             .map(AzString::from)
@@ -215,6 +216,9 @@ impl WebViewEvent {
 /// `webview_reload`, `webview_go_back`).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
+// The URL is an AzString, a heap handle already: boxing it would add an
+// allocation per command to save a few bytes on the unit variants.
+#[allow(variant_size_differences)]
 pub enum WebViewCommand {
     /// Load this page.
     Navigate(AzString),

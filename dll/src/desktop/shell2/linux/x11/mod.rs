@@ -3076,6 +3076,10 @@ pub struct X11Window {
     /// content-sized with no tiny-window flash. Cleared after the one-time pass.
     size_to_content_pending: bool,
 
+    /// The window's `<webview>`s (`linux::webview::WpeWebViews`), made at
+    /// the first one: an app without a web view never loads WPE WebKit.
+    webviews: Option<super::webview::WpeWebViews>,
+
     // Accessibility
     /// Linux accessibility adapter
     #[cfg(feature = "a11y")]
@@ -4380,6 +4384,7 @@ impl X11Window {
             net_supported_cache: None,
             needs_redraw: crate::desktop::shell2::common::event::LatchedRequest::raised(),
             size_to_content_pending: options.size_to_content,
+            webviews: None,
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
@@ -8170,6 +8175,24 @@ impl X11Window {
 impl PlatformWindow for X11Window {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         crate::desktop::eyedropper::x11::capture(self)
+    }
+
+    /// WPE WebKit, composited (`linux::webview`), made at the first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let views = self
+            .webviews
+            .get_or_insert_with(|| super::webview::WpeWebViews::new(scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
     }
 
     /// The popup that holds the keyboard is an override-redirect X window
