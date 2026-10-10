@@ -20,6 +20,8 @@ use azul::{
     str::String as AzString,
 };
 
+use azul_appkit::l10n::{label, t_args, Arg};
+
 use crate::calc::{subscript, Calculator};
 use crate::expr::{self, Tok};
 use crate::graph::{self, Curve, Viewport};
@@ -112,13 +114,13 @@ fn function_list(s: &CalcApp, app: &RefAny, look: Look) -> Dom {
             "{} width: 270px; flex-shrink: 0; margin-right: 8px;",
             look::PANEL
         ))
-        .with_accessibility_info(AccessibilityInfo::named("Functions", AccessibilityRole::List))
+        .with_accessibility_info(AccessibilityInfo::named(label("azcalculator-functions"), AccessibilityRole::List))
         .with_child(
             Dom::create_div()
                 .with_css(look::PANEL_TITLE)
-                .with_child(Dom::create_div_with_text("Functions").with_css("flex-grow: 1;"))
-                .with_child(small_button(app, "Reset view", ids::RESET_VIEW, on_plot_reset))
-                .with_child(small_button(app, "Clear", ids::CLEAR_PLOTS, on_clear_functions)),
+                .with_child(Dom::create_div_with_text(label("azcalculator-functions")).with_css("flex-grow: 1;"))
+                .with_child(small_button(app, "azcalculator-reset-view", ids::RESET_VIEW, on_plot_reset))
+                .with_child(small_button(app, "azcalculator-clear-plots", ids::CLEAR_PLOTS, on_clear_functions)),
         );
     let mut rows = Dom::create_div().with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto;");
     for (i, plot) in calc.plots.iter().enumerate() {
@@ -132,7 +134,7 @@ fn function_list(s: &CalcApp, app: &RefAny, look: Look) -> Dom {
                     Dom::create_div_with_text("\u{2715}")
                         .with_css(look::FUNCTION_REMOVE)
                         .with_accessibility_info(AccessibilityInfo::named(
-                            format!("Remove y{}", i + 1),
+                            t_args("azcalculator-remove-function", &[("n", Arg::from((i + 1).to_string()))]),
                             AccessibilityRole::PushButton,
                         ))
                         .with_callback(
@@ -151,17 +153,13 @@ fn function_list(s: &CalcApp, app: &RefAny, look: Look) -> Dom {
     }
     if calc.plots.is_empty() && !calc.entry_is_function() {
         rows.add_child(
-            Dom::create_div_with_text(
-                "Type a function of x \u{2014} sin(x)*x^2, y = 2x + 1 \u{2014} and press = to plot it.",
-            )
+            Dom::create_div_with_text(label("azcalculator-graph-hint"))
             .with_css(look::EMPTY_NOTE),
         );
     }
     list.add_child(rows);
     list.with_child(
-        Dom::create_div_with_text(
-            "Angles in radians \u{b7} the wheel zooms \u{b7} drag to move \u{b7} double-click resets",
-        )
+        Dom::create_div_with_text(label("azcalculator-graph-note"))
         .with_css(look::GRAPH_NOTE),
     )
 }
@@ -183,11 +181,11 @@ fn function_row(color: &str, name: &str, typeset: Dom) -> Dom {
         )
 }
 
-fn small_button(app: &RefAny, label: &str, id: AzString, cb: CallbackType) -> Dom {
-    Dom::create_div_with_text(AzString::from(label))
+fn small_button(app: &RefAny, name: &str, id: AzString, cb: CallbackType) -> Dom {
+    Dom::create_div_with_text(label(name))
         .with_id(id)
         .with_css(look::SMALL_BUTTON)
-        .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
+        .with_accessibility_info(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton))
         .with_tab_index(azul::dom::TabIndex::Auto)
         .with_callback(EventFilter::Hover(HoverEventFilter::Click), app.clone(), cb)
 }
@@ -201,7 +199,7 @@ fn plot(s: &CalcApp, app: &RefAny, look: Look) -> Dom {
         .with_id(ids::PLOT)
         .with_css(look::PLOT)
         .with_accessibility_info(AccessibilityInfo::named(
-            format!("Graph, {}", vp.describe(w, h)),
+            t_args("azcalculator-graph-name", &[("view", Arg::from(vp.describe(w, h)))]),
             AccessibilityRole::Chart,
         ))
         .with_callback(EventFilter::Component(ComponentEventFilter::AfterMount), app.clone(), on_plot_size)
@@ -449,6 +447,7 @@ mod tests {
 
     #[test]
     fn the_entry_is_plotted_live_once_it_has_x() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         c.type_text("sin(x", 1);
         let f = functions(&c);

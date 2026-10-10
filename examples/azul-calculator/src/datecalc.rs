@@ -86,11 +86,19 @@ impl Date {
         (self.days() + 3).rem_euclid(7) as u32
     }
 
-    /// The weekday's name.
+    /// The weekday's name, in the window's language (the kit's).
     #[must_use]
-    pub fn weekday_name(self) -> &'static str {
-        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            [self.weekday() as usize]
+    pub fn weekday_name(self) -> String {
+        const NAMES: [&str; 7] = [
+            "kit-weekday-monday",
+            "kit-weekday-tuesday",
+            "kit-weekday-wednesday",
+            "kit-weekday-thursday",
+            "kit-weekday-friday",
+            "kit-weekday-saturday",
+            "kit-weekday-sunday",
+        ];
+        azul_appkit::l10n::t(NAMES[self.weekday() as usize])
     }
 
     /// This date plus `months` calendar months, the day clamped to the
@@ -145,17 +153,18 @@ impl Difference {
     /// `1 year, 2 months, 3 days`; `Same dates` for none.
     #[must_use]
     pub fn describe(&self) -> String {
+        use azul_appkit::l10n::{t, t_args, Arg};
         if self.total_days == 0 {
-            return "Same dates".to_string();
+            return t("azcalculator-same-dates");
         }
         let mut parts = Vec::new();
-        for (n, one, many) in [
-            (self.years, "year", "years"),
-            (self.months, "month", "months"),
-            (self.days, "day", "days"),
+        for (n, key) in [
+            (self.years, "azcalculator-n-years"),
+            (self.months, "azcalculator-n-months"),
+            (self.days, "azcalculator-n-days"),
         ] {
             if n != 0 {
-                parts.push(format!("{n} {}", if n == 1 { one } else { many }));
+                parts.push(t_args(key, &[("count", Arg::from(n))]));
             }
         }
         parts.join(", ")
@@ -164,9 +173,10 @@ impl Difference {
     /// `61 weeks, 2 days` (or `3 weeks`, `5 days`).
     #[must_use]
     pub fn in_weeks(&self) -> String {
+        use azul_appkit::l10n::{t_args, Arg};
         let (w, d) = (self.total_days / 7, self.total_days % 7);
-        let weeks = if w == 1 { "1 week".to_string() } else { format!("{w} weeks") };
-        let days = if d == 1 { "1 day".to_string() } else { format!("{d} days") };
+        let weeks = t_args("azcalculator-n-weeks", &[("count", Arg::from(w))]);
+        let days = t_args("azcalculator-n-days", &[("count", Arg::from(d))]);
         match (w, d) {
             (0, _) => days,
             (_, 0) => weeks,
@@ -177,10 +187,11 @@ impl Difference {
     /// `429 days`.
     #[must_use]
     pub fn in_days(&self) -> String {
+        use azul_appkit::l10n::{t_args, Arg};
         if self.total_days == 1 {
-            "1 day".to_string()
+            t_args("azcalculator-n-days", &[("count", Arg::from(1_i64))])
         } else {
-            format!("{} days", grouped(self.total_days))
+            t_args("azcalculator-grouped-days", &[("count", Arg::from(grouped(self.total_days)))])
         }
     }
 }
@@ -229,6 +240,7 @@ mod tests {
 
     #[test]
     fn days_since_the_epoch_round_trip() {
+        crate::l10n::in_english();
         assert_eq!(d("1970-01-01").days(), 0);
         assert_eq!(d("2000-03-01").days(), 11_017);
         assert_eq!(d("1969-12-31").days(), -1);
@@ -239,6 +251,7 @@ mod tests {
 
     #[test]
     fn leap_years_follow_the_gregorian_rules() {
+        crate::l10n::in_english();
         assert!(is_leap(2024) && is_leap(2000));
         assert!(!is_leap(1900) && !is_leap(2026));
         assert_eq!(days_in_month(2024, 2), 29);
@@ -249,6 +262,7 @@ mod tests {
 
     #[test]
     fn dates_parse_in_iso_and_day_first_form() {
+        crate::l10n::in_english();
         assert_eq!(d("2026-10-01"), Date { year: 2026, month: 10, day: 1 });
         assert_eq!(d("2026/10/1"), Date { year: 2026, month: 10, day: 1 });
         assert_eq!(d("14.03.1987"), Date { year: 1987, month: 3, day: 14 });
@@ -260,6 +274,7 @@ mod tests {
 
     #[test]
     fn the_weekday_of_a_date() {
+        crate::l10n::in_english();
         assert_eq!(d("2026-10-01").weekday_name(), "Thursday");
         assert_eq!(d("2000-01-01").weekday_name(), "Saturday");
         assert_eq!(d("1970-01-01").weekday(), 3);
@@ -267,6 +282,7 @@ mod tests {
 
     #[test]
     fn a_month_later_clamps_to_the_months_length() {
+        crate::l10n::in_english();
         assert_eq!(d("2026-01-31").add_months(1), Some(d("2026-02-28")));
         assert_eq!(d("2024-01-31").add_months(1), Some(d("2024-02-29")));
         assert_eq!(d("2026-03-31").add_months(-1), Some(d("2026-02-28")));
@@ -276,6 +292,7 @@ mod tests {
 
     #[test]
     fn the_difference_counts_years_months_then_days() {
+        crate::l10n::in_english();
         let diff = difference(d("2025-08-01"), d("2026-10-04"));
         assert_eq!((diff.years, diff.months, diff.days), (1, 2, 3));
         assert_eq!(diff.describe(), "1 year, 2 months, 3 days");
@@ -287,6 +304,7 @@ mod tests {
 
     #[test]
     fn the_difference_across_a_short_month() {
+        crate::l10n::in_english();
         let diff = difference(d("2026-01-31"), d("2026-03-01"));
         assert_eq!((diff.years, diff.months, diff.days), (0, 1, 1));
         assert_eq!(diff.total_days, 29);
@@ -297,6 +315,7 @@ mod tests {
 
     #[test]
     fn adding_and_subtracting_years_months_and_days() {
+        crate::l10n::in_english();
         assert_eq!(add(d("2026-10-01"), 0, 0, 100, false), Some(d("2027-01-09")));
         assert_eq!(add(d("2026-10-01"), 1, 2, 3, false), Some(d("2027-12-04")));
         assert_eq!(add(d("2026-10-01"), 0, 0, 1, true), Some(d("2026-09-30")));

@@ -141,6 +141,7 @@ mod tests {
 
     #[test]
     fn a_name_waits_while_a_longer_name_extends_it() {
+        crate::l10n::in_english();
         assert!(is_prefix(DECIMAL_NAMES, "si"));
         assert_eq!(exact(DECIMAL_NAMES, "sin"), Some(Word::Call(Func::Sin)));
         assert!(extends(DECIMAL_NAMES, "sin"), "sinh");
@@ -154,6 +155,7 @@ mod tests {
 
     #[test]
     fn a_word_no_name_starts_with_splits_at_its_longest_name() {
+        crate::l10n::in_english();
         assert!(!is_prefix(DECIMAL_NAMES, "sinx"));
         assert_eq!(longest_prefix(DECIMAL_NAMES, "sinx"), Some((3, Word::Call(Func::Sin))));
         assert_eq!(longest_prefix(DECIMAL_NAMES, "ex"), Some((1, Word::Const(Const::E))));
@@ -164,6 +166,7 @@ mod tests {
 
     #[test]
     fn programmer_words_are_operators() {
+        crate::l10n::in_english();
         assert_eq!(exact(PROGRAMMER_NAMES, "xor"), Some(Word::Op(BinOp::Xor)));
         assert_eq!(exact(PROGRAMMER_NAMES, "not"), Some(Word::Not));
         assert_eq!(exact(PROGRAMMER_NAMES, "sin"), None);

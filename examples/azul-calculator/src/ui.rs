@@ -79,6 +79,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
+    l10n::{label, t, t_args, Arg},
     settings::AppSettings,
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
@@ -132,25 +133,25 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists.
 pub const SHORTCUTS: [Shortcut; 19] = [
-    Shortcut::new("Calculator", "Enter", "Evaluate (=); a function of x goes to the graph"),
-    Shortcut::new("Calculator", "Escape", "Clear (C)"),
-    Shortcut::new("Calculator", "Delete", "Clear the entry (CE)"),
-    Shortcut::new("Calculator", "Backspace", "Delete the last digit or letter"),
-    Shortcut::new("Calculator", "F9", "Change the sign (+/-)"),
-    Shortcut::new("Calculator", "Mod+C", "Copy the result"),
-    Shortcut::new("Calculator", "Mod+V", "Paste a number or an expression"),
-    Shortcut::new("Typing", "+ - * / ^ % ! ( ) =", "Operators, as your keyboard types them"),
-    Shortcut::new("Typing", "sqrt sin cos tan ln log abs", "Functions: type the name"),
-    Shortcut::new("Typing", "pi  e  x", "Constants, and the graph's variable"),
-    Shortcut::new("Typing", "y =", "Start a function for the graph"),
-    Shortcut::new("Memory", "Ctrl+M  Ctrl+R", "Memory store, recall"),
-    Shortcut::new("Memory", "Ctrl+P  Ctrl+Q", "Memory add, subtract"),
-    Shortcut::new("Memory", "Ctrl+L", "Memory clear"),
-    Shortcut::new("View", "Alt+0 .. Alt+5", "Automatic, Standard, Programmer, Graphing, Date, Convert"),
-    Shortcut::new("View", "Ctrl+H", "Show or hide the history"),
-    Shortcut::new("Graphing", "F3 F4 F5", "Degrees, radians, grads"),
-    Shortcut::new("Programmer", "& | ^ ~ < > %  and xor not", "AND, OR, XOR, NOT, shifts, mod"),
-    Shortcut::new("Programmer", "F5 F6 F7 F8  0x 0b 0o", "HEX, DEC, OCT, BIN"),
+    Shortcut::new("azcalculator-category-calculator", "Enter", "azcalculator-shortcut-evaluate"),
+    Shortcut::new("azcalculator-category-calculator", "Escape", "azcalculator-shortcut-clear"),
+    Shortcut::new("azcalculator-category-calculator", "Delete", "azcalculator-shortcut-clear-entry"),
+    Shortcut::new("azcalculator-category-calculator", "Backspace", "azcalculator-shortcut-backspace"),
+    Shortcut::new("azcalculator-category-calculator", "F9", "azcalculator-shortcut-sign"),
+    Shortcut::new("azcalculator-category-calculator", "Mod+C", "azcalculator-shortcut-copy"),
+    Shortcut::new("azcalculator-category-calculator", "Mod+V", "azcalculator-shortcut-paste"),
+    Shortcut::new("azcalculator-shortcuts-typing", "+ - * / ^ % ! ( ) =", "azcalculator-shortcut-operators"),
+    Shortcut::new("azcalculator-shortcuts-typing", "sqrt sin cos tan ln log abs", "azcalculator-shortcut-functions"),
+    Shortcut::new("azcalculator-shortcuts-typing", "pi  e  x", "azcalculator-shortcut-constants"),
+    Shortcut::new("azcalculator-shortcuts-typing", "y =", "azcalculator-shortcut-y"),
+    Shortcut::new("azcalculator-shortcuts-memory", "Ctrl+M  Ctrl+R", "azcalculator-shortcut-memory-store"),
+    Shortcut::new("azcalculator-shortcuts-memory", "Ctrl+P  Ctrl+Q", "azcalculator-shortcut-memory-add"),
+    Shortcut::new("azcalculator-shortcuts-memory", "Ctrl+L", "azcalculator-shortcut-memory-clear"),
+    Shortcut::new("azcalculator-view", "Alt+0 .. Alt+5", "azcalculator-shortcut-views"),
+    Shortcut::new("azcalculator-view", "Ctrl+H", "azcalculator-shortcut-history"),
+    Shortcut::new("azcalculator-mode-graphing", "F3 F4 F5", "azcalculator-shortcut-angles"),
+    Shortcut::new("azcalculator-mode-programmer", "& | ^ ~ < > %  and xor not", "azcalculator-shortcut-bitwise"),
+    Shortcut::new("azcalculator-mode-programmer", "F5 F6 F7 F8  0x 0b 0o", "azcalculator-shortcut-bases"),
 ];
 
 /// The settings page's own category.
@@ -203,14 +204,15 @@ impl View {
         }
     }
 
+    /// The view's name (a key of AzCalculator's resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            View::Micro => "Standard",
-            View::Programmer => "Programmer",
-            View::Graph => "Graphing",
-            View::Date => "Date",
-            View::Convert => "Convert",
+            View::Micro => "azcalculator-mode-standard",
+            View::Programmer => "azcalculator-mode-programmer",
+            View::Graph => "azcalculator-mode-graphing",
+            View::Date => "azcalculator-mode-date",
+            View::Convert => "azcalculator-mode-convert",
         }
     }
 
@@ -281,15 +283,16 @@ impl Pin {
         }
     }
 
+    /// The View menu's word (a key of AzCalculator's resources).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Pin::Auto => "Automatic",
-            Pin::Standard => "Standard",
-            Pin::Programmer => "Programmer",
-            Pin::Graphing => "Graphing",
-            Pin::Date => "Date",
-            Pin::Convert => "Convert",
+            Pin::Auto => "azcalculator-mode-auto",
+            Pin::Standard => "azcalculator-mode-standard",
+            Pin::Programmer => "azcalculator-mode-programmer",
+            Pin::Graphing => "azcalculator-mode-graphing",
+            Pin::Date => "azcalculator-mode-date",
+            Pin::Convert => "azcalculator-mode-convert",
         }
     }
 
@@ -550,12 +553,20 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let app = CalcApp::new(kit_ref.clone(), &args);
     println!("AZCALC_SCREEN {}", app.pin.key());
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, DEFAULT_SIZE, MIN_SIZE, on_window_created);
     App::create(RefAny::new(app), config).run(window);
 }
@@ -631,7 +642,8 @@ fn display(s: &CalcApp, view: View) -> Dom {
         let mut expression = c.expression_line();
         let open = c.open_parens();
         if open > 0 && !c.just_evaluated {
-            expression.push_str(&format!("   ({open} open)"));
+            expression.push_str("   ");
+            expression.push_str(&t_args("azcalculator-open-parens", &[("count", Arg::from(open.to_string()))]));
         }
         let fits = if view == View::Programmer { 64 } else { 40 };
         column.add_child(
@@ -683,11 +695,11 @@ fn programmer_panel(s: &CalcApp, app: &RefAny) -> Dom {
     let words: Vec<&str> = WordSize::ALL.iter().map(|w| w.label()).collect();
     let title = Dom::create_div()
         .with_css(look::PANEL_TITLE)
-        .with_child(Dom::create_div_with_text("Programmer").with_css("flex-grow: 1;"))
+        .with_child(Dom::create_div_with_text(label("azcalculator-mode-programmer")).with_css("flex-grow: 1;"))
         .with_child(
             DropDown::create(strs(&words))
                 .with_selected(s.calc.word.index())
-                .with_accessibility_name("Word size")
+                .with_accessibility_name(label("azcalculator-word-size"))
                 .with_on_choice_change(app.clone(), on_word as DropDownOnChoiceChangeCallbackType)
                 .dom()
                 .with_id(ids::WORD)
@@ -817,7 +829,7 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
         .with_id(ids::HISTORY)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
     if s.calc.history.is_empty() {
-        list.add_child(Dom::create_div_with_text("There's no history yet.").with_css(look::EMPTY_NOTE));
+        list.add_child(Dom::create_div_with_text(label("azcalculator-no-history")).with_css(look::EMPTY_NOTE));
     }
     for (index, e) in s.calc.history.iter().enumerate().rev() {
         list.add_child(
@@ -845,7 +857,7 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; justify-content: flex-end; padding: 6px 8px; flex-shrink: 0;")
                 .with_child(
-                    Button::create("Clear history")
+                    Button::create(label("azcalculator-clear-history"))
                         .with_icon("delete")
                         .with_on_click(app.clone(), on_clear_history as ButtonOnClickCallbackType)
                         .dom()
@@ -861,7 +873,7 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
         .with_id(ids::MEMORY)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
     if s.calc.memory.items.is_empty() {
-        list.add_child(Dom::create_div_with_text("There's nothing saved in memory.").with_css(look::EMPTY_NOTE));
+        list.add_child(Dom::create_div_with_text(label("azcalculator-no-memory")).with_css(look::EMPTY_NOTE));
     }
     for (index, item) in s.calc.memory.items.iter().enumerate() {
         let shown = Num::parse(item)
@@ -894,10 +906,10 @@ fn side_panel(s: &CalcApp, app: &RefAny, css: &str) -> Dom {
     };
     Dom::create_aside()
         .with_id(ids::PANEL)
-        .with_accessibility_name("History and memory")
+        .with_accessibility_name(label("azcalculator-history-memory"))
         .with_css(format!("{} {css}", look::PANEL))
         .with_child(
-            TabHeader::create(strs(&["History", "Memory"]))
+            TabHeader::create(strs(&["azcalculator-history", "azcalculator-shortcuts-memory"]))
                 .with_active_tab(active)
                 .with_on_click(app.clone(), on_panel_tab as TabOnClickCallbackType)
                 .dom()
@@ -925,7 +937,7 @@ fn surface(app: &RefAny) -> Dom {
         .with_id(ids::CALC)
         .with_css(look::SURFACE)
         .with_tab_index(TabIndex::NoKeyboardFocus)
-        .with_accessibility_info(AccessibilityInfo::named("Calculator", AccessibilityRole::Grouping))
+        .with_accessibility_info(AccessibilityInfo::named(label("azcalculator-category-calculator"), AccessibilityRole::Grouping))
         .with_callback(EventFilter::Component(ComponentEventFilter::AfterMount), app.clone(), on_surface_mounted)
         .with_callback(EventFilter::Focus(FocusEventFilter::Paste), app.clone(), on_paste)
         .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app.clone(), on_copy)
@@ -1063,7 +1075,7 @@ struct FieldRef {
 fn field_input(app: &RefAny, field: Field, text: &str, name: &str, id: AzString) -> Dom {
     TextInput::create()
         .with_text(text)
-        .with_accessibility_name(name)
+        .with_accessibility_name(label(name))
         .with_on_text_input(
             RefAny::new(FieldRef {
                 app: app.clone(),
@@ -1075,13 +1087,13 @@ fn field_input(app: &RefAny, field: Field, text: &str, name: &str, id: AzString)
         .with_id(id)
 }
 
-fn labelled(label: &str, control: Dom) -> Dom {
+fn labelled(name: &str, control: Dom) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
         .with_child(
             Dom::create_div()
                 .with_css("width: 110px; flex-shrink: 0; font-size: 13px;")
-                .with_child(Dom::create_span_with_text(label)),
+                .with_child(Dom::create_span_with_text(label(name))),
         )
         .with_child(control)
 }
@@ -1089,11 +1101,11 @@ fn labelled(label: &str, control: Dom) -> Dom {
 /// The date screen's result lines, or why there is none.
 pub fn date_result(d: &DateState) -> Vec<String> {
     let Some(from) = datecalc::parse_date(&d.from) else {
-        return vec!["Enter the first date as YYYY-MM-DD.".to_string()];
+        return vec![t("azcalculator-date-first")];
     };
     if d.kind == 0 {
         let Some(to) = datecalc::parse_date(&d.to) else {
-            return vec!["Enter the second date as YYYY-MM-DD.".to_string()];
+            return vec![t("azcalculator-date-second")];
         };
         let diff = datecalc::difference(from, to);
         if diff.total_days == 0 {
@@ -1103,11 +1115,11 @@ pub fn date_result(d: &DateState) -> Vec<String> {
     } else {
         let number = |t: &str| t.trim().parse::<i64>().ok().filter(|n| (0..=100_000).contains(n));
         let (Some(y), Some(m), Some(n)) = (number(&d.years), number(&d.months), number(&d.days)) else {
-            return vec!["Years, months and days are whole numbers.".to_string()];
+            return vec![t("azcalculator-date-whole")];
         };
         match datecalc::add(from, y, m, n, d.subtract) {
             Some(date) => vec![format!("{} ({})", date, date.weekday_name())],
-            None => vec!["The date is outside the years 1 to 9999.".to_string()],
+            None => vec![t("azcalculator-date-outside")],
         }
     }
 }
@@ -1118,31 +1130,31 @@ fn date_view(s: &CalcApp, app: &RefAny) -> Dom {
         .with_id(ids::DATE_VIEW)
         .with_css("display: flex; flex-direction: column; padding: 12px 16px; flex-grow: 1;")
         .with_child(
-            Segmented::create(strs(&["Difference between dates", "Add or subtract days"]))
+            Segmented::create(strs(&["azcalculator-date-difference", "azcalculator-date-add-subtract"]))
                 .with_selected_index(d.kind)
                 .with_on_change(app.clone(), on_date_kind as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::DATE_KIND),
         )
-        .with_child(labelled("From", field_input(app, Field::DateFrom, &d.from, "From date", ids::DATE_FROM)));
+        .with_child(labelled("azcalculator-from", field_input(app, Field::DateFrom, &d.from, "azcalculator-from-date", ids::DATE_FROM)));
     if d.kind == 0 {
-        column.add_child(labelled("To", field_input(app, Field::DateTo, &d.to, "To date", ids::DATE_TO)));
+        column.add_child(labelled("azcalculator-to", field_input(app, Field::DateTo, &d.to, "azcalculator-to-date", ids::DATE_TO)));
     } else {
         column.add_child(labelled(
             "",
-            Segmented::create(strs(&["Add", "Subtract"]))
+            Segmented::create(strs(&["azcalculator-add", "azcalculator-subtract"]))
                 .with_selected_index(usize::from(d.subtract))
                 .with_on_change(app.clone(), on_date_sign as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::DATE_SIGN),
         ));
-        column.add_child(labelled("Years", field_input(app, Field::Years, &d.years, "Years", ids::DATE_YEARS)));
-        column.add_child(labelled("Months", field_input(app, Field::Months, &d.months, "Months", ids::DATE_MONTHS)));
-        column.add_child(labelled("Days", field_input(app, Field::Days, &d.days, "Days", ids::DATE_DAYS)));
+        column.add_child(labelled("azcalculator-years", field_input(app, Field::Years, &d.years, "azcalculator-years", ids::DATE_YEARS)));
+        column.add_child(labelled("azcalculator-months", field_input(app, Field::Months, &d.months, "azcalculator-months", ids::DATE_MONTHS)));
+        column.add_child(labelled("azcalculator-days", field_input(app, Field::Days, &d.days, "azcalculator-days", ids::DATE_DAYS)));
     }
     column.add_child(
         Dom::create_div().with_css("padding: 4px 0px 8px 110px;").with_child(
-            Button::create("Today")
+            Button::create(label("kit-date-today"))
                 .with_icon("today")
                 .with_on_click(app.clone(), on_date_today as ButtonOnClickCallbackType)
                 .dom()
@@ -1185,14 +1197,19 @@ pub fn convert_values(c: &ConvertState) -> (String, String) {
 fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
     let c = &s.convert;
     let category = &CATEGORIES[c.category.min(CATEGORIES.len() - 1)];
-    let names: Vec<&str> = CATEGORIES.iter().map(|c| c.name).collect();
-    let unit_names: Vec<String> = category.units.iter().map(|u| format!("{} ({})", u.name, u.symbol)).collect();
+    let category_names: Vec<String> = CATEGORIES.iter().map(|c| crate::l10n::word("units", c.name)).collect();
+    let names: Vec<&str> = category_names.iter().map(String::as_str).collect();
+    let unit_names: Vec<String> = category
+        .units
+        .iter()
+        .map(|u| format!("{} ({})", crate::l10n::word("unit", u.name), u.symbol))
+        .collect();
     let unit_strs: Vec<&str> = unit_names.iter().map(String::as_str).collect();
     let (from_text, to_text) = convert_values(c);
     let unit_drop = |selected: usize, id: AzString, name: &str, cb: DropDownOnChoiceChangeCallbackType| {
         DropDown::create(strs(&unit_strs))
             .with_selected(selected)
-            .with_accessibility_name(name)
+            .with_accessibility_name(label(name))
             .with_on_choice_change(app.clone(), cb)
             .dom()
             .with_id(id)
@@ -1205,7 +1222,7 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
         recent.add_child(
             Dom::create_div()
                 .with_css("font-weight: 600; padding-bottom: 4px;")
-                .with_child(Dom::create_span_with_text("Recent")),
+                .with_child(Dom::create_span_with_text(label("azcalculator-recent"))),
         );
     }
     for r in &c.recent {
@@ -1215,24 +1232,24 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
         .with_id(ids::CONVERT_VIEW)
         .with_css("display: flex; flex-direction: column; padding: 12px 16px; flex-grow: 1;")
         .with_child(labelled(
-            "Category",
+            "azcalculator-category",
             DropDown::create(strs(&names))
                 .with_selected(c.category)
-                .with_accessibility_name("Category")
+                .with_accessibility_name(label("azcalculator-category"))
                 .with_on_choice_change(app.clone(), on_convert_category as DropDownOnChoiceChangeCallbackType)
                 .dom()
                 .with_id(ids::CONV_CATEGORY),
         ))
         .with_child(labelled(
-            "From",
+            "azcalculator-from",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
-                .with_child(field_input(app, Field::ConvertFrom, &from_text, "Value to convert", ids::CONV_FROM_VALUE))
-                .with_child(unit_drop(c.from, ids::CONV_FROM_UNIT, "From unit", on_convert_from_unit)),
+                .with_child(field_input(app, Field::ConvertFrom, &from_text, "azcalculator-value-to-convert", ids::CONV_FROM_VALUE))
+                .with_child(unit_drop(c.from, ids::CONV_FROM_UNIT, "azcalculator-from-unit", on_convert_from_unit)),
         ))
         .with_child(
             Dom::create_div().with_css("padding: 2px 0px 2px 110px;").with_child(
-                Button::create("Swap")
+                Button::create(label("azcalculator-swap"))
                     .with_icon("swap_vert")
                     .with_on_click(app.clone(), on_convert_swap as ButtonOnClickCallbackType)
                     .dom()
@@ -1240,11 +1257,11 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
             ),
         )
         .with_child(labelled(
-            "To",
+            "azcalculator-to",
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center;")
-                .with_child(field_input(app, Field::ConvertTo, &to_text, "Converted value", ids::CONV_TO_VALUE))
-                .with_child(unit_drop(c.to, ids::CONV_TO_UNIT, "To unit", on_convert_to_unit)),
+                .with_child(field_input(app, Field::ConvertTo, &to_text, "azcalculator-converted-value", ids::CONV_TO_VALUE))
+                .with_child(unit_drop(c.to, ids::CONV_TO_UNIT, "azcalculator-to-unit", on_convert_to_unit)),
         ))
         .with_child(
             Dom::create_div()
@@ -1255,8 +1272,9 @@ fn convert_view(s: &CalcApp, app: &RefAny) -> Dom {
         .with_child(recent)
 }
 
+/// Choices: keys said in the window's language, plain words (a unit's name) as they are.
 fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
+    StringVec::from_vec(items.iter().map(|s| label(s)).collect())
 }
 
 /// An icon-only command of the mode row, named for a screen reader.
@@ -1266,7 +1284,7 @@ fn icon_button(app: &RefAny, icon: &str, name: &str, id: AzString, cb: ButtonOnC
         .with_on_click(app.clone(), cb)
         .dom()
         .with_id(id)
-        .with_accessibility_assign(AccessibilityInfo::named(name, AccessibilityRole::PushButton))
+        .with_accessibility_assign(AccessibilityInfo::named(label(name), AccessibilityRole::PushButton))
 }
 
 /// The View menu, the name of the view the size picked, History, Settings.
@@ -1277,19 +1295,19 @@ fn modes_row(s: &CalcApp, app: &RefAny, view: View) -> Dom {
         .with_child(
             DropDown::create(strs(&labels))
                 .with_selected(s.pin.index())
-                .with_accessibility_name("View")
+                .with_accessibility_name(label("azcalculator-view"))
                 .with_on_choice_change(app.clone(), on_view_pick as DropDownOnChoiceChangeCallbackType)
                 .dom()
                 .with_id(ids::VIEW),
         );
     if s.pin == Pin::Auto {
-        row.add_child(Dom::create_div_with_text(view.label()).with_css(look::VIEW_BADGE));
+        row.add_child(Dom::create_div_with_text(label(view.label())).with_css(look::VIEW_BADGE));
     }
     row.add_child(Dom::create_div().with_css("flex-grow: 1;"));
     if matches!(view, View::Micro | View::Programmer) {
-        row.add_child(icon_button(app, "history", "History", ids::TOGGLE_PANEL, on_toggle_panel));
+        row.add_child(icon_button(app, "history", "azcalculator-history", ids::TOGGLE_PANEL, on_toggle_panel));
     }
-    row.with_child(icon_button(app, "settings", "Settings", ids::SETTINGS, on_open_settings))
+    row.with_child(icon_button(app, "settings", "azcalculator-settings", ids::SETTINGS, on_open_settings))
 }
 
 /// The calculator's own settings sections.
@@ -1302,19 +1320,19 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
     vec![
         AppSection {
             category: 0,
-            title: "Display".to_string(),
+            title: "azcalculator-display".to_string(),
             content: Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
                 .with_child(kit::row(
-                    "Group thousands",
+                    "azcalculator-group-thousands",
                     Switch::create(s.calc.grouping)
-                        .with_accessibility_name("Group thousands")
+                        .with_accessibility_name(label("azcalculator-group-thousands"))
                         .with_on_toggle(app.clone(), on_grouping as SwitchOnToggleCallbackType)
                         .dom()
                         .with_id(ids::SET_GROUPING),
                 ))
                 .with_child(kit::row(
-                    "Angle unit",
+                    "azcalculator-angle-unit",
                     Segmented::create(strs(&angles))
                         .with_selected_index(s.calc.angle.index())
                         .with_on_change(app.clone(), on_angle as SegmentedOnChangeCallbackType)
@@ -1324,28 +1342,30 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
         },
         AppSection {
             category: 0,
-            title: "History".to_string(),
+            title: "azcalculator-history".to_string(),
             content: Dom::create_div()
                 .with_css("display: flex; flex-direction: column;")
                 .with_child(kit::row(
-                    "Keep the history",
+                    "azcalculator-keep-history",
                     Switch::create(keep)
-                        .with_accessibility_name("Keep the history")
+                        .with_accessibility_name(label("azcalculator-keep-history"))
                         .with_on_toggle(app.clone(), on_keep_history as SwitchOnToggleCallbackType)
                         .dom()
                         .with_id(ids::SET_KEEP_HISTORY),
                 ))
                 .with_child(kit::row(
                     "",
-                    Button::create("Clear history")
+                    Button::create(label("azcalculator-clear-history"))
                         .with_on_click(app.clone(), on_clear_history as ButtonOnClickCallbackType)
                         .dom()
                         .with_id(ids::SET_CLEAR_HISTORY),
                 ))
-                .with_child(kit::note(&format!(
-                    "{} calculations, kept in {}.",
-                    s.calc.history.len(),
-                    azul_appkit::data::local_path(&s.data_root, &history_key()).display()
+                .with_child(kit::note(&t_args(
+                    "azcalculator-history-kept",
+                    &[
+                        ("count", Arg::from(s.calc.history.len())),
+                        ("path", Arg::from(azul_appkit::data::local_path(&s.data_root, &history_key()).display().to_string())),
+                    ],
                 ))),
         },
     ]
@@ -1355,6 +1375,7 @@ fn settings_sections(s: &CalcApp, app: &RefAny) -> Vec<AppSection> {
 /// copy and paste handlers. The view comes from the window's size (or the
 /// View menu); the calculator follows it into its keypad mode here.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let flora = info.get_theme().as_str().starts_with("flora");
@@ -1571,7 +1592,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                         loaded = entries;
                     }
                     FileOutcome::Got { result: Err(e), .. } => {
-                        s.notice = format!("The history could not be read: {e}");
+                        s.notice = t_args("azcalculator-history-unreadable", &[("why", Arg::from(e.to_string()))]);
                     }
                     _ => {}
                 }
@@ -1594,7 +1615,7 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
         _ => {
             s.saving = false;
             match reply.outcomes.iter().find_map(FileOutcome::error) {
-                Some(e) => s.notice = format!("The history could not be saved: {e}"),
+                Some(e) => s.notice = t_args("azcalculator-history-unsaved", &[("why", Arg::from(e.to_string()))]),
                 None => println!("AZCALC_HISTORY_SAVED {}", s.calc.history.len()),
             }
             if s.save_pending {
@@ -1672,7 +1693,7 @@ extern "C" fn on_history_entry(mut data: RefAny, mut info: CallbackInfo) -> Upda
         let before = s.calc.clone();
         s.calc.use_history(index);
         if s.calc == before {
-            s.notice = "That calculation belongs to another mode.".to_string();
+            s.notice = t("azcalculator-other-mode");
         }
         s.announce_display();
     })
@@ -2137,7 +2158,12 @@ extern "C" fn on_paste(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 println!("AZCALC_PASTED {text}");
                 s.notice.clear();
             }
-            Err(e) => s.notice = format!("\"{}\" could not be pasted: {e}", text.trim()),
+            Err(e) => {
+                s.notice = t_args(
+                    "azcalculator-paste-failed",
+                    &[("text", Arg::from(text.trim())), ("why", Arg::from(e.to_string()))],
+                );
+            }
         }
         after_calc(s, info, handle);
     })
@@ -2167,6 +2193,7 @@ mod tests {
 
     #[test]
     fn the_window_picks_its_calculator_by_its_size() {
+        crate::l10n::in_english();
         assert_eq!(view_for_size(DEFAULT_SIZE.0, DEFAULT_SIZE.1), View::Micro, "the default is small");
         assert_eq!(view_for_size(MIN_SIZE.0, MIN_SIZE.1), View::Micro);
         assert_eq!(view_for_size(639.0, 900.0), View::Micro, "tall but narrow");
@@ -2178,6 +2205,7 @@ mod tests {
 
     #[test]
     fn the_view_menu_pins_a_view() {
+        crate::l10n::in_english();
         assert_eq!(Pin::by_key("auto"), Some(Pin::Auto));
         assert_eq!(Pin::Auto.view(), None);
         assert_eq!(Pin::by_key("scientific"), Some(Pin::Graphing), "the old screen name");
@@ -2194,6 +2222,7 @@ mod tests {
 
     #[test]
     fn a_long_expression_shows_its_end() {
+        crate::l10n::in_english();
         assert_eq!(tail("12 \u{d7} 3", 40), "12 \u{d7} 3");
         let long = "1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12";
         let shown = tail(long, 20);
@@ -2203,6 +2232,7 @@ mod tests {
 
     #[test]
     fn long_results_get_smaller() {
+        crate::l10n::in_english();
         assert_eq!(result_px("42", View::Micro), 38);
         assert!(result_px("1.4142135623730950488016887242097", View::Micro) < 20);
         assert!(result_px("Cannot divide by zero", View::Micro) >= 14);
@@ -2210,6 +2240,7 @@ mod tests {
 
     #[test]
     fn only_the_keypad_types_without_its_text() {
+        crate::l10n::in_english();
         assert_eq!(keypad_char(VirtualKeyCode::Numpad7), Some('7'));
         assert_eq!(keypad_char(VirtualKeyCode::NumpadMultiply), Some('*'));
         assert_eq!(keypad_char(VirtualKeyCode::NumpadComma), Some('.'), "the German keypad's comma");
@@ -2224,6 +2255,7 @@ mod tests {
 
     #[test]
     fn the_typeset_display_wraps_results_and_functions() {
+        crate::l10n::in_english();
         let mut c = Calculator::new();
         assert!(typeset(&c).is_none(), "nothing typed, nothing set");
         c.type_text("1/4=", 1);
@@ -2236,6 +2268,7 @@ mod tests {
 
     #[test]
     fn the_date_screen_explains_a_bad_date() {
+        crate::l10n::in_english();
         let mut d = DateState {
             kind: 0,
             from: "2025-08-01".into(),
@@ -2258,6 +2291,7 @@ mod tests {
 
     #[test]
     fn the_converter_computes_the_field_not_typed_into() {
+        crate::l10n::in_english();
         let mut c = ConvertState {
             category: 0,
             from: 3,

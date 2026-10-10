@@ -365,8 +365,14 @@ pub enum Expr {
     Post(Post, Box<Expr>),
 }
 
-fn syntax(what: &str) -> CalcError {
-    CalcError::Syntax(what.to_string())
+/// A syntax error the display shows: the message `key` in the window's language.
+fn syntax(key: &str) -> CalcError {
+    CalcError::Syntax(azul_appkit::l10n::t(key))
+}
+
+/// A syntax error with its arguments.
+fn syntax_with(key: &str, args: &[(&str, azul_appkit::l10n::Arg)]) -> CalcError {
+    CalcError::Syntax(azul_appkit::l10n::t_args(key, args))
 }
 
 /// The words Programmer mode reads as operators (everything else made of
@@ -431,10 +437,10 @@ pub fn tokenize(text: &str, domain: Domain) -> Result<Vec<Tok>, CalcError> {
                 let digits = digits.strip_prefix("0b").filter(|_| base == Base::Bin).unwrap_or(digits);
                 let digits = digits.strip_prefix("0o").filter(|_| base == Base::Oct).unwrap_or(digits);
                 if digits.is_empty() || !digits.chars().all(|d| d.is_digit(base.radix())) {
-                    return Err(CalcError::Syntax(format!(
-                        "\"{word}\" is not a {} number",
-                        base.label()
-                    )));
+                    return Err(syntax_with(
+                        "azcalculator-err-not-base-number",
+                        &[("text", azul_appkit::l10n::Arg::from(word.as_str())), ("base", azul_appkit::l10n::Arg::from(base.label()))],
+                    ));
                 }
                 out.push(Tok::Num(digits.to_uppercase()));
                 continue;
@@ -463,7 +469,7 @@ pub fn tokenize(text: &str, domain: Domain) -> Result<Vec<Tok>, CalcError> {
             }
             let literal: String = chars[start..i].iter().filter(|c| **c != ',').collect();
             if literal.matches('.').count() > 1 {
-                return Err(CalcError::Syntax(format!("{literal:?} has two points")));
+                return Err(syntax_with("azcalculator-err-two-points", &[("text", azul_appkit::l10n::Arg::from(format!("{literal:?}")))]));
             }
             out.push(Tok::Num(literal));
             continue;
@@ -501,7 +507,7 @@ pub fn tokenize(text: &str, domain: Domain) -> Result<Vec<Tok>, CalcError> {
                 "x" => Tok::Var,
                 _ => match Func::by_name(&lower) {
                     Some(f) => Tok::Func(f),
-                    None => return Err(CalcError::Syntax(format!("unknown name \"{word}\""))),
+                    None => return Err(syntax_with("azcalculator-err-unknown-name", &[("name", azul_appkit::l10n::Arg::from(word.as_str()))])),
                 },
             };
             out.push(tok);
@@ -546,7 +552,7 @@ pub fn tokenize(text: &str, domain: Domain) -> Result<Vec<Tok>, CalcError> {
                 i += 1;
                 Tok::Op(BinOp::Shr)
             }
-            other => return Err(CalcError::Syntax(format!("unexpected \"{other}\""))),
+            other => return Err(syntax_with("azcalculator-err-unexpected-quoted", &[("what", azul_appkit::l10n::Arg::from(other.to_string()))])),
         };
         out.push(tok);
         i += 1;
@@ -607,7 +613,7 @@ impl Parser<'_> {
                 Some(Tok::Op(op)) => *op,
                 Some(Tok::RParen) | None => break,
                 Some(other) => {
-                    return Err(CalcError::Syntax(format!("unexpected {}", tok_text(other))))
+                    return Err(syntax_with("azcalculator-err-unexpected", &[("what", azul_appkit::l10n::Arg::from(tok_text(other)))]))
                 }
             };
             let (lbp, rbp) = op.binding();
@@ -616,7 +622,7 @@ impl Parser<'_> {
             }
             self.pos += 1;
             if self.peek().is_none() {
-                return Err(syntax("Incomplete expression"));
+                return Err(syntax("azcalculator-err-incomplete"));
             }
             let rhs = self.expr(rbp)?;
             lhs = Expr::Bin(op, Box::new(lhs), Box::new(rhs));
@@ -640,7 +646,7 @@ impl Parser<'_> {
 
     fn operand_of_prefix(&mut self) -> Result<Expr, CalcError> {
         if self.peek().is_none() {
-            return Err(syntax("Incomplete expression"));
+            return Err(syntax("azcalculator-err-incomplete"));
         }
         self.expr(PREFIX)
     }
@@ -661,20 +667,20 @@ impl Parser<'_> {
             Some(Tok::Var) => Ok(Expr::Var),
             Some(Tok::LParen) => {
                 if matches!(self.peek(), Some(Tok::RParen)) {
-                    return Err(syntax("Empty parentheses"));
+                    return Err(syntax("azcalculator-err-empty-parens"));
                 }
                 if self.peek().is_none() {
-                    return Err(syntax("Incomplete expression"));
+                    return Err(syntax("azcalculator-err-incomplete"));
                 }
                 let inner = self.expr(0)?;
                 match self.next() {
                     Some(Tok::RParen) | None => Ok(inner), // closed, or closed at the end
-                    Some(other) => Err(CalcError::Syntax(format!("unexpected {}", tok_text(&other)))),
+                    Some(other) => Err(syntax_with("azcalculator-err-unexpected", &[("what", azul_appkit::l10n::Arg::from(tok_text(&other)))])),
                 }
             }
             Some(Tok::Func(f)) => {
                 if self.peek().is_none() {
-                    return Err(syntax("Incomplete expression"));
+                    return Err(syntax("azcalculator-err-incomplete"));
                 }
                 Ok(Expr::Func(f, Box::new(self.expr(PREFIX)?)))
             }
@@ -682,10 +688,10 @@ impl Parser<'_> {
                 self.pos -= 1;
                 self.prefix()
             }
-            Some(Tok::RParen) => Err(syntax("Unmatched \")\"")),
-            Some(Tok::Op(op)) => Err(CalcError::Syntax(format!("unexpected {}", op.symbol()))),
-            Some(Tok::Post(p)) => Err(CalcError::Syntax(format!("unexpected {}", p.symbol()))),
-            None => Err(syntax("Incomplete expression")),
+            Some(Tok::RParen) => Err(syntax("azcalculator-err-unmatched")),
+            Some(Tok::Op(op)) => Err(syntax_with("azcalculator-err-unexpected", &[("what", azul_appkit::l10n::Arg::from(op.symbol()))])),
+            Some(Tok::Post(p)) => Err(syntax_with("azcalculator-err-unexpected", &[("what", azul_appkit::l10n::Arg::from(p.symbol()))])),
+            None => Err(syntax("azcalculator-err-incomplete")),
         }
     }
 }
@@ -709,15 +715,15 @@ fn tok_text(t: &Tok) -> String {
 /// parentheses close at the end).
 pub fn parse(tokens: &[Tok]) -> Result<Expr, CalcError> {
     if tokens.is_empty() {
-        return Err(syntax("Empty expression"));
+        return Err(syntax("azcalculator-err-empty"));
     }
     let toks = with_implicit_mul(tokens);
     let mut p = Parser { toks: &toks, pos: 0 };
     let e = p.expr(0)?;
     match p.peek() {
         None => Ok(e),
-        Some(Tok::RParen) => Err(syntax("Unmatched \")\"")),
-        Some(other) => Err(CalcError::Syntax(format!("unexpected {}", tok_text(other)))),
+        Some(Tok::RParen) => Err(syntax("azcalculator-err-unmatched")),
+        Some(other) => Err(syntax_with("azcalculator-err-unexpected", &[("what", azul_appkit::l10n::Arg::from(tok_text(other)))])),
     }
 }
 
@@ -901,9 +907,9 @@ pub fn eval_dec(e: &Expr, angle: AngleUnit) -> Result<Num, CalcError> {
     match e {
         Expr::Num(text) => Num::parse(text),
         Expr::Const(c) => Ok(c.value()),
-        Expr::Var => Err(syntax("x is the graph's variable")),
+        Expr::Var => Err(syntax("azcalculator-err-x-variable")),
         Expr::Neg(x) => Ok(eval_dec(x, angle)?.neg()),
-        Expr::Not(_) => Err(syntax("NOT needs Programmer mode")),
+        Expr::Not(_) => Err(syntax("azcalculator-err-not-programmer")),
         Expr::Bin(op, l, r) => {
             // The percent rules: a + b% and a - b% take b percent OF a.
             if let (BinOp::Add | BinOp::Sub, Expr::Post(Post::Percent, pct)) = (op, r.as_ref()) {
@@ -924,7 +930,7 @@ pub fn eval_dec(e: &Expr, angle: AngleUnit) -> Result<Num, CalcError> {
                 BinOp::Div => a.div(&b),
                 BinOp::Mod => a.rem(&b),
                 BinOp::Pow => a.pow(&b),
-                _ => Err(CalcError::Syntax(format!("{} needs Programmer mode", op.symbol()))),
+                _ => Err(syntax_with("azcalculator-err-op-programmer", &[("op", azul_appkit::l10n::Arg::from(op.symbol()))])),
             }
         }
         Expr::Func(f, x) => eval_func(*f, &eval_dec(x, angle)?, angle),
@@ -1019,9 +1025,9 @@ pub fn eval_int(e: &Expr, word: WordSize, base: Base) -> Result<i128, CalcError>
             }
             Ok(acc)
         }
-        Expr::Post(Post::Percent, _) => Err(syntax("% needs Standard or Scientific mode")),
+        Expr::Post(Post::Percent, _) => Err(syntax("azcalculator-err-percent-mode")),
         Expr::Const(_) | Expr::Func(..) | Expr::Var => {
-            Err(syntax("Functions need Standard or Scientific mode"))
+            Err(syntax("azcalculator-err-functions-mode"))
         }
     }
 }
@@ -1051,6 +1057,7 @@ mod tests {
 
     #[test]
     fn multiplication_binds_tighter_than_addition() {
+        crate::l10n::in_english();
         assert_eq!(ev("1 + 2 * 3"), "7");
         assert_eq!(ev("(1 + 2) * 3"), "9");
         assert_eq!(ev("10 - 4 - 3"), "3", "left-associative");
@@ -1061,6 +1068,7 @@ mod tests {
 
     #[test]
     fn powers_are_right_associative_and_tighter_than_unary_minus() {
+        crate::l10n::in_english();
         assert_eq!(ev("2^3^2"), "512");
         assert_eq!(ev("-2^2"), "-4");
         assert_eq!(ev("(-2)^2"), "4");
@@ -1070,6 +1078,7 @@ mod tests {
 
     #[test]
     fn unary_minus_and_plus_signs() {
+        crate::l10n::in_english();
         assert_eq!(ev("-3 + 5"), "2");
         assert_eq!(ev("3 - -2"), "5");
         assert_eq!(ev("+4"), "4");
@@ -1079,6 +1088,7 @@ mod tests {
 
     #[test]
     fn open_parentheses_close_at_the_end() {
+        crate::l10n::in_english();
         assert_eq!(ev("(1 + 2"), "3");
         assert_eq!(ev("2 * (3 + (4"), "14");
         assert_eq!(open_parens(&tokenize("2*(3+(4", Domain::Decimal).unwrap()), 2);
@@ -1088,6 +1098,7 @@ mod tests {
 
     #[test]
     fn implicit_multiplication() {
+        crate::l10n::in_english();
         assert_eq!(ev("2(3 + 4)"), "14");
         assert_eq!(ev("(1 + 1)(2 + 2)"), "8");
         assert_eq!(ev("2pi"), ev("2 * pi"));
@@ -1100,6 +1111,7 @@ mod tests {
 
     #[test]
     fn the_percent_rules() {
+        crate::l10n::in_english();
         assert_eq!(ev("50 + 10%"), "55");
         assert_eq!(ev("50 - 10%"), "45");
         assert_eq!(ev("200 * 10%"), "20");
@@ -1110,6 +1122,7 @@ mod tests {
 
     #[test]
     fn functions_constants_and_postfix_operators() {
+        crate::l10n::in_english();
         assert_eq!(ev("sqrt(2)"), "1.4142135623730950488016887242097");
         assert_eq!(ev("\u{221a}16"), "4");
         assert_eq!(ev("5!"), "120");
@@ -1134,6 +1147,7 @@ mod tests {
 
     #[test]
     fn x_between_numbers_multiplies_and_is_the_variable_elsewhere() {
+        crate::l10n::in_english();
         assert_eq!(ev("2x3"), "6");
         assert_eq!(ev("1,280 x 0.19"), "243.2");
         let t = tokenize("2x", Domain::Decimal).unwrap();
@@ -1153,11 +1167,13 @@ mod tests {
 
     #[test]
     fn the_scientific_sample_sin_30_plus_2_to_the_10() {
+        crate::l10n::in_english();
         assert_eq!(ev("sin(30) + 2^10"), "1,024.5");
     }
 
     #[test]
     fn degrees_radians_and_grads() {
+        crate::l10n::in_english();
         assert_eq!(ev("sin(90)"), "1");
         assert_eq!(ev("cos(90)"), "0");
         assert_eq!(ev("cos(60)"), "0.5");
@@ -1175,6 +1191,7 @@ mod tests {
 
     #[test]
     fn functions_outside_their_domain_are_invalid_input() {
+        crate::l10n::in_english();
         assert_eq!(ev("sqrt(-1)"), "error: Invalid input");
         assert_eq!(ev("ln(0)"), "error: Invalid input");
         assert_eq!(ev("log(-5)"), "error: Invalid input");
@@ -1186,6 +1203,7 @@ mod tests {
 
     #[test]
     fn huge_exponentials_stay_decimal_beyond_f64() {
+        crate::l10n::in_english();
         assert!(ev("exp(1000)").starts_with("1.9700711140"), "{}", ev("exp(1000)"));
         assert!(ev("exp(1000)").ends_with("e+434"), "{}", ev("exp(1000)"));
         let ln = ev("ln(exp(1000))");
@@ -1196,6 +1214,7 @@ mod tests {
 
     #[test]
     fn scientific_notation_literals_and_the_constant_e() {
+        crate::l10n::in_english();
         assert_eq!(ev("1.5e3"), "1,500");
         assert_eq!(ev("2e-2"), "0.02");
         assert_eq!(ev("2e"), ev("2 * e"), "a lone e after a number is the constant");
@@ -1204,6 +1223,7 @@ mod tests {
 
     #[test]
     fn incomplete_or_garbled_input_says_what_is_wrong() {
+        crate::l10n::in_english();
         assert_eq!(ev("2 +"), "error: Incomplete expression");
         assert_eq!(ev("sin"), "error: Incomplete expression");
         assert_eq!(ev("* 3"), "error: unexpected \u{d7}");
@@ -1215,6 +1235,7 @@ mod tests {
 
     #[test]
     fn the_expression_line_shows_typographic_operators_and_grouping() {
+        crate::l10n::in_english();
         let t = tokenize("1280*0.19", Domain::Decimal).unwrap();
         assert_eq!(display(&t, true, false), "1,280 \u{d7} 0.19");
         let t = tokenize("sqrt(2)+3^2-1%", Domain::Decimal).unwrap();
@@ -1225,6 +1246,7 @@ mod tests {
 
     #[test]
     fn programmer_expressions_wrap_to_the_word() {
+        crate::l10n::in_english();
         assert_eq!(int("2A5F", WordSize::Qword, Base::Hex).unwrap(), 10847);
         assert_eq!(int("FF + 1", WordSize::Byte, Base::Hex).unwrap(), 0);
         assert_eq!(int("7F + 1", WordSize::Byte, Base::Hex).unwrap(), -128);
@@ -1239,6 +1261,7 @@ mod tests {
 
     #[test]
     fn programmer_bitwise_operators_and_their_precedence() {
+        crate::l10n::in_english();
         assert_eq!(int("F0 and 3C", WordSize::Qword, Base::Hex).unwrap(), 0x30);
         assert_eq!(int("F0 or 0F", WordSize::Qword, Base::Hex).unwrap(), 0xFF);
         assert_eq!(int("FF xor 0F", WordSize::Qword, Base::Hex).unwrap(), 0xF0);
@@ -1254,6 +1277,7 @@ mod tests {
 
     #[test]
     fn hex_words_that_are_not_operators_are_numbers() {
+        crate::l10n::in_english();
         assert_eq!(int("add", WordSize::Qword, Base::Hex).unwrap(), 0xADD);
         assert_eq!(int("bad + 1", WordSize::Qword, Base::Hex).unwrap(), 0xBAE);
         assert_eq!(int("0x10", WordSize::Qword, Base::Hex).unwrap(), 16);

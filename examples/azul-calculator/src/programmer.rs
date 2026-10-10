@@ -114,7 +114,12 @@ impl Base {
 /// A literal in `base` (`2A5F`, `-17`, `1010`; `0x` / `0o` / `0b` prefixes
 /// matching the base and `_` / blank separators are accepted), wrapped to the word.
 pub fn parse_int(text: &str, base: Base, word: WordSize) -> Result<i128, CalcError> {
-    let bad = || CalcError::Syntax(format!("{text:?} is not a {} number", base.label()));
+    let bad = || {
+        CalcError::Syntax(azul_appkit::l10n::t_args(
+            "azcalculator-err-not-base-number",
+            &[("text", azul_appkit::l10n::Arg::from(format!("{text:?}"))), ("base", azul_appkit::l10n::Arg::from(base.label()))],
+        ))
+    };
     let t: String = text
         .chars()
         .filter(|c| !matches!(c, '_' | ' ' | ','))
@@ -281,6 +286,7 @@ mod tests {
 
     #[test]
     fn the_sample_value_shows_in_all_four_bases() {
+        crate::l10n::in_english();
         let v = parse_int("2A5F", Base::Hex, WordSize::Qword).unwrap();
         assert_eq!(v, 10847);
         assert_eq!(format_int(v, Base::Hex, WordSize::Qword, true), "2A5F");
@@ -291,6 +297,7 @@ mod tests {
 
     #[test]
     fn negative_values_show_their_twos_complement_bits() {
+        crate::l10n::in_english();
         assert_eq!(format_int(-1, Base::Hex, WordSize::Byte, true), "FF");
         assert_eq!(format_int(-1, Base::Dec, WordSize::Byte, true), "-1");
         assert_eq!(format_int(-1, Base::Hex, WordSize::Qword, false), "FFFFFFFFFFFFFFFF");
@@ -299,6 +306,7 @@ mod tests {
 
     #[test]
     fn the_word_size_wraps_like_the_register() {
+        crate::l10n::in_english();
         assert_eq!(WordSize::Byte.wrap(255), -1);
         assert_eq!(WordSize::Byte.wrap(256), 0);
         assert_eq!(WordSize::Byte.wrap(128), -128);
@@ -310,6 +318,7 @@ mod tests {
 
     #[test]
     fn literals_accept_their_base_prefix_and_refuse_foreign_digits() {
+        crate::l10n::in_english();
         assert_eq!(parse_int("0x2a5f", Base::Hex, WordSize::Qword).unwrap(), 10847);
         assert_eq!(parse_int("0b1010", Base::Bin, WordSize::Qword).unwrap(), 10);
         assert_eq!(parse_int("-17", Base::Dec, WordSize::Qword).unwrap(), -17);
@@ -320,6 +329,7 @@ mod tests {
 
     #[test]
     fn a_digit_that_would_overflow_the_word_does_not_fit() {
+        crate::l10n::in_english();
         assert!(fits("FF", Base::Hex, WordSize::Byte));
         assert!(!fits("100", Base::Hex, WordSize::Byte));
         assert!(fits("255", Base::Dec, WordSize::Byte));
@@ -330,6 +340,7 @@ mod tests {
 
     #[test]
     fn shifts_lose_bits_and_the_right_shift_keeps_the_sign() {
+        crate::l10n::in_english();
         assert_eq!(shift_left(1, 3, WordSize::Qword).unwrap(), 8);
         assert_eq!(shift_left(0x80, 1, WordSize::Byte).unwrap(), 0);
         assert_eq!(shift_left(0x40, 1, WordSize::Byte).unwrap(), -128);
@@ -342,6 +353,7 @@ mod tests {
 
     #[test]
     fn rotates_wrap_the_bits_around_the_word() {
+        crate::l10n::in_english();
         assert_eq!(format_int(rotate_left(0x81, 1, WordSize::Byte).unwrap(), Base::Hex, WordSize::Byte, false), "3");
         assert_eq!(format_int(rotate_right(0x81, 1, WordSize::Byte).unwrap(), Base::Hex, WordSize::Byte, false), "C0");
         assert_eq!(rotate_left(5, 8, WordSize::Byte).unwrap(), 5);
@@ -352,6 +364,7 @@ mod tests {
 
     #[test]
     fn toggling_a_bit_flips_exactly_that_bit() {
+        crate::l10n::in_english();
         assert_eq!(toggle_bit(0, 0, WordSize::Qword), 1);
         assert_eq!(toggle_bit(10847, 0, WordSize::Qword), 10846);
         assert_eq!(toggle_bit(0, 7, WordSize::Byte), -128);
@@ -364,6 +377,7 @@ mod tests {
 
     #[test]
     fn a_base_accepts_only_its_digits() {
+        crate::l10n::in_english();
         assert!(Base::Bin.accepts(1) && !Base::Bin.accepts(2));
         assert!(Base::Oct.accepts(7) && !Base::Oct.accepts(8));
         assert!(Base::Dec.accepts(9) && !Base::Dec.accepts(10));

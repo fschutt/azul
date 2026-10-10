@@ -139,7 +139,7 @@ def body(args, logs, out):
     binary = e2e.find_binary("AzCalculator", args.bin, "AZCALCULATOR_BIN")
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
-    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--sample", "--size", "%dx%d" % MICRO],
+    app = e2e.App(TAG, binary, ["--data-dir", data_dir, "--sample", "--size", "%dx%d" % MICRO, "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("the history to load", lambda: app.printed("AZCALC_HISTORY_LOADED", r"\d+"))
@@ -378,7 +378,7 @@ def looks(args, logs, out, binary):
         data_dir = os.path.join(logs, "data-%s-%s" % (theme, mode))
         os.makedirs(data_dir, exist_ok=True)
         app = e2e.App(tag, binary, ["--data-dir", data_dir, "--sample", "--size", "%dx%d" % MICRO,
-                                    "--theme", theme, "--mode", mode],
+                                    "--theme", theme, "--mode", mode, "--language", "en"],
                       args.debug_port, logs, args.timeout)
         try:
             app.until("the history to load", lambda: app.printed("AZCALC_HISTORY_LOADED", r"\d+"))

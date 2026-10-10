@@ -249,44 +249,44 @@ pub fn scientific_keys(second: bool) -> Vec<KeyDef> {
 #[must_use]
 pub fn spoken(k: &KeyDef) -> &'static str {
     match k.id {
-        "key-percent" => "Percent",
-        "key-ce" => "Clear entry",
-        "key-c" => "Clear",
-        "key-back" => "Backspace",
-        "key-recip" => "Reciprocal",
-        "key-square" => "Square",
-        "key-cube" => "Cube",
-        "key-sqrt" => "Square root",
-        "key-cbrt" => "Cube root",
-        "key-divide" => "Divide",
-        "key-multiply" => "Multiply",
-        "key-minus" => "Minus",
-        "key-plus" => "Plus",
-        "key-negate" => "Change sign",
-        "key-point" => "Decimal point",
-        "key-equals" => "Equals",
-        "key-mc" => "Memory clear",
-        "key-mr" => "Memory recall",
-        "key-mplus" => "Memory add",
-        "key-mminus" => "Memory subtract",
-        "key-ms" => "Memory store",
-        "key-second" => "Second functions",
-        "key-pi" => "Pi",
-        "key-lparen" => "Open parenthesis",
-        "key-rparen" => "Close parenthesis",
-        "key-factorial" => "Factorial",
-        "key-pow" => "Power",
-        "key-pow10" => "Ten to the power",
-        "key-exp" => "e to the power",
-        "key-abs" => "Absolute value",
-        "key-mod" => "Modulo",
-        "key-fe" => "Scientific notation",
-        "key-exponent" => "Exponent",
-        "key-x" => "The variable x",
-        "key-shl" => "Shift left",
-        "key-shr" => "Shift right",
-        "key-rol" => "Rotate left",
-        "key-ror" => "Rotate right",
+        "key-percent" => "azcalculator-key-percent",
+        "key-ce" => "azcalculator-key-ce",
+        "key-c" => "azcalculator-key-c",
+        "key-back" => "azcalculator-key-back",
+        "key-recip" => "azcalculator-key-recip",
+        "key-square" => "azcalculator-key-square",
+        "key-cube" => "azcalculator-key-cube",
+        "key-sqrt" => "azcalculator-key-sqrt",
+        "key-cbrt" => "azcalculator-key-cbrt",
+        "key-divide" => "azcalculator-key-divide",
+        "key-multiply" => "azcalculator-key-multiply",
+        "key-minus" => "azcalculator-key-minus",
+        "key-plus" => "azcalculator-key-plus",
+        "key-negate" => "azcalculator-key-negate",
+        "key-point" => "azcalculator-key-point",
+        "key-equals" => "azcalculator-key-equals",
+        "key-mc" => "azcalculator-key-mc",
+        "key-mr" => "azcalculator-key-mr",
+        "key-mplus" => "azcalculator-key-mplus",
+        "key-mminus" => "azcalculator-key-mminus",
+        "key-ms" => "azcalculator-key-ms",
+        "key-second" => "azcalculator-key-second",
+        "key-pi" => "azcalculator-key-pi",
+        "key-lparen" => "azcalculator-key-lparen",
+        "key-rparen" => "azcalculator-key-rparen",
+        "key-factorial" => "azcalculator-key-factorial",
+        "key-pow" => "azcalculator-key-pow",
+        "key-pow10" => "azcalculator-key-pow10",
+        "key-exp" => "azcalculator-key-exp",
+        "key-abs" => "azcalculator-key-abs",
+        "key-mod" => "azcalculator-key-mod",
+        "key-fe" => "azcalculator-key-fe",
+        "key-exponent" => "azcalculator-key-exponent",
+        "key-x" => "azcalculator-key-x",
+        "key-shl" => "azcalculator-key-shl",
+        "key-shr" => "azcalculator-key-shr",
+        "key-rol" => "azcalculator-key-rol",
+        "key-ror" => "azcalculator-key-ror",
         _ => k.label,
     }
 }
@@ -334,7 +334,10 @@ pub fn key_dom(app: &RefAny, k: &KeyDef, enabled: bool, on: bool, hooks: &KeyHoo
     let mut dom = Dom::create_div_with_text(AzString::from(k.label))
         .with_id(ids::named(k.id))
         .with_css(key_css(k, enabled, on))
-        .with_accessibility_info(AccessibilityInfo::named(spoken(k), AccessibilityRole::PushButton))
+        .with_accessibility_info(AccessibilityInfo::named(
+            azul_appkit::l10n::label(spoken(k)),
+            AccessibilityRole::PushButton,
+        ))
         .with_callback(EventFilter::Focus(FocusEventFilter::Paste), app.clone(), hooks.paste)
         .with_callback(EventFilter::Focus(FocusEventFilter::Copy), app.clone(), hooks.copy);
     if enabled {
@@ -398,6 +401,7 @@ mod tests {
 
     #[test]
     fn every_keypad_key_has_a_unique_id() {
+        crate::l10n::in_english();
         for (name, keys) in [
             ("standard", standard_keys(false)),
             ("standard, programmer", standard_keys(true)),
@@ -424,6 +428,7 @@ mod tests {
 
     #[test]
     fn the_keypads_fill_their_grids() {
+        crate::l10n::in_english();
         assert_eq!(standard_keys(false).len(), 6 * 4);
         assert_eq!(standard_keys(true).len(), 6 * 4);
         assert_eq!(scientific_keys(false).len(), 5 * 9);
@@ -433,6 +438,7 @@ mod tests {
 
     #[test]
     fn the_second_key_swaps_the_function_row() {
+        crate::l10n::in_english();
         let first = scientific_keys(false);
         let second = scientific_keys(true);
         assert!(first.iter().any(|k| k.id == "key-sin"));
@@ -442,9 +448,10 @@ mod tests {
 
     #[test]
     fn signs_are_spoken_as_words() {
+        crate::l10n::in_english();
         let keys = standard_keys(false);
         let divide = keys.iter().find(|k| k.id == "key-divide").unwrap();
-        assert_eq!(spoken(divide), "Divide");
+        assert_eq!(spoken(divide), "azcalculator-key-divide");
         let seven = keys.iter().find(|k| k.id == "key-7").unwrap();
         assert_eq!(spoken(seven), "7");
         assert!(key_css(seven, true, false).contains("EB Garamond"));

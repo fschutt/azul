@@ -353,6 +353,7 @@ mod tests {
 
     #[test]
     fn division_is_a_fraction_and_powers_are_raised() {
+        crate::l10n::in_english();
         assert_eq!(set("1/2").text(), "(1)/(2)");
         assert!(matches!(set("1/2"), M::Frac(..)));
         assert_eq!(set("x^2").text(), "x^(2)");
@@ -362,6 +363,7 @@ mod tests {
 
     #[test]
     fn functions_take_their_own_forms() {
+        crate::l10n::in_english();
         assert_eq!(set("sqrt(x)").text(), "\u{221a}(x)");
         assert_eq!(set("cbrt(8)").text(), "3\u{221a}(8)");
         assert_eq!(set("abs(x)").text(), "|x|");
@@ -373,6 +375,7 @@ mod tests {
 
     #[test]
     fn a_number_times_a_letter_is_set_without_a_dot() {
+        crate::l10n::in_english();
         assert_eq!(set("2x").text(), "2x");
         assert_eq!(set("2*pi").text(), "2\u{3c0}");
         assert_eq!(set("x*x").text(), "x \u{b7} x");
@@ -382,6 +385,7 @@ mod tests {
 
     #[test]
     fn parentheses_only_where_they_are_needed() {
+        crate::l10n::in_english();
         assert_eq!(set("(1+2)*3").text(), "(1 + 2) \u{b7} 3");
         assert_eq!(set("1-(2+3)").text(), "1 \u{2212} (2 + 3)");
         assert_eq!(set("1+(2+3)").text(), "1 + 2 + 3");
@@ -390,6 +394,7 @@ mod tests {
 
     #[test]
     fn fractions_grow_the_fences_around_them() {
+        crate::l10n::in_english();
         assert_eq!(set("(1/2)").height(), 1);
         assert_eq!(set("1/(1/2)").height(), 2);
         assert_eq!(set("x+1").height(), 0);
@@ -397,6 +402,7 @@ mod tests {
 
     #[test]
     fn the_entry_being_typed_has_holes_and_letters() {
+        crate::l10n::in_english();
         let t = tokenize("2 +", Domain::Decimal).unwrap();
         assert_eq!(entry(&t, "", true).unwrap().text(), "2 + \u{25a1}");
         assert_eq!(entry(&t, "si", true).unwrap().text(), "2 + si");

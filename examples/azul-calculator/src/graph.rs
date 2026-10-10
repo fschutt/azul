@@ -475,6 +475,7 @@ mod tests {
 
     #[test]
     fn the_viewport_maps_points_to_pixels_and_back() {
+        crate::l10n::in_english();
         let vp = Viewport::fresh(400.0);
         assert!(close(vp.x_range(400.0), (-10.0, 10.0)));
         assert!(close(vp.y_range(200.0), (-5.0, 5.0)), "square units");
@@ -486,6 +487,7 @@ mod tests {
 
     #[test]
     fn zooming_keeps_the_point_under_the_pointer() {
+        crate::l10n::in_english();
         let mut vp = Viewport::fresh(400.0);
         let before = vp.from_px(300.0, 50.0, 400.0, 200.0);
         vp.zoom_at(0.5, 300.0, 50.0, 400.0, 200.0);
@@ -496,6 +498,7 @@ mod tests {
 
     #[test]
     fn a_drag_moves_the_plane_with_the_pointer() {
+        crate::l10n::in_english();
         let start = Viewport::fresh(400.0);
         let vp = Viewport::dragged(start, 100.0, -50.0);
         // Dragged right by 100 px (5 units): the centre is now 5 units left.
@@ -505,6 +508,7 @@ mod tests {
 
     #[test]
     fn grid_steps_are_one_two_or_five() {
+        crate::l10n::in_english();
         assert_eq!(nice_step(0.05, 80.0), 5.0);
         assert_eq!(nice_step(0.05, 30.0), 2.0);
         assert_eq!(nice_step(0.001, 80.0), 0.1);
@@ -518,6 +522,7 @@ mod tests {
 
     #[test]
     fn compiled_functions_evaluate_in_radians() {
+        crate::l10n::in_english();
         assert!((fx("sin(x)*x^2").eval(2.0) - 2f64.sin() * 4.0).abs() < 1e-12);
         assert_eq!(fx("2x+1").eval(3.0), 7.0);
         assert!(fx("sqrt(x)").eval(-1.0).is_nan());
@@ -530,6 +535,7 @@ mod tests {
 
     #[test]
     fn sampling_breaks_at_asymptotes_and_gaps() {
+        crate::l10n::in_english();
         let vp = Viewport::fresh(400.0);
         let runs = sample(&fx("1/x"), &vp, 400.0, 200.0, 2.0);
         assert_eq!(runs.len(), 2, "1/x: one branch each side of 0");
@@ -545,6 +551,7 @@ mod tests {
 
     #[test]
     fn the_svg_has_a_path_per_curve() {
+        crate::l10n::in_english();
         let s = svg(
             400.0,
             200.0,
