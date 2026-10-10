@@ -216,9 +216,40 @@ pub fn fake_answer(
     authorize_url: &str,
     redirect_uri: &str,
 ) -> AuthSessionResult {
-    // RED: the fake is not written yet.
-    let _ = (fake, authorize_url);
-    AuthSessionResult::ended(AuthSessionStatus::Unsupported, redirect_uri, "")
+    let fake = fake.map(str::trim).unwrap_or_default();
+    match fake {
+        "" => AuthSessionResult::ended(
+            AuthSessionStatus::Unsupported,
+            redirect_uri,
+            &format!(
+                "a headless run opens no browser; it answers a sign-in from {FAKE_REDIRECT_VAR}, \
+                 which is not set"
+            ),
+        ),
+        "cancel" => AuthSessionResult::ended(
+            AuthSessionStatus::Cancelled,
+            redirect_uri,
+            "the sign-in was cancelled",
+        ),
+        "timeout" => AuthSessionResult::ended(
+            AuthSessionStatus::TimedOut,
+            redirect_uri,
+            "the sign-in did not come back in time",
+        ),
+        template => {
+            let param = |name: &str| {
+                azul_core::webview::url_query_param(authorize_url, name).unwrap_or_default()
+            };
+            let url = template
+                .replace("{redirect_uri}", redirect_uri)
+                .replace("{state}", &auth::percent_encode(&param("state")))
+                .replace(
+                    "{code_challenge}",
+                    &auth::percent_encode(&param("code_challenge")),
+                );
+            auth::finish(&url, redirect_uri, authorize_url)
+        }
+    }
 }
 
 /// A loopback redirect: the listener first (its port goes into the authorize URL), then the
