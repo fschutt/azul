@@ -513,3 +513,68 @@ fn a_command_the_grammar_does_not_know_is_bad_and_the_session_goes_on() {
     let id = client.ok("b5", "ID (\"name\" \"Mail\")");
     assert!(has(&id, "* ID (\"name\" \"Azlin Bridge\""));
 }
+
+/// The HIGHESTMODSEQ a response line names.
+fn highest_of(lines: &[String]) -> u64 {
+    lines
+        .iter()
+        .find_map(|line| line.split("HIGHESTMODSEQ ").nth(1))
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|digits| digits.parse().ok())
+        .expect("a HIGHESTMODSEQ")
+}
+
+/// CONDSTORE and QRESYNC (RFC 7162): a mail program keeps a mailbox's HIGHESTMODSEQ and asks
+/// only what changed since - flags with their mod-sequences, the UIDs expunged (VANISHED) -;
+/// a STORE that would overwrite another device's newer change is not made for that message
+/// (MODIFIED); STATUS and SEARCH know mod-sequences too.
+#[test]
+fn condstore_and_qresync_tell_only_what_changed_since_a_mod_sequence() {
+    let drive = seeded();
+    let imap = bridge(drive.clone());
+    let mut client = Client::signed_in(imap.clone());
+    assert!(has(&client.ok("q0", "CAPABILITY"), "CONDSTORE QRESYNC"));
+    assert!(has(&client.ok("q1", "ENABLE QRESYNC"), "* ENABLED QRESYNC"));
+    let selected = client.ok("q2", "SELECT INBOX (CONDSTORE)");
+    let highest = highest_of(&selected);
+    let all = client.ok("q3", "UID FETCH 1:* (FLAGS) (CHANGEDSINCE 1)");
+    assert_eq!(
+        all.iter().filter(|l| l.contains(" FETCH (") && l.contains("MODSEQ (")).count(),
+        2,
+        "{all:?}"
+    );
+    let nothing = client.ok("q4", &format!("UID FETCH 1:* (FLAGS) (CHANGEDSINCE {highest})"));
+    assert_eq!(nothing.len(), 1, "nothing changed since: {nothing:?}");
+
+    // Another device archives the first message and flags the second.
+    let keys: Vec<String> = drive
+        .keys()
+        .into_iter()
+        .filter(|k| k.starts_with("mail/Inbox/"))
+        .collect();
+    let second_id = azlin::message_id(&keys[1]).unwrap().to_string();
+    drive.delete(&keys[0]).unwrap();
+    drive.put(&azlin::marker_key(&second_id, azlin::FLAGGED), &[]).unwrap();
+    std::thread::sleep(Duration::from_millis(2100));
+    let noop = client.ok("q5", "NOOP");
+    assert!(has(&noop, "* VANISHED 1"), "QRESYNC tells an expunge by its UID: {noop:?}");
+    assert!(has(&noop, "* 1 FETCH (UID 2 FLAGS (\\Flagged) MODSEQ ("), "{noop:?}");
+
+    // A second program comes back with what it knew: told what went and what changed.
+    let mut other = Client::signed_in(imap);
+    other.ok("r0", "ENABLE QRESYNC");
+    let resync = other.ok("r1", &format!("SELECT INBOX (QRESYNC (1700000000 {highest}))"));
+    assert!(has(&resync, "* VANISHED (EARLIER) 1"), "{resync:?}");
+    assert!(has(&resync, "* 1 FETCH (UID 2 FLAGS (\\Flagged) MODSEQ ("), "{resync:?}");
+    let now = highest_of(&resync);
+    assert!(now > highest);
+
+    let refused = other.run("r2", &format!("UID STORE 2 +FLAGS (\\Seen) (UNCHANGEDSINCE {highest})"));
+    assert!(refused.last().unwrap().contains("[MODIFIED 2]"), "{refused:?}");
+    let stored = other.ok("r3", &format!("UID STORE 2 +FLAGS (\\Seen) (UNCHANGEDSINCE {now})"));
+    assert!(has(&stored, "MODSEQ ("), "{stored:?}");
+    let status = other.ok("r4", "STATUS INBOX (HIGHESTMODSEQ MESSAGES)");
+    assert!(has(&status, "HIGHESTMODSEQ ") && has(&status, "MESSAGES 1"), "{status:?}");
+    let search = other.ok("r5", &format!("UID SEARCH MODSEQ {now}"));
+    assert!(has(&search, "* SEARCH 2 (MODSEQ "), "{search:?}");
+}

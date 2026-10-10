@@ -1351,4 +1351,47 @@ mod tests {
         assert!(bad(b"A1 FROBNICATE").message.contains("unknown command"));
         assert!(bad(b"A1 UID NOOP").message.contains("no command"));
     }
+
+    #[test]
+    fn condstore_qresync_and_esearch_modifiers_and_enable_are_read() {
+        let command =
+            parse_command(b"A1 SELECT INBOX (QRESYNC (67890007 20050715194045000 41,43:211,214:541))").unwrap();
+        assert_eq!(command.kind, CommandKind::Select(b"INBOX".to_vec()));
+        let qresync = command.modifiers.qresync.expect("QRESYNC's parameters");
+        assert_eq!((qresync.validity, qresync.modseq), (67_890_007, 20_050_715_194_045_000));
+        assert!(qresync.known.is_some());
+        assert!(parse_command(b"A2 EXAMINE INBOX (CONDSTORE)").unwrap().modifiers.condstore);
+        let fetch = parse_command(b"A3 UID FETCH 1:* (FLAGS) (CHANGEDSINCE 12345 VANISHED)").unwrap();
+        assert_eq!((fetch.modifiers.changed_since, fetch.modifiers.vanished), (Some(12345), true));
+        let store = parse_command(b"A4 STORE 1:3 (UNCHANGEDSINCE 320162338) +FLAGS.SILENT (\\Deleted)").unwrap();
+        assert_eq!(store.modifiers.unchanged_since, Some(320_162_338));
+        assert!(matches!(store.kind, CommandKind::Store { silent: true, .. }));
+        let enable = parse_command(b"A5 ENABLE CONDSTORE qresync").unwrap();
+        assert_eq!(enable.modifiers.enable, vec!["CONDSTORE", "QRESYNC"]);
+        assert_eq!(
+            parse("A6 SEARCH MODSEQ \"/flags/\\\\draft\" all 620162338"),
+            CommandKind::Search {
+                uid: false,
+                key: SearchKey::Modseq(620_162_338),
+            }
+        );
+        assert_eq!(
+            parse("A7 FETCH 1 (UID MODSEQ)"),
+            CommandKind::Fetch {
+                uid: false,
+                set: set(&[(Bound::Num(1), Bound::Num(1))]),
+                atts: vec![FetchAtt::Uid, FetchAtt::Modseq],
+            }
+        );
+        assert_eq!(
+            parse("A8 STATUS INBOX (HIGHESTMODSEQ SIZE DELETED)"),
+            CommandKind::Status {
+                mailbox: b"INBOX".to_vec(),
+                items: vec![StatusItem::HighestModseq, StatusItem::Size, StatusItem::Deleted],
+            }
+        );
+        let search = parse_command(b"A9 UID SEARCH RETURN (MIN COUNT) UNSEEN").unwrap();
+        assert_eq!(search.modifiers.search_return, Some(vec![String::from("MIN"), String::from("COUNT")]));
+        assert_eq!(search.kind, CommandKind::Search { uid: true, key: SearchKey::Unseen });
+    }
 }
