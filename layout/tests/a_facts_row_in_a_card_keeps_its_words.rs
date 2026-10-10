@@ -103,6 +103,28 @@ const STATE_FACTS: [(&str, &str); 3] = [
     ("Since", "2026-10-10 05:06:40 UTC (3 min ago)"),
 ];
 
+/// The state card's facts a poll later: AzCtl's `when()` words the time relative to now, so a
+/// poll that brings news rewrites the "Since" value (and the page head's "Fetched" words).
+const STATE_FACTS_LATER: [(&str, &str); 3] = [
+    ("Nodes", "3 as processes (block local, 2+1)"),
+    ("State folder", "/home/dev/.local/share/azlin/local"),
+    ("Since", "2026-10-10 05:06:40 UTC (4 min ago)"),
+];
+
+std::thread_local! {
+    /// Which poll the page shows: 0 the first, 1 the next (its times moved on).
+    static POLL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The state card's facts at the current poll.
+fn state_facts() -> &'static [(&'static str, &'static str)] {
+    if POLL.with(std::cell::Cell::get) == 0 {
+        &STATE_FACTS
+    } else {
+        &STATE_FACTS_LATER
+    }
+}
+
 /// The apps card's facts (`view.rs::local_apps`).
 const APPS_FACTS: [(&str, &str); 6] = [
     ("Shared Azlin config", "/home/dev/.config/azlin/config.toml"),
@@ -492,7 +514,7 @@ fn local_state() -> Dom {
         "gap: 8px; padding-bottom: 6px;",
         vec![badge("running"), text("Running, 3 of 3 nodes")],
     ));
-    body.add_child(facts("state", &STATE_FACTS));
+    body.add_child(facts("state", state_facts()));
     body.add_child(form_row(vec![
         div(FIELD)
             .with_child(para("Nodes run as", FIELD_LABEL))
@@ -543,7 +565,7 @@ fn page() -> Dom {
         PAGE_HEAD,
         vec![
             para("Local environment", PAGE_TITLE),
-            quiet("Fetched 2 s ago"),
+            quiet(&format!("Fetched {} s ago", 2 + 5 * POLL.with(std::cell::Cell::get))),
             spacer(),
             button("Refresh"),
         ],
@@ -839,13 +861,13 @@ fn check_window(case: &str, lw: &LayoutWindow) {
         .iter()
         .map(|n| n.to_string())
         .collect();
-    names.extend(card_chain("state", STATE_FACTS.len()));
+    names.extend(card_chain("state", state_facts().len()));
     names.extend(card_chain("apps", APPS_FACTS.len()));
     print_chain(case, lw, &names);
 
     // a classic scrollbar on the page takes at most 16 px of the rows' width
     let min_row_w = PAGE_CONTENT_W - CARD_INSET - 16.0;
-    assert_facts_keep_their_words(case, lw, "state", &STATE_FACTS, min_row_w);
+    assert_facts_keep_their_words(case, lw, "state", state_facts(), min_row_w);
     assert_facts_keep_their_words(case, lw, "apps", &APPS_FACTS, min_row_w);
 
     let sidebar = rect_of_id(lw, "shell-sidebar");
@@ -859,15 +881,26 @@ fn check_window(case: &str, lw: &LayoutWindow) {
     );
 }
 
-/// The window's first frame, a rebuild of the same page (AzCtl rebuilds its DOM when a poll
-/// brings news) and a resize to 1200 px and back: every frame keeps the words.
+/// Shows poll `poll` from the next frame on.
+fn set_poll(poll: usize) {
+    POLL.with(|p| p.set(poll));
+}
+
+/// The window's first frame, a rebuild of the same page, the next poll (AzCtl rebuilds its
+/// DOM when a poll brings news: the "Since" value and the page head's "Fetched" words change,
+/// the rest of the page stays as it was laid out) and a resize to 1200 px and back: every
+/// frame keeps the words.
 #[test]
 fn a_facts_row_on_azctls_local_page_keeps_its_words() {
     let mut lw = new_window();
+    set_poll(0);
     frame(&mut lw, window, WINDOW_W);
     check_window("in the window's first frame", &lw);
     frame(&mut lw, window, WINDOW_W);
     check_window("in the window rebuilt", &lw);
+    set_poll(1);
+    frame(&mut lw, window, WINDOW_W);
+    check_window("in the window at the next poll", &lw);
     frame(&mut lw, window, 1200.0);
     frame(&mut lw, window, WINDOW_W);
     check_window("in the window resized to 1200 px and back", &lw);
@@ -885,20 +918,24 @@ fn plain_column() -> Dom {
 
 fn check_plain_column(case: &str, lw: &LayoutWindow) {
     let mut names: Vec<String> = vec!["local".to_string()];
-    names.extend(card_chain("state", STATE_FACTS.len()));
+    names.extend(card_chain("state", state_facts().len()));
     names.extend(card_chain("apps", APPS_FACTS.len()));
     print_chain(case, lw, &names);
 
     let min_row_w = PAGE_CONTENT_W - CARD_INSET - 0.5;
-    assert_facts_keep_their_words(case, lw, "state", &STATE_FACTS, min_row_w);
+    assert_facts_keep_their_words(case, lw, "state", state_facts(), min_row_w);
     assert_facts_keep_their_words(case, lw, "apps", &APPS_FACTS, min_row_w);
 }
 
 #[test]
 fn a_facts_row_in_a_card_in_a_plain_column_keeps_its_words() {
     let mut lw = new_window();
+    set_poll(0);
     frame(&mut lw, plain_column, WINDOW_W);
     check_plain_column("in a plain column", &lw);
     frame(&mut lw, plain_column, WINDOW_W);
     check_plain_column("in a plain column rebuilt", &lw);
+    set_poll(1);
+    frame(&mut lw, plain_column, WINDOW_W);
+    check_plain_column("in a plain column at the next poll", &lw);
 }
