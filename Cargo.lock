@@ -1438,6 +1438,7 @@ checksum = "343e24eeae9f09f61afeafcc7112e8d62f965bf0c6b30cedb5f89cc0b200380f"
 name = "azul-storage"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "argon2",
  "azul-dll",
  "blake3",
@@ -1445,6 +1446,7 @@ dependencies = [
  "chacha20poly1305",
  "futures",
  "getrandom 0.2.17",
+ "hkdf",
  "hmac 0.12.1",
  "http",
  "opendal",

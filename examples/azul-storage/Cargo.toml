@@ -102,6 +102,11 @@ argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "ze
 getrandom = { version = "0.2", optional = true }
 # Wiping keys and plaintext buffers.
 zeroize = { version = "1.8", features = ["alloc"], optional = true }
+# AZD1, the drops of incoming mail (src/crypto/drop.rs): the customer's Email Worker has Web
+# Crypto only, so X25519 + HKDF-SHA256 + AES-256-GCM. Both in Cargo.lock already (aes-gcm 0.10.3
+# through noq-proto, the QUIC stack; hkdf 0.12 through azcloud-kit, AzMeet, AzCalendar).
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"], optional = true }
+hkdf = { version = "0.12", optional = true }
 
 [features]
 default = []
@@ -122,6 +127,8 @@ encryption = [
     "dep:argon2",
     "dep:getrandom",
     "dep:zeroize",
+    "dep:aes-gcm",
+    "dep:hkdf",
 ]
 
 [lib]

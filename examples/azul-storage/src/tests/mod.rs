@@ -44,6 +44,9 @@ mod migrate;
 /// The recompression pass (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod recompress;
+/// The drops of incoming mail, AZD1 (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod drop;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
