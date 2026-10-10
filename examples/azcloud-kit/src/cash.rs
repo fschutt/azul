@@ -17,10 +17,10 @@
 //!
 //!   Whoever reads the claim code learns the checkout id and can open its sealed sign-up while
 //!   the token server keeps it (30 days after the payment): the drive's id, its bucket, its
-//!   temporary S3 credentials, its drive token and its period tokens' issue key - the drive,
-//!   as the buyer's device has it. Spending that drive token after the buyer's device rotated
-//!   it is a reuse, which revokes the buyer's token family too. Before the payment and after
-//!   the 30 days it shows the checkout's status only.
+//!   temporary S3 credentials, its first drive token, its period tokens' issue key and its claim
+//!   ticket - with which a computer claims a token family of its own (`POST /v1/drives/{id}/
+//!   claim`, three pick-ups within 30 days of the first): the drive, as a device of its owner.
+//!   Before the payment and after the 30 days it shows the checkout's status only.
 
 use std::fmt;
 
@@ -293,6 +293,8 @@ impl ClaimCode {
     pub fn pending(&self, token_url: &str, name: &str) -> PendingCheckout {
         let mut kept = PendingCheckout::new(&self.checkout_id, &self.claim, "", token_url, name);
         kept.method = CASH_METHOD.to_string();
+        // Its drive is claimed as a token family of this computer's own.
+        kept.picked_up = true;
         kept
     }
 }
