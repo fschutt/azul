@@ -30,10 +30,18 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     with a `sealed_signup` (and no plaintext `signup`) that opens with the claim secret for that
     checkout id to a drive bundle - and opens for no other checkout id; a second GET answers it
     again (kept, not deleted on read); an unknown checkout is 404.
+10. The period tokens (AZLINSEC17 F24, scripts/azlin_period.py): the sealed sign-up carries
+    `period_tokens` with the checkout's id, its months and an issue key; GET /v1/tokens/keys names
+    the tier's issuer key; POST /v1/tokens/issue without the issue key is 400
+    `issue_key_required`, with another one 403 `issue_key_wrong`, with it 200 and one blind
+    signature per month that finalizes into a token the issuer key verifies; one more is 409
+    `already_issued`; POST /v1/drives/<id>/redeem with the drive token takes a token for a month
+    more, and the same token again is 409 `token_used`.
 
-Every drive token and claim secret is secret: none is printed.
+Every drive token, claim secret and issue key is secret: none is printed.
 """
 import argparse
+import calendar
 import json
 import os
 import re
@@ -46,6 +54,7 @@ sys.path.insert(0, HERE)
 
 import azlin_claim  # noqa: E402
 import azlin_client  # noqa: E402
+import azlin_period  # noqa: E402
 
 # The test provider's card that approves (the mock's and azlin-token's payments.rs).
 APPROVING_CARD = '4242 4242 4242 4242'
@@ -68,6 +77,15 @@ class Suite:
 
 def error_code(value):
     return (value or {}).get('error') if isinstance(value, dict) else None
+
+
+def unix_of(text):
+    """RFC 3339 (`2026-11-07T09:15:00Z`, milliseconds or not) to seconds since 1970; None."""
+    try:
+        return calendar.timegm(time.strptime(str(text).split('.')[0].rstrip('Z'),
+                                             '%Y-%m-%dT%H:%M:%S'))
+    except ValueError:
+        return None
 
 
 def run(token_url, s3_url=None):
@@ -147,7 +165,7 @@ def run(token_url, s3_url=None):
 
 def claim_checks(suite, client):
     """9. The claim of a paid drive: the sign-up sealed to the checkout's claim key."""
-    order = {'tier': '100GB', 'months': 1, 'method': 'card'}
+    order = {'tier': '100GB', 'months': 3, 'method': 'card'}
     status, value, _ = client.call('POST', '/v1/checkout', order)
     suite.check('a checkout without a claim key is 400 claim_key_required',
                 status == 400 and error_code(value) == 'claim_key_required',
@@ -194,6 +212,77 @@ def claim_checks(suite, client):
                 (again or {}).get('sealed_signup') == sealed)
     status, value, _ = client.call('GET', '/v1/checkout/ck_' + 'a' * 26)
     suite.check('an unknown checkout is 404', status == 404, '(HTTP %d %r)' % (status, value))
+    if bundle is not None:
+        period_checks(suite, client, checkout_id, order, bundle)
+
+
+def period_checks(suite, client, checkout_id, order, bundle):
+    """10. The period tokens of the paid checkout: issued against the sealed sign-up's issue key
+    only, finalized, redeemed once."""
+    grant = bundle.get('period_tokens') or {}
+    issue_key = grant.get('issue_key') or ''
+    months, tier = order['months'], order['tier']
+    if not suite.check("the sealed sign-up grants the checkout's months against an issue key",
+                       grant.get('checkout_id') == checkout_id and grant.get('months') == months
+                       and len(issue_key) == 43, '(keys %s, months %r)' % (sorted(grant),
+                                                                        grant.get('months'))):
+        return
+    status, value, _ = client.call('GET', '/v1/tokens/keys')
+    keys = {k.get('tier'): k for k in ((value or {}).get('keys') or []) if isinstance(k, dict)}
+    key = keys.get(tier) or {}
+    try:
+        n, e = azlin_period.parse_public_key_pem(key.get('public_key_pem') or '')
+    except ValueError as err:
+        suite.check("GET /v1/tokens/keys names the tier's issuer key", False, '(%s)' % err)
+        return
+    suite.check("GET /v1/tokens/keys names the tier's issuer key (RSA, 2048 bits or more)",
+                status == 200 and key.get('key_id') == '%s/%s' % (tier, key.get('year'))
+                and n.bit_length() >= 2048, '(HTTP %d, %r)' % (status, key.get('key_id')))
+    blindings = [azlin_period.blind(n, e, tier, key['year']) for _ in range(months)]
+    request = {'checkout_id': checkout_id, 'blinded': [blinded for _, blinded in blindings]}
+    status, value, _ = client.call('POST', '/v1/tokens/issue', request)
+    suite.check('period tokens without the issue key are 400 issue_key_required',
+                status == 400 and error_code(value) == 'issue_key_required',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', '/v1/tokens/issue',
+                                   dict(request, issue_key=azlin_period.new_issue_key()[0]))
+    suite.check('period tokens with another issue key are 403 issue_key_wrong',
+                status == 403 and error_code(value) == 'issue_key_wrong',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', '/v1/tokens/issue', dict(request, issue_key=issue_key))
+    signatures = (value or {}).get('blind_signatures') or []
+    if not suite.check('period tokens with the issue key are 200, one blind signature a month',
+                       status == 200 and len(signatures) == months
+                       and (value or {}).get('key_id') == key.get('key_id'),
+                       '(HTTP %d, %d signatures)' % (status, len(signatures))):
+        return
+    try:
+        tokens = [azlin_period.finalize(n, e, state, signature)
+                  for (state, _), signature in zip(blindings, signatures)]
+        suite.check('every blind signature finalizes into a token the issuer key verifies', True)
+    except ValueError as err:
+        suite.check('every blind signature finalizes into a token the issuer key verifies', False,
+                    '(%s)' % err)
+        return
+    one_more = azlin_period.blind(n, e, tier, key['year'])[1]
+    status, value, _ = client.call('POST', '/v1/tokens/issue',
+                                   {'checkout_id': checkout_id, 'blinded': [one_more],
+                                    'issue_key': issue_key})
+    suite.check('a token past the paid months is 409 already_issued',
+                status == 409 and error_code(value) == 'already_issued',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    drive_id = (bundle.get('drive') or {}).get('id') or ''
+    path = '/v1/drives/%s/redeem' % drive_id
+    status, value, _ = client.call('POST', path, tokens[0], bearer=bundle.get('drive_token'))
+    until = unix_of((value or {}).get('period_until'))
+    before = unix_of(bundle.get('period_until'))
+    suite.check('a period token redeemed with the drive token makes the period longer',
+                status == 200 and until is not None and before is not None and until > before,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path, tokens[0], bearer=bundle.get('drive_token'))
+    suite.check('the same period token again is 409 token_used',
+                status == 409 and error_code(value) == 'token_used',
+                '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def main():

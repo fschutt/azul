@@ -12,7 +12,10 @@
 
 use std::sync::{atomic::AtomicBool, Arc};
 
-use azcloud_kit::{pending::Claimed, Checkout, PendingCheckout, Tiers};
+use azcloud_kit::{
+    pending::{Claimed, Finished},
+    Checkout, PendingCheckout, Tiers,
+};
 use azul::{prelude::*, url::Url};
 use azul_storage::{
     config::{self, DriveEntry, DrivesFile},
@@ -592,15 +595,26 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     s.claiming = true;
     let keyring = s.keyring.clone();
     let token_url = s.token.url.clone();
-    spawn(info, app, s, Job::Claims { keyring, token_url });
+    let store = s.period_tokens.clone();
+    spawn(
+        info,
+        app,
+        s,
+        Job::Claims {
+            keyring,
+            token_url,
+            store,
+        },
+    );
 }
 
 /// A paid checkout's drive, its session in the keyring (written there under the drive's lock):
 /// from the dialog's wait (`serial`: the dialog closes and the window opens the drive) or from
 /// the background claims (it joins the source list, the window stays where it is). Idempotent
 /// by drive id: a drive the window has keeps its slot and its session. Once the drive is in the
-/// drives file its checkout leaves the keyring's list; until then the next start claims it
-/// again.
+/// drives file its checkout is finished (AZDRIVE-INTEGRATION §4): it leaves the keyring's list,
+/// a paid one only after its period tokens are issued and kept ([`Job::FinishCheckout`]); until
+/// then the next start claims it again.
 pub(crate) fn claimed(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -611,6 +625,11 @@ pub(crate) fn claimed(
 ) {
     let drive_id = claimed.bundle.drive_id().to_string();
     println!("AZDRIVE_CLAIMED {} {drive_id}", checkout.checkout_id);
+    let token_url = if checkout.token_url.is_empty() {
+        s.token.url.clone().unwrap_or_default()
+    } else {
+        checkout.token_url.clone()
+    };
     let from_dialog = serial.is_some_and(|serial| dialog_of(s, serial).is_some());
     let in_drives_file = match s.slot_index(&drive_id) {
         Some(index) => {
@@ -622,11 +641,6 @@ pub(crate) fn claimed(
             true
         }
         None => {
-            let token_url = if checkout.token_url.is_empty() {
-                s.token.url.clone().unwrap_or_default()
-            } else {
-                checkout.token_url.clone()
-            };
             let entry = claimed.bundle.entry_named(&checkout.name, &token_url);
             let saved = save_entry(s.drives_file.as_deref(), &entry);
             add_slot(
@@ -651,16 +665,15 @@ pub(crate) fn claimed(
         }
     };
     if in_drives_file {
-        let keyring = s.keyring.clone();
-        spawn(
-            info,
-            app,
-            s,
-            Job::ForgetCheckout {
-                keyring,
-                checkout_id: checkout.checkout_id.clone(),
-            },
-        );
+        let job = Job::FinishCheckout {
+            keyring: s.keyring.clone(),
+            store: s.period_tokens.clone(),
+            checkout: checkout.clone(),
+            drive_id,
+            grant: claimed.bundle.period_tokens.clone(),
+            token_url,
+        };
+        spawn(info, app, s, job);
     }
 }
 
@@ -679,16 +692,30 @@ pub(crate) fn claims_done(s: &mut DriveState, problem: Option<String>) {
     }
 }
 
-/// A claimed checkout's removal from the keyring's list.
-pub(crate) fn checkout_forgotten(
+/// A claimed checkout finished: off the keyring's list, its period tokens kept - or what kept it
+/// there (a failed issue is tried again by the claims and at the next start, quietly).
+pub(crate) fn checkout_finished(
     s: &mut DriveState,
     checkout_id: &str,
-    result: Result<bool, String>,
+    result: Result<Option<Finished>, String>,
 ) {
-    if let Err(why) = result {
-        s.error(format!(
-            "The checkout {checkout_id} could not be taken off the keyring's list ({why}); \
+    match result {
+        Ok(None | Some(Finished::Settled)) => {}
+        Ok(Some(Finished::Issued { drive_id, count })) => {
+            println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
+        }
+        Ok(Some(Finished::Dropped(why))) => s.warn(format!(
+            "The paid months of the checkout {checkout_id} could not be fetched: {why}."
+        )),
+        Ok(Some(Finished::Kept(why))) => {
+            eprintln!(
+                "[azdrive] the period tokens of the checkout {checkout_id} wait for the next \
+                 try: {why}"
+            );
+        }
+        Err(why) => s.error(format!(
+            "The checkout {checkout_id} could not be finished in the keyring's list ({why}); \
              AzDrive asks about it again at its next start."
-        ));
+        )),
     }
 }
