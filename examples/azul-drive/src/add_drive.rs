@@ -171,14 +171,26 @@ pub(crate) fn country_of_locale(locale: &str) -> Option<String> {
         .then_some(region)
 }
 
-/// The payer's country this run starts with: the locale's (`LC_ALL`, `LC_MESSAGES`, `LANG`),
-/// else Germany.
+/// The payer's country this run starts with ([`country_from`] the environment).
 #[must_use]
 pub(crate) fn default_country() -> String {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .find_map(|locale| country_of_locale(&locale))
+    country_from(|name| std::env::var(name).ok())
+}
+
+/// The payer's country from the environment `var`: `AZLIN_COUNTRY` (a code of [`COUNTRIES`],
+/// any case), else the locale's (`LC_ALL`, `LC_MESSAGES`, `LANG`), else Germany.
+#[must_use]
+pub(crate) fn country_from(var: impl Fn(&str) -> Option<String>) -> String {
+    let named = var("AZLIN_COUNTRY")
+        .map(|code| code.trim().to_ascii_uppercase())
+        .filter(|code| COUNTRIES.iter().any(|(c, _)| c == code));
+    named
+        .or_else(|| {
+            ["LC_ALL", "LC_MESSAGES", "LANG"]
+                .iter()
+                .filter_map(|name| var(*name))
+                .find_map(|locale| country_of_locale(&locale))
+        })
         .unwrap_or_else(|| String::from("DE"))
 }
 
