@@ -436,8 +436,11 @@ fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
     assert_eq!(body["prefix"], "docs/");
     assert_eq!(body["as_of"], "2026-10-08T09:00:00Z");
     assert_eq!(calls[4].url, format!("{TOKEN}/v1/drives/d_1/restore/rs_1"));
-    for call in &calls {
-        assert_eq!(header(call, "authorization"), Some("Bearer dt_f.0.aaa"));
+    for (at, call) in calls.iter().enumerate() {
+        // F12: the cancel of a recovery lockdown is signed by the recovery key alone - it
+        // carries no drive token (a stolen device must not cancel the owner's recovery).
+        let expected = if at == 2 { None } else { Some("Bearer dt_f.0.aaa") };
+        assert_eq!(header(call, "authorization"), expected, "{}", call.url);
     }
     assert!(matches!(
         server.info("../d_1", "dt_f.0.aaa"),
