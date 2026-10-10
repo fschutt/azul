@@ -18,6 +18,7 @@ pub mod iroh;
 pub mod keyring;
 pub mod map;
 pub mod pdf;
+pub mod power;
 pub mod sqlite;
 pub mod video_codec;
 pub mod webtransport;
