@@ -1834,7 +1834,8 @@ class AzlinRun(Run):
         if uploaded[-1] in self.printed('AZMAIL_DRAFT_UPLOAD_FAILED'):
             raise Failure(f'the draft did not go into the drive: {uploaded[-1]}')
         key = uploaded[-1].split(' ', 1)[1]
-        drafts = self.bucket.keys('mail/Drafts/')
+        # A folder's own marker (`mail/Drafts/`, the drive's create_folder) is no message.
+        drafts = [k for k in self.bucket.keys('mail/Drafts/') if not k.endswith('/')]
         if drafts != [key] or not key.endswith('.eml') or \
                 not azlin_client.STAMP.match(key.rsplit('/', 1)[1][:-len('.eml')]):
             raise Failure(f'mail/Drafts/ holds {drafts}, the draft is {key}')
