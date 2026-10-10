@@ -2,7 +2,7 @@
 //!
 //! The EMERGENCY KIT: the recovery code on paper - a short explanation, the drive's name (never
 //! its id or its bucket), the code in groups and as a QR code (azul-appkit's `qr`) - made as a
-//! PDF by azul's PDF writer from a DOM laid out for A4 paper. The recovery sheet offers it
+//! PDF by azul's PDF writer from a DOM laid out for A4 paper (`paper`). The recovery sheet offers it
 //! three ways: Print (the PDF opens in the system's viewer from a private copy in the run's
 //! cache folder, deleted when the sheet closes and at the next start), Save as PDF (the
 //! system's save dialog) and Save to a USB stick (a folder picked, the PDF written into it).
@@ -27,7 +27,6 @@ use std::{
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType},
     dialog::{FileDialog, FileOpenResult},
-    pdf::Pdf,
     prelude::*,
     str::String as AzString,
     widgets::ButtonType,
@@ -35,13 +34,17 @@ use azul::{
 use azul_appkit::qr::QrCode;
 use azul_storage::{
     config::DriveLocation,
-    crypto::{keys::RecoveryCode, random_bytes, Zeroizing},
+    crypto::{keys::RecoveryCode, Zeroizing},
 };
 
+// The page, its QR code, its PDF and Print's private copies are `paper`'s (cash by post prints
+// pages too); `Paper` and `forget_print_copies` keep their old paths for the recovery's callers.
+pub(crate) use crate::paper::{forget_print_copies, Paper};
 use crate::{
     encryption::{Dialog, EncryptionJob},
     ids,
     jobs::Job,
+    paper::{paper_pdf, print_copy, qr_dom, write_private},
     recovery_health::{
         health_line, methods_list, methods_warning, state_mut, state_of, Method, MethodAction,
         RecoveryState,
@@ -73,10 +76,7 @@ pub(crate) const KIT_TEXT: [&str; 4] = [
 pub(crate) const KIT_CODE_LABEL: &str = "Your recovery code";
 pub(crate) const KIT_QR_LABEL: &str = "The same code as a QR code: a phone's camera reads it, \
      and AzDrive takes the text it shows as it is.";
-/// A4 at 96 dpi in CSS px (the page AzMail prints on).
-const A4: (f32, f32) = (794.0, 1123.0);
-/// A module of the kit's QR code, and of the one on the sheet, in px.
-const KIT_MODULE_PX: usize = 6;
+/// A module of the QR code on the sheet, in px.
 const SHEET_MODULE_PX: usize = 4;
 /// The longest drive name in a file name.
 const FILE_NAME_MAX: usize = 60;
@@ -192,59 +192,6 @@ pub(crate) fn kit_of(s: &DriveState, drive_id: &str, code: &str) -> Kit {
     Kit::new(&name, &hidden, Zeroizing::new(code.to_string()), made)
 }
 
-/// `text` in a block of `css`.
-fn block(text: &str, css: &str) -> Dom {
-    Dom::create_div()
-        .with_css(css.to_string())
-        .with_child(Dom::create_span_with_text(AzString::from(text)))
-}
-
-/// A QR symbol as boxes, `module` px a module, with its quiet zone (four light modules) on
-/// white: a row of dark runs and the light gaps between them for each row of modules.
-pub(crate) fn qr_dom(symbol: &QrCode, module: usize) -> Dom {
-    let side = symbol.size() * module;
-    let quiet = 4 * module;
-    let mut rows = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: column; flex-shrink: 0; width: {side}px; padding: \
-         {quiet}px; background: #ffffff;"
-    ));
-    for y in 0..symbol.size() {
-        let mut row = Dom::create_div().with_css(format!(
-            "display: flex; flex-direction: row; flex-shrink: 0; width: {side}px; height: \
-             {module}px;"
-        ));
-        let mut at = 0;
-        for (start, len) in symbol.dark_runs(y) {
-            if start > at {
-                row.add_child(Dom::create_div().with_css(format!(
-                    "flex-shrink: 0; width: {}px; height: {module}px;",
-                    (start - at) * module
-                )));
-            }
-            row.add_child(Dom::create_div().with_css(format!(
-                "flex-shrink: 0; width: {}px; height: {module}px; background: #000000;",
-                len * module
-            )));
-            at = start + len;
-        }
-        rows.add_child(row);
-    }
-    rows
-}
-
-/// A page of paper with a secret on it: the recovery code's kit, or a trusted contact's share.
-pub(crate) struct Paper {
-    pub title: String,
-    pub subtitle: String,
-    pub text: Vec<String>,
-    /// The label over the secret, the secret as the page shows it (and its QR code holds), the
-    /// words beside the QR code.
-    pub label: &'static str,
-    pub secret: Zeroizing<String>,
-    pub qr_label: &'static str,
-    pub file_name: String,
-}
-
 impl Kit {
     /// The kit as a page.
     pub(crate) fn paper(&self) -> Paper {
@@ -252,59 +199,13 @@ impl Kit {
         Paper {
             title: lines[0].clone(),
             subtitle: lines[1].clone(),
+            address: Vec::new(),
             text: lines[2..2 + KIT_TEXT.len()].to_vec(),
             label: KIT_CODE_LABEL,
             secret: self.qr_text(),
             qr_label: KIT_QR_LABEL,
             file_name: self.file_name(),
         }
-    }
-}
-
-/// A page on A4 paper (black on white whatever mode the window is in).
-pub(crate) fn paper_dom(paper: &Paper, symbol: &QrCode) -> Dom {
-    let mut body = Dom::create_body().with_css(
-        "margin: 0px; padding: 56px; background: #ffffff; color: #000000; font-family: \
-         sans-serif; font-size: 13px; display: flex; flex-direction: column;",
-    );
-    body.add_child(block(&paper.title, "font-size: 26px; font-weight: bold;"));
-    body.add_child(block(
-        &paper.subtitle,
-        "margin-top: 4px; padding-bottom: 10px; border-bottom: 2px solid #000000;",
-    ));
-    for text in &paper.text {
-        body.add_child(block(text, "margin-top: 10px;"));
-    }
-    body.add_child(block(paper.label, "margin-top: 24px; font-weight: bold;"));
-    body.add_child(block(
-        &paper.secret,
-        "margin-top: 6px; padding: 12px; border: 1px solid #000000; font-family: monospace; \
-         font-size: 22px; letter-spacing: 1px;",
-    ));
-    body.add_child(
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 24px;")
-            .with_child(qr_dom(symbol, KIT_MODULE_PX))
-            .with_child(block(paper.qr_label, "margin-left: 18px; flex-grow: 1;")),
-    );
-    body
-}
-
-/// The page's PDF (azul's writer lays the DOM out in this callback, with the window's fonts).
-fn paper_pdf(info: &mut CallbackInfo, paper: &Paper) -> Result<Zeroizing<Vec<u8>>, String> {
-    let symbol = QrCode::encode(paper.secret.as_bytes()).map_err(|e| e.to_string())?;
-    let bytes = Zeroizing::new(
-        Pdf::create()
-            .from_dom_in_callback(*info, paper_dom(paper, &symbol), A4.0, A4.1)
-            .as_ref()
-            .to_vec(),
-    );
-    if bytes.is_empty() {
-        Err(String::from(
-            "azul's PDF writer made no file (a build without its `pdf` feature?).",
-        ))
-    } else {
-        Ok(bytes)
     }
 }
 
@@ -414,52 +315,6 @@ pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
 }
 
 // ==== Print, Save as PDF, Save to a USB stick ====
-
-/// Where Print's private copies of a page wait for the PDF viewer: `kit-print/` in the run's
-/// cache folder.
-fn print_dir() -> PathBuf {
-    crate::encryption::run_cache_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("kit-print")
-}
-
-/// Deletes Print's copies (when the sheet closes, at the start).
-pub(crate) fn forget_print_copies() {
-    let _ = std::fs::remove_dir_all(print_dir());
-}
-
-/// `bytes` into `path`, readable by this user only where the file system knows owners.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()
-}
-
-/// Print's copy of a page: `kit-print/<random>/<file name>` (a folder of this user's only).
-fn print_copy(file_name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
-    let mut random = [0u8; 8];
-    random_bytes(&mut random).map_err(|e| e.to_string())?;
-    let folder: String = random.iter().map(|b| format!("{b:02x}")).collect();
-    let dir = print_dir().join(folder);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let private = std::fs::Permissions::from_mode(0o700);
-        let _ = std::fs::set_permissions(print_dir(), private.clone());
-        let _ = std::fs::set_permissions(&dir, private);
-    }
-    let path = dir.join(file_name);
-    write_private(&path, bytes).map_err(|e| e.to_string())?;
-    Ok(path)
-}
 
 /// Print: the page opens in the system's PDF viewer, which prints it.
 extern "C" fn on_kit_print(mut data: RefAny, mut info: CallbackInfo) -> Update {

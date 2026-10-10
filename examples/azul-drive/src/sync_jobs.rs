@@ -655,6 +655,11 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
 
 /// A pass of synced drive `drive_id` now - or, while one runs, right after it.
 pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
+    // A banned drive takes no uploads: its sync pauses, the status line says why.
+    if crate::ban::ban_of(s, drive_id).is_some() {
+        sync_view::say_status(s, drive_id);
+        return;
+    }
     if let Some(sync) = s.sync_view.drives.get_mut(drive_id) {
         if sync.running.is_some() {
             sync.again = true;

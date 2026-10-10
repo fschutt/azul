@@ -295,6 +295,33 @@ class Objects(ServerTest):
         self.assertFalse(os.path.exists(os.path.join(self.root, BUCKET, "x.txt")))
 
 
+class AzlinSpace(ServerTest):
+    """SRV17: an Azlin node's HeadBucket says what it stores for the bucket (x-azlin-used-bytes)
+    and the quota of the drive's tier (x-azlin-quota-bytes). The server says it with its
+    `space_quota` (a bucket's quota, None for none: the mock stack's drive tiers); a plain S3
+    says neither."""
+
+    def test_head_bucket_counts_the_stored_bytes_and_names_the_quota(self):
+        self.seed("data/a", b"x" * 10)
+        self.seed("data/b", b"y" * 5)
+        status, headers, _ = self.client.request("HEAD", BUCKET, "")
+        self.assertEqual(status, 200)
+        self.assertNotIn("x-azlin-used-bytes", headers, "a plain S3 by default")
+        self.server.space_quota = lambda bucket: 1000 if bucket == BUCKET else None
+        status, headers, _ = self.client.request("HEAD", BUCKET, "")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("x-azlin-used-bytes"), "15")
+        self.assertEqual(headers.get("x-azlin-quota-bytes"), "1000")
+        self.client.request("PUT", BUCKET, "data/c", body=b"z" * 7)
+        self.client.request("DELETE", BUCKET, "data/a")
+        _, headers, _ = self.client.request("HEAD", BUCKET, "")
+        self.assertEqual(headers.get("x-azlin-used-bytes"), "12", "what is stored now")
+        self.server.space_quota = lambda bucket: None
+        _, headers, _ = self.client.request("HEAD", BUCKET, "")
+        self.assertEqual(headers.get("x-azlin-used-bytes"), "12")
+        self.assertNotIn("x-azlin-quota-bytes", headers, "no quota known: none said")
+
+
 class Authentication(ServerTest):
     def test_a_wrong_secret_is_403_signature_does_not_match(self):
         client = s3_server.Client(self.server.url, ACCESS, "wrong-secret")

@@ -4,7 +4,9 @@
 No Rust cluster, no cloud, no pip: Python's standard library only.
 
 - S3: AzDrive's stdlib test server (examples/azul-drive/scripts/s3_server.py): SigV4 checked, path
-  style, ListObjectsV2 / Get (Range) / Put / Copy / Delete / Head, one access key.
+  style, ListObjectsV2 / Get (Range) / Put / Copy / Delete / Head, one access key. HeadBucket
+  answers as an Azlin node (SRV17): x-azlin-used-bytes (the bucket's stored bytes) and
+  x-azlin-quota-bytes (the quota of the drive's tier).
 - The token server: the routes of azlin-token (azul-apps iso/crates/azlin-token, drives.rs) the apps
   use, answering the same JSON:
 
@@ -30,6 +32,17 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     expired
     POST /v1/checkout/<id>/pay {"card_number"}      200 the test provider: 4242 4242 4242 4242
                                                     approves (the drive is made), others decline
+    POST /v1/checkout {"tier", "months",            201 cash by post (cash contract v1):
+                       "method": "cash",            awaiting_cash with its amount, currency, the
+                       "claim_key"}                 activation code AZC1-... (scripts/
+                                                    azlin_cash.py, MAC'd with the test key
+                                                    azlin_cash.MOCK_KEY), the address to post to
+                                                    and an end 60 days on; its poll answers
+                                                    awaiting_cash until the operator's switch -
+                                                    activate_cash(id): approved, the drive sealed
+                                                    to its claim key; reject_cash(id, reason):
+                                                    rejected with the reason - and expired after
+                                                    its end
     GET /v1/pay/<id>                                200 the payment page (HTML)
     GET /v1/tokens/keys                             200 the period tokens' issuer keys: one per
                                                     tier, of this year (SPKI PEM)
@@ -50,7 +63,17 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
     GET /v1/drives/<id>                             200 the drive's tier, quota and period and a
         Authorization: Bearer <drive token>         pending recovery-key lockdown (a read: the
                                                     previous token counts too; an older one is a
-                                                    reuse)
+                                                    reuse); a banned drive (ban contract v1, the
+                                                    switch ban(id, reason, grace_secs)): status
+                                                    banned, ban_reason, ban_until, read-only -
+                                                    its credentials carry the same, its grants
+                                                    (members, keys, recovery, restore, redeem, a
+                                                    voucher on it) are 403 drive_banned, its
+                                                    public links revoked, its bucket refuses
+                                                    writes and links (x-azlin-error
+                                                    drive_banned); past the end every route of it
+                                                    is 403 drive_banned (with ban_reason and
+                                                    ban_until) and its bucket refuses reads too
     POST /v1/drives/<id>/recovery                   200 {"ok", "key_id", "label"}: the drive's
         {"recovery_pubkey", "label"?, a drive       only recovery key from now on (Ed25519,
         token; once it has one: "nonce",            standard base64; scripts/azlin_ed25519.py);
@@ -86,8 +109,11 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
                                                     names lockdown_pending_until
     POST /v1/drives/<id>/lockdown                   with a drive token: every other family
         {"nonce", "signature"} or a drive token     revoked, a new one for the caller (200, a
-                                                    bundle); with the recovery key's signature
-                                                    over lockdown:<drive>:<nonce>: 202
+                                                    bundle) - a pending recovery-key lockdown
+                                                    and its family left as they are (F12; the
+                                                    pending family itself: 403
+                                                    lockdown_pending); with the recovery key's
+                                                    signature over lockdown:<drive>:<nonce>: 202
                                                     {pending_until, drive_token} - frozen for
                                                     48 h, a `recovery-pending` family (401 a bad
                                                     signature, 409 nonce_used, 400
@@ -198,6 +224,7 @@ REPO = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(REPO, 'examples', 'azul-drive', 'scripts'))
 sys.path.insert(0, HERE)
 
+import azlin_cash  # noqa: E402
 import azlin_claim  # noqa: E402
 import azlin_ed25519  # noqa: E402
 import azlin_period  # noqa: E402
@@ -226,7 +253,7 @@ OAUTH_CLIENT_ID = 'azdrive-e2e-client'
 OAUTH_PROVIDERS = ('google', 'dropbox', 'onedrive')
 # How long an approved checkout keeps its sealed sign-up (then it answers "expired").
 SEALED_KEEP_SECS = 30 * 86400
-# How long a recovery-key lockdown waits for a device of the owner to cancel it, and how long
+# How long a recovery-key lockdown waits for the recovery code to cancel it, and how long
 # deletes pause after a lockdown.
 LOCKDOWN_PENDING_SECS = 48 * 3600
 # A drive's recovery keys (recovery.rs): at most ten, labels of 64 characters; the key from
@@ -240,6 +267,11 @@ RECOVERY_CHALLENGE_SECS = 300
 RECOVERY_RATE_LIMIT = 20
 RECOVERY_RATE_WINDOW_SECS = 600
 LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
+# Cash by post (cash contract v1): how long a cash checkout waits for its letter, and the address
+# its slip names - a made-up test operator's.
+CASH_KEEP_SECS = 60 * 86400
+CASH_MAIL_TO = {'name': 'Azlin Test Operator',
+                'lines': ['Postfach 10 20 30', '12345 Teststadt', 'Germany']}
 # A development token server's test vouchers (azlin-proto's voucher module): never used up.
 TEST_VOUCHERS = {
     'AZLIN-TEST-1M': {'months': 1, 'value_cents': 0, 'tier': None},
@@ -269,6 +301,8 @@ TEST_VOUCHERS = {
 # on the token server's host (pay.azlin.io's stand-in). A provider only ever sees the
 # checkout's random `provider_ref` (pr_...), never the checkout id.
 FAKE_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal', 'fake-mor')
+# What `set_providers` may offer: the fakes, and cash by post (no fake: Azlin's own, on paper).
+OFFERABLE = FAKE_PROVIDERS + ('cash',)
 # The providers a stack started with `--providers` without a list offers.
 DEFAULT_PROVIDERS = ('fake-stripe', 'fake-gocardless', 'fake-paypal')
 # Each fake's methods and their surfaces, best first.
@@ -277,6 +311,7 @@ PROVIDER_METHODS = {
     'fake-gocardless': {'sepa_debit': ['page', 'browser']},
     'fake-paypal': {'paypal': ['browser']},
     'fake-mor': {'card': ['page', 'browser']},
+    'cash': {'cash': ['paper']},
 }
 PROVIDER_KINDS = {'fake-mor': 'merchant_of_record'}
 # The local webhook secrets (no real provider's).
@@ -486,6 +521,8 @@ class TokenState:
         # The lookup challenges' MAC key, and the recovery routes' rate windows per address.
         self.challenge_secret = secrets.token_bytes(32)
         self.rate = {}
+        # The key cash checkouts' activation codes are MAC'd with (a test key).
+        self.cash_key = azlin_cash.MOCK_KEY
 
     def oauth_token(self, provider, form):
         """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
@@ -533,8 +570,9 @@ class TokenState:
             return refused(400, 'unsupported_grant_type', 'grant_type %r' % grant)
 
     def set_providers(self, providers):
-        """Offers the fake payment providers `providers` (ids of FAKE_PROVIDERS) from now on."""
-        unknown = [p for p in providers if p not in FAKE_PROVIDERS]
+        """Offers the fake payment providers `providers` (ids of FAKE_PROVIDERS, and `cash`) from
+        now on."""
+        unknown = [p for p in providers if p not in OFFERABLE]
         if unknown:
             raise ValueError('no such fake provider: %s' % ', '.join(unknown))
         with self.lock:
@@ -585,6 +623,7 @@ class TokenState:
                                        if drive.get('lockdown_pending_until') else None),
             'drive_token': token,
             'tier': drive['tier'],
+            **self.ban_fields(drive),
         }
 
     def signup(self, body):
@@ -629,6 +668,8 @@ class TokenState:
             raise ApiError(400, 'bad_tier', 'unknown tier')
         method = body.get('method') or 'sepa'
         provider = body.get('provider')
+        if method == 'cash' or provider == 'cash':
+            return self.cash_checkout(body, tier)
         surface = None
         if provider:
             # Claim contract v1, extended: a checkout through a provider (CHECKOUT-PLAN §3.11).
@@ -684,6 +725,115 @@ class TokenState:
                            'expires_at': rfc3339(int(time.time()) + 3600)})
         return answer
 
+    def cash_checkout(self, body, tier):
+        """POST /v1/checkout {"method": "cash"} (cash contract v1): a checkout awaiting its
+        letter - its activation code, the address to post the cash to, its end; sealed to the
+        claim key it names once the operator activates it."""
+        months = body.get('months', 1)
+        if months not in PREPAY_MONTHS:
+            raise ApiError(400, 'bad_months', 'prepay 1, 3, 6, 12 or 24 months')
+        provider = body.get('provider')
+        if provider is not None:
+            if provider != 'cash' or 'cash' not in self.providers:
+                raise ApiError(400, 'bad_provider', 'this token server offers no such provider')
+            if body.get('method') not in (None, 'cash'):
+                raise ApiError(400, 'bad_method', 'cash by post takes cash')
+            if body.get('withdrawal_consent') is not True:
+                raise ApiError(400, 'consent_required', 'the order needs the consent')
+        claim_key = body.get('claim_key')
+        if not claim_key:
+            raise ApiError(400, 'claim_key_required',
+                           'a checkout names the claim key its sign-up is sealed to')
+        try:
+            azlin_claim.claim_key_bytes(str(claim_key))
+        except ValueError as e:
+            raise ApiError(400, 'bad_claim_key', str(e))
+        amount = price_cents(tier, months)
+        with self.lock:
+            checkout_id = random_id('ck_')
+            code = azlin_cash.activation_code(checkout_id, amount, 'EUR', self.cash_key)
+            ends = self.now() + CASH_KEEP_SECS
+            self.checkouts[checkout_id] = {'tier': tier, 'method': 'cash', 'months': months,
+                                           'amount': amount, 'status': 'awaiting_cash',
+                                           'claim_key': str(claim_key), 'sealed_signup': None,
+                                           'approved_at': None, 'provider': None,
+                                           'provider_ref': None, 'activation_code': code,
+                                           'expires_at': ends, 'abandoned': False,
+                                           'vat_country': body.get('vat_country')}
+        answer = {'checkout_id': checkout_id, 'status': 'awaiting_cash', 'tier': tier,
+                  'method': 'cash', 'months': months, 'amount_cents': amount, 'currency': 'EUR',
+                  'activation_code': code,
+                  'mail_to': {'name': CASH_MAIL_TO['name'], 'lines': list(CASH_MAIL_TO['lines'])},
+                  'expires_at': rfc3339(ends), 'mock': True}
+        if provider:
+            answer['provider'] = provider
+        return answer
+
+    def cash_ended(self, checkout):
+        """A cash checkout nobody activated is expired at its end. The caller holds the lock."""
+        if checkout.get('status') == 'awaiting_cash' and self.now() >= checkout['expires_at']:
+            checkout['status'] = 'expired'
+
+    def activate_cash(self, checkout_id):
+        """The operator's AzCtl (a test's switch): the letter arrived with the right cash - the
+        cash checkout is approved, its drive made and sealed to its claim key. Its status now."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None or checkout.get('method') != 'cash':
+                raise ValueError('no cash checkout %s' % checkout_id)
+            self.cash_ended(checkout)
+        return self.approve(checkout_id)
+
+    def reject_cash(self, checkout_id, reason):
+        """The operator's AzCtl (a test's switch): the letter's cash is not taken - the checkout
+        is rejected with `reason`. Its status now."""
+        with self.lock:
+            checkout = self.checkouts.get(checkout_id)
+            if checkout is None or checkout.get('method') != 'cash':
+                raise ValueError('no cash checkout %s' % checkout_id)
+            self.cash_ended(checkout)
+            if checkout['status'] == 'awaiting_cash':
+                checkout['status'] = 'rejected'
+                checkout['reason'] = reason
+            return checkout['status']
+
+    # ---- A ban with a grace period (ban contract v1) ----
+
+    def ban(self, drive_id, reason, grace_secs):
+        """The operator's ban (a test's switch): `drive_id` banned for `reason`, its files
+        readable for `grace_secs` more (by the server's clock); its public links revoked at once,
+        its bucket refusing writes and links. The ban's end (seconds since 1970)."""
+        with self.lock:
+            drive = self.drives[drive_id]
+            until = self.now() + int(grace_secs)
+            drive['ban'] = {'reason': reason, 'until': until}
+            stamp = int(time.time())
+            for link in drive.setdefault('public_links', {}).values():
+                link['revoked_at'] = link['revoked_at'] or stamp
+        self.s3.ban_bucket(drive['bucket'], until, now=self.now)
+        return until
+
+    def ban_fields(self, drive):
+        """What the status and the credentials of a banned drive add."""
+        ban = drive.get('ban')
+        if not ban:
+            return {}
+        return {'status': 'banned', 'ban_reason': ban['reason'],
+                'ban_until': rfc3339(ban['until']), 'read_only': True}
+
+    def check_ban(self, drive, write=False):
+        """A banned drive's refusals (the caller holds the lock): past its end every route of it,
+        a write (a grant) at once."""
+        ban = drive.get('ban')
+        if not ban:
+            return
+        extra = {'ban_reason': ban['reason'], 'ban_until': rfc3339(ban['until'])}
+        if self.now() >= ban['until']:
+            raise ApiError(403, 'drive_banned', 'this drive was closed after its ban', extra)
+        if write:
+            raise ApiError(403, 'drive_banned', 'this drive is banned: it takes nothing new',
+                           extra)
+
     # ---- The payment options and the fake providers ----
 
     def returns(self):
@@ -710,6 +860,12 @@ class TokenState:
         for provider in self.providers:
             if provider == 'fake-gocardless' and (country not in SEPA_COUNTRIES
                                                   or currency != 'EUR'):
+                continue
+            if provider == 'cash':
+                # Cash by post: no pages, no origins - a slip on paper.
+                offers.append({'provider': 'cash', 'kind': 'processor', 'methods': [
+                    {'method': 'cash', 'surfaces': ['paper'], 'settles': 'post',
+                     'recurring': False}]})
                 continue
             methods = [{'method': method, 'surfaces': list(surfaces),
                         'settles': 'days' if method == 'sepa_debit' else 'instant',
@@ -970,6 +1126,7 @@ class TokenState:
             checkout = self.checkouts.get(checkout_id)
             if checkout is None:
                 raise ApiError(404, 'no_such_checkout', 'unknown checkout')
+            self.cash_ended(checkout)
             out = {'checkout_id': checkout_id, 'status': checkout['status'],
                    'tier': checkout['tier'], 'months': checkout['months'],
                    'amount_cents': checkout['amount']}
@@ -978,7 +1135,7 @@ class TokenState:
                     out['status'] = 'expired'
                 else:
                     out['sealed_signup'] = checkout['sealed_signup']
-            if checkout['status'] == 'declined' and checkout.get('reason'):
+            if checkout['status'] in ('declined', 'rejected') and checkout.get('reason'):
                 out['reason'] = checkout['reason']
             if checkout.get('provider'):
                 out['settles'] = 'days' if checkout['method'] == 'sepa_debit' else 'instant'
@@ -1006,7 +1163,7 @@ class TokenState:
         abandoned or settled checkout stays as it is). Its status now."""
         with self.lock:
             checkout = self.checkouts[checkout_id]
-            if checkout['status'] != 'pending' or checkout.get('abandoned'):
+            if checkout['status'] not in ('pending', 'awaiting_cash') or checkout.get('abandoned'):
                 return checkout['status']
             tier = checkout['tier']
         bundle = self.signup({'tier': tier, 'name': 'Azlin Storage'})
@@ -1118,9 +1275,9 @@ class TokenState:
         if state['revoked']:
             raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
         digest = token_hash(bearer)
-        if digest == state['current']:
-            return drive, state
-        if previous_ok and state['used'] and digest == state['used'][-1]:
+        if digest == state['current'] or (previous_ok and state['used']
+                                          and digest == state['used'][-1]):
+            self.check_ban(drive)
             return drive, state
         if digest in state['used']:
             state['revoked'] = 'reuse'
@@ -1134,6 +1291,7 @@ class TokenState:
         with self.lock:
             drive, state = self.family_of(drive_id, bearer, previous_ok=True)
             self.not_pending(drive, state)
+            self.check_ban(drive, write=True)
             token = {key: body.get(key) for key in ('tier', 'year', 'nonce', 'signature',
                                                     'randomizer')}
             if token['tier'] != drive['tier']:
@@ -1177,7 +1335,16 @@ class TokenState:
                     'status': 'active', 'period_until': rfc3339(drive['period_until']),
                     'lockdown_pending_until': rfc3339(pending) if pending else None,
                     'you': state.get('member', 'owner'), 'members': members,
-                    'usage_bytes': None}
+                    'usage_bytes': None, **self.ban_fields(drive)}
+
+    def quota_of_bucket(self, bucket):
+        """The quota of the drive whose bucket `bucket` is (its tier's, in stored bytes); None
+        for a bucket of no drive."""
+        with self.lock:
+            for drive in self.drives.values():
+                if drive.get('bucket') == bucket:
+                    return drive.get('quota_bytes')
+        return None
 
     def set_read_only(self, drive_id, read_only=True):
         """A test's switch: drive `drive_id` takes no writes (unpaid past its grace) - its
@@ -1191,6 +1358,7 @@ class TokenState:
         one, signed by a current key over recovery:<drive>:<new key>:<nonce> (F12 option C)."""
         with self.lock:
             drive = self.owner_call(drive_id, bearer, grant=True)
+            self.check_ban(drive, write=True)
             public = self.pubkey_of(body)
             label = self.label_of(body, RECOVERY_KIT_LABEL)
             self.key_consent(drive, body, 'recovery:%s:%s'
@@ -1226,7 +1394,7 @@ class TokenState:
             drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
             return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
                          'drive_token': token,
-                         'note': 'existing devices can cancel within 48 h; the drive is '
+                         'note': 'the recovery code can cancel within 48 h; the drive is '
                                  'read-only meanwhile'}
 
     def revoke_all(self, drive, which):
@@ -1274,6 +1442,7 @@ class TokenState:
         with self.lock:
             drive, state = self.family_of(drive_id, bearer)
             self.not_pending(drive, state)
+            self.check_ban(drive, write=True)
             member = body.get('member') or random_id('m_')
             return {'member': member, 'drive_token': self.new_family(drive_id, member)}
 
@@ -1282,6 +1451,7 @@ class TokenState:
         with self.lock:
             drive, state = self.family_of(drive_id, bearer)
             self.not_pending(drive, state)
+            self.check_ban(drive, write=True)
             days = max(1, min(366, int(body.get('expires_days') or 365)))
             akid = 'AZK' + b32(secrets.token_bytes(10)).upper()
             expires_at = int(time.time()) + days * 86400
@@ -1332,6 +1502,7 @@ class TokenState:
             raise ApiError(400, 'bad_request', 'as_of required')
         with self.lock:
             drive = self.authenticate(drive_id, bearer)
+            self.check_ban(drive, write=True)
             request = random_id('r_')
             self.restores[request] = {'drive': drive_id, 'bucket': drive['bucket'],
                                       'prefix': prefix, 'as_of': as_of, 'status': 'queued',
@@ -1645,6 +1816,8 @@ class TokenState:
             if drive_id:
                 drive, state = self.family_of(drive_id, bearer, previous_ok=True)
                 self.not_pending(drive, state)
+            if drive is not None:
+                self.check_ban(drive, write=True)
             # Codes in any case (payments.rs normalizes them); a development server's test
             # codes are never used up.
             normalized = code.strip().upper()
@@ -1693,6 +1866,8 @@ class TokenState:
                 # D42: the drive (its bucket, so its recovery wrap) is handed over only when the
                 # notice ends; the owner's devices may cancel meanwhile.
                 raise self.pending_error(drive)
+            # A banned drive's credentials until its end, never after (ban contract v1).
+            self.check_ban(drive)
             digest = token_hash(bearer)
             if digest == state['current']:
                 state['used'] = (state['used'] + [state['current']])[-20:]
@@ -2038,6 +2213,8 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
                          secret_key=SECRET_KEY, region=REGION, verbose=verbose,
                          keep_versions=True)
     state = TokenState(s3, s3.url, ttl)
+    # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier.
+    s3.space_quota = state.quota_of_bucket
     state.set_providers(providers)
     token = TokenServer((host, token_port), state, verbose).start_background()
     state.base_url = token.url
@@ -2072,6 +2249,13 @@ def self_test():
         assert client.refresh(drive_id, member['drive_token'])[0] == 401, 'the member is out'
         assert client.refresh(drive_id, owner)[0] == 401, "the caller's old family is out"
         assert client.refresh(drive_id, locked['drive_token'])[0] == 200, 'its new one works'
+        # SRV17: the drive's node answers HeadBucket with its stored bytes and the tier's quota.
+        s3 = s3_server.Client(stack.s3_url, ACCESS_KEY, SECRET_KEY, REGION)
+        state.s3.store.write(drive['bucket'], 'data/x', b'0123456789')
+        status, headers, _ = s3.request('HEAD', drive['bucket'], '')
+        assert status == 200 and headers.get('x-azlin-used-bytes') == '10', (status, headers)
+        assert headers.get('x-azlin-quota-bytes') == str(drive['quota_bytes']), headers
+        print('ok: HeadBucket names the stored bytes and the quota of the drive\'s tier')
         # By the recovery key.
         _, bundle, _ = client.signup('self-test-recovery')
         drive_id, owner = bundle['drive']['id'], bundle['drive_token']

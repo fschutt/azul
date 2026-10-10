@@ -322,5 +322,5 @@ fn the_recovery_refusals_have_their_rows_and_texts() {
         .contains("recovery code"));
     assert!(refused(409, "last_recovery_key").message(Lang::En).contains("last"));
     assert!(refused(401, "bad_challenge").message(Lang::En).contains("Try again"));
-    assert_eq!(*Code::ALL.last().unwrap(), Code::Other, "Other stays the table's last row");
+    assert_eq!(Code::Other.row().code, Code::Other, "Other keeps its row");
 }

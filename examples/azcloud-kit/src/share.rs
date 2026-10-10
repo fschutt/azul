@@ -152,13 +152,14 @@ pub fn lockdown(account: &mut Account) -> CloudResult<Value> {
     account.lockdown()
 }
 
-/// Cancels a pending recovery-key lockdown ([`Account::lockdown_cancel`]).
+/// Cancels a pending recovery-key lockdown with the recovery code's 16 bytes
+/// ([`Account::lockdown_cancel`]).
 ///
 /// # Errors
 ///
 /// The server's refusal or no answer.
-pub fn lockdown_cancel(account: &Account) -> CloudResult<Value> {
-    account.lockdown_cancel()
+pub fn lockdown_cancel(account: &Account, recovery_code: &[u8]) -> CloudResult<Value> {
+    account.lockdown_cancel(recovery_code)
 }
 
 /// Queues a restore of `prefix` as it was at `as_of` ([`Account::restore`]).

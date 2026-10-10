@@ -210,6 +210,13 @@ pub const LOCATION_PATH: AzString = AzString::from_const_str("__azdrive_location
 /// Cancel.
 pub const LOCKDOWN_BAR: AzString = AzString::from_const_str("__azdrive_lockdown_bar");
 pub const LOCKDOWN_CANCEL: AzString = AzString::from_const_str("__azdrive_lockdown_cancel");
+/// The cancel dialog's recovery code and its "Cancel the lockdown" (F12: the code signs).
+pub const LOCKDOWN_CANCEL_CODE: AzString =
+    AzString::from_const_str("__azdrive_lockdown_cancel_code");
+pub const LOCKDOWN_CANCEL_CONFIRM: AzString =
+    AzString::from_const_str("__azdrive_lockdown_cancel_confirm");
+/// "I was hacked: new keys": the current recovery code, which signs the new one.
+pub const ROTATE_CODE: AzString = AzString::from_const_str("__azdrive_rotate_code");
 /// The voucher dialog of a drive (Options > Drives): its code and Redeem.
 pub const VOUCHER: AzString = AzString::from_const_str("__azdrive_voucher");
 pub const VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_voucher_code");
@@ -219,6 +226,34 @@ pub const ADD_VOUCHER: AzString = AzString::from_const_str("__azdrive_add_vouche
 pub const ADD_VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_add_voucher_code");
 pub const ADD_VOUCHER_REDEEM: AzString =
     AzString::from_const_str("__azdrive_add_voucher_redeem");
+
+/// A banned drive (ban contract v1): its banner, the banner's text, Copy everything, the closed
+/// drive's message.
+pub const BAN_BAR: AzString = AzString::from_const_str("__azdrive_ban_bar");
+pub const BAN_TEXT: AzString = AzString::from_const_str("__azdrive_ban_text");
+pub const BAN_COPY: AzString = AzString::from_const_str("__azdrive_ban_copy");
+pub const BAN_CLOSED: AzString = AzString::from_const_str("__azdrive_ban_closed");
+
+/// Cash by post: Add drive's "Pick up a paid drive with a claim code" (the first page's
+/// button, the code's box, Pick up), the posted order's waiting line and claim code, its pages'
+/// buttons.
+pub const ADD_CHOICE_CLAIM: AzString = AzString::from_const_str("__azdrive_add_choice_claim");
+pub const ADD_CLAIM_CODE: AzString = AzString::from_const_str("__azdrive_add_claim_code");
+pub const ADD_PICK_UP: AzString = AzString::from_const_str("__azdrive_add_pick_up");
+pub const ADD_CASH_WAITING: AzString = AzString::from_const_str("__azdrive_add_cash_waiting");
+pub const ADD_CASH_CLAIM_CODE: AzString =
+    AzString::from_const_str("__azdrive_add_cash_claim_code");
+pub const CASH_COPY_SAVE: AzString = AzString::from_const_str("__azdrive_cash_copy_save");
+pub const CASH_COPY_PRINT: AzString = AzString::from_const_str("__azdrive_cash_copy_print");
+pub const CASH_SLIP_SAVE: AzString = AzString::from_const_str("__azdrive_cash_slip_save");
+pub const CASH_SLIP_PRINT: AzString = AzString::from_const_str("__azdrive_cash_slip_print");
+/// The drive list's cash orders, and each one's parts: `__azdrive_side_cash_<n>_<line|copy|slip|
+/// dismiss>`.
+pub const SIDE_CASH: AzString = AzString::from_const_str("__azdrive_side_cash");
+#[must_use]
+pub fn side_cash(index: usize, what: &str) -> AzString {
+    AzString::from(format!("__azdrive_side_cash_{index}_{what}"))
+}
 
 /// "Restore as of..." of a drive: its dialog, the time and Restore.
 pub const RESTORE: AzString = AzString::from_const_str("__azdrive_restore");
@@ -364,6 +399,9 @@ pub fn sheet_group(slot: usize) -> AzString {
 }
 /// The recovery sheet's "I have written it down".
 pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done");
+/// The recovery sheet's code (selectable text) and its "Copy".
+pub const SHEET_CODE: AzString = AzString::from_const_str("__azdrive_sheet_code");
+pub const SHEET_COPY: AzString = AzString::from_const_str("__azdrive_sheet_copy");
 /// A drill's code, "Later" and "Check".
 pub const DRILL_CODE: AzString = AzString::from_const_str("__azdrive_drill_code");
 pub const DRILL_LATER: AzString = AzString::from_const_str("__azdrive_drill_later");

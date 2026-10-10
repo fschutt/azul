@@ -225,6 +225,34 @@ fn already_compressed_formats_are_known_by_their_magic_number() {
     assert!(!looks_compressed(b""));
 }
 
+/// "We always compress": a file whose first segment does not compress (a header of noise, an
+/// embedded image) is tried again further on, so its compressible rest is not stored as it is.
+#[test]
+fn a_file_whose_first_segment_does_not_compress_still_compresses_its_later_text() {
+    let mut encoder = Encoder::new(Compression::Auto);
+    assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
+    let codecs: Vec<Codec> = (0..10)
+        .map(|_| encoder.encode(&text(4096)).unwrap().codec())
+        .collect();
+    assert!(
+        codecs.contains(&Codec::Zstd),
+        "ten text segments after a noisy first one: {codecs:?}"
+    );
+    let first = codecs.iter().position(|c| *c == Codec::Zstd).unwrap();
+    assert!(
+        codecs[first..].iter().all(|c| *c == Codec::Zstd),
+        "once one compresses, every one after it is tried: {codecs:?}"
+    );
+    // A format that is compressed already is still never tried.
+    let mut png = b"\x89PNG\r\n\x1A\n".to_vec();
+    png.extend(text(4096));
+    let mut encoder = Encoder::new(Compression::Auto);
+    assert_eq!(encoder.encode(&png).unwrap().codec(), Codec::Stored);
+    for _ in 0..20 {
+        assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Stored);
+    }
+}
+
 #[test]
 fn the_first_segment_decides_whether_the_rest_of_a_file_is_tried() {
     // Text: the trial saves, so every segment is tried (a segment of noise stays stored).
@@ -237,7 +265,8 @@ fn the_first_segment_decides_whether_the_rest_of_a_file_is_tried() {
     assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
     assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Zstd);
 
-    // Noise first: the file is not tried again, not even for text that would compress.
+    // Noise first: the next segment is not tried, not even text that would compress (only
+    // every RETRY_EVERY-th one is).
     let mut encoder = Encoder::new(Compression::Auto);
     assert_eq!(encoder.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
     assert_eq!(encoder.encode(&text(4096)).unwrap().codec(), Codec::Stored);

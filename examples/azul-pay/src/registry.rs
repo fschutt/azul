@@ -50,11 +50,14 @@ pub enum Method {
     BankTransfer,
     /// A voucher code (ours).
     Voucher,
+    /// Cash in an envelope with the printed slip (cash contract v1): the operator activates the
+    /// checkout when the letter arrived.
+    Cash,
 }
 
 impl Method {
     /// Every method, in the order the app lists them when nothing else orders them.
-    pub const ALL: [Method; 7] = [
+    pub const ALL: [Method; 8] = [
         Method::SepaDebit,
         Method::Card,
         Method::ApplePay,
@@ -62,6 +65,7 @@ impl Method {
         Method::Wero,
         Method::BankTransfer,
         Method::Voucher,
+        Method::Cash,
     ];
 
     /// The wire name (`sepa_debit`, `card`, ...).
@@ -75,6 +79,7 @@ impl Method {
             Method::Wero => "wero",
             Method::BankTransfer => "bank_transfer",
             Method::Voucher => "voucher",
+            Method::Cash => "cash",
         }
     }
 
@@ -99,6 +104,7 @@ impl Method {
             Method::Wero => "Wero",
             Method::BankTransfer => "Bank transfer",
             Method::Voucher => "Voucher",
+            Method::Cash => "Cash by post",
         }
     }
 
@@ -113,6 +119,7 @@ impl Method {
             Method::Wero => "smartphone",
             Method::BankTransfer => "receipt_long",
             Method::Voucher => "redeem",
+            Method::Cash => "mail",
         }
     }
 }
@@ -133,17 +140,20 @@ pub enum SurfaceKind {
     WebviewPage,
     /// The system browser (`Url::open`): its own address bar takes over.
     SystemBrowser,
+    /// Paper: the app prints the slip (and the buyer's copy); nothing opens. Cash by post.
+    Paper,
 }
 
 impl SurfaceKind {
     /// Every surface.
-    pub const ALL: [SurfaceKind; 6] = [
+    pub const ALL: [SurfaceKind; 7] = [
         SurfaceKind::NativeSheet,
         SurfaceKind::NativeIban,
         SurfaceKind::NativeVoucher,
         SurfaceKind::PopoverFields,
         SurfaceKind::WebviewPage,
         SurfaceKind::SystemBrowser,
+        SurfaceKind::Paper,
     ];
 
     /// The wire name (`fields`, `page`, `browser`, ...).
@@ -156,6 +166,7 @@ impl SurfaceKind {
             SurfaceKind::PopoverFields => "fields",
             SurfaceKind::WebviewPage => "page",
             SurfaceKind::SystemBrowser => "browser",
+            SurfaceKind::Paper => "paper",
         }
     }
 
@@ -258,6 +269,9 @@ pub enum Settles {
     /// The drive may come days later (a bank transfer, a debit "processing"): the app stops
     /// waiting in the dialog and checks at every start.
     Days,
+    /// The money comes by post (cash in an envelope): days or weeks; the app never waits in
+    /// the dialog and looks once a day.
+    Post,
 }
 
 impl Settles {
@@ -267,6 +281,7 @@ impl Settles {
         match self {
             Settles::Instant => "instant",
             Settles::Days => "days",
+            Settles::Post => "post",
         }
     }
 }
@@ -371,6 +386,15 @@ const FIELDS_PAGE_BROWSER: &[SurfaceKind] = &[
     SurfaceKind::SystemBrowser,
 ];
 const PAGE_BROWSER: &[SurfaceKind] = &[SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser];
+/// A slip on paper, nothing else.
+const PAPER: &[SurfaceKind] = &[SurfaceKind::Paper];
+
+/// Nothing of the provider is ever shown in a web view (nor anywhere else: it is paper).
+const EMBED_NONE: EmbedPolicy = EmbedPolicy {
+    webview: Webview::Forbidden,
+    popups: Popups::None,
+    breaks: &[],
+};
 const BROWSER: &[SurfaceKind] = &[SurfaceKind::SystemBrowser];
 
 /// Where Stripe's pages leave for the system browser: a PayPal or a Link login.
@@ -473,6 +497,27 @@ static PROVIDERS: &[ProviderSpec] = &[
             settles: Settles::Days,
         }],
         icon: "account_balance",
+        fake: false,
+    },
+    // Cash by post (cash contract v1): Azlin sells, the buyer prints a slip and posts it with
+    // the cash; the operator activates the checkout when the letter arrived. No page anywhere:
+    // no web view, no browser, no origins.
+    ProviderSpec {
+        id: "cash",
+        kind: ProviderKind::Processor,
+        name: "Azlin",
+        legal_name: "Azlin",
+        origins: &[],
+        pages: PAY_PAGES,
+        fields: None,
+        methods: &[MethodSpec {
+            method: Method::Cash,
+            chain: PAPER,
+            embed: EMBED_NONE,
+            leave: &[],
+            settles: Settles::Post,
+        }],
+        icon: "mail",
         fake: false,
     },
 ];

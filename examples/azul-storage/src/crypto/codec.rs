@@ -11,8 +11,10 @@
 //! - A file that is compressed already is not tried at all: the first segment's magic number
 //!   says so (JPEG, PNG, GIF, WebP, the ISO media files - MP4, MOV, HEIC, AVIF -, ZIP and with
 //!   it DOCX / XLSX / ODT / EPUB, gzip, zstd, xz, bzip2, 7z, RAR, PDF, ...). Otherwise the
-//!   first segment is compressed as a trial; when that saves less than 5 %, the file's other
-//!   segments are not tried either.
+//!   first segment is compressed as a trial; when that saves less than 5 %, only every
+//!   [`RETRY_EVERY`]th segment after it is tried (a noisy header, an embedded picture do not
+//!   leave a compressible rest stored as it is - "we always compress"), and once one of those
+//!   compresses, every segment is tried again.
 //!
 //! Compression happens before encryption, so a segment's stored size says how well it
 //! compressed: what an observer of the bucket learns about a file beyond its rough size.
@@ -25,6 +27,8 @@ use super::CryptoError;
 pub const ZSTD_LEVEL: i32 = 3;
 /// A segment stays compressed only when that saves at least this many percent.
 pub const MIN_SAVING_PERCENT: u64 = 5;
+/// After a trial that did not compress, every this many segments one is tried again.
+pub const RETRY_EVERY: u32 = 8;
 /// The zstd level of the recompression pass.
 pub const ZSTD_MAX_LEVEL: i32 = 19;
 /// The brotli quality of the recompression pass (the slowest, the smallest).
@@ -179,11 +183,17 @@ enum State {
     On(zstd::bulk::Compressor<'static>),
     /// No segment is tried.
     Off,
+    /// The last try did not compress: the next one after [`RETRY_EVERY`] segments.
+    Sparse {
+        compressor: zstd::bulk::Compressor<'static>,
+        skipped: u32,
+    },
     /// Every segment is recompressed (the zstd compressor made on the first use).
     Recode(Recoding, Option<zstd::bulk::Compressor<'static>>),
 }
 
-/// One file's compression: the first segment decides whether the others are tried.
+/// One file's compression: the first segment decides whether the others are tried (all of
+/// them, or every [`RETRY_EVERY`]th one).
 pub(crate) struct Encoder {
     state: State,
 }
@@ -216,12 +226,39 @@ impl Encoder {
             self.state = State::On(zstd::bulk::Compressor::new(ZSTD_LEVEL).map_err(zstd_failed)?);
             let trial = self.compress(raw)?;
             if let Encoded::Stored = trial {
-                // The trial saved less than 5 %: the rest of the file is not tried.
-                self.state = State::Off;
+                // The trial saved less than 5 %: only every RETRY_EVERY-th segment is tried.
+                self.sparse();
             }
             return Ok(trial);
         }
+        if let State::Sparse { skipped, .. } = &mut self.state {
+            *skipped += 1;
+            if *skipped < RETRY_EVERY {
+                return Ok(Encoded::Stored);
+            }
+            // This one is tried: it compresses (every segment is tried again) or it waits.
+            let State::Sparse { compressor, .. } = std::mem::replace(&mut self.state, State::Off)
+            else {
+                return Ok(Encoded::Stored);
+            };
+            self.state = State::On(compressor);
+            let tried = self.compress(raw)?;
+            if let Encoded::Stored = tried {
+                self.sparse();
+            }
+            return Ok(tried);
+        }
         self.compress(raw)
+    }
+
+    /// From trying every segment to trying every [`RETRY_EVERY`]th one.
+    fn sparse(&mut self) {
+        if let State::On(compressor) = std::mem::replace(&mut self.state, State::Off) {
+            self.state = State::Sparse {
+                compressor,
+                skipped: 0,
+            };
+        }
     }
 
     fn compress(&mut self, raw: &[u8]) -> Result<Encoded, CryptoError> {

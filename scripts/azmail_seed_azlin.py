@@ -186,17 +186,9 @@ def wire(msg):
     return msg.as_bytes(policy=email.policy.SMTP)
 
 
-def seed(token_url, s3_url=None, name='AzMail seed', big_mb=0, now=None):
-    """Signs up a drive at `token_url`, fills its mailbox; returns what --out writes."""
-    client = azlin_client.TokenClient(token_url)
-    status, bundle, text = client.signup(name)
-    if status != 201 or not isinstance(bundle, dict):
-        raise SystemExit('the sign-up at %s failed: HTTP %d %s' % (token_url, status, text[:300]))
-    drive_id, bucket_name, endpoint, _ = azlin_client.bundle_drive(bundle)
-    bucket = azlin_client.Bucket(bundle, endpoint=s3_url)
-    now = int(time.time() if now is None else now)
-    # (folder, kind, when it was sent, how it is made); the name's stamp is its date, as an
-    # import's would be.
+def mailbox(now, big_mb=0):
+    """The seeded mail: (folder, kind, key, subject, bytes); the name's stamp is the date it was
+    sent, as an import's would be."""
     mail = [
         ('Inbox', 'plain', now - 3 * 3600, plain_mail),
         ('Inbox', 'html', now - 2 * 3600, html_mail),
@@ -206,13 +198,29 @@ def seed(token_url, s3_url=None, name='AzMail seed', big_mb=0, now=None):
     ]
     if big_mb > 0:
         mail.append(('Inbox', 'big', now - 600, lambda sent: big_mail(sent, big_mb)))
-    seeded = []
+    out = []
     for folder, kind, sent, make in mail:
         msg = make(sent)
         data = wire(msg)
         key = azlin_client.message_key(folder, azlin_client.object_name(data, sent))
+        out.append((folder, kind, key, msg['Subject'], data))
+    return out
+
+
+def seed(token_url, s3_url=None, name='AzMail seed', big_mb=0, now=None):
+    """Signs up a (plaintext) drive at `token_url`, fills its mailbox with plain PUTs - a drive
+    like the ones made before encryption; returns what --out writes."""
+    client = azlin_client.TokenClient(token_url)
+    status, bundle, text = client.signup(name)
+    if status != 201 or not isinstance(bundle, dict):
+        raise SystemExit('the sign-up at %s failed: HTTP %d %s' % (token_url, status, text[:300]))
+    drive_id, bucket_name, endpoint, _ = azlin_client.bundle_drive(bundle)
+    bucket = azlin_client.Bucket(bundle, endpoint=s3_url)
+    now = int(time.time() if now is None else now)
+    seeded = []
+    for folder, kind, key, subject, data in mailbox(now, big_mb):
         bucket.put(key, data)
-        seeded.append({'folder': folder, 'kind': kind, 'key': key, 'subject': msg['Subject'],
+        seeded.append({'folder': folder, 'kind': kind, 'key': key, 'subject': subject,
                        'size': len(data)})
     objects, folders = bucket.list('mail/', delimiter='/')
     listed = {key for folder in folders for key in bucket.keys(folder)}
@@ -229,6 +237,109 @@ def seed(token_url, s3_url=None, name='AzMail seed', big_mb=0, now=None):
         'messages': seeded,
         'folders': sorted(f[len('mail/'):].rstrip('/') for f in folders),
         'loose_objects': [key for key, _ in objects],
+    }
+
+
+class CliDrive:
+    """An ENCRYPTED drive through the azcloud command line (its state folder `state`): the
+    files as the drive index names them, their bytes through the encryption - the same calls as
+    azlin_client.Bucket's (head / get / keys / put), for checks "through the app"."""
+
+    def __init__(self, azcloud, state, token_url, s3_url=None):
+        self.azcloud = azcloud
+        self.state = state
+        self.token_url = token_url
+        self.s3_url = s3_url
+
+    def run(self, *args):
+        import subprocess  # noqa: PLC0415
+        command = [self.azcloud, '--state-dir', self.state, '--token-url', self.token_url]
+        if self.s3_url:
+            command += ['--s3-url', self.s3_url]
+        env = dict(os.environ, AZLIN_CONFIG='off')
+        done = subprocess.run(command + ['--json', *args], capture_output=True, text=True,
+                              timeout=300, env=env)
+        if done.returncode != 0:
+            raise SystemExit('azcloud %s failed (%d): %s' % (args[0], done.returncode,
+                                                            done.stderr.strip()[-600:]))
+        return json.loads(done.stdout)
+
+    def keys(self, prefix=''):
+        return sorted(o['key'] for o in self.run('ls', prefix).get('objects', []))
+
+    def head(self, key):
+        for o in self.run('ls', key).get('objects', []):
+            if o['key'] == key:
+                return o
+        return None
+
+    def get(self, key):
+        import tempfile  # noqa: PLC0415
+        folder = tempfile.mkdtemp(prefix='azcloud-get-')
+        path = os.path.join(folder, 'object')
+        try:
+            self.run('down', key, path)
+            with open(path, 'rb') as f:
+                return f.read()
+        finally:
+            for name in os.listdir(folder):
+                os.remove(os.path.join(folder, name))
+            os.rmdir(folder)
+
+    def put(self, key, data):
+        import tempfile  # noqa: PLC0415
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(data)
+            path = f.name
+        try:
+            self.run('up', path, '--key', key)
+        finally:
+            os.remove(path)
+
+
+def seed_encrypted(token_url, azcloud, state, s3_url=None, name='AzMail seed', big_mb=0,
+                   now=None):
+    """An ENCRYPTED drive ("we always encrypt"): `azcloud signup` makes it encrypted as it makes
+    it (the keys in the state folder `state`), its mailbox goes up through the encryption, and
+    a member token of its own for AzMail comes from `azcloud invite`. Returns what seed()
+    returns, with the drive key's keyring entry (`drive_key_entry`: name and text) for AzMail's
+    keyring and the drive as a CliDrive (`drive`)."""
+    drive = CliDrive(azcloud, state, token_url, s3_url)
+    os.makedirs(state, exist_ok=True)
+    signed = drive.run('signup', '--name', name, '--recovery-out',
+                       os.path.join(state, 'recovery.txt'))
+    if signed.get('encrypted') is not True:
+        raise SystemExit('azcloud signup made no encrypted drive: %s' % signed)
+    drive_id = signed['drive']
+    now = int(time.time() if now is None else now)
+    seeded = []
+    for folder, kind, key, subject, data in mailbox(now, big_mb):
+        drive.put(key, data)
+        seeded.append({'folder': folder, 'kind': kind, 'key': key, 'subject': subject,
+                       'size': len(data)})
+    listed = set(drive.keys('mail/'))
+    missing = [m['key'] for m in seeded if m['key'] not in listed]
+    if missing:
+        raise SystemExit('not in the drive after the upload: %s' % missing)
+    code_file = os.path.join(state, 'azmail.join')
+    drive.run('invite', '--member', 'azmail', '--out', code_file)
+    with open(code_file, 'r', encoding='utf-8') as f:
+        text = f.read().strip()
+    body = text[len('azlin-join:'):]
+    code = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+    with open(os.path.join(state, 'secrets.json'), 'r', encoding='utf-8') as f:
+        secrets = json.load(f)['entries']
+    entry = 'azul-storage/drive-key/' + drive_id
+    if entry not in secrets:
+        raise SystemExit('the state folder keeps no drive key for %s' % drive_id)
+    return {
+        'token_url': token_url,
+        's3_url': s3_url,
+        'drive_id': drive_id,
+        'drive_token': code['drive_token'],
+        'messages': seeded,
+        'drive_key_entry': (entry, secrets[entry]),
+        'drive': drive,
     }
 
 

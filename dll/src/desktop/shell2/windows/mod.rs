@@ -7117,6 +7117,11 @@ impl Win32Window {
     /// `pub(crate)` because the WM_QUIT exit in `shell2::run` tears its windows
     /// down without a WM_CLOSE/WM_DESTROY ever running.
     pub(crate) fn release_gpu_resources(&mut self) {
+        // Every close path of a Win32 window runs this teardown (WM_CLOSE,
+        // WM_DESTROY, the WM_QUIT exit): the popups this window opened close
+        // with it here too (a popup's own popup has no other parent to close
+        // it). Idempotent, as the rest of this teardown.
+        PlatformWindow::close_transient_windows(self);
         if let RenderMode::Gpu {
             gl_context: hglrc,
             hdc: stored_hdc,

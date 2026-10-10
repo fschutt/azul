@@ -219,6 +219,9 @@ pub(crate) struct MailApp {
     pub(crate) sync: SyncState,
     /// A line for the user in the status bar (a saved setting, a refused action).
     pub(crate) notice: String,
+    /// The Azlin accounts on a banned drive (ban contract v1), by account id: the banner over
+    /// the account, and no sending from it.
+    pub(crate) azlin_bans: HashMap<String, azcloud_kit::Ban>,
 
     // -- compose windows --
     pub(crate) composes: Vec<ui_compose::Compose>,
@@ -367,6 +370,7 @@ impl MailApp {
             editor: None,
             sync: SyncState::Idle,
             notice: String::new(),
+            azlin_bans: HashMap::new(),
             composes: Vec::new(),
             next_compose: 1,
             data_root,
@@ -385,6 +389,12 @@ impl MailApp {
     /// The account shown; `None` with Local Folders shown, or nothing.
     pub(crate) fn current_account(&self) -> Option<&Account> {
         self.current.and_then(|i| self.accounts.get(i))
+    }
+
+    /// Why the account `account_id` sends nothing (its Azlin drive is banned), if it does not.
+    pub(crate) fn sending_refused(&self, account_id: &str) -> Option<String> {
+        let now = u64::try_from(now_unix()).unwrap_or(0);
+        azlin_sync::sending_refused(self.azlin_bans.get(account_id), now)
     }
 
     /// Local Folders' place among the mailboxes: after the accounts.
@@ -1047,6 +1057,9 @@ enum SyncEvent {
     },
     /// The sync's result, and what the outbox retry did (sent, still queued, failed).
     Finished(Result<SyncReport, SyncError>, (usize, usize, usize)),
+    /// An Azlin account's drive status said a ban (ban contract v1), or none: before the
+    /// outbox and the folders.
+    Ban(Option<azcloud_kit::Ban>),
 }
 
 struct SyncMessage {
@@ -1067,7 +1080,15 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
     let (outcome, results) = if job.account.is_azlin() {
         // The local copy is this Thread's until the folders are synced.
         let _cache = azlin_sync::lock_cache();
-        let results = retry_outboxes(&job);
+        // A banned drive (ban contract v1) sends nothing: its Outbox waits, the window says why.
+        let ban = azlin_ban(&job);
+        let banned = ban.is_some();
+        post(&mut sender, &job.account.id, SyncEvent::Ban(ban));
+        let results = if banned {
+            Vec::new()
+        } else {
+            retry_outboxes(&job)
+        };
         (run_azlin_sync(&job, &mut sender, &mut receiver), results)
     } else {
         let outcome = run_sync(&job, &mut sender, &mut receiver);
@@ -1079,6 +1100,21 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
         &job.account.id,
         SyncEvent::Finished(outcome, outbox),
     );
+}
+
+/// An Azlin account's ban, as its token server says it now (asked with the newest drive token,
+/// under the account's lock); `None` for a drive in good standing - or when it could not be
+/// asked (the drive's own refusals tell then).
+fn azlin_ban(job: &SyncInit) -> Option<azcloud_kit::Ban> {
+    let link = job.account.azlin.as_ref()?;
+    let url = job.endpoints.token_url_for(&link.token_url)?;
+    let transport = AzulTransport::new(USER_AGENT);
+    let server = azlin::TokenServer::new(&url, &transport).ok()?;
+    let session = azlin::AzlinSession::from_secret(job.secret.expose(), &link.drive_id);
+    let key = account::azlin_keyring_key(&job.account.id);
+    azlin::status_shared(&server, &job.keyring, &key, &session)
+        .ok()?
+        .ban
 }
 
 /// "Send" of Send / Receive: whatever waits in the account's Outbox gets another try, and the
@@ -1372,6 +1408,22 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
             s.sync = SyncState::Done(text);
             s.reload_folders();
             s.reload_messages();
+        }
+        SyncEvent::Ban(ban) => {
+            let now = u64::try_from(now_unix()).unwrap_or(0);
+            match ban {
+                Some(ban) => {
+                    if ban.is_closed(now) {
+                        println!("AZMAIL_CLOSED {account}");
+                    } else {
+                        println!("AZMAIL_BANNED {account} {}", ban.hours_left(now));
+                    }
+                    s.azlin_bans.insert(account, ban);
+                }
+                None => {
+                    s.azlin_bans.remove(&account);
+                }
+            }
         }
         SyncEvent::Finished(Err(e), _) => {
             println!("AZMAIL_SYNC_FAILED {e}");
@@ -1705,7 +1757,8 @@ pub(crate) enum IoDone {
         result: Result<u64, String>,
     },
     /// The wizard's new drive (its session), or why there is none.
-    DriveCreated(Result<azlin::AzlinSession, String>),
+    /// The new drive's session, and its recovery code when it was encrypted as it was made.
+    DriveCreated(Result<(azlin::AzlinSession, Option<String>), String>),
     DkimKey(Result<dkim::KeyPair, String>),
     DkimChecked(dkim::DnsReport),
     /// The PDF of File > Print is written: its key and its file.
@@ -1773,8 +1826,34 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             use azlin::CloudAccount;
             let transport = AzulTransport::new(USER_AGENT);
             let created = azlin::TokenServer::new(&token_url, &transport)
-                .and_then(|server| server.create_drive(&name));
-            IoDone::DriveCreated(created.map_err(|e| e.to_string()))
+                .and_then(|server| server.create_drive(&name))
+                .map_err(|e| e.to_string());
+            // "We always encrypt": the keys as the drive is made - the drive key and this
+            // computer's member key into the keyring AzDrive shares, the recovery wrap and the
+            // member wrap into the bucket; the code goes to the page, shown once.
+            let created = created.and_then(|session| {
+                #[cfg(feature = "encryption")]
+                {
+                    let bucket = session
+                        .open_drive(None, Box::new(transport.clone()))
+                        .map_err(|e| e.to_string())?;
+                    let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
+                        .map_err(|e| e.to_string())?;
+                    let (_, code) = azul_storage::crypto::device::setup_new_drive(
+                        &bucket,
+                        &AzulKeyring::new(),
+                        &session.drive_id,
+                        kdf,
+                    )
+                    .map_err(|e| format!("the drive was made but not encrypted: {e}"))?;
+                    Ok((session, Some(code.to_text().to_string())))
+                }
+                #[cfg(not(feature = "encryption"))]
+                {
+                    Ok((session, None))
+                }
+            });
+            IoDone::DriveCreated(created)
         }
         IoJob::DkimKey => IoDone::DkimKey(dkim::generate_key()),
         IoJob::DkimCheck {

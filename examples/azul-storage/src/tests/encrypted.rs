@@ -725,3 +725,25 @@ fn reopening_takes_a_drive_encrypted_since() {
     assert_eq!(drive.is_encrypted(), Some(true));
     assert!(mem.object("new.txt").is_none());
 }
+
+/// The quota counts stored bytes: the totals say what the files take of it (compressed, a copy
+/// once) and how big they are before compression.
+#[test]
+fn the_totals_count_stored_bytes_once_and_the_files_original_size() {
+    let drive = new_drive();
+    let notes = text(300_000);
+    let photo = noise(50_000);
+    drive.put("notes/minutes.txt", &notes).unwrap();
+    drive.put("photos/a.jpg", &photo).unwrap();
+    drive.copy("notes/minutes.txt", "backup/minutes.txt").unwrap();
+    drive.create_folder("empty/").unwrap();
+    let totals = drive.totals().unwrap();
+    assert_eq!(totals.files, 3, "a folder marker is no file");
+    assert_eq!(
+        totals.original_bytes,
+        2 * notes.len() as u64 + photo.len() as u64
+    );
+    let stored: u64 = drive.inner().objects().iter().map(|(_, b)| b.len() as u64).sum();
+    assert_eq!(totals.stored_bytes, stored, "the copy's object counted once");
+    assert!(totals.stored_bytes < totals.original_bytes / 2, "{totals:?}");
+}

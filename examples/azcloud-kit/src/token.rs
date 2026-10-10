@@ -8,7 +8,8 @@
 //! | `POST /v1/checkout`                   | a paid drive: where the browser pays (the claim   |
 //! |                                       | key the sign-up is sealed to)                     |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
-//! |                                       | / declined / expired                              |
+//! |                                       | / declined / expired; a cash checkout             |
+//! |                                       | awaiting_cash / rejected (with its reason)        |
 //! | `GET /v1/checkout/options`            | the providers' offer for a tier, period, country  |
 //! |                                       | (azul-pay narrows it to the app's registry)       |
 //! | `POST /v1/checkout` + provider        | a checkout through a provider: its surface (the   |
@@ -20,7 +21,9 @@
 //! |                                       | (against the sealed sign-up's issue key)          |
 //! | `POST /v1/drives/{id}/redeem`         | a period token: the drive's next month            |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
-//! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
+//! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown, a ban |
+//! |                                       | (status banned, ban_reason, ban_until; past the   |
+//! |                                       | end 403 drive_banned)                             |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
 //! | `POST /v1/drives/{id}/lockdown`       | every other device, key and link revoked at once  |
 //! |                                       | (or by the recovery key: a fresh nonce, 48 h)     |
@@ -306,7 +309,7 @@ pub enum IssueAnswer {
 }
 
 /// What a recovery-key lockdown answers (202): the drive is read-only until `pending_until`
-/// (every device may cancel until then), and `drive_token` is the new family this side gets
+/// (the recovery code may cancel until then), and `drive_token` is the new family this side gets
 /// after it. `Debug` shows no token.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RecoveryLockdown {
@@ -339,7 +342,7 @@ pub struct DriveStatus {
     /// Paid until, in seconds since 1970.
     pub period_until: Option<u64>,
     /// A recovery-key lockdown takes effect then (seconds since 1970) unless a device of the
-    /// owner cancels it ([`TokenServer::lockdown_cancel`]).
+    /// owner cancels it with the recovery code ([`TokenServer::lockdown_cancel_signed`]).
     pub lockdown_pending_until: Option<u64>,
     /// The drive takes no writes (unpaid past its grace, a pending lockdown).
     pub read_only: bool,
@@ -348,6 +351,133 @@ pub struct DriveStatus {
     pub members: Vec<String>,
     /// The member whose token asked.
     pub you: Option<String>,
+    /// The drive's quota in bytes - of STORED bytes: what arrives at the storage nodes,
+    /// compressed and encrypted.
+    pub quota_bytes: Option<u64>,
+    /// The bytes the drive holds as the storage nodes count them (stored: compressed and
+    /// encrypted); what the quota is counted against.
+    pub used_bytes: Option<u64>,
+    /// The drive is banned (ban contract v1): why, and until when it may still be read.
+    pub ban: Option<Ban>,
+}
+
+/// The error code of a banned drive's refusals: its writes during the grace period, everything
+/// (the credentials, its status) after it.
+pub const DRIVE_BANNED: &str = "drive_banned";
+
+/// The banner over a banned drive: why, and how long its files can still be copied (`hours`;
+/// `None`: no end said). AzDrive and AzMail show the same words.
+#[must_use]
+pub fn banner_text(reason: &str, hours: Option<u64>) -> String {
+    match hours {
+        Some(1) => format!(
+            "Due to {reason}, your account has been banned, but you have 1 hour to migrate \
+             your files."
+        ),
+        Some(hours) => format!(
+            "Due to {reason}, your account has been banned, but you have {hours} hours to \
+             migrate your files."
+        ),
+        None => format!(
+            "Due to {reason}, your account has been banned: copy your files to this computer \
+             now."
+        ),
+    }
+}
+
+/// What a banned drive shows past its end: when (`until`, the ban's end) and why.
+#[must_use]
+pub fn closed_text(until: Option<u64>, reason: &str) -> String {
+    match until {
+        Some(until) => {
+            let when = azul_storage::time::iso8601(until);
+            format!(
+                "This drive was closed on {} because {reason}.",
+                when.get(..10).unwrap_or(&when)
+            )
+        }
+        None => format!("This drive was closed because {reason}."),
+    }
+}
+
+/// What the token server says when a ban has no reason of its own.
+const BAN_REASON: &str = "a breach of the terms of service";
+
+/// A drive banned with a grace period (ban contract v1): its files can be read, listed and
+/// copied until `until`; nothing new is written; then the drive is closed.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Ban {
+    /// Why, as the token server says it ("spam distribution").
+    pub reason: String,
+    /// Reads and credentials work until then (seconds since 1970); `None`: no end said.
+    pub until: Option<u64>,
+    /// The token server refused the drive past the end (403 `drive_banned`): it is closed,
+    /// whatever this computer's clock says.
+    pub closed: bool,
+}
+
+impl Ban {
+    /// The ban an answer describes - `GET /v1/drives/{id}`, a credentials bundle (`status:
+    /// "banned"`, `ban_reason`, `ban_until`) or a 403 `drive_banned`; `None` for a drive in good
+    /// standing.
+    #[must_use]
+    pub fn of(value: &Value) -> Option<Ban> {
+        let banned = value["status"].as_str() == Some("banned")
+            || value["error"].as_str() == Some(DRIVE_BANNED)
+            || value["ban_reason"].is_string();
+        if !banned {
+            return None;
+        }
+        let reason = value["ban_reason"]
+            .as_str()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .unwrap_or(BAN_REASON);
+        let until = value["ban_until"].as_u64().or_else(|| {
+            value["ban_until"]
+                .as_str()
+                .and_then(azul_storage::time::parse_iso8601)
+        });
+        Some(Ban {
+            reason: reason.chars().take(200).collect(),
+            until,
+            closed: value["error"].as_str() == Some(DRIVE_BANNED),
+        })
+    }
+
+    /// Whether the drive is closed at `now` (seconds since 1970): the token server said so, or
+    /// its end has come.
+    #[must_use]
+    pub fn is_closed(&self, now: u64) -> bool {
+        self.closed || self.until.is_some_and(|until| until <= now)
+    }
+
+    /// What every app shows over the banned drive at `now`: [`banner_text`] with the hours left,
+    /// then, past the end, [`closed_text`].
+    #[must_use]
+    pub fn banner(&self, now: u64) -> String {
+        if self.is_closed(now) {
+            return self.closed_text();
+        }
+        banner_text(&self.reason, self.until.map(|_| self.hours_left(now)))
+    }
+
+    /// "This drive was closed on <date> because <reason>." ([`closed_text`]).
+    #[must_use]
+    pub fn closed_text(&self) -> String {
+        closed_text(self.until, &self.reason)
+    }
+
+    /// The hours left at `now` to copy the files, rounded up (0 once it is closed, and when no
+    /// end was said).
+    #[must_use]
+    pub fn hours_left(&self, now: u64) -> u64 {
+        if self.is_closed(now) {
+            return 0;
+        }
+        self.until
+            .map_or(0, |until| until.saturating_sub(now).div_ceil(3_600))
+    }
 }
 
 /// What a voucher bought.
@@ -367,6 +497,20 @@ pub enum VoucherRedeemed {
 #[must_use]
 pub fn recovery_lockdown_message(drive_id: &str, nonce: &str) -> String {
     format!("lockdown:{drive_id}:{nonce}")
+}
+
+/// What a cancel of a recovery-key lockdown signs (F12: "the recovery code always wins"):
+/// `lockdown-cancel:<drive>:<nonce>`.
+#[must_use]
+pub fn lockdown_cancel_message(drive_id: &str, nonce: &str) -> String {
+    format!("lockdown-cancel:{drive_id}:{nonce}")
+}
+
+/// What a change of the recovery key signs with the CURRENT key (F12 C):
+/// `recovery:<drive>:<new key>:<nonce>`.
+#[must_use]
+pub fn recovery_key_message(drive_id: &str, new_key: &str, nonce: &str) -> String {
+    format!("recovery:{drive_id}:{new_key}:{nonce}")
 }
 
 /// What a recovery lookup signs: `recovery-lookup:<challenge>`.
@@ -778,7 +922,8 @@ impl<'a> TokenServer<'a> {
         };
         let reason = |default: &str| value["reason"].as_str().unwrap_or(default).to_string();
         match value["status"].as_str().unwrap_or_default() {
-            "pending" => Ok(CheckoutStatus::Pending),
+            // A cash checkout waits for its letter like any unpaid one (cash contract v1).
+            "pending" | "awaiting_cash" => Ok(CheckoutStatus::Pending),
             "approved" => {
                 // The plaintext `signup` of a token server without claims is never taken: anyone
                 // who knew the checkout id could have read it.
@@ -799,6 +944,10 @@ impl<'a> TokenServer<'a> {
             }
             "declined" | "reversed" => Ok(CheckoutStatus::Declined(reason(
                 "the payment was declined",
+            ))),
+            // The operator did not take the letter's cash (the amount, the slip).
+            "rejected" => Ok(CheckoutStatus::Declined(reason(
+                "the cash sent was not accepted",
             ))),
             "expired" => Ok(CheckoutStatus::Gone(reason(
                 "the checkout expired at the token server",
@@ -1017,13 +1166,35 @@ impl<'a> TokenServer<'a> {
     }
 
     /// [`Self::info`] as a [`DriveStatus`]: the tier, the period's end, a pending recovery-key
-    /// lockdown, whether the drive takes no writes, its members and which one asked.
+    /// lockdown, whether the drive takes no writes, its members and which one asked, a ban.
+    /// Past a ban's end the token server refuses the drive (403 `drive_banned`): that answer is
+    /// the status of a closed drive, not an error.
     pub fn drive_status(
         &self,
         drive_id: &str,
         drive_token: &str,
     ) -> Result<DriveStatus, TokenError> {
-        let info = self.info(drive_id, drive_token)?;
+        let path = format!("/v1/drives/{}", check_id(drive_id)?);
+        let reply = self.exchange(Method::Get, &path, Some(token_of(drive_token)?), None)?;
+        if reply.status == 403 {
+            let value: Value = serde_json::from_slice(&reply.body).unwrap_or(Value::Null);
+            if value["error"].as_str() == Some(DRIVE_BANNED) {
+                return Ok(DriveStatus {
+                    read_only: true,
+                    ban: Ban::of(&value),
+                    ..DriveStatus::default()
+                });
+            }
+        }
+        if !reply.is_success() {
+            return Err(refusal(&reply, true));
+        }
+        let info: Value = if reply.body.iter().all(u8::is_ascii_whitespace) {
+            Value::Null
+        } else {
+            serde_json::from_slice(&reply.body)
+                .map_err(|_| TokenError::Protocol(String::from("the answer is not JSON")))?
+        };
         let time = |key: &str| info[key].as_str().and_then(azul_storage::time::parse_iso8601);
         let mut members: Vec<String> = info["members"]
             .as_array()
@@ -1042,6 +1213,13 @@ impl<'a> TokenServer<'a> {
             read_only: info["read_only"].as_bool().unwrap_or(false),
             members,
             you: info["you"].as_str().map(str::to_string),
+            quota_bytes: info["quota_bytes"].as_u64(),
+            // Stored bytes (compressed and encrypted, what arrived); `stored_bytes` is the same
+            // count under the name some servers give it.
+            used_bytes: info["used_bytes"]
+                .as_u64()
+                .or_else(|| info["stored_bytes"].as_u64()),
+            ban: Ban::of(&info),
         })
     }
 
@@ -1288,11 +1466,59 @@ impl<'a> TokenServer<'a> {
         })
     }
 
-    /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel`; a 409
-    /// when none is pending).
-    pub fn lockdown_cancel(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
-        let path = format!("/v1/drives/{}/lockdown/cancel", check_id(drive_id)?);
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
+    /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel {"nonce",
+    /// "signature"}`, F12 - "the recovery code always wins"): `sign` signs
+    /// [`lockdown_cancel_message`] of a nonce made new for this request with the drive's
+    /// recovery key (whoever holds the code; a device's drive token alone cancels nothing, so no
+    /// token is sent). A 409 `no_pending_lockdown` when none is pending, `nonce_used` for a
+    /// request the server saw before.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] when `sign` cannot sign (nothing is sent); the token server's
+    /// refusals.
+    pub fn lockdown_cancel_signed(
+        &self,
+        drive_id: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<Value, TokenError> {
+        let id = check_id(drive_id)?;
+        let nonce = lockdown_nonce()?;
+        let signature = sign(lockdown_cancel_message(id, &nonce).as_bytes())
+            .map_err(|e| TokenError::Config(format!("The cancel request is not signed: {e}")))?;
+        let path = format!("/v1/drives/{id}/lockdown/cancel");
+        let body = json!({ "nonce": nonce, "signature": signature });
+        self.call_or_null(Method::Post, &path, None, Some(&body))
+    }
+
+    /// Replaces the drive's recovery key with `public_key_base64` (`POST
+    /// /v1/drives/{id}/recovery {"recovery_pubkey", "nonce", "signature"}`, F12 C): the CURRENT
+    /// key signs [`recovery_key_message`] of the new key and a fresh nonce - a thief with a
+    /// device token cannot swap the owner's code out. A grant: with the newest drive token. The
+    /// drive's first key needs no signature ([`Self::set_recovery_key`]).
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] when `sign_with_current` cannot sign (nothing is sent); the token
+    /// server's refusals (401 a signature of another key).
+    pub fn replace_recovery_key(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        public_key_base64: &str,
+        sign_with_current: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<(), TokenError> {
+        let id = check_id(drive_id)?;
+        let new_key = public_key_base64.trim();
+        let nonce = lockdown_nonce()?;
+        let signature = sign_with_current(recovery_key_message(id, new_key, &nonce).as_bytes())
+            .map_err(|e| {
+                TokenError::Config(format!("The new recovery key is not signed: {e}"))
+            })?;
+        let path = format!("/v1/drives/{id}/recovery");
+        let body = json!({ "recovery_pubkey": new_key, "nonce": nonce, "signature": signature });
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+            .map(|_| ())
     }
 
     /// Queues a restore of `prefix` (a key or a folder) as it was at `as_of` (RFC 3339; `POST

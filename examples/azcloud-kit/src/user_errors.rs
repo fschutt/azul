@@ -78,6 +78,12 @@ pub enum Code {
     /// A newer version of the app changed the drive's format (D43) - the client's own: the
     /// drive is read-only here until the app is updated.
     NewerFormat,
+    /// Anything else (`internal`, a code this app does not know yet, an answer that makes no
+    /// sense).
+    Other,
+    /// The drive is banned (ban contract v1): it takes no writes; its files can be read and
+    /// copied until the ban's end.
+    DriveBanned,
     /// A recovery-key lockdown of this computer waits for its 48-hour notice (D42): the drive is
     /// handed over when it ends - the token server's `lockdown_pending`.
     LockdownPending,
@@ -88,14 +94,11 @@ pub enum Code {
     LastRecoveryKey,
     /// A recovery lookup's challenge ran out or is not the server's - `bad_challenge`.
     BadChallenge,
-    /// Anything else (`internal`, a code this app does not know yet, an answer that makes no
-    /// sense).
-    Other,
 }
 
 impl Code {
     /// Every code, in the table's order.
-    pub const ALL: [Code; 19] = [
+    pub const ALL: [Code; 20] = [
         Code::Unavailable,
         Code::Maintenance,
         Code::Network,
@@ -110,11 +113,12 @@ impl Code {
         Code::DeletePaused,
         Code::WrongBlock,
         Code::NewerFormat,
+        Code::Other,
+        Code::DriveBanned,
         Code::LockdownPending,
         Code::RecoveryKeyRequired,
         Code::LastRecoveryKey,
         Code::BadChallenge,
-        Code::Other,
     ];
 
     /// `quota_exceeded`, ...
@@ -140,6 +144,7 @@ impl Code {
             Code::LastRecoveryKey => "last_recovery_key",
             Code::BadChallenge => "bad_challenge",
             Code::Other => "other",
+            Code::DriveBanned => "drive_banned",
         }
     }
 
@@ -153,11 +158,12 @@ impl Code {
         Code::ALL.into_iter().find(|code| code.as_str() == text)
     }
 
-    /// Its row of [`ROWS`].
+    /// Its row of [`ROWS`] (the row of [`Code::Other`] for one without a row).
     #[must_use]
     pub fn row(self) -> &'static Row {
         ROWS.iter()
             .find(|row| row.code == self)
+            .or_else(|| ROWS.iter().find(|row| row.code == Code::Other))
             .unwrap_or(&ROWS[ROWS.len() - 1])
     }
 }
@@ -278,6 +284,22 @@ pub const ROWS: &[Row] = &[
              es zu synchronisieren - bis dahin bleibt es hier, wie es ist.",
     },
     Row {
+        code: Code::Other,
+        class: Class::Fatal,
+        behaviour: Behaviour::Report,
+        en: "Something went wrong: {detail}",
+        de: "Etwas ist schiefgelaufen: {detail}",
+    },
+    Row {
+        code: Code::DriveBanned,
+        class: Class::ReadOnly,
+        behaviour: Behaviour::ReadsOnly,
+        en: "This drive was banned: nothing new can be uploaded. Its files can still be read and \
+             copied to this computer until it closes.",
+        de: "Dieses Laufwerk wurde gesperrt: Neues kann nicht hochgeladen werden. Seine Dateien \
+             lassen sich noch lesen und auf diesen Computer kopieren, bis es geschlossen wird.",
+    },
+    Row {
         code: Code::LockdownPending,
         class: Class::Retry,
         behaviour: Behaviour::RetryAfterPause,
@@ -307,13 +329,6 @@ pub const ROWS: &[Row] = &[
         behaviour: Behaviour::RetryWithBackoff,
         en: "The recovery request ran out. Try again.",
         de: "Die Wiederherstellungsanfrage ist abgelaufen. Versuche es noch einmal.",
-    },
-    Row {
-        code: Code::Other,
-        class: Class::Fatal,
-        behaviour: Behaviour::Report,
-        en: "Something went wrong: {detail}",
-        de: "Etwas ist schiefgelaufen: {detail}",
     },
 ];
 

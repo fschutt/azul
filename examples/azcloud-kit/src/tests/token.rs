@@ -404,7 +404,9 @@ fn the_account_calls_go_to_the_drives_routes_with_this_devices_drive_token() {
     assert_eq!(member["drive_token"], "dt_m.0.joins");
     assert_eq!(server.info("d_1", "dt_f.0.aaa").unwrap()["tier"], "100GB");
     assert_eq!(
-        server.lockdown_cancel("d_1", "dt_f.0.aaa").unwrap(),
+        server
+            .lockdown_cancel_signed("d_1", |m| Ok(format!("sig({})", m.len())))
+            .unwrap(),
         serde_json::Value::Null,
         "an empty answer is no error"
     );

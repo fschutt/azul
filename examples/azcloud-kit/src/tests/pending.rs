@@ -41,6 +41,8 @@ fn checkout(id: &str, claim: &ClaimKey) -> PendingCheckout {
         token_url: TOKEN.to_string(),
         name: String::from("Photos"),
         period: None,
+        method: String::new(),
+        cash: None,
     }
 }
 

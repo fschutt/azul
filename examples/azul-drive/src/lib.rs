@@ -82,7 +82,8 @@
 //! <until>`, `AZDRIVE_PROBLEM <drive id> <code> <request id>`, `AZDRIVE_PROBLEM_GONE <drive
 //! id>`, `AZDRIVE_LOCKDOWN_PENDING <drive id> <until>`, `AZDRIVE_LOCKDOWN_CANCELLED <drive id>`,
 //! `AZDRIVE_VOUCHER [new] <drive id> [<days>]`, `AZDRIVE_RECOVERY_KEY <drive id>`,
-//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`,
+//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`, `AZDRIVE_SPACE <drive id> <used> <quota>` (the
+//! node's HeadBucket count of stored bytes, `-` what it did not say),
 //! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
 //! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
 //! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLOSED`. Keys,
@@ -134,12 +135,20 @@
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
+/// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
+mod ban;
+#[cfg(test)]
+mod ban_tests;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
 mod add_drive;
 #[cfg(test)]
 mod add_drive_tests;
 /// What the Add drive dialog's buttons start, and the answers of its jobs.
 mod add_flow;
+/// Cash by post: the two pages, the waiting line, a claim code picked up, the daily look.
+mod cash;
+#[cfg(test)]
+mod cash_tests;
 /// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
 mod sign_in;
 pub mod args;
@@ -156,6 +165,8 @@ mod ids;
 mod periods;
 /// A drive's errors as the user sees them: the table's words, the error ID, notifications.
 mod problems;
+/// An Azlin drive's space: the quota counts stored bytes, the original size as extra information.
+mod usage_view;
 /// Vouchers on a drive (Options > Drives).
 mod vouchers;
 /// "Restore as of..." of an Azlin drive (Options > Drives, the drive's menu).
@@ -190,6 +201,7 @@ pub mod listing;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
+mod paper;
 pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
@@ -301,8 +313,8 @@ pub(crate) struct Slot {
     /// keys, and its decision to take again after the keys changed.
     #[cfg(feature = "encryption")]
     pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
-    /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked").
-    #[cfg(feature = "encryption")]
+    /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked"), its node's
+    /// count of stored bytes (HeadBucket).
     pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
     /// An Azlin drive's AZL1 objects kept on this computer, below its encryption: a synced
     /// encrypted drive's "encrypted local copies".
@@ -318,7 +330,6 @@ impl Slot {
             drive: None,
             #[cfg(feature = "encryption")]
             auto: None,
-            #[cfg(feature = "encryption")]
             azlin: None,
             #[cfg(feature = "encryption")]
             objects: None,
@@ -380,10 +391,7 @@ impl Slot {
             // the nodes before its first refresh.
             .with_nodes_file(&nodes_file(&self.entry.id)),
             );
-            #[cfg(feature = "encryption")]
-            {
-                self.azlin = Some(concrete.clone());
-            }
+            self.azlin = Some(concrete.clone());
             let azlin: Arc<dyn Drive> = concrete;
             // Plain or encrypted: the first call (a worker thread) decides.
             #[cfg(feature = "encryption")]
@@ -780,6 +788,13 @@ pub(crate) struct DriveState {
     pub root_counts: HashMap<String, usize>,
     /// A local drive's volume: (total, free) bytes.
     pub disk: HashMap<String, (u64, u64)>,
+    /// An Azlin drive's space, by its Azlin id: the quota counts stored bytes
+    /// ([`usage_view`]).
+    pub usage: HashMap<String, usage_view::DriveUsage>,
+    /// Recovery sheets of new drives made while another dialog was open (a paid drive that
+    /// arrived in the background): each shows when no dialog is.
+    #[cfg(feature = "encryption")]
+    pub pending_sheets: Vec<encryption::Sheet>,
     pub message: Option<Message>,
     pub popup: Option<Popup>,
     pub popups_opened: u64,
@@ -843,6 +858,12 @@ pub(crate) struct DriveState {
     /// `AZDRIVE_<PROVIDER>_<KEY>` over the shared Azlin config's `oauth` section, read at the
     /// start (`sign_in`).
     pub sign_in_settings: sign_in::SignInSettings,
+    /// The cash orders this AzDrive waits for (cash by post): the drive list's lines.
+    pub cash_waits: Vec<cash::Wait>,
+    /// When the cash orders are asked about next: once a day (`AZDRIVE_PERIOD_CHECK_SECS`).
+    pub cash_looks: periods::Schedule,
+    /// The banned Azlin drives (ban contract v1), by their Azlin id: why, until when.
+    pub bans: HashMap<String, azcloud_kit::Ban>,
 }
 
 impl DriveState {
@@ -1705,6 +1726,9 @@ pub(crate) fn go(
     place: Place,
     remember: bool,
 ) {
+    // A drive whose encryption setup never passed its sheet is not used until a new code's does.
+    #[cfg(feature = "encryption")]
+    encryption::guard_unfinished_setup(info, app, s, &place);
     if remember && place != s.place {
         let leaving = s.place.clone();
         s.history.visit(leaving);
@@ -2215,6 +2239,8 @@ fn scanned(
         actions::request_sort_stats(info, app, s);
     }
     actions::request_view_work(info, app, s);
+    // An Azlin drive's space as its node counts it (at most every SPACE_EVERY_SECS).
+    usage_view::request_space(info, app, s);
 }
 
 pub(crate) extern "C" fn on_job_done(
@@ -2242,6 +2268,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Scanned { done: false, .. }
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+            | Outcome::CashWaiting { .. }
             | Outcome::CheckoutFinished {
                 from_claims: true,
                 ..
@@ -2515,6 +2542,11 @@ pub(crate) extern "C" fn on_job_done(
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
         Outcome::PeriodsRedeemed { results } => {
             periods::periods_redeemed(&mut info, s, results);
+            // Each drive's space as its node counts it.
+            usage_view::request_space(&mut info, &handle, s);
+            // An encrypted drive's files' size before compression, for its usage line.
+            #[cfg(feature = "encryption")]
+            encryption::request_totals(&mut info, &handle, s);
         }
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
@@ -2609,9 +2641,11 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::DriveProblem { serial, problem } => {
             problems::drive_problem(&mut info, s, serial, problem);
         }
-        Outcome::LockdownCancelled { drive_id, result } => {
-            periods::lockdown_cancelled(s, &drive_id, result);
-        }
+        Outcome::BucketSpace { azlin_id, result } => match result {
+            Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
+            // Quiet: the line keeps what it knew; the next listing asks again.
+            Err(why) => eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}"),
+        },
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
@@ -2621,7 +2655,15 @@ pub(crate) extern "C" fn on_job_done(
             as_of,
             result,
         } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
+        Outcome::CashWaiting { checkout } => cash::waiting(s, checkout),
+        Outcome::PickedUp {
+            serial,
+            checkout,
+            result,
+        } => add_flow::picked_up_answered(&mut info, &handle, s, serial, checkout, result),
     }
+    #[cfg(feature = "encryption")]
+    encryption::show_pending_sheet(s);
     Update::RefreshDom
 }
 
@@ -2638,6 +2680,9 @@ pub(crate) fn with_state(
         return Update::DoNothing;
     };
     f(info, &app, &mut *guard);
+    // A new drive's recovery sheet that waited for another dialog to close.
+    #[cfg(feature = "encryption")]
+    encryption::show_pending_sheet(&mut *guard);
     Update::RefreshDom
 }
 
@@ -3057,6 +3102,9 @@ pub fn start() {
         None if args.kit.shot.is_some() => None,
         None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
     };
+    // Print's copies of a page (an emergency kit, cash by post's two) live there; a run before's
+    // go first.
+    paper::set_print_root(cache_dir.clone());
     #[cfg(feature = "encryption")]
     encryption::set_cache_dir(cache_dir.clone());
     // A big upload outlives the app: its state file in the cache, resumed by the next upload of
@@ -3121,6 +3169,9 @@ pub fn start() {
         metadata: HashMap::new(),
         root_counts: HashMap::new(),
         disk: HashMap::new(),
+        usage: HashMap::new(),
+        #[cfg(feature = "encryption")]
+        pending_sheets: Vec::new(),
         message,
         popup: None,
         popups_opened: 0,
@@ -3151,6 +3202,9 @@ pub fn start() {
         pending_lockdowns: HashMap::new(),
         sync_view: sync_view::SyncView::default(),
         sign_in_settings,
+        cash_waits: Vec::new(),
+        cash_looks: periods::Schedule::default(),
+        bans: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

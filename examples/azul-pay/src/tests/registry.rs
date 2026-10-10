@@ -24,12 +24,24 @@ fn every_provider_has_a_unique_id_its_names_its_origins_and_a_method() {
         assert!(!ids.contains(&spec.id), "{} twice", spec.id);
         ids.push(spec.id);
         assert!(!spec.name.is_empty() && !spec.legal_name.is_empty(), "{}", spec.id);
-        assert!(!spec.origins.is_empty(), "{} has no origins", spec.id);
+        // Only a provider that takes payments on paper (cash by post) has no pages.
+        let paper_only = spec
+            .methods
+            .iter()
+            .all(|m| m.chain == [SurfaceKind::Paper].as_slice());
+        assert!(
+            !spec.origins.is_empty() || paper_only,
+            "{} has no origins",
+            spec.id
+        );
         assert!(!spec.methods.is_empty(), "{} has no methods", spec.id);
         assert!(!spec.icon.is_empty(), "{}", spec.id);
         assert_eq!(registry::provider(spec.id).map(|s| s.id), Some(spec.id));
     }
-    assert!(ids.contains(&"stripe") && ids.contains(&"gocardless"), "{ids:?}");
+    assert!(
+        ids.contains(&"stripe") && ids.contains(&"gocardless") && ids.contains(&"cash"),
+        "{ids:?}"
+    );
     assert!(registry::provider("no-such-provider").is_none());
 }
 
@@ -115,9 +127,19 @@ fn paypal_goes_to_the_system_browser_whichever_provider_carries_it() {
 }
 
 #[test]
-fn every_chain_ends_in_the_system_browser() {
+fn every_chain_ends_in_the_system_browser_unless_it_is_paper_alone() {
     for spec in registry::providers() {
         for method in spec.methods {
+            if method.chain == [SurfaceKind::Paper].as_slice() {
+                // Cash by post: nothing opens, the slip is printed.
+                continue;
+            }
+            assert!(
+                !method.chain.contains(&SurfaceKind::Paper),
+                "paper is a chain of its own: {} {:?}",
+                spec.id,
+                method.method
+            );
             assert_eq!(
                 method.chain.last(),
                 Some(&SurfaceKind::SystemBrowser),
@@ -160,12 +182,14 @@ fn the_wire_names_of_methods_and_surfaces_read_back() {
     assert_eq!(Method::parse("sepa"), Some(Method::SepaDebit), "the v1 name");
     assert_eq!(Method::parse("Card"), Some(Method::Card));
     assert_eq!(Method::parse("bitcoin"), None);
+    assert_eq!(Method::parse("cash"), Some(Method::Cash));
     for kind in SurfaceKind::ALL {
         assert_eq!(SurfaceKind::parse(kind.as_str()), Some(kind));
     }
     assert_eq!(SurfaceKind::parse("popup"), None);
     assert!(SurfaceKind::PopoverFields.in_webview() && SurfaceKind::WebviewPage.in_webview());
     assert!(!SurfaceKind::SystemBrowser.in_webview() && !SurfaceKind::NativeSheet.in_webview());
+    assert!(!SurfaceKind::Paper.in_webview(), "paper is printed, never shown in a web view");
 }
 
 #[cfg(not(feature = "fake-providers"))]

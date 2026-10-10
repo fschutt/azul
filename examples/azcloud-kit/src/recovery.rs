@@ -3,8 +3,9 @@
 //! nowhere else. Its public half is registered with the drive token
 //! ([`crate::TokenServer::set_recovery_key`]); it signs a lockdown request that needs no drive
 //! token ([`crate::TokenServer::recovery_lockdown`]): from a computer whose devices were taken
-//! over, the drive is frozen for 48 hours, the owner's other devices may cancel it, and then it
-//! is this computer's alone.
+//! over, the drive is frozen for 48 hours, the recovery code may cancel it
+//! ([`crate::TokenServer::lockdown_cancel_signed`]; F12: "the recovery code always wins", a
+//! device's token alone cancels nothing), and then it is this computer's alone.
 //!
 //! The derivation: HKDF-SHA256 over the recovery code's bytes, salt
 //! `azlin-recovery-lockdown-v1`, info the drive id - 32 bytes, the Ed25519 seed.

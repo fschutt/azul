@@ -29,6 +29,11 @@
 //!   wait, stopped, done or declined. The app runs the effects (an HTTP call on a thread, the
 //!   web view's src, `prevent_default`, `Url::open`, the poll) and feeds the results back.
 //!
+//! - **Cash by post** ([`cash`]): a provider on paper alone - the token server's cash checkout
+//!   becomes a slip (the activation code, the operator's address, the amount in digits and in
+//!   words) for the app to print, and the machine waits for nothing: the background claims look
+//!   once a day until the operator activated it.
+//!
 //! The claim of the paid drive (the claim key, the sealed sign-up, the checkouts kept in the
 //! keyring) is azcloud-kit's and unchanged: this crate ends where the poll begins.
 //!
@@ -36,6 +41,7 @@
 //! fragment, or a cardholder's name. No azul types, no network.
 
 pub mod bridge;
+pub mod cash;
 pub mod machine;
 pub mod offer;
 pub mod pills;
@@ -43,6 +49,7 @@ pub mod registry;
 pub mod surface;
 pub mod url;
 
+pub use cash::CashSlip;
 pub use machine::{step, Effect, Event, Notice, State};
 pub use offer::{Offer, OfferContext, OfferedProvider};
 pub use pills::{Choice, Pill, PillContext};

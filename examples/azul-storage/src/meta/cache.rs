@@ -286,8 +286,9 @@ impl QueryCache {
         )
     }
 
-    /// How many files the drive holds and their plaintext bytes (the quota counts
-    /// these, D28).
+    /// How many files the drive holds and their plaintext bytes: their size before
+    /// compression. Never the space used: the quota counts the stored bytes the drive's node
+    /// counts (its HeadBucket answer, [`crate::S3Drive::space`]).
     pub fn totals(&self) -> Result<(u64, u64), MetaError> {
         let rows = self.rows(
             "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM entries WHERE is_folder = 0",

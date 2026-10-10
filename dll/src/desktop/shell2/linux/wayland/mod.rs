@@ -1403,6 +1403,9 @@ impl WaylandWindow {
         self.common.current_window_state().flags.close_requested
     }
     pub fn close(&mut self) {
+        // The popups this window opened close with it (a popup's own popup has
+        // no other parent to close it).
+        PlatformWindow::close_transient_windows(self);
         // WebRender's Renderer must be deinit()'d, not dropped — texture
         // deletion has to happen inside a frame. Never doing so crashed debug
         // builds on close and leaked GPU resources in release.
