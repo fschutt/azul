@@ -23,6 +23,8 @@ mod backstage;
 pub mod commands;
 pub mod docx;
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod pages;
 pub mod paginate;
