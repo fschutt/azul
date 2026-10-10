@@ -11,13 +11,25 @@
 //! does not stop syncing because a platform cannot say what its connection costs. An app that
 //! decides at its start asks once early, so the monitor has answered by then.
 //!
+//! * macOS, iOS: Network.framework's path monitor (`nw_path_is_expensive` is metered,
+//!   `nw_path_is_constrained` - Low Data Mode - constrained).
+//! * Windows: WinRT's `NetworkInformation` (the connection profile's cost: Fixed / Variable is
+//!   metered; near or over the data limit, roaming or Data Saver is constrained).
+//! * Linux: NetworkManager over D-Bus (`Metered` yes / guess-yes); never constrained. Without
+//!   NetworkManager: UNKNOWN.
+//! * Android: `ConnectivityManager` through JNI, read every 10 s (`isActiveNetworkMetered`,
+//!   Data Saver's `RESTRICT_BACKGROUND_STATUS_ENABLED` is constrained).
+//! * Other targets: UNKNOWN.
 //! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): [`NetworkState::HEADLESS`]
 //!   (wired, connected, free), or what the file named by `AZ_NETWORK_STATE_FILE`
 //!   ([`NETWORK_STATE_FILE_VAR`]) says, read at every query - so a test switches the network
 //!   while the app runs, in words ([`NetworkState::from_words`]: `wifi metered`, `offline`).
 //!   No test depends on the network of the machine it runs on.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Mutex, PoisonError},
+};
 
 /// The variable naming the file whose words a headless / E2E run's network is
 /// ([`NetworkState::from_words`]; ignored by every other run).
@@ -99,7 +111,7 @@ impl NetworkState {
     /// constrained.
     #[must_use]
     pub fn allows_background_transfer(&self) -> bool {
-        self.connected
+        self.connected && !self.metered && !self.constrained
     }
 
     /// A headless run's network in words, any case, separated by spaces, commas or new lines:
@@ -109,15 +121,52 @@ impl NetworkState {
     /// left out. `cellular metered` is a phone's mobile data, `wifi constrained` a Wi-Fi in Low
     /// Data Mode.
     #[must_use]
-    pub fn from_words(_text: &str) -> NetworkState {
-        NetworkState::HEADLESS
+    pub fn from_words(text: &str) -> NetworkState {
+        let mut state = NetworkState::HEADLESS;
+        let mut named_kind = false;
+        let words = text
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|word| !word.is_empty());
+        for word in words {
+            let kind = match word.to_ascii_lowercase().as_str() {
+                "offline" => {
+                    state.connected = false;
+                    None
+                }
+                "online" => {
+                    state.connected = true;
+                    None
+                }
+                "metered" => {
+                    state.metered = true;
+                    None
+                }
+                "constrained" => {
+                    state.constrained = true;
+                    None
+                }
+                "wired" => Some(NetworkKind::Wired),
+                "wifi" => Some(NetworkKind::WiFi),
+                "cellular" => Some(NetworkKind::Cellular),
+                "other" => Some(NetworkKind::Other),
+                "unknown" => Some(NetworkKind::Unknown),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                state.kind = kind;
+                named_kind = true;
+            }
+        }
+        if !state.connected && !named_kind {
+            state.kind = NetworkKind::Unknown;
+        }
+        state
     }
 }
 
 /// A headless or E2E run (the power and biometric modules' test, the same variables).
 fn headless_run() -> bool {
-    std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
-        || std::env::var("AZ_E2E_TEST").is_ok()
+    std::env::var("AZ_BACKEND").as_deref() == Ok("headless") || std::env::var("AZ_E2E_TEST").is_ok()
 }
 
 /// A headless run's network: the switch file's words, else [`NetworkState::HEADLESS`].
@@ -128,10 +177,71 @@ fn headless_reading() -> NetworkState {
 
 /// The network the file at `path` says ([`NetworkState::from_words`]); without a file, or one
 /// that cannot be read, [`NetworkState::HEADLESS`].
-fn reading_of_file(_path: Option<&Path>) -> NetworkState {
-    NetworkState::HEADLESS
+fn reading_of_file(path: Option<&Path>) -> NetworkState {
+    path.and_then(|path| std::fs::read_to_string(path).ok())
+        .map_or(NetworkState::HEADLESS, |text| {
+            NetworkState::from_words(&text)
+        })
 }
 
+/// What the platform monitor saw last; `None` before its first reading.
+static LAST_SEEN: Mutex<Option<NetworkState>> = Mutex::new(None);
+
+/// A platform monitor's new reading: what the next query answers.
+#[cfg_attr(
+    not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )),
+    allow(dead_code)
+)]
+fn seen(state: NetworkState) {
+    *LAST_SEEN.lock().unwrap_or_else(PoisonError::into_inner) = Some(state);
+}
+
+/// What the platform monitor saw last; `None` before its first reading.
+#[cfg_attr(
+    not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )),
+    allow(dead_code)
+)]
+fn last_seen() -> Option<NetworkState> {
+    *LAST_SEEN.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod apple;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(target_os = "android")]
+use self::android as platform;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use self::apple as platform;
+#[cfg(target_os = "linux")]
+use self::linux as platform;
+#[cfg(target_os = "windows")]
+use self::windows as platform;
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "windows"
+)))]
 mod platform {
     use super::NetworkState;
 
@@ -169,7 +279,10 @@ mod tests {
             ..WIFI
         };
         assert!(!low_data.allows_background_transfer(), "low data mode");
-        assert!(!NetworkState::OFFLINE.allows_background_transfer(), "offline");
+        assert!(
+            !NetworkState::OFFLINE.allows_background_transfer(),
+            "offline"
+        );
     }
 
     #[test]
@@ -209,10 +322,8 @@ mod tests {
 
     #[test]
     fn a_test_switches_a_headless_runs_network_through_its_file() {
-        let path = std::env::temp_dir().join(format!(
-            "azul-network-test-{}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("azul-network-test-{}.txt", std::process::id()));
         let _ = std::fs::remove_file(&path);
         assert_eq!(reading_of_file(None), NetworkState::HEADLESS);
         assert_eq!(
@@ -222,9 +333,16 @@ mod tests {
         );
         std::fs::write(&path, "cellular metered\n").unwrap();
         let metered = reading_of_file(Some(&path));
-        assert!(metered.metered && metered.kind == NetworkKind::Cellular, "{metered:?}");
+        assert!(
+            metered.metered && metered.kind == NetworkKind::Cellular,
+            "{metered:?}"
+        );
         std::fs::write(&path, "wifi").unwrap();
-        assert_eq!(reading_of_file(Some(&path)), WIFI, "read again at every query");
+        assert_eq!(
+            reading_of_file(Some(&path)),
+            WIFI,
+            "read again at every query"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
