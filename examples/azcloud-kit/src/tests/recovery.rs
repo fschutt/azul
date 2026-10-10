@@ -22,6 +22,12 @@ fn verifying(public_b64: &str) -> VerifyingKey {
 #[test]
 fn a_recovery_key_is_the_same_for_the_same_code_and_drive_and_another_for_another_drive() {
     let one = RecoveryKey::derive(&CODE, "d_1");
+    // HKDF-SHA256 then RFC 8032, as Python's standard library computes it
+    // (scripts/azlin_ed25519.py: the mock's and the conformance checks' side).
+    assert_eq!(
+        one.public_base64(),
+        "TZrvbj1nF30/6IIsz2wc36FCNEID9Pu4HUE9+wjQ7Wo="
+    );
     assert_eq!(one.public_base64(), RecoveryKey::derive(&CODE, "d_1").public_base64());
     assert_ne!(one.public_base64(), RecoveryKey::derive(&CODE, "d_2").public_base64());
     assert_ne!(one.public_base64(), RecoveryKey::derive(&[0x5B; 16], "d_1").public_base64());
