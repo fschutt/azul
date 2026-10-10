@@ -12,6 +12,7 @@ use azul::{
         DataTableEventKind, DataTableSortKind, DataTableView,
     },
 };
+use azul_appkit::l10n::{t, t_args, Arg};
 
 use super::{column, empty, page_header, with_erp, Erp, CHROME_HEIGHT};
 use crate::{
@@ -93,10 +94,7 @@ pub fn page(s: &mut Erp, app: &RefAny, view: &View) -> Dom {
     let title = view.title(&s.state.labels, false);
     let header = page_header(s, app, view, &title, &Params::new());
     let Some(kind) = view.kind_of_records() else {
-        return column(vec![
-            header,
-            empty("This table reads no records.", &view.id),
-        ]);
+        return column(vec![header, empty(&t("azerp-table-no-records"), &view.id)]);
     };
     let columns = spec::columns(view, &s.state.labels);
     let grid = rows::grid(kind, &columns, None, &s.state.ctx());
@@ -106,11 +104,12 @@ pub fn page(s: &mut Erp, app: &RefAny, view: &View) -> Dom {
         .map(|id| s.state.row_path(view, kind, id).unwrap_or_default())
         .collect();
     if grid.is_empty() {
-        let detail = match view.actions.first() {
-            Some(_) => "Add the first one with the button above.",
-            None => "Nothing is recorded yet.",
-        };
-        return column(vec![header, empty(&format!("{title}: none yet"), detail)]);
+        let detail = t(match view.actions.first() {
+            Some(_) => "azerp-add-first",
+            None => "azerp-nothing-recorded",
+        });
+        let none = t_args("azerp-none-yet", &[("title", Arg::from(&title))]);
+        return column(vec![header, empty(&none, &detail)]);
     }
     let size = (s.window.0, s.window.1 - CHROME_HEIGHT);
     let table = grid_table(

@@ -30,6 +30,29 @@ fn the_engine_gets_azerp_words_and_appkits_in_english_and_german() {
     }
 }
 
+/// The views' labels are keyed by the ERP's own keys (`fields.book_value.label`), which no key in
+/// the source names: every one of the English table has its message in both files.
+#[test]
+fn every_label_of_the_views_has_its_words_in_english_and_german() {
+    let table: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(crate::views::LABELS_EN).expect("en.json");
+    for key in table.keys() {
+        let message = crate::l10n::view_label_key(key);
+        for (tag, source) in [("en", EN), ("de", DE)] {
+            assert!(
+                source.contains(&format!("\n{message} = ")),
+                "{tag} lacks {message} ({key})"
+            );
+        }
+    }
+    crate::l10n::in_english();
+    let labels = crate::views::Labels::en();
+    assert_eq!(labels.get("fields.book_value.label"), "Book value");
+    set_locale("de-DE");
+    assert_eq!(labels.get("fields.book_value.label"), "Buchwert");
+    set_locale("en-US");
+}
+
 #[test]
 fn switching_the_language_changes_a_label_of_azerp() {
     crate::l10n::in_english();

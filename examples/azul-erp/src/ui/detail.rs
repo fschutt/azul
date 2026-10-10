@@ -10,6 +10,7 @@ use azul::{
     str::String as AzString,
     widgets::{DataTableEvent, TabHeader, TabHeaderState},
 };
+use azul_appkit::l10n::t;
 
 use super::{action_button, column, empty, panels, table, text, with_erp, Erp, CHROME_HEIGHT};
 use crate::{
@@ -30,7 +31,7 @@ pub const HEADER_HEIGHT: f32 = 96.0;
 pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
     let id = params.get("id").cloned().unwrap_or_default();
     let Some(asset) = s.state.book.get::<Asset>(&id).cloned() else {
-        return empty("This asset is not there any more.", &id);
+        return empty(&t("azerp-asset-gone"), &id);
     };
     let ctx = s.state.ctx();
     let labels = &s.state.labels;
@@ -38,7 +39,7 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
         .with_id(ids::DETAIL)
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 8px 12px;")
         .with_child(
-            Button::create("Back")
+            Button::create(t("azerp-back"))
                 .with_icon("arrow_back")
                 .with_on_click(app.clone(), on_back as ButtonOnClickCallbackType)
                 .dom()
@@ -109,7 +110,7 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
             "FixedAssetOverviewPanel" => panels::overview(s, &asset),
             "DepreciationSchedulePanel" => panels::schedule(s, app, &asset),
             "EmbeddedTable" => embedded(s, app, tab.view.as_deref().unwrap_or(""), params),
-            other => empty("This panel is not built yet.", other),
+            other => empty(&t("azerp-panel-not-built"), other),
         },
         None => Dom::create_div(),
     };
@@ -119,10 +120,10 @@ pub fn page(s: &Erp, app: &RefAny, view: &View, params: &Params) -> Dom {
 /// An `EmbeddedTable` tab: the view's table, only this record's rows.
 fn embedded(s: &Erp, app: &RefAny, view_id: &str, params: &Params) -> Dom {
     let Some(view) = s.state.views.view(view_id) else {
-        return empty("The table of this tab is missing.", view_id);
+        return empty(&t("azerp-tab-table-missing"), view_id);
     };
     let Some(kind) = view.kind_of_records() else {
-        return empty("This table reads no records.", view_id);
+        return empty(&t("azerp-table-no-records"), view_id);
     };
     let columns = spec::columns(view, &s.state.labels);
     let filter = view
@@ -137,7 +138,7 @@ fn embedded(s: &Erp, app: &RefAny, view_id: &str, params: &Params) -> Dom {
         &s.state.ctx(),
     );
     if grid.is_empty() {
-        return empty("Nothing recorded for this asset yet.", "");
+        return empty(&t("azerp-nothing-recorded-asset"), "");
     }
     let size = (s.window.0, s.window.1 - CHROME_HEIGHT - HEADER_HEIGHT);
     table::grid_table(

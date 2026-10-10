@@ -53,7 +53,7 @@ def files(data_dir, folder, suffix=".json"):
 
 def start(args, logs, binary, data_dir, extra, tag):
     return e2e.App(tag, binary, ["--data-dir", data_dir, "--size", "1280x800", "--theme", "flat",
-                                 "--mode", "light"] + extra,
+                                 "--mode", "light", "--language", "en"] + extra,
                    args.debug_port, logs, args.timeout, extra_env={"AZERP_TODAY": TODAY})
 
 

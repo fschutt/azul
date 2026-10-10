@@ -21,10 +21,12 @@
 //! creates one; categories and locations are matched by name and created
 //! when new; a row that cannot be read is left out and named with its line.
 
+use azul_appkit::l10n::{self, t_args, Arg};
 use chrono::NaiveDate;
 
 use crate::{
     depreciation,
+    l10n::or_english,
     model::{self, Asset, Category, Location, Method, Status},
     money,
     store::Book,
@@ -130,7 +132,7 @@ impl Field {
         }
     }
 
-    /// What the mapping control shows.
+    /// Its English name (a header [`guess`] reads, too).
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
@@ -154,6 +156,33 @@ impl Field {
             Field::BookValue => "Book value",
             Field::Notes => "Notes",
         }
+    }
+
+    /// What the mapping control shows, in the window's language.
+    #[must_use]
+    pub fn said(self) -> String {
+        let key = match self {
+            Field::Skip => "azerp-import-field-skip",
+            Field::Number => "azerp-import-field-number",
+            Field::Name => "azerp-import-field-name",
+            Field::Category => "azerp-import-field-category",
+            Field::Location => "azerp-import-field-location",
+            Field::Serial => "azerp-import-field-serial",
+            Field::Acquired => "azerp-import-field-acquired",
+            Field::Cost => "azerp-import-field-cost",
+            Field::Residual => "azerp-import-field-residual",
+            Field::Life => "azerp-import-field-life",
+            Field::Method => "azerp-import-field-method",
+            Field::Rate => "azerp-import-field-rate",
+            Field::Status => "azerp-import-field-status",
+            Field::Custodian => "azerp-import-field-custodian",
+            Field::MaintenanceMonths => "azerp-import-field-maintenance-months",
+            Field::Disposed => "azerp-import-field-disposed",
+            Field::DisposalAmount => "azerp-import-field-disposal-amount",
+            Field::BookValue => "azerp-import-field-book-value",
+            Field::Notes => "azerp-import-field-notes",
+        };
+        or_english(key, self.label())
     }
 
     /// Its index in [`Field::CHOICES`] (0 = skip; the book value is not a
@@ -531,7 +560,7 @@ pub struct Import {
     pub locations: Vec<Location>,
     pub created: usize,
     pub updated: usize,
-    /// One sentence per row left out: `Row 4: ...`.
+    /// One sentence per row left out, in the window's language: `Row 4: ...`.
     pub problems: Vec<String>,
 }
 
@@ -563,8 +592,9 @@ pub fn import_assets(
         };
         if let Some(n) = cell(Field::Number) {
             if seen.contains(&n.to_lowercase()) {
-                out.problems.push(format!(
-                    "Row {line}: the asset number {n} is in the file twice; the row is left out."
+                out.problems.push(t_args(
+                    "azerp-import-number-twice",
+                    &[("row", Arg::from(line)), ("number", Arg::from(n))],
                 ));
                 continue;
             }
@@ -588,9 +618,13 @@ pub fn import_assets(
                 work.put(done.asset.clone());
                 out.assets.push(done.asset);
             }
-            Err(problems) => out
-                .problems
-                .push(format!("Row {line}: {}", problems.join("; "))),
+            Err(problems) => out.problems.push(t_args(
+                "azerp-import-row",
+                &[
+                    ("row", Arg::from(line)),
+                    ("problems", Arg::from(problems.join("; "))),
+                ],
+            )),
         }
     }
     out
@@ -614,7 +648,13 @@ fn leading_number(text: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
-/// One row: the asset it updates or creates, or why it cannot be read.
+/// The sentence `key` about a cell's text `t`.
+fn about(key: &str, t: &str) -> String {
+    t_args(key, &[("text", Arg::from(t))])
+}
+
+/// One row: the asset it updates or creates, or why it cannot be read
+/// (in the window's language).
 fn import_row<'r>(
     cell: &dyn Fn(Field) -> Option<&'r str>,
     work: &Book,
@@ -681,9 +721,9 @@ fn import_row<'r>(
     match cell(Field::Acquired) {
         Some(t) => match model::parse_date(t) {
             Some(d) => a.acquired = d,
-            None => problems.push(format!("the acquisition date \"{t}\" is not a day")),
+            None => problems.push(about("azerp-import-acquired-not-a-day", t)),
         },
-        None if is_new => problems.push("there is no acquisition date".to_string()),
+        None if is_new => problems.push(l10n::t("azerp-import-no-acquisition-date")),
         None => {}
     }
     match cell(Field::Cost) {
@@ -691,7 +731,7 @@ fn import_row<'r>(
             Ok(c) => a.cost = c,
             Err(e) => problems.push(e),
         },
-        None if is_new => problems.push("there is no acquisition cost".to_string()),
+        None if is_new => problems.push(l10n::t("azerp-import-no-acquisition-cost")),
         None => {}
     }
     if let Some(t) = cell(Field::Residual) {
@@ -703,20 +743,18 @@ fn import_row<'r>(
     match cell(Field::Life) {
         Some(t) => match leading_number(t) {
             Some(n) => a.life_years = n,
-            None => problems.push(format!("the useful life \"{t}\" is not a number of years")),
+            None => problems.push(about("azerp-import-life-not-years", t)),
         },
         None if is_new => match defaults {
             Some((life, _)) => a.life_years = life,
-            None => problems.push("there is no useful life".to_string()),
+            None => problems.push(l10n::t("azerp-import-no-useful-life")),
         },
         None => {}
     }
     match cell(Field::Method) {
         Some(t) => match Method::parse(t) {
             Some(m) => a.method = m,
-            None => problems.push(format!(
-                "the depreciation method \"{t}\" is not one AzERP knows"
-            )),
+            None => problems.push(about("azerp-import-unknown-method", t)),
         },
         None if is_new => {
             if let Some((_, m)) = defaults {
@@ -728,13 +766,13 @@ fn import_row<'r>(
     if let Some(t) = cell(Field::Rate) {
         match money::parse_amount(t.trim_end_matches('%')).map(u32::try_from) {
             Ok(Ok(bp)) if bp <= model::FULL_RATE_BP => a.declining_rate_bp = bp,
-            _ => problems.push(format!("the declining rate \"{t}\" is not a percentage")),
+            _ => problems.push(about("azerp-import-rate-not-percent", t)),
         }
     }
     if let Some(t) = cell(Field::Status) {
         match Status::parse(t) {
             Some(s) => a.status = s,
-            None => problems.push(format!("the status \"{t}\" is not one AzERP knows")),
+            None => problems.push(about("azerp-import-unknown-status", t)),
         }
     }
     if let Some(t) = cell(Field::Custodian) {
@@ -743,15 +781,13 @@ fn import_row<'r>(
     if let Some(t) = cell(Field::MaintenanceMonths) {
         match leading_number(t) {
             Some(n) => a.maintenance_months = n,
-            None => problems.push(format!(
-                "the maintenance interval \"{t}\" is not a number of months"
-            )),
+            None => problems.push(about("azerp-import-interval-not-months", t)),
         }
     }
     if let Some(t) = cell(Field::Disposed) {
         match model::parse_date(t) {
             Some(d) => a.disposed = Some(d),
-            None => problems.push(format!("the disposal date \"{t}\" is not a day")),
+            None => problems.push(about("azerp-import-disposal-not-a-day", t)),
         }
     }
     if let Some(t) = cell(Field::DisposalAmount) {
@@ -1010,6 +1046,7 @@ mod tests {
 
     #[test]
     fn an_import_maps_columns_by_choice_and_names_the_rows_it_left_out() {
+        crate::l10n::in_english();
         let text = "Nr;Bezeichnung;Gruppe;Kaufdatum;Preis;Jahre;Methode\n\
                     ;Laptop;IT;15.01.2026;1.596,64;3;linear\n\
                     ;Monitor;it;01.02.2026;349,00;;\n\

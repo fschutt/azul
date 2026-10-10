@@ -43,6 +43,7 @@ use azul::{
 };
 use azul_appkit::{
     files::{FileJob, FileOutcome},
+    l10n::{self, t, t_args, Arg},
     ui::{self as kit, Kit},
 };
 use azul_pim::write_queue::Write;
@@ -248,7 +249,10 @@ fn written(s: &mut Erp, outcomes: &[FileOutcome]) {
         }
     }
     if let Some((w, e)) = failed.first() {
-        s.state.notice = format!("{} could not be saved: {e}", w.key());
+        s.state.notice = t_args(
+            "azerp-not-saved",
+            &[("key", Arg::from(w.key())), ("why", Arg::from(e))],
+        );
     }
     s.state.queue.finish(failed);
 }
@@ -263,7 +267,9 @@ fn import_read(s: &mut Erp, outcomes: &[FileOutcome]) {
                     s.state.start_import(key, &text);
                     println!("AZERP_IMPORT_PREVIEW {key}");
                 }
-                Ok(None) => s.state.notice = format!("{key} does not exist."),
+                Ok(None) => {
+                    s.state.notice = t_args("azerp-file-missing", &[("key", Arg::from(key))])
+                }
                 Err(e) => s.state.notice = e.clone(),
             }
         }
@@ -274,6 +280,8 @@ fn import_read(s: &mut Erp, outcomes: &[FileOutcome]) {
 
 /// The window: the RecordsShell in the theme scope, the form, the guard.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for every word this pass says.
+    l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let window = (info.get_window_width(), info.get_window_height());
@@ -319,7 +327,13 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     }
     // A form with edits is not lost to the close button: the guard asks.
     let content = if s.state.form.is_some() {
-        CloseGuard::create(column, "the open form")
+        CloseGuard::create(column, "")
+            .with_question(t("azerp-close-question"), t("azerp-close-text"))
+            .with_labels(
+                t("azerp-save"),
+                t("azerp-close-discard"),
+                t("kit-button-cancel"),
+            )
             .with_dirty_check(app.clone(), dirty_check as CloseGuardDirtyCheckCallbackType)
             .with_asking(s.asking)
             .with_on_event(app.clone(), on_guard as CloseGuardOnEventCallbackType)
@@ -343,12 +357,24 @@ fn delete_question(s: &Erp, app: &RefAny) -> Option<Dom> {
     let (number, name) = s.state.delete_question()?;
     let message = MessageBox::create(
         MessageBoxKind::Question,
-        format!("Delete {number}?"),
-        format!("{number} {name}, with its maintenance and check-out records."),
+        t_args("azerp-delete-ask", &[("number", Arg::from(&number))]),
+        t_args(
+            "azerp-delete-what",
+            &[("number", Arg::from(&number)), ("name", Arg::from(&name))],
+        ),
     )
-    .with_detail("The files are removed from the data folder. This cannot be undone.")
-    .with_buttons(vec![AzString::from("Delete"), AzString::from("Cancel")], 1)
-    .with_on_event(app.clone(), on_delete_answer as StandardDialogOnEventCallbackType);
+    .with_detail(t("azerp-delete-detail"))
+    .with_buttons(
+        vec![
+            AzString::from(t("azerp-delete")),
+            AzString::from(t("kit-button-cancel")),
+        ],
+        1,
+    )
+    .with_on_event(
+        app.clone(),
+        on_delete_answer as StandardDialogOnEventCallbackType,
+    );
     Some(
         Modal::create(message.dom())
             .with_title(crate::SPEC.name)
@@ -414,12 +440,12 @@ fn section_tabs(s: &Erp, app: &RefAny) -> Dom {
 fn page(s: &mut Erp, app: &RefAny) -> Dom {
     if !s.state.loaded {
         return empty(
-            "Reading the asset register...",
-            "The records are files in your data folder.",
+            &t("azerp-reading-register"),
+            &t("azerp-reading-register-detail"),
         );
     }
     let Some((view, params)) = s.state.route().map(|r| (r.view.clone(), r.params.clone())) else {
-        return empty("There is nothing here.", &s.state.page);
+        return empty(&t("azerp-nothing-here"), &s.state.page);
     };
     match view.kind {
         ViewKind::Table | ViewKind::TableEmbedded => table::page(s, app, &view),
@@ -427,7 +453,7 @@ fn page(s: &mut Erp, app: &RefAny) -> Dom {
         ViewKind::Report => panels::reports(s, app, &view),
         ViewKind::Wizard => panels::run(s, app, &view),
         ViewKind::Custom => panels::import(s, app, &view),
-        _ => empty("This page has no screen yet.", &view.id),
+        _ => empty(&t("azerp-no-screen"), &view.id),
     }
 }
 
@@ -545,7 +571,7 @@ fn run_action(s: &mut Erp, kind: &ActionKind, params: &Params) {
                     s.state.ask_delete(&id);
                     println!("AZERP_ASK_DELETE {id}");
                 }
-                _ => s.state.notice = format!("\"{name}\" is not built yet."),
+                _ => s.state.notice = t_args("azerp-not-built", &[("name", Arg::from(&name))]),
             }
         }
         ActionKind::Submit => {
@@ -595,20 +621,26 @@ extern "C" fn on_section(
 
 /// The status bar: the register's count and value, the writes, the notice.
 fn status_bar(s: &Erp) -> Dom {
-    let t = reports::totals(&s.state.book, s.state.today);
+    let totals = reports::totals(&s.state.book, s.state.today);
     let mut segments = vec![
-        StatusBarSegment::create(AzString::from(format!("{} assets", t.count)))
-            .with_marker(ids::STATUS_COUNT),
-        StatusBarSegment::create(AzString::from(format!(
-            "Book value {}",
-            money::format_amount(t.book_value)
+        StatusBarSegment::create(AzString::from(t_args(
+            "azerp-status-assets",
+            &[("count", Arg::from(totals.count))],
+        )))
+        .with_marker(ids::STATUS_COUNT),
+        StatusBarSegment::create(AzString::from(t_args(
+            "azerp-status-book-value",
+            &[("value", Arg::from(money::format_amount(totals.book_value)))],
         ))),
     ];
     let writing = s.state.queue.pending() + s.in_flight.len();
     if writing > 0 {
         segments.push(
-            StatusBarSegment::create(AzString::from(format!("Saving {writing} files...")))
-                .with_marker(ids::STATUS_SYNC),
+            StatusBarSegment::create(AzString::from(t_args(
+                "azerp-status-saving",
+                &[("count", Arg::from(writing))],
+            )))
+            .with_marker(ids::STATUS_SYNC),
         );
     }
     if !s.state.notice.is_empty() {
