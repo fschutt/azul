@@ -30,13 +30,17 @@ use azul::{
     video::{VideoConfig, VideoSource},
     widgets::{SeekBar, TextInput, VideoWidget},
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{t, t_args, t_label, Arg},
+    ui as kit,
+};
 
 use crate::{
     app::{self, cover_key, full_key, thumb_key, Art, Player},
     curtain::{Curtain, Stage},
     gallery::{Grid, TileKind},
     ids,
+    l10n::word,
     library::{self, Shelf, Status},
     look::{self, Light},
     media::{self, Command, CommandRef, Music, VideoSession},
@@ -82,6 +86,7 @@ const NO_DRAG: &str = "-azul-app-region: no-drag;";
 /// The window: the menus, the stage, the picture viewer in the theme scope; the menu bar, the
 /// keys, the mouse's back button on the body.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     let _mode = info.get_mode();
     let window = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
@@ -238,7 +243,7 @@ fn page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         Screen::Section(section) => section_page(s, app, place, *section, stage),
         Screen::Group { section, group, .. } => {
             let title = group.title.to_lowercase();
-            let sub = format!("{} · {}", section.title(), group.subtitle);
+            let sub = format!("{} · {}", word(section.title()), group.subtitle);
             gallery_page(s, app, place, &title, Some(&sub), stage)
         }
         Screen::Search => search_page(s, app, place, stage),
@@ -361,7 +366,7 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
                 .with_child(round_button(
                     app,
                     Command::Back,
-                    ("arrow_back", "Back"),
+                    ("arrow_back", "azplayer-shortcut-back"),
                     34.0,
                     ids::BACK,
                     stage,
@@ -400,7 +405,7 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
 }
 
 /// A round glass button doing `command`: an icon, named for assistive technology (`face`: the
-/// icon and the name); the glow under the pointer, and the keyboard's ring while `lit` (Tab
+/// icon and the name, a key); the glow under the pointer, and the keyboard's ring while `lit` (Tab
 /// brought the keys to it: the app's own focus, which fades in and out - never the engine's
 /// ring).
 fn round_button(
@@ -423,7 +428,7 @@ fn round_button(
              {size}px; margin-left: 8px; cursor: pointer; border-radius: {radius}px; {NO_DRAG}"
         ))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(name)
+        .with_accessibility_name(t_label(name))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Click),
             RefAny::new(CommandRef {
@@ -487,7 +492,11 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
                      flex-grow: 1;",
                 )
                 .with_child(text(
-                    if music.playing() { "now playing" } else { "paused" },
+                    &t(if music.playing() {
+                        "azplayer-now-playing"
+                    } else {
+                        "azplayer-paused"
+                    }),
                     &format!("font-size: 11px; color: {};", look::INK_FAINT),
                     stage,
                 ))
@@ -514,7 +523,7 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
                     "display: flex; flex-shrink: 0; width: 30px; height: 30px; margin: 0px 6px \
                      0px 4px; cursor: pointer; border-radius: 15px; {NO_DRAG}"
                 ))
-                .with_accessibility_name("Stop the music")
+                .with_accessibility_name(t("azplayer-stop-music"))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
                     RefAny::new(CommandRef {
@@ -529,7 +538,12 @@ fn now_playing_inset(s: &Player, app: &RefAny, stage: Stage) -> Option<Dom> {
                     look::icon_fade(stage)
                 ))),
         );
-    Some(act_part(inset, app, Act::NowPlaying, "Now playing"))
+    Some(act_part(
+        inset,
+        app,
+        Act::NowPlaying,
+        &t("azplayer-now-playing"),
+    ))
 }
 
 /// While a video opens behind the menus: its name and "opening", bottom left.
@@ -546,7 +560,7 @@ fn opening_note(s: &Player, stage: Stage) -> Option<Dom> {
                  justify-content: center; -azul-animation-in: azp-fade-in 400ms ease-out;",
             )
             .with_child(text(
-                &format!("opening {}\u{2026}", video.title()),
+                &t_args("azplayer-opening", &[("title", Arg::from(video.title()))]),
                 &format!("font-size: 18px; color: {};", look::INK_DIM),
                 stage,
             )),
@@ -573,10 +587,7 @@ fn notice(content: &str, stage: Stage) -> Dom {
 
 /// Whether `entry` can do anything here, and if not why.
 fn entry_reason(s: &Player, entry: &Entry) -> Option<String> {
-    entry
-        .never
-        .map(str::to_string)
-        .or_else(|| nav::missing(s, entry.action))
+    nav::why_not(s, entry)
 }
 
 /// The start strip: the categories down the window, the focused one on the middle row (its name
@@ -603,7 +614,7 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     for (row, category) in CATEGORIES.iter().enumerate() {
         let is_focused = row == focused;
         let h = if is_focused { FOCUSED_ROW_H } else { ROW_H };
-        let name = Dom::create_p_with_text(category.name)
+        let name = Dom::create_p_with_text(word(category.name))
             .with_css(format!(
                 "position: absolute; left: {left}px; width: {NAME_W}px; top: 0px; height: {h}px; \
                  margin: 0px; display: flex; align-items: center; justify-content: flex-end; \
@@ -718,7 +729,7 @@ fn strip_items(
                 stage,
             )))
             .with_child(text(
-                entry.label,
+                &word(entry.label),
                 &format!(
                     "position: absolute; left: 0px; top: {}px; width: {STRIP_TILE_W}px; \
                      text-align: center; font-size: 16px; color: {}; white-space: nowrap;",
@@ -748,8 +759,14 @@ fn strip_items(
             }
         }
         let name = match reason.as_ref() {
-            Some(why) => format!("{} (not available: {why})", entry.label),
-            None => entry.label.to_string(),
+            Some(why) => t_args(
+                "azplayer-not-available",
+                &[
+                    ("item", Arg::from(word(entry.label))),
+                    ("why", Arg::from(why)),
+                ],
+            ),
+            None => word(entry.label),
         };
         items.add_child(act_part(tile, app, Act::Strip(row, i), &name));
     }
@@ -760,7 +777,7 @@ fn strip_items(
 
 /// A library's page: its title, the views row, the gallery.
 fn section_page(s: &Player, app: &RefAny, place: &Place, section: Section, stage: Stage) -> Dom {
-    let mut page = gallery_page(s, app, place, section.title(), None, stage);
+    let mut page = gallery_page(s, app, place, &word(section.title()), None, stage);
     page.add_child(views_row(s, app, place, section, stage));
     page
 }
@@ -777,7 +794,8 @@ fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: S
     for (i, view) in section.views().iter().enumerate() {
         let shown = i == place.focus.view;
         let focused = shown && place.focus.on_views && s.zone() == Zone::Content;
-        let word = Dom::create_p_with_text(view.label(section)).with_css(format!(
+        let label = word(view.label(section));
+        let view_dom = Dom::create_p_with_text(label.as_str()).with_css(format!(
             "margin: 0px 26px 0px 0px; padding: 2px 8px; border-radius: 4px; font-size: 21px; \
              cursor: pointer; color: {}; background-color: {}; opacity: {}; animation: opacity \
              {}ms ease-in, color 200ms ease-out, background-color 200ms ease-out; :hover {{ \
@@ -792,10 +810,10 @@ fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: S
             crate::curtain::TEXT_FADE_MS
         ));
         row.add_child(act_part(
-            word.with_id(ids::id(&format!("view-{i}"))),
+            view_dom.with_id(ids::id(&format!("view-{i}"))),
             app,
             Act::View(i),
-            view.label(section),
+            &label,
         ));
     }
     row
@@ -900,18 +918,18 @@ fn status_line(s: &Player, place: &Place, count: usize) -> String {
         Screen::Section(Section::Music) => {
             let view = Section::Music.views()[place.focus.view.min(3)];
             match view {
-                pages::View::Artists => library::count(count, "artist", "artists"),
-                pages::View::Genres => library::count(count, "genre", "genres"),
-                pages::View::Songs => library::count(count, "song", "songs"),
-                _ => library::count(count, "album", "albums"),
+                pages::View::Artists => library::count("azplayer-count-artists", count),
+                pages::View::Genres => library::count("azplayer-count-genres", count),
+                pages::View::Songs => library::count("azplayer-count-songs", count),
+                _ => library::count("azplayer-count-albums", count),
             }
         }
         Screen::Section(Section::Recent) => {
-            library::count(count.saturating_sub(1), "file played", "files played")
+            library::count("azplayer-count-files-played", count.saturating_sub(1))
         }
         Screen::Search if s.query.trim().is_empty() => String::new(),
-        Screen::Search => library::count(count, "found", "found"),
-        _ => library::count(count, "item", "items"),
+        Screen::Search => library::count("azplayer-count-found", count),
+        _ => library::count("azplayer-count-items", count),
     };
     let Some(shelf) = page_shelf(place) else {
         return what;
@@ -919,12 +937,12 @@ fn status_line(s: &Player, place: &Place, count: usize) -> String {
     let shelved = s.library.shelf(shelf);
     let mut line = what;
     if shelved.status == Status::Scanning {
-        line.push_str(" \u{b7} looking through the folder\u{2026}");
+        line.push_str(&format!(" \u{b7} {}", t("azplayer-status-scanning")));
     }
     if shelved.cut {
         line.push_str(&format!(
-            " \u{b7} the first {} files of the folder",
-            library::MAX_FILES
+            " \u{b7} {}",
+            library::count("azplayer-status-cut", library::MAX_FILES)
         ));
     }
     line
@@ -937,45 +955,38 @@ fn empty_sentence(s: &Player, place: &Place, count: usize) -> Option<String> {
     }
     if place.screen == Screen::Search {
         return Some(if s.query.trim().is_empty() {
-            String::from("Type to search the music, the pictures and the videos.")
+            t("azplayer-search-empty")
         } else {
-            format!("Nothing found for \u{201c}{}\u{201d}.", s.query.trim())
+            t_args(
+                "azplayer-search-none",
+                &[("query", Arg::from(s.query.trim()))],
+            )
         });
     }
     let shelf = page_shelf(place)?;
     let shelved = s.library.shelf(shelf);
     let folder = s.folders.shown(shelf);
-    let kind = match (&place.screen, shelf) {
-        (Screen::Section(Section::Movies), _) => "movies (videos of 40 minutes or more)",
-        (_, Shelf::Music) => "music",
-        (_, Shelf::Pictures) => "pictures",
-        (_, Shelf::Videos) => "videos",
-        (_, Shelf::Tv) => "recorded TV",
-    };
-    Some(match shelved.status {
-        Status::Scanning | Status::Unknown => format!("Looking for {kind} in {folder}\u{2026}"),
-        Status::Missing => format!(
-            "AzPlayer reads {kind} from {folder}, which is not there. Add another folder in \
-             settings, library setup."
-        ),
-        Status::Ready => match shelf {
-            Shelf::Music => format!(
-                "There is no music in {folder} yet. Songs saved there (MP3, AAC, FLAC, Ogg, \
-                 WAV) show here."
-            ),
-            Shelf::Pictures => format!(
-                "There are no pictures in {folder} yet. Photos saved there (JPEG, PNG, GIF, \
-                 WebP) show here."
-            ),
-            Shelf::Videos => format!(
-                "There are no {kind} in {folder} yet. MP4 and MOV videos (H.264) saved there \
-                 show here."
-            ),
-            Shelf::Tv => format!(
-                "There is no recorded TV. Recordings saved as MP4 in {folder} show here."
-            ),
+    let kind = t(match (&place.screen, shelf) {
+        (Screen::Section(Section::Movies), _) => "azplayer-kind-movies",
+        (_, Shelf::Music) => "azplayer-kind-music",
+        (_, Shelf::Pictures) => "azplayer-kind-pictures",
+        (_, Shelf::Videos) => "azplayer-kind-videos",
+        (_, Shelf::Tv) => "azplayer-kind-tv",
+    });
+    let args = [("kind", Arg::from(kind)), ("folder", Arg::from(folder))];
+    Some(t_args(
+        match shelved.status {
+            Status::Scanning | Status::Unknown => "azplayer-empty-looking",
+            Status::Missing => "azplayer-empty-missing",
+            Status::Ready => match shelf {
+                Shelf::Music => "azplayer-empty-music",
+                Shelf::Pictures => "azplayer-empty-pictures",
+                Shelf::Videos => "azplayer-empty-videos",
+                Shelf::Tv => "azplayer-empty-tv",
+            },
         },
-    })
+        &args,
+    ))
 }
 
 /// What a tile shows: its title, the line under it, its picture (when one was made), the icon
@@ -1024,15 +1035,18 @@ pub(crate) fn describe(s: &Player, tile: &Tile) -> (String, String, Art, &'stati
             };
             let resume = s.history.resume_at(&entry.path);
             let line = if resume > 0.0 {
-                format!("resume at {}", SeekBar::media_time(resume).as_str())
+                t_args(
+                    "azplayer-resume-at",
+                    &[("time", Arg::from(SeekBar::media_time(resume).as_str()))],
+                )
             } else {
-                String::from("play from the start")
+                t("azplayer-choice-from-start")
             };
             (entry.title(), line, None, "movie")
         }
         Tile::OpenFile => (
-            String::from("open a file"),
-            String::from("MP4 or MOV"),
+            word("open a file"),
+            t("azplayer-mp4-or-mov"),
             None,
             "folder_open",
         ),
@@ -1223,8 +1237,8 @@ fn gallery_tile(
 fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
     let field = TextInput::create_search()
         .with_text(s.query.as_str())
-        .with_placeholder("type to search the music, pictures and videos")
-        .with_accessibility_name("Search")
+        .with_placeholder(t("azplayer-search-placeholder"))
+        .with_accessibility_name(t("azplayer-search"))
         .with_on_text_input(app.clone(), nav::on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::SEARCH_FIELD)
@@ -1235,7 +1249,7 @@ fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
             "position: absolute; left: 60px; top: {:.0}px; width: 460px;",
             UNDER_TITLE - 4.0
         ));
-    let mut page = gallery_page(s, app, place, "search", None, stage);
+    let mut page = gallery_page(s, app, place, &word("search"), None, stage);
     page.add_child(field);
     page
 }
@@ -1272,7 +1286,7 @@ fn overlay_layer(s: &Player, app: &RefAny, o: &Overlay) -> Dom {
             "{} -azul-animation-out: azp-fade-out 200ms ease-in;",
             look::FILL
         ))
-        .with_child(act_part(dim, app, Act::Dismiss, "Close"))
+        .with_child(act_part(dim, app, Act::Dismiss, &t("azplayer-close")))
         .with_child(panel)
 }
 
@@ -1293,7 +1307,7 @@ fn more_info_panel(app: &RefAny, o: &Overlay) -> Dom {
             BAND_H + 12.0
         ));
     panel.add_child(text(
-        "more info",
+        &t("azplayer-more-info"),
         &format!("font-size: 16px; color: {};", look::ACCENT),
         stage,
     ));
@@ -1400,7 +1414,7 @@ fn dialog_panel(s: &Player, app: &RefAny, o: &Overlay) -> Dom {
         let field = TextInput::create_url()
             .with_text(s.address.as_str())
             .with_placeholder("https://\u{2026}/video.mp4")
-            .with_accessibility_name("The video's address")
+            .with_accessibility_name(t("azplayer-address-name"))
             .with_container_style(field_style(
                 "position: relative; cursor: text; box-sizing: border-box; display: flex; \
                  flex-direction: row; align-items: center; height: 50px; padding: 0px 14px; \
@@ -1504,21 +1518,26 @@ fn settings_list_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> 
                 stage,
             ))
             .with_child(text(
-                category.title(),
+                &word(category.title()),
                 &format!(
                     "margin-left: 14px; font-size: 32px; font-weight: 300; white-space: nowrap; \
                      color: {ink};"
                 ),
                 stage,
             ));
-        list.add_child(act_part(row, app, Act::SettingsCategory(i), category.title()));
+        list.add_child(act_part(
+            row,
+            app,
+            Act::SettingsCategory(i),
+            &word(category.title()),
+        ));
     }
     Dom::create_div()
-        .with_child(page_title("settings", stage))
+        .with_child(page_title(&word("settings"), stage))
         .with_child(list)
         .with_child(
             text(
-                Category::ALL[focused].blurb(),
+                &t(Category::ALL[focused].blurb()),
                 &format!(
                     "position: absolute; left: {:.0}px; top: {:.0}px; right: 60px; font-size: \
                      21px; font-weight: 300; color: {};",
@@ -1533,12 +1552,12 @@ fn settings_list_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> 
 }
 
 /// A control's mark (its check box, its radio button, its icon), what it says and a hint at
-/// its end (a folder: Enter removes it), as the draft's `values` have it.
+/// its end (a key; a folder: Enter removes it), as the draft's `values` have it.
 fn control_face(row: &Row, values: &options::Options, focused: bool) -> (Dom, String, &'static str) {
     let mark_css = "display: flex; align-items: center; justify-content: center; width: 28px; \
                     height: 28px; margin-left: 16px; flex-shrink: 0; box-sizing: border-box;";
     match row {
-        Row::Check { key, label } => {
+        Row::Check { key, .. } => {
             let on = values.is_on(key);
             let mark = Dom::create_div()
                 .with_css(format!(
@@ -1551,9 +1570,9 @@ fn control_face(row: &Row, values: &options::Options, focused: bool) -> (Dom, St
                      ease-out;",
                     if on { 1 } else { 0 }
                 )));
-            (mark, (*label).to_string(), "")
+            (mark, row.label(), "")
         }
-        Row::Radio { key, value, label } => {
+        Row::Radio { key, value, .. } => {
             let chosen = values.get(key) == *value;
             let mark = Dom::create_div()
                 .with_css(format!(
@@ -1566,14 +1585,18 @@ fn control_face(row: &Row, values: &options::Options, focused: bool) -> (Dom, St
                     if chosen { 1 } else { 0 },
                     if chosen { 1.0 } else { 0.4 }
                 )));
-            (mark, (*label).to_string(), "")
+            (mark, row.label(), "")
         }
         Row::Folder { path, .. } => (
             Dom::create_icon("folder").with_css(format!(
                 "{mark_css} font-size: 26px; color: rgba(255, 255, 255, 0.85);"
             )),
             path.display().to_string(),
-            if focused { "Enter removes it" } else { "" },
+            if focused {
+                "azplayer-enter-removes"
+            } else {
+                ""
+            },
         ),
         Row::Button { label, icon, .. } => (
             Dom::create_icon(*icon).with_css(format!(
@@ -1583,7 +1606,7 @@ fn control_face(row: &Row, values: &options::Options, focused: bool) -> (Dom, St
             label.clone(),
             "",
         ),
-        Row::Heading(t) | Row::Note(t) => (Dom::create_div(), t.clone(), ""),
+        Row::Heading(said) | Row::Note(said) => (Dom::create_div(), said.clone(), ""),
     }
 }
 
@@ -1691,7 +1714,7 @@ fn settings_page(
                     ));
                 if !hint.is_empty() {
                     dom.add_child(text(
-                        hint,
+                        &t(hint),
                         &format!(
                             "margin-right: 18px; font-size: 15px; white-space: nowrap; color: {};",
                             look::INK_DIM
@@ -1722,19 +1745,19 @@ fn settings_page(
             )
             .with_child(Dom::create_div().with_css(look::bar(on, 4.0)))
             .with_child(text(
-                label,
+                &word(label),
                 &format!(
                     "position: relative; font-size: 21px; color: {};",
                     if on { look::INK } else { look::INK_DIM }
                 ),
                 stage,
             ));
-        button_row.add_child(act_part(button, app, Act::Setting(index), label));
+        button_row.add_child(act_part(button, app, Act::Setting(index), &word(label)));
     }
     Dom::create_div()
-        .with_child(page_title(category.title(), stage))
+        .with_child(page_title(&word(category.title()), stage))
         .with_child(text(
-            "settings",
+            &word("settings"),
             &format!(
                 "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 18px; color: \
                  {};",
@@ -1763,9 +1786,9 @@ fn settings_page(
 fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     let mut page = Dom::create_div();
     let Some(music) = s.music.as_ref() else {
-        page.add_child(page_title("now playing", stage));
+        page.add_child(page_title(&t("azplayer-now-playing"), stage));
         page.add_child(text(
-            "Nothing is playing. Choose music library or play all on the start screen.",
+            &t("azplayer-nothing-playing-hint"),
             &format!(
                 "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 22px; \
                  font-weight: 300; color: {};",
@@ -1840,7 +1863,11 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
                  -azul-animation-out: azp-fade-out 220ms ease-in;"
             ))
             .with_child(text(
-                if music.playing() { "now playing" } else { "paused" },
+                &t(if music.playing() {
+                    "azplayer-now-playing"
+                } else {
+                    "azplayer-paused"
+                }),
                 &format!("font-size: 14px; color: {};", look::ACCENT),
                 stage,
             ))
@@ -1877,7 +1904,7 @@ fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
                     .with_child(
                         SeekBar::create(position, duration)
                             .with_show_times(false)
-                            .with_accessibility_name("Position in the song")
+                            .with_accessibility_name(t("azplayer-position-song"))
                             .with_on_seek(app.clone(), media::ON_SEEK)
                             .dom()
                             .with_id(ids::SEEK)
@@ -1904,7 +1931,7 @@ fn up_next(s: &Player, music: &Music, stage: Stage) -> Dom {
     let mut list = Dom::create_div()
         .with_css("display: flex; flex-direction: column; margin-top: 30px;")
         .with_child(text(
-            "up next",
+            &t("azplayer-up-next"),
             &format!("font-size: 14px; color: {};", look::ACCENT),
             stage,
         ));
@@ -1926,7 +1953,7 @@ fn up_next(s: &Player, music: &Music, stage: Stage) -> Dom {
     }
     if music.index + 1 >= music.paths.len() {
         list.add_child(text(
-            "the end of the queue",
+            &t("azplayer-queue-end"),
             &format!("font-size: 16px; color: {}; margin-top: 6px;", look::INK_FAINT),
             stage,
         ));
@@ -2023,7 +2050,7 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
         }
         _ => {
             slide.add_child(text(
-                "loading the picture\u{2026}",
+                &t("azplayer-loading-picture"),
                 &format!(
                     "position: absolute; left: 0px; right: 0px; top: 48%; text-align: center; \
                      font-size: 18px; color: {};",
@@ -2050,7 +2077,13 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
             ))
             .with_child(
                 text(
-                    &format!("{} of {}", viewer.index + 1, viewer.paths.len()),
+                    &t_args(
+                        "azplayer-picture-of",
+                        &[
+                            ("index", Arg::from(viewer.index + 1)),
+                            ("total", Arg::from(viewer.paths.len())),
+                        ],
+                    ),
                     &format!("font-size: 13px; color: {};", look::INK_DIM),
                     stage,
                 )
@@ -2143,9 +2176,9 @@ fn video_stage(s: &Player, video: &VideoSession, app: &RefAny, stage: Stage) -> 
 fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
     let stage = Curtain::Closed.stage();
     let (full_icon, full_name) = if s.fullscreen {
-        ("fullscreen_exit", "Leave fullscreen")
+        ("fullscreen_exit", "azplayer-shortcut-leave-fullscreen")
     } else {
-        ("fullscreen", "Fullscreen")
+        ("fullscreen", "azplayer-menu-fullscreen")
     };
     let (lights, controls) = window_controls(s);
     Dom::create_div()
@@ -2163,7 +2196,7 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
         .with_child(round_button(
             app,
             Command::Back,
-            ("arrow_back", "Back"),
+            ("arrow_back", "azplayer-shortcut-back"),
             40.0,
             ids::BACK,
             stage,
@@ -2213,7 +2246,7 @@ fn bottom_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
         .with_child(
             SeekBar::create(position, duration)
                 .with_show_times(false)
-                .with_accessibility_name("Position in the video")
+                .with_accessibility_name(t("azplayer-position-video"))
                 .with_on_seek(app.clone(), media::on_seek as SeekBarOnSeekCallbackType)
                 .dom()
                 .with_id(ids::SEEK)
@@ -2273,10 +2306,10 @@ extern "C" fn on_menu_page(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// The menu bar: Media, Playback, Audio, View.
+/// The menu bar: Media, Playback, Audio, View (its labels keys, said here).
 fn menu_bar(s: &Player, app: &RefAny) -> Menu {
     let item = |label: &str, command: Command| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(
+        MenuItem::string(StringMenuItem::create(t_label(label)).with_callback(
             RefAny::new(CommandRef {
                 app: app.clone(),
                 command,
@@ -2285,7 +2318,7 @@ fn menu_bar(s: &Player, app: &RefAny) -> Menu {
         ))
     };
     let page = |label: &str, section: Section| {
-        MenuItem::string(StringMenuItem::create(label).with_callback(
+        MenuItem::string(StringMenuItem::create(t_label(label)).with_callback(
             RefAny::new(PageRef {
                 app: app.clone(),
                 section,
@@ -2294,7 +2327,7 @@ fn menu_bar(s: &Player, app: &RefAny) -> Menu {
         ))
     };
     let menu = |label: &str, items: Vec<MenuItem>| {
-        MenuItem::string(StringMenuItem::create(label).with_children(items))
+        MenuItem::string(StringMenuItem::create(t_label(label)).with_children(items))
     };
     let recent: Vec<MenuItem> = s
         .history
@@ -2311,53 +2344,65 @@ fn menu_bar(s: &Player, app: &RefAny) -> Menu {
             ))
         })
         .collect();
-    let mut media_items = vec![item("Open File\u{2026}", Command::Open)];
+    let mut media_items = vec![item("azplayer-menu-open-file", Command::Open)];
     if !recent.is_empty() {
-        media_items.push(menu("Open Recent", recent));
+        media_items.push(menu("azplayer-menu-open-recent", recent));
     }
     media_items.push(MenuItem::separator());
-    media_items.push(item("Start", Command::Home));
-    media_items.push(item("Refresh Libraries", Command::Refresh));
-    media_items.push(item("Settings\u{2026}", Command::Settings));
+    media_items.push(item("azplayer-menu-start", Command::Home));
+    media_items.push(item("azplayer-menu-refresh", Command::Refresh));
+    media_items.push(item("azplayer-menu-settings", Command::Settings));
+    // How far the skips go: the settings' (videos), as Left / Right.
+    let skip =
+        |key: &str, option: &str| t_args(key, &[("count", Arg::from(s.options.seconds(option)))]);
+    let back = skip("azplayer-menu-back-seconds", options::SKIP_BACK);
+    let forward = skip("azplayer-menu-forward-seconds", options::SKIP_FORWARD);
     Menu::create(vec![
-        menu("Media", media_items),
+        menu("azplayer-menu-media", media_items),
         menu(
-            "Playback",
+            "azplayer-shortcuts-playback",
             vec![
-                item("Play / Pause", Command::PlayPause),
-                item("Stop", Command::Stop),
+                item("azplayer-menu-play-pause", Command::PlayPause),
+                item("azplayer-stop", Command::Stop),
                 MenuItem::separator(),
-                item("Previous", Command::Previous),
-                item("Next", Command::Next),
-                item("Back 10 Seconds", Command::Rewind),
-                item("Forward 30 Seconds", Command::Forward),
+                item("azplayer-menu-previous", Command::Previous),
+                item("azplayer-menu-next", Command::Next),
+                item(&back, Command::Rewind),
+                item(&forward, Command::Forward),
                 MenuItem::separator(),
-                item("Shuffle", Command::Shuffle),
+                item("azplayer-shuffle", Command::Shuffle),
             ],
         ),
         menu(
-            "Audio",
+            "azplayer-menu-audio",
             vec![
-                item(if s.muted { "Sound On" } else { "Mute" }, Command::Mute),
-                item("Volume Up", Command::VolumeUp),
-                item("Volume Down", Command::VolumeDown),
+                item(
+                    if s.muted {
+                        "azplayer-menu-sound-on"
+                    } else {
+                        "azplayer-menu-mute"
+                    },
+                    Command::Mute,
+                ),
+                item("azplayer-menu-volume-up", Command::VolumeUp),
+                item("azplayer-menu-volume-down", Command::VolumeDown),
             ],
         ),
         menu(
-            "View",
+            "azplayer-menu-view",
             vec![
-                page("Music", Section::Music),
-                page("Pictures", Section::Pictures),
-                page("Videos", Section::Videos),
-                page("Movies", Section::Movies),
-                page("Recorded TV", Section::Tv),
-                page("Recently Played", Section::Recent),
+                page("azplayer-music", Section::Music),
+                page("azplayer-menu-pictures", Section::Pictures),
+                page("azplayer-menu-videos", Section::Videos),
+                page("azplayer-menu-movies", Section::Movies),
+                page("azplayer-menu-recorded-tv", Section::Tv),
+                page("azplayer-menu-recent", Section::Recent),
                 MenuItem::separator(),
                 item(
                     if s.fullscreen {
-                        "Leave Fullscreen"
+                        "azplayer-menu-leave-fullscreen"
                     } else {
-                        "Fullscreen"
+                        "azplayer-menu-fullscreen"
                     },
                     Command::Fullscreen,
                 ),

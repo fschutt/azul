@@ -2,8 +2,9 @@
 //! pictures + videos, music, movies, tv, tasks - the focused one on the middle row with its items
 //! laid out beside it; Up / Down move between the categories, Left / Right along the items (each
 //! category keeps the item it was left on), Enter opens. What each item does is an [`Action`];
-//! an item that cannot do anything here says why (`disabled`). Plain Rust, tested without a
-//! window.
+//! an item that cannot do anything here says why (`disabled`). The names and captions are the
+//! English words of the markers and scripts, said on screen by `crate::l10n::word`; why an item
+//! does nothing is a key. Plain Rust, tested without a window.
 
 /// What an item of the start strip (or of a menu) does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,8 +47,8 @@ pub struct Entry {
     pub label: &'static str,
     /// The tile's icon (a Material icon name).
     pub icon: &'static str,
-    /// Why it does nothing here; `None` = it works. (What depends on the libraries is decided
-    /// by the app: [`Action::needs`].)
+    /// Why it does nothing here (a key); `None` = it works. (What depends on the libraries is
+    /// decided by the app: [`Action::needs`].)
     pub never: Option<&'static str>,
 }
 
@@ -86,7 +87,7 @@ pub const CATEGORIES: [Category; 6] = [
                 Action::ExtrasLibrary,
                 "extras library",
                 "extension",
-                "No extras are installed on this computer.",
+                "azplayer-never-extras",
             ),
             entry(Action::Recent, "recently played", "history"),
         ],
@@ -108,7 +109,7 @@ pub const CATEGORIES: [Category; 6] = [
                 Action::Radio,
                 "radio",
                 "radio",
-                "There is no radio tuner on this computer.",
+                "azplayer-never-radio",
             ),
             entry(Action::Search, "search", "search"),
         ],
@@ -129,7 +130,7 @@ pub const CATEGORIES: [Category; 6] = [
                 Action::LiveTvSetup,
                 "live tv setup",
                 "settings_input_antenna",
-                "There is no TV tuner on this computer.",
+                "azplayer-never-tv",
             ),
         ],
     },
@@ -282,6 +283,7 @@ mod tests {
 
     #[test]
     fn the_strip_opens_on_music_and_moves_between_categories_and_items() {
+        crate::l10n::in_english();
         let mut f = StripFocus::default();
         assert_eq!(f.category().name, "music");
         assert_eq!(f.entry().action, Action::MusicLibrary);
@@ -310,12 +312,14 @@ mod tests {
 
     #[test]
     fn every_item_does_something_or_says_why_not() {
+        crate::l10n::in_english();
         for category in CATEGORIES {
             assert!(!category.entries.is_empty(), "{} has items", category.name);
             for e in category.entries {
                 assert_eq!(e.label, e.label.to_lowercase(), "Media Center writes lower case");
                 if let Some(why) = e.never {
-                    assert!(why.ends_with('.'), "{} says why in a sentence", e.label);
+                    let said = azul_appkit::l10n::t(why);
+                    assert!(said.ends_with('.'), "{} says why in a sentence: {said}", e.label);
                 }
             }
         }
@@ -327,6 +331,7 @@ mod tests {
 
     #[test]
     fn a_pointer_or_an_action_focuses_an_item_clamped_into_the_strip() {
+        crate::l10n::in_english();
         let mut f = StripFocus::default();
         f.set(99, 99);
         assert_eq!(f.category().name, "tasks");

@@ -5,7 +5,8 @@
 //! the folder dialog, looks through the libraries again; SAVE makes the draft AzPlayer's - the
 //! window shows it at once, a library
 //! whose folders changed is looked through again - and writes it into the settings file
-//! (appkit's `player/settings.json`, on its file thread); CANCEL and Back drop it.
+//! (appkit's `player/settings.json`, on its file thread); CANCEL and Back drop it. A new
+//! language (general) is in effect at once, the kit's way (`kit::choose_language`).
 //!
 //! On stdout: `AZPLAYER_OPTION <key> <value>` (a draft's change, and every option at the
 //! start), `AZPLAYER_FOLDERS <library> <n>`, `AZPLAYER_SETTINGS <saved|cancel> <category>`.
@@ -17,11 +18,16 @@ use azul::{
     option::OptionString,
     prelude::*,
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    args::LanguagePref,
+    l10n::{t, t_args, Arg},
+    ui as kit,
+};
 
 use crate::{
     app::{self, Player},
     dialog,
+    l10n::word,
     library::Shelf,
     nav,
     options::{self, Category, Draft, Facts, Press, Row},
@@ -36,8 +42,8 @@ pub fn facts(s: &Player) -> Facts {
     let mut kit_ref = s.kit.clone();
     let found = kit_ref.downcast_ref::<kit::Kit>().map(|k| {
         (
-            k.settings.theme.label().to_string(),
-            k.settings.mode.label().to_string(),
+            t(k.settings.theme.key()),
+            t(k.settings.mode.key()),
             k.data_root.join(k.about.app_folder).display().to_string(),
         )
     });
@@ -64,7 +70,7 @@ pub fn page_rows(s: &Player, category: Category) -> Vec<Row> {
 }
 
 /// What the focused part of a category's page says (`index`: a row the keys land on, or one of
-/// the buttons after them).
+/// the buttons after them), in the language of the layout pass.
 #[must_use]
 pub fn focus_label(rows: &[Row], category: Category, index: usize) -> String {
     let at = options::focusable(rows);
@@ -73,7 +79,7 @@ pub fn focus_label(rows: &[Row], category: Category, index: usize) -> String {
         None => category
             .buttons()
             .get(index - at.len())
-            .map_or_else(String::new, |b| (*b).to_string()),
+            .map_or_else(String::new, |b| word(b)),
     }
 }
 
@@ -168,7 +174,7 @@ pub fn press(app: &RefAny, info: &mut CallbackInfo, index: usize) -> Update {
                 press: Press::Rescan,
                 ..
             }) => {
-                s.notice("Looking through the folders again.");
+                s.notice("azplayer-looking-again");
                 Then::Rescan
             }
             Some(Row::Heading(_) | Row::Note(_)) => Then::Nothing,
@@ -212,6 +218,11 @@ pub fn save(app: &RefAny, info: &mut CallbackInfo) -> Update {
             .into_iter()
             .map(|(key, value)| (key.to_string(), value))
             .collect();
+        // A new language: in effect at once and kept (`kit::choose_language` saves the file).
+        let language = changes
+            .iter()
+            .find(|(key, _)| key == options::LANGUAGE)
+            .and_then(|(_, value)| LanguagePref::parse(value));
         let mut rescan = false;
         for shelf in Shelf::ALL {
             if draft.folders.of(shelf) != s.folders.of(shelf) {
@@ -230,12 +241,16 @@ pub fn save(app: &RefAny, info: &mut CallbackInfo) -> Update {
             {
                 let mut kit_mut = kit_ref.clone();
                 if let Some(mut k) = kit_mut.downcast_mut::<kit::Kit>() {
-                    for (key, value) in &changes {
+                    let kept = changes.iter().filter(|(key, _)| key != options::LANGUAGE);
+                    for (key, value) in kept {
                         k.settings.set(key, value);
                     }
                 };
             }
-            kit::save_settings(&kit_ref, info);
+            match language {
+                Some(language) => kit::choose_language(&kit_ref, info, language),
+                None => kit::save_settings(&kit_ref, info),
+            }
         }
         println!("AZPLAYER_SETTINGS saved {} {}", category.key(), changes.len());
         nav::back_in(&mut s);
@@ -267,7 +282,10 @@ struct FolderPick {
 /// The system's folder dialog, for a folder to add to `shelf`.
 fn pick_folder(app: &RefAny, shelf: Shelf) {
     let _request = FileDialog::open_directory(
-        format!("Add a folder to {}", shelf.word()),
+        t_args(
+            "azplayer-pick-folder",
+            &[("library", Arg::from(word(shelf.word())))],
+        ),
         OptionString::None,
         RefAny::new(FolderPick {
             app: app.clone(),

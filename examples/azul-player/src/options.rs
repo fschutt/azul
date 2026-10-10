@@ -8,13 +8,18 @@
 //! settings file (`player/settings.json`, the shared appkit file) under `player.*`, the library
 //! folders under `player.folders.<library>` - and the DRAFT a category's page edits until save
 //! (cancel and Back drop it). The look and light/dark mode the shared Azlin config owns are only
-//! shown: AzPlayer is always its own dark Media Center. Plain Rust, tested without a window.
+//! shown: AzPlayer is always its own dark Media Center. The words are said in the language of
+//! the layout pass (a check box's and a choice's label is a key, said by [`Row::label`]); the
+//! categories' titles and the buttons stay their English names (ids, markers), said by
+//! `crate::l10n::word`. Plain Rust, tested without a window.
 
 use std::{collections::BTreeMap, path::PathBuf};
 
+use azul_appkit::l10n::{and_list, t, t_args, t_label, Arg};
+
 use crate::{
     gallery::Step,
-    library::Shelf,
+    library::{count, Shelf},
     pages::{Section, View},
 };
 
@@ -91,18 +96,18 @@ impl Category {
         }
     }
 
-    /// What it holds, beside the list.
+    /// What it holds, beside the list (a key).
     #[must_use]
     pub const fn blurb(self) -> &'static str {
         match self {
-            Category::General => "The clock, the back button and the controls, the look.",
-            Category::Pictures => "What the picture library shows first; the slide show.",
-            Category::Music => "What the music library shows first; play all.",
-            Category::Videos => "What the video library shows first; resuming, skipping.",
-            Category::Tv => "Recorded TV; live TV.",
-            Category::Library => "The folders each library is read from.",
-            Category::Startup => "What AzPlayer opens on; media only.",
-            Category::About => "AzPlayer, its data, the keys.",
+            Category::General => "azplayer-blurb-general",
+            Category::Pictures => "azplayer-blurb-pictures",
+            Category::Music => "azplayer-blurb-music",
+            Category::Videos => "azplayer-blurb-videos",
+            Category::Tv => "azplayer-blurb-tv",
+            Category::Library => "azplayer-blurb-library",
+            Category::Startup => "azplayer-blurb-startup",
+            Category::About => "azplayer-blurb-about",
         }
     }
 
@@ -148,6 +153,9 @@ pub const SKIP_FORWARD: &str = "player.skip_forward";
 pub const START_SCREEN: &str = "player.start_screen";
 /// AzPlayer opens in media only (fullscreen).
 pub const START_FULLSCREEN: &str = "player.start_fullscreen";
+/// The language of the words: the kit's setting (`azul_appkit::settings::LANGUAGE_KEY`, the
+/// one every Azlin app keeps; `system`, `en`, `de`).
+pub const LANGUAGE: &str = azul_appkit::settings::LANGUAGE_KEY;
 
 /// One option: its key in the settings file, its default, the values it takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,7 +168,7 @@ pub struct Spec {
 const YES_NO: &[&str] = &["true", "false"];
 
 /// Every option.
-pub const SPECS: [Spec; 14] = [
+pub const SPECS: [Spec; 15] = [
     Spec {
         key: SHOW_CLOCK,
         default: "true",
@@ -230,6 +238,11 @@ pub const SPECS: [Spec; 14] = [
         key: START_FULLSCREEN,
         default: "false",
         values: YES_NO,
+    },
+    Spec {
+        key: LANGUAGE,
+        default: "system",
+        values: &["system", "en", "de"],
     },
 ];
 
@@ -378,10 +391,10 @@ impl Folders {
             .iter()
             .map(|p| p.display().to_string())
             .collect();
-        match names.len() {
-            0 => String::from("no folder"),
-            1 => names[0].clone(),
-            n => format!("{} and {}", names[..n - 1].join(", "), names[n - 1]),
+        if names.is_empty() {
+            t("azplayer-no-folder")
+        } else {
+            and_list(names)
         }
     }
 
@@ -459,12 +472,13 @@ pub enum Row {
     Heading(String),
     /// A sentence: what something means, a fact.
     Note(String),
-    /// A check box: the yes / no option `key`.
+    /// A check box: the yes / no option `key` (`label`: a key).
     Check {
         key: &'static str,
         label: &'static str,
     },
-    /// One choice of a radio list: the option `key` takes `value`.
+    /// One choice of a radio list: the option `key` takes `value` (`label`: a key, given the
+    /// value as `$count` - "{ $count } seconds").
     Radio {
         key: &'static str,
         value: &'static str,
@@ -498,12 +512,16 @@ impl Row {
         }
     }
 
-    /// What it says (for `AZPLAYER_FOCUS setting`).
+    /// What it says, in the language of the layout pass (also `AZPLAYER_FOCUS setting`).
     #[must_use]
     pub fn label(&self) -> String {
         match self {
-            Row::Heading(t) | Row::Note(t) => t.clone(),
-            Row::Check { label, .. } | Row::Radio { label, .. } => (*label).to_string(),
+            Row::Heading(said) | Row::Note(said) => said.clone(),
+            Row::Check { label, .. } => t_label(label),
+            Row::Radio { value, label, .. } => t_args(
+                label,
+                &[("count", Arg::from(value.parse::<i64>().unwrap_or(0)))],
+            ),
             Row::Folder { path, .. } => path.display().to_string(),
             Row::Button { label, .. } => label.clone(),
         }
@@ -532,106 +550,137 @@ fn radios(key: &'static str, choices: &[(&'static str, &'static str)]) -> Vec<Ro
         .collect()
 }
 
-/// The rows of `category`'s page; library setup lists `folders` (the draft's).
+/// The rows of `category`'s page; library setup lists `folders` (the draft's). Headings and
+/// notes are said here, in the language of the layout pass.
 #[must_use]
 pub fn rows(category: Category, folders: &Folders, facts: &Facts) -> Vec<Row> {
-    let h = |t: &str| Row::Heading(t.to_string());
-    let n = |t: &str| Row::Note(t.to_string());
+    let h = |key: &str| Row::Heading(t(key));
+    let n = |key: &str| Row::Note(t(key));
+    let library = |shelf: Shelf| Arg::from(crate::l10n::word(shelf.word()));
     let mut out = Vec::new();
     match category {
         Category::General => {
-            out.push(h("the pointer"));
+            out.push(h("azplayer-setting-pointer"));
             out.push(Row::Check {
                 key: HIDE_CHROME,
-                label: "hide the back button and the controls when the pointer rests",
+                label: "azplayer-setting-hide-chrome",
             });
-            out.push(h("the top of the window"));
+            out.push(h("azplayer-setting-top-of-window"));
             out.push(Row::Check {
                 key: SHOW_CLOCK,
-                label: "show the clock",
+                label: "azplayer-setting-show-clock",
             });
-            out.push(h("the look"));
-            out.push(n(&format!(
-                "AzPlayer is always Media Center's deep blue. The other Azlin apps show {}, {} - \
-                 their look is chosen in any of them.",
-                facts.theme, facts.mode
+            out.push(h("azplayer-setting-look"));
+            out.push(Row::Note(t_args(
+                "azplayer-setting-look-note",
+                &[
+                    ("theme", Arg::from(&facts.theme)),
+                    ("mode", Arg::from(&facts.mode)),
+                ],
             )));
+            out.push(h("azplayer-setting-language"));
+            out.extend(radios(
+                LANGUAGE,
+                &[
+                    ("system", "azplayer-language-system"),
+                    ("en", "kit-language-english"),
+                    ("de", "kit-language-german"),
+                ],
+            ));
         }
         Category::Pictures => {
-            out.push(h("the picture library opens on"));
+            out.push(h("azplayer-setting-pictures-open-on"));
             out.extend(radios(
                 PICTURES_VIEW,
-                &[("folders", "folders"), ("months", "date taken")],
+                &[
+                    ("folders", "azplayer-word-folders"),
+                    ("months", "azplayer-word-date-taken"),
+                ],
             ));
-            out.push(h("slide show: each picture shows for"));
+            out.push(h("azplayer-setting-slide-for"));
             out.extend(radios(
                 SLIDE_SECONDS,
                 &[
-                    ("3", "3 seconds"),
-                    ("6", "6 seconds"),
-                    ("10", "10 seconds"),
-                    ("20", "20 seconds"),
+                    ("3", "azplayer-seconds"),
+                    ("6", "azplayer-seconds"),
+                    ("10", "azplayer-seconds"),
+                    ("20", "azplayer-seconds"),
                 ],
             ));
             out.push(Row::Check {
                 key: KEN_BURNS,
-                label: "pan and zoom (else a plain cross-fade)",
+                label: "azplayer-setting-ken-burns",
             });
         }
         Category::Music => {
-            out.push(h("the music library opens on"));
+            out.push(h("azplayer-setting-music-open-on"));
             out.extend(radios(
                 MUSIC_VIEW,
                 &[
-                    ("albums", "albums"),
-                    ("artists", "artists"),
-                    ("genres", "genres"),
-                    ("songs", "songs"),
+                    ("albums", "azplayer-word-albums"),
+                    ("artists", "azplayer-word-artists"),
+                    ("genres", "azplayer-word-genres"),
+                    ("songs", "azplayer-word-songs"),
                 ],
             ));
-            out.push(h("play all"));
+            out.push(h("azplayer-word-play-all"));
             out.push(Row::Check {
                 key: SHUFFLE_ALL,
-                label: "shuffle the songs (else album by album)",
+                label: "azplayer-setting-shuffle-all",
             });
         }
         Category::Videos => {
-            out.push(h("the video library opens on"));
+            out.push(h("azplayer-setting-videos-open-on"));
             out.extend(radios(
                 VIDEOS_VIEW,
-                &[("folders", "folders"), ("months", "date"), ("titles", "title")],
+                &[
+                    ("folders", "azplayer-word-folders"),
+                    ("months", "azplayer-word-date"),
+                    ("titles", "azplayer-word-title"),
+                ],
             ));
-            out.push(h("playing"));
+            out.push(h("azplayer-setting-playing"));
             out.push(Row::Check {
                 key: RESUME,
-                label: "resume a video where it was stopped",
+                label: "azplayer-setting-resume",
             });
-            out.push(h("skip back"));
+            out.push(h("azplayer-setting-skip-back"));
             out.extend(radios(
                 SKIP_BACK,
-                &[("5", "5 seconds"), ("10", "10 seconds"), ("30", "30 seconds")],
+                &[
+                    ("5", "azplayer-seconds"),
+                    ("10", "azplayer-seconds"),
+                    ("30", "azplayer-seconds"),
+                ],
             ));
-            out.push(h("skip forward"));
+            out.push(h("azplayer-setting-skip-forward"));
             out.extend(radios(
                 SKIP_FORWARD,
-                &[("10", "10 seconds"), ("30", "30 seconds"), ("60", "a minute")],
+                &[
+                    ("10", "azplayer-seconds"),
+                    ("30", "azplayer-seconds"),
+                    ("60", "azplayer-setting-a-minute"),
+                ],
             ));
         }
         Category::Tv => {
-            out.push(h("live tv"));
-            out.push(n(
-                "There is no TV tuner on this computer: live TV needs one. Recorded TV is read \
-                 from the folders of library setup.",
-            ));
-            out.push(h("recorded tv opens on"));
+            out.push(h("azplayer-setting-live-tv"));
+            out.push(n("azplayer-setting-no-tuner"));
+            out.push(h("azplayer-setting-tv-open-on"));
             out.extend(radios(
                 TV_VIEW,
-                &[("months", "date recorded"), ("titles", "title")],
+                &[
+                    ("months", "azplayer-word-date-recorded"),
+                    ("titles", "azplayer-word-title"),
+                ],
             ));
         }
         Category::Library => {
             for shelf in Shelf::ALL {
-                out.push(h(&format!("{} folders", shelf.word())));
+                out.push(Row::Heading(t_args(
+                    "azplayer-setting-folders-of",
+                    &[("library", library(shelf))],
+                )));
                 for path in folders.of(shelf) {
                     out.push(Row::Folder {
                         shelf,
@@ -639,59 +688,62 @@ pub fn rows(category: Category, folders: &Folders, facts: &Facts) -> Vec<Row> {
                     });
                 }
                 out.push(Row::Button {
-                    label: format!("add a folder to {}", shelf.word()),
+                    label: t_args(
+                        "azplayer-setting-add-folder",
+                        &[("library", library(shelf))],
+                    ),
                     icon: "create_new_folder",
                     press: Press::AddFolder(shelf),
                 });
             }
-            out.push(h("the libraries"));
+            out.push(h("azplayer-setting-libraries"));
             out.push(Row::Button {
-                label: String::from("look through the folders again"),
+                label: t("azplayer-setting-rescan"),
                 icon: "refresh",
                 press: Press::Rescan,
             });
-            out.push(n(
-                "Removing a folder leaves its files where they are. Photo libraries and hidden \
-                 files are left out.",
-            ));
+            out.push(n("azplayer-setting-folders-note"));
         }
         Category::Startup => {
-            out.push(h("azplayer opens on"));
+            out.push(h("azplayer-setting-opens-on"));
             out.extend(radios(
                 START_SCREEN,
                 &[
-                    ("start", "the start screen"),
-                    ("music", "music"),
-                    ("pictures", "pictures"),
-                    ("videos", "videos"),
-                    ("recent", "recently played"),
+                    ("start", "azplayer-setting-start-screen"),
+                    ("music", "azplayer-word-music"),
+                    ("pictures", "azplayer-word-pictures"),
+                    ("videos", "azplayer-word-videos"),
+                    ("recent", "azplayer-word-recently-played"),
                 ],
             ));
-            out.push(h("the window"));
+            out.push(h("azplayer-setting-window"));
             out.push(Row::Check {
                 key: START_FULLSCREEN,
-                label: "open in media only (full screen)",
+                label: "azplayer-setting-start-fullscreen",
             });
         }
         Category::About => {
-            out.push(h(&format!("azplayer {}", facts.version)));
-            out.push(n(
-                "A media center in the look of Windows Media Center: music, pictures and slide \
-                 shows, videos and movies. Part of the Azlin apps, built with azul. MIT license.",
-            ));
-            out.push(n(&format!(
-                "{} songs, {} pictures, {} videos, {} recordings. The data is in {}.",
-                facts.counts[0], facts.counts[1], facts.counts[2], facts.counts[3], facts.data
+            out.push(Row::Heading(t_args(
+                "azplayer-setting-about-title",
+                &[("version", Arg::from(&facts.version))],
             )));
-            out.push(h("the keys"));
-            out.push(n(
-                "The arrows move, Enter opens, Backspace or Escape goes back, Home is the start \
-                 screen. Tab goes to the back button, the controls and what plays.",
-            ));
-            out.push(n(
-                "Ctrl+D, I or the menu key: more info. Space plays and pauses, M mutes, F is \
-                 full screen, Ctrl+, the settings.",
-            ));
+            out.push(n("azplayer-setting-about-note"));
+            let counts = and_list(vec![
+                count("azplayer-count-songs", facts.counts[0]),
+                count("azplayer-count-pictures", facts.counts[1]),
+                count("azplayer-count-videos", facts.counts[2]),
+                count("azplayer-count-recordings", facts.counts[3]),
+            ]);
+            out.push(Row::Note(t_args(
+                "azplayer-setting-about-counts",
+                &[
+                    ("counts", Arg::from(counts)),
+                    ("data", Arg::from(&facts.data)),
+                ],
+            )));
+            out.push(h("azplayer-setting-keys"));
+            out.push(n("azplayer-setting-keys-note"));
+            out.push(n("azplayer-setting-keys-note-more"));
         }
     }
     out
@@ -758,6 +810,7 @@ mod tests {
 
     #[test]
     fn the_options_read_their_values_and_keep_the_defaults_for_the_rest() {
+        crate::l10n::in_english();
         let o = Options::read(&values(&[
             (SHOW_CLOCK, "false"),
             (SLIDE_SECONDS, "10"),
@@ -785,6 +838,7 @@ mod tests {
 
     #[test]
     fn the_folders_round_trip_through_the_settings_file() {
+        crate::l10n::in_english();
         let mut f = Folders::default();
         assert!(f.add(Shelf::Pictures, PathBuf::from("/p")));
         assert!(f.add(Shelf::Pictures, PathBuf::from("/q/Trip")));
@@ -801,6 +855,7 @@ mod tests {
 
     #[test]
     fn every_page_has_rows_to_land_on_and_its_buttons() {
+        crate::l10n::in_english();
         let facts = Facts::default();
         let mut folders = Folders::default();
         folders.music.push(PathBuf::from("/m"));
@@ -832,6 +887,7 @@ mod tests {
 
     #[test]
     fn the_keys_walk_the_rows_then_the_buttons_and_never_round() {
+        crate::l10n::in_english();
         // Three rows, save and cancel.
         assert_eq!(step_page(0, 3, 2, Step::Up), 0);
         assert_eq!(step_page(0, 3, 2, Step::Down), 1);

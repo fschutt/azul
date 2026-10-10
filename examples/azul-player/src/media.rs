@@ -20,6 +20,7 @@ use azul::{
     widgets::{SeekBar, SeekBarState},
     window::WindowFrame,
 };
+use azul_appkit::l10n;
 
 use crate::{
     app::{self, Player},
@@ -160,7 +161,7 @@ pub fn queue_music(app: &RefAny, info: &mut CallbackInfo, paths: Vec<String>) {
             // The song after the one heard, if the queue had ended with it.
             queue_next(s);
             println!("AZPLAYER_QUEUE {n}");
-            s.notice("Added to the queue.");
+            s.notice("azplayer-added-to-queue");
             return;
         }
     }
@@ -664,10 +665,15 @@ pub extern "C" fn on_open(data: RefAny, _info: CallbackInfo) -> Update {
             AzString::from("m4v"),
             AzString::from("mov"),
         ]),
-        document_descriptor: AzString::from("Video"),
+        document_descriptor: AzString::from(l10n::t("azplayer-video-files")),
     });
-    let _request =
-        FileDialog::open_file("Open a video", OptionString::None, filter, data, on_picked);
+    let _request = FileDialog::open_file(
+        l10n::t("azplayer-shortcut-open-video"),
+        OptionString::None,
+        filter,
+        data,
+        on_picked,
+    );
     Update::DoNothing
 }
 
@@ -921,7 +927,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
             app::scan_all(app, info);
             let mut app_ref = app.clone();
             if let Some(mut s) = app_ref.downcast_mut::<Player>() {
-                s.notice("Looking through the folders again.");
+                s.notice("azplayer-looking-again");
             }
             return Update::RefreshDom;
         }
@@ -993,7 +999,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
                 a.pause();
             }
             seek_video(s, 0.0);
-            s.osd(String::from("Stopped"));
+            s.osd(l10n::t("azplayer-osd-stopped"));
         }
         (Command::Stop, Playing::Music) => {
             if let Some(a) = s.audio.as_ref() {
@@ -1050,7 +1056,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
             if index + 1 < len {
                 jump_to(s, index + 1);
             } else {
-                s.notice("That was the last song.");
+                s.notice("azplayer-last-song");
             }
         }
         (Command::Previous, Playing::Pictures) => step_picture(s, -1),
@@ -1076,7 +1082,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
                     a.clear_queue();
                 }
                 queue_next(s);
-                s.osd(String::from("Shuffled"));
+                s.osd(l10n::t("azplayer-osd-shuffled"));
             }
         }
         (Command::Mute, _) => {
@@ -1103,7 +1109,7 @@ pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
             set_fullscreen(s, info, on);
         }
         (_, Playing::Nothing) => {
-            s.notice("Nothing is playing.");
+            s.notice("azplayer-nothing-playing");
         }
         _ => {
             rebuild = false;
@@ -1142,7 +1148,7 @@ fn slide_music(app: &RefAny, info: &mut CallbackInfo) -> Update {
             .map(|i| i.path.clone())
             .collect();
         if paths.is_empty() {
-            s.notice("There is no music in the music folder.");
+            s.notice("azplayer-no-music");
             return Update::RefreshDom;
         }
         shuffled(paths, None, seed())
@@ -1186,7 +1192,7 @@ pub const ON_SEEK: SeekBarOnSeekCallbackType = on_seek;
 pub struct TransportButton {
     pub command: Command,
     pub icon: &'static str,
-    /// Its name for assistive technology.
+    /// Its name for assistive technology (a key).
     pub name: &'static str,
     pub size: f32,
     /// Its id's name (`ids::id`).
@@ -1221,14 +1227,14 @@ pub fn transport_buttons(s: &Player, what: Shelf) -> Vec<TransportButton> {
             .is_some_and(|v| !v.paused && v.status.phase != VideoPhase::Ended),
     };
     let (play_icon, play_name) = if playing {
-        ("pause", "Pause")
+        ("pause", "azplayer-pause")
     } else {
-        ("play_arrow", "Play")
+        ("play_arrow", "azplayer-play")
     };
     let (mute_icon, mute_name) = if s.muted {
-        ("volume_off", "Sound on")
+        ("volume_off", "azplayer-sound-on")
     } else {
-        ("volume_up", "Mute")
+        ("volume_up", "azplayer-mute")
     };
     let b = |command: Command,
              icon: &'static str,
@@ -1245,19 +1251,19 @@ pub fn transport_buttons(s: &Player, what: Shelf) -> Vec<TransportButton> {
     let mut out = match what {
         Shelf::Pictures => {
             let music_name = if s.music.is_some() {
-                "Stop the music"
+                "azplayer-stop-music"
             } else {
-                "Music under the slide show"
+                "azplayer-slide-music"
             };
             let show_name = if playing {
-                "Pause the slide show"
+                "azplayer-pause-slide-show"
             } else {
-                "Play the slide show"
+                "azplayer-play-slide-show"
             };
             vec![
-                b(Command::Previous, "skip_previous", "Previous picture", 40.0, "previous"),
+                b(Command::Previous, "skip_previous", "azplayer-previous-picture", 40.0, "previous"),
                 b(Command::SlideShow, play_icon, show_name, 54.0, "play"),
-                b(Command::Next, "skip_next", "Next picture", 40.0, "next"),
+                b(Command::Next, "skip_next", "azplayer-next-picture", 40.0, "next"),
                 TransportButton {
                     gap: true,
                     ..b(Command::SlideMusic, "library_music", music_name, 34.0, "music")
@@ -1265,20 +1271,20 @@ pub fn transport_buttons(s: &Player, what: Shelf) -> Vec<TransportButton> {
             ]
         }
         Shelf::Music => vec![
-            b(Command::Shuffle, "shuffle", "Shuffle", 34.0, "shuffle"),
-            b(Command::Previous, "skip_previous", "Previous song", 40.0, "previous"),
-            b(Command::Rewind, "fast_rewind", "Skip back", 40.0, "rewind"),
+            b(Command::Shuffle, "shuffle", "azplayer-shuffle", 34.0, "shuffle"),
+            b(Command::Previous, "skip_previous", "azplayer-previous-song", 40.0, "previous"),
+            b(Command::Rewind, "fast_rewind", "azplayer-skip-back", 40.0, "rewind"),
             b(Command::PlayPause, play_icon, play_name, 56.0, "play"),
-            b(Command::Forward, "fast_forward", "Skip forward", 40.0, "forward"),
-            b(Command::Next, "skip_next", "Next song", 40.0, "next"),
-            b(Command::Stop, "stop", "Stop", 40.0, "stop"),
+            b(Command::Forward, "fast_forward", "azplayer-skip-forward", 40.0, "forward"),
+            b(Command::Next, "skip_next", "azplayer-next-song", 40.0, "next"),
+            b(Command::Stop, "stop", "azplayer-stop", 40.0, "stop"),
         ],
         _ => vec![
-            b(Command::Stop, "stop", "Stop", 40.0, "stop"),
-            b(Command::Restart, "skip_previous", "From the start", 40.0, "restart"),
-            b(Command::Rewind, "fast_rewind", "Skip back", 40.0, "rewind"),
+            b(Command::Stop, "stop", "azplayer-stop", 40.0, "stop"),
+            b(Command::Restart, "skip_previous", "azplayer-from-the-start", 40.0, "restart"),
+            b(Command::Rewind, "fast_rewind", "azplayer-skip-back", 40.0, "rewind"),
             b(Command::PlayPause, play_icon, play_name, 56.0, "play"),
-            b(Command::Forward, "fast_forward", "Skip forward", 40.0, "forward"),
+            b(Command::Forward, "fast_forward", "azplayer-skip-forward", 40.0, "forward"),
         ],
     };
     if what != Shelf::Pictures {
@@ -1286,8 +1292,8 @@ pub fn transport_buttons(s: &Player, what: Shelf) -> Vec<TransportButton> {
             gap: true,
             ..b(Command::Mute, mute_icon, mute_name, 34.0, "mute")
         });
-        out.push(b(Command::VolumeDown, "remove", "Volume down", 34.0, "volume-down"));
-        out.push(b(Command::VolumeUp, "add", "Volume up", 34.0, "volume-up"));
+        out.push(b(Command::VolumeDown, "remove", "azplayer-volume-down", 34.0, "volume-down"));
+        out.push(b(Command::VolumeUp, "add", "azplayer-volume-up", 34.0, "volume-up"));
     }
     out
 }

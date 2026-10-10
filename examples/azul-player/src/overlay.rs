@@ -13,7 +13,11 @@
 //! The keys: Up / Down (a dialog's buttons also Left / Right, Tab) move the focus, Enter
 //! chooses, Back / Escape / Backspace do what the overlay's "no" does (`Overlay::back`: close,
 //! or go back). The pointer lights a choice, a click chooses, a click beside the panel is Back.
-//! Plain Rust, tested without a window.
+//! The words are said where an overlay is made (on the UI thread, in the language of the last
+//! layout pass): a choice's label and the dialogs' titles and sentences are keys. Plain Rust,
+//! tested without a window.
+
+use azul_appkit::l10n::{t, t_args, t_label, Arg};
 
 use crate::{library::Shelf, strip::Action};
 
@@ -62,18 +66,18 @@ pub enum Do {
 /// One choice of an overlay.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Choice {
-    /// What it says (lower case, Media Center's way).
+    /// What it says (lower case, Media Center's way), said.
     pub label: String,
     /// Its icon (a Material icon name).
     pub icon: &'static str,
     pub act: Do,
 }
 
-/// A choice.
+/// A choice: `label` a key (or words said already).
 #[must_use]
 pub fn choice(label: &str, icon: &'static str, act: Do) -> Choice {
     Choice {
-        label: label.to_string(),
+        label: t_label(label),
         icon,
         act,
     }
@@ -173,9 +177,9 @@ pub fn about(lines: Vec<String>) -> Overlay {
     Overlay {
         kind: Kind::Dialog,
         name: "about",
-        title: String::from("about azplayer"),
+        title: t("azplayer-about-title"),
         lines,
-        choices: vec![choice("ok", "check", Do::Close)],
+        choices: vec![choice("azplayer-word-ok", "check", Do::Close)],
         focus: 0,
         back: Do::Close,
     }
@@ -191,14 +195,18 @@ pub fn confirm_delete(path: &str, title: &str) -> Overlay {
     Overlay {
         kind: Kind::Dialog,
         name: "confirm-delete",
-        title: String::from("delete this file?"),
+        title: t("azplayer-delete-title"),
         lines: vec![
             title.to_string(),
-            format!("It is deleted from {folder} and cannot be brought back."),
+            t_args("azplayer-delete-note", &[("folder", Arg::from(folder))]),
         ],
         choices: vec![
-            choice("yes, delete it", "delete", Do::Delete(path.to_string())),
-            choice("no", "close", Do::Close),
+            choice(
+                "azplayer-delete-yes",
+                "delete",
+                Do::Delete(path.to_string()),
+            ),
+            choice("azplayer-choice-no", "close", Do::Close),
         ],
         focus: 1,
         back: Do::Close,
@@ -211,18 +219,18 @@ pub fn confirm_remove_folder(shelf: Shelf, path: &str) -> Overlay {
     Overlay {
         kind: Kind::Dialog,
         name: "confirm-remove-folder",
-        title: format!("remove this folder from {}?", shelf.word()),
-        lines: vec![
-            path.to_string(),
-            String::from("AzPlayer stops showing what is in it; the files stay where they are."),
-        ],
+        title: t_args(
+            "azplayer-remove-folder-title",
+            &[("library", Arg::from(crate::l10n::word(shelf.word())))],
+        ),
+        lines: vec![path.to_string(), t("azplayer-remove-folder-note")],
         choices: vec![
             choice(
-                "yes, remove it",
+                "azplayer-remove-folder-yes",
                 "folder_off",
                 Do::RemoveFolder(shelf, path.to_string()),
             ),
-            choice("no", "close", Do::Close),
+            choice("azplayer-choice-no", "close", Do::Close),
         ],
         focus: 1,
         back: Do::Close,
@@ -236,14 +244,11 @@ pub fn music_paused(song: &str) -> Overlay {
     Overlay {
         kind: Kind::Dialog,
         name: "music-paused",
-        title: String::from("the music is paused"),
-        lines: vec![
-            song.to_string(),
-            String::from("Stop it, or keep it paused for later (it stays bottom left)?"),
-        ],
+        title: t("azplayer-paused-title"),
+        lines: vec![song.to_string(), t("azplayer-paused-note")],
         choices: vec![
-            choice("stop the music", "stop", Do::StopAndBack),
-            choice("keep it paused", "pause", Do::Back),
+            choice("azplayer-paused-stop", "stop", Do::StopAndBack),
+            choice("azplayer-paused-keep", "pause", Do::Back),
         ],
         focus: 1,
         back: Do::Back,
@@ -256,23 +261,24 @@ pub fn video_failed(title: &str, message: &str) -> Overlay {
     Overlay {
         kind: Kind::Dialog,
         name: "video-failed",
-        title: String::from("this video does not play here"),
+        title: t("azplayer-video-failed-title"),
         lines: vec![title.to_string(), message.to_string()],
-        choices: vec![choice("ok", "check", Do::Back)],
+        choices: vec![choice("azplayer-word-ok", "check", Do::Back)],
         focus: 0,
         back: Do::Back,
     }
 }
 
-/// What went wrong (`title`) and the details (`lines`); OK closes it.
+/// What went wrong (`title`: a key, or words said already) and the details (`lines`); OK
+/// closes it.
 #[must_use]
 pub fn error(title: &str, lines: Vec<String>) -> Overlay {
     Overlay {
         kind: Kind::Dialog,
         name: "error",
-        title: title.to_string(),
+        title: t_label(title),
         lines,
-        choices: vec![choice("ok", "check", Do::Close)],
+        choices: vec![choice("azplayer-word-ok", "check", Do::Close)],
         focus: 0,
         back: Do::Close,
     }
@@ -284,15 +290,12 @@ pub fn address() -> Overlay {
     Overlay {
         kind: Kind::Address,
         name: "address",
-        title: String::from("open an address"),
-        lines: vec![String::from(
-            "An MP4 or MOV video (H.264) on a web server plays while it downloads; the sound \
-             starts with the picture.",
-        )],
+        title: crate::l10n::word("open an address"),
+        lines: vec![t("azplayer-address-note")],
         choices: vec![
-            choice("play", "play_arrow", Do::PlayAddress),
-            choice("try: Big Buck Bunny (10 s, 360p)", "movie", Do::PlaySample),
-            choice("cancel", "close", Do::Close),
+            choice("azplayer-choice-play", "play_arrow", Do::PlayAddress),
+            choice("azplayer-address-sample", "movie", Do::PlaySample),
+            choice("azplayer-word-cancel", "close", Do::Close),
         ],
         focus: 0,
         back: Do::Close,
@@ -305,6 +308,7 @@ mod tests {
 
     #[test]
     fn the_focus_walks_the_choices_and_stops_at_either_end() {
+        crate::l10n::in_english();
         let mut o = more_info(
             "First Tone",
             vec![String::from("AzPlayer")],
@@ -328,6 +332,7 @@ mod tests {
 
     #[test]
     fn a_question_that_destroys_something_starts_on_no() {
+        crate::l10n::in_english();
         let d = confirm_delete("/v/Holiday.mp4", "Holiday");
         assert_eq!(d.chosen().map(|c| c.act.clone()), Some(Do::Close), "no is focused");
         assert_eq!(d.choices[0].act, Do::Delete(String::from("/v/Holiday.mp4")));

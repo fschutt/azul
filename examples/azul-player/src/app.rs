@@ -63,22 +63,22 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: "player",
 };
 
-/// The keyboard shortcuts the settings page lists.
+/// The keyboard shortcuts the settings page lists (the categories and what they do: keys).
 pub const SHORTCUTS: [Shortcut; 14] = [
-    Shortcut::new("Moving around", "Arrow keys", "Move the focus"),
-    Shortcut::new("Moving around", "Enter", "Open, play"),
-    Shortcut::new("Moving around", "Backspace  Escape", "Back"),
-    Shortcut::new("Moving around", "Home", "The start screen"),
-    Shortcut::new("Moving around", "Mouse wheel", "Scroll the strip or the gallery"),
-    Shortcut::new("Playback", "Space", "Play / pause"),
-    Shortcut::new("Playback", "Left  Right", "Skip back / forward (how far: settings, videos)"),
-    Shortcut::new("Playback", "Shift+Left  Shift+Right", "Back / forward a minute"),
-    Shortcut::new("Playback", "Page Up  Page Down", "Previous / next song or picture"),
-    Shortcut::new("Playback", "Up  Down", "Volume up / down (while something plays)"),
-    Shortcut::new("Playback", "M", "Mute"),
-    Shortcut::new("Window", "F  F11  Double-click", "Fullscreen (media only)"),
-    Shortcut::new("Window", "Escape", "Leave fullscreen"),
-    Shortcut::new("File", "Mod+O", "Open a video"),
+    Shortcut::new("azplayer-shortcuts-moving", "Arrows", "azplayer-shortcut-move-focus"),
+    Shortcut::new("azplayer-shortcuts-moving", "Enter", "azplayer-shortcut-open-play"),
+    Shortcut::new("azplayer-shortcuts-moving", "Backspace  Escape", "azplayer-shortcut-back"),
+    Shortcut::new("azplayer-shortcuts-moving", "Home", "azplayer-shortcut-start-screen"),
+    Shortcut::new("azplayer-shortcuts-moving", "Mouse wheel", "azplayer-shortcut-scroll"),
+    Shortcut::new("azplayer-shortcuts-playback", "Space", "azplayer-shortcut-play-pause"),
+    Shortcut::new("azplayer-shortcuts-playback", "Left  Right", "azplayer-shortcut-skip"),
+    Shortcut::new("azplayer-shortcuts-playback", "Shift+Left  Shift+Right", "azplayer-shortcut-minute"),
+    Shortcut::new("azplayer-shortcuts-playback", "Page Up  Page Down", "azplayer-shortcut-previous-next"),
+    Shortcut::new("azplayer-shortcuts-playback", "Up  Down", "azplayer-shortcut-volume"),
+    Shortcut::new("azplayer-shortcuts-playback", "M", "azplayer-shortcut-mute"),
+    Shortcut::new("azplayer-shortcuts-window", "F  F11  Double-click", "azplayer-shortcut-fullscreen"),
+    Shortcut::new("azplayer-shortcuts-window", "Escape", "azplayer-shortcut-leave-fullscreen"),
+    Shortcut::new("azplayer-shortcuts-file", "Mod+O", "azplayer-shortcut-open-video"),
 ];
 
 /// The settings page's own categories (none: the kit's are enough).
@@ -212,10 +212,10 @@ impl Player {
         // and the libraries' folders in it.
         let mut kit_ref = kit.clone();
         let read = kit_ref.downcast_ref::<kit::Kit>().map(|k| {
-            (
-                Options::read(&k.settings.values),
-                options::saved_folders(&k.settings.values),
-            )
+            let mut options = Options::read(&k.settings.values);
+            // The language of this run (a `--language` switch wins over the settings').
+            options.set(options::LANGUAGE, k.language().name());
+            (options, options::saved_folders(&k.settings.values))
         });
         let (options, saved) = read.unwrap_or_default();
         let folders = Folders::resolve(&args.folders, &saved);
@@ -357,11 +357,13 @@ impl Player {
         self.osd = Some((text, until));
     }
 
-    /// Shows a sentence for a moment (why an item cannot work, a library that is empty).
+    /// Shows a sentence for a moment (why an item cannot work, a library that is empty): a key
+    /// said in the language of the layout pass, or words said already.
     pub fn notice(&mut self, text: &str) {
+        let text = azul_appkit::l10n::t_label(text);
         let until = self.now_ms() + NOTICE_MS;
         println!("AZPLAYER_NOTICE {text}");
-        self.notice = Some((text.to_string(), until));
+        self.notice = Some((text, until));
     }
 
     /// The pointer or a key moved: the chrome shows (and hides itself later).
@@ -470,8 +472,16 @@ pub fn start() {
     // The kit reads the settings file and the shared config; AzPlayer's settings are its own
     // pages (`settings.rs`), `--screen settings` opens them.
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.kit.clone());
-    let app = Player::new(kit_ref.clone(), args);
+    // The words first (settings > general > language, `--language`): the window's and those
+    // said before it.
     let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
+    let app = Player::new(kit_ref.clone(), args);
     config.expose_system_media_controls = true;
     // The focus is the app's own Media Center glow, drawn on every focusable part (`look.rs`):
     // the engine's blue ring around the focused box is off.

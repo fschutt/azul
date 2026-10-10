@@ -101,14 +101,14 @@ impl ControlsVisibility {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn volume_osd(volume: f32, muted: bool) -> String {
     if muted {
-        return String::from("Muted");
+        return azul_appkit::l10n::t("azplayer-osd-muted");
     }
     let percent = if volume.is_finite() {
         (volume.clamp(0.0, 1.0) * 100.0).round() as u32
     } else {
         0
     };
-    format!("Volume {percent} %")
+    azul_appkit::l10n::t_args("azplayer-osd-volume", &[("percent", percent.into())])
 }
 
 #[cfg(test)]
@@ -117,6 +117,7 @@ mod tests {
 
     #[test]
     fn the_sound_follows_the_picture_only_beyond_the_dead_band() {
+        crate::l10n::in_english();
         assert_eq!(audio_correction(10.0, 10.1), None);
         assert_eq!(audio_correction(10.0, 9.9), None);
         assert_eq!(audio_correction(10.0, 10.4), Some(10.0));
@@ -135,6 +136,7 @@ mod tests {
 
     #[test]
     fn a_small_drift_moves_the_sound_only_when_it_lasts_and_not_too_often() {
+        crate::l10n::in_english();
         let mut g = SyncGuard::default();
         // One late report: no move.
         assert_eq!(g.correct(10.0, 10.3, 1_000), None);
@@ -152,6 +154,7 @@ mod tests {
 
     #[test]
     fn a_jump_moves_the_sound_at_once() {
+        crate::l10n::in_english();
         let mut g = SyncGuard::default();
         assert_eq!(g.correct(30.0, 2.0, 500), Some(30.0));
         // Even right after a move.
@@ -163,6 +166,7 @@ mod tests {
 
     #[test]
     fn a_reset_forgets_a_strike() {
+        crate::l10n::in_english();
         let mut g = SyncGuard::default();
         assert_eq!(g.correct(10.0, 10.3, 1_000), None);
         g.reset();
@@ -171,6 +175,7 @@ mod tests {
 
     #[test]
     fn the_controls_hide_two_seconds_after_the_last_move_while_playing() {
+        crate::l10n::in_english();
         let mut c = ControlsVisibility::default();
         c.activity(1_000);
         assert!(c.visible(2_500, true));
@@ -182,6 +187,7 @@ mod tests {
 
     #[test]
     fn the_osd_says_the_volume_in_percent_or_muted() {
+        crate::l10n::in_english();
         assert_eq!(volume_osd(0.7, false), "Volume 70 %");
         assert_eq!(volume_osd(1.0, false), "Volume 100 %");
         assert_eq!(volume_osd(0.7, true), "Muted");
