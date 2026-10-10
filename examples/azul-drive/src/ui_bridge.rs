@@ -65,23 +65,6 @@ fn line(text: &str) -> Dom {
     Dom::create_span_with_text(label(text)).with_css(TEXT)
 }
 
-/// The window's language's words for a setting the kit's bridge names in English (its rows'
-/// labels, the connection security's value); other words as they are.
-fn bridge_word(text: &str) -> &str {
-    match text {
-        "IMAP server (incoming mail)" => "azdrive-bridge-imap-server",
-        "IMAP port" => "azdrive-bridge-imap-port",
-        "SMTP server (outgoing mail)" => "azdrive-bridge-smtp-server",
-        "SMTP port" => "azdrive-bridge-smtp-port",
-        "Connection security" => "azdrive-bridge-security",
-        "None (the bridge answers this computer only)" => "azdrive-bridge-security-none",
-        "User name" => "azdrive-bridge-user",
-        "Server address (WebDAV)" => "azdrive-bridge-webdav",
-        "Server address (CalDAV / CardDAV)" => "azdrive-bridge-caldav",
-        other => other,
-    }
-}
-
 pub(crate) fn clipboard(info: &mut CallbackInfo, text: &str) {
     info.set_clipboard_content(ClipboardContent {
         plain_text: AzString::from(text),
@@ -107,14 +90,15 @@ fn row_of(app: &RefAny, row: &Row) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 2px 0px;")
         .with_child(
-            Dom::create_span_with_text(label(bridge_word(&row.label)))
+            // The kit's words by their ids (azcloud-kit's bridge resource).
+            Dom::create_span_with_text(label(row.label_id))
                 .with_css("width: 220px; flex-shrink: 0; font-size: 13px;"),
         )
         .with_child(
-            Dom::create_span_with_text(label(bridge_word(&row.value)))
+            Dom::create_span_with_text(label(row.value_id.unwrap_or(&row.value)))
                 .with_css("flex-grow: 1; font-size: 13px; font-family: monospace;"),
         )
-        .with_child(copy_button(app, "azdrive-bridge-copy", &row.value, bridge_word(&row.label)))
+        .with_child(copy_button(app, "azdrive-bridge-copy", &row.value, row.label_id))
 }
 
 /// "Use with other programs": the bridge's addresses, each with Copy; else how to set it up.

@@ -113,7 +113,7 @@ const WORDS: [(&str, &str, &str); 9] = [
     (
         "azlin-bridge-security-none",
         "None (the bridge answers this computer only)",
-        "Keine (die Bridge antwortet nur diesem Computer)",
+        "Keine (die Brücke antwortet nur diesem Computer)",
     ),
     ("azlin-bridge-user", "User name", "Benutzername"),
     ("azlin-bridge-webdav", "Server address (WebDAV)", "Serveradresse (WebDAV)"),

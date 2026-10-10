@@ -20,7 +20,8 @@ pub(crate) const EN: &str = include_str!("../resources/en.ftl");
 /// AzDrive's words in German.
 pub(crate) const DE: &str = include_str!("../resources/de.ftl");
 
-/// AzDrive's resources per language: its own words, then azcloud-kit's error table.
+/// AzDrive's resources per language: its own words, then azcloud-kit's error table and the Azlin
+/// Bridge's settings.
 fn resources() -> Vec<(&'static str, String)> {
     Lang::ALL
         .iter()
@@ -29,7 +30,12 @@ fn resources() -> Vec<(&'static str, String)> {
                 Lang::En => EN,
                 Lang::De => DE,
             };
-            (lang.tag(), format!("{own}\n{}", fluent_source(*lang)))
+            let kit = format!(
+                "{}\n{}",
+                fluent_source(*lang),
+                azcloud_kit::bridge::fluent_source(*lang)
+            );
+            (lang.tag(), format!("{own}\n{kit}"))
         })
         .collect()
 }

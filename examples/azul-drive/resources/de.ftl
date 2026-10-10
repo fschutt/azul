@@ -1007,15 +1007,6 @@ azdrive-lockdown-cancelled = Die Sperrung mit dem Wiederherstellungscode wurde a
 
 ## Use with other programs
 
-azdrive-bridge-imap-server = IMAP-Server (eingehende E-Mails)
-azdrive-bridge-imap-port = IMAP-Port
-azdrive-bridge-smtp-server = SMTP-Server (ausgehende E-Mails)
-azdrive-bridge-smtp-port = SMTP-Port
-azdrive-bridge-security = Verbindungssicherheit
-azdrive-bridge-security-none = Keine (die Brücke antwortet nur diesem Computer)
-azdrive-bridge-user = Benutzername
-azdrive-bridge-webdav = Serveradresse (WebDAV)
-azdrive-bridge-caldav = Serveradresse (CalDAV / CardDAV)
 azdrive-bridge-copy = Kopieren
 azdrive-bridge-not-set-up = Die Azlin-Brücke zeigt dein Azlin-Laufwerk dem Finder, dem Explorer und den Dateimanagern (und seine E-Mails und Kalender anderen Programmen) auf diesem Computer. Sie ist hier nicht eingerichtet: Führe azul-bridge init --address <deine Adresse> aus, dann azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung).
 azdrive-bridge-running = Die Azlin-Brücke läuft auf diesem Computer: Verbinde dich mit diesen Einstellungen und dem Kennwort der Brücke (Finder: Gehe zu > Mit Server verbinden; Explorer: Netzlaufwerk verbinden).

@@ -1009,15 +1009,6 @@ azdrive-lockdown-cancelled = The lockdown with the recovery code was cancelled. 
 
 ## Use with other programs
 
-azdrive-bridge-imap-server = IMAP server (incoming mail)
-azdrive-bridge-imap-port = IMAP port
-azdrive-bridge-smtp-server = SMTP server (outgoing mail)
-azdrive-bridge-smtp-port = SMTP port
-azdrive-bridge-security = Connection security
-azdrive-bridge-security-none = None (the bridge answers this computer only)
-azdrive-bridge-user = User name
-azdrive-bridge-webdav = Server address (WebDAV)
-azdrive-bridge-caldav = Server address (CalDAV / CardDAV)
 azdrive-bridge-copy = Copy
 azdrive-bridge-not-set-up = The Azlin Bridge shows your Azlin drive to Finder, Explorer and the file managers (and its mail and calendars to other programs) on this computer. It is not set up here: run azul-bridge init --address <your address>, then azul-bridge serve (azul-bridge autostart enable starts it at every login).
 azdrive-bridge-running = The Azlin Bridge is running on this computer: connect to it with these settings and the bridge's password (Finder: Go > Connect to Server; Explorer: Map network drive).
