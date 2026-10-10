@@ -379,12 +379,11 @@ pub(crate) enum Job {
     /// An encrypted drive's keys, recovery or files moved into the encryption.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionJob),
-    /// A pending recovery-key lockdown of `drive_id` called off at `token_url` - a grant: under
-    /// the drive's keyring lock with its newest drive token.
-    CancelLockdown {
-        keyring: SharedKeyring,
-        drive_id: String,
-        token_url: String,
+    /// What the node of the Azlin drive `azlin_id` counts of its bucket (one HeadBucket): the
+    /// usage line's stored bytes and quota.
+    BucketSpace {
+        azlin_id: String,
+        azlin: Arc<azcloud_kit::AzlinDrive>,
     },
     /// A voucher `code` at `token_url`: on `drive` (its id, under its keyring lock) the days it
     /// adds ([`Outcome::VoucherRedeemed`]); without one a new drive of `tier` (empty: the
@@ -634,10 +633,10 @@ pub(crate) enum Outcome {
     /// The listing `serial` (of the drive in view) met a storage or token server error, as
     /// the user sees it ([`crate::problems`]); a message of a scan that still ends.
     DriveProblem { serial: u64, problem: UserError },
-    /// A pending recovery-key lockdown of `drive_id` called off (or why not).
-    LockdownCancelled {
-        drive_id: String,
-        result: Result<(), String>,
+    /// The node's count of the Azlin drive `azlin_id` (or why there is none).
+    BucketSpace {
+        azlin_id: String,
+        result: Result<azul_storage::BucketSpace, String>,
     },
     /// A voucher on `drive_id`: the days it added and the period's new end (seconds since
     /// 1970), or why not.
@@ -2992,13 +2991,9 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         #[cfg(feature = "encryption")]
         Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
-        Job::CancelLockdown {
-            keyring,
-            drive_id,
-            token_url,
-        } => Outcome::LockdownCancelled {
-            result: cancel_lockdown(&keyring, &drive_id, &token_url),
-            drive_id,
+        Job::BucketSpace { azlin_id, azlin } => Outcome::BucketSpace {
+            result: azlin.space().map_err(|e| e.to_string()),
+            azlin_id,
         },
         Job::RedeemVoucher {
             serial,
@@ -3032,25 +3027,6 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             result: pick_up(&keyring, &checkout),
             checkout,
         },
-    }
-}
-
-/// A pending recovery-key lockdown of `drive_id` called off: a grant, so under the drive's
-/// keyring lock with its newest drive token. None pending any more (409) is done too.
-fn cancel_lockdown(
-    keyring: &SharedKeyring,
-    drive_id: &str,
-    token_url: &str,
-) -> Result<(), String> {
-    let transport = AzulTransport::new(USER_AGENT);
-    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
-    let answer = keyring
-        .with_drive_token(drive_id, |token| server.lockdown_cancel(drive_id, token))
-        .map_err(|e| e.to_string())?;
-    match answer {
-        Ok(_) => Ok(()),
-        Err(TokenError::Refused { code, .. }) if code == "no_pending_lockdown" => Ok(()),
-        Err(e) => Err(e.to_string()),
     }
 }
 

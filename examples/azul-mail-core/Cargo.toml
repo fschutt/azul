@@ -46,7 +46,9 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 rustls-rustcrypto = "0.0.2-alpha"
 
 [features]
-default = []
+# "We always encrypt and compress" (AzMail and the bridge turn it on through their own
+# `encryption`; they depend on this crate without its defaults).
+default = ["encryption"]
 # `testutil` (a temporary folder, a one-connection SMTP sink) for the tests of AzMail's other
 # modules (a dev-dependency turns it on).
 testing = ["azul-storage/testing"]

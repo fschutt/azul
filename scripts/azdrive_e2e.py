@@ -65,8 +65,8 @@ node layout, AzDrive's stdout markers and the files on disk:
         by name; "Index files in the cloud" and "Index this drive" download each file within
         the cap (GetObject at the mock), index its text and keep nothing but the index; the same
         search finds the file from the index; turned off, the index is gone. (An encrypted
-        drive's search - names from its drive index - needs a build with the encryption feature
-        and an encrypted Azlin drive: its unit tests cover it.);
+        drive's search - names from its drive index - is covered by its unit tests; the drives
+        AzDrive makes are encrypted as they are made: scripts/azdrive_add_e2e.py.);
     25. the folder sync, in an AzDrive of its own whose drives file has one S3 drive on the mock
         stack's S3 (scripts/azlin_mock_stack.py; its keys in the headless keyring file, the poll
         every 2 s - $AZDRIVE_SYNC_POLL): Share > Sync with a folder pairs it with AzDrive/<name>
@@ -88,6 +88,10 @@ node layout, AzDrive's stdout markers and the files on disk:
         AZ_NETWORK_STATE_FILE: "cellular metered") says "Paused (metered network)", a 26 MB file
         waits while a small one goes up, "Sync anyway on this network" (Options > Drives > Sync,
         kept in view.json) sends it, a Low Data Mode Wi-Fi pauses too, a free Wi-Fi syncs.
+        The drives of steps 24 and 25 are made at the mock directly, with no keys: plaintext
+        drives like the ones made before encryption ("we always encrypt" makes every NEW drive
+        encrypted). AzDrive is built with its default features - `encryption` among them - and
+        keeps opening such drives as they are; that old path is what these steps check.
         `--sync-only` runs step 25 alone.
 
 The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar

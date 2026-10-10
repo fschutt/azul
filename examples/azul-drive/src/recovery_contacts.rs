@@ -816,7 +816,8 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
             let mut body = column(vec![
                 line(&format!(
                     "Your trusted contacts gave back the recovery code of \"{}\". The lockdown \
-                     with it is pending{until}: your other devices are told and may cancel it. \
+                     with it is pending{until}: your other devices are told, and the code may \
+                     cancel it. \
                      Then the drive is this computer's: open it with this code (the drive's \
                      menu: Unlock with the recovery code).",
                     name_of(drive_id)

@@ -53,14 +53,20 @@ default) scripts/azlin_mock_stack.py stands in for the token server and the S3 b
 ports; with `--azlin-stack local` the running stack is used (`azctl dev up --processes` in
 azul-apps iso/: --azlin-token-url, else $AZLIN_TOKEN_URL, else the shared Azlin config's
 endpoints, else http://127.0.0.1:8081; --azlin-s3-url when the bundle's endpoint is not reachable
-from here). scripts/azmail_seed_azlin.py signs up a drive and fills mail/Inbox/ and mail/Spam/;
+from here). "We always encrypt": the drive is ENCRYPTED - scripts/azmail_seed_azlin.py signs it up
+with the azcloud command line (`signup` encrypts it as it makes it; --azcloud, else $AZCLOUD_BIN,
+else target/release/azcloud), puts the mailbox into mail/Inbox/ and mail/Spam/ through the
+encryption (`azcloud up`), gives AzMail a member token of its own (`azcloud invite`) and the
+drive key in its headless keyring (AZ_KEYRING_FILE); every check of the drive goes through the
+encryption too (`azcloud ls` / `down`), and the bucket holds only the encryption's keys at the end
+(--azlin-plaintext: a plaintext drive like the ones made before encryption, plain S3 calls);
 AzMail starts with `--azlin-token-url` and AZLIN_CONFIG=off; the wizard's "Azlin drive" takes the
 drive id and the drive token (the token server field left empty: the switch's URL stands for
 it); Finish signs in (the token is rotated: AZMAIL_AZLIN_SIGNED_IN) and syncs; the window lists
 the seeded Inbox and Junk E-mail from the drive; opening a message writes its read marker
 (mail/.state/<id>/seen); a big message (--azlin-big-mb, default 7) is listed from its header
 block and downloaded when opened; Archive moves a message's object from mail/Inbox/ to
-mail/Archive/ under the same name (checked with plain S3 calls); Save Draft puts an .eml into
+mail/Archive/ under the same name (checked through the drive index); Save Draft puts an .eml into
 mail/Drafts/; no drive token is in any file AzMail wrote or in its output.
 
 The submission phase (`--phase submission`, MAIL9 left 2) walks the Sending page's third choice:
@@ -142,6 +148,17 @@ def main_repo():
         return os.path.dirname(common)
     except Exception:
         return REPO
+
+
+def find_azcloud(explicit):
+    exe = 'azcloud.exe' if os.name == 'nt' else 'azcloud'
+    for c in (explicit, os.environ.get('AZCLOUD_BIN'),
+              os.path.join(REPO, 'target', 'release', exe),
+              os.path.join(REPO, 'examples', 'azcloud-api', 'target', 'release', exe)):
+        if c and os.path.isfile(c):
+            return os.path.abspath(c)
+    raise SystemExit('no azcloud binary: cargo build --release -p azcloud-api (or --azcloud '
+                     'PATH, or --azlin-plaintext)')
 
 
 def find_binary(explicit):
@@ -1584,16 +1601,53 @@ class AzlinRun(Run):
 
     def seed_drive(self):
         try:
-            self.seed = azmail_seed_azlin.seed(self.token_url, self.s3_url,
-                                               big_mb=self.args.azlin_big_mb)
+            if self.args.azlin_plaintext:
+                self.seed = azmail_seed_azlin.seed(self.token_url, self.s3_url,
+                                                   big_mb=self.args.azlin_big_mb)
+            else:
+                self.seed = azmail_seed_azlin.seed_encrypted(
+                    self.token_url, find_azcloud(self.args.azcloud),
+                    os.path.join(self.tmp, 'azcloud-state'), s3_url=self.s3_url,
+                    big_mb=self.args.azlin_big_mb)
         except SystemExit as e:
             raise Failure(f'the seed failed: {e}') from None
-        self.bucket = azlin_client.Bucket(self.seed['bundle'], endpoint=self.s3_url)
+        if self.args.azlin_plaintext:
+            self.bucket = azlin_client.Bucket(self.seed['bundle'], endpoint=self.s3_url)
+        else:
+            # The drive through the encryption; AzMail gets the drive key in its keyring.
+            self.bucket = self.seed['drive']
+            name, text = self.seed['drive_key_entry']
+            with open(self.keyring_file(), 'w', encoding='utf-8') as f:
+                json.dump({name: text}, f)
         log(f"seeded drive {self.seed['drive_id']}: " + ', '.join(
             f"{m['folder']}/{m['kind']}" for m in self.seed['messages']))
 
     def seeded(self, kind):
         return next(m for m in self.seed['messages'] if m['kind'] == kind)
+
+    def keyring_file(self):
+        """AzMail's headless keyring (AZ_KEYRING_FILE): the drive key of the encrypted drive."""
+        return os.path.join(self.tmp, 'keyring.json')
+
+    def check_bucket_ciphertext_only(self):
+        """The encrypted drive's bucket: the encryption's keys only (.azlin/, data/) - no mail/
+        key, no subject in the clear."""
+        if self.args.azlin_plaintext or self.stack is None:
+            return
+        bucket = self.stack.s3.store
+        name = (self.stack.token.state.drives.get(self.seed['drive_id']) or {}).get('bucket')
+        if name is None:
+            raise Failure(f"the mock has no bucket of {self.seed['drive_id']}")
+        keys = bucket.keys(name)
+        strays = [k for k in keys if not (k.startswith('.azlin/') or k.startswith('data/'))]
+        if strays:
+            raise Failure(f'plaintext keys in the encrypted drive\'s bucket: {strays[:10]}')
+        for key in keys:
+            data = bucket.read(name, key)
+            for m in self.seed['messages']:
+                if m['subject'].encode() in data:
+                    raise Failure(f'{key} holds "{m["subject"]}" in the clear')
+        log(f'the bucket holds {len(keys)} keys of the encryption only: no mail/ key, no subject')
 
     # -- AzMail --
 
@@ -1607,6 +1661,8 @@ class AzlinRun(Run):
             # the run.
             'AZLIN_DATA': os.path.join(self.tmp, 'azlin-data'),
             'AZLIN_CONFIG': 'off',
+            # The headless keyring in a file: the encrypted drive's key is in it.
+            'AZ_KEYRING_FILE': self.keyring_file(),
         }
         app_args = ['--size', f'{AZLIN_SIZE[0]}x{AZLIN_SIZE[1]}',
                     '--azlin-token-url', self.token_url]
@@ -1828,6 +1884,7 @@ class AzlinRun(Run):
             self.open_big_message()
         self.archive()
         self.draft_into_drive()
+        self.check_bucket_ciphertext_only()
         self.check_no_drive_token()
         self.check_token_rotated()
 
@@ -1883,6 +1940,12 @@ def main():
     parser.add_argument('--azlin-s3-url',
                         help="with --azlin-stack local: the S3 address when the bundle's "
                              'endpoint is not reachable from here')
+    parser.add_argument('--azlin-plaintext', action='store_true',
+                        help='the azlin phase on a plaintext drive like the ones made before '
+                             'encryption (plain S3 calls; no azcloud needed)')
+    parser.add_argument('--azcloud',
+                        help='the azcloud command line that seeds the encrypted drive (default: '
+                             '$AZCLOUD_BIN, else target/release/azcloud)')
     parser.add_argument('--azlin-big-mb', type=int, default=7,
                         help='the azlin phase seeds a mail with an attachment of this many MiB '
                              '(0: none) and opens it')

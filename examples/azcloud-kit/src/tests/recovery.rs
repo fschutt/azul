@@ -1,7 +1,7 @@
 //! A drive's recovery key at the token server (AZDRIVE-INTEGRATION §4, §18.7): an Ed25519 key
 //! derived from the recovery code, registered with the drive token, that signs a lockdown
 //! request without one; and the drive's status as the token server keeps it - its period and a
-//! pending recovery-key lockdown, which the owner's other devices may cancel.
+//! pending recovery-key lockdown, which the recovery code may cancel.
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -93,6 +93,7 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             200,
             if n == 0 {
                 r#"{"id": "d_1", "tier": "100GB", "read_only": false, "status": "active",
+                    "quota_bytes": 100000000000, "used_bytes": 62000000000,
                     "period_until": "2026-11-07T00:00:00Z",
                     "lockdown_pending_until": "2026-10-13T09:00:00Z", "you": "owner",
                     "members": [
@@ -123,6 +124,8 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
                 String::from(RECOVERY_MEMBER),
             ],
             you: Some(String::from("owner")),
+            quota_bytes: Some(100_000_000_000),
+            used_bytes: Some(62_000_000_000),
             ban: None,
         }
     );
@@ -135,6 +138,8 @@ fn the_drives_status_names_its_period_a_pending_lockdown_and_its_members() {
             read_only: true,
             members: Vec::new(),
             you: None,
+            quota_bytes: None,
+            used_bytes: None,
             ban: None,
         }
     );

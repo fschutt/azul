@@ -412,6 +412,20 @@ pub trait Router: Send + Sync {
     ) -> Result<HttpReply, DriveError>;
 }
 
+/// An Azlin node's HeadBucket header: the bytes it stores for the bucket.
+pub const USED_BYTES_HEADER: &str = "x-azlin-used-bytes";
+/// An Azlin node's HeadBucket header: the quota of the drive's tier, of stored bytes.
+pub const QUOTA_BYTES_HEADER: &str = "x-azlin-quota-bytes";
+
+/// What a storage service counts of a bucket ([`S3Drive::space`]): `None` what it did not say.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BucketSpace {
+    /// The bytes stored for the bucket (an Azlin node's count: what the quota counts).
+    pub used_bytes: Option<u64>,
+    /// The quota of stored bytes.
+    pub quota_bytes: Option<u64>,
+}
+
 /// A bucket, reached through a [`Transport`].
 pub struct S3Drive {
     config: S3Config,
@@ -556,6 +570,30 @@ impl S3Drive {
     #[must_use]
     pub fn config(&self) -> &S3Config {
         &self.config
+    }
+
+    /// What the storage service counts of the bucket: one HeadBucket, whose answer from an
+    /// Azlin node carries [`USED_BYTES_HEADER`] and [`QUOTA_BYTES_HEADER`] (the bytes it stores
+    /// for the bucket - compressed and encrypted on the devices first - and the quota of the
+    /// drive's tier, both of stored bytes). Another S3 says neither: both `None`.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's refusal or no answer, as every request's.
+    pub fn space(&self) -> Result<BucketSpace, DriveError> {
+        let reply = self.request(Method::Head, None, Vec::new(), Vec::new(), Vec::new(), "")?;
+        if !reply.is_success() {
+            return Err(failure(&reply, None));
+        }
+        let number = |name: &str| {
+            reply
+                .header(name)
+                .and_then(|value| value.trim().parse::<u64>().ok())
+        };
+        Ok(BucketSpace {
+            used_bytes: number(USED_BYTES_HEADER),
+            quota_bytes: number(QUOTA_BYTES_HEADER),
+        })
     }
 
     /// The host the requests to `endpoint` go to.

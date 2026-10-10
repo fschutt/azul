@@ -8,8 +8,11 @@
 //!        The settings (bridge.json) and, the first time, the bridge's password - printed once
 //!        (`AZUL_BRIDGE_PASSWORD <password>`), then kept in the secret store.
 //!   password   A new password, printed once; the old one stops working.
-//!   signup [--name NAME] [--tier TIER]
-//!        A development drive of the bridge's own (development token servers only).
+//!   signup [--name NAME] [--tier TIER] [--plaintext]
+//!        A development drive of the bridge's own (development token servers only), encrypted as
+//!        it is made: its recovery code is printed once (`AZUL_BRIDGE_RECOVERY_CODE <code>`), the
+//!        keys kept in the secret store. `--plaintext` makes a drive like the ones made before
+//!        encryption (tests of those).
 //!   join --code-file FILE
 //!        Joins a drive with a code from `azcloud invite` (a token family of the bridge's own).
 //!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--pim-port N] [--folder DIR | --memory]
@@ -91,12 +94,21 @@ pub struct Options {
     pub keyring: Option<String>,
     /// `autostart`'s `enable` / `disable` / `status`.
     pub action: Option<String>,
+    /// `signup --plaintext`: a drive like the ones made before encryption (tests of those).
+    pub plaintext: bool,
+}
+
+/// Whether `signup` makes the new drive encrypted: always ("we always encrypt"), but for
+/// `--plaintext`.
+#[must_use]
+pub fn signup_encrypts(options: &Options) -> bool {
+    !options.plaintext
 }
 
 /// The usage text.
 pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
      <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
-     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] | \
+     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] [--plaintext] | \
      join --code-file FILE | autostart enable|disable|status | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
      [--pim-port N] [--folder DIR | --memory] [--calendar-folder DIR] [--idle-poll SECS] | status>";
 
@@ -138,6 +150,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--folder" => options.folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--calendar-folder" => options.calendar_folder = Some(PathBuf::from(value(&mut i, arg)?)),
             "--memory" => options.memory = true,
+            "--plaintext" => options.plaintext = true,
             "--keyring" => options.keyring = Some(value(&mut i, arg)?),
             "--idle-poll" => {
                 let text = value(&mut i, arg)?;
@@ -287,6 +300,18 @@ pub fn run(options: &Options) -> Result<(), String> {
             let account = Account::signup(&state_dir, &token_url, transports(), &tier, &name)
                 .map_err(|e| e.to_string())?;
             say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
+            // "We always encrypt": the keys as the drive is made (into the bucket at this run's
+            // S3 endpoint, the drive key and the bridge's member key into its secret store).
+            #[cfg(feature = "encryption")]
+            if signup_encrypts(options) {
+                let account = account.with_s3_endpoint(endpoints(options).1.as_deref());
+                let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
+                    .map_err(|e| e.to_string())?;
+                let code = account
+                    .setup_encryption(&*secrets, kdf)
+                    .map_err(|e| e.to_string())?;
+                say(&format!("AZUL_BRIDGE_RECOVERY_CODE {}", code.to_text().as_str()));
+            }
             Ok(())
         }
         "join" => {
@@ -611,6 +636,16 @@ mod tests {
 
     fn args(text: &str) -> Vec<String> {
         text.split_whitespace().map(str::to_string).collect()
+    }
+
+    /// "We always encrypt": the bridge's own development drive is encrypted as it is made;
+    /// `--plaintext` makes one like the drives made before encryption.
+    #[test]
+    fn a_signup_makes_an_encrypted_drive_unless_asked_for_a_plaintext_one() {
+        assert!(signup_encrypts(&parse_args(&args("signup --name Bridge")).unwrap()));
+        assert!(!signup_encrypts(
+            &parse_args(&args("signup --plaintext")).unwrap()
+        ));
     }
 
     #[test]

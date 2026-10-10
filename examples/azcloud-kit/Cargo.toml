@@ -61,7 +61,8 @@ azul-storage = { path = "../azul-storage", features = ["testing"] }
 [features]
 default = []
 # Encrypted drives (encryption.rs): azul-storage's AZL1 objects, the device's keys, the join
-# code's key seal. Off until the drive index (the encrypted metadata repository) is in.
+# code's key seal. Off in the kit itself; the apps on it (AzDrive, AzMail, the mail core,
+# azcloud) turn it on by default - "we always encrypt and compress".
 encryption = ["azul-storage/encryption"]
 
 [lib]

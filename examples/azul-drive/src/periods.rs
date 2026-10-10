@@ -8,7 +8,8 @@
 //!
 //! A look also tells the owner (D42) of every device the drive was given since the last look
 //! (`AZDRIVE_NEW_DEVICE <drive id> <member>`, a notification) and of a use of the recovery code:
-//! a lockdown that takes the drive in 48 hours unless a device of the owner cancels it.
+//! a lockdown that takes the drive in 48 hours unless the recovery code cancels it (F12: "the
+//! recovery code always wins" - Cancel asks for it).
 //!
 //! On stdout: `AZDRIVE_PERIOD_REDEEMED <drive id> <count> <until>` for a month bought.
 //! `AZDRIVE_PERIOD_CHECK_SECS` (a positive number of seconds) makes the daily look more often,
@@ -215,6 +216,8 @@ pub(crate) fn periods_redeemed(
             crate::ban::seen(s, &drive_id, status.ban.clone());
             // A synced drive's status line says "Read-only (payment due)" by this word.
             crate::sync_jobs::drive_status_seen(s, &drive_id, status.read_only);
+            // Its space: the quota and the stored bytes the token server counts.
+            crate::usage_view::status_seen(s, &drive_id, status);
         }
         for member in new_devices(&look.new_members) {
             println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");
@@ -313,7 +316,7 @@ pub(crate) fn lockdown_bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
     let until = *s.pending_lockdowns.get(&drive_id)?;
     let text = format!(
         "A lockdown with the recovery code is pending until {}: then every other device loses \
-         this drive. If that was not you, cancel it now.",
+         this drive. If that was not you, cancel it now with your recovery code.",
         iso8601(until)
     );
     Some(
@@ -349,48 +352,41 @@ struct LockdownRef {
     drive_id: String,
 }
 
-extern "C" fn on_cancel_lockdown(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// F12 ("the recovery code always wins"): the cancel asks for the recovery code, whose key
+/// signs it ([`crate::encryption::ask_cancel_lockdown`]); this computer's drive token alone
+/// cancels nothing.
+extern "C" fn on_cancel_lockdown(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some((mut app, drive_id)) = data
         .downcast_ref::<LockdownRef>()
         .map(|r| (r.app.clone(), r.drive_id.clone()))
     else {
         return Update::DoNothing;
     };
-    let handle = app.clone();
     let Some(mut s) = app.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
     };
-    let fallback = s.token.url.clone();
-    let token_url = s
-        .slot_index(&drive_id)
-        .and_then(|index| azlin_drive(&s.slots[index].entry, fallback.as_deref()))
-        .map(|(_, url)| url);
-    let Some(token_url) = token_url else {
-        s.error("The drive's token server is not known: the lockdown cannot be cancelled here.");
-        return Update::RefreshDom;
-    };
-    let job = Job::CancelLockdown {
-        keyring: s.keyring.clone(),
-        drive_id,
-        token_url,
-    };
-    spawn(&mut info, &handle, &mut *s, job);
+    #[cfg(feature = "encryption")]
+    crate::encryption::ask_cancel_lockdown(&mut *s, &drive_id);
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = drive_id;
+        s.error(
+            "A lockdown with the recovery code is cancelled with the code, which this AzDrive \
+             (built without encryption) cannot read.",
+        );
+    }
     Update::RefreshDom
 }
 
-/// A pending lockdown called off (or why not).
-pub(crate) fn lockdown_cancelled(s: &mut DriveState, drive_id: &str, result: Result<(), String>) {
-    match result {
-        Ok(()) => {
-            s.pending_lockdowns.remove(drive_id);
-            println!("AZDRIVE_LOCKDOWN_CANCELLED {drive_id}");
-            s.info(
-                "The lockdown with the recovery code was cancelled. If you did not start it, \
-                 someone has your recovery code: make a new one.",
-            );
-        }
-        Err(why) => s.error(format!("The lockdown could not be cancelled: {why}")),
-    }
+/// A pending lockdown called off with the recovery code.
+#[cfg(feature = "encryption")]
+pub(crate) fn lockdown_cancelled(s: &mut DriveState, drive_id: &str) {
+    s.pending_lockdowns.remove(drive_id);
+    println!("AZDRIVE_LOCKDOWN_CANCELLED {drive_id}");
+    s.info(
+        "The lockdown with the recovery code was cancelled. If you did not start it, someone has \
+         your recovery code: make a new one (the drive's menu: I was hacked: new keys).",
+    );
 }
 
 /// Starts the timer of the looks (from the window's start, after the first look).

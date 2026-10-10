@@ -834,6 +834,16 @@ mod tests {
     use super::*;
     use crate::testutil::{MailFolder, TempDir};
 
+    /// "We always encrypt and compress": AzMail's default build writes an Azlin account's mail
+    /// through the drive's encryption.
+    #[test]
+    fn a_default_build_of_azmail_writes_mail_through_the_encryption() {
+        assert!(
+            cfg!(feature = "encryption"),
+            "AzMail's default features take `encryption`"
+        );
+    }
+
     /// 2026-09-30T08:42:00Z
     const SEP_30: i64 = 1_790_757_720;
 

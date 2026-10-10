@@ -38,7 +38,8 @@ azcloud-kit = { path = "../azcloud-kit" }
 # The mail logic without azul types (accounts, folders, the store's files, the Azlin drive's
 # layout, sending, DKIM, submission), shared with the headless Azlin Bridge; lib.rs re-exports
 # its modules under their old names.
-azul-mail-core = { path = "../azul-mail-core" }
+# Its features come from AzMail's (`encryption` below), so `--no-default-features` is plain.
+azul-mail-core = { path = "../azul-mail-core", default-features = false }
 # The same features azul-layout builds chrono with: UTC dates for the files, local dates for the list.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # A sync IMAP client over any Read + Write stream (it runs on an azul Thread). No TLS feature: the
@@ -77,13 +78,14 @@ lettre = { version = "0.11.23", default-features = false, features = ["smtp-tran
 # The one temporary folder for tests (azul_storage::testing::TempDir).
 azul-storage = { path = "../azul-storage", features = ["testing"] }
 # The tests' helpers (`testutil`: the temporary folder, the SMTP sink).
-azul-mail-core = { path = "../azul-mail-core", features = ["testing"] }
+azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
 
 [features]
-default = []
-# An Azlin account's mail through the encryption when its drive is encrypted (mail_drive.rs:
-# azul-storage's AutoEncrypted, the drive key from the keyring AzDrive shares). Off until the
-# drive index (the encrypted metadata repository) is in.
+# "We always encrypt and compress": an Azlin account's mail goes through the drive's encryption
+# (azul-mail-core's mail_drive: AutoEncrypted, the drive index, the drive key from the keyring
+# AzDrive shares, the AZD1 drops filed into the folders). `--no-default-features` builds the
+# plain path only (tests; never shipped).
+default = ["encryption"]
 encryption = ["azul-storage/encryption", "azul-mail-core/encryption"]
 
 [lib]

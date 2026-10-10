@@ -286,6 +286,18 @@ class Store:
         out.sort()
         return out
 
+    def stored_bytes(self, bucket):
+        """The bytes the bucket's objects take (what an Azlin node counts for its quota; no
+        unfinished upload, no kept version)."""
+        base = self.bucket_dir(bucket)
+        total = 0
+        for key in self.keys(bucket):
+            try:
+                total += os.path.getsize(os.path.join(base, *key.split("/")))
+            except OSError:
+                pass  # deleted meanwhile
+        return total
+
     def info(self, bucket, key):
         path = self.path(bucket, key)
         if not os.path.isfile(path):
@@ -744,7 +756,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise S3Error(404, "NoSuchBucket", "The specified bucket does not exist", BucketName=bucket)
         if not key:
             if self.command == "HEAD":
-                self.respond(200)
+                self.respond(200, headers=self.space_headers(bucket))
                 return "HeadBucket"
             if self.command == "GET":
                 if query.get("list-type") != "2":
@@ -812,6 +824,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(204)
             return "DeleteObject"
         raise S3Error(405, "MethodNotAllowed", "The specified method is not allowed.")
+
+    def space_headers(self, bucket):
+        """An Azlin node's HeadBucket headers (SRV17), when the server plays one
+        (`Server.space_quota`): the bytes it stores for the bucket, the quota of its drive's
+        tier (when `space_quota` knows it)."""
+        quota_of = self.server.space_quota
+        if quota_of is None:
+            return {}
+        headers = {"x-azlin-used-bytes": self.server.store.stored_bytes(bucket)}
+        quota = quota_of(bucket)
+        if quota is not None:
+            headers["x-azlin-quota-bytes"] = int(quota)
+        return headers
 
     def multipart(self, bucket, key, query, body):
         """UploadPart, ListParts, CompleteMultipartUpload and AbortMultipartUpload."""
@@ -958,6 +983,9 @@ class Server(http.server.ThreadingHTTPServer):
         self._faults = {}
         # Banned drives' buckets (ban contract v1): bucket -> (its end, the clock it is read by).
         self._bans = {}
+        # An Azlin node's HeadBucket headers (SRV17: x-azlin-used-bytes, x-azlin-quota-bytes):
+        # None for a plain S3, else a bucket's quota of stored bytes (None: not known).
+        self.space_quota = None
         # The kill switches: kind ("parts", "gets") -> how many pass before the rest wait.
         self._holds = {}
         self._counts = {}

@@ -210,6 +210,13 @@ pub const LOCATION_PATH: AzString = AzString::from_const_str("__azdrive_location
 /// Cancel.
 pub const LOCKDOWN_BAR: AzString = AzString::from_const_str("__azdrive_lockdown_bar");
 pub const LOCKDOWN_CANCEL: AzString = AzString::from_const_str("__azdrive_lockdown_cancel");
+/// The cancel dialog's recovery code and its "Cancel the lockdown" (F12: the code signs).
+pub const LOCKDOWN_CANCEL_CODE: AzString =
+    AzString::from_const_str("__azdrive_lockdown_cancel_code");
+pub const LOCKDOWN_CANCEL_CONFIRM: AzString =
+    AzString::from_const_str("__azdrive_lockdown_cancel_confirm");
+/// "I was hacked: new keys": the current recovery code, which signs the new one.
+pub const ROTATE_CODE: AzString = AzString::from_const_str("__azdrive_rotate_code");
 /// The voucher dialog of a drive (Options > Drives): its code and Redeem.
 pub const VOUCHER: AzString = AzString::from_const_str("__azdrive_voucher");
 pub const VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_voucher_code");
@@ -392,6 +399,9 @@ pub fn sheet_group(slot: usize) -> AzString {
 }
 /// The recovery sheet's "I have written it down".
 pub const SHEET_DONE: AzString = AzString::from_const_str("__azdrive_sheet_done");
+/// The recovery sheet's code (selectable text) and its "Copy".
+pub const SHEET_CODE: AzString = AzString::from_const_str("__azdrive_sheet_code");
+pub const SHEET_COPY: AzString = AzString::from_const_str("__azdrive_sheet_copy");
 /// A drill's code, "Later" and "Check".
 pub const DRILL_CODE: AzString = AzString::from_const_str("__azdrive_drill_code");
 pub const DRILL_LATER: AzString = AzString::from_const_str("__azdrive_drill_later");

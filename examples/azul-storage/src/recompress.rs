@@ -16,8 +16,8 @@
 //!   names the new object in the old one's place as a compare-and-swap
 //!   ([`crate::encrypted::Expect::Object`] of the old object): a file the user changed meanwhile
 //!   keeps the user's version and the new object leaves the bucket again. The size and the date
-//!   stay the file's: recompression is no edit, and quotas count the plaintext size, which does
-//!   not change.
+//!   stay the file's: recompression is no edit. The quota counts STORED bytes (what arrives at
+//!   the storage nodes), so every file the pass makes smaller frees quota.
 //! - **Resumable.** The pass walks the index in path order and records the last path it did
 //!   ([`RecompressState::cursor`]); a stopped pass goes on from there. A finished pass records
 //!   when it started ([`RecompressState::since`]): the next one looks only at files modified

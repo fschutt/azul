@@ -1757,7 +1757,8 @@ pub(crate) enum IoDone {
         result: Result<u64, String>,
     },
     /// The wizard's new drive (its session), or why there is none.
-    DriveCreated(Result<azlin::AzlinSession, String>),
+    /// The new drive's session, and its recovery code when it was encrypted as it was made.
+    DriveCreated(Result<(azlin::AzlinSession, Option<String>), String>),
     DkimKey(Result<dkim::KeyPair, String>),
     DkimChecked(dkim::DnsReport),
     /// The PDF of File > Print is written: its key and its file.
@@ -1825,8 +1826,34 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             use azlin::CloudAccount;
             let transport = AzulTransport::new(USER_AGENT);
             let created = azlin::TokenServer::new(&token_url, &transport)
-                .and_then(|server| server.create_drive(&name));
-            IoDone::DriveCreated(created.map_err(|e| e.to_string()))
+                .and_then(|server| server.create_drive(&name))
+                .map_err(|e| e.to_string());
+            // "We always encrypt": the keys as the drive is made - the drive key and this
+            // computer's member key into the keyring AzDrive shares, the recovery wrap and the
+            // member wrap into the bucket; the code goes to the page, shown once.
+            let created = created.and_then(|session| {
+                #[cfg(feature = "encryption")]
+                {
+                    let bucket = session
+                        .open_drive(None, Box::new(transport.clone()))
+                        .map_err(|e| e.to_string())?;
+                    let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
+                        .map_err(|e| e.to_string())?;
+                    let (_, code) = azul_storage::crypto::device::setup_new_drive(
+                        &bucket,
+                        &AzulKeyring::new(),
+                        &session.drive_id,
+                        kdf,
+                    )
+                    .map_err(|e| format!("the drive was made but not encrypted: {e}"))?;
+                    Ok((session, Some(code.to_text().to_string())))
+                }
+                #[cfg(not(feature = "encryption"))]
+                {
+                    Ok((session, None))
+                }
+            });
+            IoDone::DriveCreated(created)
         }
         IoJob::DkimKey => IoDone::DkimKey(dkim::generate_key()),
         IoJob::DkimCheck {

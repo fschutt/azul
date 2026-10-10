@@ -20,22 +20,28 @@ sheet of `--dialogs inline`:
        folder its CSV, its schema and rows/, rows/ one JSON file per row;
     5. Add drive -> Buy storage: the mock token server's six tiers with their prices, Pay yearly
        turns them into yearly prices, a tier chosen, Create test drive (a development server):
-       the new Azlin drive is in the drives file with its {"type": "azlin"} auth (no secret),
-       its empty bucket lists, and a file put into the bucket shows after F5.
+       the new Azlin drive is ENCRYPTED AS IT IS MADE ("we always encrypt") - its recovery
+       sheet: the kit saved as a PDF, Escape keeps the sheet, the making finishes only with the
+       four groups it asks for typed back (a wrong one refused; the recovery key at the token
+       server); it is in the drives file with its {"type": "azlin"} auth (no secret), its empty
+       drive lists, a file copied into it from step 3's folder shows after F5 - and the bucket
+       holds only the encryption's random names (no file name, no plaintext).
     6. A paid drive reaches AzDrive however late (the claim, CLAIM CONTRACT v1): Buy names a
        claim key (the mock keeps its public half), "Stop waiting", the payment is approved at
        the mock - the drive joins the source list in the background, without taking over the
        window; then a second checkout, "Stop waiting", AzDrive closes, the payment is approved
        while it is closed, AzDrive starts again and the drive arrives at its start: in the
        drives file under the name typed, its session in the keyring, the checkout off the
-       keyring's list, its bucket listed. Each paid checkout's period tokens (AZLINSEC17 F24)
+       keyring's list, its bucket listed - each one encrypted as it arrived (its recovery
+       sheet, shown once no other dialog is open). Each paid checkout's period tokens (AZLINSEC17 F24)
        are issued against the issue key of its sealed sign-up before its checkout leaves the
        list, and AzDrive keeps them (a 0600 file per drive beside the drives file), each one
        a token the mock's issuer key verifies. The first drive's period ends in two days: a
        token buys it a month at once (redeemed under the drive's lock), the second one's is a
        month away: its tokens wait.
        Then (6c - 6h) the paid drive at the mock: its period bought by the daily look, a
-       node's error in the table's words, a pending recovery-key lockdown cancelled, vouchers,
+       node's error in the table's words, a pending recovery-key lockdown cancelled with the
+       drive's recovery code (F12: another code refused), vouchers,
        a device added at the token server announced (AZDRIVE_NEW_DEVICE), and Options > Drives
        > "Restore as of..." putting its bucket back as it was at a time (AZDRIVE_RESTORED).
 
@@ -68,11 +74,8 @@ sheet of `--dialogs inline`:
        the client id and the token endpoint), and the drive refreshes its access token at that
        endpoint before its first listing (googleapis.com answered by azul's request mock: an
        empty My Drive).
-   13. The recovery methods of an encrypted drive (C14; `--recovery`, AzDrive built with the
-       `encryption` feature): step 5's test drive encrypted - the kit saved as a PDF from the
-       recovery sheet (FileDialog::save_bytes under the mock store), Escape keeps the sheet, the
-       setup finishes only with the four groups it asks for typed back (a wrong one refused);
-       a drill from Options > Drives (a wrong code fails, the kit's code passes); three trusted
+   13. The recovery methods of an encrypted drive (C14; `--recovery`): on step 5's test drive
+       (encrypted as it was made, its sheet in step 5) a drill from Options > Drives (a wrong code fails, the kit's code passes); three trusted
        contacts without AzDrive (printed shares, two saved as PDFs: Recovery health green); a
        second AzDrive that never had the drive recovers it with two printed shares - the code
        they give back signs the lockdown, the token server holds it 48 hours without
@@ -107,9 +110,9 @@ azul-pay's registry: `cargo build --release -p AzDrive --features fake-providers
     python3 scripts/azdrive_add_e2e.py [--bin target/release/AzDrive] [--debug-port 8783]
         [--timeout 240] [--out /tmp/azdrive-add-shots] [--keep-logs] [--recovery]
 
-(`--recovery`: step 13, after `cargo build --release -p AzDrive --features
-fake-providers,encryption`; the second AzDrive of step 13 uses the debug port after
-`--debug-port`.)
+(`encryption` is one of AzDrive's default features: every drive bought here is encrypted as it is
+made, and a build without it fails at step 5. `--recovery`: step 13; the second AzDrive of step
+13 uses the debug port after `--debug-port`.)
 
 Every key_down has its key_up (the E2E key_up rule); the shared Azlin config is a temporary one
 (azlin_e2e sets AZLIN_CONFIG), the keyring the headless backend's stand-in kept in a file of the
@@ -490,25 +493,16 @@ def settings_text(data_dir):
     return ""
 
 
-def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_file, keyring_file,
-                   drive_id):
-    """13. The recovery methods of an encrypted drive (C14, D51), on the test drive of step 5:
-    13a the setup's sheet - the kit saved as a PDF, Escape does not take the sheet away, the
-    signup finishes only with four groups typed back; 13b a drill from Options > Drives; 13c
-    three trusted contacts, all printed, two shares handed over (Recovery health green); 13d a
-    second AzDrive that never had the drive recovers it with two of the printed shares - the
-    token server holds the lockdown 48 hours (no credentials meanwhile), the owner's devices are
-    told, then the drive is handed over and the code the shares gave back unlocks it."""
-    app.after("the drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id),
-              lambda: app.click(selector=side_drive(drive_id)))
-
-    # 13a. Encrypt this drive: the sheet, the kit, the four groups.
-    drive_menu(app, drive_id, "Encrypt this drive…")
+def finish_new_drive_sheet(app, drive_id, out=None, thorough=False, stack=None, logs=None):
+    """A new drive's recovery sheet ("we always encrypt": the drive is encrypted as it is made):
+    the code and the four groups it asks for typed back; the drive is ready then
+    (AZDRIVE_ENCRYPTED_NEW_DRIVE). `thorough` (step 5, once): the kit saved as a PDF first,
+    Escape keeps the sheet, "I have written it down" without the groups and with a wrong one is
+    refused, a group in lower case is taken; the recovery key reaches the token server and the
+    settings file keeps the check, never the code. Returns the code."""
     popup = e2e.modal_window(app)
-    popup.until("Encrypt?", lambda: popup.exact("Encrypt"))
-    popup.click_exact("Encrypt", frames=3)
-    popup = e2e.modal_window(app)
-    popup.until("the recovery sheet", lambda: popup.has("#__azdrive_sheet_group_0"))
+    popup.until("the recovery sheet of %s" % drive_id,
+                lambda: popup.has("#__azdrive_sheet_group_0"))
     texts = popup.texts()
     code = found(texts, CODE_RE)
     asked = found(texts, ASKED_RE)
@@ -519,43 +513,102 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
     numbers = [int(n) for n in re.findall(r"\d+", asked.group(1))]
     if len(numbers) != 4 or len(set(numbers)) != 4 or not all(1 <= n <= 5 for n in numbers):
         raise Failure("the sheet asks for groups %r: four of five, each once" % numbers)
-    app.op("mock", set={"save_bytes": {"accept": True}})
-    app.after("the kit saved", "AZDRIVE_KIT_SAVED", r"\d+",
-              lambda: popup.click(selector="#__azdrive_kit_save"))
-    saved_pdf(app, "the emergency kit")
-    popup.screenshot(os.path.join(out, "13a-sheet.png"))
-    popup.key("escape")
-    app.frame(3)
-    popup = e2e.modal_window(app)
-    if not popup.has("#__azdrive_sheet_group_0"):
-        raise Failure("Escape took the recovery sheet away before its groups were typed")
-    popup.click(selector="#__azdrive_sheet_done", frames=3)
-    if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
-        raise Failure("the setup finished without the groups typed back")
-    if not popup.shows("are not all the code's"):
-        raise Failure("the sheet did not say the groups are missing")
-    for slot, number in enumerate(numbers):
-        typed = groups[number - 1] if slot else "WRONG"
-        popup.text_input("#__azdrive_sheet_group_%d" % slot, typed)
-    popup.click(selector="#__azdrive_sheet_done", frames=3)
-    if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
-        raise Failure("the setup finished with a wrong group")
-    retype(popup, "#__azdrive_sheet_group_0", "WRONG", groups[numbers[0] - 1].lower())
+    if thorough:
+        # Item 7: the code as text with a Copy (cleared again in a minute), the kit, the groups.
+        if not popup.has("#__azdrive_sheet_code"):
+            raise Failure("the sheet shows its code as no selectable text")
+        if not popup.shows("Your new drive's recovery code") and not popup.shows(
+                "Your new drive is encrypted"):
+            raise Failure("the sheet is not the purchase's (a new drive's)")
+        app.after("the code copied", "AZDRIVE_CODE_COPIED", re.escape(drive_id),
+                  lambda: popup.click(selector="#__azdrive_sheet_copy"))
+        popup.until("the copy's note", lambda: popup.shows("cleared in a minute"))
+        app.op("mock", set={"save_bytes": {"accept": True}})
+        app.after("the kit saved", "AZDRIVE_KIT_SAVED", r"\d+",
+                  lambda: popup.click(selector="#__azdrive_kit_save"))
+        saved_pdf(app, "the emergency kit")
+        if out:
+            popup.screenshot(os.path.join(out, "5-recovery-sheet.png"))
+        popup.key("escape")
+        app.frame(3)
+        popup = e2e.modal_window(app)
+        if not popup.has("#__azdrive_sheet_group_0"):
+            raise Failure("Escape took the recovery sheet away before its groups were typed")
+        popup.click(selector="#__azdrive_sheet_done", frames=3)
+        if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
+            raise Failure("the setup finished without the groups typed back")
+        if not popup.shows("are not all the code's"):
+            raise Failure("the sheet did not say the groups are missing")
+        for slot, number in enumerate(numbers):
+            typed = groups[number - 1] if slot else "WRONG"
+            popup.text_input("#__azdrive_sheet_group_%d" % slot, typed)
+        popup.click(selector="#__azdrive_sheet_done", frames=3)
+        if app.printed("AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id)):
+            raise Failure("the setup finished with a wrong group")
+        if app.printed("AZDRIVE_ENCRYPTED_NEW_DRIVE", re.escape(drive_id)):
+            raise Failure("the drive was ready before its sheet was done")
+        retype(popup, "#__azdrive_sheet_group_0", "WRONG", groups[numbers[0] - 1].lower())
+    else:
+        for slot, number in enumerate(numbers):
+            popup.text_input("#__azdrive_sheet_group_%d" % slot, groups[number - 1])
     app.after("the setup finished", "AZDRIVE_RECOVERY_VERIFIED", re.escape(drive_id),
               lambda: popup.click(selector="#__azdrive_sheet_done"))
-    app.until("the recovery key registered", lambda: app.printed(
-        "AZDRIVE_RECOVERY_KEY", re.escape(drive_id)))
-    if not stack.token.state.drives[drive_id].get("recovery_pubkey"):
-        raise Failure("the token server has no recovery key of %s" % drive_id)
-    app.until("the files moved into the encryption", lambda: app.shows("are encrypted"))
-    app.until("the recovery state in the settings file",
-              lambda: '"code_checked"' in settings_text(os.path.join(logs, "data")))
-    if code in settings_text(os.path.join(logs, "data")):
-        raise Failure("the settings file holds the recovery code")
-    log("13a. Encrypt this drive: the kit saved as a PDF from the sheet, Escape kept the sheet, "
-        "\"I have written it down\" refused nothing and a wrong group, groups %r typed back "
-        "finished the setup (the recovery key at the token server, the files encrypted)"
-        % numbers)
+    app.until("the drive ready", lambda: app.printed(
+        "AZDRIVE_ENCRYPTED_NEW_DRIVE", re.escape(drive_id)))
+    if thorough:
+        app.until("the recovery key registered", lambda: app.printed(
+            "AZDRIVE_RECOVERY_KEY", re.escape(drive_id)))
+        if not stack.token.state.drives[drive_id].get("recovery_pubkey"):
+            raise Failure("the token server has no recovery key of %s" % drive_id)
+        app.until("the recovery state in the settings file",
+                  lambda: '"code_checked"' in settings_text(os.path.join(logs, "data")))
+        if code in settings_text(os.path.join(logs, "data")):
+            raise Failure("the settings file holds the recovery code")
+    return code
+
+
+def new_drive_encrypted(app, drive_id):
+    """A drive that just arrived is encrypted as it was made: its keys, then its sheet."""
+    app.until("the encryption of %s" % drive_id, lambda: app.printed(
+        "AZDRIVE_ENCRYPTING_NEW_DRIVE", re.escape(drive_id)))
+    return finish_new_drive_sheet(app, drive_id)
+
+
+def bucket_of(stack, drive_id):
+    """The bucket of the drive `drive_id` at the mock."""
+    return stack.token.state.drives[drive_id]["bucket"]
+
+
+def bucket_holds_ciphertext_only(stack, bucket, names):
+    """An encrypted drive's bucket: the encryption's own keys (.azlin/: the keys, the drive
+    index; data/: the objects under random ids) - no file's name, no plaintext."""
+    keys = stack.s3.store.keys(bucket)
+    strays = [k for k in keys if not (k.startswith(".azlin/") or k.startswith("data/"))]
+    if strays:
+        raise Failure("the encrypted drive's bucket has plaintext keys: %r" % strays[:10])
+    for name in names:
+        if any(name in k for k in keys):
+            raise Failure("the bucket names %s: %r" % (name, keys[:20]))
+    if not any(k.startswith("data/") for k in keys):
+        raise Failure("the bucket holds no encrypted object: %r" % keys[:20])
+    return len(keys)
+
+
+def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_file, keyring_file,
+                   drive_id, code):
+    """13. The recovery methods of an encrypted drive (C14, D51), on the test drive of step 5
+    (encrypted as it was made: its sheet - the kit saved as a PDF, Escape, the four groups - in
+    step 5, its code `code`): 13b a drill from Options > Drives; 13c
+    three trusted contacts, all printed, two shares handed over (Recovery health green); 13d a
+    second AzDrive that never had the drive recovers it with two of the printed shares - the
+    token server holds the lockdown 48 hours (no credentials meanwhile), the owner's devices are
+    told, then the drive is handed over and the code the shares gave back unlocks it."""
+    app.after("the drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id),
+              lambda: app.click(selector=side_drive(drive_id)))
+
+    log("13a. (step 5) the recovery sheet came with the drive's making: the kit saved as a PDF, "
+        "Escape kept the sheet, the groups typed back finished it (the recovery key at the token "
+        "server, the check - never the code - in the settings file)")
 
     # 13b. A drill: Options > Drives > Recovery > the code's Test.
     app.tab("View")
@@ -689,10 +742,10 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
         second.after("the drive unlocked and listed", "AZDRIVE_LISTED",
                      r"%s / [1-9]\d*" % re.escape(drive_id),
                      lambda: popup.click_exact("Unlock"))
-        second.until("its file", lambda: "hello.txt" in item_names(second))
+        second.until("its file", lambda: "one.txt" in item_names(second))
         second.screenshot(os.path.join(out, "13d-recovered.png"))
         log("13d. After the 48 h the token server handed the drive over (the owner's old devices "
-            "refused), and the code the shares gave back unlocked it: hello.txt in its listing")
+            "refused), and the code the shares gave back unlocked it: one.txt in its listing")
     finally:
         second.stop()
 
@@ -988,7 +1041,9 @@ def run(args, logs):
         if tested != "ok":
             raise Failure("Test connection said %s: %s" % (tested, dialog.win.texts()))
         dialog.win.until('"Connection OK"', lambda: dialog.shows("Connection OK"))
-        calls = [(r["method"], r["op"], r["query"].get("max-keys")) for r in stack.s3.requests()]
+        # (The Azlin drives' buckets may be asked for their space meanwhile: not this one.)
+        calls = [(r["method"], r["op"], r["query"].get("max-keys")) for r in stack.s3.requests()
+                 if r.get("bucket") == BUCKET]
         if calls != [("GET", "ListObjectsV2", "1")]:
             raise Failure("Test connection made %r, not one ListObjectsV2 with max-keys=1"
                           % calls)
@@ -1081,9 +1136,11 @@ def run(args, logs):
         dialog.screenshot(os.path.join(out, "5-buy-yearly.png"))
         bought = app.after("the test drive", "AZDRIVE_ADDED", r"d_\S+",
                            lambda: dialog.click("create_test"))
+        # "We always encrypt": the drive's keys and its recovery sheet are part of its making.
+        app.until("the new drive's encryption", lambda: app.printed(
+            "AZDRIVE_ENCRYPTING_NEW_DRIVE", re.escape(bought)))
+        code = finish_new_drive_sheet(app, bought, out=out, thorough=True, stack=stack, logs=logs)
         wait_closed(app)
-        app.until("the new drive's empty bucket", lambda: app.printed(
-            "AZDRIVE_LISTED", r"%s / 0" % re.escape(bought)))
         app.until("its row in CLOUD", lambda: app.has(side_drive(bought)))
         text, entries = drives_file_entries(drives_file)
         entry = next(e for e in entries if e["id"] == bought)
@@ -1095,13 +1152,26 @@ def run(args, logs):
         drive = stack.token.state.drives.get(bought)
         if not drive or drive["tier"] != "500GB":
             raise Failure("the token server made %s" % stack.token.state.drives)
-        stack.s3.store.write(drive["bucket"], "hello.txt", b"hello from Azlin\n")
+        # A file into the encrypted drive through AzDrive: step 3's one.txt, copied and pasted.
+        app.after("the folder of step 3", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(local_id),
+                  lambda: app.click(selector=side_drive(local_id)))
+        app.after("one.txt selected", "AZDRIVE_SELECTED", r"1 one\.txt",
+                  lambda: select_item(app, "one.txt"))
+        app.tab("Home")
+        app.after("Home > Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.ribbon("Copy"))
+        app.after("the encrypted drive", "AZDRIVE_LISTED", r"%s / 0" % re.escape(bought),
+                  lambda: app.click(selector=side_drive(bought)))
+        app.after("Home > Paste", "AZDRIVE_TRANSFER", r"\d+ done 1",
+                  lambda: app.ribbon("Paste"))
         app.after("F5", "AZDRIVE_LISTED", r"%s / 1" % re.escape(bought), lambda: app.key("f5"))
-        app.until("the bucket's file", lambda: "hello.txt" in item_names(app))
+        app.until("the pasted file", lambda: "one.txt" in item_names(app))
+        keys = bucket_holds_ciphertext_only(stack, drive["bucket"], ["one.txt"])
         app.screenshot(os.path.join(out, "5-azlin-drive.png"))
         log("5. Buy storage: six tiers with their prices, yearly ones after Pay yearly, Create "
-            "test drive made %s (500 GB) - in the drives file with its azlin auth and no secret, "
-            "its bucket listed (and its new file after F5)" % bought)
+            "test drive made %s (500 GB) ENCRYPTED as it was made - its recovery sheet (the kit "
+            "saved as a PDF, Escape kept it, the four groups typed back; the recovery key at the "
+            "token server) - in the drives file with its azlin auth and no secret; one.txt "
+            "pasted into it lists, the bucket holds %d keys of the encryption only" % (bought, keys))
 
         # 6a. Paid after "Stop waiting": the drive joins the list in the background.
         place_lines = app.count("AZDRIVE_PLACE")
@@ -1130,6 +1200,8 @@ def run(args, logs):
             raise Failure("the redemption did not reach the mock: period until %s, %d redeemed"
                           % (until, len(stack.token.state.redeemed)))
         dialog.click("cancel")
+        # Its recovery sheet waited for the dialog: it shows now.
+        new_drive_encrypted(app, late)
         wait_closed(app)
         log("6a. Buy -> Stop waiting -> paid at the token server: %s joined the source list in "
             "the background (the window stayed where it was), its %d period token(s) issued "
@@ -1151,6 +1223,8 @@ def run(args, logs):
         paid = app.until("the drive paid while AzDrive was closed", lambda: [
             d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in (bought, late)])[-1]
         app.until("its row in CLOUD", lambda: app.has(side_drive(paid)))
+        paid_code = new_drive_encrypted(app, paid)
+        wait_closed(app)
         app.until("the checkout off the keyring's list",
                   lambda: second not in pending_checkouts(keyring_file))
         check_period_tokens(stack, drives_file, second, paid)
@@ -1167,10 +1241,24 @@ def run(args, logs):
             raise Failure("the token server made %s" % stack.token.state.drives.get(paid))
         app.after("the paid drive's bucket", "AZDRIVE_LISTED", r"%s / 0" % re.escape(paid),
                   lambda: app.click(selector=side_drive(paid)))
+        # Its space as its node counts it (SRV17: HeadBucket's x-azlin-used-bytes and
+        # x-azlin-quota-bytes - the stored bytes, the tier's quota), no estimate.
+        counted = app.until("the node's count of %s" % paid, lambda: app.printed(
+            "AZDRIVE_SPACE", r"%s \d+ \d+" % re.escape(paid)))[-1].split()
+        quota = stack.token.state.drives[paid]["quota_bytes"]
+        used = int(counted[1])
+        if int(counted[2]) != quota or not 0 < used <= stack.s3.store.stored_bytes(bucket_of(
+                stack, paid)) + (1 << 20):
+            raise Failure("the node's count %r is not the bucket's (quota %d)" % (counted, quota))
+        available = "%d GB available" % ((quota - used + 500_000_000) // 1_000_000_000)
+        app.until("the status line's space, as the node counts it", lambda: app.shows(available))
+        if app.shows("about " + available):
+            raise Failure("the node's count is shown as an estimate")
         app.screenshot(os.path.join(out, "6-claimed.png"))
         log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
             "the start under the name typed, its session in the keyring, its period tokens "
-            "kept, its checkout off the keyring's list, its bucket listed" % paid)
+            "kept, its checkout off the keyring's list, its bucket listed, its space as its node "
+            "counts it (HeadBucket: %d stored bytes of %d)" % (paid, used, quota))
 
         # 6c. While AzDrive runs, its daily look at the periods (every few seconds in this run:
         # AZDRIVE_PERIOD_CHECK_SECS) finds the drive's period nearly over and buys a month.
@@ -1190,7 +1278,9 @@ def run(args, logs):
                              {"x-azlin-error": "read_only_unpaid"})
         problem = app.after("the refused listing", "AZDRIVE_PROBLEM",
                             r"%s read_only_unpaid \S+" % re.escape(paid), lambda: app.key("f5"))
-        refused = [r for r in stack.s3.requests() if r.get("bucket") == bucket][-1]
+        # (A HeadBucket - the usage line's count, asked in the background - is no listing.)
+        refused = [r for r in stack.s3.requests()
+                   if r.get("bucket") == bucket and r.get("method") != "HEAD"][-1]
         if problem.split()[-1] != refused.get("request_id"):
             raise Failure("the error ID %r is not the node's request ID %r"
                           % (problem.split()[-1], refused.get("request_id")))
@@ -1211,20 +1301,41 @@ def run(args, logs):
             % (paid, refused.get("request_id")))
 
         # 6e. A pending recovery-key lockdown (made elsewhere, with the recovery code): this
-        # device of the owner shows it with Cancel at its next look, and cancels it.
+        # device of the owner shows it with Cancel at its next look. F12, "the recovery code
+        # always wins": Cancel asks for the code - another one is refused before anything is
+        # signed, the drive's own (from its sheet in 6b) signs the cancel, no drive token sent.
         stack.token.state.drives[paid]["lockdown_pending_until"] = int(time.time()) + 2 * 86400
         app.until("the pending lockdown seen", lambda: app.printed(
             "AZDRIVE_LOCKDOWN_PENDING", r"%s \S+" % re.escape(paid)))
         app.until("its bar", lambda: app.has("#__azdrive_lockdown_bar"))
         if not app.shows("lockdown with the recovery code is pending"):
             raise Failure("the pending lockdown's bar does not say what it is")
+        app.until("the paid drive's recovery key at the token server (its sheet's)",
+                  lambda: stack.token.state.drives[paid].get("recovery_pubkey"))
+        signed_before = len(stack.token.state.drives[paid].get("recovery_nonces") or ())
+        app.click(selector="#__azdrive_lockdown_cancel")
+        popup = e2e.modal_window(app)
+        popup.until("the cancel asks for the recovery code",
+                    lambda: popup.has("#__azdrive_lockdown_cancel_code"))
+        wrong = "00000-00000-00000-00000-000000"
+        popup.text_input("#__azdrive_lockdown_cancel_code", wrong)
+        popup.click(selector="#__azdrive_lockdown_cancel_confirm", frames=3)
+        popup.until("another code refused", lambda: popup.shows(
+            "not this drive's current recovery code"))
+        if not stack.token.state.drives[paid].get("lockdown_pending_until"):
+            raise Failure("another code cancelled the lockdown")
+        retype(popup, "#__azdrive_lockdown_cancel_code", wrong,
+               paid_code.replace("-", " ").lower())
         app.after("the lockdown cancelled", "AZDRIVE_LOCKDOWN_CANCELLED", re.escape(paid),
-                  lambda: app.click(selector="#__azdrive_lockdown_cancel"))
+                  lambda: popup.click(selector="#__azdrive_lockdown_cancel_confirm"))
         if stack.token.state.drives[paid].get("lockdown_pending_until"):
             raise Failure("the mock still has the lockdown pending")
+        if len(stack.token.state.drives[paid].get("recovery_nonces") or ()) <= signed_before:
+            raise Failure("the cancel was not signed with the recovery code")
         app.until("the bar gone", lambda: not app.has("#__azdrive_lockdown_bar"))
         log("6e. A recovery-key lockdown of %s pending at the token server: AzDrive's next look "
-            "showed it with Cancel, and Cancel called it off" % paid)
+            "showed it with Cancel; Cancel asked for the recovery code - another code was "
+            "refused, the drive's own (typed with spaces, lower case) signed the cancel" % paid)
 
         # 6f. Vouchers: one buys a new drive in Add drive > Buy storage ("I have a voucher"),
         # one adds days to a drive in Options > Drives.
@@ -1238,6 +1349,7 @@ def run(args, logs):
         gift = app.after("the voucher's drive", "AZDRIVE_VOUCHER", r"new d_\S+",
                          lambda: dialog.click("voucher_redeem")).split()[1]
         app.until("its row in CLOUD", lambda: app.has(side_drive(gift)))
+        new_drive_encrypted(app, gift)
         wait_closed(app)
         if gift not in stack.token.state.drives or "AZ-E2E-NEW" in stack.token.state.vouchers:
             raise Failure("the voucher made no drive at the mock")
@@ -1267,25 +1379,40 @@ def run(args, logs):
         log("6g. A device added to %s at the token server: AzDrive's next look announced it"
             % paid)
 
-        # 6h. Restore as of (D42): objects of the paid drive's bucket rewritten, deleted and
-        # added after a time; Options > Drives > "Restore as of..." with that time puts the
-        # bucket back through the token server (the mock's node: the S3 store's versions).
-        # Options > Drives is open from 6f; the step closes what it opens and leaves the main
-        # window on its source list (step 7 starts there).
-        if not app.has("#" + I("settings")):
-            app.tab("View")
-            app.ribbon("Options")
-            app.click(text="Drives")
-        store = stack.s3.store
-        bucket = stack.token.state.drives[paid]["bucket"]
-        store.write(bucket, "restore/a.txt", b"a1\n")
-        store.write(bucket, "restore/b.txt", b"b1\n")
+        # 6h. Restore as of (D42) of an encrypted drive: a file pasted into the paid drive after
+        # a time; Options > Drives > "Restore as of..." with that time puts the drive back as its
+        # drive index had it (one new commit of the encrypted metadata repository): the file goes.
+        # The step closes what it opens and leaves the main window on its source list (step 7
+        # starts there).
+        if app.has("#" + I("settings")):
+            app.key("escape")
+            app.until("the Options closed", lambda: not app.has("#" + I("settings")))
+        # Elsewhere first, so that every click below changes the place (and lists it).
+        app.after("the folder of step 3", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(local_id),
+                  lambda: app.click(selector=side_drive(local_id)))
+        listed = app.after("the paid drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(paid),
+                           lambda: app.click(selector=side_drive(paid)))
+        before = int(listed.split()[-1])
         time.sleep(1.2)
         as_of = int(time.time())
         time.sleep(1.2)
-        store.write(bucket, "restore/a.txt", b"encrypted\n")
-        store.delete(bucket, "restore/b.txt")
-        store.write(bucket, "restore/READ-ME.txt", b"pay\n")
+        app.after("the folder of step 3", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(local_id),
+                  lambda: app.click(selector=side_drive(local_id)))
+        app.after("two.txt selected", "AZDRIVE_SELECTED", r"1 two\.txt",
+                  lambda: select_item(app, "two.txt"))
+        app.tab("Home")
+        app.after("Home > Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.ribbon("Copy"))
+        app.after("the paid drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(paid),
+                  lambda: app.click(selector=side_drive(paid)))
+        app.after("Home > Paste", "AZDRIVE_TRANSFER", r"\d+ done 1",
+                  lambda: app.ribbon("Paste"))
+        app.after("F5", "AZDRIVE_LISTED", r"%s / %d" % (re.escape(paid), before + 1),
+                  lambda: app.key("f5"))
+        bucket_holds_ciphertext_only(stack, stack.token.state.drives[paid]["bucket"],
+                                     ["two.txt"])
+        app.tab("View")
+        app.ribbon("Options")
+        app.click(text="Drives")
         app.click(selector="#__azdrive_restore_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid).lower())
         popup = e2e.modal_window(app)
         popup.until("the time field", lambda: popup.has("#__azdrive_restore_time"))
@@ -1299,18 +1426,17 @@ def run(args, logs):
         restored = app.after("the drive restored", "AZDRIVE_RESTORED",
                              r"%s \S+ objects \d+" % re.escape(paid),
                              lambda: popup.click(selector="#__azdrive_restore_go")).split()
-        back = (store.read(bucket, "restore/a.txt") if store.info(bucket, "restore/a.txt") else None,
-                store.read(bucket, "restore/b.txt") if store.info(bucket, "restore/b.txt") else None,
-                store.info(bucket, "restore/READ-ME.txt"))
-        if int(restored[-1]) < 3 or back != (b"a1\n", b"b1\n", None):
-            raise Failure("the restore changed %s objects; the bucket has %r"
-                          % (restored[-1], back))
+        if int(restored[-1]) < 1:
+            raise Failure("the restore changed %s files" % restored[-1])
         wait_closed(app)
         app.key("escape")
         app.until("the Options closed", lambda: not app.has("#" + I("settings")))
+        app.after("the restored drive", "AZDRIVE_LISTED", r"%s / %d" % (re.escape(paid), before),
+                  lambda: app.key("f5"))
+        app.until("two.txt gone", lambda: "two.txt" not in item_names(app))
         app.until("the source list's Add drive", lambda: app.has("#" + I("side-add-drive")))
-        log("6h. Options > Drives > Restore as of %s: %s objects of %s came back or went"
-            % (restored[1], restored[-1], paid))
+        log("6h. Options > Drives > Restore as of %s of the encrypted %s: the file pasted after "
+            "that time went (%s files of its index changed)" % (restored[1], paid, restored[-1]))
 
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
@@ -1362,6 +1488,7 @@ def run(args, logs):
             raise Failure("the provider's webhook did %s" % stack.token.state.webhooks[-1:])
         hand_back(app, popover, view, token + "/_bridge/result?v=succeeded")
         by_card = new_drive(app, payment)
+        new_drive_encrypted(app, by_card)
         wait_closed(app)
         app.until("the card checkout off the keyring's list",
                   lambda: card not in pending_checkouts(keyring_file))
@@ -1394,6 +1521,7 @@ def run(args, logs):
         stack.token.state.provider_pays(debit, True)
         hand_back(app, popover, view, token + "/return/ok", redirect=True)
         by_debit = new_drive(app, payment)
+        new_drive_encrypted(app, by_debit)
         wait_closed(app)
         log("8. Direct debit via Fake GoCardless: its hosted page in the popover; its return "
             "redirect made the dialog wait and closed the popover; the mandate's webhook "
@@ -1433,6 +1561,7 @@ def run(args, logs):
         dialog.win.until("Open the page again", lambda: dialog.win.has(add_id("open_again")))
         stack.token.state.provider_pays(jumped, True)
         by_browser = new_drive(app, payment)
+        new_drive_encrypted(app, by_browser)
         wait_closed(app)
         log("9. evil.example and its look-alikes were blocked with the chip unchanged; the PayPal "
             "login went to the system browser (%s) and the payment there brought %s"
@@ -1570,10 +1699,10 @@ def run(args, logs):
         # 13. The recovery methods of an encrypted drive (C14): AzDrive with `encryption`.
         if args.recovery:
             recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_file,
-                           keyring_file, bought)
+                           keyring_file, bought, code)
         else:
-            log("13. skipped: the recovery methods need AzDrive built with --features "
-                "encryption (run with --recovery)")
+            log("13. skipped (run with --recovery): the drill, trusted contacts and a recovery by "
+                "two shares")
 
         log("PASS: Add drive connected an S3 bucket, a folder and a SQLite database (tables as "
             "folders), bought a test drive, and claimed two paid drives - one in the background "

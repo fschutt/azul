@@ -41,7 +41,11 @@ usage: azcloud [flags] <command> [arguments]
 commands:
   config                         the effective endpoints and folders, and where each value came
                                  from (a flag, the environment, the config file, a built-in default)
-  signup [--tier T] [--name N]   a new drive at the token server (dev servers: POST /v1/drives)
+  signup [--tier T] [--name N] [--recovery-out F] [--plaintext]
+                                 a new drive at the token server (dev servers: POST /v1/drives),
+                                 encrypted as it is made: its RECOVERY CODE shows once (or goes
+                                 into F, readable by you only); --plaintext makes one like the
+                                 drives made before encryption (tests of those)
   invite [--member M] [--out F]  a join code for another device (a member token family of its own;
                                  it holds a secret: --out writes it to a file only you can read)
   join <code> | --code-file F | -   this device joins the drive of a code (- reads stdin)
@@ -64,7 +68,9 @@ commands:
   info                           the token server's view of the drive
   refresh                        new credentials and node list now
   transport                      which transport requests take (iroh or https) and why
-  up <file> [--key K]            uploads a file (default key uploads/<file name>)
+  up <file> [--key K]            uploads a file (default key uploads/<file name>); an encrypted
+                                 drive's files go through the encryption and the drive index
+                                 (up, down, ls, rm; sync and share refuse an encrypted drive)
   down <key> <file>              downloads an object (parallel ranges when it is big)
   ls [prefix]                    lists the objects under a prefix
   rm <key>                       deletes an object
@@ -75,7 +81,8 @@ commands:
        [--parallel N]            (--allow-burst: the paused burst of changes is yours, send it)
   share <key> [--expires S]      a presigned link (with --prefix P: the synced file <key> of P)
   lockdown --yes                 revokes every other device, key and link of the drive
-  lockdown-cancel                cancels a pending recovery-key lockdown
+  lockdown-cancel <code> | --code-file F | -
+                                 cancels a pending recovery-key lockdown (the recovery code signs)
   restore <prefix> --as-of T     restores objects as they were at T (RFC 3339)
   restore-status <id>            a restore's progress
   gc <prefix> | gc --azlin [--grace-hours H] [--dry-run]
@@ -130,6 +137,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--parallel",
     "--cloudflare-account",
     "--cloudflare-token-file",
+    "--recovery-out",
     "--worker",
 ];
 
@@ -141,6 +149,7 @@ const SWITCHES: &[&str] = &[
     "--allow-burst",
     "--azlin",
     "--yes",
+    "--plaintext",
     "--help",
     "-h",
     "--no-refresh",
@@ -350,6 +359,46 @@ fn cmd_config(settings: &Settings) -> Result<Output> {
     Ok((value, text))
 }
 
+/// Whether `signup` makes the new drive encrypted: always ("we always encrypt"), but for
+/// `--plaintext` - a drive like the ones made before encryption, for tests of those.
+#[cfg(feature = "encryption")]
+fn signup_encrypts(args: &Args) -> bool {
+    !args.on("--plaintext")
+}
+
+/// A new recovery code for the user, shown once: into the file `out` (readable by the user
+/// only) when there is one, else into the JSON and the text.
+#[cfg(feature = "encryption")]
+fn give_recovery_code(
+    code: &azul_storage::crypto::keys::RecoveryCode,
+    out: Option<PathBuf>,
+    value: &mut Value,
+    text: &mut String,
+) -> Result<()> {
+    let code = code.to_text();
+    match out {
+        Some(path) => {
+            write_atomic(&path, format!("{}\n", code.as_str()).as_bytes(), true)
+                .with_context(|| format!("{}", path.display()))?;
+            value["recovery_code_file"] = json!(path.display().to_string());
+            text.push_str(&format!(
+                "Its RECOVERY CODE is in {} (readable by you only): print it or write it down, \
+                 keep it apart from this computer, then delete the file. Azlin cannot reset it.\n",
+                path.display()
+            ));
+        }
+        None => {
+            value["recovery_code"] = json!(code.as_str());
+            text.push_str(&format!(
+                "RECOVERY CODE (shown once, stored nowhere: write it down and keep it apart from \
+                 this computer; Azlin cannot reset it):\n\n    {}\n\n",
+                code.as_str()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let state = open_state(settings)?;
     let device = state.device(args.value("--device-name"))?;
@@ -358,14 +407,27 @@ fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let token_url = settings.token_url()?;
     let token_source = settings.endpoints.get(Endpoint::Token).source.label();
     let account = Account::signup(&state, token_url, net.transports.clone(), tier, name)?;
+    // "We always encrypt": the keys are made as the drive is (they reach the bucket where this
+    // run's S3 endpoint says).
+    #[cfg(feature = "encryption")]
+    let account = account.with_s3_endpoint(settings.endpoints.url(Endpoint::S3));
+    #[cfg(feature = "encryption")]
+    let recovery = if signup_encrypts(args) {
+        let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
+        Some(account.setup_encryption(&state.secrets(), kdf)?)
+    } else {
+        None
+    };
     let r = account.record();
-    let value = json!({
+    #[allow(unused_mut)]
+    let mut value = json!({
         "ok": true, "drive": r.id, "bucket": r.bucket, "endpoint": r.endpoint, "tier": r.tier,
         "token_url": token_url, "token_url_source": token_source,
         "expires_at": rfc3339(r.expires_at), "nodes": r.nodes.len(), "device": device.name,
         "state_dir": state.path().display().to_string(),
     });
-    let text = format!(
+    #[allow(unused_mut)]
+    let mut text = format!(
         "signed up: drive {} (bucket {}, {}) at {}\ntoken server {} ({token_source}); \
          credentials until {}; {} nodes\nthis device: {}; state in {}\n",
         r.id,
@@ -378,6 +440,17 @@ fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         device.name,
         state.path().display()
     );
+    #[cfg(feature = "encryption")]
+    {
+        value["encrypted"] = json!(recovery.is_some());
+        match &recovery {
+            Some(code) => {
+                text.push_str("The drive is encrypted on this device.\n");
+                give_recovery_code(code, args.path("--recovery-out"), &mut value, &mut text)?;
+            }
+            None => text.push_str("The drive is NOT encrypted (--plaintext).\n"),
+        }
+    }
     Ok((value, text))
 }
 
@@ -425,21 +498,40 @@ fn cmd_invite(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     }
 }
 
+/// A code from the command line: `<code>`, `--code-file F` or `-` (stdin). `what` names it in
+/// errors ("join", "recovery"), `command` in the usage.
+fn code_argument(args: &Args, what: &str, command: &str) -> Result<String> {
+    Ok(
+        match (
+            args.path("--code-file"),
+            args.rest().first().map(String::as_str),
+        ) {
+            (Some(path), _) => std::fs::read_to_string(&path)
+                .with_context(|| format!("the {what} code file {}", path.display()))?,
+            (None, Some("-")) => {
+                let mut text = String::new();
+                std::io::stdin().read_to_string(&mut text)?;
+                text
+            }
+            (None, Some(code)) => code.to_string(),
+            (None, None) => bail!("azcloud {command} <code> | --code-file <file> | - (stdin)"),
+        },
+    )
+}
+
+/// The recovery code from the command line ([`code_argument`]).
+#[cfg(feature = "encryption")]
+fn recovery_code_argument(
+    args: &Args,
+    command: &str,
+) -> Result<azul_storage::crypto::keys::RecoveryCode> {
+    let text = azul_storage::crypto::Zeroizing::new(code_argument(args, "recovery", command)?);
+    azul_storage::crypto::keys::RecoveryCode::parse(&text)
+        .ok_or_else(|| anyhow!("that is not a recovery code (26 letters and digits, in groups)"))
+}
+
 fn cmd_join(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let text = match (
-        args.path("--code-file"),
-        args.rest().first().map(String::as_str),
-    ) {
-        (Some(path), _) => std::fs::read_to_string(&path)
-            .with_context(|| format!("the join code file {}", path.display()))?,
-        (None, Some("-")) => {
-            let mut text = String::new();
-            std::io::stdin().read_to_string(&mut text)?;
-            text
-        }
-        (None, Some(code)) => code.to_string(),
-        (None, None) => bail!("azcloud join <code> | --code-file <file> | - (stdin)"),
-    };
+    let text = code_argument(args, "join", "join")?;
     let code = JoinCode::decode(&text)?;
     let state = open_state(settings)?;
     let device = state.device(args.value("--device-name"))?;
@@ -624,6 +716,19 @@ fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         ),
     };
     sync::remote::check_key(&key)?;
+    #[cfg(feature = "encryption")]
+    if let Some(encrypted) = encrypted_files(settings, net, args)? {
+        // Streamed through the encryption: one segment of plaintext in memory at a time.
+        let blake3 = hash_file(&path).with_context(|| format!("{}", path.display()))?;
+        let mut file =
+            std::fs::File::open(&path).with_context(|| format!("{}", path.display()))?;
+        let info = encrypted.write_from(&key, &mut file, azul_storage::encrypted::Expect::Any)?;
+        let etag = info.etag.unwrap_or_default();
+        let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3, "etag": etag,
+                           "transport": "https", "encrypted": true});
+        let text = format!("up {key}: {bytes} bytes, encrypted, over https (BLAKE3 {blake3})\n");
+        return Ok((value, text));
+    }
     let account = open_account(settings, net, args)?;
     refuse_plaintext(&account)?;
     let drive = open_drive(settings, net, &account, args)?;
@@ -643,6 +748,40 @@ fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         [key, file, ..] => (key.clone(), PathBuf::from(file)),
         _ => bail!("azcloud down <key> <file>"),
     };
+    #[cfg(feature = "encryption")]
+    if let Some(encrypted) = encrypted_files(settings, net, args)? {
+        let mut reader = match encrypted.open_reader(&key) {
+            Ok(reader) => reader,
+            Err(azul_storage::DriveError::NotFound { .. }) => {
+                return Err(anyhow!("the drive has no {key}"))
+            }
+            Err(e) => return Err(e.into()),
+        };
+        // Into a hidden file next to it, renamed when the whole file is there (its BLAKE3
+        // checked by the reader at the end).
+        let partial = file.with_file_name(format!(
+            ".{}.azcloud-part",
+            file.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        ));
+        let mut out =
+            std::fs::File::create(&partial).with_context(|| format!("{}", partial.display()))?;
+        let bytes = std::io::copy(&mut reader, &mut out)
+            .with_context(|| format!("{key} into {}", partial.display()))?;
+        out.sync_all()?;
+        drop(out);
+        std::fs::rename(&partial, &file).with_context(|| format!("{}", file.display()))?;
+        let blake3 = hash_file(&file).with_context(|| format!("{}", file.display()))?;
+        let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3,
+                           "file": file.display().to_string(), "transport": "https",
+                           "encrypted": true});
+        let text = format!(
+            "down {key}: {bytes} bytes, decrypted, over https into {} (BLAKE3 {blake3})\n",
+            file.display()
+        );
+        return Ok((value, text));
+    }
     let account = open_account(settings, net, args)?;
     let drive = open_drive(settings, net, &account, args)?;
     if drive.head(&key)?.is_none() {
@@ -664,10 +803,20 @@ fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 
 fn cmd_ls(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let prefix = args.rest().first().map(String::as_str).unwrap_or("");
-    let account = open_account(settings, net, args)?;
-    let drive = open_drive(settings, net, &account, args)?;
-    let objects = drive.list_all(prefix)?;
-    drive.close();
+    let objects = match encrypted_files(settings, net, args)? {
+        // The drive index's names: the bucket holds random object ids only.
+        #[cfg(feature = "encryption")]
+        Some(encrypted) => azul_storage::ops::list_all(&encrypted, prefix)?,
+        #[cfg(not(feature = "encryption"))]
+        Some(never) => match never {},
+        None => {
+            let account = open_account(settings, net, args)?;
+            let drive = open_drive(settings, net, &account, args)?;
+            let objects = drive.list_all(prefix)?;
+            drive.close();
+            objects
+        }
+    };
     let mut text = String::new();
     for o in &objects {
         text.push_str(&format!(
@@ -690,6 +839,15 @@ fn cmd_rm(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         .rest()
         .first()
         .ok_or_else(|| anyhow!("azcloud rm <key>"))?;
+    #[cfg(feature = "encryption")]
+    if let Some(encrypted) = encrypted_files(settings, net, args)? {
+        use azul_storage::Drive as _;
+        match encrypted.delete(key) {
+            Ok(()) | Err(azul_storage::DriveError::NotFound { .. }) => {}
+            Err(e) => return Err(e.into()),
+        }
+        return Ok((json!({"ok": true, "key": key, "encrypted": true}), format!("deleted {key}\n")));
+    }
     let account = open_account(settings, net, args)?;
     let drive = open_drive(settings, net, &account, args)?;
     drive.delete(key)?;
@@ -740,6 +898,7 @@ fn cmd_sync(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     };
     let account = open_account(settings, net, args)?;
     refuse_plaintext(&account)?;
+    refuse_encrypted(&account, "sync")?;
     let state = account.state().clone();
     let device = state.device(args.value("--device-name"))?;
     for (root, _) in &roots {
@@ -816,6 +975,7 @@ fn cmd_share(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         .ok_or_else(|| anyhow!("azcloud share <key> [--expires S] [--prefix P]"))?;
     let expires = args.number::<i64>("--expires")?.unwrap_or(3600);
     let account = open_account(settings, net, args)?;
+    refuse_encrypted(&account, "share")?;
     let drive = open_drive(settings, net, &account, args)?;
     let endpoint = drive.https_bucket().config().endpoint.clone();
     let now = azcloud_kit::now();
@@ -856,11 +1016,26 @@ fn cmd_lockdown(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
+/// F12, "the recovery code always wins": a recovery-key lockdown is cancelled with the
+/// recovery code (its key signs; this device's token alone cancels nothing).
+#[cfg(feature = "encryption")]
 fn cmd_lockdown_cancel(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let code = recovery_code_argument(args, "lockdown-cancel")?;
     let account = open_account(settings, net, args)?;
-    let mut value = share::lockdown_cancel(&account)?;
+    let mut value = share::lockdown_cancel(&account, code.as_bytes())?;
+    if !value.is_object() {
+        value = json!({});
+    }
     value["ok"] = json!(true);
     Ok((value, String::from("the pending lockdown was cancelled\n")))
+}
+
+#[cfg(not(feature = "encryption"))]
+fn cmd_lockdown_cancel(_settings: &Settings, _net: &Net, _args: &Args) -> Result<Output> {
+    bail!(
+        "a lockdown is cancelled with the drive's recovery code, which this azcloud (built \
+         without the encryption feature) cannot read"
+    )
 }
 
 fn cmd_restore(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
@@ -956,6 +1131,75 @@ fn refuse_plaintext(_account: &Account) -> Result<()> {
     Ok(())
 }
 
+/// The drive index of encrypted drives: the bucket's encrypted metadata repository, this
+/// device's copy of it in the state folder (`<state>/drive-index`), named in its commits by the
+/// device's name.
+#[cfg(feature = "encryption")]
+fn index_provider(state: &StateDir, device: &str) -> Box<dyn azcloud_kit::encryption::IndexProvider> {
+    Box::new(
+        azul_storage::meta::MetaIndexProvider::new(device)
+            .with_cache_root(Some(state.path().join("drive-index"))),
+    )
+}
+
+/// An encrypted drive's files through the encryption and the drive index (HTTPS); `None` for a
+/// plaintext drive (its bucket as it is). Refused when the drive is encrypted and this device
+/// has no key for it.
+#[cfg(feature = "encryption")]
+fn encrypted_files(
+    settings: &Settings,
+    net: &Net,
+    args: &Args,
+) -> Result<Option<azul_storage::encrypted::EncryptedDrive<Arc<dyn azul_storage::Drive>>>> {
+    let account = encrypted_account(settings, net, args)?;
+    let keyring = account.state().secrets();
+    let (encrypted, _) = account.encryption_status(&keyring)?;
+    if !encrypted {
+        return Ok(None);
+    }
+    let id = account.record().id.clone();
+    if account.unlock_key(&keyring)?.is_none() {
+        bail!(
+            "drive {id} is encrypted and this device has no key for it: a join code from a device \
+             that has it (azcloud invite there), or azcloud recover <code>"
+        );
+    }
+    let device = account.state().device(args.value("--device-name"))?;
+    let provider = index_provider(account.state(), &device.name);
+    Ok(Some(account.open_encrypted(&keyring, provider.as_ref())?))
+}
+
+/// Without the feature every drive is its bucket as it is.
+#[cfg(not(feature = "encryption"))]
+fn encrypted_files(
+    _settings: &Settings,
+    _net: &Net,
+    _args: &Args,
+) -> Result<Option<std::convert::Infallible>> {
+    Ok(None)
+}
+
+/// Refuses a command that cannot go through the encryption yet (sync, share) for an encrypted
+/// drive - whether or not this device keeps its key: it would store plaintext in it, or hand
+/// out ciphertext.
+#[cfg(feature = "encryption")]
+fn refuse_encrypted(account: &Account, what: &str) -> Result<()> {
+    let (encrypted, _) = account.encryption_status(&account.state().secrets())?;
+    if encrypted {
+        bail!(
+            "drive {} is encrypted: {what} of the command line does not go through the \
+             encryption yet (AzDrive's sync and Share do)",
+            account.record().id
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "encryption"))]
+fn refuse_encrypted(_account: &Account, _what: &str) -> Result<()> {
+    Ok(())
+}
+
 /// The account, reaching its bucket where this run's S3 endpoint says (the keys live there).
 #[cfg(feature = "encryption")]
 fn encrypted_account(settings: &Settings, net: &Net, args: &Args) -> Result<Account> {
@@ -984,42 +1228,20 @@ fn cmd_encrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     if !args.on("--yes") {
         bail!(
             "azcloud encrypt --yes [--out F]: the drive's keys are made here and its recovery \
-             code is shown ONCE (Azlin cannot reset it). The files commands (up, down, ls, rm, \
-             sync) work on the raw bucket until they go through the drive index; up and sync \
-             refuse an encrypted drive"
+             code is shown ONCE (Azlin cannot reset it). The files commands (up, down, ls, rm) \
+             go through the encryption afterwards; sync and share refuse an encrypted drive. \
+             Files already in the drive stay as they are (AzDrive's \"Encrypt this drive\" \
+             moves them)"
         );
     }
     let account = encrypted_account(settings, net, args)?;
     let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
     let code = account.setup_encryption(&account.state().secrets(), kdf)?;
-    let code = code.to_text();
     let id = account.record().id.clone();
-    match args.path("--out") {
-        Some(path) => {
-            write_atomic(&path, format!("{}\n", code.as_str()).as_bytes(), true)
-                .with_context(|| format!("{}", path.display()))?;
-            let value = json!({"ok": true, "drive": id, "encrypted": true,
-                               "recovery_code_file": path.display().to_string()});
-            let text = format!(
-                "drive {id} is encrypted from this device. Its RECOVERY CODE is in {} (readable by \
-                 you only): print it or write it down, keep it apart from this computer, then \
-                 delete the file. Azlin cannot reset it.\n",
-                path.display()
-            );
-            Ok((value, text))
-        }
-        None => {
-            let value = json!({"ok": true, "drive": id, "encrypted": true,
-                               "recovery_code": code.as_str()});
-            let text = format!(
-                "drive {id} is encrypted from this device.\nRECOVERY CODE (shown once, stored \
-                 nowhere: write it down and keep it apart from this computer; Azlin cannot reset \
-                 it):\n\n    {}\n\n",
-                code.as_str()
-            );
-            Ok((value, text))
-        }
-    }
+    let mut value = json!({"ok": true, "drive": id, "encrypted": true});
+    let mut text = format!("drive {id} is encrypted from this device.\n");
+    give_recovery_code(&code, args.path("--out"), &mut value, &mut text)?;
+    Ok((value, text))
 }
 
 #[cfg(feature = "encryption")]
@@ -1038,24 +1260,7 @@ fn cmd_unlock(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 
 #[cfg(feature = "encryption")]
 fn cmd_recover(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let text = match (
-        args.path("--code-file"),
-        args.rest().first().map(String::as_str),
-    ) {
-        (Some(path), _) => std::fs::read_to_string(&path)
-            .with_context(|| format!("the recovery code file {}", path.display()))?,
-        (None, Some("-")) => {
-            let mut text = String::new();
-            std::io::stdin().read_to_string(&mut text)?;
-            text
-        }
-        (None, Some(code)) => code.to_string(),
-        (None, None) => bail!("azcloud recover <code> | --code-file <file> | - (stdin)"),
-    };
-    let text = azul_storage::crypto::Zeroizing::new(text);
-    let Some(code) = azul_storage::crypto::keys::RecoveryCode::parse(&text) else {
-        bail!("that is not a recovery code (26 letters and digits, in groups)");
-    };
+    let code = recovery_code_argument(args, "recover")?;
     let account = encrypted_account(settings, net, args)?;
     account.recover_key(&code, &account.state().secrets())?;
     let id = account.record().id.clone();
@@ -1085,13 +1290,6 @@ fn cmd_git_remote(settings: &Settings, net: &Net, args: &Args) -> Result<Output>
     Ok((json!({"ok": true}), String::new()))
 }
 
-/// The drive index encrypted drives' files are named in: none in this build yet (the bucket's
-/// encrypted metadata repository), so `rotate` and `reencrypt` say so.
-#[cfg(feature = "encryption")]
-fn index_provider() -> Option<Box<dyn azcloud_kit::encryption::IndexProvider>> {
-    None
-}
-
 #[cfg(feature = "encryption")]
 fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     if !args.on("--yes") {
@@ -1101,14 +1299,12 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
              a new drive key and a new RECOVERY CODE, shown once. Then run azcloud reencrypt"
         );
     }
-    let Some(provider) = index_provider() else {
-        bail!("rotate: this azcloud has no drive index yet (it opens no encrypted files)");
-    };
     let mut account = encrypted_account(settings, net, args)?;
+    let device = account.state().device(args.value("--device-name"))?;
+    let provider = index_provider(account.state(), &device.name);
     let keyring = account.state().secrets();
     let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
     let rotated = account.rotate_drive_key(&keyring, provider.as_ref(), kdf)?;
-    let code = rotated.recovery_code.to_text();
     let id = account.record().id.clone();
     let drop = rotated.drop_key.map(|k| k.to_hex());
     let mut value = json!({"ok": true, "drive": id, "rotated": true,
@@ -1121,24 +1317,8 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
          invites removed, {} shares revoked).\n",
         rotated.rewrapped, rotated.members_removed, rotated.shares_revoked
     );
-    match args.path("--out") {
-        Some(path) => {
-            write_atomic(&path, format!("{}\n", code.as_str()).as_bytes(), true)
-                .with_context(|| format!("{}", path.display()))?;
-            value["recovery_code_file"] = json!(path.display().to_string());
-            text.push_str(&format!(
-                "The NEW RECOVERY CODE is in {} (readable by you only); the old one opens nothing.\n",
-                path.display()
-            ));
-        }
-        None => {
-            value["recovery_code"] = json!(code.as_str());
-            text.push_str(&format!(
-                "NEW RECOVERY CODE (shown once; the old one opens nothing):\n\n    {}\n\n",
-                code.as_str()
-            ));
-        }
-    }
+    text.push_str("The drive has a NEW recovery code; the old one opens nothing.\n");
+    give_recovery_code(&rotated.recovery_code, args.path("--out"), &mut value, &mut text)?;
     if let Some(drop) = drop {
         text.push_str(&format!(
             "Incoming mail has a new drop key: azcloud mail-drop sets it on your mail Worker \
@@ -1154,10 +1334,9 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
 
 #[cfg(feature = "encryption")]
 fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
-    let Some(provider) = index_provider() else {
-        bail!("reencrypt: this azcloud has no drive index yet (it opens no encrypted files)");
-    };
     let account = encrypted_account(settings, net, args)?;
+    let device = account.state().device(args.value("--device-name"))?;
+    let provider = index_provider(account.state(), &device.name);
     let keyring = account.state().secrets();
     let mut state =
         azul_storage::rotation::ReencryptState::new(azul_storage::time::now_unix());
@@ -1361,6 +1540,27 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A new drive is encrypted as it is made; `--plaintext` makes one like the drives made
+    /// before encryption (tests of those).
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn a_signup_makes_an_encrypted_drive_unless_asked_for_a_plaintext_one() {
+        assert!(signup_encrypts(&Args::parse(&argv("signup --name Photos")).unwrap()));
+        assert!(!signup_encrypts(
+            &Args::parse(&argv("signup --plaintext --name Old")).unwrap()
+        ));
+    }
+
+    /// "We always encrypt and compress": the command line's default build makes, opens and
+    /// writes encrypted drives.
+    #[test]
+    fn a_default_build_of_azcloud_speaks_encrypted_drives() {
+        assert!(
+            cfg!(feature = "encryption"),
+            "azcloud's default features take `encryption`"
+        );
+    }
 
     fn argv(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()

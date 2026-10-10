@@ -304,7 +304,7 @@ pub enum IssueAnswer {
 }
 
 /// What a recovery-key lockdown answers (202): the drive is read-only until `pending_until`
-/// (every device may cancel until then), and `drive_token` is the new family this side gets
+/// (the recovery code may cancel until then), and `drive_token` is the new family this side gets
 /// after it. `Debug` shows no token.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RecoveryLockdown {
@@ -337,7 +337,7 @@ pub struct DriveStatus {
     /// Paid until, in seconds since 1970.
     pub period_until: Option<u64>,
     /// A recovery-key lockdown takes effect then (seconds since 1970) unless a device of the
-    /// owner cancels it ([`TokenServer::lockdown_cancel`]).
+    /// owner cancels it with the recovery code ([`TokenServer::lockdown_cancel_signed`]).
     pub lockdown_pending_until: Option<u64>,
     /// The drive takes no writes (unpaid past its grace, a pending lockdown).
     pub read_only: bool,
@@ -346,6 +346,12 @@ pub struct DriveStatus {
     pub members: Vec<String>,
     /// The member whose token asked.
     pub you: Option<String>,
+    /// The drive's quota in bytes - of STORED bytes: what arrives at the storage nodes,
+    /// compressed and encrypted.
+    pub quota_bytes: Option<u64>,
+    /// The bytes the drive holds as the storage nodes count them (stored: compressed and
+    /// encrypted); what the quota is counted against.
+    pub used_bytes: Option<u64>,
     /// The drive is banned (ban contract v1): why, and until when it may still be read.
     pub ban: Option<Ban>,
 }
@@ -486,6 +492,20 @@ pub enum VoucherRedeemed {
 #[must_use]
 pub fn recovery_lockdown_message(drive_id: &str, nonce: &str) -> String {
     format!("lockdown:{drive_id}:{nonce}")
+}
+
+/// What a cancel of a recovery-key lockdown signs (F12: "the recovery code always wins"):
+/// `lockdown-cancel:<drive>:<nonce>`.
+#[must_use]
+pub fn lockdown_cancel_message(drive_id: &str, nonce: &str) -> String {
+    format!("lockdown-cancel:{drive_id}:{nonce}")
+}
+
+/// What a change of the recovery key signs with the CURRENT key (F12 C):
+/// `recovery:<drive>:<new key>:<nonce>`.
+#[must_use]
+pub fn recovery_key_message(drive_id: &str, new_key: &str, nonce: &str) -> String {
+    format!("recovery:{drive_id}:{new_key}:{nonce}")
 }
 
 /// A lockdown nonce: 16 random bytes, hex (32 characters; the token server takes 16 to 128 and
@@ -1131,6 +1151,12 @@ impl<'a> TokenServer<'a> {
             read_only: info["read_only"].as_bool().unwrap_or(false),
             members,
             you: info["you"].as_str().map(str::to_string),
+            quota_bytes: info["quota_bytes"].as_u64(),
+            // Stored bytes (compressed and encrypted, what arrived); `stored_bytes` is the same
+            // count under the name some servers give it.
+            used_bytes: info["used_bytes"]
+                .as_u64()
+                .or_else(|| info["stored_bytes"].as_u64()),
             ban: Ban::of(&info),
         })
     }
@@ -1257,11 +1283,59 @@ impl<'a> TokenServer<'a> {
         })
     }
 
-    /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel`; a 409
-    /// when none is pending).
-    pub fn lockdown_cancel(&self, drive_id: &str, drive_token: &str) -> Result<Value, TokenError> {
-        let path = format!("/v1/drives/{}/lockdown/cancel", check_id(drive_id)?);
-        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&json!({})))
+    /// Cancels a pending recovery-key lockdown (`POST /v1/drives/{id}/lockdown/cancel {"nonce",
+    /// "signature"}`, F12 - "the recovery code always wins"): `sign` signs
+    /// [`lockdown_cancel_message`] of a nonce made new for this request with the drive's
+    /// recovery key (whoever holds the code; a device's drive token alone cancels nothing, so no
+    /// token is sent). A 409 `no_pending_lockdown` when none is pending, `nonce_used` for a
+    /// request the server saw before.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] when `sign` cannot sign (nothing is sent); the token server's
+    /// refusals.
+    pub fn lockdown_cancel_signed(
+        &self,
+        drive_id: &str,
+        sign: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<Value, TokenError> {
+        let id = check_id(drive_id)?;
+        let nonce = lockdown_nonce()?;
+        let signature = sign(lockdown_cancel_message(id, &nonce).as_bytes())
+            .map_err(|e| TokenError::Config(format!("The cancel request is not signed: {e}")))?;
+        let path = format!("/v1/drives/{id}/lockdown/cancel");
+        let body = json!({ "nonce": nonce, "signature": signature });
+        self.call_or_null(Method::Post, &path, None, Some(&body))
+    }
+
+    /// Replaces the drive's recovery key with `public_key_base64` (`POST
+    /// /v1/drives/{id}/recovery {"recovery_pubkey", "nonce", "signature"}`, F12 C): the CURRENT
+    /// key signs [`recovery_key_message`] of the new key and a fresh nonce - a thief with a
+    /// device token cannot swap the owner's code out. A grant: with the newest drive token. The
+    /// drive's first key needs no signature ([`Self::set_recovery_key`]).
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Config`] when `sign_with_current` cannot sign (nothing is sent); the token
+    /// server's refusals (401 a signature of another key).
+    pub fn replace_recovery_key(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        public_key_base64: &str,
+        sign_with_current: impl FnOnce(&[u8]) -> Result<String, String>,
+    ) -> Result<(), TokenError> {
+        let id = check_id(drive_id)?;
+        let new_key = public_key_base64.trim();
+        let nonce = lockdown_nonce()?;
+        let signature = sign_with_current(recovery_key_message(id, new_key, &nonce).as_bytes())
+            .map_err(|e| {
+                TokenError::Config(format!("The new recovery key is not signed: {e}"))
+            })?;
+        let path = format!("/v1/drives/{id}/recovery");
+        let body = json!({ "recovery_pubkey": new_key, "nonce": nonce, "signature": signature });
+        self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))
+            .map(|_| ())
     }
 
     /// Queues a restore of `prefix` (a key or a folder) as it was at `as_of` (RFC 3339; `POST
