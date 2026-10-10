@@ -16,6 +16,35 @@ use crate::{
 /// Bytes per ranged GET when an object is bigger than this.
 pub const CHUNK: u64 = 8 * 1024 * 1024;
 
+/// A reader that tells `progress` the bytes read so far after every read: a stream's upload
+/// progress ([`Drive::put_file`]'s default).
+pub struct ProgressReader<'a> {
+    inner: &'a mut dyn Read,
+    read: u64,
+    progress: &'a (dyn Fn(u64) + Sync),
+}
+
+impl<'a> ProgressReader<'a> {
+    pub fn new(inner: &'a mut dyn Read, progress: &'a (dyn Fn(u64) + Sync)) -> Self {
+        ProgressReader {
+            inner,
+            read: 0,
+            progress,
+        }
+    }
+}
+
+impl Read for ProgressReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n > 0 {
+            self.read += n as u64;
+            (self.progress)(self.read);
+        }
+        Ok(n)
+    }
+}
+
 /// Writes the ranged chunks of `key` into `file`; returns the bytes written.
 /// `progress` hears the bytes written so far after every chunk.
 fn copy_ranges(

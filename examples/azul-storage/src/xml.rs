@@ -80,6 +80,46 @@ pub(crate) fn parse_list(xml: &str) -> Result<ListPage, DriveError> {
     Ok(page)
 }
 
+/// A `ListPartsResult` to its parts and the marker of its next page (`None` on the last page).
+pub(crate) fn parse_parts(
+    xml: &str,
+) -> Result<(Vec<crate::multipart::UploadedPart>, Option<String>), DriveError> {
+    let doc = Document::parse(xml.trim())
+        .map_err(|e| DriveError::Protocol(format!("the list of parts is not XML ({e})")))?;
+    let root = doc.root_element();
+    if root.tag_name().name() != "ListPartsResult" {
+        return Err(DriveError::Protocol(format!(
+            "expected a ListPartsResult, got <{}>",
+            root.tag_name().name()
+        )));
+    }
+    let mut parts = Vec::new();
+    for part in root
+        .children()
+        .filter(|c| c.is_element() && c.tag_name().name() == "Part")
+    {
+        let number = child_text(part, "PartNumber").and_then(|n| n.trim().parse::<usize>().ok());
+        let etag = child_text(part, "ETag")
+            .map(|e| e.trim().to_string())
+            .filter(|e| !e.is_empty());
+        let size = child_text(part, "Size")
+            .and_then(|n| n.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if let (Some(number), Some(etag)) = (number, etag) {
+            parts.push(crate::multipart::UploadedPart { number, etag, size });
+        }
+    }
+    let truncated = child_text(root, "IsTruncated").is_some_and(|t| t.trim() == "true");
+    let next = if truncated {
+        child_text(root, "NextPartNumberMarker")
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
+    } else {
+        None
+    };
+    Ok((parts, next))
+}
+
 /// A name for an HTTP status, for error answers without a body (HEAD).
 fn status_code_name(status: u16) -> &'static str {
     match status {

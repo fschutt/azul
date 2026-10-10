@@ -367,6 +367,14 @@ impl Drive for AutoEncrypted {
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.resolved()?.metadata(key)
     }
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.resolved()?.put_from_if(key, body, condition)
+    }
 }
 
 /// The mutex's value, also after a thread panicked while holding it.
@@ -1184,17 +1192,7 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         bytes: &[u8],
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        let expect = match condition {
-            Precondition::Absent => Expect::Absent,
-            Precondition::Matches(etag) => match ObjectId::from_hex(etag) {
-                Some(id) => Expect::Object(id),
-                None => {
-                    return Err(DriveError::Conflict {
-                        key: key.to_string(),
-                    })
-                }
-            },
-        };
+        let expect = expect_of(key, condition)?;
         self.write(key, bytes, expect).map(|info| info.etag)
     }
 
@@ -1321,5 +1319,31 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
             ));
         }
         Ok(pairs)
+    }
+
+    /// [`EncryptedDrive::put_if`]'s condition on a streamed body: encrypted as it is read, named
+    /// in the index only when the condition holds.
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let expect = expect_of(key, condition)?;
+        self.write_from(key, body, expect).map(|info| info.etag)
+    }
+}
+
+/// What the index must hold for a conditional write: absent, or still naming the object whose
+/// id is the entity tag (a tag that is no object id cannot match: a conflict).
+fn expect_of(key: &str, condition: &Precondition) -> Result<Expect, DriveError> {
+    match condition {
+        Precondition::Absent => Ok(Expect::Absent),
+        Precondition::Matches(etag) => match ObjectId::from_hex(etag) {
+            Some(id) => Ok(Expect::Object(id)),
+            None => Err(DriveError::Conflict {
+                key: key.to_string(),
+            }),
+        },
     }
 }

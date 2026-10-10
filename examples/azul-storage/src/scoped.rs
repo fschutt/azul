@@ -174,4 +174,25 @@ impl<D: Drive> Drive for ScopedDrive<D> {
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.inner.metadata(&self.full_key(key)?)
     }
+
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        self.check_writable()?;
+        self.inner.put_file(&self.full_key(key)?, path, progress)
+    }
+
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.check_writable()?;
+        self.inner
+            .put_from_if(&self.full_key(key)?, body, condition)
+    }
 }

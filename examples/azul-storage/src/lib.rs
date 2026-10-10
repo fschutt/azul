@@ -9,8 +9,10 @@
 //! One trait, [`Drive`], with blocking calls: `list` (paged, S3 semantics:
 //! "folders" are common prefixes), `get`, `get_range`, `put`, `delete`,
 //! `head`; `put_from` streams a reader in, `put_if` writes only when the
-//! object is absent or unchanged (a bucket's conditional PUT). The apps call
-//! it from an azul `Thread`, never from a callback.
+//! object is absent or unchanged (a bucket's conditional PUT), `put_from_if` both;
+//! `put_file` sends a local file (a bucket: in parts several at once, resumable after
+//! the app was killed, see [`multipart`]). The apps call it from an azul `Thread`,
+//! never from a callback.
 //!
 //! Backends:
 //! - [`LocalDrive`]: a folder on disk. Keys are `/`-separated paths under its root; `..`, `.`,
@@ -50,6 +52,8 @@ pub mod keyring;
 pub mod local;
 pub mod manifest;
 pub mod meta;
+/// Big uploads to a bucket: parts of 16 MiB four at once, resumable after the app was killed.
+pub mod multipart;
 /// OAuth 2.0 for the consumer clouds (Google Drive, Dropbox, OneDrive): the token endpoint and
 /// the transport that keeps a signed-in drive's access token fresh.
 pub mod oauth;
@@ -111,7 +115,11 @@ pub mod sharing;
 #[cfg(feature = "encryption")]
 pub mod rotation;
 
-use std::{fmt, io::Read, path::PathBuf};
+use std::{
+    fmt,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 pub use config::SecretOptions;
 #[cfg(feature = "sql")]
@@ -494,6 +502,38 @@ pub trait Drive: Send + Sync {
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.head(key).map(|_| Vec::new())
     }
+
+    /// Creates or replaces the object with the local file `path`; returns the bytes written.
+    /// `progress` hears the bytes written so far (from the threads the parts travel on). By
+    /// default the file is streamed in ([`Drive::put_from`]); a bucket sends a big file's parts
+    /// several at once and resumes an upload a killed app left unfinished
+    /// ([`multipart`]).
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        let mut file = std::fs::File::open(path)?;
+        let mut reader = transfer::ProgressReader::new(&mut file, progress);
+        self.put_from(key, &mut reader)
+    }
+
+    /// [`Drive::put_from`], only when `condition` holds ([`Drive::put_if`]'s rules): the new
+    /// version's entity tag when the drive tells it; [`DriveError::Conflict`] when the
+    /// condition did not hold. By default the body is read into memory and written with
+    /// [`Drive::put_if`]; a bucket streams it as a multipart upload whose completion asks the
+    /// condition.
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes)?;
+        self.put_if(key, &bytes, condition)
+    }
 }
 
 impl<D: Drive + ?Sized> Drive for Box<D> {
@@ -544,6 +584,22 @@ impl<D: Drive + ?Sized> Drive for Box<D> {
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         (**self).metadata(key)
     }
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        (**self).put_file(key, path, progress)
+    }
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        (**self).put_from_if(key, body, condition)
+    }
 }
 
 impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
@@ -593,5 +649,21 @@ impl<D: Drive + ?Sized> Drive for std::sync::Arc<D> {
     }
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         (**self).metadata(key)
+    }
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<u64, DriveError> {
+        (**self).put_file(key, path, progress)
+    }
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        (**self).put_from_if(key, body, condition)
     }
 }
