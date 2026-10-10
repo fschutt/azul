@@ -113,7 +113,7 @@ class App:
         env = dict(os.environ)
         env.update({"AZ_BACKEND": "headless", "AZ_DEBUG": str(port)})
         self.process = subprocess.Popen(
-            [binary, "--data-dir", data, "--size", "1200x760"] + list(extra), env=env,
+            [binary, "--data-dir", data, "--size", "1200x760", "--language", "en"] + list(extra), env=env,
             stdin=subprocess.DEVNULL,
             stdout=open(self.out_path, "wb"), stderr=open(self.err_path, "wb"),
         )

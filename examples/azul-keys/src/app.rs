@@ -12,7 +12,13 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use azul::callbacks::RefAny;
-use azul_appkit::{about::AboutInfo, args::AppArgs, args::AppSpec, shortcuts::Shortcut};
+use azul_appkit::{
+    about::AboutInfo,
+    args::AppArgs,
+    args::AppSpec,
+    l10n::{t, t_args, Arg},
+    shortcuts::Shortcut,
+};
 
 use crate::clipboard::{ClipboardGuard, DEFAULT_CLEAR_SECONDS};
 use crate::lock::{Attempts, AutoLock};
@@ -52,23 +58,45 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: store::APP_FOLDER,
 };
 
-/// The keyboard shortcuts (the settings page and F1 list them).
+/// The keyboard shortcuts (the settings page and F1 list them): the groups and what the keys do
+/// are keys of AzKeys' words.
 pub const SHORTCUTS: [Shortcut; 12] = [
-    Shortcut::new("Vault", "Mod+N", "New login"),
-    Shortcut::new("Vault", "Mod+L", "Lock the vault"),
-    Shortcut::new("Vault", "Mod+G", "Password generator"),
-    Shortcut::new("Vault", "Up / Down", "Previous / next item"),
-    Shortcut::new("Item", "Mod+C", "Copy the password of the selected login"),
-    Shortcut::new("Item", "Mod+B", "Copy the user name"),
-    Shortcut::new("Item", "Mod+Shift+C", "Copy the one-time code"),
-    Shortcut::new("Item", "Mod+E", "Edit the selected item"),
-    Shortcut::new("Item", "Mod+S", "Save the item being edited"),
-    Shortcut::new("Item", "Escape", "Cancel editing, close a panel"),
-    Shortcut::new("Item", "Delete", "Delete the selected item (asks first)"),
-    Shortcut::new("Unlock", "Enter", "Unlock with the master password"),
+    Shortcut::new("azkeys-shortcuts-vault", "Mod+N", "azkeys-new-login"),
+    Shortcut::new("azkeys-shortcuts-vault", "Mod+L", "azkeys-shortcut-lock"),
+    Shortcut::new(
+        "azkeys-shortcuts-vault",
+        "Mod+G",
+        "azkeys-shortcut-generator",
+    ),
+    Shortcut::new(
+        "azkeys-shortcuts-vault",
+        "Up / Down",
+        "azkeys-shortcut-previous-next",
+    ),
+    Shortcut::new(
+        "azkeys-shortcuts-item",
+        "Mod+C",
+        "azkeys-shortcut-copy-password",
+    ),
+    Shortcut::new(
+        "azkeys-shortcuts-item",
+        "Mod+B",
+        "azkeys-shortcut-copy-username",
+    ),
+    Shortcut::new(
+        "azkeys-shortcuts-item",
+        "Mod+Shift+C",
+        "azkeys-shortcut-copy-code",
+    ),
+    Shortcut::new("azkeys-shortcuts-item", "Mod+E", "azkeys-shortcut-edit"),
+    Shortcut::new("azkeys-shortcuts-item", "Mod+S", "azkeys-shortcut-save"),
+    Shortcut::new("azkeys-shortcuts-item", "Escape", "azkeys-shortcut-cancel"),
+    Shortcut::new("azkeys-shortcuts-item", "Delete", "azkeys-shortcut-delete"),
+    Shortcut::new("azkeys-shortcuts-unlock", "Enter", "azkeys-shortcut-unlock"),
 ];
 
-/// The settings page's own categories (before the kit's Appearance, Data, Shortcuts, About).
+/// The settings page's own categories (before the kit's Appearance, Data, Shortcuts, About):
+/// ids, shown as `azkeys-category-security` and `azkeys-category-vault`.
 pub const APP_CATEGORIES: [&str; 2] = ["Security", "Vault"];
 
 // ==== Settings ====
@@ -157,24 +185,23 @@ impl Settings {
     }
 }
 
-/// A choice's words ("5 minutes", "Never").
+/// A choice's words ("5 minutes", "1 hour", "Never").
 #[must_use]
 pub fn minutes_label(m: u64) -> String {
     match m {
-        0 => "Never".to_string(),
-        1 => "1 minute".to_string(),
-        60 => "1 hour".to_string(),
-        m => format!("{m} minutes"),
+        0 => t("azkeys-never"),
+        m if m % 60 == 0 => t_args("azkeys-hours", &[("count", Arg::from(m / 60))]),
+        m => t_args("azkeys-minutes", &[("count", Arg::from(m))]),
     }
 }
 
-/// A choice's words ("30 seconds", "Never").
+/// A choice's words ("30 seconds", "2 minutes", "Never").
 #[must_use]
 pub fn seconds_label(s: u64) -> String {
     match s {
-        0 => "Never".to_string(),
-        s if s % 60 == 0 => format!("{} minute{}", s / 60, if s == 60 { "" } else { "s" }),
-        s => format!("{s} seconds"),
+        0 => t("azkeys-never"),
+        s if s % 60 == 0 => t_args("azkeys-minutes", &[("count", Arg::from(s / 60))]),
+        s => t_args("azkeys-seconds", &[("count", Arg::from(s))]),
     }
 }
 
@@ -222,13 +249,13 @@ impl CreateForm {
     #[must_use]
     pub fn problem(&self) -> String {
         if self.name.trim().is_empty() {
-            return "Give the vault a name.".to_string();
+            return t("azkeys-create-needs-name");
         }
         if self.password.chars().count() < 8 {
-            return "The master password needs 8 characters or more.".to_string();
+            return t("azkeys-password-too-short");
         }
         if *self.password != *self.confirm {
-            return "The two passwords differ.".to_string();
+            return t("azkeys-passwords-differ");
         }
         String::new()
     }
@@ -385,6 +412,7 @@ mod tests {
 
     #[test]
     fn a_new_vault_needs_a_name_and_a_confirmed_password_of_eight_characters() {
+        crate::l10n::in_english();
         let mut form = CreateForm::default();
         assert!(!form.problem().is_empty());
         form.name = "Personal".to_string();
@@ -399,6 +427,7 @@ mod tests {
 
     #[test]
     fn choices_read_as_words() {
+        crate::l10n::in_english();
         assert_eq!(minutes_label(0), "Never");
         assert_eq!(minutes_label(5), "5 minutes");
         assert_eq!(seconds_label(30), "30 seconds");

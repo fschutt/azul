@@ -3,6 +3,8 @@
 //! the generator, the import preview, the audit), the edit form's draft and its checks, and the
 //! changes that make a save due. Locking wipes it.
 
+use azul_appkit::l10n::{t, t_args, Arg, Phrase, Text};
+
 use crate::audit;
 use crate::crypto::{Envelope, SecretKey};
 use crate::generator::Options;
@@ -94,17 +96,18 @@ impl Form {
 
     /// The item to keep at `now`: trimmed, dated, the old password kept in the history. `Err`
     /// says what to fix first (an empty title, a one-time field that is not one).
-    pub fn finish(&self, now: u64) -> Result<Item, String> {
+    pub fn finish(&self, now: u64) -> Result<Item, Text> {
         let mut item = self.draft.clone();
         item.title = item.title.trim().to_string();
         if item.title.is_empty() {
-            return Err("Give the item a title.".to_string());
+            return Err(Text::key("azkeys-item-needs-title"));
         }
         item.username = item.username.trim().to_string();
         item.totp = item.totp.trim().to_string();
         if !item.totp.is_empty() {
             if let Err(problem) = Totp::parse(&item.totp) {
-                return Err(format!("The one-time code field: {problem}"));
+                let why = Arg::word(&problem, &problem);
+                return Err(Phrase::new("azkeys-totp-field").arg("problem", why).into());
             }
         }
         item.urls = item
@@ -146,7 +149,7 @@ pub struct ImportView {
     /// The file is being read.
     pub reading: bool,
     /// The file's items, or why there are none.
-    pub result: Option<Result<Imported, String>>,
+    pub result: Option<Result<Imported, Text>>,
 }
 
 /// The reading pane.
@@ -245,9 +248,9 @@ impl Session {
 
     /// Keeps the edit form's item in the vault; `Err` says what to fix. The item is selected and
     /// a save is due.
-    pub fn save_form(&mut self, now: u64) -> Result<String, String> {
+    pub fn save_form(&mut self, now: u64) -> Result<String, Text> {
         let Reading::Edit(form) = &self.reading else {
-            return Err("No item is being edited.".to_string());
+            return Err(Text::key("azkeys-nothing-edited"));
         };
         let item = form.finish(now)?;
         let id = item.id.clone();
@@ -293,27 +296,33 @@ impl Session {
     }
 
     /// The text of a secret of the selected item, to copy or reveal, with its label for the
-    /// clipboard countdown ("password of CodeHost"). `field` is "username", "password", "totp"
-    /// (the current code at `now`), "card-number", "card-code" or "field-<n>".
+    /// clipboard countdown ("password of CodeHost", in the language of the last layout).
+    /// `field` is "username", "password", "totp" (the current code at `now`), "card-number",
+    /// "card-code" or "field-<n>".
     #[must_use]
     pub fn copy_text(&self, field: &str, now: u64) -> Option<(String, String)> {
         let item = self.selected_item()?;
-        let of = |what: &str| format!("{what} of {}", item.title);
+        let of = |what: String| {
+            t_args(
+                "azkeys-copy-of",
+                &[("what", Arg::from(what)), ("title", Arg::from(&item.title))],
+            )
+        };
         let non_empty =
-            |text: &str, what: &str| (!text.is_empty()).then(|| (text.to_string(), of(what)));
+            |text: &str, what: String| (!text.is_empty()).then(|| (text.to_string(), of(what)));
         match field {
-            "username" => non_empty(item.username.as_str(), "user name"),
-            "password" => non_empty(item.password.as_str(), "password"),
+            "username" => non_empty(item.username.as_str(), t("azkeys-copy-username")),
+            "password" => non_empty(item.password.as_str(), t("azkeys-copy-password")),
             "totp" => {
                 let totp = Totp::parse(&item.totp).ok()?;
-                Some((totp.code_at(now), of("one-time code")))
+                Some((totp.code_at(now), of(t("azkeys-copy-code"))))
             }
-            "card-number" => non_empty(item.card.number.as_str(), "card number"),
-            "card-code" => non_empty(item.card.code.as_str(), "security code"),
+            "card-number" => non_empty(item.card.number.as_str(), t("azkeys-copy-card-number")),
+            "card-code" => non_empty(item.card.code.as_str(), t("azkeys-copy-card-code")),
             other => {
                 let index: usize = other.strip_prefix("field-")?.parse().ok()?;
                 let f = item.fields.get(index)?;
-                non_empty(f.value.as_str(), f.name.to_lowercase().as_str())
+                non_empty(f.value.as_str(), f.name.to_lowercase())
             }
         }
     }
@@ -439,6 +448,7 @@ mod tests {
 
     #[test]
     fn copying_gives_the_secret_with_a_label_and_the_current_code() {
+        crate::l10n::in_english();
         let mut s = session();
         let id = s.open.vault.items[0].id.clone();
         s.select(Some(id));

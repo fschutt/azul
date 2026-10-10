@@ -22,6 +22,8 @@ use azul::{
     },
 };
 
+use azul_appkit::l10n::{label, t, t_args, t_text, Arg, Text};
+
 use crate::app::{now, KeysApp};
 use crate::audit::{self, Filter};
 use crate::generator::{self, Mode};
@@ -59,9 +61,9 @@ pub fn reading_pane(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
         Reading::Audit(filter) => audit_view(session, *filter, app),
         Reading::Item => match session.selected_item() {
             Some(item) => item_view(s, session, item, app),
-            None => ShellEmptyState::create("No item selected")
+            None => ShellEmptyState::create(t("azkeys-no-item"))
                 .with_icon("key")
-                .with_detail("Pick an item in the list, or add a new one.")
+                .with_detail(t("azkeys-no-item-detail"))
                 .dom(),
         },
     }
@@ -80,7 +82,7 @@ struct RevealRef {
 }
 
 fn copy_button(app: &RefAny, field: &str, id: AzString) -> Dom {
-    Button::create("Copy")
+    Button::create(t("azkeys-copy"))
         .with_icon("content_copy")
         .with_on_click(
             RefAny::new(CopyRef {
@@ -94,7 +96,7 @@ fn copy_button(app: &RefAny, field: &str, id: AzString) -> Dom {
 }
 
 fn reveal_button(app: &RefAny, reveal: Reveal, shown: bool, id: AzString) -> Dom {
-    Button::create(if shown { "Hide" } else { "Show" })
+    Button::create(t(if shown { "azkeys-hide" } else { "azkeys-show" }))
         .with_icon(if shown {
             "visibility_off"
         } else {
@@ -111,7 +113,8 @@ fn reveal_button(app: &RefAny, reveal: Reveal, shown: bool, id: AzString) -> Dom
         .with_id(id)
 }
 
-/// A field of the item: the label, the value, the buttons.
+/// A field of the item: the label (said already, or a custom field's own name), the value, the
+/// buttons.
 fn field_row(label: &str, value: Dom, buttons: Vec<Dom>) -> Dom {
     flex_row(
         "align-items: flex-start; padding: 4px 0px;",
@@ -143,9 +146,9 @@ fn secret(value: &str, shown: bool) -> Dom {
 }
 
 fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
-    let t = now();
+    let at = now();
     let revealed = |r: Reveal| session.reveal == Some(r);
-    let mut subtitle = item.kind.singular().to_string();
+    let mut subtitle = crate::l10n::kind(item.kind);
     if !item.folder.is_empty() {
         subtitle.push_str(&format!(" \u{b7} {}", item.folder));
     }
@@ -184,7 +187,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
     if !item.username.is_empty() {
         rows.push(
             field_row(
-                "user name",
+                &t("azkeys-field-username"),
                 text(item.username.as_str()),
                 vec![copy_button(app, "username", ids::COPY_USERNAME)],
             )
@@ -195,7 +198,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         let shown = revealed(Reveal::Password);
         rows.push(
             field_row(
-                "password",
+                &t("azkeys-field-password"),
                 secret(&item.password, shown),
                 vec![
                     reveal_button(app, Reveal::Password, shown, ids::REVEAL_PASSWORD),
@@ -205,16 +208,24 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             .with_id(ids::ITEM_PASSWORD),
         );
         let bits = generator::estimate(&item.password);
-        let mut words = generator::Strength::of_bits(bits).label().to_string();
-        if item.password_changed > 0 {
-            words.push_str(&format!(", changed {}", date(item.password_changed)));
-        }
+        let strength = crate::l10n::strength(generator::Strength::of_bits(bits));
+        let words = if item.password_changed > 0 {
+            t_args(
+                "azkeys-strength-changed",
+                &[
+                    ("strength", Arg::from(strength)),
+                    ("date", Arg::from(date(item.password_changed))),
+                ],
+            )
+        } else {
+            strength
+        };
         rows.push(field_row("", note(&words), Vec::new()).with_id(ids::ITEM_STRENGTH));
     }
     if !item.totp.is_empty() {
         let value = match Totp::parse(&item.totp) {
             Ok(totp) => {
-                let left = totp.remaining(t);
+                let left = totp.remaining(at);
                 #[allow(clippy::cast_precision_loss)] // seconds
                 let (left_s, period_s) = (left as f64, totp.period.max(1) as f64);
                 flex_row(
@@ -222,7 +233,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                     vec![
                         block(
                             "font-size: 18px; font-family: monospace;",
-                            text(group_code(&totp.code_at(t))),
+                            text(group_code(&totp.code_at(at))),
                         )
                         .with_id(ids::ITEM_TOTP_CODE),
                         // A draining ring with the seconds left in it; the last five warn.
@@ -231,7 +242,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                             .with_size(40.0)
                             .with_thickness(4.0)
                             .with_value_text(format!("{left}"))
-                            .with_accessibility_name("Seconds until the next code")
+                            .with_accessibility_name(t("azkeys-seconds-to-next-code"))
                             .with_band(GaugeBand::create(0.0, 5.0, GaugeBandKind::Warn))
                             .dom()
                             .with_id(ids::ITEM_TOTP_RING),
@@ -240,11 +251,11 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             }
             Err(why) => block(
                 &format!("font-size: 12px; {}", crate::ui::PROBLEM_INK),
-                text(why),
+                text(t(&why)),
             ),
         };
         rows.push(field_row(
-            "one-time",
+            &t("azkeys-field-one-time"),
             value,
             vec![copy_button(app, "totp", ids::COPY_TOTP)],
         ));
@@ -252,10 +263,18 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
     if item.kind == Kind::Card {
         let card = &item.card;
         if !card.holder.is_empty() {
-            rows.push(field_row("holder", text(card.holder.as_str()), Vec::new()));
+            rows.push(field_row(
+                &t("azkeys-field-holder"),
+                text(card.holder.as_str()),
+                Vec::new(),
+            ));
         }
         if !card.brand.is_empty() {
-            rows.push(field_row("brand", text(card.brand.as_str()), Vec::new()));
+            rows.push(field_row(
+                &t("azkeys-field-brand"),
+                text(card.brand.as_str()),
+                Vec::new(),
+            ));
         }
         if !card.number.is_empty() {
             let shown = revealed(Reveal::CardNumber);
@@ -265,7 +284,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                 text(card.masked_number())
             };
             rows.push(field_row(
-                "number",
+                &t("azkeys-field-number"),
                 value,
                 vec![
                     reveal_button(app, Reveal::CardNumber, shown, ids::reveal_field(1000)),
@@ -274,12 +293,16 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             ));
         }
         if !card.expiry.is_empty() {
-            rows.push(field_row("expires", text(card.expiry.as_str()), Vec::new()));
+            rows.push(field_row(
+                &t("azkeys-field-expires"),
+                text(card.expiry.as_str()),
+                Vec::new(),
+            ));
         }
         if !card.code.is_empty() {
             let shown = revealed(Reveal::CardCode);
             rows.push(field_row(
-                "security code",
+                &t("azkeys-field-security-code"),
                 secret(&card.code, shown),
                 vec![
                     reveal_button(app, Reveal::CardCode, shown, ids::reveal_field(1001)),
@@ -291,7 +314,11 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
     for (n, url) in item.urls.iter().enumerate() {
         rows.push(
             field_row(
-                if n == 0 { "website" } else { "" },
+                &if n == 0 {
+                    t("azkeys-field-website")
+                } else {
+                    String::new()
+                },
                 text(url.as_str()),
                 Vec::new(),
             )
@@ -319,7 +346,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             .map(|t| Chip::create(t.as_str()).dom())
             .collect();
         rows.push(field_row(
-            "tags",
+            &t("azkeys-field-tags"),
             flex_row("gap: 4px; flex-wrap: wrap;", chips),
             Vec::new(),
         ));
@@ -330,27 +357,33 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             .lines()
             .map(|l| Dom::create_div().with_child(text(l)))
             .collect();
-        rows.push(field_row("notes", column("", lines), Vec::new()).with_id(ids::ITEM_NOTES));
+        rows.push(
+            field_row(&t("azkeys-field-notes"), column("", lines), Vec::new())
+                .with_id(ids::ITEM_NOTES),
+        );
     }
     if !item.history.is_empty() {
         rows.push(
             field_row(
-                "history",
-                note(&format!(
-                    "{} earlier password{} (the last until {})",
-                    item.history.len(),
-                    if item.history.len() == 1 { "" } else { "s" },
-                    date(item.history[0].until)
+                &t("azkeys-field-history"),
+                note(&t_args(
+                    "azkeys-history",
+                    &[
+                        ("count", Arg::from(item.history.len())),
+                        ("date", Arg::from(date(item.history[0].until))),
+                    ],
                 )),
                 Vec::new(),
             )
             .with_id(ids::ITEM_HISTORY),
         );
     }
-    rows.push(note(&format!(
-        "Created {}, changed {}",
-        date(item.created),
-        date(item.modified)
+    rows.push(note(&t_args(
+        "azkeys-created-changed",
+        &[
+            ("created", Arg::from(date(item.created))),
+            ("changed", Arg::from(date(item.modified))),
+        ],
     )));
     let actions = if session.confirm_delete {
         flex_row(
@@ -358,18 +391,31 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             vec![
                 block(
                     "font-size: 13px;",
-                    text(format!("Delete \u{201c}{}\u{201d}?", item.title)),
+                    text(t_args(
+                        "azkeys-delete-ask",
+                        &[("title", Arg::from(&item.title))],
+                    )),
                 ),
-                primary("Delete", ids::ITEM_DELETE_CONFIRM, app, on_delete_confirmed),
-                button("Keep it", ids::ITEM_DELETE_CANCEL, app, on_delete_cancelled),
+                primary(
+                    "azkeys-delete",
+                    ids::ITEM_DELETE_CONFIRM,
+                    app,
+                    on_delete_confirmed,
+                ),
+                button(
+                    "azkeys-keep-it",
+                    ids::ITEM_DELETE_CANCEL,
+                    app,
+                    on_delete_cancelled,
+                ),
             ],
         )
     } else {
         flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
-                icon_button("Edit", "edit", ids::ITEM_EDIT, app, on_edit),
-                icon_button("Delete", "delete", ids::ITEM_DELETE, app, on_delete),
+                icon_button("azkeys-edit", "edit", ids::ITEM_EDIT, app, on_edit),
+                icon_button("azkeys-delete", "delete", ids::ITEM_DELETE, app, on_delete),
             ],
         )
     };
@@ -535,8 +581,8 @@ fn edit_input(
     };
     input
         .with_text(value)
-        .with_placeholder(placeholder)
-        .with_accessibility_name(placeholder)
+        .with_placeholder(label(placeholder))
+        .with_accessibility_name(label(placeholder))
         .with_on_text_input(
             RefAny::new(EditRef {
                 app: app.clone(),
@@ -548,47 +594,45 @@ fn edit_input(
         .with_id(id)
 }
 
-/// The kinds a new item can be, in the order of the switch.
-const KIND_LABELS: [&str; 5] = ["Login", "Card", "Secure note", "Identity", "SSH key"];
-
 fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     let d = &form.draft;
     let mut rows = vec![block(
         "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-        text(if form.original.is_some() {
-            format!("Edit {}", d.kind.singular())
-        } else {
-            format!("New {}", d.kind.singular())
-        }),
+        text(crate::l10n::form_title(d.kind, form.original.is_none())),
     )];
     if form.original.is_none() {
+        // The kinds a new item can be, in the order of the switch.
+        let kinds: Vec<&str> = Kind::ALL
+            .iter()
+            .map(|k| crate::l10n::kind_choice(*k))
+            .collect();
         rows.push(form_row(
-            "Kind",
-            Segmented::create(strs(&KIND_LABELS))
+            "azkeys-kind-label",
+            Segmented::create(strs(&kinds))
                 .with_selected_index(d.kind.index())
                 .with_on_change(app.clone(), on_kind as SegmentedOnChangeCallbackType)
                 .dom(),
         ));
     }
     rows.push(form_row(
-        "Title",
+        "azkeys-title",
         edit_input(
             app,
             EditField::Title,
             &d.title,
-            "Title",
+            "azkeys-title",
             false,
             ids::EDIT_TITLE,
         ),
     ));
     if matches!(d.kind, Kind::Login | Kind::Identity | Kind::SshKey) || !d.username.is_empty() {
         rows.push(form_row(
-            "User name",
+            "azkeys-username",
             edit_input(
                 app,
                 EditField::Username,
                 &d.username,
-                "User name or email",
+                "azkeys-username-placeholder",
                 false,
                 ids::EDIT_USERNAME,
             ),
@@ -596,7 +640,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     if d.kind == Kind::Login || !d.password.is_empty() {
         rows.push(form_row(
-            "Password",
+            "azkeys-password",
             flex_row(
                 "gap: 4px;",
                 vec![
@@ -606,16 +650,20 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
                             app,
                             EditField::Password,
                             &d.password,
-                            "Password",
+                            "azkeys-password",
                             !form.reveal,
                             ids::EDIT_PASSWORD,
                         ),
                     ),
-                    Button::create(if form.reveal { "Hide" } else { "Show" })
-                        .with_on_click(app.clone(), on_form_reveal as ButtonOnClickCallbackType)
-                        .dom(),
+                    Button::create(t(if form.reveal {
+                        "azkeys-hide"
+                    } else {
+                        "azkeys-show"
+                    }))
+                    .with_on_click(app.clone(), on_form_reveal as ButtonOnClickCallbackType)
+                    .dom(),
                     icon_button(
-                        "Generate",
+                        "azkeys-generate",
                         "casino",
                         ids::EDIT_GENERATE,
                         app,
@@ -631,12 +679,12 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     if d.kind == Kind::Login || !d.totp.is_empty() {
         rows.push(form_row(
-            "One-time code",
+            "azkeys-one-time-code",
             edit_input(
                 app,
                 EditField::Totp,
                 &d.totp,
-                "otpauth://totp/... or the base32 secret",
+                "azkeys-totp-placeholder",
                 false,
                 ids::EDIT_TOTP,
             ),
@@ -651,7 +699,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     if d.kind == Kind::Login || !d.urls.is_empty() {
         let website = d.urls.first().map(String::as_str).unwrap_or_default();
         rows.push(form_row(
-            "Website",
+            "azkeys-website",
             edit_input(
                 app,
                 EditField::Website,
@@ -665,51 +713,51 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     if d.kind == Kind::Card {
         let c = &d.card;
         rows.push(form_row(
-            "Holder",
+            "azkeys-holder",
             edit_input(
                 app,
                 EditField::CardHolder,
                 &c.holder,
-                "Name on the card",
+                "azkeys-holder-placeholder",
                 false,
                 ids::EDIT_CARD_HOLDER,
             ),
         ));
         rows.push(form_row(
-            "Brand",
+            "azkeys-brand",
             edit_input(
                 app,
                 EditField::CardBrand,
                 &c.brand,
-                "Visa, Mastercard, ...",
+                "azkeys-brand-placeholder",
                 false,
                 ids::EDIT_CARD_BRAND,
             ),
         ));
         rows.push(form_row(
-            "Number",
+            "azkeys-number",
             edit_input(
                 app,
                 EditField::CardNumber,
                 &c.number,
-                "Card number",
+                "azkeys-card-number",
                 false,
                 ids::EDIT_CARD_NUMBER,
             ),
         ));
         rows.push(form_row(
-            "Expires",
+            "azkeys-expires",
             edit_input(
                 app,
                 EditField::CardExpiry,
                 &c.expiry,
-                "MM/YYYY",
+                "azkeys-expiry-placeholder",
                 false,
                 ids::EDIT_CARD_EXPIRY,
             ),
         ));
         rows.push(form_row(
-            "Security code",
+            "azkeys-security-code",
             edit_input(
                 app,
                 EditField::CardCode,
@@ -722,7 +770,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     for (n, f) in d.fields.iter().enumerate() {
         rows.push(form_row(
-            "Field",
+            "azkeys-field",
             flex_row(
                 "gap: 4px;",
                 vec![
@@ -732,7 +780,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
                             app,
                             EditField::FieldName(n),
                             &f.name,
-                            "Name",
+                            "azkeys-name",
                             false,
                             ids::edit_field_name(n),
                         ),
@@ -743,13 +791,13 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
                             app,
                             EditField::FieldValue(n),
                             &f.value,
-                            "Value",
+                            "azkeys-value",
                             f.hidden,
                             ids::edit_field_value(n),
                         ),
                     ),
                     Switch::create(f.hidden)
-                        .with_accessibility_name("Hidden")
+                        .with_accessibility_name(t("azkeys-hidden"))
                         .with_on_toggle(
                             RefAny::new(IndexRef {
                                 app: app.clone(),
@@ -775,7 +823,13 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     }
     rows.push(form_row(
         "",
-        icon_button("Add a field", "add", ids::EDIT_ADD_FIELD, app, on_field_add),
+        icon_button(
+            "azkeys-add-field",
+            "add",
+            ids::EDIT_ADD_FIELD,
+            app,
+            on_field_add,
+        ),
     ));
     // The tags: azul's TokenInput (the chips and the entry as one control), the vault's
     // other tags as suggestions.
@@ -789,29 +843,29 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
         .collect();
     let known: Vec<&str> = vault_tags.iter().map(String::as_str).collect();
     rows.push(form_row(
-        "Tags",
-        TokenInput::create(strs(&tags), "Tags")
+        "azkeys-tags",
+        TokenInput::create(strs(&tags), t("azkeys-tags"))
             .with_text(form.tag.as_str())
-            .with_placeholder("Add a tag (Enter)")
+            .with_placeholder(t("azkeys-add-tag"))
             .with_suggestions(strs(&known))
             .with_on_event(app.clone(), on_tags_event as TokenInputOnEventCallbackType)
             .dom()
             .with_id(ids::EDIT_TAG),
     ));
     rows.push(form_row(
-        "Notes",
+        "azkeys-notes",
         TextArea::create()
             .with_text(d.notes.as_str())
-            .with_placeholder("Notes")
-            .with_accessibility_name("Notes")
+            .with_placeholder(t("azkeys-notes"))
+            .with_accessibility_name(t("azkeys-notes"))
             .with_on_text_input(app.clone(), on_notes as TextAreaOnTextInputCallbackType)
             .dom()
             .with_id(ids::EDIT_NOTES),
     ));
     rows.push(form_row(
-        "Favourite",
+        "azkeys-favourite",
         Switch::create(d.favorite)
-            .with_accessibility_name("Favourite")
+            .with_accessibility_name(t("azkeys-favourite"))
             .with_on_toggle(app.clone(), on_form_favorite as SwitchOnToggleCallbackType)
             .dom()
             .with_id(ids::EDIT_FAVORITE),
@@ -820,17 +874,17 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
         rows.push(flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
-                block("font-size: 13px;", text("Discard your changes?")),
-                primary("Discard", ids::EDIT_DISCARD, app, on_form_discard),
-                button("Keep editing", ids::EDIT_KEEP, app, on_form_keep),
+                block("font-size: 13px;", text(t("azkeys-discard-ask"))),
+                primary("azkeys-discard", ids::EDIT_DISCARD, app, on_form_discard),
+                button("azkeys-keep-editing", ids::EDIT_KEEP, app, on_form_keep),
             ],
         ));
     } else {
         rows.push(flex_row(
             "gap: 8px; padding: 12px 0px 0px 110px;",
             vec![
-                primary("Save", ids::EDIT_SAVE, app, on_edit_save),
-                button("Cancel", ids::EDIT_CANCEL, app, on_form_cancel),
+                primary("azkeys-save", ids::EDIT_SAVE, app, on_edit_save),
+                button("kit-button-cancel", ids::EDIT_CANCEL, app, on_form_cancel),
             ],
         ));
     }
@@ -1018,7 +1072,7 @@ pub extern "C" fn on_edit_save(mut data: RefAny, mut info: CallbackInfo) -> Upda
                 s.notice.clear();
                 jobs::save(s, info, app);
             }
-            Err(problem) => s.notice = problem,
+            Err(problem) => s.notice = t_text(&problem),
         }
     })
 }
@@ -1070,12 +1124,13 @@ struct GenRef {
     option: GenOption,
 }
 
-fn gen_check(app: &RefAny, option: GenOption, checked: bool, label: &str, id: AzString) -> Dom {
+/// A generator option's check box; `name` a key, or the characters it adds (`A-Z`).
+fn gen_check(app: &RefAny, option: GenOption, checked: bool, name: &str, id: AzString) -> Dom {
     flex_row(
         "gap: 4px; padding-right: 12px;",
         vec![
             CheckBox::create(checked)
-                .with_accessibility_name(label)
+                .with_accessibility_name(label(name))
                 .with_on_toggle(
                     RefAny::new(GenRef {
                         app: app.clone(),
@@ -1085,7 +1140,7 @@ fn gen_check(app: &RefAny, option: GenOption, checked: bool, label: &str, id: Az
                 )
                 .dom()
                 .with_id(id),
-            block("font-size: 13px;", text(label)),
+            block("font-size: 13px;", text(label(name))),
         ],
     )
 }
@@ -1096,12 +1151,12 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     let mut rows = vec![
         block(
             "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-            text("Generate a password"),
+            text(t("azkeys-generator-title")),
         ),
         Segmented::create(strs(&[
-            Mode::Password.label(),
-            Mode::Passphrase.label(),
-            Mode::Pin.label(),
+            crate::l10n::mode(Mode::Password),
+            crate::l10n::mode(Mode::Passphrase),
+            crate::l10n::mode(Mode::Pin),
         ]))
         .with_selected_index(Mode::ALL.iter().position(|m| *m == o.mode).unwrap_or(0))
         .with_on_change(app.clone(), on_gen_mode as SegmentedOnChangeCallbackType)
@@ -1115,41 +1170,53 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                     text(session.generated.as_str()),
                 )
                 .with_id(ids::GEN_OUTPUT),
-                icon_button("Again", "refresh", ids::GEN_REFRESH, app, on_gen_refresh),
-                icon_button("Copy", "content_copy", ids::GEN_COPY, app, on_gen_copy),
+                icon_button(
+                    "azkeys-regenerate",
+                    "refresh",
+                    ids::GEN_REFRESH,
+                    app,
+                    on_gen_refresh,
+                ),
+                icon_button(
+                    "azkeys-copy",
+                    "content_copy",
+                    ids::GEN_COPY,
+                    app,
+                    on_gen_copy,
+                ),
             ],
         ),
     ];
-    let (value, min, max, label) = match o.mode {
+    let (value, min, max, name) = match o.mode {
         Mode::Password => (
             o.length,
             generator::PASSWORD_LENGTH.0,
             generator::PASSWORD_LENGTH.1,
-            "Length",
+            "azkeys-length",
         ),
         Mode::Pin => (
             o.length,
             generator::PIN_LENGTH.0,
             generator::PIN_LENGTH.1,
-            "Digits",
+            "azkeys-digits",
         ),
         Mode::Passphrase => (
             o.words,
             generator::PASSPHRASE_WORDS.0,
             generator::PASSPHRASE_WORDS.1,
-            "Words",
+            "azkeys-words",
         ),
     };
     let value = value.clamp(min, max);
     rows.push(form_row(
-        label,
+        name,
         flex_row(
             "gap: 8px;",
             vec![
                 block(
                     "flex-grow: 1;",
                     Slider::create(value as f32, min as f32, max as f32)
-                        .with_accessibility_name(label)
+                        .with_accessibility_name(t(name))
                         .with_on_value_change(
                             app.clone(),
                             on_gen_length as SliderOnValueChangeCallbackType,
@@ -1174,7 +1241,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                         app,
                         GenOption::AvoidSimilar,
                         o.avoid_similar,
-                        "avoid similar (Il1O0)",
+                        "azkeys-avoid-similar",
                         ids::GEN_SIMILAR,
                     ),
                 ],
@@ -1188,14 +1255,14 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                         app,
                         GenOption::Capitalize,
                         o.capitalize,
-                        "Capitals",
+                        "azkeys-capitals",
                         ids::GEN_CAPITALIZE,
                     ),
                     gen_check(
                         app,
                         GenOption::AddDigit,
                         o.add_digit,
-                        "A digit at the end",
+                        "azkeys-digit-at-end",
                         ids::GEN_ADD_DIGIT,
                     ),
                 ],
@@ -1205,7 +1272,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     }
     rows.push(
         form_row(
-            "Strength",
+            "azkeys-strength",
             flex_row(
                 "gap: 8px;",
                 vec![
@@ -1213,26 +1280,16 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
                         "width: 160px;",
                         ProgressBar::create(generator::percent(bits)).dom(),
                     ),
-                    block(
-                        "font-size: 12px;",
-                        text(format!(
-                            "{} (~{:.0} bits)",
-                            generator::Strength::of_bits(bits).label(),
-                            bits
-                        )),
-                    ),
+                    block("font-size: 12px;", text(crate::l10n::strength_bits(bits))),
                 ],
             ),
         )
         .with_id(ids::GEN_STRENGTH),
     );
-    rows.push(note(
-        "The edit form's Generate button uses these settings. Drawn from the system's random \
-         source; nothing is kept.",
-    ));
+    rows.push(note("azkeys-generator-note"));
     rows.push(flex_row(
         "padding-top: 8px;",
-        vec![button("Close", ids::GEN_CLOSE, app, on_panel_close)],
+        vec![button("azkeys-close", ids::GEN_CLOSE, app, on_panel_close)],
     ));
     column(PANE, rows).with_id(ids::GENERATOR)
 }
@@ -1319,11 +1376,11 @@ extern "C" fn on_gen_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
         if secret.is_empty() {
             return;
         }
-        let t = now();
         jobs::set_clipboard(info, &secret);
         s.clipboard.clear_after = s.settings.clear_seconds;
-        s.clipboard.copied(&secret, "generated password", t);
-        s.notice = "Copied the generated password".to_string();
+        s.clipboard
+            .copied(&secret, &t("azkeys-generated-password"), now());
+        s.notice = t("azkeys-copied-generated");
         println!("AZKEYS_COPIED generated password");
     })
 }
@@ -1342,15 +1399,11 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
     let mut rows = vec![
         block(
             "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-            text("Import passwords"),
+            text(t("azkeys-import-title")),
         ),
-        note(
-            "A CSV export of Chrome, Edge, Firefox, Safari, Bitwarden, 1Password, KeePassXC or \
-             LastPass, or Bitwarden's JSON export (unencrypted). Delete the export file once it \
-             is imported: it holds your passwords in plain text.",
-        ),
+        note("azkeys-import-help"),
         form_row(
-            "File",
+            "azkeys-file",
             flex_row(
                 "gap: 4px;",
                 vec![
@@ -1358,8 +1411,8 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                         "flex-grow: 1; min-width: 0px;",
                         TextInput::create()
                             .with_text(view.path.as_str())
-                            .with_placeholder("The export's path")
-                            .with_accessibility_name("The export's path")
+                            .with_placeholder(t("azkeys-export-path"))
+                            .with_accessibility_name(t("azkeys-export-path"))
                             .with_on_text_input(
                                 app.clone(),
                                 on_import_path as TextInputOnTextInputCallbackType,
@@ -1367,14 +1420,14 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                             .dom()
                             .with_id(ids::IMPORT_PATH),
                     ),
-                    button("Choose\u{2026}", ids::IMPORT_CHOOSE, app, on_import_choose),
-                    button("Read", ids::IMPORT_READ, app, on_import_read_path),
+                    button("azkeys-choose", ids::IMPORT_CHOOSE, app, on_import_choose),
+                    button("azkeys-read", ids::IMPORT_READ, app, on_import_read_path),
                 ],
             ),
         ),
     ];
     if view.reading {
-        rows.push(note("Reading the file\u{2026}"));
+        rows.push(note("azkeys-reading-file"));
     }
     match &view.result {
         Some(Ok(imported)) => {
@@ -1385,55 +1438,59 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
             let kinds: Vec<String> = Kind::ALL
                 .iter()
                 .filter(|k| counts[k.index()] > 0)
-                .map(|k| format!("{} {}", counts[k.index()], k.plural().to_lowercase()))
+                .map(|k| crate::l10n::kind_count(*k, counts[k.index()]))
                 .collect();
+            let summary = [
+                ("format", Arg::from(imported.format.label())),
+                ("count", Arg::from(imported.items.len())),
+                ("kinds", Arg::from(kinds.join(", "))),
+                ("skipped", Arg::from(imported.skipped.len())),
+            ];
+            let key = if imported.skipped.is_empty() {
+                "azkeys-import-summary"
+            } else {
+                "azkeys-import-summary-skipped"
+            };
             rows.push(
                 block(
                     "font-size: 13px; padding: 8px 0px;",
-                    text(format!(
-                        "{}: {} item{} ({}){}",
-                        imported.format.label(),
-                        imported.items.len(),
-                        if imported.items.len() == 1 { "" } else { "s" },
-                        kinds.join(", "),
-                        if imported.skipped.is_empty() {
-                            String::new()
-                        } else {
-                            format!("; {} skipped", imported.skipped.len())
-                        }
-                    )),
+                    text(t_args(key, &summary)),
                 )
                 .with_id(ids::IMPORT_SUMMARY),
             );
             for line in imported.skipped.iter().take(10) {
-                rows.push(note(line));
+                rows.push(note(&t_text(line)));
             }
             if !imported.items.is_empty() {
                 rows.push(flex_row(
                     "gap: 8px; padding-top: 8px;",
                     vec![
                         primary(
-                            &format!(
-                                "Import {} item{}",
-                                imported.items.len(),
-                                if imported.items.len() == 1 { "" } else { "s" }
+                            &t_args(
+                                "azkeys-import-run",
+                                &[("count", Arg::from(imported.items.len()))],
                             ),
                             ids::IMPORT_RUN,
                             app,
                             on_import_run,
                         ),
-                        button("Cancel", ids::IMPORT_CANCEL, app, on_panel_close),
+                        button("kit-button-cancel", ids::IMPORT_CANCEL, app, on_panel_close),
                     ],
                 ));
             }
         }
-        Some(Err(why)) => rows.push(problem(why, ids::IMPORT_SUMMARY)),
+        Some(Err(why)) => rows.push(problem(&t_text(why), ids::IMPORT_SUMMARY)),
         None => {}
     }
     if !matches!(view.result, Some(Ok(_))) {
         rows.push(flex_row(
             "padding-top: 8px;",
-            vec![button("Close", ids::IMPORT_CANCEL, app, on_panel_close)],
+            vec![button(
+                "azkeys-close",
+                ids::IMPORT_CANCEL,
+                app,
+                on_panel_close,
+            )],
         ));
     }
     column(PANE, rows).with_id(ids::IMPORT)
@@ -1464,9 +1521,7 @@ extern "C" fn on_import_read_path(mut data: RefAny, mut info: CallbackInfo) -> U
             if let Some(Reading::Import(view)) =
                 s.session.as_mut().map(|session| &mut session.reading)
             {
-                view.result = Some(Err(
-                    "Type the export's path, or choose the file.".to_string()
-                ));
+                view.result = Some(Err(Text::key("azkeys-type-export-path")));
             }
             return;
         }
@@ -1480,7 +1535,7 @@ extern "C" fn on_import_choose(mut data: RefAny, _info: CallbackInfo) -> Update 
         return Update::DoNothing;
     }
     let _request = FileDialog::open_file(
-        "Import passwords",
+        t("azkeys-import-title"),
         OptionString::None,
         OptionFileTypeList::None,
         app,
@@ -1518,15 +1573,14 @@ extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update 
         session.dirty |= added > 0;
         session.reading = Reading::Item;
         session.keep_selection_in_view();
-        s.notice = format!(
-            "Imported {added} item{}{}",
-            if added == 1 { "" } else { "s" },
-            if known > 0 {
-                format!(" ({known} already in the vault)")
-            } else {
-                String::new()
-            }
-        );
+        s.notice = if known > 0 {
+            t_args(
+                "azkeys-imported-known",
+                &[("count", Arg::from(added)), ("known", Arg::from(known))],
+            )
+        } else {
+            t_args("azkeys-imported", &[("count", Arg::from(added))])
+        };
         println!("AZKEYS_IMPORTED {added} {known}");
         jobs::save(s, info, app);
     })
@@ -1544,19 +1598,22 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
     let a = audit::audit(vault, now());
     let labels: Vec<String> = Filter::ALL
         .iter()
-        .map(|f| match f {
-            Filter::All => format!("All ({})", a.findings.len()),
-            Filter::Weak => format!("Weak ({})", a.weak),
-            Filter::Reused => format!("Reused ({})", a.reused),
-            Filter::Old => format!("Old ({})", a.old),
-            Filter::NoTwoFactor => format!("No 2FA ({})", a.no_two_factor),
+        .map(|f| {
+            let (key, count) = match f {
+                Filter::All => ("azkeys-audit-all", a.findings.len()),
+                Filter::Weak => ("azkeys-audit-weak", a.weak),
+                Filter::Reused => ("azkeys-audit-reused", a.reused),
+                Filter::Old => ("azkeys-audit-old", a.old),
+                Filter::NoTwoFactor => ("azkeys-audit-no-two-factor", a.no_two_factor),
+            };
+            t_args(key, &[("count", Arg::from(count))])
         })
         .collect();
     let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let mut rows = vec![
         block(
             "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
-            text("Security audit"),
+            text(t("azkeys-audit-title")),
         ),
         Segmented::create(strs(&label_refs))
             .with_selected_index(Filter::ALL.iter().position(|f| *f == filter).unwrap_or(0))
@@ -1566,10 +1623,14 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
             )
             .dom()
             .with_id(ids::AUDIT_FILTER),
-        note(&format!(
-            "{} weak, {} reused, {} older than two years, {} without a one-time code. Nothing is \
-             checked online.",
-            a.weak, a.reused, a.old, a.no_two_factor
+        note(&t_args(
+            "azkeys-audit-summary",
+            &[
+                ("weak", Arg::from(a.weak)),
+                ("reused", Arg::from(a.reused)),
+                ("old", Arg::from(a.old)),
+                ("none", Arg::from(a.no_two_factor)),
+            ],
         ))
         .with_id(ids::AUDIT_SUMMARY),
     ];
@@ -1579,7 +1640,11 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
         let Some(item) = vault.items.get(finding.index) else {
             continue;
         };
-        let problems: Vec<String> = finding.problems.iter().map(|p| p.label()).collect();
+        let problems: Vec<String> = finding
+            .problems
+            .iter()
+            .map(|p| crate::l10n::problem(*p))
+            .collect();
         rows.push(
             flex_row(
                 "padding: 4px 0px; cursor: pointer;",
@@ -1588,10 +1653,13 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
                     block("width: 34%; font-size: 12px;", text(problems.join(", "))),
                     block(
                         "width: 14%; font-size: 12px;",
-                        text(finding.strength.label()),
+                        text(crate::l10n::strength(finding.strength)),
                     ),
                     block(
-                        &format!("width: 18%; font-size: 12px; opacity: 0.7; {}", crate::ui::QUIET_FLORA),
+                        &format!(
+                            "width: 18%; font-size: 12px; opacity: 0.7; {}",
+                            crate::ui::QUIET_FLORA
+                        ),
                         text(date(finding.changed)),
                     ),
                 ],
@@ -1609,19 +1677,19 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
         shown += 1;
     }
     if shown == 0 {
-        rows.push(note("Nothing to fix here."));
+        rows.push(note("azkeys-audit-nothing"));
     }
     rows.push(flex_row(
         "gap: 8px; padding-top: 12px;",
         vec![
             icon_button(
-                "Export report",
+                "azkeys-export-report",
                 "download",
                 ids::AUDIT_EXPORT,
                 app,
                 on_audit_export,
             ),
-            button("Close", ids::AUDIT_CLOSE, app, on_panel_close),
+            button("azkeys-close", ids::AUDIT_CLOSE, app, on_panel_close),
         ],
     ));
     column(PANE, rows).with_id(ids::AUDIT)

@@ -525,15 +525,15 @@ impl Scope {
         }
     }
 
-    /// The list's heading.
+    /// The list's heading, in the language of the layout pass.
     #[must_use]
     pub fn title(&self) -> String {
         match self {
-            Scope::All => "All items".to_string(),
-            Scope::Favorites => "Favourites".to_string(),
-            Scope::Kind(k) => k.plural().to_string(),
+            Scope::All => azul_appkit::l10n::t("azkeys-scope-all"),
+            Scope::Favorites => azul_appkit::l10n::t("azkeys-scope-favourites"),
+            Scope::Kind(k) => crate::l10n::kinds(*k),
             Scope::Tag(t) => format!("#{t}"),
-            Scope::OneTimeCodes => "One-time codes".to_string(),
+            Scope::OneTimeCodes => azul_appkit::l10n::t("azkeys-scope-codes"),
         }
     }
 }

@@ -6,6 +6,8 @@
 //!   one twice as long, at most 5 minutes. (Argon2id already makes each try cost a quarter second; this is
 //!   the visible back-off the plan asks for.)
 
+use azul_appkit::l10n::{t, t_args, Arg};
+
 /// The vault's idle lock.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoLock {
@@ -80,7 +82,8 @@ impl Attempts {
         self.wait_until.saturating_sub(now)
     }
 
-    /// The line under the password field after a wrong password ("" when none was wrong).
+    /// The line under the password field after a wrong password ("" when none was wrong), in
+    /// the language of the layout pass.
     #[must_use]
     pub fn message(&self, now: u64) -> String {
         if self.failures == 0 {
@@ -88,17 +91,22 @@ impl Attempts {
         }
         let wait = self.wait(now);
         if wait > 0 {
-            return format!("Wrong password. Wait {wait} s before the next try.");
+            return t_args(
+                "azkeys-wrong-password-wait",
+                &[("seconds", Arg::from(wait))],
+            );
         }
         if self.failures < Attempts::FREE {
             let left = Attempts::FREE - self.failures;
-            return format!(
-                "Wrong password. {left} attempt{} left before a {} s wait.",
-                if left == 1 { "" } else { "s" },
-                Attempts::WAIT_SECONDS
+            return t_args(
+                "azkeys-wrong-password-left",
+                &[
+                    ("count", Arg::from(left)),
+                    ("seconds", Arg::from(Attempts::WAIT_SECONDS)),
+                ],
             );
         }
-        "Wrong password.".to_string()
+        t("azkeys-wrong-password")
     }
 }
 
@@ -119,6 +127,7 @@ mod tests {
 
     #[test]
     fn three_wrong_passwords_are_free_then_the_waits_double_up_to_five_minutes() {
+        crate::l10n::in_english();
         let mut a = Attempts::default();
         assert_eq!(a.message(0), "");
         a.failed(100);
