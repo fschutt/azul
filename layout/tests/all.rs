@@ -1017,3 +1017,5 @@ mod a_node_mounted_inside_a_virtual_view_hears_its_after_mount;
 mod a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it;
 #[path = "a_facts_row_in_a_card_keeps_its_words.rs"]
 mod a_facts_row_in_a_card_keeps_its_words;
+#[path = "an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width.rs"]
+mod an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width;
