@@ -27,7 +27,7 @@ use azul::{
 };
 use chrono::{NaiveTime, Timelike, Weekday};
 
-use azul_appkit::args::{ModePref, Theme};
+use azul_appkit::args::{LanguagePref, ModePref, Theme};
 
 use crate::{
     appearance,
@@ -99,7 +99,7 @@ fn settings(s: &Tasks, app: &RefAny, theme: &str, _dark: bool) -> Dom {
     for (category, sections) in [
         (0, general(s, app)),
         (1, reminder_settings(s, app)),
-        (2, appearance_settings(app, theme, s.appearance.mode)),
+        (2, appearance_settings(app, theme, s.appearance.mode, s.language)),
         (3, data(s, app)),
     ] {
         if searching || category == s.settings_category {
@@ -207,7 +207,13 @@ fn reminder_settings(s: &Tasks, app: &RefAny) -> Vec<ShellSettingsSection> {
     ]
 }
 
-fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSettingsSection> {
+fn appearance_settings(
+    app: &RefAny,
+    theme: &str,
+    mode: ModePref,
+    language: LanguagePref,
+) -> Vec<ShellSettingsSection> {
+    let languages: Vec<&str> = LanguagePref::ALL.iter().map(|l| l.key()).collect();
     vec![
         ShellSettingsSection::create(
             "Theme",
@@ -226,6 +232,15 @@ fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSe
                 .with_on_change(app.clone(), on_mode as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::SETTINGS_MODE),
+        ),
+        // The words' language: the system's, English or German (appkit's words for them).
+        ShellSettingsSection::create(
+            azul_appkit::l10n::label("kit-general-language"),
+            Segmented::create(azul_appkit::l10n::labels(&languages))
+                .with_selected_index(language.index())
+                .with_on_change(app.clone(), on_language as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id(ids::SETTINGS_LANGUAGE),
         ),
     ]
 }
@@ -505,6 +520,18 @@ extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: Segmented
     });
     crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
         s.appearance.mode = mode;
+        s.save_appearance();
+    })
+}
+
+/// The language of the words: in effect at once (every window), kept for the next start.
+extern "C" fn on_language(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let language = LanguagePref::ALL[state.selected_index.min(LanguagePref::ALL.len() - 1)];
+    info.set_locale(language.tag());
+    println!("AZTASKS_LANGUAGE {}", language.name());
+    crate::with_tasks(&mut data, &mut info, |_info, _app, s| {
+        s.language = language;
+        s.appearance.set_language(language);
         s.save_appearance();
     })
 }

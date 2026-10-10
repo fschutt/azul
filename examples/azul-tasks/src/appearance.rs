@@ -1,13 +1,14 @@
 //! The theme and the mode, kept across restarts in `<data root>/aztasks/settings.json` -
 //! azul-appkit's settings file, the one every Azlin app keeps its appearance in (the task
 //! store's `tasks/settings.json` is shared with the other apps' To-Do bars and holds no
-//! appearance). `--theme` / `--mode` win for one run; the file keeps its own.
+//! appearance), and the language of the words. `--theme` / `--mode` / `--language` win for one
+//! run; the file keeps its own.
 //!
 //! The file is read once at start (before the window, not in a callback) and written through
 //! the task write queue (on the file thread) when the Appearance settings change.
 
 use azul_appkit::{
-    args::{ModePref, Theme},
+    args::{LanguagePref, ModePref, Theme},
     data::app_key,
     settings::{AppSettings, SETTINGS_FILE},
 };
@@ -38,6 +39,12 @@ pub fn effective(args: &Args, saved: &AppSettings) -> (Theme, ModePref) {
         None => saved.mode,
     };
     (theme, mode)
+}
+
+/// The language of the words this run: the command line's, else the file's.
+#[must_use]
+pub fn language(args: &Args, saved: &AppSettings) -> LanguagePref {
+    args.language.unwrap_or_else(|| saved.language())
 }
 
 /// The Mode control's segment of `mode`: System, Light, Dark.

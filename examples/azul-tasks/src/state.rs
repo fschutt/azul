@@ -118,6 +118,8 @@ pub struct Tasks {
     pub files: FileWork,
     /// The appearance kept across restarts (`aztasks/settings.json`, `appearance.rs`).
     pub appearance: azul_appkit::settings::AppSettings,
+    /// The language of the words now (`--language` for this run, else the file's).
+    pub language: azul_appkit::args::LanguagePref,
     /// The Data settings' import path, and what the last import or export did.
     pub import_path: String,
     pub io_message: String,
@@ -234,6 +236,7 @@ impl Tasks {
             queue: WriteQueue::new(),
             files: FileWork::default(),
             appearance: azul_appkit::settings::AppSettings::default(),
+            language: azul_appkit::args::LanguagePref::System,
             import_path: String::new(),
             io_message: String::new(),
             sample_requested: false,

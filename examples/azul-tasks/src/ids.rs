@@ -89,6 +89,7 @@ names! {
     SETTINGS_NOTIFICATIONS = "settings-notifications";
     SETTINGS_THEME = "settings-theme";
     SETTINGS_MODE = "settings-mode";
+    SETTINGS_LANGUAGE = "settings-language";
     SETTINGS_SAMPLE = "settings-sample";
     SETTINGS_IMPORT_PATH = "settings-import-path";
     SETTINGS_IMPORT_BROWSE = "settings-import-browse";

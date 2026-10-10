@@ -51,6 +51,8 @@ pub struct Args {
     /// The list shown first.
     pub view: Option<View>,
     pub size: Option<(f32, f32)>,
+    /// `--language`: the run's language over the settings file's.
+    pub language: Option<azul_appkit::args::LanguagePref>,
 }
 
 pub const HELP: &str = "\
@@ -69,6 +71,7 @@ OPTIONS:
     --view <NAME>            today | upcoming | scheduled | flagged | all | completed |
                              list:<id> | tag:<tag> | search:<words>
     --size <WxH>             Initial window size, e.g. --size 1280x800
+    --language <NAME>        system | en | de (this run only)
     -h, --help               Print this help
 ";
 
@@ -141,6 +144,12 @@ impl Args {
                         (Ok(w), Ok(h)) if w > 0.0 && h > 0.0 => a.size = Some((w, h)),
                         _ => return Err(format!("--size: expected WxH in pixels, got {v:?}")),
                     }
+                }
+                "--language" => {
+                    let v = value("language")?;
+                    a.language = Some(azul_appkit::args::LanguagePref::parse(&v).ok_or_else(|| {
+                        format!("--language: expected system, en or de, got {v:?}")
+                    })?);
                 }
                 other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
             }
