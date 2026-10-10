@@ -4,10 +4,10 @@
 //! (the `SyncLookup` seam). It answers from memory: what the last pass, open, pin or "Free up
 //! space" left, published by the UI thread ([`crate::sync_jobs`]); a cheap clone shares it.
 //!
-//! A file is found two ways: by its key in an encrypted drive's own listing (its names are the
-//! files', under the pairing's folder of the drive), and by its path in a drive on this
+//! A file is found two ways: by its key in the drive's own listing, under the pairing's folder
+//! of the drive (an encrypted drive's names are the files'; a plain drive's listing shows the
+//! sync index's files - its bucket holds the sync's blobs), and by its path in a drive on this
 //! computer that lies in a pairing's folder (the synced folder, browsed as a folder of Home).
-//! A plain drive's own listing holds the sync's blobs, not its files: nothing of it is found.
 
 use std::{
     collections::HashMap,
@@ -55,10 +55,8 @@ fn locate_in(inner: &Inner, drive: &str, key: &str) -> Option<(String, String)> 
     // at most one finds it.
     for (id, pair) in &inner.pairs {
         if id == drive {
-            if pair.names_its_files {
-                if let Some(rel) = key.strip_prefix(pair.setup.prefix.as_str()) {
-                    return Some((id.clone(), rel.to_string()));
-                }
+            if let Some(rel) = key.strip_prefix(pair.setup.prefix.as_str()) {
+                return Some((id.clone(), rel.to_string()));
             }
             continue;
         }
@@ -192,6 +190,13 @@ impl SyncStore {
         }
         let path = azcloud_kit::sync::local::path_of(&pair.setup.folder, &rel);
         path.is_file().then_some(path)
+    }
+
+    /// Whether drive `drive_id` is paired and its own listing names its files (an encrypted
+    /// drive): `false` for a plain drive, whose listing shows the sync index's files instead.
+    #[must_use]
+    pub(crate) fn names_its_files(&self, drive_id: &str) -> Option<bool> {
+        self.read().pairs.get(drive_id).map(|p| p.names_its_files)
     }
 
     /// Whether any drive syncs.

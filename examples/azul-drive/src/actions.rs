@@ -2393,6 +2393,12 @@ fn delete_selected(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, pe
     if items.is_empty() {
         return;
     }
+    // A synced file in the cloud only (or a plain synced drive's file, shown from its sync
+    // index) is deleted through the sync, after a question.
+    let items = crate::sync_jobs::delete_through_sync(s, &drive_id, items);
+    if items.is_empty() {
+        return;
+    }
     let in_trash = items.iter().all(|i| fileops::is_in_trash(&i.key));
     let local = s.is_local_drive(&drive_id);
     if local && !permanent && !in_trash {
@@ -2710,6 +2716,20 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
             content: Some(PreviewContent::Message(String::from(
                 "A folder: open it to see what it holds.",
             ))),
+        });
+        return;
+    }
+    // A synced file in the cloud only (or one a plain drive's listing shows from its sync
+    // index) previews as a sentence: its bytes are not where the preview would read them.
+    if let Some(note) = s.current_drive_id().and_then(|drive| {
+        let state = s.sync_view.store.file_state(&drive, &entry.key)?;
+        let from_index = crate::sync_view::from_index(s, &drive, &entry.key);
+        crate::sync_view::preview_note(&state, from_index)
+    }) {
+        println!("AZDRIVE_PREVIEW synced {}", entry.key);
+        s.preview = Some(PreviewState {
+            key: entry.key.clone(),
+            content: Some(PreviewContent::Message(note.to_string())),
         });
         return;
     }

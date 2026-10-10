@@ -241,6 +241,8 @@ pub const SYNC_KEEP_MINE: AzString = AzString::from_const_str("__azdrive_sync_ke
 pub const SYNC_TAKE_THEIRS: AzString = AzString::from_const_str("__azdrive_sync_take_theirs");
 pub const SYNC_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_sync_keep_both");
 pub const SYNC_OPTIONS: AzString = AzString::from_const_str("__azdrive_sync_options");
+pub const SYNC_DELETE: AzString = AzString::from_const_str("__azdrive_sync_delete");
+pub const SYNC_DELETE_OK: AzString = AzString::from_const_str("__azdrive_sync_delete_ok");
 /// The Properties dialog.
 pub const PROPERTIES: AzString = AzString::from_const_str("__azdrive_properties");
 /// The transfer queue.

@@ -117,6 +117,16 @@ pub(crate) fn search_index_dir(root: Option<PathBuf>, drive: &str) -> Option<Pat
         .map(|dir| dir.join("search"))
 }
 
+/// Where the encrypted drive `drive`'s local copies kept encrypted (its AZL1 objects) are: in
+/// the drive's own cache folder under `root`, beside its drive index and search index
+/// (`<root>/<hash of the drive>/objects`); `None` without a cache folder (none are kept).
+pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
+    MetaIndexProvider::new("AzDrive")
+        .with_cache_root(root)
+        .drive_cache_dir(drive)
+        .map(|dir| dir.join("objects"))
+}
+
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
 /// call.
 pub(crate) fn wrap(drive_id: &str, bucket: Arc<dyn Drive>) -> Arc<AutoEncrypted> {

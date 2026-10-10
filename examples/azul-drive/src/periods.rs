@@ -194,6 +194,8 @@ pub(crate) fn periods_redeemed(
         s.redemptions.looked(&drive_id, &look.redeemed, now);
         if let Some(status) = &look.status {
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
+            // A synced drive's status line says "Read-only (payment due)" by this word.
+            crate::sync_jobs::drive_status_seen(s, &drive_id, status.read_only);
         }
         match look.redeemed {
             Redeemed::Extended {
