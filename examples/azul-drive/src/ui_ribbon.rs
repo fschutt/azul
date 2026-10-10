@@ -19,8 +19,9 @@
 //!        Options   [Options]
 //! Computer: Location [Properties][Open]  Network [Add drive][Add folder as drive]
 //!        [Remove drive]  System [Refresh][Options]
-//! Search (Search Tools, while a search is open): Options [File contents] Hidden items /
-//!        Skip ignored files  Close [Close search]
+//! Search (Search Tools, while a search is open): Location [Current folder][All subfolders]
+//!        Refine [Date modified v] Kind v / Size v  Options [File contents] Hidden items /
+//!        Skip ignored files / Open file location  Close [Close search]
 //! ```
 //!
 //! Every control runs its [`Action`] or is greyed with the reason it cannot run now
@@ -88,6 +89,11 @@ impl RibbonTabKind {
 /// View.
 pub(crate) fn tabs_of(place: &Place, searching: bool) -> &'static [RibbonTabKind] {
     match place {
+        Place::ThisPc if searching => &[
+            RibbonTabKind::Computer,
+            RibbonTabKind::View,
+            RibbonTabKind::Search,
+        ],
         Place::ThisPc => &[RibbonTabKind::Computer, RibbonTabKind::View],
         Place::Folder { .. } if searching => &[
             RibbonTabKind::Home,
@@ -489,7 +495,52 @@ fn computer_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
 /// files name is passed over - each change searches again -, and Close search.
 fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
     let settings = &s.settings;
+    let refines = &s.refines;
+    // A refine that is set shows its choice on its button.
+    let refine_label = |name: &str, chosen: Option<&str>| match chosen {
+        Some(chosen) => format!("{name}: {chosen}"),
+        None => name.to_string(),
+    };
+    let date = refine_label(
+        "Date modified",
+        (refines.date != crate::find::DateRefine::Any).then(|| refines.date.label()),
+    );
+    let kind = refine_label(
+        "Kind",
+        (refines.kind != crate::find::KindRefine::Any).then(|| refines.kind.label()),
+    );
+    let size = refine_label(
+        "Size",
+        (refines.size != crate::find::SizeRefine::Any).then(|| refines.size.label()),
+    );
     RibbonTab::create(AzString::from(RibbonTabKind::Search.label()))
+        .with_group(group(
+            "Location",
+            vec![
+                large(
+                    button(s, app, "folder", "Current folder", Action::SearchSubfolders(false))
+                        .with_toggled(!settings.search_subfolders),
+                ),
+                large(
+                    button(
+                        s,
+                        app,
+                        "account_tree",
+                        "All subfolders",
+                        Action::SearchSubfolders(true),
+                    )
+                    .with_toggled(settings.search_subfolders),
+                ),
+            ],
+        ))
+        .with_group(group(
+            "Refine",
+            vec![
+                large(menu_button(s, app, "event", &date, Action::RefineDateMenu)),
+                small(menu_button(s, app, "category", &kind, Action::RefineKindMenu)),
+                small(menu_button(s, app, "straighten", &size, Action::RefineSizeMenu)),
+            ],
+        ))
         .with_group(group(
             "Options",
             vec![
@@ -516,6 +567,13 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     "Skip ignored files",
                     Toggle::SearchIgnoreFiles,
                     settings.search_ignore_files,
+                )),
+                small(button(
+                    s,
+                    app,
+                    "folder_open",
+                    "Open file location",
+                    Action::OpenFileLocation,
                 )),
             ],
         ))

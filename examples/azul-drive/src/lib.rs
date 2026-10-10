@@ -568,6 +568,10 @@ pub(crate) struct DriveState {
     pub find: Option<find::FindState>,
     /// The searches started so far (a batch of an older one is dropped).
     pub find_serial: u64,
+    /// The Search tab's Refine (Date modified, Kind, Size); forgotten when the search closes.
+    pub refines: find::Refines,
+    /// The item to select once the open folder is listed (Open file location of a result).
+    pub select_when_listed: Option<String>,
     pub editing_path: bool,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
@@ -690,7 +694,7 @@ impl DriveState {
     /// items out unless they show), else the open folder's rows - hidden items only when asked.
     pub fn visible_entries(&self) -> Vec<&Entry> {
         if let Some(find) = &self.find {
-            return find.rows.iter().collect();
+            return find.shown();
         }
         self.entries
             .iter()
@@ -927,10 +931,11 @@ impl DriveState {
 
     /// Prints the selection for scripts.
     pub fn print_selection(&self) {
+        let first = self.selection.keys().first().cloned();
         println!(
             "AZDRIVE_SELECTED {} {}",
             self.selection.len(),
-            self.selection.keys().first().map_or("-", String::as_str)
+            first.map_or_else(|| String::from("-"), |key| key.replace('\u{0}', ":"))
         );
     }
 }
@@ -1050,37 +1055,83 @@ pub(crate) fn stop_find(s: &mut DriveState) -> bool {
 }
 
 /// The search box's text changed, or a setting of the search did: the search running stops and
-/// a new one starts for the open folder and every folder below it - the names, then the files'
-/// contents when "File contents" is on; a cloud drive's names over a recursive listing (slower,
-/// no contents). Its results stream into the view as rows. An empty box (Escape cleared it)
-/// shows the folder again. This PC and Quick access are not searched.
+/// a new one starts for the open folder - with every folder below it, or ("Current folder") its
+/// own items - as the Search tab says: the names, then the files' contents when "File
+/// contents" is on, the Refine's kinds, sizes and dates; a cloud drive's names over its listing
+/// (slower, no contents); on This PC every drive on this computer, a job each. Its results
+/// stream into the view as rows. An empty box (Escape cleared it) shows the place again and
+/// forgets the Refine. Quick access is not searched.
 pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let was_open = stop_find(s);
     let query = s.search.trim().to_string();
-    let index = s.current_drive();
-    let (Some(index), false) = (index, query.is_empty()) else {
+    if query.is_empty() {
+        s.refines = find::Refines::default();
         if was_open {
             println!("AZDRIVE_SEARCH_CLOSED");
         }
         return;
+    }
+    let mut options = find::FindOptions {
+        contents: s.settings.search_contents && find::searches_contents(&query),
+        show_hidden: s.settings.show_hidden,
+        ignore_files: s.settings.search_ignore_files,
+        subfolders: s.settings.search_subfolders,
+        refine: s.refines.to_refine(&chrono::Local::now()),
     };
-    let Some(drive) = open_slot(s, index) else {
-        return;
-    };
-    let prefix = s.prefix().to_string();
-    let dir = s.local_dir(index, &prefix);
-    let remote = dir.is_none();
-    let contents = s.settings.search_contents && !remote && find::searches_contents(&query);
     s.find_serial += 1;
     let serial = s.find_serial;
     let cancel = Arc::new(AtomicBool::new(false));
-    s.find = Some(find::FindState::new(
-        query.clone(),
-        contents,
-        remote,
-        serial,
-        cancel.clone(),
-    ));
+    let mut jobs = Vec::new();
+    let mut remote = false;
+    if let Some(index) = s.current_drive() {
+        let Some(drive) = open_slot(s, index) else {
+            return;
+        };
+        let prefix = s.prefix().to_string();
+        match s.local_dir(index, &prefix) {
+            Some(dir) => jobs.push(Job::Find {
+                serial,
+                request: find::local_request(dir, &query, prefix.is_empty(), &options),
+                prefix,
+                cancel: cancel.clone(),
+            }),
+            None => {
+                remote = true;
+                options.contents = false;
+                jobs.push(Job::FindRemote {
+                    serial,
+                    drive,
+                    prefix,
+                    pattern: azul_search::Pattern::guess(query.clone()),
+                    options: options.clone(),
+                    cancel: cancel.clone(),
+                });
+            }
+        }
+    } else if s.place == Place::ThisPc {
+        // This PC: every drive on this computer, from its root; a row's key names its drive.
+        for index in 0..s.slots.len() {
+            let Some(root) = s.local_root(index) else {
+                continue;
+            };
+            let prefix = find::pc_key(&s.slots[index].entry.id, "");
+            jobs.push(Job::Find {
+                serial,
+                request: find::local_request(root, &query, true, &options),
+                prefix,
+                cancel: cancel.clone(),
+            });
+        }
+    }
+    if jobs.is_empty() {
+        if was_open {
+            println!("AZDRIVE_SEARCH_CLOSED");
+        }
+        return;
+    }
+    let mut state = find::FindState::new(query.clone(), options.contents, remote, serial, cancel);
+    state.pending = jobs.len();
+    s.find = Some(state);
     // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
     // with every key typed into it (the user may have chosen another tab meanwhile).
     if !was_open {
@@ -1089,30 +1140,9 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     s.view_scroll.0 = 0.0;
     ui_view::scroll_view_to_top(info);
     println!("AZDRIVE_SEARCHING {query}");
-    let job = match dir {
-        Some(dir) => Job::Find {
-            serial,
-            request: find::local_request(
-                dir,
-                &query,
-                contents,
-                s.settings.show_hidden,
-                s.settings.search_ignore_files,
-                prefix.is_empty(),
-            ),
-            prefix,
-            cancel,
-        },
-        None => Job::FindRemote {
-            serial,
-            drive,
-            prefix,
-            pattern: azul_search::Pattern::guess(query),
-            show_hidden: s.settings.show_hidden,
-            cancel,
-        },
-    };
-    spawn(info, app, s, job);
+    for job in jobs {
+        spawn(info, app, s, job);
+    }
 }
 
 /// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
@@ -1256,6 +1286,7 @@ pub(crate) fn go(
         actions::clear_search_box(info);
     }
     s.search.clear();
+    s.refines = find::Refines::default();
     // The folder being left may still be read: that read stops here.
     cancel_listing(s);
     s.entries.clear();
@@ -1705,6 +1736,14 @@ fn scanned(
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
+    // Open file location: the result the folder was opened for is selected, in view.
+    if let Some(key) = s.select_when_listed.take() {
+        if s.entries.iter().any(|e| e.key == key) {
+            s.selection.set(vec![key.clone()]);
+            s.print_selection();
+            ui_view::reveal_item(info, s, &key);
+        }
+    }
     if let Place::Folder { drive, prefix } = &s.place {
         if prefix.is_empty() {
             s.root_counts.insert(drive.clone(), s.entries.len());
@@ -1778,7 +1817,7 @@ pub(crate) extern "C" fn on_job_done(
             let mut changed = listing::apply_stats(&mut s.entries, &stats);
             if let Some(find) = s.find.as_mut() {
                 // The search's rows in view were asked for (a result's key is the drive's).
-                changed += listing::apply_stats(&mut find.rows, &stats);
+                changed += find.apply_stats(&stats);
             }
             if actions::needs_all_stats(s) {
                 // A sort by Size or Date modified is a chain: every answer asks for the next
@@ -2030,14 +2069,14 @@ pub(crate) extern "C" fn on_job_done(
             find.merge(batch);
             find.phase = phase;
             find.searched = searched;
-            if let Some(end) = end {
+            // The last job's end is the search's (This PC runs one per drive).
+            if end.is_some_and(|end| find.job_ended(end)) {
                 println!(
                     "AZDRIVE_SEARCHED {} {} {}",
                     find.rows.len(),
                     if find.contents { "contents" } else { "names" },
                     find.query
                 );
-                find.end = Some(end);
             }
             // The rows that came into view get their sizes and dates.
             actions::request_view_work(&mut info, &handle, s);
@@ -2443,6 +2482,8 @@ pub fn start() {
         search: String::new(),
         find: None,
         find_serial: 0,
+        refines: find::Refines::default(),
+        select_when_listed: None,
         editing_path: false,
         renaming: None,
         column_drag: None,

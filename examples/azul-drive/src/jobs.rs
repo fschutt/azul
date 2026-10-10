@@ -269,14 +269,14 @@ pub(crate) enum Job {
         prefix: String,
         cancel: Arc<AtomicBool>,
     },
-    /// The search box's search of a cloud drive's folder: the names of a recursive listing,
-    /// page by page.
+    /// The search box's search of a cloud drive's folder: the names of its listing (recursive,
+    /// or its own level), page by page.
     FindRemote {
         serial: u64,
         drive: Arc<dyn Drive>,
         prefix: String,
         pattern: azul_search::Pattern,
-        show_hidden: bool,
+        options: find::FindOptions,
         cancel: Arc<AtomicBool>,
     },
 }
@@ -1078,15 +1078,16 @@ pub(crate) fn run_find(
     batch.finish(end)
 }
 
-/// The search box's search of a cloud drive's folder `prefix`: the names of its recursive
-/// listing, page by page (slower than a folder on this computer; no contents - the files would
-/// have to be downloaded), at most [`find::FIND_MAX`]; a set `cancel` ends it between pages.
+/// The search box's search of a cloud drive's folder `prefix`: the names of its listing -
+/// recursive, or ("Current folder") its own level -, page by page (slower than a folder on this
+/// computer; no contents - the files would have to be downloaded), refined by the sizes and
+/// dates the listing has, at most [`find::FIND_MAX`]; a set `cancel` ends it between pages.
 pub(crate) fn run_find_remote(
     serial: u64,
     drive: &dyn Drive,
     prefix: &str,
     pattern: &azul_search::Pattern,
-    show_hidden: bool,
+    options: &find::FindOptions,
     cancel: &AtomicBool,
     emit: &mut dyn FnMut(Outcome),
 ) -> Outcome {
@@ -1108,7 +1109,12 @@ pub(crate) fn run_find_remote(
         if cancel.load(Ordering::Relaxed) {
             return batch.finish(FindEnd::default());
         }
-        let mut request = ListRequest::recursive(prefix).with_max_keys(SCAN_PAGE);
+        let listing = if options.subfolders {
+            ListRequest::recursive(prefix)
+        } else {
+            ListRequest::folder(prefix)
+        };
+        let mut request = listing.with_max_keys(SCAN_PAGE);
         if let Some(token) = next.take() {
             request = request.with_continuation(token);
         }
@@ -1122,7 +1128,7 @@ pub(crate) fn run_find_remote(
             }
         };
         batch.searched += page.objects.len();
-        for item in find::remote_names(&page, prefix, &matcher, show_hidden, &mut seen) {
+        for item in find::remote_names(&page, prefix, &matcher, options, &mut seen) {
             if found == find::FIND_MAX {
                 return batch.finish(FindEnd {
                     limited: true,
@@ -1654,7 +1660,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive,
             prefix,
             pattern,
-            show_hidden,
+            options,
             cancel,
         } => {
             if !debounce(&cancel) {
@@ -1666,7 +1672,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
                 &*drive,
                 &prefix,
                 &pattern,
-                show_hidden,
+                &options,
                 &cancel,
                 &mut emit,
             )

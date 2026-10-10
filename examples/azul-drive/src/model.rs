@@ -747,6 +747,9 @@ pub struct Settings {
     /// The search passes over the files .gitignore and .ignore files name (the Search tab's
     /// "Skip ignored files").
     pub search_ignore_files: bool,
+    /// The search box searches every folder below the open one (the Search tab's "All
+    /// subfolders"); `false`: the folder's own items ("Current folder").
+    pub search_subfolders: bool,
 }
 
 impl Default for Settings {
@@ -767,6 +770,7 @@ impl Default for Settings {
             start: StartPlace::ThisPc,
             search_contents: false,
             search_ignore_files: true,
+            search_subfolders: true,
         }
     }
 }
