@@ -47,8 +47,10 @@
 //! bytes here ("Free up space"), [`fetch_file`] brings a cloud-only file down (opening it);
 //! [`session`] keeps an app's pairing, its settings and its files' states.
 
+pub mod drive_store;
 pub mod local;
 pub mod merge;
+pub mod named;
 pub mod remote;
 pub mod rules;
 
@@ -1232,6 +1234,7 @@ fn write_download(
             return;
         }
     };
+    let hash = content_hash(&d.hash, &blob);
     let bytes = if root.json_merge.iter().any(|k| *k == d.key) {
         let current = fs::read(local::path_of(&root.path, &d.key)).ok();
         local::json_with_local_keys(&blob, current.as_deref()).unwrap_or(blob)
@@ -1248,7 +1251,7 @@ fn write_download(
     }
     match drive.put(&d.key, &bytes) {
         Ok(()) => {
-            if let Some(entry) = local::entry_now(&root.path, &d.key, &d.hash) {
+            if let Some(entry) = local::entry_now(&root.path, &d.key, &hash) {
                 base.insert(d.key.clone(), entry);
             }
             report.files_down += 1;
@@ -1413,7 +1416,13 @@ pub fn sync_to(
             opts,
             hooks,
         ),
-        Target::Named(_) => fail!("named targets come with the named remote"),
+        Target::Named(drive) => run(
+            &named::NamedFiles::new(drive, &opts.prefix, index_path),
+            root,
+            index_path,
+            opts,
+            hooks,
+        ),
     }
 }
 
@@ -1604,7 +1613,22 @@ pub fn fetch_file(
 ) -> CloudResult<PathBuf> {
     match target {
         Target::Index(store) => fetch_one(&BlobIndex::new(store, &opts.prefix), root, index_path, key),
-        Target::Named(_) => fail!("named targets come with the named remote"),
+        Target::Named(drive) => fetch_one(
+            &named::NamedFiles::new(drive, &opts.prefix, index_path),
+            root,
+            index_path,
+            key,
+        ),
+    }
+}
+
+/// The base's hash of a downloaded file: the drive's name for its content - or, where the drive
+/// could not name it (a version of unknown content), the content's own.
+fn content_hash(named: &str, blob: &[u8]) -> String {
+    if remote::is_hash(named) {
+        named.to_string()
+    } else {
+        local::hash_bytes(blob)
     }
 }
 
@@ -1630,7 +1654,7 @@ fn fetch_one<R: SyncRemote + ?Sized>(
         fail!("{key} turned up on this device meanwhile; it is left as it is");
     }
     root.drive().put(key, &bytes)?;
-    if let Some(entry) = local::entry_now(&root.path, key, &file.hash) {
+    if let Some(entry) = local::entry_now(&root.path, key, &content_hash(&file.hash, &bytes)) {
         index.files.insert(key.to_string(), entry);
     }
     index.save(index_path)?;
