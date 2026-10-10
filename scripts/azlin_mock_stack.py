@@ -1076,11 +1076,18 @@ class TokenState:
         with self.lock:
             drive = self.authenticate(drive_id, bearer, previous_ok=True)
             pending = drive.get('lockdown_pending_until')
+            read_only = pending is not None or bool(drive.get('read_only'))
             return {'id': drive['id'], 'tier': drive['tier'],
-                    'quota_bytes': drive['quota_bytes'], 'read_only': pending is not None,
+                    'quota_bytes': drive['quota_bytes'], 'read_only': read_only,
                     'status': 'active', 'period_until': rfc3339(drive['period_until']),
                     'lockdown_pending_until': rfc3339(pending) if pending else None,
                     'members': [], 'usage_bytes': None}
+
+    def set_read_only(self, drive_id, read_only=True):
+        """A test's switch: drive `drive_id` takes no writes (unpaid past its grace) - its
+        status says `read_only` (the S3 server is not told)."""
+        with self.lock:
+            self.drives[drive_id]['read_only'] = bool(read_only)
 
     def set_recovery(self, drive_id, bearer, body):
         """POST /v1/drives/<id>/recovery (drives.rs `set_recovery`, a grant): the drive's
