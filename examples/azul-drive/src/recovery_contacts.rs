@@ -46,7 +46,7 @@ use azul_storage::{
 };
 
 use crate::{
-    encryption::{Dialog, EncryptionJob, EncryptionOutcome},
+    encryption::{Dialog, EncryptionJob},
     ids,
     jobs::Job,
     recovery::{drill_answer, kit_of, paper_buttons, DrillAnswer, Paper, Which},
