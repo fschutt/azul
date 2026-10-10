@@ -7,7 +7,7 @@ use azul_storage::{time::parse_iso8601, DriveError, ServiceError};
 
 use super::{json, Fake, Shared, TOKEN};
 use crate::{
-    token::{Ban, TokenServer, DRIVE_BANNED},
+    token::{ban_fluent_source, Ban, TokenServer, DRIVE_BANNED},
     user_errors::{fluent_source, Behaviour, Class, Code, Lang, UserError},
     DriveBundle, TokenError,
 };
@@ -166,4 +166,49 @@ fn every_app_words_a_ban_the_same_counting_its_hours_down_then_closed() {
         "This drive was closed on 2026-10-12 because spam distribution."
     );
     assert_eq!(ban.closed_text(), ban.banner(until + 1));
+}
+
+/// The ban's words are messages of the kit's resources too (AzDrive and AzMail say them in the
+/// window's language from one table): the banner with its hours, without an end, a closed
+/// drive with and without its day, and the default reason as a word of its own.
+#[test]
+fn a_bans_words_are_phrases_of_the_kits_messages_in_english_and_german() {
+    use azul_appkit::phrase::Arg;
+    let until = parse_iso8601(UNTIL).unwrap();
+    let ban = Ban {
+        reason: String::from("spam distribution"),
+        until: Some(until),
+        closed: false,
+    };
+    let banner = ban.banner_phrase(until - 36 * 3_600);
+    assert_eq!(banner.key, "azlin-ban-banner");
+    assert_eq!(banner.get("hours"), Some(&Arg::Int(36)));
+    assert_eq!(banner.get("reason"), Some(&Arg::from("spam distribution")));
+    assert_eq!(ban.banner_phrase(until).key, "azlin-ban-closed");
+    assert_eq!(ban.closed_phrase().get("day"), Some(&Arg::from("2026-10-12")));
+    let open_ended = Ban {
+        until: None,
+        ..ban.clone()
+    };
+    assert_eq!(open_ended.banner_phrase(until).key, "azlin-ban-banner-no-end");
+    assert_eq!(open_ended.closed_phrase().key, "azlin-ban-closed-no-day");
+    // The token server's default reason is a word of the kit's (said in the language).
+    let default = Ban::of(&serde_json::json!({"status": "banned"})).unwrap();
+    assert!(matches!(
+        default.banner_phrase(0).get("reason"),
+        Some(Arg::Word { key, .. }) if key == "azlin-ban-reason-terms"
+    ));
+    for lang in [Lang::En, Lang::De] {
+        let source = ban_fluent_source(lang);
+        for id in [
+            "azlin-ban-banner",
+            "azlin-ban-banner-no-end",
+            "azlin-ban-closed",
+            "azlin-ban-closed-no-day",
+            "azlin-ban-reason-terms",
+        ] {
+            assert!(source.contains(&format!("{id} = ")), "{lang:?} lacks {id}");
+        }
+    }
+    assert!(ban_fluent_source(Lang::De).contains("gesperrt"));
 }
