@@ -48,8 +48,11 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     registers an Ed25519 key (POST /v1/drives/<id>/recovery); a lockdown signed with it and no
     drive token is 202 with `pending_until` and a new family's drive token; the same request
     again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
-    pending lockdown; the pending family cannot cancel it (403), the owner can (200), and then
-    there is none to cancel (409 `no_pending_lockdown`).
+    pending lockdown; the pending family gets no credentials before the 48 hours are over (403
+    `lockdown_pending`: D42, the drive is handed over only when the notice ends - so the
+    recovery wrap, and with the code the drive key, stays out of reach meanwhile); the pending
+    family cannot cancel it (403), the owner can (200), and then there is none to cancel (409
+    `no_pending_lockdown`).
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -217,6 +220,11 @@ def recovery_checks(suite, client):
     suite.check("the drive's status names the pending lockdown",
                 status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
                 '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    status, value, _ = client.call('POST', path + '/credentials', {}, bearer=pending_token)
+    suite.check('the pending family gets no credentials before the notice ends (403 '
+                'lockdown_pending)',
+                status == 403 and error_code(value) == 'lockdown_pending',
+                '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=pending_token)
     suite.check('the pending family cannot cancel its own lockdown (403)', status == 403,
                 '(HTTP %d %r)' % (status, error_code(value)))
