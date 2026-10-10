@@ -36,6 +36,7 @@ pub mod codec;
 pub mod device;
 pub mod drops;
 pub mod keys;
+pub mod share;
 
 use std::fmt;
 
@@ -534,6 +535,13 @@ impl ShareKey {
     #[must_use]
     pub fn id(&self) -> KeyId {
         KeyId::derive(SHARE_KEY_ID_CONTEXT, &self.0)
+    }
+
+    /// A key derived from this one for `context` (BLAKE3 `derive_key`): the share's manifest
+    /// is sealed with one ([`share`]).
+    #[must_use]
+    pub(crate) fn derive(&self, context: &str) -> Zeroizing<[u8; KEY_LEN]> {
+        Zeroizing::new(blake3::derive_key(context, &self.0))
     }
 
     /// `file_key` wrapped for `object` under this share key (the drive key stays out of the

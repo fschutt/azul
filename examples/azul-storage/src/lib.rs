@@ -101,6 +101,9 @@ pub mod migrate;
 /// An encrypted drive's files written again, smaller, while the computer is idle.
 #[cfg(feature = "encryption")]
 pub mod recompress;
+/// Links to an encrypted drive's files: share manifests, presigned links.
+#[cfg(feature = "encryption")]
+pub mod sharing;
 
 use std::{fmt, io::Read, path::PathBuf};
 

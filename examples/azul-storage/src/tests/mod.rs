@@ -47,6 +47,9 @@ mod recompress;
 /// The drops of incoming mail, AZD1 (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod drops;
+/// Share manifests and links (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod sharing;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
