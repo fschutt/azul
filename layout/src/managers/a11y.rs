@@ -1024,7 +1024,7 @@ impl A11yManager {
                     .cursor_info
                     .filter(|ci| ci.dom_id == *dom_id && ci.node_id == dom_node_id);
                 let bounds = layout_info.and_then(|(hot, pos)| {
-                    Self::screen_bounds(hot, pos, inputs.hidpi_factor, inputs.window_size)
+                    Self::screen_bounds(hot, pos, inputs.hidpi_factor)
                 });
                 let node_inputs = Self::node_signature(
                     node_data,
@@ -1058,7 +1058,6 @@ impl A11yManager {
                             text_override,
                             cursor.as_ref(),
                             inputs.hidpi_factor,
-                            inputs.window_size,
                         )
                     },
                 );
@@ -1338,7 +1337,6 @@ impl A11yManager {
         text_override: Option<&String>,
         cursor: Option<&CursorA11yInfo>,
         hidpi_factor: f32,
-        window_size: LogicalSize,
     ) -> Node {
         let a11y_info_ref = node_data.get_accessibility_info();
         let mut node = if let Some((layout_node, abs_pos)) = layout_info {
@@ -1348,7 +1346,6 @@ impl A11yManager {
                 abs_pos,
                 a11y_info_ref,
                 hidpi_factor,
-                window_size,
             )
         } else {
             // Same rule as `build_node` (which this branch stands in
@@ -1476,14 +1473,22 @@ impl A11yManager {
     }
 
     /// A box's bounds as a screen reader draws them: its padding box (the
-    /// absolute position offset by padding + border), in physical pixels,
-    /// clipped to the window so a highlight never extends off-screen. `None`
-    /// for a box with no position or size, or none left after the clip.
+    /// absolute position offset by padding + border), in physical pixels.
+    /// `None` for a box with no position or size, or with a non-finite or
+    /// empty rect.
+    ///
+    /// Not clipped to the window. accesskit decides what a clipping parent
+    /// (a scroll container) hides by comparing a child's rect with the
+    /// parent's: a child outside it is dropped, except the one next to a
+    /// visible sibling, which a screen reader scrolls into view. A rect
+    /// clamped to the window made that decision one-sided: a child past the
+    /// window edge lost its rect and stayed reachable, a child behind a
+    /// toolbar kept its rect and was dropped, so a screen reader could move
+    /// down a list but not back up.
     fn screen_bounds(
         layout_node: &LayoutNodeHot,
         abs_pos: Option<LogicalPosition>,
         hidpi_factor: f32,
-        window_size: LogicalSize,
     ) -> Option<Rect> {
         let (pos, size) = (abs_pos?, layout_node.used_size?);
         let bp = layout_node.box_props.unpack();
@@ -1493,19 +1498,13 @@ impl A11yManager {
         let pad_bottom = bp.padding.bottom + bp.border.bottom;
 
         let s = f64::from(hidpi_factor);
-        let ww = f64::from(window_size.width) * s;
-        let wh = f64::from(window_size.height) * s;
+        let x0 = f64::from(pos.x + pad_left) * s;
+        let y0 = f64::from(pos.y + pad_top) * s;
+        let x1 = f64::from(pos.x + size.width - pad_right) * s;
+        let y1 = f64::from(pos.y + size.height - pad_bottom) * s;
 
-        let x0 = (f64::from(pos.x + pad_left) * s).max(0.0).min(ww);
-        let y0 = (f64::from(pos.y + pad_top) * s).max(0.0).min(wh);
-        let x1 = (f64::from(pos.x + size.width - pad_right) * s)
-            .max(0.0)
-            .min(ww);
-        let y1 = (f64::from(pos.y + size.height - pad_bottom) * s)
-            .max(0.0)
-            .min(wh);
-
-        (x1 > x0 && y1 > y0).then_some(Rect { x0, y0, x1, y1 })
+        let finite = x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite();
+        (finite && x1 > x0 && y1 > y0).then_some(Rect { x0, y0, x1, y1 })
     }
 
     /// MWA-B10: outbound twin of `map_accesskit_action` — declares a node's
@@ -1553,7 +1552,6 @@ impl A11yManager {
         abs_pos: Option<LogicalPosition>,
         a11y_info: Option<&AccessibilityInfo>,
         hidpi_factor: f32,
-        window_size: LogicalSize,
     ) -> Node {
         // Set role based on NodeType or AccessibilityInfo. A DECLARED role
         // wins; an `Unknown` one is not a declaration at all — see
@@ -1732,9 +1730,8 @@ impl A11yManager {
             }
         }
 
-        // Set bounds: absolute position, offset by padding+border, scaled to physical pixels,
-        // clipped to window viewport so VoiceOver highlights don't extend off-screen.
-        if let Some(bounds) = Self::screen_bounds(layout_node, abs_pos, hidpi_factor, window_size) {
+        // Bounds: the padding box in physical pixels (see `screen_bounds`).
+        if let Some(bounds) = Self::screen_bounds(layout_node, abs_pos, hidpi_factor) {
             builder.set_bounds(bounds);
         }
 
@@ -2960,7 +2957,6 @@ mod autotest_generated {
             Some(LogicalPosition::new(10.0, 20.0)),
             None,
             2.0,
-            LogicalSize::new(1000.0, 1000.0),
         );
         let bounds = node.bounds().expect("in-viewport node must have bounds");
         assert_eq!(bounds.x0, 24.0); // (10 + 2) * 2
@@ -2970,7 +2966,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_node_clips_bounds_to_the_window_viewport() {
+    fn build_node_keeps_the_true_rect_of_a_box_partly_outside_the_window() {
+        // accesskit's clip filter compares a child's rect with its scroll
+        // container's; a rect cut to the window would hide where it is.
         let node_data = NodeData::create_node(NodeType::Div);
         let layout_node = hot(Some(LogicalSize::new(10_000.0, 10_000.0)), [0; 4], [0; 4]);
         let node = A11yManager::build_node(
@@ -2979,19 +2977,10 @@ mod autotest_generated {
             Some(LogicalPosition::new(-500.0, -500.0)),
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
-        let bounds = node.bounds().expect("clipped node still has bounds");
-        assert_eq!(
-            (bounds.x0, bounds.y0),
-            (0.0, 0.0),
-            "off-screen origin clamps to 0"
-        );
-        assert_eq!(
-            (bounds.x1, bounds.y1),
-            (800.0, 600.0),
-            "overflowing extent clamps to the viewport"
-        );
+        let bounds = node.bounds().expect("an off-screen box still has bounds");
+        assert_eq!((bounds.x0, bounds.y0), (-500.0, -500.0));
+        assert_eq!((bounds.x1, bounds.y1), (9_500.0, 9_500.0));
     }
 
     #[test]
@@ -3009,7 +2998,6 @@ mod autotest_generated {
             Some(LogicalPosition::new(0.0, 0.0)),
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.bounds(), None);
     }
@@ -3025,7 +3013,6 @@ mod autotest_generated {
                 Some(LogicalPosition::new(10.0, 20.0)),
                 None,
                 hidpi,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(
                 node.bounds(),
@@ -3053,32 +3040,20 @@ mod autotest_generated {
             LogicalPosition::new(f32::NAN, 0.0),
             LogicalPosition::new(f32::INFINITY, f32::NEG_INFINITY),
         ];
-        let windows = [
-            LogicalSize::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-            LogicalSize::new(f32::MAX, f32::MAX),
-            LogicalSize::new(f32::NAN, f32::NAN),
-        ];
         for size in sizes {
             for pos in positions {
-                for window in windows {
-                    for hidpi in [1.0_f32, 0.5, 3.0, f32::INFINITY] {
-                        let layout_node = hot(Some(size), [i16::MAX; 4], [i16::MIN; 4]);
-                        let node = A11yManager::build_node(
-                            &node_data,
-                            &layout_node,
-                            Some(pos),
-                            None,
-                            hidpi,
-                            window,
+                for hidpi in [1.0_f32, 0.5, 3.0, f32::INFINITY] {
+                    let layout_node = hot(Some(size), [i16::MAX; 4], [i16::MIN; 4]);
+                    let node =
+                        A11yManager::build_node(&node_data, &layout_node, Some(pos), None, hidpi);
+                    if let Some(b) = node.bounds() {
+                        assert!(
+                            b.x1 > b.x0
+                                && b.y1 > b.y0
+                                && [b.x0, b.y0, b.x1, b.y1].iter().all(|v| v.is_finite()),
+                            "inverted or infinite rect {b:?} for size={size:?} pos={pos:?} \
+                             hidpi={hidpi}"
                         );
-                        if let Some(b) = node.bounds() {
-                            assert!(
-                                b.x1 > b.x0 && b.y1 > b.y0,
-                                "inverted rect {b:?} for size={size:?} pos={pos:?} \
-                                 window={window:?} hidpi={hidpi}"
-                            );
-                        }
                     }
                 }
             }
@@ -3095,7 +3070,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.bounds(), None);
 
@@ -3106,7 +3080,6 @@ mod autotest_generated {
             Some(LogicalPosition::new(0.0, 0.0)),
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.bounds(), None);
     }
@@ -3123,7 +3096,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert!(node.supports_action(Action::ScrollIntoView));
     }
@@ -3136,7 +3108,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         let expected = NodeType::Div.get_path().to_string();
         assert_eq!(node.html_tag(), Some(expected.as_str()));
@@ -3154,7 +3125,6 @@ mod autotest_generated {
             None,
             node_data.get_accessibility_info(),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::MultilineTextInput);
         assert!(node.supports_action(Action::Focus));
@@ -3170,7 +3140,6 @@ mod autotest_generated {
                 None,
                 None,
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(node.role(), Role::Label);
             assert_eq!(node.label(), Some(s));
@@ -3195,7 +3164,6 @@ mod autotest_generated {
                 None,
                 None,
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(node.role(), Role::Heading);
             assert_eq!(node.level(), Some(level));
@@ -3223,7 +3191,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::CheckBox);
         assert!(node.is_disabled());
@@ -3250,7 +3217,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.is_expanded(), Some(false));
         assert_eq!(node.toggled(), Some(Toggled::False));
@@ -3272,7 +3238,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert!(node.supports_action(Action::Increment));
         assert!(node.supports_action(Action::Decrement));
@@ -3292,7 +3257,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(
             node.labelled_by(),
@@ -3320,7 +3284,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::GridCell);
         assert_eq!(node.row_index(), Some(1000));
@@ -3332,7 +3295,6 @@ mod autotest_generated {
             None,
             Some(&info(AccessibilityRole::Cell)),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(plain.row_index(), None, "no index declared, none published");
     }
@@ -3352,7 +3314,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert!(
             node.labelled_by().is_empty() && node.described_by().is_empty(),
@@ -3390,7 +3351,6 @@ mod autotest_generated {
                 None,
                 None,
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(node.live(), Some(expected), "aria-live={value:?}");
         }
@@ -3422,7 +3382,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.label(), Some("label"));
         assert_eq!(node.description(), Some("desc"));
@@ -3453,7 +3412,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.column_span(), Some(usize::MAX));
         assert_eq!(node.row_span(), Some(usize::MAX));
@@ -3469,7 +3427,6 @@ mod autotest_generated {
             None,
             None,
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.column_span(), Some(0));
     }
@@ -3494,7 +3451,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.label(), Some("from-attr"));
         assert_eq!(node.value(), Some("attr-value"));
@@ -3559,7 +3515,6 @@ mod autotest_generated {
                 None,
                 Some(&a11y),
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             );
             assert_eq!(
                 node.role(),
@@ -3585,7 +3540,6 @@ mod autotest_generated {
             None,
             Some(&a11y),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         );
         assert_eq!(node.role(), Role::Slider);
     }
@@ -3949,7 +3903,6 @@ mod autotest_generated {
             None,
             node_data.get_accessibility_info(),
             1.0,
-            LogicalSize::new(800.0, 600.0),
         )
         .role()
     }
@@ -3990,7 +3943,6 @@ mod autotest_generated {
                 None,
                 Some(&a11y),
                 1.0,
-                LogicalSize::new(800.0, 600.0),
             )
         };
         assert_eq!(
