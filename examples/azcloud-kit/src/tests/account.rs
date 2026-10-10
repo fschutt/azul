@@ -349,9 +349,10 @@ fn a_lockdown_keeps_this_devices_new_grant_and_a_restore_wants_an_rfc_3339_time(
 
 #[test]
 fn a_grant_goes_with_the_newest_drive_token_behind_the_refresh_lock() {
-    // AZDRIVE-INTEGRATION §4 (2026-10-11): calls that grant (members, lockdown and its cancel,
-    // restores) take only the current token - an older one is a reuse that revokes the family -
-    // so they wait for a refresh another azcloud runs, one at a time, with its token.
+    // AZDRIVE-INTEGRATION §4 (2026-10-11): calls that grant (members, lockdown, restores) take
+    // only the current token - an older one is a reuse that revokes the family - so they wait for
+    // a refresh another azcloud runs, one at a time, with its token. A lockdown's cancel is the
+    // recovery code's (F12): no token at all.
     let dir = TempDir::new("azcloud-grants");
     let state = StateDir::open(dir.path()).unwrap();
     let lock = dir.path().join("refresh.lock");
@@ -360,6 +361,12 @@ fn a_grant_goes_with_the_newest_drive_token_behind_the_refresh_lock() {
         let url = call.url.as_str();
         if url.ends_with("/v1/drives") {
             return Ok(reply(201, &answer("dt_f.0.a").to_string()));
+        }
+        if url.ends_with("/lockdown/cancel") {
+            assert_eq!(header(call, "authorization"), None, "signed by the code, no token");
+            let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+            assert!(body["nonce"].is_string() && body["signature"].is_string());
+            return Ok(reply(200, r#"{"cancelled": true}"#));
         }
         assert!(held.exists(), "{url} goes behind the refresh lock");
         assert_eq!(header(call, "authorization"), Some("Bearer dt_f.0.a"));
@@ -373,7 +380,7 @@ fn a_grant_goes_with_the_newest_drive_token_behind_the_refresh_lock() {
     });
     let a = Account::signup(&state, TOKEN, factory(&server), "100GB", "Ann's drive").unwrap();
     a.invite(Some("laptop")).unwrap();
-    a.lockdown_cancel().unwrap();
+    a.lockdown_cancel(&[0x5A; 16]).unwrap();
     a.restore("docs/", "2026-10-08T09:00:00Z").unwrap();
     assert_eq!(server.calls().len(), 4);
     assert!(!lock.exists(), "released after each call");
