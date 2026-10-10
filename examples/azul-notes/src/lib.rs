@@ -32,6 +32,7 @@
 pub mod args;
 pub mod editor;
 pub mod ids;
+pub mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 mod jobs;
@@ -76,6 +77,7 @@ pub const SPEC: AppSpec = AppSpec {
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzNotes",
     version: env!("CARGO_PKG_VERSION"),
+    // The About page says it by `aznotes-about-summary` (l10n::app_word).
     summary: "Notes as plain Markdown files, with notebooks, tags, pinning, search, version \
               history and a rich-text editor.",
     license: "MIT",
@@ -83,27 +85,27 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The settings page's own categories (before the kit's Appearance, Data,
-/// Shortcuts and About).
+/// Shortcuts and About; said by `aznotes-category-<name>`).
 pub const APP_CATEGORIES: [&str; 2] = ["Editor", "Storage"];
 
 /// The keyboard shortcuts (the settings page and F1 list them).
 pub const SHORTCUTS: [Shortcut; 16] = [
-    Shortcut::new("Notes", "Mod+N", "New note"),
-    Shortcut::new("Notes", "Mod+K", "Command palette"),
-    Shortcut::new("Notes", "Mod+S", "Save now (and keep a version)"),
-    Shortcut::new("Notes", "Mod+Shift+P", "Pin or unpin the note"),
-    Shortcut::new("Notes", "Mod+Shift+H", "Version history"),
-    Shortcut::new("Notes", "Escape", "Close a sheet, leave the history"),
-    Shortcut::new("Editing", "Mod+Z / Mod+Shift+Z", "Undo / redo"),
-    Shortcut::new("Editing", "Mod+B / I / U", "Bold / italic / underline"),
-    Shortcut::new("Editing", "Mod+Shift+X", "Strikethrough"),
-    Shortcut::new("Editing", "Mod+E", "Inline code"),
-    Shortcut::new("Editing", "Mod+Shift+K", "Link"),
-    Shortcut::new("Editing", "Mod+0 / 1 / 2 / 3", "Paragraph / heading 1-3"),
-    Shortcut::new("Editing", "Mod+Shift+7 / 8 / 9", "Numbered / bulleted / check list"),
-    Shortcut::new("Editing", "Mod+Enter", "Tick a check item"),
-    Shortcut::new("Editing", "Tab / Shift+Tab", "Indent / outdent a list item"),
-    Shortcut::new("Panes", "F6 / Shift+F6", "Next / previous pane"),
+    Shortcut::new("aznotes-notes", "Mod+N", "aznotes-new-note"),
+    Shortcut::new("aznotes-notes", "Mod+K", "aznotes-shortcut-palette"),
+    Shortcut::new("aznotes-notes", "Mod+S", "aznotes-shortcut-save"),
+    Shortcut::new("aznotes-notes", "Mod+Shift+P", "aznotes-shortcut-pin"),
+    Shortcut::new("aznotes-notes", "Mod+Shift+H", "aznotes-version-history"),
+    Shortcut::new("aznotes-notes", "Escape", "aznotes-shortcut-escape"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+Z / Mod+Shift+Z", "aznotes-shortcut-undo"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+B / I / U", "aznotes-shortcut-bold"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+Shift+X", "aznotes-strikethrough"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+E", "aznotes-inline-code"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+Shift+K", "aznotes-link"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+0 / 1 / 2 / 3", "aznotes-shortcut-styles"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+Shift+7 / 8 / 9", "aznotes-shortcut-lists"),
+    Shortcut::new("aznotes-shortcut-editing", "Mod+Enter", "aznotes-shortcut-tick"),
+    Shortcut::new("aznotes-shortcut-editing", "Tab / Shift+Tab", "aznotes-shortcut-indent"),
+    Shortcut::new("aznotes-shortcut-panes-group", "F6 / Shift+F6", "aznotes-shortcut-panes"),
 ];
 
 // ==== State ====
@@ -154,10 +156,13 @@ impl Status {
     pub fn label(&self) -> String {
         match self {
             Status::Idle => String::new(),
-            Status::Editing => "Edited".to_string(),
-            Status::Saving => "Saving...".to_string(),
-            Status::Saved => "Saved".to_string(),
-            Status::Error(e) => format!("Not saved: {e}"),
+            Status::Editing => azul_appkit::l10n::t("aznotes-status-edited"),
+            Status::Saving => azul_appkit::l10n::t("aznotes-status-saving"),
+            Status::Saved => azul_appkit::l10n::t("aznotes-status-saved"),
+            Status::Error(e) => azul_appkit::l10n::t_args(
+                "aznotes-status-not-saved",
+                &[("why", azul_appkit::l10n::Arg::from(e.as_str()))],
+            ),
         }
     }
 }
@@ -364,7 +369,8 @@ pub fn start(args: Args) {
     } else {
         Overlay::None
     };
-    let config = kit::app_config(&kit_ref).with_app_id("org.azul.AzNotes");
+    let mut config = kit::app_config(&kit_ref).with_app_id("org.azul.AzNotes");
+    crate::l10n::register(&mut config);
     let window = kit::window_options(&kit_ref, ui::layout, (1200.0, 760.0), (720.0, 480.0), jobs::on_startup);
 
     let state = AppState {

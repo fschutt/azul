@@ -184,9 +184,9 @@ impl TextSize {
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            TextSize::Small => "Small",
-            TextSize::Medium => "Medium",
-            TextSize::Large => "Large",
+            TextSize::Small => "aznotes-text-small",
+            TextSize::Medium => "aznotes-text-medium",
+            TextSize::Large => "aznotes-text-large",
         }
     }
 

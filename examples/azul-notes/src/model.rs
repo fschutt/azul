@@ -46,6 +46,8 @@ pub const NOTEBOOK_MARKER: &str = ".notebook";
 pub const DEFAULT_NOTEBOOK: &str = "Notes";
 /// The title shown for a note without one.
 pub const UNTITLED: &str = "Untitled";
+/// What the window calls an untitled note (its file keeps [`UNTITLED`]).
+pub const UNTITLED_KEY: &str = "aznotes-untitled";
 
 /// One note in memory.
 #[derive(Debug, Clone, PartialEq)]
@@ -358,18 +360,18 @@ pub fn clean_notebook_path(name: &str) -> Result<String, &'static str> {
             continue;
         }
         if segment.starts_with('.') {
-            return Err("a notebook name cannot start with a dot");
+            return Err("aznotes-notebook-dot");
         }
         if segment.contains('\\') || segment.chars().any(char::is_control) {
-            return Err("a notebook name cannot hold a backslash or a control character");
+            return Err("aznotes-notebook-backslash");
         }
         if segment == "assets" {
-            return Err("\"assets\" is the name of a note's image folder");
+            return Err("aznotes-notebook-assets");
         }
         segments.push(segment.to_string());
     }
     if segments.is_empty() {
-        return Err("the notebook needs a name");
+        return Err("aznotes-notebook-no-name");
     }
     Ok(segments.join("/"))
 }
@@ -399,11 +401,11 @@ impl Scope {
     #[must_use]
     pub fn label(&self) -> String {
         match self {
-            Scope::All => "All notes".to_string(),
-            Scope::Pinned => "Pinned".to_string(),
+            Scope::All => azul_appkit::l10n::t("aznotes-all-notes"),
+            Scope::Pinned => azul_appkit::l10n::t("aznotes-pinned"),
             Scope::Notebook(path) => notebook_name(path).to_string(),
             Scope::Tag(tag) => format!("#{tag}"),
-            Scope::Trash => "Trash".to_string(),
+            Scope::Trash => azul_appkit::l10n::t("aznotes-trash"),
         }
     }
 }
@@ -420,13 +422,14 @@ pub enum SortKey {
 impl SortKey {
     pub const ALL: [SortKey; 3] = [SortKey::Modified, SortKey::Created, SortKey::Title];
 
+    /// The key's name in the window's language.
     #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            SortKey::Modified => "Date modified",
-            SortKey::Created => "Date created",
-            SortKey::Title => "Title",
-        }
+    pub fn label(self) -> String {
+        azul_appkit::l10n::t(match self {
+            SortKey::Modified => "aznotes-sort-modified",
+            SortKey::Created => "aznotes-sort-created",
+            SortKey::Title => "aznotes-title",
+        })
     }
 
     /// The next key ("Arrange by" cycles).
@@ -441,13 +444,13 @@ impl SortKey {
 
     /// What the direction toggle says in this direction.
     #[must_use]
-    pub fn direction_label(self, descending: bool) -> &'static str {
-        match (self, descending) {
-            (SortKey::Title, false) => "A on top",
-            (SortKey::Title, true) => "Z on top",
-            (_, true) => "Newest on top",
-            (_, false) => "Oldest on top",
-        }
+    pub fn direction_label(self, descending: bool) -> String {
+        azul_appkit::l10n::t(match (self, descending) {
+            (SortKey::Title, false) => "aznotes-sort-a-on-top",
+            (SortKey::Title, true) => "aznotes-sort-z-on-top",
+            (_, true) => "aznotes-sort-newest",
+            (_, false) => "aznotes-sort-oldest",
+        })
     }
 }
 
@@ -717,10 +720,10 @@ impl Library {
         for i in hits {
             let note = &self.notes[i];
             let section = if any_pinned && note.meta.pinned {
-                Some("Pinned".to_string())
+                Some(azul_appkit::l10n::t("aznotes-pinned"))
             } else {
                 match query.sort {
-                    SortKey::Title if any_pinned => Some("Notes".to_string()),
+                    SortKey::Title if any_pinned => Some(azul_appkit::l10n::t("aznotes-notes")),
                     SortKey::Title => None,
                     SortKey::Modified => Some(date_bucket(note.meta.modified, now, offset)),
                     SortKey::Created => Some(date_bucket(note.meta.created, now, offset)),
@@ -755,16 +758,28 @@ fn days_ago(then: u64, now: u64, offset: i64) -> i64 {
     }
 }
 
+/// `date` in `style`, in the window's language.
+fn said(style: azul_appkit::l10n::DateStyle, date: chrono::NaiveDate) -> String {
+    use chrono::Datelike;
+    azul_appkit::l10n::date_text(style, date.year(), date.month(), date.day(), date.weekday().num_days_from_monday())
+}
+
+/// The kit's short weekday word of `date` ("Tue").
+fn weekday_short_key(date: chrono::NaiveDate) -> &'static str {
+    use chrono::Datelike;
+    azul_pim::dates::weekday_short_message_id(date.weekday())
+}
+
 /// The section a note dated `then` sits in.
 #[must_use]
 pub fn date_bucket(then: u64, now: u64, offset: i64) -> String {
     match days_ago(then, now, offset) {
-        i64::MIN..=0 => "Today".to_string(),
-        1 => "Yesterday".to_string(),
-        2..=6 => "Previous 7 days".to_string(),
-        7..=29 => "Previous 30 days".to_string(),
+        i64::MIN..=0 => azul_appkit::l10n::t("kit-date-today"),
+        1 => azul_appkit::l10n::t("kit-date-yesterday"),
+        2..=6 => azul_appkit::l10n::t("aznotes-previous-7-days"),
+        7..=29 => azul_appkit::l10n::t("aznotes-previous-30-days"),
         _ => local(then, offset)
-            .map(|t| t.format("%B %Y").to_string())
+            .map(|t| said(azul_appkit::l10n::DateStyle::MonthYear, t.date()))
             .unwrap_or_default(),
     }
 }
@@ -779,18 +794,19 @@ pub fn short_date(then: u64, now: u64, offset: i64) -> String {
     };
     match days_ago(then, now, offset) {
         i64::MIN..=0 => t.format("%H:%M").to_string(),
-        1 => "Yesterday".to_string(),
-        2..=6 => t.format("%a").to_string(),
-        _ if t.year() == n.year() => t.format("%b %-d").to_string(),
+        1 => azul_appkit::l10n::t("kit-date-yesterday"),
+        2..=6 => azul_appkit::l10n::t(crate::model::weekday_short_key(t.date())),
+        _ if t.year() == n.year() => said(azul_appkit::l10n::DateStyle::DayShortMonth, t.date()),
         _ => t.format("%Y-%m-%d").to_string(),
     }
 }
 
-/// `Edited Tue 08:10` style: the full local date and time.
+/// `Edited Tue 2026-09-30 08:10` style: the full local date and time (the weekday in the
+/// window's language).
 #[must_use]
 pub fn long_date(then: u64, offset: i64) -> String {
     local(then, offset)
-        .map(|t| t.format("%a %Y-%m-%d %H:%M").to_string())
+        .map(|t| format!("{} {}", azul_appkit::l10n::t(weekday_short_key(t.date())), t.format("%Y-%m-%d %H:%M")))
         .unwrap_or_default()
 }
 
@@ -800,9 +816,13 @@ pub fn long_date(then: u64, offset: i64) -> String {
 pub fn status_text(note: &Note) -> String {
     let words = note.doc.word_count();
     let (done, total) = (note.doc.checklist_done(), note.doc.checklist_total());
-    let mut out = format!("{words} word{}", if words == 1 { "" } else { "s" });
+    let mut out = azul_appkit::l10n::t_args("aznotes-words", &[("count", azul_appkit::l10n::Arg::from(words))]);
     if total > 0 {
-        out.push_str(&format!(" | {done} of {total} done"));
+        out.push_str(" | ");
+        out.push_str(&azul_appkit::l10n::t_args(
+            "aznotes-checked",
+            &[("done", azul_appkit::l10n::Arg::from(done)), ("total", azul_appkit::l10n::Arg::from(total))],
+        ));
     }
     out
 }
@@ -1029,6 +1049,7 @@ mod tests {
 
     #[test]
     fn the_list_puts_pinned_notes_first_then_date_sections() {
+        crate::l10n::in_english();
         let lib = library();
         let rows = lib.rows(&Query::default(), NOW, 0);
         assert_eq!(
@@ -1078,10 +1099,11 @@ mod tests {
 
     #[test]
     fn dates_read_as_a_person_would_say_them() {
+        crate::l10n::in_english();
         assert_eq!(short_date(NOW - 600, NOW, 0), "11:50");
         assert_eq!(short_date(NOW - DAY, NOW, 0), "Yesterday");
         assert_eq!(short_date(NOW - 3 * DAY, NOW, 0), "Sun");
-        assert_eq!(short_date(NOW - 40 * DAY, NOW, 0), "Aug 21");
+        assert_eq!(short_date(NOW - 40 * DAY, NOW, 0), "21 Aug", "the kit's short date");
         assert_eq!(short_date(NOW - 400 * DAY, NOW, 0), "2025-08-26");
         assert_eq!(date_bucket(NOW - 10 * DAY, NOW, 0), "Previous 30 days");
         // 23:00 UTC yesterday is 01:00 today two hours east.
@@ -1120,6 +1142,7 @@ mod tests {
 
     #[test]
     fn a_note_file_reads_back_into_the_same_note() {
+        crate::l10n::in_english();
         let mut n = note("a", "Work", "Offsite", NOW);
         n.meta.tags = vec!["work".to_string()];
         n.doc = RichTextDoc::create_from_markdown("- [ ] book the room\n");
