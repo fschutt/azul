@@ -98,10 +98,12 @@ impl WebUrl {
         let Some((scheme, rest)) = split_scheme(text) else {
             return Err(Refused::NotWeb(String::new()));
         };
-        let https = match scheme.as_str() {
-            "https" => true,
-            "http" => false,
-            _ => return Err(Refused::NotWeb(scheme)),
+        let https = if scheme == "https" {
+            true
+        } else if scheme == "http" {
+            false
+        } else {
+            return Err(Refused::NotWeb(scheme));
         };
         let Some(rest) = rest.strip_prefix("//") else {
             return Err(Refused::NotWeb(scheme));
