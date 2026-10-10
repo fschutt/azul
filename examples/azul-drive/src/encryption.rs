@@ -21,17 +21,19 @@
 //!   compromise: every file into a new object with a new key, in the background, resumably.
 //!
 //! In the background: the RECOMPRESSION PASS (azul-storage's `recompress`). A timer looks once
-//! a minute; when the computer has been idle for five minutes on mains power (azul's
-//! `PowerState`), the first open encrypted drive's files are written again, smaller, on a
-//! worker thread, and the pass stops at the first input or when the power cord goes. Its state
-//! sits beside the migration's, so the next idle minute continues where it stopped.
+//! a minute; when the computer has been idle for five minutes on mains power and on a network
+//! that costs nothing (azul's `PowerState` and `NetworkState`: not metered, not Low Data
+//! Mode), the first open encrypted drive's files are written again, smaller, on a worker
+//! thread, and the pass stops at the first input, when the power cord goes or when the network
+//! starts to cost. Its state sits beside the migration's, so the next idle minute continues
+//! where it stopped.
 //!
-//! The same timer keeps the drive index small. In an idle minute on mains power, before the
-//! pass, an encrypted drive whose index was not maintained from this computer in the last six
-//! hours gets one maintenance round (azul-storage's `MetaIndexProvider::maintain`). The round
-//! runs under the bucket's lease, so only one computer runs it at a time. It folds the index's
-//! packs into one, writes a checkpoint and deletes what was retired a day ago. One thing runs
-//! at a time: the round or the pass.
+//! The same timer keeps the drive index small. In such a minute (idle, on mains, on a free
+//! network), before the pass, an encrypted drive whose index was not maintained from this
+//! computer in the last six hours gets one maintenance round (azul-storage's
+//! `MetaIndexProvider::maintain`). The round runs under the bucket's lease, so only one
+//! computer runs it at a time. It folds the index's packs into one, writes a checkpoint and
+//! deletes what was retired a day ago. One thing runs at a time: the round or the pass.
 
 use std::{
     collections::BTreeMap,
@@ -197,8 +199,8 @@ fn idle_on_mains() -> bool {
 /// a network that costs the user nothing - the pass rewrites every file of the drive. A
 /// platform azul cannot read answers "on battery, just used" ([`PowerState::query`]), so the
 /// pass waits there; a network it cannot read counts as free ([`NetworkState::query`]).
-fn recompress_allowed(power: PowerState, _network: NetworkState) -> bool {
-    power.is_idle_on_mains(RECOMPRESS_IDLE_SECS)
+fn recompress_allowed(power: PowerState, network: NetworkState) -> bool {
+    power.is_idle_on_mains(RECOMPRESS_IDLE_SECS) && network.allows_background_transfer()
 }
 
 /// Starts the one timer that starts the pass and the drive index's maintenance rounds (from
