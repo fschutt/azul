@@ -438,6 +438,12 @@ impl SyncStates {
     /// The files of `keys` (folders ending in `/` - `""` the whole drive - with every file in
     /// them) that are on this device, in order.
     fn here_under(&self, keys: &[String]) -> Vec<String> {
+        self.under(keys, true)
+    }
+
+    /// The files of `keys` (a folder: every file in it - only the ones on this device with
+    /// `only_here`), in order.
+    fn under(&self, keys: &[String], only_here: bool) -> Vec<String> {
         let mut out = BTreeSet::new();
         for key in keys {
             if key.is_empty() || key.ends_with('/') {
@@ -445,7 +451,7 @@ impl SyncStates {
                     self.files
                         .range(key.clone()..)
                         .take_while(|(k, _)| k.starts_with(key.as_str()))
-                        .filter(|(_, r)| r.here())
+                        .filter(|(_, r)| !only_here || r.here())
                         .map(|(k, _)| k.clone()),
                 );
             } else {
@@ -890,6 +896,74 @@ impl SyncSession {
         }
         states.save(&self.dir)?;
         Ok(out)
+    }
+
+    /// Marks `key` used now (it was opened): the size cap frees it last. A file the drive does
+    /// not have changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// When the states cannot be kept.
+    pub fn touch(&self, key: &str) -> CloudResult<()> {
+        let mut states = self.states();
+        if let Some(record) = states.files.get_mut(key) {
+            record.last_used = crate::now();
+            states.save(&self.dir)?;
+        }
+        Ok(())
+    }
+
+    /// Deletes `keys` (files, and folders ending in `/` with every file in them) from the drive
+    /// with the next pass: a file kept in the cloud only is taken as deleted here (the next pass
+    /// deletes it there - unless it changed there meanwhile: an edit beats a delete), a file on
+    /// this device goes from here at once. With encrypted local copies the drive's file is
+    /// deleted at once (no pass syncs such a drive). The files it took.
+    ///
+    /// # Errors
+    ///
+    /// When a file here cannot be removed, the base or the states cannot be kept, or (encrypted
+    /// local copies) the drive refuses the delete.
+    pub fn delete(&self, keys: &[String]) -> CloudResult<Vec<String>> {
+        let mut states = self.states();
+        let targets = states.under(keys, false);
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { drive, objects } = &self.remote {
+                for key in &targets {
+                    drive.delete(&format!("{}{key}", self.setup.prefix))?;
+                    if let Some(object) = states.files.get(key).and_then(|r| r.object.clone()) {
+                        objects.evict(&object)?;
+                    }
+                    states.files.remove(key);
+                }
+                states.save(&self.dir)?;
+                return Ok(targets);
+            }
+        }
+        let index_path = self.index_path();
+        let mut index = LocalIndex::load(&index_path)?;
+        for key in &targets {
+            if let Some(entry) = index.as_mut().and_then(|i| i.files.get_mut(key)) {
+                // Not on this device, at the version the drive has: the next pass deletes it
+                // there.
+                if entry.cloud_only {
+                    entry.cloud_only = false;
+                    entry.mtime_ns = 0;
+                }
+            }
+            let path = local::path_of(&self.setup.folder, key);
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("{}", path.display())),
+            }
+            states.files.remove(key);
+        }
+        if let Some(index) = &index {
+            index.save(&index_path)?;
+        }
+        states.save(&self.dir)?;
+        Ok(targets)
     }
 
     /// Answers the conflict of `key` (D52); the next pass does it.

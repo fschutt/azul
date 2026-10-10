@@ -4,10 +4,10 @@
 //! (the `SyncLookup` seam). It answers from memory: what the last pass, open, pin or "Free up
 //! space" left, published by the UI thread ([`crate::sync_jobs`]); a cheap clone shares it.
 //!
-//! A file is found two ways: by its key in an encrypted drive's own listing (its names are the
-//! files', under the pairing's folder of the drive), and by its path in a drive on this
+//! A file is found two ways: by its key in the drive's own listing, under the pairing's folder
+//! of the drive (an encrypted drive's names are the files'; a plain drive's listing shows the
+//! sync index's files - its bucket holds the sync's blobs), and by its path in a drive on this
 //! computer that lies in a pairing's folder (the synced folder, browsed as a folder of Home).
-//! A plain drive's own listing holds the sync's blobs, not its files: nothing of it is found.
 
 use std::{
     collections::HashMap,
@@ -17,7 +17,11 @@ use std::{
 
 use azcloud_kit::sync::session::{FileState, LocalCopies, SyncSetup, SyncStates};
 
-use crate::{jobs, sync_view::key_under};
+use crate::{
+    jobs,
+    sync_lookup::{SyncLookup, SyncState},
+    sync_view::key_under,
+};
 
 /// One pairing as the store keeps it.
 struct Pair {
@@ -51,10 +55,8 @@ fn locate_in(inner: &Inner, drive: &str, key: &str) -> Option<(String, String)> 
     // at most one finds it.
     for (id, pair) in &inner.pairs {
         if id == drive {
-            if pair.names_its_files {
-                if let Some(rel) = key.strip_prefix(pair.setup.prefix.as_str()) {
-                    return Some((id.clone(), rel.to_string()));
-                }
+            if let Some(rel) = key.strip_prefix(pair.setup.prefix.as_str()) {
+                return Some((id.clone(), rel.to_string()));
             }
             continue;
         }
@@ -190,9 +192,45 @@ impl SyncStore {
         path.is_file().then_some(path)
     }
 
+    /// Whether drive `drive_id` is paired and its own listing names its files (an encrypted
+    /// drive): `false` for a plain drive, whose listing shows the sync index's files instead.
+    #[must_use]
+    pub(crate) fn names_its_files(&self, drive_id: &str) -> Option<bool> {
+        self.read().pairs.get(drive_id).map(|p| p.names_its_files)
+    }
+
     /// Whether any drive syncs.
     #[must_use]
     pub(crate) fn any(&self) -> bool {
         !self.read().pairs.is_empty()
+    }
+}
+
+/// A file state as a search result's Status cell says it.
+#[must_use]
+pub(crate) fn lookup_state(state: &FileState) -> SyncState {
+    match state {
+        FileState::CloudOnly => SyncState::OnlineOnly,
+        FileState::Downloading { .. } | FileState::Uploading { .. } => SyncState::Syncing,
+        FileState::OnDevice | FileState::OnDeviceEncrypted | FileState::Pinned => {
+            SyncState::OnThisDevice
+        }
+        FileState::Conflict | FileState::Error(_) => SyncState::Problem,
+    }
+}
+
+/// The search's seam: a result's sync state, the plain local copy its index reads, whether a
+/// Status column shows - all from the store, from memory.
+impl SyncLookup for SyncStore {
+    fn local_copy(&self, drive_id: &str, key: &str) -> Option<PathBuf> {
+        SyncStore::local_copy(self, drive_id, key)
+    }
+
+    fn sync_state(&self, drive_id: &str, key: &str) -> Option<SyncState> {
+        self.file_state(drive_id, key).as_ref().map(lookup_state)
+    }
+
+    fn syncs(&self) -> bool {
+        self.any()
     }
 }

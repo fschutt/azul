@@ -21,15 +21,22 @@
 //! - Options > Drives > Sync: per synced drive the auto-download, the local copies (an
 //!   encrypted drive), the size cap, Sync now, Pause, Stop syncing.
 //!
-//! TODO(SYNC17): the "indexed" / "not indexable" overlays of §13.7 wait for azul-search-index to
-//! answer per file whether it is in the index (it answers per walk, `DriveIndex::unread`).
+//! - An indexed drive's files carry §13.7's overlays from its search index (azul-search-index's
+//!   `indexed_files`, read at each listing): a magnifier (`manage_search`) on a file the index
+//!   read as it is now, a slashed one (`search_off`) on a file it never reads.
 //!
 //! SEAM for the kit's guards that stop a pass by themselves (the mass-delete guard today, the
-//! burst / ransomware guard of CLIENT17 round 6): a guard's pause should travel in the pass's
-//! `SyncStates` (written by azcloud-kit's `session::record` / `after_failure`, as `read_only`
-//! and `last_error` are), show in [`status_text`] and [`sidebar_state`] next to "Read-only",
-//! and ask with a [`SyncDialog`] next to `Conflict` (resume - the guard allowed once - or keep
-//! it paused). Until then a tripped guard is the pass's error: "Not synced: <why>".
+//! burst / ransomware guard of CLIENT17 round 6, not in azcloud-kit yet): a guard's pause should
+//! travel in the pass's `SyncStates` (written by azcloud-kit's `session::record` /
+//! `after_failure`, as `read_only` and `last_error` are), show in [`status_text`] and
+//! [`sidebar_state`] next to "Read-only" ("Paused: <why>"), and ask with a [`SyncDialog`] next
+//! to `Conflict` - "Resume" (the guard allowed once: `SyncOptions::allow_mass_delete` for one
+//! pass) and "Show the changes" (the files the pass would delete or change, from its plan).
+//! Until then a tripped guard is the pass's error: "Not synced: <why>".
+//!
+//! GAP: "Paused (metered network)" - azul exposes no metered-network flag yet (nothing in the
+//! dll for NWPath / NetworkCostType / ConnectivityManager); when it does, [`status_text`] takes
+//! it like `paused` and the poll timer skips the drive.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -88,6 +95,14 @@ pub(crate) struct SyncView {
     pub asked: HashSet<String>,
     /// Every synced drive's file states, shared with the search (its `SyncLookup`).
     pub store: SyncStore,
+    /// The files each indexed drive's search index read, as of its last listing here (§13.7's
+    /// "indexed" / "not indexable" overlays), by drive id.
+    pub indexed: HashMap<String, azul_search_index::IndexedFiles>,
+    /// The synced Azlin drives whose token server says they take no writes (unpaid past their
+    /// grace): "Read-only (payment due)" - by drive id (the drives file's).
+    pub payment_due: HashSet<String>,
+    /// When a refused write last made AzDrive ask a drive's token server (seconds since 1970).
+    pub asked_status: HashMap<String, u64>,
 }
 
 /// What the ribbon, the menus and the Options ask of a synced drive.
@@ -113,23 +128,25 @@ pub(crate) enum SyncAction {
 
 /// The drive's status line (§13.7): paused, read-only, syncing (the files and bytes left), a
 /// conflict waiting, the last error, never synced, up to date - from its `states` and the pass
-/// `running`. `azlin`: an Azlin drive, whose refused writes mean an unpaid period.
+/// `running`. An Azlin drive (`azlin`) is "Read-only (payment due)" when its token server says
+/// it takes no writes (`payment_due`, its drive status); another drive is "Read-only" when it
+/// refused a write.
 #[must_use]
 pub(crate) fn status_text(
     setup: &SyncSetup,
     states: &SyncStates,
     running: Option<&Running>,
     azlin: bool,
+    payment_due: bool,
 ) -> String {
     if setup.paused {
         return String::from("Paused");
     }
-    if states.read_only {
-        return String::from(if azlin {
-            "Read-only (payment due)"
-        } else {
-            "Read-only"
-        });
+    if azlin && payment_due {
+        return String::from("Read-only (payment due)");
+    }
+    if !azlin && states.read_only {
+        return String::from("Read-only");
     }
     if let Some(running) = running {
         let p = &running.progress;
@@ -358,6 +375,116 @@ pub(crate) fn badge_dom(s: &DriveState, entry: &Entry) -> Option<Dom> {
     )
 }
 
+/// §13.7's overlay from a drive's search index: a magnifier on a file it read as it is now, a
+/// slashed one on a file it never reads; nothing on one not read yet.
+#[must_use]
+pub(crate) fn index_overlay(
+    indexing: azul_search_index::FileIndexing,
+) -> Option<(&'static str, &'static str)> {
+    match indexing {
+        azul_search_index::FileIndexing::Indexed => Some(("manage_search", "In the search index")),
+        azul_search_index::FileIndexing::NotIndexable => {
+            Some(("search_off", "Not indexable: no text, or too big"))
+        }
+        azul_search_index::FileIndexing::Unread => None,
+    }
+}
+
+/// The rows of a plain synced drive's own folder `rel` of the pairing (`""` its top, else
+/// ending in `/`): the sync index's files directly in it and its folders, keyed as the drive's
+/// listing keys them under `prefix` (the open folder) - the bucket holds only the sync's
+/// bookkeeping there.
+#[must_use]
+pub(crate) fn index_rows(states: &SyncStates, rel: &str, prefix: &str) -> Vec<Entry> {
+    let mut rows = Vec::new();
+    let mut folders: Vec<String> = Vec::new();
+    for (key, record) in states
+        .files
+        .range(rel.to_string()..)
+        .take_while(|(key, _)| key.starts_with(rel))
+    {
+        let rest = &key[rel.len()..];
+        match rest.split_once('/') {
+            Some((folder, _)) => {
+                if folders.last().map(String::as_str) != Some(folder) {
+                    folders.push(folder.to_string());
+                    rows.push(Entry {
+                        key: format!("{prefix}{folder}/"),
+                        name: folder.to_string(),
+                        is_folder: true,
+                        size: None,
+                        modified: None,
+                        etag: None,
+                        known: true,
+                    });
+                }
+            }
+            None => rows.push(Entry {
+                key: format!("{prefix}{rest}"),
+                name: rest.to_string(),
+                is_folder: false,
+                size: Some(record.size),
+                modified: u64::try_from(record.modified).ok(),
+                etag: None,
+                known: true,
+            }),
+        }
+    }
+    rows
+}
+
+/// What a synced row's preview says instead of its bytes: a file in the cloud only (its bytes
+/// are not here), or - `from_index`, a plain drive's own listing showing the sync's names - a
+/// file whose copy is in the synced folder. `None`: it previews as any file.
+#[must_use]
+pub(crate) fn preview_note(state: &FileState, from_index: bool) -> Option<&'static str> {
+    match state {
+        FileState::CloudOnly => Some(
+            "In the cloud only: open it to download it, or keep it on this device (Share > \
+             Sync).",
+        ),
+        _ if from_index => Some(
+            "Synced: its copy is in the synced folder - open it, or preview it there.",
+        ),
+        _ => None,
+    }
+}
+
+/// Whether `drive`'s own listing at `key` shows a plain synced drive's files from its sync
+/// index (its bucket holds the sync's blobs).
+pub(crate) fn from_index(s: &DriveState, drive: &str, key: &str) -> bool {
+    !s.is_local_drive(drive)
+        && s.sync_view.store.names_its_files(drive) == Some(false)
+        && setup_of(s, drive).is_some_and(|p| key.starts_with(p.prefix.as_str()))
+}
+
+/// A row as a drive's index lists its files: its key, size and date; `None` for a folder or a
+/// row whose size and date are not known yet (not stat'ed).
+#[must_use]
+pub(crate) fn index_entry(entry: &Entry) -> Option<azul_search::FileEntry> {
+    if entry.is_folder || !entry.known {
+        return None;
+    }
+    Some(azul_search::FileEntry {
+        path: entry.key.clone(),
+        size: entry.size?,
+        modified: entry.modified,
+    })
+}
+
+/// The index overlay after a row's name, when the open drive is indexed.
+pub(crate) fn index_overlay_dom(s: &DriveState, entry: &Entry) -> Option<Dom> {
+    let drive = s.current_drive_id()?;
+    let files = s.sync_view.indexed.get(&drive)?;
+    let (icon, says) = index_overlay(files.indexing(&index_entry(entry)?))?;
+    Some(
+        Dom::create_icon(AzString::from(icon))
+            .with_class(ids::INDEX_STATE_CLASS)
+            .with_accessibility_name(says)
+            .with_css("font-size: 12px; margin-left: 2px; flex-shrink: 0; opacity: 0.55;"),
+    )
+}
+
 /// The open folder's status line part: its pairing's status.
 pub(crate) fn status_for_place(s: &DriveState) -> Option<String> {
     let (drive_id, _) = place_in_pair(s)?;
@@ -374,7 +501,8 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
         .is_some_and(|i| s.slots[i].entry.azlin().is_some());
     let states = s.sync_view.store.states(drive_id);
     let running = s.sync_view.drives.get(drive_id).and_then(|d| d.running.as_ref());
-    status_text(setup, &states, running, azlin)
+    let payment_due = s.sync_view.payment_due.contains(drive_id);
+    status_text(setup, &states, running, azlin, payment_due)
 }
 
 /// A synced drive's state on its row of the source list: its glyph and its status line.
@@ -389,7 +517,7 @@ pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static 
         .is_some_and(|d| d.running.is_some());
     let glyph = if setup.paused {
         "pause_circle"
-    } else if states.read_only {
+    } else if text.starts_with("Read-only") {
         "cloud_off"
     } else if running {
         "sync"
@@ -405,13 +533,35 @@ pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static 
     Some((glyph, text))
 }
 
-/// The open folder of a drive on this computer that lies in a pairing gets its cloud-only
-/// files as rows (when its listing is in).
-pub(crate) fn add_placeholders(s: &mut DriveState) {
+/// The open folder's listing is in: an indexed drive's index answers are read again (its
+/// overlays), and a folder of a drive on this computer that lies in a pairing gets its
+/// cloud-only files as rows.
+pub(crate) fn on_listed(s: &mut DriveState) {
     let Place::Folder { drive, prefix } = s.place.clone() else {
         return;
     };
-    if !s.is_local_drive(&drive) || s.find.is_some() {
+    if s.settings.indexed_drives.contains(&drive) {
+        if let Some(dir) = crate::index_folder(s, &drive) {
+            let files = azul_search_index::indexed_files(&dir);
+            s.sync_view.indexed.insert(drive.clone(), files);
+        }
+    } else {
+        s.sync_view.indexed.remove(&drive);
+    }
+    if s.find.is_some() {
+        return;
+    }
+    // A plain synced drive's own folder: the sync index's files and folders.
+    if from_index(s, &drive, &prefix) {
+        let Some((drive_id, rel)) = pair_at(s, &drive, &prefix) else {
+            return;
+        };
+        let states = s.sync_view.store.states(&drive_id);
+        let rows = index_rows(&states, &rel, &prefix);
+        add_rows(s, rows);
+        return;
+    }
+    if !s.is_local_drive(&drive) {
         return;
     }
     let Some((drive_id, rel)) = pair_at(s, &drive, &prefix) else {
@@ -419,6 +569,11 @@ pub(crate) fn add_placeholders(s: &mut DriveState) {
     };
     let states = s.sync_view.store.states(&drive_id);
     let rows = placeholders(&states, &rel, &prefix);
+    add_rows(s, rows);
+}
+
+/// `rows` join the open folder's (the ones it lists already stay), in the view's order.
+fn add_rows(s: &mut DriveState, rows: Vec<Entry>) {
     let mut added = false;
     for row in rows {
         if !s.entries.iter().any(|e| e.key == row.key) {
@@ -533,6 +688,9 @@ pub(crate) enum SyncDialog {
     Conflict { drive_id: String, key: String },
     /// "Stop syncing?"
     Stop { drive_id: String },
+    /// "Delete from the drive?": synced files kept in the cloud only, or shown from a plain
+    /// drive's sync index (their keys under the pairing).
+    Delete { drive_id: String, keys: Vec<String> },
 }
 
 /// The pairing dialog of drive `drive_id`, its folder filled in (`AzDrive/<name>` in Home) and
@@ -611,6 +769,7 @@ enum Answer {
     KeepMine,
     TakeTheirs,
     KeepBoth,
+    Delete,
 }
 
 struct AnswerRef {
@@ -725,6 +884,27 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
                 body.with_id(ids::SYNC_CONFLICT),
             )
         }
+        SyncDialog::Delete { drive_id, keys } => {
+            let name = s.drive_name(&Place::folder(drive_id, ""));
+            let what = match keys.as_slice() {
+                [one] => format!("\"{}\"", azul_storage::key::last_segment(one)),
+                many => format!("these {} items", many.len()),
+            };
+            (
+                String::from("Delete from the drive"),
+                column(vec![
+                    line(&format!(
+                        "Delete {what} from \"{name}\"? The next sync deletes them on the \
+                         drive, here and on your other devices."
+                    )),
+                    buttons(vec![
+                        button("Cancel", app, on_cancel_popup),
+                        answer_button("Delete", app, Answer::Delete, ids::SYNC_DELETE_OK, true),
+                    ]),
+                ])
+                .with_id(ids::SYNC_DELETE),
+            )
+        }
         SyncDialog::Stop { drive_id } => {
             let name = s.drive_name(&Place::folder(drive_id, ""));
             let folder = setup_of(s, drive_id)
@@ -808,6 +988,11 @@ extern "C" fn on_answer(mut data: RefAny, mut info: CallbackInfo) -> Update {
                         *error = why;
                     }
                 }
+            }
+        }
+        Answer::Delete => {
+            if let Some(Popup::Sync(SyncDialog::Delete { drive_id, keys })) = s.popup.take() {
+                sync_jobs::delete(info, app, s, &drive_id, keys);
             }
         }
         Answer::KeepMine | Answer::TakeTheirs | Answer::KeepBoth => {

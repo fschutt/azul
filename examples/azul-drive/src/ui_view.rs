@@ -794,6 +794,10 @@ pub(crate) fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f3
         if let Some(badge) = crate::sync_view::badge_dom(s, entry) {
             cell.add_child(badge);
         }
+        // An indexed drive's file: in its search index, or never indexable (§13.7).
+        if let Some(overlay) = crate::sync_view::index_overlay_dom(s, entry) {
+            cell.add_child(overlay);
+        }
     }
     cell
 }

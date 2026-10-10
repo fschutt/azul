@@ -134,6 +134,16 @@ pub(crate) fn search_index_dir(root: Option<PathBuf>, drive: &str) -> Option<Pat
         .map(|dir| dir.join("search"))
 }
 
+/// Where the encrypted drive `drive`'s local copies kept encrypted (its AZL1 objects) are: in
+/// the drive's own cache folder under `root`, beside its drive index and search index
+/// (`<root>/<hash of the drive>/objects`); `None` without a cache folder (none are kept).
+pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
+    MetaIndexProvider::new("AzDrive")
+        .with_cache_root(root)
+        .drive_cache_dir(drive)
+        .map(|dir| dir.join("objects"))
+}
+
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
 /// call.
 pub(crate) fn wrap(drive_id: &str, bucket: Arc<dyn Drive>) -> Arc<AutoEncrypted> {
@@ -1488,6 +1498,22 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a.parent().and_then(std::path::Path::parent), Some(cache.as_path()));
         assert_eq!(search_index_dir(None, "drive-a"), None, "no cache folder, no index");
+    }
+
+    /// An encrypted drive's local copies kept encrypted (its AZL1 objects) live in the drive's
+    /// own cache folder too, beside its drive index - in the run's cache folder.
+    #[test]
+    fn an_encrypted_drives_kept_objects_live_in_the_drives_own_cache_folder() {
+        let cache = PathBuf::from("/run/cache/drive-index");
+        let a = objects_dir(Some(cache.clone()), "drive-a").expect("a folder");
+        assert!(a.starts_with(&cache) && a.ends_with("objects"), "{}", a.display());
+        assert_eq!(
+            a.parent(),
+            search_index_dir(Some(cache), "drive-a")
+                .as_deref()
+                .and_then(std::path::Path::parent)
+        );
+        assert_eq!(objects_dir(None, "drive-a"), None, "no cache folder, nothing kept");
     }
 
     /// This computer's copies of the drives' indexes (and the search indexes beside them) live

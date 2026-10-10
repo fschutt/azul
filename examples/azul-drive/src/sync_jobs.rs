@@ -183,6 +183,11 @@ pub(crate) enum SyncJob {
         key: String,
         choice: Resolution,
     },
+    /// Files and folders deleted from the drive with the next pass (kept in the cloud only, or
+    /// shown from a plain drive's sync index).
+    Delete { work: SyncWork, keys: Vec<String> },
+    /// A file on this device opened: used now (the size cap frees it last).
+    Touch { work: SyncWork, key: String },
 }
 
 /// What a pass did, in counts.
@@ -225,6 +230,8 @@ pub(crate) enum SyncChange {
     Pinned(bool),
     Freed,
     Resolved(Resolution),
+    Deleted,
+    Touched,
 }
 
 /// A sync job's answer, on the UI thread.
@@ -348,6 +355,34 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
                 states: session.states(),
             }
         }
+        SyncJob::Delete { work, keys } => {
+            let session = work.session();
+            let result = session
+                .delete(&keys)
+                .map(|deleted| {
+                    format!(
+                        "{} deleted; the next sync deletes them on the drive.",
+                        browse::counted(deleted.len(), "file is", "files are")
+                    )
+                })
+                .map_err(|e| e.to_string());
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Deleted,
+                result,
+                states: session.states(),
+            }
+        }
+        SyncJob::Touch { work, key } => {
+            let session = work.session();
+            let result = session.touch(&key).map(|()| key).map_err(|e| e.to_string());
+            SyncOutcome::Changed {
+                drive_id: work.drive_id(),
+                done: SyncChange::Touched,
+                result,
+                states: session.states(),
+            }
+        }
         SyncJob::Resolve { work, key, choice } => {
             let session = work.session();
             let result = session
@@ -398,6 +433,9 @@ fn state_root(s: &DriveState) -> Option<PathBuf> {
 /// At the window's start: every synced drive's states as they were kept, the poll timer, a
 /// first pass of each drive that is not paused.
 pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    // The search asks the store (its SyncLookup) from now on: no Status column while nothing
+    // syncs.
+    s.sync = Arc::new(s.sync_view.store.clone());
     let Some(root) = state_root(s) else {
         return;
     };
@@ -634,6 +672,17 @@ pub(crate) fn open_if_synced(
         _ => !local_view,
     };
     if !through_sync {
+        // On this device already: it opens as it is, and is used now (the size cap frees the
+        // least recently used first) - quietly: a drive whose keys are still in the keyring is
+        // not unlocked for it.
+        let locked = s
+            .slot_index(&drive_id)
+            .is_none_or(|index| s.slots[index].locked());
+        if !locked {
+            if let Some(work) = work_of(info, s, &drive_id) {
+                spawn(info, app, s, Job::Sync(SyncJob::Touch { work, key: rel }));
+            }
+        }
         return false;
     }
     let Some(work) = work_of(info, s, &drive_id) else {
@@ -642,6 +691,99 @@ pub(crate) fn open_if_synced(
     s.info(format!("Opening \"{}\"...", entry.name));
     spawn(info, app, s, Job::Sync(SyncJob::Open { work, key: rel }));
     true
+}
+
+/// The selected `items` of drive `drive` that the sync deletes (asked first: "Delete from the
+/// drive?"): every item of a pairing when one of them is in the cloud only (its bytes are not
+/// here to move to the trash), or a plain synced drive's own listing (the sync index's names).
+/// The items left for the usual delete (none when the sync took them).
+pub(crate) fn delete_through_sync(
+    s: &mut DriveState,
+    drive: &str,
+    items: Vec<crate::fileops::SourceItem>,
+) -> Vec<crate::fileops::SourceItem> {
+    // Every item in one pairing, or the usual delete takes them all.
+    let found: Vec<(String, String)> = items
+        .iter()
+        .map_while(|item| sync_view::pair_at(s, drive, &item.key))
+        .collect();
+    let one_pairing = found.len() == items.len() && found.windows(2).all(|w| w[0].0 == w[1].0);
+    let Some(drive_id) = found.first().map(|(d, _)| d.clone()).filter(|_| one_pairing) else {
+        return items;
+    };
+    let states = s.sync_view.store.states(&drive_id);
+    let cloud_only = found.iter().any(|(_, rel)| {
+        states.state_of(rel) == Some(azcloud_kit::sync::session::FileState::CloudOnly)
+    });
+    let keys: Vec<String> = found.into_iter().map(|(_, rel)| rel).collect();
+    let from_index = items
+        .first()
+        .is_some_and(|item| sync_view::from_index(s, drive, &item.key));
+    if !cloud_only && !from_index {
+        return items;
+    }
+    if s.popup.is_none() {
+        s.popups_opened += 1;
+        s.popup = Some(Popup::Sync(SyncDialog::Delete { drive_id, keys }));
+    }
+    Vec::new()
+}
+
+/// "Delete from the drive?" said yes: `keys` of the pairing of `drive_id` go, on a worker
+/// thread; a pass follows.
+pub(crate) fn delete(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    keys: Vec<String>,
+) {
+    if let Some(work) = work_of(info, s, drive_id) {
+        spawn(info, app, s, Job::Sync(SyncJob::Delete { work, keys }));
+    }
+}
+
+/// What a look at an Azlin drive's status found (the token server's word): the synced drives
+/// of `azlin_id` are "Read-only (payment due)" while it says they take no writes.
+pub(crate) fn drive_status_seen(s: &mut DriveState, azlin_id: &str, read_only: bool) {
+    let ids: Vec<String> = s
+        .slots
+        .iter()
+        .filter(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == azlin_id))
+        .map(|slot| slot.entry.id.clone())
+        .collect();
+    for id in ids {
+        if read_only {
+            s.sync_view.payment_due.insert(id.clone());
+        } else {
+            s.sync_view.payment_due.remove(&id);
+        }
+        if sync_view::setup_of(s, &id).is_some() {
+            sync_view::say_status(s, &id);
+        }
+    }
+}
+
+/// How long a refused write waits before it asks the token server about its drive again.
+const STATUS_ASK_SECS: u64 = 600;
+
+/// A pass of an Azlin drive was refused a write: its token server is asked for the drive's
+/// status (at most every ten minutes) - the status line says "Read-only (payment due)" by its
+/// word, never by a guess.
+fn ask_drive_status(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
+    let Some(index) = s.slot_index(drive_id) else {
+        return;
+    };
+    let Some(azlin_id) = s.slots[index].entry.azlin().map(|(id, _)| id.to_string()) else {
+        return;
+    };
+    let now = crate::actions::now_secs();
+    let asked = s.sync_view.asked_status.get(drive_id).copied();
+    if asked.is_some_and(|at| now.saturating_sub(at) < STATUS_ASK_SECS) {
+        return;
+    }
+    s.sync_view.asked_status.insert(drive_id.to_string(), now);
+    crate::periods::start_redemptions(info, app, s, Some(&azlin_id));
 }
 
 /// Runs a sync command of the ribbon, a menu or the Options for `drive` (`None`: the drive the
@@ -777,6 +919,10 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 ),
                 Err(e) => println!("AZDRIVE_SYNC_FAILED {drive_id} {e}"),
             }
+            // A refused write: the token server says whether the drive is read-only.
+            if result.is_err() && s.sync_view.store.states(&drive_id).read_only {
+                ask_drive_status(info, app, s, &drive_id);
+            }
             let after = s.sync_view.store.states(&drive_id);
             sync_view::print_changes(&drive_id, &before, &after);
             sync_view::say_status(s, &drive_id);
@@ -830,6 +976,12 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                     println!("AZDRIVE_SYNC_FREED {drive_id}");
                     s.info(text);
                 }
+                (SyncChange::Deleted, Ok(text)) => {
+                    println!("AZDRIVE_SYNC_DELETED {drive_id}");
+                    s.info(text);
+                    request_pass(info, app, s, &drive_id);
+                }
+                (SyncChange::Touched, Ok(_)) => {}
                 (SyncChange::Resolved(choice), Ok(key)) => {
                     let word = match choice {
                         Resolution::KeepMine => "mine",

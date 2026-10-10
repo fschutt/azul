@@ -121,8 +121,11 @@
 //! on-device, on-device-encrypted, pinned, conflict, error, gone), `AZDRIVE_SYNC_CONFLICT
 //! <drive id> <key>` (the question shows), `AZDRIVE_SYNC_RESOLVED <drive id> mine|theirs|both
 //! <key>`, `AZDRIVE_SYNC_OPENED <drive id> <key>`, `AZDRIVE_SYNC_PINNED <drive id> on|off`,
-//! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_PAUSED|RESUMED|STOPPED <drive id>`,
-//! `AZDRIVE_SYNC_SETTING <drive id> <name> <value>`.
+//! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_DELETED <drive id>` (files deleted through
+//! the sync: kept in the cloud only, or a plain drive's - its own listing shows its sync index's
+//! files), `AZDRIVE_SYNC_PAUSED|RESUMED|STOPPED <drive id>`, `AZDRIVE_SYNC_SETTING <drive id>
+//! <name> <value>`, `AZDRIVE_PREVIEW synced <key>` (a cloud-only row's preview is a sentence).
+//! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
@@ -363,18 +366,19 @@ impl Slot {
                     .azlin()
                     .map_or_else(|| self.entry.id.clone(), |(id, _)| id.to_string());
                 // Below the encryption, the objects a sync keeps on this computer (encrypted
-                // local copies; nothing is kept until a sync asks).
-                let objects_dir = path_of(FilePath::get_cache_dir().into_option())
-                    .unwrap_or_else(std::env::temp_dir)
-                    .join("AzDrive")
-                    .join("objects")
-                    .join(&drive_id);
-                let objects = Arc::new(azcloud_kit::sync::objects::ObjectCache::new(
-                    azlin,
-                    objects_dir,
-                ));
-                self.objects = Some(objects.clone());
-                let azlin: Arc<dyn Drive> = objects;
+                // local copies; nothing is kept until a sync asks) - in the drive's own cache
+                // folder of the run's cache folder; none without one.
+                let azlin: Arc<dyn Drive> =
+                    match crate::encryption::objects_dir(crate::encryption::drive_index_root(), &drive_id)
+                    {
+                        Some(dir) => {
+                            let objects =
+                                Arc::new(azcloud_kit::sync::objects::ObjectCache::new(azlin, dir));
+                            self.objects = Some(objects.clone());
+                            objects
+                        }
+                        None => azlin,
+                    };
                 let auto = crate::encryption::wrap(&drive_id, azlin);
                 self.auto = Some(auto.clone());
                 auto
@@ -2145,7 +2149,7 @@ fn scanned(
         s.entries = fresh;
     }
     // A synced folder lists its cloud-only files too.
-    sync_view::add_placeholders(s);
+    sync_view::on_listed(s);
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
