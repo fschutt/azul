@@ -749,4 +749,54 @@ mod tests {
         assert!(check_mailbox_path(&"a/".repeat(20)[..39]).is_err());
         assert!(check_mailbox_path(&"x".repeat(300)).is_err());
     }
+
+    /// An encrypted drive, opened as AzMail opens it (azul-mail-core's mail_drive): its incoming
+    /// mail - AZD1 drops the mail Worker put into the bucket - is in the folder as soon as a mail
+    /// program lists it, and the bucket never holds a message in the clear.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn an_encrypted_drives_drops_are_filed_before_a_folder_is_listed() {
+        use azmail_core::mail_drive;
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DropFolder},
+                keys::RecoveryKdf,
+            },
+            keyring::{KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+        };
+        const DRIVE: &str = "d_bridge";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), DRIVE, cheap).unwrap();
+        let drive_key = device::load_drive_key(keyring.as_ref(), DRIVE).unwrap().unwrap();
+        let public = drops::enable_drop(bucket.as_ref(), &drive_key, DRIVE).unwrap();
+        let raw = mail("Lunch on Thursday");
+        let key = drops::new_drop_key().unwrap();
+        let sealed = drops::seal_drop(&public, DRIVE, &key, OCT_1, DropFolder::Inbox, &raw).unwrap();
+        bucket.put(&key, &sealed).unwrap();
+
+        let auto = mail_drive::wrap_auto(bucket.clone(), DRIVE, keyring.clone());
+        let store = DriveMailStore::new(auto.clone()).with_incoming(drops_incoming(auto, keyring));
+        let inbox = store.messages("Inbox").unwrap();
+        assert_eq!(inbox.len(), 1, "{inbox:?}");
+        assert_eq!(inbox[0].arrived, OCT_1);
+        assert_eq!(store.read("Inbox", &inbox[0].name).unwrap(), raw);
+        // What a mail program files goes through the encryption too.
+        store
+            .append("Drafts", &mail("A draft"), OCT_1, Marks::default())
+            .unwrap();
+        let keys: Vec<String> = ops::list_all(bucket.as_ref(), "")
+            .unwrap()
+            .into_iter()
+            .map(|object| object.key)
+            .collect();
+        assert!(
+            keys.iter()
+                .all(|k| !k.starts_with("mail/") && !k.starts_with(".azlin/drop/")),
+            "{keys:?}"
+        );
+    }
 }
