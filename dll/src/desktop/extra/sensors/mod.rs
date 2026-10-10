@@ -38,6 +38,11 @@
 /// backend depends on is covered by tests that actually run here.
 pub mod units;
 
+/// The device's battery and temperature for background work (`BatteryState`: present,
+/// charging, its level, Low Power Mode, the thermal state), kept current by a monitor thread;
+/// a fixed reading (or a test's switch file) in headless runs. Its platform files sit in
+/// `battery/`.
+pub mod battery;
 /// The computer's network state for background transfers (`NetworkState`: connected, metered,
 /// constrained, its kind), kept current by a platform monitor; a fixed reading (or a test's
 /// switch file) in headless runs. Its platform files sit in `network/`, split as the motion

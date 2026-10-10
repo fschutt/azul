@@ -73,6 +73,14 @@ impl PowerState {
     }
 }
 
+/// A headless run's power: on mains ([`PowerState::HEADLESS`]) - on battery when the battery
+/// switch file at `path` (`AZ_BATTERY_STATE_FILE`, [`super::battery::BatteryState::from_words`])
+/// names a battery off its charger, so one file drains a test's battery and unplugs its power.
+fn power_of_battery_file(path: Option<&std::path::Path>) -> PowerState {
+    let _ = path;
+    PowerState::HEADLESS
+}
+
 /// A headless or E2E run (the biometric module's test, the same variables).
 fn headless() -> bool {
     std::env::var("AZ_BACKEND").as_deref() == Ok("headless")
@@ -406,7 +414,30 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::PowerState;
+    use super::{power_of_battery_file, PowerState};
+
+    #[test]
+    fn a_headless_runs_power_follows_the_battery_switch_file() {
+        let path =
+            std::env::temp_dir().join(format!("azul-power-test-{}.txt", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(power_of_battery_file(None), PowerState::HEADLESS);
+        assert_eq!(power_of_battery_file(Some(&path)), PowerState::HEADLESS, "no file yet");
+        std::fs::write(&path, "battery 23 discharging\n").unwrap();
+        assert_eq!(
+            power_of_battery_file(Some(&path)),
+            PowerState {
+                on_mains: false,
+                idle_secs: 0,
+            },
+            "a battery off its charger"
+        );
+        std::fs::write(&path, "charging 23").unwrap();
+        assert_eq!(power_of_battery_file(Some(&path)), PowerState::HEADLESS, "on its charger");
+        std::fs::write(&path, "serious").unwrap();
+        assert_eq!(power_of_battery_file(Some(&path)), PowerState::HEADLESS, "no battery");
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn background_work_waits_unless_the_computer_is_idle_on_mains() {

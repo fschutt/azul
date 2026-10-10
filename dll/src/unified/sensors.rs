@@ -1,13 +1,78 @@
-//! Unified device-state readings: `PowerState`, `NetworkState` and `NetworkKind`. See
+//! Unified device-state readings: `PowerState`, `BatteryState`, `ThermalState`,
+//! `NetworkState` and `NetworkKind`. See
 //! [`crate::unified`] and `crate::desktop::extra::sensors` (the per-platform readings, beside
 //! the motion sensors). api.json's `sensor` module names these paths
 //! (`azul_dll::unified::sensors::<Type>`).
 
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub use crate::desktop::extra::sensors::{
+    battery::{BatteryState, ThermalState, BATTERY_STATE_FILE_VAR},
     network::{NetworkKind, NetworkState, NETWORK_STATE_FILE_VAR},
     power::PowerState,
 };
+
+/// wasm stub of the desktop `ThermalState` - IDENTICAL `#[repr(C)]` layout.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ThermalState {
+    Nominal,
+    Fair,
+    Serious,
+    Critical,
+    Unknown,
+}
+
+/// wasm stub of the desktop `BatteryState` - IDENTICAL `#[repr(C)]` layout. A browser's Battery
+/// Status API answers a promise (and is gone from Firefox and Safari), and a page has no
+/// thermal or power-saver reading, so every query answers [`BatteryState::UNKNOWN`].
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BatteryState {
+    pub present: bool,
+    pub charging: bool,
+    pub level_percent: u8,
+    pub low_power_mode: bool,
+    pub thermal: ThermalState,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl BatteryState {
+    pub const LEVEL_UNKNOWN: u8 = 255;
+    pub const HEADLESS: BatteryState = BatteryState {
+        present: false,
+        charging: false,
+        level_percent: BatteryState::LEVEL_UNKNOWN,
+        low_power_mode: false,
+        thermal: ThermalState::Nominal,
+    };
+    pub const UNKNOWN: BatteryState = BatteryState {
+        present: false,
+        charging: false,
+        level_percent: BatteryState::LEVEL_UNKNOWN,
+        low_power_mode: false,
+        thermal: ThermalState::Unknown,
+    };
+
+    #[must_use]
+    pub fn query() -> BatteryState {
+        BatteryState::UNKNOWN
+    }
+
+    #[must_use]
+    pub fn headless() -> BatteryState {
+        BatteryState::HEADLESS
+    }
+
+    #[must_use]
+    pub fn runs_low(&self, below_percent: u8) -> bool {
+        self.present
+            && !self.charging
+            && self.level_percent != BatteryState::LEVEL_UNKNOWN
+            && self.level_percent < below_percent
+    }
+}
 
 /// wasm stub of the desktop `PowerState` - IDENTICAL `#[repr(C)]` layout. A browser offers no
 /// synchronous reading (the Battery Status API is a promise, idleness a permission prompt), so

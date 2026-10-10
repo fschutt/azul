@@ -69,7 +69,8 @@ pub mod screencap;
 ///   each sample through `azul_layout::managers::sensors::push_sensor_reading`,
 ///   which the layout pass folds into the per-`App` `SensorManager`.
 /// - The device-state readings for background work: the power state
-///   ([`sensors::power`]) and the network ([`sensors::network`]), each a synchronous query
+///   ([`sensors::power`]), the battery and the device's temperature ([`sensors::battery`]) and
+///   the network ([`sensors::network`]), each a synchronous query
 ///   of a cached or cheap reading; a fixed reading (or a test's switch file) in headless runs.
 pub mod sensors;
 /// SQLite-backed `Db` engine (P4.3). The `Db` handle is always present
