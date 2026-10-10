@@ -453,6 +453,48 @@ fn the_meeting_azcalendar_registered_survives_a_programs_edit() {
     assert_eq!(planning.meeting.map(|m| m.code), Some(String::from("482913")));
 }
 
+/// Apple Calendar's "New Calendar" on the account: MKCALENDAR makes an AzCalendar calendar (its
+/// name, the AzCalendar colour nearest the program's), found again under the program's own path;
+/// PROPPATCH renames and recolours it; events go into it.
+#[test]
+fn mkcalendar_makes_an_azcalendar_calendar_under_the_programs_path() {
+    let f = fixture();
+    let body = "<?xml version=\"1.0\"?><C:mkcalendar xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\" \
+         xmlns:A=\"http://apple.com/ns/ical/\"><D:set><D:prop><D:displayname>Holidays</D:displayname>\
+         <A:calendar-color>#C4691AFF</A:calendar-color></D:prop></D:set></C:mkcalendar>";
+    let made = ask(&f.pim, "MKCALENDAR", "/calendars/7D3A51C2-HOLIDAYS/", &[], body);
+    assert_eq!(made.status, Status::CREATED, "{}", text(&made));
+    let all = calendars::load(&*f.calendar);
+    let holidays = all
+        .iter()
+        .find(|c| c.name == "Holidays")
+        .expect("a calendar file AzCalendar reads")
+        .clone();
+    assert_eq!(holidays.colour, Colour::Orange, "the colour nearest #C4691A");
+    let home = text(&ask(&f.pim, "PROPFIND", "/calendars/", &[("Depth", "1")], CALENDAR_PROPS));
+    assert!(home.contains("<D:href>/calendars/7D3A51C2-HOLIDAYS/</D:href>"), "{home}");
+    assert!(!home.contains(&format!("/calendars/{}/", holidays.id)), "{home}");
+    assert_eq!(
+        ask(&f.pim, "MKCALENDAR", "/calendars/7D3A51C2-HOLIDAYS/", &[], body).status,
+        Status::METHOD_NOT_ALLOWED
+    );
+
+    assert_eq!(ask(&f.pim, "PUT", "/calendars/7D3A51C2-HOLIDAYS/beach.ics", &[], DENTIST).status, Status::CREATED);
+    let id = f.pim.names.id_of(Kind::Event, "beach").expect("the program's name");
+    assert_eq!(stored(&f.calendar, &id).calendar, holidays.id);
+
+    let patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"http://apple.com/ns/ical/\"><D:set><D:prop>\
+         <D:displayname>Vacation</D:displayname><A:calendar-color>#3A8A3AFF</A:calendar-color>\
+         </D:prop></D:set></D:propertyupdate>";
+    let patched = text(&ask(&f.pim, "PROPPATCH", "/calendars/7D3A51C2-HOLIDAYS/", &[], patch));
+    assert!(patched.contains("HTTP/1.1 200 OK") && !patched.contains("403"), "{patched}");
+    let renamed = calendars::load(&*f.calendar)
+        .into_iter()
+        .find(|c| c.id == holidays.id)
+        .expect("the same calendar");
+    assert_eq!((renamed.name.as_str(), renamed.colour), ("Vacation", Colour::Green));
+}
+
 #[test]
 fn what_the_bridge_does_not_do_is_refused_plainly() {
     let f = fixture();
@@ -460,14 +502,20 @@ fn what_the_bridge_does_not_do_is_refused_plainly() {
     let refused = ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], sync);
     assert_eq!(refused.status, Status::FORBIDDEN);
     assert!(text(&refused).contains("<D:supported-report/>"));
-    let patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"http://apple.com/ns/ical/\"><D:set><D:prop>\
-         <A:calendar-color>#FF0000FF</A:calendar-color></D:prop></D:set></D:propertyupdate>";
+    // A property no calendar keeps (a dead one) is refused; the name and the colour are not.
+    let patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:Z=\"urn:example:dead\"><D:set><D:prop>\
+         <Z:note>kept nowhere</Z:note></D:prop></D:set></D:propertyupdate>";
     let patched = text(&ask(&f.pim, "PROPPATCH", "/calendars/default/", &[], patch));
     assert!(
-        patched.contains("<x:calendar-color xmlns:x=\"http://apple.com/ns/ical/\"/>") && patched.contains("403 Forbidden"),
+        patched.contains("<x:note xmlns:x=\"urn:example:dead\"/>") && patched.contains("403 Forbidden"),
         "{patched}"
     );
-    assert_eq!(ask(&f.pim, "MKCALENDAR", "/calendars/new/", &[], "").status, Status::FORBIDDEN);
+    assert_eq!(
+        ask(&f.pim, "MKCALENDAR", "/calendars/default/", &[], "").status,
+        Status::METHOD_NOT_ALLOWED,
+        "a calendar is there"
+    );
+    assert_eq!(ask(&f.pim, "MKCOL", "/addressbooks/second/", &[], "").status, Status::FORBIDDEN);
     assert_eq!(ask(&f.pim, "PROPFIND", "/calendars/", &[], "").status, Status::FORBIDDEN, "no Depth is infinity");
     assert_eq!(ask(&f.pim, "PROPFIND", "/elsewhere/", &[("Depth", "0")], "").status, Status::NOT_FOUND);
     assert_eq!(ask(&f.pim, "DELETE", "/calendars/default/", &[], "").status, Status::FORBIDDEN);
