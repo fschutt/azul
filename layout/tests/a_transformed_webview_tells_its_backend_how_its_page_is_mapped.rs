@@ -171,3 +171,26 @@ fn a_page_point_maps_through_the_transform_onto_the_screen_and_back() {
     let back = t.to_page(placement.rect, on_screen).expect("invertible");
     assert!(near(back.x, 10.0) && near(back.y, 10.0), "{back:?}");
 }
+
+/// What a backend whose native view can turn (Android's `View`, UIKit's
+/// `transform`) needs: the angle and the corner the page is drawn from.
+#[test]
+fn a_turned_page_is_its_view_turned_by_its_angle_at_its_mapped_corner() {
+    let mut lw = window();
+    lay_out(&mut lw, "transform: rotate(90deg);");
+    let ops = lw.webviews.take_ops();
+    let id = the_view(&lw);
+    let t = transform_of(&ops, id).expect("turned");
+    let placement = lw.webviews.get(id).expect("mounted").placement;
+    assert!(
+        near(t.rotation_degrees(), 90.0),
+        "CSS turns clockwise, y down: {}",
+        t.rotation_degrees()
+    );
+    let (zoom_x, zoom_y) = t.zoom();
+    assert!(near(zoom_x, 1.0) && near(zoom_y, 1.0), "a turn, no scale");
+    // Turned about the box's centre (50, 25): the page's top-left corner
+    // lands at (75, -25), the top-right corner of the turned box.
+    let corner = t.to_window(placement.rect, azul_core::geom::LogicalPosition::new(0.0, 0.0));
+    assert!(near(corner.x, 75.0) && near(corner.y, -25.0), "{corner:?}");
+}
