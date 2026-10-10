@@ -25,7 +25,7 @@ use azcloud_kit::{
     settings::{Flags, Settings},
     share,
     state::{write_atomic, StateDir, ACCOUNT_FILE},
-    sync::{self, local::hash_bytes, LocalRoot, SyncOptions},
+    sync::{self, local::hash_file, LocalRoot, SyncOptions},
     transport::{CloudDrive, IrohDialer},
     CloudError,
 };
@@ -606,7 +606,10 @@ fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
         .first()
         .ok_or_else(|| anyhow!("azcloud up <file> [--key K]"))?;
     let path = PathBuf::from(file);
-    let data = std::fs::read(&path).with_context(|| format!("{}", path.display()))?;
+    // Streamed: the file is never read whole; a big one goes up in parts, resumably.
+    let bytes = std::fs::metadata(&path)
+        .with_context(|| format!("{}", path.display()))?
+        .len();
     let key = match args.value("--key") {
         Some(key) => key.to_string(),
         None => format!(
@@ -620,9 +623,9 @@ fn cmd_up(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     let account = open_account(settings, net, args)?;
     refuse_plaintext(&account)?;
     let drive = open_drive(settings, net, &account, args)?;
-    let bytes = data.len();
-    let blake3 = hash_bytes(&data);
-    let etag = drive.put(&key, &data)?;
+    let blake3 = hash_file(&path).with_context(|| format!("{}", path.display()))?;
+    drive.put_file(&key, &path, &|_| {})?;
+    let etag = drive.head(&key)?.map(|(_, etag)| etag).unwrap_or_default();
     let lane = lane_name(&drive);
     drive.close();
     let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3, "etag": etag,
@@ -638,18 +641,18 @@ fn cmd_down(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     };
     let account = open_account(settings, net, args)?;
     let drive = open_drive(settings, net, &account, args)?;
-    let data = drive
-        .get_big(&key)?
-        .ok_or_else(|| anyhow!("the drive has no {key}"))?;
+    if drive.head(&key)?.is_none() {
+        return Err(anyhow!("the drive has no {key}"));
+    }
+    // Into the file in ranges, several at once (never whole in memory), resumably.
+    let bytes = drive.download_to(&key, &file, &mut |_| {})?;
     let lane = lane_name(&drive);
     drive.close();
-    write_atomic(&file, &data, false).with_context(|| format!("{}", file.display()))?;
-    let blake3 = hash_bytes(&data);
-    let value = json!({"ok": true, "key": key, "bytes": data.len(), "blake3": blake3,
+    let blake3 = hash_file(&file).with_context(|| format!("{}", file.display()))?;
+    let value = json!({"ok": true, "key": key, "bytes": bytes, "blake3": blake3,
                        "file": file.display().to_string(), "transport": lane});
     let text = format!(
-        "down {key}: {} bytes over {lane} into {} (BLAKE3 {blake3})\n",
-        data.len(),
+        "down {key}: {bytes} bytes over {lane} into {} (BLAKE3 {blake3})\n",
         file.display()
     );
     Ok((value, text))
