@@ -60,7 +60,21 @@ impl Adjustment {
         ]
     }
 
-    /// The name of the layer and the panel entry.
+    /// The menus' and the panel's word for it: a key of AzPhoto's resources.
+    #[must_use]
+    pub const fn message_id(&self) -> &'static str {
+        match self {
+            Self::BrightnessContrast { .. } => "azphoto-adjustment-brightness-contrast",
+            Self::Levels { .. } => "azphoto-adjustment-levels",
+            Self::Curves { .. } => "azphoto-adjustment-curves",
+            Self::HueSaturation { .. } => "azphoto-adjustment-hue-saturation",
+            Self::Invert => "azphoto-adjustment-invert",
+            Self::Threshold { .. } => "azphoto-adjustment-threshold",
+        }
+    }
+
+    /// The name of the layer and the panel entry (its English name: the id the History and a
+    /// new layer's name say through `crate::l10n::word`).
     #[must_use]
     pub const fn name(&self) -> &'static str {
         match self {

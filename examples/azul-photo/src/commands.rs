@@ -214,7 +214,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
     let e: Effects = match command {
         Command::Open => {
             let _ = FileDialog::open_file(
-                "Open an image",
+                azul_appkit::l10n::t("azphoto-open-image"),
                 OptionString::None,
                 OptionFileTypeList::None,
                 app_ref.clone(),
@@ -224,7 +224,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         }
         Command::Place => {
             let _ = FileDialog::open_file(
-                "Place an image as a layer",
+                azul_appkit::l10n::t("azphoto-place-image"),
                 OptionString::None,
                 OptionFileTypeList::None,
                 app_ref.clone(),
@@ -234,14 +234,14 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         }
         Command::OpenSample => {
             match sample_document() {
-                Ok(doc) => app.open_document(doc, "Sample", &new_uuid(), "Open"),
+                Ok(doc) => app.open_document(doc, "Sample", &new_uuid(), &azul_appkit::l10n::t("azphoto-history-open")),
                 Err(e) => app.status(e),
             }
             return Update::RefreshDom;
         }
         Command::OpenRecent(uuid) => {
             app.busy += 1;
-            app.status("Opening...");
+            app.status(azul_appkit::l10n::t("azphoto-opening"));
             jobs::spawn(info, app_ref, Job::Load {
                 drive: app.drive.clone(),
                 uuid,
@@ -250,7 +250,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         }
         Command::Save => {
             app.busy += 1;
-            app.status(format!("Saving {}...", app.s.name));
+            app.status(azul_appkit::l10n::t_args("azphoto-saving", &[("name", azul_appkit::l10n::Arg::from(&app.s.name))]));
             jobs::spawn(info, app_ref, Job::Save {
                 drive: app.drive.clone(),
                 uuid: app.s.uuid.clone(),
@@ -274,12 +274,14 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
             let doc = if app.form.new_transparent {
                 let mut d = Document::new(w, h);
                 let id = d.mint_id();
-                d.layers.push(Layer::raster(id, "Layer 1", crate::raster::TileGrid::new(w, h)));
+                let name = azul_appkit::l10n::t_args("azphoto-layer-n", &[("n", azul_appkit::l10n::Arg::from("1"))]);
+                d.layers.push(Layer::raster(id, &name, crate::raster::TileGrid::new(w, h)));
                 d
             } else {
                 Document::with_background(w, h, [255, 255, 255, 255])
             };
-            app.open_document(doc, "Untitled", &new_uuid(), "New");
+            let untitled = azul_appkit::l10n::t("azphoto-untitled");
+            app.open_document(doc, &untitled, &new_uuid(), &azul_appkit::l10n::t("azphoto-history-new"));
             return Update::RefreshDom;
         }
         Command::ExportApply => {
@@ -315,7 +317,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
                     e.merge(app.s.fit())
                 }
                 None => {
-                    app.status("Select the part to keep first.");
+                    app.status(azul_appkit::l10n::t("azphoto-select-to-crop"));
                     Effects {
                         dom: true,
                         ..Effects::default()
@@ -350,7 +352,7 @@ pub fn run(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, comman
         Command::NewLayer => {
             let n = layer::all_ids(&app.s.engine.document().layers).len() + 1;
             app.s.apply(Op::NewLayer {
-                name: format!("Layer {n}"),
+                name: azul_appkit::l10n::t_args("azphoto-layer-n", &[("n", azul_appkit::l10n::Arg::from(n.to_string()))]),
             })
         }
         Command::NewGroup => app.s.apply(Op::NewGroup),
@@ -588,7 +590,7 @@ fn export(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo) {
     let file = file_name(&app.s.name, app.export_format.extension());
     let (width, height, rgba) = app.s.engine.flatten_rgba();
     app.busy += 1;
-    app.status(format!("Exporting {file}..."));
+    app.status(azul_appkit::l10n::t_args("azphoto-exporting", &[("file", azul_appkit::l10n::Arg::from(&file))]));
     jobs::spawn(info, app_ref, Job::Export {
         drive: app.drive.clone(),
         uuid: app.s.uuid.clone(),
@@ -616,7 +618,10 @@ fn open_picked(mut data: RefAny, info: &mut CallbackInfo, result: RefAny, as_lay
         return Update::DoNothing;
     };
     guard.busy += 1;
-    guard.status(format!("Opening {}...", path.display()));
+    guard.status(azul_appkit::l10n::t_args(
+        "azphoto-opening-path",
+        &[("path", azul_appkit::l10n::Arg::from(path.display().to_string()))],
+    ));
     jobs::spawn(info, &app_ref, Job::OpenFile { path, as_layer });
     Update::RefreshDom
 }
@@ -764,8 +769,8 @@ pub fn adjustment_params(a: &Adjustment) -> Vec<(&'static str, f32, f32, f32)> {
             brightness,
             contrast,
         } => vec![
-            ("Brightness", *brightness * 100.0, -100.0, 100.0),
-            ("Contrast", *contrast * 100.0, -100.0, 100.0),
+            ("azphoto-param-brightness", *brightness * 100.0, -100.0, 100.0),
+            ("azphoto-param-contrast", *contrast * 100.0, -100.0, 100.0),
         ],
         Adjustment::Levels {
             in_black,
@@ -774,29 +779,29 @@ pub fn adjustment_params(a: &Adjustment) -> Vec<(&'static str, f32, f32, f32)> {
             out_black,
             out_white,
         } => vec![
-            ("Input black", f32::from(*in_black), 0.0, 254.0),
-            ("Input white", f32::from(*in_white), 1.0, 255.0),
-            ("Gamma", *gamma, 0.1, 9.99),
-            ("Output black", f32::from(*out_black), 0.0, 255.0),
-            ("Output white", f32::from(*out_white), 0.0, 255.0),
+            ("azphoto-param-input-black", f32::from(*in_black), 0.0, 254.0),
+            ("azphoto-param-input-white", f32::from(*in_white), 1.0, 255.0),
+            ("azphoto-param-gamma", *gamma, 0.1, 9.99),
+            ("azphoto-param-output-black", f32::from(*out_black), 0.0, 255.0),
+            ("azphoto-param-output-white", f32::from(*out_white), 0.0, 255.0),
         ],
         Adjustment::Curves { points } => points
             .iter()
             .skip(1)
             .take(points.len().saturating_sub(2))
-            .map(|(_, y)| ("Point", f32::from(*y), 0.0, 255.0))
+            .map(|(_, y)| ("azphoto-param-point", f32::from(*y), 0.0, 255.0))
             .collect(),
         Adjustment::HueSaturation {
             hue,
             saturation,
             lightness,
         } => vec![
-            ("Hue", *hue, -180.0, 180.0),
-            ("Saturation", *saturation * 100.0, -100.0, 100.0),
-            ("Lightness", *lightness * 100.0, -100.0, 100.0),
+            ("azphoto-param-hue", *hue, -180.0, 180.0),
+            ("azphoto-param-saturation", *saturation * 100.0, -100.0, 100.0),
+            ("azphoto-param-lightness", *lightness * 100.0, -100.0, 100.0),
         ],
         Adjustment::Invert => Vec::new(),
-        Adjustment::Threshold { level } => vec![("Level", f32::from(*level), 0.0, 255.0)],
+        Adjustment::Threshold { level } => vec![("azphoto-param-level", f32::from(*level), 0.0, 255.0)],
     }
 }
 
@@ -977,9 +982,17 @@ fn set_field(app: &mut PhotoApp, app_ref: &RefAny, info: &mut CallbackInfo, f: F
     canvas::push_effects(app, info, e)
 }
 
-/// The rect a selection covers, for the info line.
+/// The rect a selection covers, for the info line (in the window's language).
 #[must_use]
 pub fn selection_label(app: &PhotoApp) -> Option<String> {
     let r: IRect = app.s.engine.document().selection.as_ref()?.bounds()?;
-    Some(format!("Selection {} x {} at {}, {}", r.w, r.h, r.x, r.y))
+    Some(azul_appkit::l10n::t_args(
+        "azphoto-selection-info",
+        &[
+            ("w", azul_appkit::l10n::Arg::from(r.w.to_string())),
+            ("h", azul_appkit::l10n::Arg::from(r.h.to_string())),
+            ("x", azul_appkit::l10n::Arg::from(r.x.to_string())),
+            ("y", azul_appkit::l10n::Arg::from(r.y.to_string())),
+        ],
+    ))
 }

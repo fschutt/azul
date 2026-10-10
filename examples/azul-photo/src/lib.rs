@@ -37,6 +37,7 @@ pub mod codec;
 pub mod commands;
 pub mod ids;
 pub mod jobs;
+mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod raster;
@@ -51,7 +52,12 @@ use std::{
 };
 
 use azul::{image::ImageRef, prelude::*};
-use azul_appkit::{about::AboutInfo, shortcuts::Shortcut, ui as kit};
+use azul_appkit::{
+    about::AboutInfo,
+    l10n::{t, t_args, Arg},
+    shortcuts::Shortcut,
+    ui as kit,
+};
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
@@ -74,28 +80,28 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keyboard shortcuts the settings page lists (`Mod` = Cmd / Ctrl).
 pub const SHORTCUTS: [Shortcut; 22] = [
-    Shortcut::new("Tools", "V", "Move"),
-    Shortcut::new("Tools", "M", "Rectangular / elliptical marquee"),
-    Shortcut::new("Tools", "L", "Lasso"),
-    Shortcut::new("Tools", "W", "Magic wand"),
-    Shortcut::new("Tools", "C", "Crop"),
-    Shortcut::new("Tools", "I", "Eyedropper"),
-    Shortcut::new("Tools", "B", "Brush / pencil"),
-    Shortcut::new("Tools", "E", "Eraser"),
-    Shortcut::new("Tools", "G", "Paint bucket / gradient"),
-    Shortcut::new("Tools", "S", "Clone stamp"),
-    Shortcut::new("Tools", "T", "Text (Enter places it, Escape drops it)"),
-    Shortcut::new("Tools", "U  H  Z", "Shape, hand, zoom"),
-    Shortcut::new("Painting", "[  ]", "Brush smaller, larger"),
-    Shortcut::new("Painting", "X  D", "Swap colours, default colours"),
-    Shortcut::new("Painting", "0 .. 9", "Paint opacity (a brush) or layer opacity"),
-    Shortcut::new("Edit", "Mod+Z  Mod+Shift+Z", "Undo, redo"),
-    Shortcut::new("Edit", "Mod+A  Mod+D  Mod+Shift+I", "Select all, deselect, inverse"),
-    Shortcut::new("File", "Mod+N  Mod+O  Mod+S", "New, open, save"),
-    Shortcut::new("File", "Mod+Shift+E", "Export into the data folder"),
-    Shortcut::new("Layer", "Mod+Shift+N  Mod+J  Mod+E", "New layer, duplicate, merge down"),
-    Shortcut::new("View", "Mod+0  Mod+1", "Fit on screen, actual pixels"),
-    Shortcut::new("View", "Mod+=  Mod+-", "Zoom in, out"),
+    Shortcut::new("azphoto-tools", "V", "azphoto-tool-move"),
+    Shortcut::new("azphoto-tools", "M", "azphoto-shortcut-marquee"),
+    Shortcut::new("azphoto-tools", "L", "azphoto-tool-lasso"),
+    Shortcut::new("azphoto-tools", "W", "azphoto-tool-magic-wand"),
+    Shortcut::new("azphoto-tools", "C", "azphoto-tool-crop"),
+    Shortcut::new("azphoto-tools", "I", "azphoto-tool-eyedropper"),
+    Shortcut::new("azphoto-tools", "B", "azphoto-shortcut-brush"),
+    Shortcut::new("azphoto-tools", "E", "azphoto-tool-eraser"),
+    Shortcut::new("azphoto-tools", "G", "azphoto-shortcut-bucket"),
+    Shortcut::new("azphoto-tools", "S", "azphoto-tool-clone-stamp"),
+    Shortcut::new("azphoto-tools", "T", "azphoto-shortcut-text"),
+    Shortcut::new("azphoto-tools", "U  H  Z", "azphoto-shortcut-shape-hand-zoom"),
+    Shortcut::new("azphoto-shortcuts-painting", "[  ]", "azphoto-shortcut-brush-size"),
+    Shortcut::new("azphoto-shortcuts-painting", "X  D", "azphoto-shortcut-colours"),
+    Shortcut::new("azphoto-shortcuts-painting", "0 .. 9", "azphoto-shortcut-opacity"),
+    Shortcut::new("azphoto-menu-edit", "Mod+Z  Mod+Shift+Z", "azphoto-shortcut-undo"),
+    Shortcut::new("azphoto-menu-edit", "Mod+A  Mod+D  Mod+Shift+I", "azphoto-shortcut-select"),
+    Shortcut::new("azphoto-menu-file", "Mod+N  Mod+O  Mod+S", "azphoto-shortcut-file"),
+    Shortcut::new("azphoto-menu-file", "Mod+Shift+E", "azphoto-shortcut-export"),
+    Shortcut::new("azphoto-menu-layer", "Mod+Shift+N  Mod+J  Mod+E", "azphoto-shortcut-layer"),
+    Shortcut::new("azphoto-menu-view", "Mod+0  Mod+1", "azphoto-shortcut-fit"),
+    Shortcut::new("azphoto-menu-view", "Mod+=  Mod+-", "azphoto-shortcut-zoom"),
 ];
 
 /// The sample photo (examples/assets): a 1920 x 1080 JPEG.
@@ -321,8 +327,8 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
                 return canvas::push_effects(a, &mut info, e);
             }
             Ok((w, h, rgba)) => {
-                let doc = Document::from_rgba(w, h, rgba, "Background");
-                a.open_document(doc, &name, &new_uuid(), "Open");
+                let doc = Document::from_rgba(w, h, rgba, &t("azphoto-background"));
+                a.open_document(doc, &name, &new_uuid(), &t("azphoto-history-open"));
             }
             Err(e) => a.status(e),
         },
@@ -336,11 +342,13 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             }
             Ok(saved) => {
                 a.s.modified = false;
-                a.status(format!(
-                    "Saved {} ({} tiles, {}).",
-                    a.s.name,
-                    saved.tiles,
-                    azul::file::DiskSpace::format_bytes(saved.bytes)
+                a.status(t_args(
+                    "azphoto-saved",
+                    &[
+                        ("name", Arg::from(&a.s.name)),
+                        ("tiles", Arg::from(saved.tiles)),
+                        ("size", Arg::from(azul::file::DiskSpace::format_bytes(saved.bytes).to_string())),
+                    ],
                 ));
                 say(&format!("AZPHOTO_SAVED {uuid} {}", saved.tiles));
                 a.busy += 1;
@@ -350,23 +358,26 @@ extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackIn
             }
             Err(e) => {
                 a.close_after_save = false;
-                a.status(format!("Saving failed: {e}"));
+                a.status(t_args("azphoto-save-failed", &[("why", Arg::from(e.to_string()))]));
             }
         },
         Outcome::Loaded { uuid, result } => match result {
-            Ok((name, doc)) => a.open_document(doc, &name, &uuid, "Open"),
-            Err(e) => a.status(format!("The document could not be opened: {e}")),
+            Ok((name, doc)) => a.open_document(doc, &name, &uuid, &t("azphoto-history-open")),
+            Err(e) => a.status(t_args("azphoto-open-failed", &[("why", Arg::from(e.to_string()))])),
         },
         Outcome::Listed(result) => match result {
             Ok(list) => a.recent = list,
-            Err(e) => a.status(format!("The documents could not be listed: {e}")),
+            Err(e) => a.status(t_args("azphoto-list-failed", &[("why", Arg::from(e.to_string()))])),
         },
         Outcome::Exported { key, result } => match result {
             Ok(bytes) => {
-                a.status(format!("Exported {key} ({}).", azul::file::DiskSpace::format_bytes(bytes)));
+                a.status(t_args(
+                    "azphoto-exported",
+                    &[("path", Arg::from(&key)), ("size", Arg::from(azul::file::DiskSpace::format_bytes(bytes).to_string()))],
+                ));
                 say(&format!("AZPHOTO_EXPORTED {bytes} {key}"));
             }
-            Err(e) => a.status(format!("Export failed: {e}")),
+            Err(e) => a.status(t_args("azphoto-export-failed", &[("why", Arg::from(e.to_string()))])),
         },
     }
     Update::RefreshDom
@@ -378,8 +389,8 @@ fn open_now(path: &Path) -> Result<(String, Document), String> {
     let (w, h, rgba) = codec::decode(&bytes)?;
     let name = path
         .file_stem()
-        .map_or_else(|| "Untitled".to_string(), |s| s.to_string_lossy().into_owned());
-    Ok((name, Document::from_rgba(w, h, rgba, "Background")))
+        .map_or_else(|| t("azphoto-untitled"), |s| s.to_string_lossy().into_owned());
+    Ok((name, Document::from_rgba(w, h, rgba, &t("azphoto-background"))))
 }
 
 /// The window is up: the `--shot` timer, then the saved documents for the
@@ -409,6 +420,15 @@ pub fn start() {
     // The kit: the data root (--data-dir, $AZLIN_DATA, the user's), the
     // settings file (app theme and mode, remembered), the shortcuts, About.
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], app_args.clone());
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise) - a new image's names too.
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let data_root = {
         let mut k = kit_ref.clone();
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
@@ -424,7 +444,7 @@ pub fn start() {
         match sample_document() {
             Ok(doc) => Some(("Sample".to_string(), doc)),
             Err(e) => {
-                status = format!("The sample could not be made: {e}");
+                status = t_args("azphoto-sample-failed", &[("why", Arg::from(e.to_string()))]);
                 None
             }
         }
@@ -442,7 +462,7 @@ pub fn start() {
     let has_doc = opened.is_some();
     let (name, doc) = opened.unwrap_or_else(|| {
         (
-            "Untitled".to_string(),
+            t("azphoto-untitled"),
             Document::with_background(1920, 1080, [255, 255, 255, 255]),
         )
     });
@@ -484,7 +504,6 @@ pub fn start() {
     eprintln!("[azphoto] data folder {}", data_root.display());
     app.announce();
 
-    let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, ui::layout, (1440.0, 900.0), (900.0, 600.0), on_window_created);
     App::create(RefAny::new(app), config).run(window);
 }
