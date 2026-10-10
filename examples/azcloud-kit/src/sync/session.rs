@@ -151,6 +151,11 @@ pub struct SyncSetup {
     /// No pass runs while it is paused.
     #[serde(default)]
     pub paused: bool,
+    /// The user's "Sync anyway on this network": an app that holds big transfers back on a
+    /// metered or low-data network ([`SyncSession::with_transfer_limit`]) does not for this
+    /// drive.
+    #[serde(default)]
+    pub sync_on_metered: bool,
 }
 
 impl SyncSetup {
@@ -165,6 +170,7 @@ impl SyncSetup {
             local_copies: LocalCopies::default(),
             keep_gb: None,
             paused: false,
+            sync_on_metered: false,
         }
     }
 
@@ -489,6 +495,9 @@ pub struct Pass {
     /// Cloud-only files brought down (pinned ones), and files freed for the size cap.
     pub fetched: Vec<String>,
     pub freed: Vec<String>,
+    /// The files whose transfer the session's limit held back, either way
+    /// ([`SyncSession::with_transfer_limit`]): they move with a pass without the limit.
+    pub held: Vec<String>,
 }
 
 /// What "Free up space" did: the files freed, the ones kept and why.
@@ -552,6 +561,8 @@ pub struct SyncSession {
     dir: PathBuf,
     device: String,
     remote: SessionRemote,
+    /// Files over this many bytes wait, both ways ([`SyncSession::with_transfer_limit`]).
+    transfer_limit: Option<u64>,
 }
 
 impl SyncSession {
@@ -594,7 +605,19 @@ impl SyncSession {
             dir,
             device: device.to_string(),
             remote,
+            transfer_limit: None,
         }
+    }
+
+    /// The session's passes leave the transfers of files over `bytes` for a pass without the
+    /// limit, either way - an app on a metered or low-data network: a change here waits here,
+    /// the drive's version waits on the drive (a file new there shows as cloud only), a pinned
+    /// file in the cloud stays there; smaller files and the index move as always. `None`: no
+    /// limit. What a pass held back is its [`Pass::held`].
+    #[must_use]
+    pub fn with_transfer_limit(mut self, bytes: Option<u64>) -> SyncSession {
+        self.transfer_limit = bytes;
+        self
     }
 
     #[must_use]
@@ -720,6 +743,7 @@ impl SyncSession {
                     progress: Some(&hear),
                     cancel: Some(cancel),
                     hold_mass_delete: true,
+                    transfer_limit: None,
                 };
                 sync_to(target, root_ref, index_ref, opts_ref, &hooks)
             });
@@ -802,6 +826,7 @@ impl SyncSession {
             states: states.clone(),
             fetched,
             freed,
+            held: Vec::new(),
         })
     }
 
@@ -1248,6 +1273,7 @@ impl SyncSession {
             states: states.clone(),
             fetched,
             freed,
+            held: Vec::new(),
         })
     }
 

@@ -303,6 +303,10 @@ pub struct SyncReport {
     /// A mass delete held for the user ([`RunHooks::hold_mass_delete`]): nothing changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mass_delete: Option<MassDelete>,
+    /// The files whose transfer [`RunHooks::transfer_limit`] held back, either way: their
+    /// versions stay where they are, and the next run without the limit moves them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub held_back: Vec<String>,
 }
 
 impl SyncReport {
@@ -410,6 +414,9 @@ pub struct RunHooks<'a> {
     /// A plan that would delete most of the folder here or there changes nothing and waits for
     /// the user (the report's `mass_delete`) instead of failing.
     pub hold_mass_delete: bool,
+    /// Files over this many bytes wait for a run without the limit, either way (an app on a
+    /// metered network): the report's `held_back`. `None`: no limit.
+    pub transfer_limit: Option<u64>,
 }
 
 impl RunHooks<'_> {
