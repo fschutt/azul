@@ -531,3 +531,105 @@ fn an_azlin_drive_reaches_the_nodes_its_last_refresh_listed_also_after_a_restart
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(hosts(&again), vec![S3.to_string(), N2.to_string()]);
 }
+
+/// A node of the list at `addresses`.
+fn node_at(name: &str, url: &str, addresses: &[&str], ready: bool) -> Node {
+    Node {
+        addresses: addresses.iter().map(|a| a.to_string()).collect(),
+        ..node(name, url, ready)
+    }
+}
+
+#[test]
+fn with_dns_down_from_the_start_the_block_endpoint_answers_at_the_nodes_addresses() {
+    let s3 = FakeS3::new();
+    s3.write("a.txt", b"alpha".to_vec());
+    let resolving = Arc::new(Resolving {
+        s3: s3.clone(),
+        told: Mutex::new(Vec::new()),
+        calls: Mutex::new(Vec::new()),
+    });
+    let shared = resolving.clone();
+    let transports: TransportFactory =
+        Arc::new(move || Box::new(SharedResolving(shared.clone())) as Box<dyn Transport>);
+    let bucket = Bucket::new(
+        S3Config {
+            endpoint: String::from("http://block.nodes.test:19000"),
+            ..config()
+        },
+        Credentials::new("AKID1", "secret-of-AKID1"),
+        transports,
+    )
+    .unwrap()
+    .with_sleep(Arc::new(|_| {}))
+    .with_nodes(vec![
+        node_at("n2", "http://n2.nodes.test:19002", &["127.0.0.2"], false),
+        node_at(
+            "n1",
+            "http://n1.nodes.test:19001",
+            &["127.0.0.1", "::1"],
+            true,
+        ),
+    ]);
+    assert_eq!(bucket.get("a.txt").unwrap().unwrap(), b"alpha");
+    let calls = resolving.calls.lock().unwrap().clone();
+    assert_eq!(
+        calls.len(),
+        1,
+        "the addresses were known before the first request: no request failed on a name"
+    );
+    assert!(
+        calls[0].url.starts_with("http://block.nodes.test:19000/"),
+        "still the block endpoint, under its name (its certificate covers it): {}",
+        calls[0].url
+    );
+    let told = resolving.told.lock().unwrap().clone();
+    let of = |host: &str| -> Vec<String> {
+        told.iter()
+            .find(|(h, _)| h == host)
+            .map(|(_, a)| a.clone())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        of("block.nodes.test"),
+        vec!["127.0.0.1", "::1", "127.0.0.2"],
+        "the block host: every node's addresses, the ready nodes' first"
+    );
+    assert_eq!(of("n1.nodes.test"), vec!["127.0.0.1", "::1"]);
+    assert_eq!(of("n2.nodes.test"), vec!["127.0.0.2"]);
+}
+
+#[test]
+fn the_node_list_reads_each_nodes_iroh_id_and_iroh_sockets() {
+    let nodes = Node::list(&[
+        serde_json::json!({"name": "n1", "url": N1, "ready": true, "iroh_id": "aa",
+                           "iroh_addrs": ["192.0.2.1:7001", "[2001:db8::1]:7001"]}),
+        serde_json::json!({"name": "n2", "url": N2, "ready": true, "sign_pubkey": "bb"}),
+        serde_json::json!({"name": "n3", "ready": true, "iroh_id": "cc",
+                           "iroh_addrs": ["192.0.2.3:7001"]}),
+        serde_json::json!({"name": "n4", "ready": true}),
+    ]);
+    assert_eq!(
+        nodes.len(),
+        3,
+        "a node without a URL is kept when it can be dialed: {nodes:?}"
+    );
+    assert_eq!(nodes[0].iroh_id.as_deref(), Some("aa"));
+    assert_eq!(
+        nodes[0].iroh_addrs,
+        vec!["192.0.2.1:7001", "[2001:db8::1]:7001"]
+    );
+    assert_eq!(
+        nodes[1].iroh_id.as_deref(),
+        Some("bb"),
+        "sign_pubkey is the iroh id"
+    );
+    assert!(nodes[1].iroh_addrs.is_empty());
+    assert_eq!(nodes[2].name, "n3");
+    assert!(nodes[2].url.is_empty());
+    let kept: Vec<Node> = serde_json::from_str(&serde_json::to_string(&nodes).unwrap()).unwrap();
+    assert_eq!(kept, nodes, "the nodes file keeps them");
+    let older: Vec<Node> =
+        serde_json::from_str(r#"[{"name": "n1", "url": "http://n1", "ready": true}]"#).unwrap();
+    assert_eq!(older[0].iroh_id, None, "a nodes file of before reads");
+}
