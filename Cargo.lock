@@ -92,6 +92,7 @@ dependencies = [
  "azcloud-kit",
  "azul-appkit",
  "azul-dll",
+ "azul-pay",
  "azul-search",
  "azul-storage",
  "chrono",
@@ -1420,6 +1421,13 @@ dependencies = [
  "xmlwriter",
  "zip 2.4.2",
  "zune-jpeg",
+]
+
+[[package]]
+name = "azul-pay"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
