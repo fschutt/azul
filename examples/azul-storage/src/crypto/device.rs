@@ -477,12 +477,33 @@ pub fn recover(
     drive: &str,
     code: &RecoveryCode,
 ) -> Result<DriveKey, DriveError> {
+    // The first code's wrap, then a further code's (a second kit), until one opens.
     let wrap = load_recovery_wrap(bucket)?;
-    let drive_key = wrap.open(drive, code).map_err(|e| match e {
-        CryptoError::WrongKey => DriveError::Denied {
-            message: String::from("the recovery code does not open this drive"),
-        },
-        other => other.for_key(RECOVERY_KEY_FILE),
+    let mut opened = match wrap.open(drive, code) {
+        Ok(drive_key) => Some(drive_key),
+        Err(CryptoError::WrongKey) => None,
+        Err(other) => return Err(other.for_key(RECOVERY_KEY_FILE)),
+    };
+    if opened.is_none() {
+        for file in extra_recovery_files(bucket)? {
+            let bytes = match bucket.get(&file) {
+                Ok(bytes) => bytes,
+                Err(DriveError::NotFound { .. }) => continue,
+                Err(e) => return Err(e),
+            };
+            let wrap = RecoveryWrap::parse(&bytes).map_err(|e| e.for_key(&file))?;
+            match wrap.open(drive, code) {
+                Ok(drive_key) => {
+                    opened = Some(drive_key);
+                    break;
+                }
+                Err(CryptoError::WrongKey) => {}
+                Err(other) => return Err(other.for_key(&file)),
+            }
+        }
+    }
+    let drive_key = opened.ok_or_else(|| DriveError::Denied {
+        message: String::from("the recovery code does not open this drive"),
     })?;
     enroll(bucket, keyring, drive, &drive_key)?;
     Ok(drive_key)
@@ -570,6 +591,7 @@ pub fn other_devices(
             let counts = !member.is_empty()
                 && !member.contains('/')
                 && key != RECOVERY_KEY_FILE
+                && !key.starts_with(EXTRA_RECOVERY_PREFIX)
                 && !member.starts_with("invite-")
                 && own.as_deref() != Some(key);
             if counts {
@@ -593,16 +615,47 @@ pub const EXTRA_RECOVERY_PREFIX: &str = ".azlin/keys/recovery-";
 /// One more recovery code of a drive this device holds the key of, sealed like the first in a
 /// wrap of its own; its file and the code (for its sheet: stored nowhere).
 pub fn add_recovery_code(
-    _bucket: &dyn Drive,
-    _keyring: &dyn KeyringStore,
-    _drive: &str,
-    _kdf: RecoveryKdf,
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    kdf: RecoveryKdf,
 ) -> Result<(String, RecoveryCode), DriveError> {
-    Err(DriveError::Unsupported(String::from("further recovery codes")))
+    let drive_key = load_drive_key(keyring, drive)?.ok_or_else(|| DriveError::Denied {
+        message: String::from("this device keeps no key of the drive: unlock it first"),
+    })?;
+    let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
+    let wrap = RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;
+    let mut id = [0u8; 8];
+    super::random_bytes(&mut id).map_err(|e| e.for_key(drive))?;
+    let file = format!("{EXTRA_RECOVERY_PREFIX}{}.key", to_hex(&id));
+    put_new(bucket, &file, &wrap.to_bytes())?;
+    Ok((file, code))
 }
 
-/// Removes a further recovery code's wrap: its kit no longer opens the drive.
-pub fn remove_recovery_code(_bucket: &dyn Drive, _file: &str) -> Result<(), DriveError> {
-    Ok(())
+/// Removes a further recovery code's wrap: its kit no longer opens the drive (a file that is
+/// gone already is no error). Refused for any other file - the first code's, a member's.
+pub fn remove_recovery_code(bucket: &dyn Drive, file: &str) -> Result<(), DriveError> {
+    let named = file
+        .strip_prefix(EXTRA_RECOVERY_PREFIX)
+        .and_then(|rest| rest.strip_suffix(".key"))
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit()));
+    if !named {
+        return Err(DriveError::InvalidConfig(format!(
+            "{file} is no further recovery code's key file"
+        )));
+    }
+    match bucket.delete(file) {
+        Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// The key files of the drive's further recovery codes.
+fn extra_recovery_files(bucket: &dyn Drive) -> Result<Vec<String>, DriveError> {
+    Ok(crate::ops::list_all(bucket, EXTRA_RECOVERY_PREFIX)?
+        .into_iter()
+        .map(|object| object.key)
+        .filter(|key| key.ends_with(".key"))
+        .collect())
 }
 
