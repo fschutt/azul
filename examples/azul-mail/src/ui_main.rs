@@ -1917,7 +1917,9 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
                 AzString::from(format!(
                     "{} ({})",
                     a.name,
-                    azul::file::DiskSpace::format_bytes(a.size as u64)
+                    azul_appkit::l10n::decimal(
+                        azul::file::DiskSpace::format_bytes(a.size as u64).as_str()
+                    )
                 ))
             })
             .collect();

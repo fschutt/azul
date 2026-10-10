@@ -106,7 +106,10 @@ use azul::{
     str::String as AzString,
     widgets::ListSelection,
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{
+    l10n::{t, t_args, t_text, Arg, Phrase, Text},
+    ui as kit,
+};
 use azul_storage::{azul_keyring::AzulKeyring, azul_transport::AzulTransport, Drive};
 use listing::{FolderInfo, ListRow, LocalFlags};
 use message::MessageView;
@@ -591,26 +594,34 @@ impl MailApp {
         let bytes = match &store {
             _ if fetching => Err(String::new()),
             Some(store) => store.get(&entry.path).map_err(|e| e.to_string()),
-            None => Err(String::from("no account")),
+            None => Err(t("azmail-error-no-account")),
         };
         let (view, error, inline) = match bytes {
             Ok(bytes) => match message::parse_view(&bytes) {
                 Some(view) => (Some(view), String::new(), message::inline_pictures(&bytes)),
-                None => (
-                    None,
-                    String::from("This file is not a mail message."),
-                    Vec::new(),
-                ),
+                None => (None, t("azmail-error-not-mail"), Vec::new()),
             },
             Err(_) if fetching => (
                 None,
-                format!(
-                    "Downloading this message ({}) from the Azlin drive...",
-                    azul::file::DiskSpace::format_bytes(entry.size)
+                t_args(
+                    "azmail-downloading",
+                    &[(
+                        "size",
+                        Arg::from(azul_appkit::l10n::decimal(
+                            azul::file::DiskSpace::format_bytes(entry.size).as_str(),
+                        )),
+                    )],
                 ),
                 Vec::new(),
             ),
-            Err(e) => (None, format!("Could not read {}: {e}", entry.path), Vec::new()),
+            Err(e) => (
+                None,
+                t_args(
+                    "azmail-error-read",
+                    &[("path", Arg::from(entry.path.as_str())), ("why", Arg::from(e))],
+                ),
+                Vec::new(),
+            ),
         };
         println!("AZMAIL_OPEN {folder} {uid}");
         let was_read = self.flags.is_read(&entry);
@@ -772,6 +783,11 @@ fn keyring_outcome(result: &KeyringResult) -> &'static str {
     }
 }
 
+/// A keyring answer in the window's language ("not found": "nicht gefunden").
+fn outcome_text(outcome: &str) -> String {
+    azul_appkit::l10n::app_word("AzMail", &format!("keyring-{}", outcome.replace(' ', "-")), outcome)
+}
+
 /// The answer to the awaited keyring operation (a window event of the main window).
 pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let OptionKeyringResult::Some(result) = info.get_keyring_result() else {
@@ -783,12 +799,12 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
         match (s.keyring.take(), result) {
             (None, _) => return Update::DoNothing,
             (Some(KeyringOp::Store), KeyringResult::Stored) => {
-                s.notice = String::from("The password is saved in the system keyring.");
+                s.notice = t("azmail-keyring-password-saved");
             }
             (Some(KeyringOp::Store), _) => {
-                s.notice = format!(
-                    "The password could not be saved in the system keyring ({outcome}): AzMail \
-                     keeps it only until it is closed."
+                s.notice = t_args(
+                    "azmail-keyring-password-not-saved",
+                    &[("outcome", Arg::from(outcome_text(outcome)))],
                 );
             }
             (Some(KeyringOp::Get { account }), KeyringResult::Retrieved(secret)) => {
@@ -801,27 +817,24 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
             }
             (Some(KeyringOp::Get { account }), _) => {
                 s.sync = SyncState::Idle;
-                let what = if s.accounts.iter().any(|a| a.id == account && a.is_azlin()) {
-                    "the drive token"
+                let key = if s.accounts.iter().any(|a| a.id == account && a.is_azlin()) {
+                    "azmail-keyring-enter-token"
                 } else {
-                    "the password"
+                    "azmail-keyring-enter-password"
                 };
                 ui_account::open_settings_with_error(
                     s,
                     &account,
-                    format!(
-                        "Enter {what} again: the system keyring has none for this account \
-                         ({outcome})."
-                    ),
+                    t_args(key, &[("outcome", Arg::from(outcome_text(outcome)))]),
                 );
             }
             (Some(KeyringOp::StoreDkim), KeyringResult::Stored) => {
-                s.notice = String::from("The DKIM key is saved in the system keyring.");
+                s.notice = t("azmail-keyring-dkim-saved");
             }
             (Some(KeyringOp::StoreDkim), _) => {
-                s.notice = format!(
-                    "The DKIM key could not be saved in the system keyring ({outcome}): AzMail \
-                     keeps it only until it is closed - create a new key then."
+                s.notice = t_args(
+                    "azmail-keyring-dkim-not-saved",
+                    &[("outcome", Arg::from(outcome_text(outcome)))],
                 );
             }
             (Some(KeyringOp::GetDkim { account }), KeyringResult::Retrieved(secret)) => {
@@ -835,15 +848,14 @@ pub(crate) extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackI
                 ui_bridge::copy_password(s, &mut info, secret.as_str());
             }
             (Some(KeyringOp::GetBridge), _) => {
-                ui_bridge::password_missing(s, outcome);
+                ui_bridge::password_missing(s, &outcome_text(outcome));
             }
             (Some(KeyringOp::GetDkim { account }), _) => {
                 // Asked once per run: signed mail waits in the Outbox until a new key is made.
                 s.dkim_keys.insert(account.clone(), None);
-                s.notice = format!(
-                    "The system keyring has no DKIM key for this account ({outcome}): signed \
-                     mail waits in the Outbox until you create a new key under Account \
-                     Settings, Sending."
+                s.notice = t_args(
+                    "azmail-keyring-no-dkim",
+                    &[("outcome", Arg::from(outcome_text(outcome)))],
                 );
                 if s.current_account().map(|a| a.id.as_str()) == Some(account.as_str()) {
                     start_sync(s, &mut info, app);
@@ -957,10 +969,10 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
                 },
             );
         }
-        s.sync = SyncState::Done(String::from(if account.is_azlin() {
-            "Reading the drive token from the system keyring..."
+        s.sync = SyncState::Done(t(if account.is_azlin() {
+            "azmail-reading-token"
         } else {
-            "Reading the password from the system keyring..."
+            "azmail-reading-password"
         }));
         return;
     };
@@ -983,9 +995,7 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
                 },
             );
         }
-        s.sync = SyncState::Done(String::from(
-            "Reading the DKIM key from the system keyring...",
-        ));
+        s.sync = SyncState::Done(t("azmail-reading-dkim"));
         return;
     }
     let dkim_key = s.dkim_keys.get(&account.id).cloned().flatten();
@@ -998,9 +1008,9 @@ pub(crate) fn start_sync(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) 
         thread,
         account: account.id.clone(),
         status: if account.is_azlin() {
-            String::from("Connecting to the Azlin drive...")
+            t("azmail-connecting-azlin")
         } else {
-            format!("Connecting to {}...", account.imap.host)
+            t_args("azmail-connecting", &[("server", Arg::from(account.imap.host.as_str()))])
         },
         percent: 0.0,
     };
@@ -1347,10 +1357,7 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
             let Some(why) = unsaved else {
                 return Update::DoNothing;
             };
-            s.notice = format!(
-                "The Azlin drive's new token could not be saved in the system keyring ({why}): \
-                 AzMail keeps it only until it is closed, then asks for a drive token again."
-            );
+            s.notice = t_args("azmail-token-not-saved", &[("why", Arg::from(why))]);
         }
         SyncEvent::Progress(progress) => {
             if !running_this {
@@ -1366,7 +1373,14 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
                         count,
                         display,
                     } => {
-                        *status = format!("Receiving {display} (folder {} of {count})", index + 1);
+                        *status = t_args(
+                            "azmail-receiving-folder",
+                            &[
+                                ("folder", Arg::from(display.as_str())),
+                                ("index", Arg::from(index + 1)),
+                                ("count", Arg::from(count)),
+                            ],
+                        );
                         *percent = 0.0;
                     }
                     Progress::Messages {
@@ -1374,7 +1388,14 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
                         done,
                         total,
                     } => {
-                        *status = format!("Receiving {display}: {done} of {total} messages");
+                        *status = t_args(
+                            "azmail-receiving-messages",
+                            &[
+                                ("folder", Arg::from(display.as_str())),
+                                ("done", Arg::from(done)),
+                                ("total", Arg::from(total)),
+                            ],
+                        );
                         *percent = if total == 0 {
                             100.0
                         } else {
@@ -1399,14 +1420,13 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
                 report.fetched()
             );
             let mut text = if report.fetched() == 0 {
-                String::from("All folders are up to date.")
+                t("azmail-up-to-date")
             } else {
-                format!("{} new messages.", report.fetched())
+                t_args("azmail-new-messages", &[("count", Arg::from(report.fetched()))])
             };
             if sent + queued + failed > 0 {
-                text.push_str(&format!(
-                    " Outbox: {sent} sent, {queued} waiting, {failed} failed."
-                ));
+                text.push(' ');
+                text.push_str(&outbox_text(sent, queued, failed));
             }
             s.sync = SyncState::Done(text);
             s.reload_folders();
@@ -1434,9 +1454,16 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
             if matches!(e, SyncError::Auth(_)) {
                 // A wrong password in memory (or the keyring) would fail again: ask for it.
                 s.secrets.remove(&account);
-                ui_account::open_settings_with_error(s, &account, format!("Sign-in failed: {e}"));
+                ui_account::open_settings_with_error(
+                    s,
+                    &account,
+                    t_args("azmail-sign-in-failed", &[("why", Arg::from(e.to_string()))]),
+                );
             }
-            s.sync = SyncState::Failed(format!("Send/Receive error: {e}"));
+            s.sync = SyncState::Failed(t_args(
+                "azmail-send-receive-error",
+                &[("why", Arg::from(e.to_string()))],
+            ));
             s.reload_folders();
             s.reload_messages();
         }
@@ -1473,14 +1500,11 @@ pub(crate) fn send_local_outbox(s: &mut MailApp, info: &mut CallbackInfo, app: R
         return;
     }
     if send::outbox_entries(&s.root, account::LOCAL_ID).is_empty() {
-        s.notice = if s.accounts.is_empty() {
-            String::from(
-                "Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add \
-                 Account.",
-            )
+        s.notice = t(if s.accounts.is_empty() {
+            "azmail-outbox-empty-no-account"
         } else {
-            String::from("Nothing waits in the Outbox of Local Folders.")
-        };
+            "azmail-outbox-empty-local"
+        });
         return;
     }
     println!("AZMAIL_OUTBOX_START {}", account::LOCAL_ID);
@@ -1488,13 +1512,25 @@ pub(crate) fn send_local_outbox(s: &mut MailApp, info: &mut CallbackInfo, app: R
     s.sync = SyncState::Running {
         thread,
         account: String::from(account::LOCAL_ID),
-        status: String::from("Sending the Outbox..."),
+        status: t("azmail-sending-outbox"),
         percent: 0.0,
     };
     let job = LocalOutboxJob {
         root: s.root.clone(),
     };
     info.add_thread(thread, Thread::create(RefAny::new(job), app, local_outbox_thread));
+}
+
+/// What a pass over an Outbox did, as the status bar says it.
+fn outbox_text(sent: usize, queued: usize, failed: usize) -> String {
+    t_args(
+        "azmail-outbox-counts",
+        &[
+            ("sent", Arg::from(sent)),
+            ("queued", Arg::from(queued)),
+            ("failed", Arg::from(failed)),
+        ],
+    )
 }
 
 /// What the Local Folders' Outbox thread is given.
@@ -1537,7 +1573,7 @@ extern "C" fn on_local_outbox_done(mut app: RefAny, mut payload: RefAny, _info: 
     };
     println!("AZMAIL_OUTBOX_DONE sent={sent} queued={queued} failed={failed}");
     with_app(&mut app, |s, _| {
-        let text = format!("Outbox: {sent} sent, {queued} waiting, {failed} failed.");
+        let text = outbox_text(sent, queued, failed);
         s.sync = SyncState::Done(text.clone());
         s.notice = text;
         s.reload_folders();
@@ -1590,9 +1626,7 @@ impl AzlinContext {
             .unwrap_or_default();
         let session = azlin::AzlinSession::from_secret(self.session.expose(), drive_id);
         if !session.is_valid_at(azul_storage::time::now_unix()) {
-            return Err(String::from(
-                "the Azlin drive's sign-in is out of date: Send/Receive (F9) signs in again",
-            ));
+            return Err(String::from("azmail-error-azlin-sign-in-old"));
         }
         mail_drive::open(
             &session,
@@ -1672,7 +1706,7 @@ pub(crate) fn spawn_azlin(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny,
         return false;
     };
     let Some(context) = AzlinContext::of(s, &id) else {
-        s.notice = String::from("Send/Receive (F9) first: AzMail signs in to the Azlin drive then.");
+        s.notice = t("azmail-notice-send-receive-first");
         return false;
     };
     spawn_io(info, app, IoJob::Azlin { context, action });
@@ -1693,10 +1727,7 @@ pub(crate) fn fetch_if_needed(s: &mut MailApp, info: &mut CallbackInfo, app: Ref
     if !spawn_azlin(s, info, app, AzlinAction::Fetch { folder, uid }) {
         if let Some(open) = s.open.as_mut() {
             open.fetching = false;
-            open.error = String::from(
-                "This message is in the Azlin drive only: Send/Receive (F9) signs in, then it \
-                 opens.",
-            );
+            open.error = t("azmail-error-azlin-only");
         }
     }
 }
@@ -1751,9 +1782,10 @@ pub(crate) enum IoDone {
         path: PathBuf,
         editing: bool,
     },
-    AccountFailed(String),
+    /// Why the account was not saved (said on the UI thread).
+    AccountFailed(Text),
     FlagsSaved,
-    Failed(String),
+    Failed(Text),
     /// An Azlin account's action, and how it went.
     Azlin {
         action: AzlinAction,
@@ -1793,9 +1825,13 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
                     path,
                     editing,
                 },
-                Err(e) => IoDone::AccountFailed(format!("Could not write the sending settings: {e}")),
+                Err(e) => IoDone::AccountFailed(
+                    Phrase::new("azmail-error-write-sending").arg("why", e.to_string()).into(),
+                ),
             },
-            Err(e) => IoDone::AccountFailed(format!("Could not write the account file: {e}")),
+            Err(e) => IoDone::AccountFailed(
+                Phrase::new("azmail-error-write-account").arg("why", e.to_string()).into(),
+            ),
         },
         IoJob::SaveFlags {
             store_root,
@@ -1809,7 +1845,9 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
                 &listing::flags_key(&folder),
                 flags.to_json().as_bytes(),
             ) {
-                Err(e) => IoDone::Failed(format!("Could not save the read marks: {e}")),
+                Err(e) => IoDone::Failed(
+                    Phrase::new("azmail-error-save-marks").arg("why", e.to_string()).into(),
+                ),
                 Ok(()) => match azlin {
                     None => IoDone::FlagsSaved,
                     Some(context) => {
@@ -1870,7 +1908,12 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
                     path: key.split('/').fold(root.path(), |path, name| path.join(name)),
                     key,
                 },
-                Err(e) => IoDone::Failed(format!("Could not write {key}: {e}")),
+                Err(e) => IoDone::Failed(
+                    Phrase::new("azmail-error-write")
+                        .arg("key", key.as_str())
+                        .arg("why", e.to_string())
+                        .into(),
+                ),
             }
         }
     };
@@ -1926,6 +1969,7 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
             Update::RefreshDom
         }
         IoDone::AccountFailed(error) => {
+            let error = t_text(&error);
             if let Some(editor) = s.editor.as_mut() {
                 editor.error = error;
             } else {
@@ -1935,7 +1979,7 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
         }
         IoDone::FlagsSaved => Update::DoNothing,
         IoDone::Failed(error) => {
-            s.notice = error;
+            s.notice = t_text(&error);
             Update::RefreshDom
         }
         IoDone::Azlin { action, result } => {

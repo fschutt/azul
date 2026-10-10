@@ -8,6 +8,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use azcloud_kit::bridge::{self, BridgeSettings, PasswordSource, Row};
+use azul_appkit::l10n::{label, t, t_args, t_label, Arg};
 use azul::{
     callbacks::ButtonOnClickCallbackType,
     dom::ClipboardContent,
@@ -72,7 +73,7 @@ struct PasswordRef {
 }
 
 fn line(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css(TEXT)
+    Dom::create_span_with_text(label(text)).with_css(TEXT)
 }
 
 fn clipboard(info: &mut CallbackInfo, text: &str) {
@@ -83,8 +84,8 @@ fn clipboard(info: &mut CallbackInfo, text: &str) {
     });
 }
 
-fn copy_button(app: &RefAny, label: &str, text: &str, what: &str) -> Dom {
-    Button::create(AzString::from(label))
+fn copy_button(app: &RefAny, words: &str, text: &str, what: &str) -> Dom {
+    Button::create(label(words))
         .with_on_click(
             RefAny::new(CopyRef {
                 app: app.clone(),
@@ -100,42 +101,35 @@ fn row_of(app: &RefAny, row: &Row) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 2px 0px;")
         .with_child(
-            Dom::create_span_with_text(row.label.as_str())
+            // The kit's words by their ids (azcloud-kit's bridge resource).
+            Dom::create_span_with_text(label(row.label_id))
                 .with_css("width: 220px; flex-shrink: 0; font-size: 13px;"),
         )
         .with_child(
-            Dom::create_span_with_text(row.value.as_str())
+            Dom::create_span_with_text(label(row.value_id.unwrap_or(&row.value)))
                 .with_css("flex-grow: 1; font-size: 13px; font-family: monospace;"),
         )
-        .with_child(copy_button(app, "Copy", &row.value, &row.label))
+        .with_child(copy_button(app, "azmail-bridge-copy", &row.value, row.label_id))
 }
 
 /// "Other programs": the bridge's settings, each with Copy; else how to set the bridge up.
 pub(crate) fn section(view: &BridgeView, app: &RefAny) -> Dom {
     let mut page = Dom::create_div().with_css(PAGE);
     let Some(settings) = &view.settings else {
-        page.add_child(line(
-            "The Azlin Bridge lets Apple Mail, Thunderbird or Outlook, Finder or Explorer and \
-             calendar and contacts programs reach your Azlin drive on this computer. It is not set \
-             up here: run azul-bridge init --address <your address>, then azul-bridge serve \
-             (azul-bridge autostart enable starts it at every login).",
-        ));
+        page.add_child(line("azmail-bridge-not-set-up"));
         return page;
     };
     page.add_child(line(if view.running {
-        "The Azlin Bridge is running on this computer. Set up the other program with these \
-         settings and the bridge's password:"
+        "azmail-bridge-running"
     } else {
-        "The Azlin Bridge is set up but not running: start it with azul-bridge serve \
-         (azul-bridge autostart enable starts it at every login). The other programs use these \
-         settings and the bridge's password:"
+        "azmail-bridge-not-running"
     }));
     for (heading, rows) in [
-        ("Mail (Apple Mail, Thunderbird, Outlook)", settings.mail_rows()),
-        ("Files (Finder, Explorer, the file managers)", settings.files_rows()),
-        ("Calendars and contacts", settings.calendar_rows()),
+        ("azmail-bridge-mail", settings.mail_rows()),
+        ("azmail-bridge-files", settings.files_rows()),
+        ("azmail-bridge-calendars", settings.calendar_rows()),
     ] {
-        page.add_child(Dom::create_span_with_text(heading).with_css(HEADING));
+        page.add_child(Dom::create_span_with_text(label(heading)).with_css(HEADING));
         for row in &rows {
             page.add_child(row_of(app, row));
         }
@@ -143,10 +137,15 @@ pub(crate) fn section(view: &BridgeView, app: &RefAny) -> Dom {
     page.add_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; margin-top: 12px;")
-            .with_child(copy_button(app, "Copy all settings", &settings.summary(), "every setting"))
+            .with_child(copy_button(
+                app,
+                "azmail-bridge-copy-all",
+                &settings.summary(),
+                "azmail-bridge-every-setting",
+            ))
             .with_child(
                 Dom::create_div().with_css("margin-left: 8px;").with_child(
-                    Button::create(AzString::from("Copy password"))
+                    Button::create(label("azmail-bridge-copy-password"))
                         .with_on_click(
                             RefAny::new(PasswordRef { app: app.clone() }),
                             on_copy_password as ButtonOnClickCallbackType,
@@ -176,7 +175,7 @@ extern "C" fn on_copy(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     clipboard(&mut info, &text);
     with_app(&mut app, |s, _| {
-        set_note(s, &format!("Copied: {what}."));
+        set_note(s, &t_args("azmail-bridge-copied", &[("what", Arg::from(t_label(&what)))]));
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
@@ -195,13 +194,10 @@ extern "C" fn on_copy_password(mut data: RefAny, mut info: CallbackInfo) -> Upda
         match source {
             Some(PasswordSource::File(path)) => match bridge::file_password(&path) {
                 Some(password) => copy_password(s, &mut info, &password),
-                None => set_note(
-                    s,
-                    "The bridge's secrets file has no password: azul-bridge password makes a new one.",
-                ),
+                None => set_note(s, &t("azmail-bridge-no-file-password")),
             },
             Some(PasswordSource::Keyring(entry)) => {
-                set_note(s, "Asking the system keyring for the bridge's password ...");
+                set_note(s, &t("azmail-bridge-asking-keyring"));
                 keyring_call(
                     s,
                     &mut info,
@@ -222,19 +218,13 @@ extern "C" fn on_copy_password(mut data: RefAny, mut info: CallbackInfo) -> Upda
 /// The bridge's password, read: into the clipboard, never onto the screen.
 pub(crate) fn copy_password(s: &mut MailApp, info: &mut CallbackInfo, password: &str) {
     clipboard(info, password);
-    set_note(
-        s,
-        "Copied the bridge's password: paste it where the other program asks for the password.",
-    );
+    set_note(s, &t("azmail-bridge-password-copied"));
 }
 
 /// The keyring gave no password for the bridge (`outcome`: what it answered).
 pub(crate) fn password_missing(s: &mut MailApp, outcome: &str) {
     set_note(
         s,
-        &format!(
-            "The system keyring has no password of the bridge ({outcome}): azul-bridge password \
-             makes a new one."
-        ),
+        &t_args("azmail-bridge-no-password", &[("outcome", Arg::from(outcome))]),
     );
 }

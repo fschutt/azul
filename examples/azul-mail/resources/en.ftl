@@ -183,3 +183,67 @@ azmail-folder-all = All Mail
 azmail-folder-flagged = Flagged
 azmail-folder-outbox = Outbox
 azmail-local-folders = Local Folders
+
+## Send/Receive, the keyring, the Outbox, writing files
+
+azmail-error-no-account = no account
+azmail-error-not-mail = This file is not a mail message.
+azmail-downloading = Downloading this message ({ $size }) from the Azlin drive…
+azmail-error-read = Could not read { $path }: { $why }
+azmail-keyring-stored = stored
+azmail-keyring-retrieved = retrieved
+azmail-keyring-deleted = deleted
+azmail-keyring-not-found = not found
+azmail-keyring-denied = denied
+azmail-keyring-unavailable = unavailable
+azmail-keyring-error = error
+azmail-keyring-password-saved = The password is saved in the system keyring.
+azmail-keyring-password-not-saved = The password could not be saved in the system keyring ({ $outcome }): AzMail keeps it only until it is closed.
+azmail-keyring-enter-token = Enter the drive token again: the system keyring has none for this account ({ $outcome }).
+azmail-keyring-enter-password = Enter the password again: the system keyring has none for this account ({ $outcome }).
+azmail-keyring-dkim-saved = The DKIM key is saved in the system keyring.
+azmail-keyring-dkim-not-saved = The DKIM key could not be saved in the system keyring ({ $outcome }): AzMail keeps it only until it is closed - create a new key then.
+azmail-keyring-no-dkim = The system keyring has no DKIM key for this account ({ $outcome }): signed mail waits in the Outbox until you create a new key under Account Settings, Sending.
+azmail-reading-token = Reading the drive token from the system keyring…
+azmail-reading-password = Reading the password from the system keyring…
+azmail-reading-dkim = Reading the DKIM key from the system keyring…
+azmail-connecting-azlin = Connecting to the Azlin drive…
+azmail-connecting = Connecting to { $server }…
+azmail-token-not-saved = The Azlin drive's new token could not be saved in the system keyring ({ $why }): AzMail keeps it only until it is closed, then asks for a drive token again.
+azmail-receiving-folder = Receiving { $folder } (folder { $index } of { $count })
+azmail-receiving-messages = Receiving { $folder }: { $done } of { $total } messages
+azmail-new-messages = { $count ->
+    [one] 1 new message.
+   *[other] { $count } new messages.
+ }
+azmail-sign-in-failed = Sign-in failed: { $why }
+azmail-send-receive-error = Send/Receive error: { $why }
+azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add Account.
+azmail-outbox-empty-local = Nothing waits in the Outbox of Local Folders.
+azmail-sending-outbox = Sending the Outbox…
+azmail-outbox-counts = Outbox: { $sent } sent, { $queued } waiting, { $failed } failed.
+azmail-error-azlin-sign-in-old = the Azlin drive's sign-in is out of date: Send/Receive (F9) signs in again
+azmail-notice-send-receive-first = Send/Receive (F9) first: AzMail signs in to the Azlin drive then.
+azmail-error-azlin-only = This message is in the Azlin drive only: Send/Receive (F9) signs in, then it opens.
+azmail-error-write-sending = Could not write the sending settings: { $why }
+azmail-error-write-account = Could not write the account file: { $why }
+azmail-error-save-marks = Could not save the read marks: { $why }
+azmail-error-write = Could not write { $key }: { $why }
+azmail-bridge-no-password = The system keyring has no password of the bridge ({ $outcome }): azul-bridge password makes a new one.
+
+## Account Settings: Other programs (the Azlin Bridge)
+
+azmail-bridge-copy = Copy
+azmail-bridge-not-set-up = The Azlin Bridge lets Apple Mail, Thunderbird or Outlook, Finder or Explorer and calendar and contacts programs reach your Azlin drive on this computer. It is not set up here: run azul-bridge init --address <your address>, then azul-bridge serve (azul-bridge autostart enable starts it at every login).
+azmail-bridge-running = The Azlin Bridge is running on this computer. Set up the other program with these settings and the bridge's password:
+azmail-bridge-not-running = The Azlin Bridge is set up but not running: start it with azul-bridge serve (azul-bridge autostart enable starts it at every login). The other programs use these settings and the bridge's password:
+azmail-bridge-mail = Mail (Apple Mail, Thunderbird, Outlook)
+azmail-bridge-files = Files (Finder, Explorer, the file managers)
+azmail-bridge-calendars = Calendars and contacts
+azmail-bridge-copy-all = Copy all settings
+azmail-bridge-every-setting = every setting
+azmail-bridge-copy-password = Copy password
+azmail-bridge-copied = Copied: { $what }.
+azmail-bridge-no-file-password = The bridge's secrets file has no password: azul-bridge password makes a new one.
+azmail-bridge-asking-keyring = Asking the system keyring for the bridge's password …
+azmail-bridge-password-copied = Copied the bridge's password: paste it where the other program asks for the password.

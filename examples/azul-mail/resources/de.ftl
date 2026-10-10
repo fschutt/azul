@@ -183,3 +183,67 @@ azmail-folder-all = Alle E-Mails
 azmail-folder-flagged = Gekennzeichnet
 azmail-folder-outbox = Postausgang
 azmail-local-folders = Lokale Ordner
+
+## Send/Receive, the keyring, the Outbox, writing files
+
+azmail-error-no-account = kein Konto
+azmail-error-not-mail = Diese Datei ist keine E-Mail-Nachricht.
+azmail-downloading = Diese Nachricht ({ $size }) wird aus dem Azlin-Laufwerk heruntergeladen…
+azmail-error-read = { $path } konnte nicht gelesen werden: { $why }
+azmail-keyring-stored = gespeichert
+azmail-keyring-retrieved = gelesen
+azmail-keyring-deleted = gelöscht
+azmail-keyring-not-found = nicht gefunden
+azmail-keyring-denied = verweigert
+azmail-keyring-unavailable = nicht verfügbar
+azmail-keyring-error = Fehler
+azmail-keyring-password-saved = Das Kennwort ist im Schlüsselbund des Systems gespeichert.
+azmail-keyring-password-not-saved = Das Kennwort konnte nicht im Schlüsselbund des Systems gespeichert werden ({ $outcome }): AzMail behält es nur, bis es geschlossen wird.
+azmail-keyring-enter-token = Gib das Laufwerkstoken erneut ein: Der Schlüsselbund des Systems hat keines für dieses Konto ({ $outcome }).
+azmail-keyring-enter-password = Gib das Kennwort erneut ein: Der Schlüsselbund des Systems hat keines für dieses Konto ({ $outcome }).
+azmail-keyring-dkim-saved = Der DKIM-Schlüssel ist im Schlüsselbund des Systems gespeichert.
+azmail-keyring-dkim-not-saved = Der DKIM-Schlüssel konnte nicht im Schlüsselbund des Systems gespeichert werden ({ $outcome }): AzMail behält ihn nur, bis es geschlossen wird – erstelle dann einen neuen Schlüssel.
+azmail-keyring-no-dkim = Der Schlüsselbund des Systems hat keinen DKIM-Schlüssel für dieses Konto ({ $outcome }): Signierte E-Mails warten im Postausgang, bis du unter Kontoeinstellungen, Senden einen neuen Schlüssel erstellst.
+azmail-reading-token = Das Laufwerkstoken wird aus dem Schlüsselbund des Systems gelesen…
+azmail-reading-password = Das Kennwort wird aus dem Schlüsselbund des Systems gelesen…
+azmail-reading-dkim = Der DKIM-Schlüssel wird aus dem Schlüsselbund des Systems gelesen…
+azmail-connecting-azlin = Verbindung mit dem Azlin-Laufwerk wird hergestellt…
+azmail-connecting = Verbindung mit { $server } wird hergestellt…
+azmail-token-not-saved = Das neue Token des Azlin-Laufwerks konnte nicht im Schlüsselbund des Systems gespeichert werden ({ $why }): AzMail behält es nur, bis es geschlossen wird, und fragt dann erneut nach einem Laufwerkstoken.
+azmail-receiving-folder = { $folder } wird empfangen (Ordner { $index } von { $count })
+azmail-receiving-messages = { $folder } wird empfangen: { $done } von { $total } Nachrichten
+azmail-new-messages = { $count ->
+    [one] 1 neue Nachricht.
+   *[other] { $count } neue Nachrichten.
+ }
+azmail-sign-in-failed = Anmeldung fehlgeschlagen: { $why }
+azmail-send-receive-error = Fehler beim Senden/Empfangen: { $why }
+azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu empfangen, füge ein Konto hinzu: Datei > Informationen > Konto hinzufügen.
+azmail-outbox-empty-local = Im Postausgang der lokalen Ordner wartet nichts.
+azmail-sending-outbox = Der Postausgang wird gesendet…
+azmail-outbox-counts = Postausgang: { $sent } gesendet, { $queued } wartend, { $failed } fehlgeschlagen.
+azmail-error-azlin-sign-in-old = die Anmeldung des Azlin-Laufwerks ist veraltet: Senden/Empfangen (F9) meldet erneut an
+azmail-notice-send-receive-first = Zuerst Senden/Empfangen (F9): AzMail meldet sich dann beim Azlin-Laufwerk an.
+azmail-error-azlin-only = Diese Nachricht ist nur im Azlin-Laufwerk: Senden/Empfangen (F9) meldet an, dann öffnet sie sich.
+azmail-error-write-sending = Die Sendeeinstellungen konnten nicht geschrieben werden: { $why }
+azmail-error-write-account = Die Kontodatei konnte nicht geschrieben werden: { $why }
+azmail-error-save-marks = Die Lesemarkierungen konnten nicht gespeichert werden: { $why }
+azmail-error-write = { $key } konnte nicht geschrieben werden: { $why }
+azmail-bridge-no-password = Der Schlüsselbund des Systems hat kein Kennwort der Brücke ({ $outcome }): azul-bridge password erstellt ein neues.
+
+## Account Settings: Other programs (the Azlin Bridge)
+
+azmail-bridge-copy = Kopieren
+azmail-bridge-not-set-up = Die Azlin-Brücke lässt Apple Mail, Thunderbird oder Outlook, den Finder oder Explorer und Kalender- und Kontaktprogramme auf diesem Computer auf dein Azlin-Laufwerk zugreifen. Sie ist hier nicht eingerichtet: Führe azul-bridge init --address <deine Adresse> aus, dann azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung).
+azmail-bridge-running = Die Azlin-Brücke läuft auf diesem Computer. Richte das andere Programm mit diesen Einstellungen und dem Kennwort der Brücke ein:
+azmail-bridge-not-running = Die Azlin-Brücke ist eingerichtet, läuft aber nicht: Starte sie mit azul-bridge serve (azul-bridge autostart enable startet sie bei jeder Anmeldung). Die anderen Programme verwenden diese Einstellungen und das Kennwort der Brücke:
+azmail-bridge-mail = E-Mail (Apple Mail, Thunderbird, Outlook)
+azmail-bridge-files = Dateien (Finder, Explorer, die Dateimanager)
+azmail-bridge-calendars = Kalender und Kontakte
+azmail-bridge-copy-all = Alle Einstellungen kopieren
+azmail-bridge-every-setting = alle Einstellungen
+azmail-bridge-copy-password = Kennwort kopieren
+azmail-bridge-copied = Kopiert: { $what }.
+azmail-bridge-no-file-password = Die Geheimnisdatei der Brücke hat kein Kennwort: azul-bridge password erstellt ein neues.
+azmail-bridge-asking-keyring = Der Schlüsselbund des Systems wird nach dem Kennwort der Brücke gefragt …
+azmail-bridge-password-copied = Das Kennwort der Brücke wurde kopiert: Füge es dort ein, wo das andere Programm nach dem Kennwort fragt.
