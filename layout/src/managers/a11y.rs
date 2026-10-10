@@ -528,6 +528,13 @@ pub struct A11yTreeInputs<'a> {
     /// host node)`): where its content is read, in the host's reading order.
     /// Empty without virtual views.
     pub nested_dom_hosts: &'a BTreeMap<DomId, (DomId, NodeId)>,
+    /// The language the window's text is in, a BCP 47 tag
+    /// (`LayoutWindow::active_language`); empty when unknown. Set on the
+    /// window root, where every element inherits it: a screen reader picks
+    /// its voice by it.
+    pub language: &'a str,
+    /// Whether that language is written right to left.
+    pub language_is_rtl: bool,
 }
 
 /// What one accessibility pass did ([`A11yManager::refresh`]) - the cost
@@ -962,6 +969,8 @@ impl A11yManager {
             dirty_text_overrides,
             cursor_info,
             nested_dom_hosts: &no_hosts,
+            language: "",
+            language_is_rtl: false,
         };
         let mut retained = A11yRetainedTree::default();
         drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
@@ -1006,6 +1015,8 @@ impl A11yManager {
         let root_inputs = {
             let mut h = azul_core::hash::DefaultHasher::new();
             inputs.window_title.as_str().hash(&mut h);
+            inputs.language.hash(&mut h);
+            inputs.language_is_rtl.hash(&mut h);
             Self::finish_signature(&h)
         };
         Self::retain_or_build(
@@ -1018,6 +1029,12 @@ impl A11yManager {
             || {
                 let mut root_node = Node::new(Role::Window);
                 root_node.set_label(inputs.window_title.as_str());
+                if !inputs.language.is_empty() {
+                    root_node.set_language(inputs.language);
+                }
+                if inputs.language_is_rtl {
+                    root_node.set_text_direction(accesskit::TextDirection::RightToLeft);
+                }
                 root_node
             },
         );
@@ -4199,6 +4216,8 @@ mod retained_tree_tests {
             dirty_text_overrides: &overrides,
             cursor_info: None,
             nested_dom_hosts: &BTreeMap::new(),
+            language: "",
+            language_is_rtl: false,
         };
         let _ = m.refresh(&inputs);
         m.take_pending()
@@ -4293,6 +4312,8 @@ mod retained_tree_tests {
             dirty_text_overrides: overrides,
             cursor_info: None,
             nested_dom_hosts: hosts,
+            language: "",
+            language_is_rtl: false,
         }
     }
 

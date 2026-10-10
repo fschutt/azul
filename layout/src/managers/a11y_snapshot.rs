@@ -120,6 +120,10 @@ pub struct A11ySnapshot {
     /// Window size in logical units, so a bridge can convert without also
     /// needing the window state.
     pub window_size: LogicalSize,
+    /// The language the window's text is in (BCP 47; empty when unknown):
+    /// UIKit's `accessibilityLanguage` of every element, the voice VoiceOver
+    /// reads it with. Set by `LayoutWindow::build_a11y_snapshot`.
+    pub language: String,
 }
 
 impl A11ySnapshot {
@@ -322,6 +326,7 @@ impl A11ySnapshot {
             elements,
             roots,
             window_size,
+            language: String::new(),
         }
     }
 

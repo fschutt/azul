@@ -16631,6 +16631,8 @@ impl LayoutWindow {
             }
         }
 
+        // The language the window's text is in: a screen reader's voice.
+        let language = self.active_language();
         // Every virtual view's dom and the view hosting it: its content is
         // read at the view's place.
         let mut nested_dom_hosts = BTreeMap::new();
@@ -16657,6 +16659,8 @@ impl LayoutWindow {
             dirty_text_overrides: &dirty_text_overrides,
             cursor_info: cursor_a11y_info,
             nested_dom_hosts: &nested_dom_hosts,
+            language: language.id.as_str(),
+            language_is_rtl: language.is_rtl,
         };
         // A refused update keeps the last good state parked/delivered and the
         // next pass resends the whole tree; `last_rejection` records why (the
@@ -16709,14 +16713,16 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[must_use]
     pub fn build_a11y_snapshot(&self) -> crate::managers::a11y_snapshot::A11ySnapshot {
-        crate::managers::a11y_snapshot::A11ySnapshot::build(
+        let mut snapshot = crate::managers::a11y_snapshot::A11ySnapshot::build(
             &self.layout_results,
             &self.scroll_manager,
             &self.gpu_state_manager,
             self.focus_manager.get_focused_node().copied(),
             self.current_window_state.title.as_str(),
             self.current_window_state.size.dimensions,
-        )
+        );
+        snapshot.language = self.active_language().id.as_str().to_string();
+        snapshot
     }
 
     /// Incremental a11y update: only push the focused contenteditable node's

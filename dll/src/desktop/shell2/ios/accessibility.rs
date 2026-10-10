@@ -203,7 +203,7 @@ impl IOSAccessibilityAdapter {
 
         self.elements = Vec::with_capacity(snapshot.elements.len());
         for (index, element) in snapshot.elements.iter().enumerate() {
-            let obj = unsafe { make_element(container, index, element) };
+            let obj = unsafe { make_element(container, index, element, &snapshot.language) };
             if obj.is_null() {
                 // Element construction failed (class registration refused, OOM).
                 // Push the null so indices stay aligned with the snapshot —
@@ -291,6 +291,7 @@ unsafe fn make_element(
     container: *mut Object,
     index: usize,
     element: &azul_layout::managers::a11y_snapshot::A11yElement,
+    language: &str,
 ) -> *mut Object {
     use super::{CGPoint, CGRect, CGSize};
 
@@ -324,6 +325,14 @@ unsafe fn make_element(
     }
 
     let _: () = msg_send![obj, setAccessibilityTraits: traits_for(element)];
+
+    // The app's language: VoiceOver reads the label with that language's voice.
+    if !language.is_empty() {
+        let language = ns_string(language);
+        if !language.is_null() {
+            let _: () = msg_send![obj, setAccessibilityLanguage: language];
+        }
+    }
 
     // `accessibilityFrameInContainerSpace` (iOS 10+) lets UIKit do the
     // view→screen conversion itself. The snapshot's bounds are logical units,
