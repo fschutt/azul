@@ -43,7 +43,7 @@ use super::{
     wal::{MetaStore, PackRef, Packs, Publish, Published, RefUpdate, RepoState, StoreSnapshot},
     MetaError,
 };
-use crate::local::write_atomically;
+use crate::{local::write_atomically, DriveError};
 
 /// The branch that is the drive's history.
 pub const MAIN: &str = "refs/heads/main";
@@ -286,11 +286,45 @@ impl Local {
                     plain
                 }
             };
-            for entry in index.entries().iter().filter(|e| e.chunk == chunk) {
-                let body = index.object_in_chunk(entry, &plain)?;
-                self.objects.insert_checked(entry.id, entry.kind, body)?;
-            }
+            add_chunk(index, chunk, &plain, &mut self.objects)?;
             self.chunks.insert((name, chunk));
+        }
+        Ok(())
+    }
+
+    /// Loads what the cache folder holds of the live packs of `state`, without the
+    /// bucket (an offline open): every index (missing one: the cache cannot open the
+    /// copy), the packs read whole, the chunks read so far.
+    fn load_cached<S: Sealer>(&mut self, state: &RepoState, sealer: &S) -> Result<(), MetaError> {
+        for pack in &state.packs {
+            let not_cached = || MetaError::Corrupt {
+                key: pack.name.clone(),
+                reason: "a pack whose index is not in the cache".to_string(),
+            };
+            let idx = read_cached(self.file(&format!("{}.idx", pack.name)).as_deref())
+                .ok_or_else(not_cached)?;
+            let index = PackIndex::open(sealer, &pack.name, &idx)?;
+            self.published.extend(index.entries().iter().map(|e| e.id));
+            let whole = read_cached(self.file(&format!("{}.pack", pack.name)).as_deref())
+                .filter(|bytes| bytes.len() as u64 == pack.pack_size)
+                .is_some_and(|bytes| index.read_into(sealer, &bytes, &mut self.objects).is_ok());
+            if whole {
+                self.fetched.insert(pack.name.clone());
+            } else {
+                for chunk in 0..index.chunk_count() {
+                    let path = self.file(&format!("{}.{chunk}.chunk", pack.name));
+                    let Some(sealed) = read_cached(path.as_deref()) else {
+                        continue;
+                    };
+                    if let Ok(plain) = index.open_chunk(sealer, chunk, &sealed) {
+                        if add_chunk(&index, chunk, &plain, &mut self.objects).is_ok() {
+                            self.chunks.insert((pack.name.clone(), chunk));
+                        }
+                    }
+                }
+            }
+            self.refs.insert(pack.name.clone(), pack.clone());
+            self.indexes.insert(pack.name.clone(), index);
         }
         Ok(())
     }
@@ -400,6 +434,27 @@ impl Local {
     }
 }
 
+/// Every object of chunk `chunk` (opened: `plain`) of the pack `index` describes, checked,
+/// into `objects`.
+fn add_chunk(
+    index: &PackIndex,
+    chunk: u32,
+    plain: &[u8],
+    objects: &mut Objects,
+) -> Result<(), MetaError> {
+    for entry in index.entries().iter().filter(|e| e.chunk == chunk) {
+        let body = index.object_in_chunk(entry, plain)?;
+        objects.insert_checked(entry.id, entry.kind, body)?;
+    }
+    Ok(())
+}
+
+/// Whether `e` says the bucket could not be reached (no network, no answer):
+/// a copy from the cache can still be read.
+pub(super) fn unreachable(e: &MetaError) -> bool {
+    matches!(e, MetaError::Drive(DriveError::Transport(_)))
+}
+
 /// The drive's head as the state names it.
 pub(super) fn remote_head(state: &RepoState) -> Result<Option<ObjectId>, MetaError> {
     match state.refs.get(MAIN) {
@@ -465,6 +520,8 @@ pub struct MetaRepo<B: Bucket, S: Sealer> {
     pub(super) head: Option<ObjectId>,
     /// Shown in conflict copies and commits ("Laptop").
     pub(super) device_name: String,
+    /// Opened from the cache without the bucket; the next pull that reaches it ends it.
+    offline: bool,
 }
 
 impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
@@ -474,6 +531,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             local: Local::new(options),
             head: None,
             device_name: device_name.to_string(),
+            offline: false,
         }
     }
 
@@ -517,13 +575,27 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
             .and_then(|dir| read_cached(Some(dir.join("state").as_path())))
             .and_then(|sealed| sealer.open(STATE_CONTEXT, &sealed).ok())
             .and_then(|plain| serde_json::from_slice::<Saved>(&plain).ok());
+        let from_cache = saved.is_some();
         let store = match saved {
             Some(saved) => MetaStore::resume(bucket, sealer, device_id, saved.store),
             None => MetaStore::open(bucket, sealer, device_id)?,
         };
         let mut repo = MetaRepo::with_store(store, device_name, options);
-        repo.pull()?;
-        Ok(repo)
+        match repo.pull() {
+            Ok(_) => Ok(repo),
+            // No bucket: the copy the cache holds, as it was when it was saved.
+            Err(e) if from_cache && unreachable(&e) => {
+                repo.local.load_cached(repo.store.state(), repo.store.sealer())?;
+                let head = remote_head(repo.store.state())?;
+                if head.is_some_and(|head| !repo.local.objects.contains(&head)) {
+                    return Err(e);
+                }
+                repo.head = head;
+                repo.offline = true;
+                Ok(repo)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Writes the state to the cache folder (when there is one).
@@ -543,10 +615,11 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         }
     }
 
-    /// Whether the copy was opened from the cache without reaching the bucket.
+    /// Whether the copy was opened from the cache without reaching the bucket (reads
+    /// work from the copy; changes need the bucket). The next pull that reaches it ends it.
     #[must_use]
     pub fn is_offline(&self) -> bool {
-        false
+        self.offline
     }
 
     /// Sets the store's clock (seconds since 1970): the tests' time.
@@ -608,6 +681,7 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         // Every commit of this device is published when `commit` returns, so the
         // drive's head is at or after it.
         self.head = remote;
+        self.offline = false;
         self.save();
         Ok(report.changed || moved)
     }

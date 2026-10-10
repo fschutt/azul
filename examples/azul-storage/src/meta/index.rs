@@ -31,7 +31,7 @@ use super::{
     objects::{Commit, Mode, ObjectId},
     pack::PackWriter,
     pointer,
-    repo::{remote_head, unpublished, Local, MetaRepo, RepoOptions, MAIN},
+    repo::{remote_head, unpublished, unreachable, Local, MetaRepo, RepoOptions, MAIN},
     seal::Sealer,
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
@@ -338,7 +338,12 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
             .last_poll
             .map_or(true, |last| now.saturating_sub(last) >= self.poll_every);
         if due {
-            inner.repo.pull().map_err(to_drive)?;
+            match inner.repo.pull() {
+                Ok(_) => {}
+                // No bucket: reads go on from the copy (changes need the bucket).
+                Err(e) if unreachable(&e) && inner.repo.head().is_some() => {}
+                Err(e) => return Err(to_drive(e)),
+            }
             inner.last_poll = Some(now);
         }
         Ok(inner)
