@@ -11,8 +11,8 @@
 //!   write locks, refresh, lock-null files) and UNLOCK, a lock enforced through the `If` header.
 //! - Security: the request must name this computer (`Host` 127.0.0.1 / localhost / [::1] and
 //!   the bridge's port: a DNS-rebinding page names its own host), must not come from a browser
-//!   page (`Origin` present), signs in with HTTP Basic (the one user and password, compared in
-//!   constant time); a path is percent-decoded and then refused when it has `..`, `.`, an empty
+//!   page (`Origin` present), signs in with HTTP Digest (MD5, `qop=auth`: Windows Explorer) or
+//!   Basic (the one user and password, compared in constant time); a path is percent-decoded and then refused when it has `..`, `.`, an empty
 //!   level, a backslash, NUL or a control character; PROPFIND / PROPPATCH / LOCK bodies are
 //!   limited in size and refused when they carry a DTD (no entity of any kind is expanded);
 //!   the sync's bookkeeping (`.azlin/`) is neither listed nor reachable.
@@ -27,6 +27,7 @@ use azul_storage::{ops, ByteRange, Drive, DriveError, ObjectInfo};
 use crate::{
     auth::{self, Credentials, FailureGate},
     dates,
+    digest::{self, DigestAuth},
     http::{self, Framing, Head, HttpError, Response, Status},
     limits::Limits,
     net::{self, Conn, Input, RateLimiter},
@@ -90,6 +91,8 @@ pub struct Dav {
     /// The port the bridge listens on (a request must name it); 0: any.
     port: u16,
     locks: Mutex<Vec<Lock>>,
+    /// HTTP Digest's nonces (Windows Explorer signs in that way).
+    digest: DigestAuth,
 }
 
 impl std::fmt::Debug for Dav {
@@ -398,6 +401,7 @@ impl Dav {
             limits,
             port,
             locks: Mutex::new(Vec::new()),
+            digest: DigestAuth::new("Azlin Bridge"),
         }
     }
 
@@ -476,13 +480,35 @@ impl Dav {
         if head.method == "OPTIONS" {
             return Ok(());
         }
-        let challenge = || {
+        // Digest first (Windows' WebClient takes no Basic over http), Basic for everyone else.
+        let challenge = |stale: bool| {
             Response::text(Status::UNAUTHORIZED, "Sign in with the bridge's user and password.")
+                .with_header("WWW-Authenticate", self.digest.challenge(stale))
                 .with_header("WWW-Authenticate", "Basic realm=\"Azlin Bridge\", charset=\"UTF-8\"")
         };
         let Some(value) = head.header("Authorization") else {
-            return Err((challenge(), false));
+            return Err((challenge(false), false));
         };
+        if let Some(params) = value
+            .strip_prefix("Digest ")
+            .or_else(|| value.strip_prefix("digest "))
+        {
+            self.gate.before_attempt();
+            match self
+                .digest
+                .verify(params, &head.method, &head.target, &self.credentials)
+            {
+                digest::Verdict::Signed => return Ok(()),
+                // The client signs again with the new nonce without asking the user.
+                digest::Verdict::Stale => return Err((challenge(true), false)),
+                digest::Verdict::Refused => {
+                    self.gate.failed();
+                    *failures += 1;
+                    let close = *failures >= self.limits.auth_failures_per_connection;
+                    return Err((challenge(false), close));
+                }
+            }
+        }
         let decoded = value
             .strip_prefix("Basic ")
             .or_else(|| value.strip_prefix("basic "))
@@ -499,7 +525,7 @@ impl Dav {
         self.gate.failed();
         *failures += 1;
         let close = *failures >= self.limits.auth_failures_per_connection;
-        Err((challenge(), close))
+        Err((challenge(false), close))
     }
 
     /// The most a request's body may be.

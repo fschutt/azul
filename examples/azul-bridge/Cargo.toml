@@ -40,6 +40,9 @@ ureq = { version = "3.3", default-features = false, features = ["rustls-no-provi
 rustls-rustcrypto = "0.0.2-alpha"
 # The per-install password (the OS's random source).
 getrandom = "0.2"
+# HTTP Digest for WebDAV (Windows' WebClient takes no Basic over http): RustCrypto's MD5, already in
+# the tree (lopdf, OpenDAL) and in scripts/dependency-justifications.toml.
+md-5 = "0.11"
 # AUTH PLAIN / LOGIN and HTTP Basic credentials.
 base64 = "0.22"
 # The OS folders azcloud-kit's settings start from (the same `dirs` the azcloud CLI uses).

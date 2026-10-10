@@ -415,6 +415,43 @@ fn a_client_is_challenged_then_signs_in_on_the_same_connection() {
 }
 
 #[test]
+fn windows_explorer_signs_in_with_digest_and_never_sends_the_password() {
+    let dav = Arc::new(dav_on(drive(), 0));
+    let mut wire = Wire::connect(dav);
+    wire.send(b"PROPFIND /docs/ HTTP/1.1\r\nHost: 127.0.0.1\r\nDepth: 0\r\n\r\n");
+    let (status, headers, _) = wire.response();
+    assert_eq!(status, 401);
+    let challenge = headers
+        .iter()
+        .find(|(n, v)| n == "www-authenticate" && v.starts_with("Digest "))
+        .map(|(_, v)| v.clone())
+        .expect("a Digest challenge beside Basic");
+    let p = crate::digest::parse_params(challenge.trim_start_matches("Digest "));
+    let answer = |password: &str| {
+        let response = crate::digest::response_for(
+            USER,
+            &p["realm"],
+            password,
+            "PROPFIND",
+            "/docs/",
+            &p["nonce"],
+            Some(("00000001", "e2e")),
+        );
+        format!(
+            "PROPFIND /docs/ HTTP/1.1\r\nHost: 127.0.0.1\r\nDepth: 0\r\nAuthorization: Digest \
+             username=\"{USER}\", realm=\"{}\", nonce=\"{}\", uri=\"/docs/\", qop=auth, nc=00000001, \
+             cnonce=\"e2e\", response=\"{response}\", opaque=\"{}\"\r\n\r\n",
+            p["realm"], p["nonce"], p["opaque"]
+        )
+    };
+    wire.send(answer("guess").as_bytes());
+    assert_eq!(wire.response().0, 401);
+    wire.send(answer(PASSWORD).as_bytes());
+    let (status, _, body) = wire.response();
+    assert_eq!(status, 207, "{}", String::from_utf8_lossy(&body));
+}
+
+#[test]
 fn wrong_passwords_a_foreign_host_and_a_web_page_are_turned_away() {
     let dav = Arc::new(dav_on(drive(), 0));
     let mut wire = Wire::connect(dav.clone());

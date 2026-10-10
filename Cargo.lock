@@ -1180,6 +1180,7 @@ dependencies = [
  "base64 0.22.1",
  "dirs",
  "getrandom 0.2.17",
+ "md-5 0.11.0",
  "roxmltree 0.21.1",
  "rustls-rustcrypto",
  "serde",

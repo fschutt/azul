@@ -114,6 +114,19 @@ impl Credentials {
             .unwrap_or(false);
         password_ok & user_ok
     }
+
+    /// Whether `given` is what `compute` makes of this user's password (HTTP Digest: the
+    /// response is a hash of it), for the user `user`: the password as it was printed and
+    /// without the dashes between its groups (a person may have typed either), compared in
+    /// constant time.
+    #[must_use]
+    pub fn check_derived(&self, user: &str, given: &str, compute: impl Fn(&str) -> String) -> bool {
+        let plain: String = self.password.chars().filter(|c| *c != '-' && *c != ' ').collect();
+        let as_printed = constant_time_eq(compute(&self.password).as_bytes(), given.as_bytes());
+        let without_dashes = constant_time_eq(compute(&plain).as_bytes(), given.as_bytes());
+        let user_ok = user.trim().eq_ignore_ascii_case(&self.user);
+        (as_printed | without_dashes) & user_ok
+    }
 }
 
 /// SASL PLAIN's message (RFC 4616), base64: `authzid NUL authcid NUL passwd`. The user name

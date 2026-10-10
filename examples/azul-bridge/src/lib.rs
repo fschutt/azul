@@ -52,6 +52,7 @@ pub mod cli;
 pub mod config;
 pub mod dates;
 pub mod dav;
+pub mod digest;
 pub mod http;
 pub mod imap;
 pub mod limits;
