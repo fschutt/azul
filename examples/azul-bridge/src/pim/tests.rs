@@ -495,11 +495,69 @@ fn mkcalendar_makes_an_azcalendar_calendar_under_the_programs_path() {
     assert_eq!((renamed.name.as_str(), renamed.colour), ("Vacation", Colour::Green));
 }
 
+/// RFC 6578: a program keeps a sync token and asks what changed since: the members that are new
+/// or changed (with the properties it asks for) and the ones that went (404), and a new token; a
+/// token the bridge does not know (from before a restart) sends it back to a full listing.
+#[test]
+fn sync_collection_gives_what_changed_and_what_went_since_a_token() {
+    let f = fixture();
+    let sync = |token: &str| {
+        format!(
+            "<D:sync-collection xmlns:D=\"DAV:\"><D:sync-token>{token}</D:sync-token>\
+             <D:sync-level>1</D:sync-level><D:prop><D:getetag/></D:prop></D:sync-collection>"
+        )
+    };
+    let book = "/addressbooks/contacts/";
+    let first = text(&ask(&f.pim, "REPORT", book, &[], &sync("")));
+    assert!(first.contains(&format!("<D:href>/addressbooks/contacts/{CARD}.vcf</D:href>")), "{first}");
+    let token = between(&first, "<D:sync-token>", "</D:sync-token>");
+    let again = text(&ask(&f.pim, "REPORT", book, &[], &sync(&token)));
+    assert_eq!(again.matches("<D:response>").count(), 0, "nothing changed: {again}");
+
+    let card = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:new-card\r\nFN:Ada Lovelace\r\nEND:VCARD\r\n";
+    assert_eq!(ask(&f.pim, "PUT", "/addressbooks/contacts/new-card.vcf", &[], card).status, Status::CREATED);
+    assert_eq!(
+        ask(&f.pim, "DELETE", &format!("/addressbooks/contacts/{CARD}.vcf"), &[], "").status,
+        Status::NO_CONTENT
+    );
+    let changes = text(&ask(&f.pim, "REPORT", book, &[], &sync(&token)));
+    assert!(
+        changes.contains("<D:href>/addressbooks/contacts/new-card.vcf</D:href>") && changes.contains("<D:getetag>"),
+        "{changes}"
+    );
+    assert!(
+        changes.contains(&format!(
+            "<D:href>/addressbooks/contacts/{CARD}.vcf</D:href><D:status>HTTP/1.1 404 Not Found</D:status>"
+        )),
+        "{changes}"
+    );
+    assert_ne!(between(&changes, "<D:sync-token>", "</D:sync-token>"), token);
+
+    let unknown = ask(&f.pim, "REPORT", book, &[], &sync("http://azlin-bridge.localhost/sync/unknown"));
+    assert_eq!(unknown.status, Status::FORBIDDEN);
+    assert!(text(&unknown).contains("<D:valid-sync-token/>"));
+
+    // A calendar too, its token read as a property.
+    let props = text(&ask(
+        &f.pim,
+        "PROPFIND",
+        "/calendars/default/",
+        &[("Depth", "0")],
+        "<D:propfind xmlns:D=\"DAV:\"><D:prop><D:sync-token/><D:supported-report-set/></D:prop></D:propfind>",
+    ));
+    assert!(props.contains("<D:sync-collection/>"), "{props}");
+    let calendar_token = between(&props, "<D:sync-token>", "</D:sync-token>");
+    assert_eq!(ask(&f.pim, "PUT", "/calendars/default/dentist.ics", &[], DENTIST).status, Status::CREATED);
+    let calendar = text(&ask(&f.pim, "REPORT", "/calendars/default/", &[], &sync(&calendar_token)));
+    assert!(calendar.contains("<D:href>/calendars/default/dentist.ics</D:href>"), "{calendar}");
+    assert_eq!(calendar.matches("<D:response>").count(), 1, "only what changed: {calendar}");
+}
+
 #[test]
 fn what_the_bridge_does_not_do_is_refused_plainly() {
     let f = fixture();
-    let sync = "<D:sync-collection xmlns:D=\"DAV:\"><D:sync-token/><D:prop><D:getetag/></D:prop></D:sync-collection>";
-    let refused = ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], sync);
+    let busy = "<C:free-busy-query xmlns:C=\"urn:ietf:params:xml:ns:caldav\"/>";
+    let refused = ask(&f.pim, "REPORT", "/calendars/default/", &[], busy);
     assert_eq!(refused.status, Status::FORBIDDEN);
     assert!(text(&refused).contains("<D:supported-report/>"));
     // A property no calendar keeps (a dead one) is refused; the name and the colour are not.
