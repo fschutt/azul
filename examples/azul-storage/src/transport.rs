@@ -138,8 +138,34 @@ impl HttpReply {
     }
 }
 
+/// What a [`Transport`] puts in front of the reason of a request whose host name did not
+/// resolve (the lookup failed or gave up): the failover reads it ([`is_dns_failure`]) and
+/// reaches the host at its known addresses. azul's HTTP client says so by type
+/// (`HttpError::DnsFailed`); the transports turn that into this sentence.
+pub const DNS_FAILED: &str = "the name did not resolve";
+
+/// Whether a transport's reason says the host name did not resolve: [`DNS_FAILED`], or what the
+/// system resolvers and HTTP clients say without it.
+#[must_use]
+pub fn is_dns_failure(why: &str) -> bool {
+    let why = why.to_ascii_lowercase();
+    [
+        DNS_FAILED,
+        "dns",
+        "resolve",
+        "host not found",
+        "lookup",
+        "name or service not known",
+        "nodename nor servname",
+        "no such host",
+    ]
+    .iter()
+    .any(|sign| why.contains(sign))
+}
+
 /// Sends one request and blocks until its answer. An `Err` is a request that got
-/// no HTTP answer at all (DNS, connection, TLS, timeout), as a readable sentence.
+/// no HTTP answer at all (DNS, connection, TLS, timeout), as a readable sentence; one whose
+/// name did not resolve starts with [`DNS_FAILED`].
 pub trait Transport: Send + Sync {
     fn send(&self, call: &HttpCall) -> Result<HttpReply, String>;
 

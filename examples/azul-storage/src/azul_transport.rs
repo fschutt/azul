@@ -13,10 +13,11 @@
 //! so waiting for it there would wait forever (the timeout ends the wait).
 //!
 //! Every `AzulTransport` of the process sends through ONE `HttpClient`: its connections
-//! are pooled (a multipart upload's parts and a download's ranges reuse them), and the
+//! are pooled (a multipart upload's parts and a download's ranges reuse them), its DNS answers
+//! are cached for [`DNS_CACHE_SECS`] and served stale while the name does not resolve, and the
 //! fallback addresses a drive's failover hands it ([`Transport::fallback_addresses`]: a
 //! node reached at its IP when its name does not resolve, TLS still verified for the name)
-//! hold for every request.
+//! hold for every request. A name that does not resolve fails with [`DNS_FAILED`] in front.
 
 use std::{
     sync::{mpsc, Mutex, OnceLock},
@@ -30,10 +31,13 @@ use azul::{
     vec::U8Vec,
 };
 
-use crate::{HttpCall, HttpReply, Method, Transport};
+use crate::{transport::DNS_FAILED, HttpCall, HttpReply, Method, Transport};
 
 /// Seconds a request may take before azul's client gives up.
 pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+/// Seconds the pool reuses a host's DNS answer; once the name stops resolving, the engine serves
+/// the last answer for seven days (serve-stale) - a drive keeps working while DNS is down.
+pub const DNS_CACHE_SECS: u32 = 300;
 /// Extra seconds to wait for the UI thread to deliver an answer.
 const DELIVERY_GRACE_SECS: u64 = 30;
 
@@ -74,7 +78,11 @@ unsafe impl Sync for Pool {}
 
 fn pool() -> &'static Pool {
     static POOL: OnceLock<Pool> = OnceLock::new();
-    POOL.get_or_init(|| Pool(HttpClient::create(HttpClientConfig::create())))
+    POOL.get_or_init(|| {
+        Pool(HttpClient::create(
+            HttpClientConfig::create().with_dns_cache_secs(DNS_CACHE_SECS),
+        ))
+    })
 }
 
 /// The resume callback's data: where the waiting thread listens.
@@ -85,6 +93,8 @@ struct Waiter {
 fn http_error_text(e: &HttpError) -> String {
     match e {
         HttpError::Timeout => String::from("timed out"),
+        // By type, not by its words: the failover reaches the host at its addresses.
+        HttpError::DnsFailed(s) => format!("{DNS_FAILED}: {}", s.as_str()),
         HttpError::InvalidUrl(s)
         | HttpError::ConnectionFailed(s)
         | HttpError::TlsError(s)

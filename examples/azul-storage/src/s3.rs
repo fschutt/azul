@@ -352,6 +352,8 @@ pub struct Routed<'a> {
     key: Option<&'a str>,
     endpoint: &'a str,
     sign: &'a dyn Fn(&str) -> Result<HttpCall, DriveError>,
+    /// Signs a HEAD of another key for an endpoint ([`Routed::probe_for`]).
+    probe: Option<&'a dyn Fn(&str, &str) -> Result<HttpCall, DriveError>>,
 }
 
 impl<'a> Routed<'a> {
@@ -368,7 +370,19 @@ impl<'a> Routed<'a> {
             key,
             endpoint,
             sign,
+            probe: None,
         }
+    }
+
+    /// The same request, able to sign a probe: `probe(endpoint, key)` makes a HEAD of `key` for
+    /// `endpoint` with the drive's credentials ([`Routed::probe_for`]).
+    #[must_use]
+    pub fn with_probe(
+        mut self,
+        probe: &'a dyn Fn(&str, &str) -> Result<HttpCall, DriveError>,
+    ) -> Self {
+        self.probe = Some(probe);
+        self
     }
 
     #[must_use]
@@ -395,6 +409,23 @@ impl<'a> Routed<'a> {
     /// An endpoint that is not an http(s) URL.
     pub fn signed_for(&self, endpoint: &str) -> Result<HttpCall, DriveError> {
         (self.sign)(endpoint)
+    }
+
+    /// A signed HEAD of `key` (not this request's object) for `endpoint`, with the drive's
+    /// credentials and clock: a probe - one cheap request whose answer, of any status, says a
+    /// way to the bucket works (an iroh lane asks it before a node's first request).
+    ///
+    /// # Errors
+    ///
+    /// An endpoint that is not an http(s) URL, a key S3 cannot take, or a request made without
+    /// [`Routed::with_probe`].
+    pub fn probe_for(&self, endpoint: &str, key: &str) -> Result<HttpCall, DriveError> {
+        match self.probe {
+            Some(probe) => probe(endpoint, key),
+            None => Err(DriveError::InvalidConfig(String::from(
+                "this request cannot sign a probe",
+            ))),
+        }
     }
 }
 
@@ -757,7 +788,21 @@ impl S3Drive {
                 content_type,
             ))
         };
-        let routed = Routed::new(method, key, &self.config.endpoint, &sign);
+        let probe = |url: &str, probe_key: &str| -> Result<HttpCall, DriveError> {
+            check_s3_key(probe_key)?;
+            let endpoint = Endpoint::parse(url)?;
+            Ok(self.build_at(
+                &endpoint,
+                Method::Head,
+                Some(probe_key),
+                &[],
+                &[],
+                Vec::new(),
+                EMPTY_SHA256,
+                "",
+            ))
+        };
+        let routed = Routed::new(method, key, &self.config.endpoint, &sign).with_probe(&probe);
         router.send(&routed, self.transport.as_ref())
     }
 
