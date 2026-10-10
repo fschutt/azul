@@ -30,7 +30,7 @@ use azul::{
 };
 use azul_bridge::{
     autostart, cli,
-    secrets::PASSWORD_ENTRY,
+    secrets::{KeyringStore, PASSWORD_ENTRY},
     tray::{self, Entry},
 };
 
