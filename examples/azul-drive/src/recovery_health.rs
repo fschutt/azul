@@ -199,6 +199,10 @@ impl RecoveryState {
         self.contacts_set = None;
         self.contacts.clear();
         self.drills_off = false;
+        // a new code: the further codes' wraps went with the old key, the findable key is the
+        // new code's (set by whoever registers it)
+        self.extra_codes.clear();
+        self.findable_key = None;
     }
 
     /// The setup's check passed: the code was typed back right `now`.
@@ -360,22 +364,44 @@ impl RecoveryState {
     /// drive's.
     #[must_use]
     pub fn signer_for(&self, drive_public: &str, findable_public: &str) -> Option<CodeKey> {
-        let _ = (drive_public, findable_public);
-        None
+        let (drive, findable) = if self.keys_checked.is_some() {
+            let listed =
+                |public: &str| self.server_keys.iter().any(|k| k.recovery_pubkey == public);
+            (listed(drive_public), listed(findable_public))
+        } else {
+            (
+                self.recovery_key.as_deref() == Some(drive_public),
+                self.findable_key.as_deref() == Some(findable_public),
+            )
+        };
+        if drive {
+            Some(CodeKey::Drive)
+        } else if findable {
+            Some(CodeKey::Findable)
+        } else {
+            None
+        }
     }
 
-    /// Whether the drive's keys (as last listed) lack a findable one: a computer that never had
-    /// the drive cannot find it from its kit then.
+    /// Whether the drive's keys (as last listed) lack a findable one - one labelled so, the
+    /// stored findable key, a second kit's: a computer that never had the drive cannot find it
+    /// from a kit then. Nothing listed yet: nothing known (`false`).
     #[must_use]
     pub fn findable_missing(&self) -> bool {
-        false
+        if self.keys_checked.is_none() {
+            return false;
+        }
+        !self.server_keys.iter().any(|k| {
+            k.label == FINDABLE_LABEL
+                || self.findable_key.as_deref() == Some(k.recovery_pubkey.as_str())
+                || self.extra_code(&k.key_id).is_some()
+        })
     }
 
     /// The further recovery code whose key is `key_id`, if this computer added it.
     #[must_use]
     pub fn extra_code(&self, key_id: &str) -> Option<&ExtraCode> {
-        let _ = key_id;
-        None
+        self.extra_codes.iter().find(|code| code.key_id == key_id)
     }
 }
 
@@ -387,12 +413,23 @@ pub fn note_pending(
     until: Option<u64>,
     now: u64,
 ) {
-    let _ = (pending, drive_id, token_url, until, now);
+    match pending.iter_mut().find(|p| p.drive_id == drive_id) {
+        Some(known) => {
+            known.until = until;
+            known.token_url = token_url.to_string();
+        }
+        None => pending.push(PendingRecovery {
+            drive_id: drive_id.to_string(),
+            token_url: token_url.to_string(),
+            until,
+            started: now,
+        }),
+    }
 }
 
 /// The pending recovery of `drive_id` taken off the list (it was finished, or cancelled).
 pub fn forget_pending(pending: &mut Vec<PendingRecovery>, drive_id: &str) {
-    let _ = (pending, drive_id);
+    pending.retain(|p| p.drive_id != drive_id);
 }
 
 /// The info panel's line: `Green: 2 methods, the code checked on 2026-10-10`; `None` for a
