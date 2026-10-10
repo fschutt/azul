@@ -19626,6 +19626,29 @@ mod tests {
     use super::*;
     use crate::{thread::Thread, timer::Timer};
 
+    /// The guide's "Changing Locale": an empty locale is "System" again (an app's Language
+    /// setting), and the choice is the app's - a window built after it (a dialog) starts in it.
+    #[test]
+    fn an_empty_locale_follows_the_system_again_and_a_new_window_starts_in_the_apps_choice() {
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a window");
+        let system = lw.active_language().id;
+        let _ = lw.set_locale("de-DE");
+        assert_eq!(lw.active_language().id.as_str(), "de-DE");
+        let change = lw.set_locale("");
+        assert!(lw.locale_override.is_none(), "System: no override");
+        assert_eq!(lw.active_language().id, system);
+        assert_eq!(change.locale_changed, system.as_str() != "de-DE");
+
+        set_app_locale(Some("de-DE"));
+        assert_eq!(app_locale().as_deref(), Some("de-DE"));
+        let mut later = LayoutWindow::new(FcFontCache::default()).expect("a window");
+        later.set_app_localization(&azul_core::resources::AppConfig::default());
+        let adopted = later.active_language().id;
+        set_app_locale(None);
+        assert_eq!(adopted.as_str(), "de-DE");
+        assert_eq!(app_locale(), None);
+    }
+
     /// The channel sampler is piecewise WITH per-segment easing and clamps
     /// outside the defined stops — the CSS `@keyframes` contract. Linear
     /// timing makes midpoints exactly checkable.
