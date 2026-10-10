@@ -1189,7 +1189,9 @@ pub fn localize_styled_dom(
 }
 
 #[inline(always)]
-fn extract_fluent_args(args: Option<&azul_core::dom::FluentArgKVVec>) -> crate::fmt::FmtArgVec {
+pub(crate) fn extract_fluent_args(
+    args: Option<&azul_core::dom::FluentArgKVVec>,
+) -> crate::fmt::FmtArgVec {
     let Some(args) = args else {
         return crate::fmt::FmtArgVec::new();
     };

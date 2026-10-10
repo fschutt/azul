@@ -1860,6 +1860,31 @@ impl CallbackInfo {
         self.push_change(CallbackChange::SetLocale { locale });
     }
 
+    /// The message `message_id` of the app's Fluent resources (`AppConfig::fluent_locales`) in
+    /// this window's active locale - the one [`Self::set_locale`] chose, else the system's -
+    /// with `args`: what the layout pass does for an `AzString::tr` text of the DOM, for text
+    /// that is no DOM (a notification's title and body, a native dialog's words). The message
+    /// id itself when no resource has the message, or the app registered none.
+    #[must_use]
+    pub fn translate(
+        &self,
+        message_id: AzString,
+        args: azul_core::dom::FluentArgKVVec,
+    ) -> AzString {
+        #[cfg(feature = "fluent")]
+        {
+            let window = self.get_layout_window();
+            if let Some(localizer) = window.fluent_localizer.as_ref() {
+                let locale = window.active_language().id;
+                let args = crate::fluent::extract_fluent_args(Some(&args));
+                return localizer.translate(locale, message_id, args);
+            }
+        }
+        #[cfg(not(feature = "fluent"))]
+        let _ = args;
+        message_id
+    }
+
     /// Switch the app's light / dark MODE: `Some(mode)` pins EVERY window of
     /// the app to light or dark, whatever the desktop says; `None` ("system")
     /// follows the desktop again, at once and through every later change of
