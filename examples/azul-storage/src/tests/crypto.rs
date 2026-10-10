@@ -9,8 +9,8 @@ use crate::{
     crypto::{
         azl1::{decrypt, encrypt, OpenObject, WriteOptions},
         codec::{
-            decompress, looks_compressed, worth_it, Codec, Compression, Encoded, Encoder,
-            CODEC_BROTLI,
+            brotli_window_bits, decompress, decompress_brotli, looks_compressed, worth_it, Codec,
+            Compression, Encoded, Encoder, Recoding, CODEC_BROTLI, CODEC_JPEG_XL,
         },
         keys::{
             load_member_wrap, load_recovery_wrap, member_key_file, store_member_wrap,
@@ -283,14 +283,69 @@ fn codec_bytes_of_later_versions_are_named_not_guessed() {
     assert_eq!(Codec::from_byte(0), Ok(Codec::Stored));
     assert_eq!(Codec::from_byte(1), Ok(Codec::Zstd));
     assert_eq!(Codec::Zstd.byte(), 1);
+    // The recompression pass writes brotli segments: this version reads them.
+    assert_eq!(Codec::from_byte(CODEC_BROTLI), Ok(Codec::Brotli));
+    assert_eq!(Codec::Brotli.byte(), CODEC_BROTLI);
     assert!(matches!(
-        Codec::from_byte(CODEC_BROTLI),
-        Err(CryptoError::Unsupported(why)) if why.contains("brotli")
+        Codec::from_byte(CODEC_JPEG_XL),
+        Err(CryptoError::Unsupported(why)) if why.contains("JPEG XL")
     ));
     assert!(matches!(
         Codec::from_byte(200),
         Err(CryptoError::Unsupported(_))
     ));
+}
+
+#[test]
+fn the_recompression_pass_tries_every_segment_with_its_codec() {
+    // No trial on the first segment: noise first does not stop the text after it.
+    let mut brotli = Encoder::new(Compression::Recode(Recoding::Brotli));
+    assert_eq!(brotli.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
+    let Encoded::Brotli(bytes) = brotli.encode(&text(64 * 1024)).unwrap() else {
+        panic!("text recompresses with brotli");
+    };
+    assert!(bytes.len() < 64 * 1024 / 10, "{}", bytes.len());
+    assert_eq!(brotli.encode(&[]).unwrap().codec(), Codec::Stored);
+
+    let mut zstd = Encoder::new(Compression::Recode(Recoding::ZstdMax));
+    assert_eq!(zstd.encode(&noise(4096)).unwrap().codec(), Codec::Stored);
+    let Encoded::Zstd(frame) = zstd.encode(&text(64 * 1024)).unwrap() else {
+        panic!("text recompresses with zstd");
+    };
+    // A level-19 frame is a zstd frame like any other: the upload pass's reader takes it.
+    assert_eq!(decompress(&frame, 64 * 1024).unwrap().as_slice(), text(64 * 1024).as_slice());
+}
+
+#[test]
+fn a_brotli_segment_decompresses_to_exactly_its_length_and_no_further() {
+    let plain = text(10_000);
+    let mut encoder = Encoder::new(Compression::Recode(Recoding::Brotli));
+    let Encoded::Brotli(stream) = encoder.encode(&plain).unwrap() else {
+        panic!("text compresses");
+    };
+    let back = decompress_brotli(&stream, plain.len()).unwrap();
+    assert_eq!(back.as_slice(), plain.as_slice());
+    for wrong in [plain.len() - 1, plain.len() + 1] {
+        assert!(matches!(
+            decompress_brotli(&stream, wrong),
+            Err(CryptoError::Damaged(_))
+        ));
+    }
+    assert!(matches!(
+        decompress_brotli(b"not brotli at all", 100),
+        Err(CryptoError::Damaged(_))
+    ));
+}
+
+#[test]
+fn a_brotli_window_holds_its_segment_and_no_more() {
+    assert_eq!(brotli_window_bits(0), 16);
+    assert_eq!(brotli_window_bits(1), 16);
+    assert_eq!(brotli_window_bits(1 << 16), 16);
+    assert_eq!(brotli_window_bits((1 << 16) + 1), 17);
+    assert_eq!(brotli_window_bits(1 << 20), 20, "a default 1 MiB segment");
+    assert_eq!(brotli_window_bits(1 << 24), 24, "the largest segment");
+    assert_eq!(brotli_window_bits(1 << 30), 24);
 }
 
 // ==== The drive key sealed to members and to the recovery code (crypto::keys) ====

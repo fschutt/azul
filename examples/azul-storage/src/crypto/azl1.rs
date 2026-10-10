@@ -22,7 +22,8 @@
 //!   276  24  trailer nonce (random)
 //!   300      zero up to 4096
 //! [segments]
-//!     segment i: XChaCha20-Poly1305 of (codec byte || data), the nonce being the prefix, i as
+//!     segment i: XChaCha20-Poly1305 of (codec byte || data) - codec 0 stored, 1 zstd,
+//!     2 brotli (see `codec`) -, the nonce being the prefix, i as
 //!     a 32-bit big-endian counter and a last-segment flag (aead's STREAM, `StreamBE32`): a
 //!     segment moved to another place does not open, nor does a cut after any segment but
 //!     the last. Every object has at least one segment (an empty file: one empty last one).
@@ -408,7 +409,7 @@ impl<W: Write> Azl1Writer<W> {
         let encoded = self.encoder.encode(&self.pending)?;
         let data: &[u8] = match &encoded {
             Encoded::Stored => &self.pending,
-            Encoded::Zstd(frame) => frame,
+            Encoded::Zstd(frame) | Encoded::Brotli(frame) => frame,
         };
         // The capacity holds the tag too: the buffer never moves (and never leaves a copy).
         let mut segment =
@@ -425,7 +426,7 @@ impl<W: Write> Azl1Writer<W> {
         self.sink.write_all(&segment)?;
         self.lengths.push(sealed_len);
         self.written += segment.len() as u64;
-        if let Encoded::Zstd(_) = encoded {
+        if encoded.compressed().is_some() {
             self.compressed = true;
         }
         self.pending.zeroize();
@@ -909,6 +910,7 @@ impl OpenObject {
                 Ok(buffer)
             }
             Codec::Zstd => codec::decompress(&buffer[1..], expected),
+            Codec::Brotli => codec::decompress_brotli(&buffer[1..], expected),
         }
     }
 

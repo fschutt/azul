@@ -101,7 +101,7 @@ pub fn member_key_file(member: &str) -> Result<String, CryptoError> {
 
 /// `label`, then each part with its length in front (two different lists never give the same
 /// bytes).
-fn associated_data(label: &[u8], parts: &[&[u8]]) -> Vec<u8> {
+pub(crate) fn associated_data(label: &[u8], parts: &[&[u8]]) -> Vec<u8> {
     let mut out = label.to_vec();
     for part in parts {
         out.extend_from_slice(&(part.len() as u32).to_le_bytes());

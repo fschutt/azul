@@ -1165,6 +1165,14 @@ fn sync_drive(
     options: &azlin_sync::AzlinOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
+    // An encrypted drive's incoming mail first: its drops into the folders the sync reads.
+    mail_drive::receive_drops(
+        session,
+        job.endpoints.s3_url.as_deref(),
+        Box::new(transport.clone()),
+        &AzulKeyring::new(),
+    )
+    .map_err(azlin_sync::drive_error)?;
     let drive = mail_drive::open(
         session,
         job.endpoints.s3_url.as_deref(),

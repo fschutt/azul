@@ -176,6 +176,24 @@ pub trait IndexProvider: Send + Sync {
         bucket: Arc<dyn Drive>,
         drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError>;
+
+    /// Seals the drive's index under `new` from now on, in place of `old` (a key rotation,
+    /// [`crate::rotation`]): the index's own objects re-sealed with keys derived from `new`, the
+    /// ones sealed with `old` deleted once nothing needs them. Its entries are not changed here
+    /// (the rotation re-wraps them first, through [`NameIndex::apply`]). An index that cannot
+    /// says `Unsupported`, and the rotation stops before it changes anything else.
+    fn rekey(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        old: &DriveKey,
+        new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        let _ = (drive, bucket, old, new);
+        Err(DriveError::Unsupported(String::from(
+            "this drive index cannot be sealed under a new drive key yet",
+        )))
+    }
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
@@ -677,6 +695,17 @@ pub fn read_shared(
     azl1::decrypt(&bytes, &file.object, &file_key).map_err(|e| e.for_key(&key))
 }
 
+/// What [`EncryptedDrive::rewrite`] did.
+pub(crate) enum Rewrite {
+    /// The path names the new object now; the old one left the bucket (when nothing else
+    /// names it).
+    Replaced(ObjectSummary),
+    /// `keep` declined the new object: nothing was uploaded.
+    Declined,
+    /// The path changed while it was rewritten (or went): the new object left the bucket again.
+    Conflict,
+}
+
 /// `inner` (the bucket) seen through its drive key and its index: what it shows are the
 /// index's names with the plaintext of their objects; what it stores are AZL1 objects under
 /// random keys. See the module documentation.
@@ -720,6 +749,12 @@ impl<D: Drive> EncryptedDrive<D> {
     #[must_use]
     pub fn inner(&self) -> &D {
         &self.inner
+    }
+
+    /// The options new objects are written with.
+    #[must_use]
+    pub fn options(&self) -> &WriteOptions {
+        &self.options
     }
 
     #[must_use]
@@ -892,15 +927,89 @@ impl<D: Drive> EncryptedDrive<D> {
         let mut spool = Spool::new();
         let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, &self.options)
             .map_err(|e| e.for_key(path))?;
+        self.put_spooled(&id, spool)?;
+        self.bind(path, summary, expect)
+    }
+
+    /// Puts a new object from its spool: conditionally when it is in memory, streamed through
+    /// the inner drive's `put_from` when it went to a file.
+    fn put_spooled(&self, id: &ObjectId, mut spool: Spool) -> Result<(), DriveError> {
         if spool.file.is_none() {
             let bytes = std::mem::take(spool.memory.get_mut());
-            self.put_object(&id, &bytes)?;
+            self.put_object(id, &bytes)
         } else {
             spool.seek(SeekFrom::Start(0))?;
             self.inner.put_from(&id.bucket_key(), &mut spool)?;
+            Ok(())
         }
-        drop(spool);
-        self.bind(path, summary, expect)
+    }
+
+    /// Writes the file `path` again - the same plaintext from `body` (its reader), a NEW object
+    /// with a new file key, under `options` and the drive key this drive holds now - and names
+    /// it in `entry`'s place when the path still names `entry`'s object
+    /// ([`Expect::Object`]); the size and the date stay `entry`'s (a rewrite is no edit).
+    /// `keep` sees the new object before it is uploaded and may decline it. `before_bind` runs
+    /// between the upload and the index change (the tests' concurrent edit). The plaintext
+    /// must hash to `entry`'s BLAKE3, else nothing changes and the file is `Corrupt`.
+    pub(crate) fn rewrite(
+        &self,
+        path: &str,
+        entry: &IndexEntry,
+        body: &mut dyn Read,
+        options: &WriteOptions,
+        keep: &dyn Fn(&ObjectSummary) -> bool,
+        before_bind: &dyn Fn(),
+    ) -> Result<Rewrite, DriveError> {
+        let Some(old) = &entry.object else {
+            return Err(DriveError::NotFound {
+                key: path.to_string(),
+            });
+        };
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let mut spool = Spool::new();
+        let summary = azl1::encrypt_stream(body, &mut spool, id, &self.drive_key, options)
+            .map_err(|e| e.for_key(path))?;
+        if summary.blake3 != old.blake3 || summary.plaintext_size != entry.size {
+            return Err(DriveError::Corrupt {
+                key: path.to_string(),
+                reason: String::from("its plaintext is not the one the index names"),
+            });
+        }
+        if !keep(&summary) {
+            return Ok(Rewrite::Declined);
+        }
+        self.put_spooled(&id, spool)?;
+        before_bind();
+        let new_entry = IndexEntry {
+            size: entry.size,
+            modified: entry.modified,
+            object: Some(StoredObject {
+                id,
+                stored_size: summary.object_len,
+                blake3: summary.blake3,
+                wrapped_key: summary.wrapped_key.clone(),
+                compressed: summary.compressed,
+            }),
+        };
+        let change = IndexChange::Put {
+            path: path.to_string(),
+            entry: new_entry,
+            expect: Expect::Object(old.id),
+        };
+        match self.index.apply(vec![change]) {
+            Ok(released) => {
+                self.release(released);
+                Ok(Rewrite::Replaced(summary))
+            }
+            Err(e) => {
+                // Nothing names the new object: it goes.
+                let _ = self.inner.delete(&id.bucket_key());
+                match e {
+                    DriveError::Conflict { .. } => Ok(Rewrite::Conflict),
+                    other => Err(other),
+                }
+            }
+        }
     }
 
     /// `path`'s file key wrapped for `share`: what a share of the file carries. The drive key
@@ -923,7 +1032,7 @@ impl<D: Drive> EncryptedDrive<D> {
     }
 
     /// Every entry under `prefix`, across all pages.
-    fn all_entries(&self, prefix: &str) -> Result<Vec<(String, IndexEntry)>, DriveError> {
+    pub(crate) fn all_entries(&self, prefix: &str) -> Result<Vec<(String, IndexEntry)>, DriveError> {
         let mut out = Vec::new();
         let mut request = ListRequest::recursive(prefix);
         loop {

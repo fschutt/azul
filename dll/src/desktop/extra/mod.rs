@@ -53,6 +53,9 @@ pub mod natural_scroll;
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
 pub mod pdf;
 pub mod permission;
+/// The computer's power state for background work (`PowerState`: on mains power, seconds
+/// since the last input), per platform; a fixed reading in headless runs.
+pub mod power;
 /// Platform-accelerated whole-frame scaler (Accelerate/vImage on macOS)
 /// behind the `capture_common::register_frame_resampler` seam.
 pub mod resample;

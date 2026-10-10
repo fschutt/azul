@@ -2,19 +2,25 @@
 //! encryption on, its join code carries the drive key sealed for the second device (once), both
 //! read and write the same files, the recovery code opens the key on a third.
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
+use serde_json::Value;
 
 use azul_storage::{
     crypto::{device, keys::RecoveryKdf, DriveKey},
     encrypted::{IndexProvider, MemoryIndex, NameIndex},
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
-    Drive, DriveError, Transport,
+    Drive, DriveError, Method, Transport,
 };
 
 use super::{bundle, fake_s3::FakeS3, header, json, Fake, Shared, TOKEN};
 use crate::{
     account::{Account, JoinCode},
+    cloudflare::{Cloudflare, DEFAULT_WORKER, DROP_KEY_VARIABLE},
     drive::TransportFactory,
     error::CloudError,
     state::StateDir,
@@ -47,6 +53,13 @@ fn cloud(s3: &Arc<FakeS3>) -> TransportFactory {
                 r#"{"member": "m_laptop", "drive_token": "dt_m.0.joins"}"#,
             ));
         }
+        if url.ends_with("/lockdown") {
+            LOCKDOWNS.fetch_add(1, Ordering::SeqCst);
+            return Ok(json(
+                200,
+                &bundle("AKID9", "2099-01-01T00:00:00Z", "dt_f.9.locked"),
+            ));
+        }
         if url.ends_with("/credentials") && header(call, "authorization") == Some("Bearer dt_m.0.joins")
         {
             return Ok(json(
@@ -59,8 +72,11 @@ fn cloud(s3: &Arc<FakeS3>) -> TransportFactory {
     Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
 }
 
+/// The lockdowns the fake token server answered.
+static LOCKDOWNS: AtomicUsize = AtomicUsize::new(0);
+
 /// One index in memory both devices share: the stand-in for the drive's encrypted metadata
-/// repository.
+/// repository (nothing of it is sealed: its rekey has nothing to do).
 struct SharedIndex(Arc<MemoryIndex>);
 
 impl IndexProvider for SharedIndex {
@@ -71,6 +87,16 @@ impl IndexProvider for SharedIndex {
         _drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError> {
         Ok(self.0.clone())
+    }
+
+    fn rekey(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _old: &DriveKey,
+        _new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        Ok(())
     }
 }
 
@@ -197,4 +223,120 @@ fn a_configured_s3_endpoint_is_the_one_the_keys_go_to() {
     assert_eq!(a.bucket_drive().unwrap().config().endpoint, "http://127.0.0.1:19999");
     let a = a.with_s3_endpoint(None);
     assert_eq!(a.s3_endpoint(), super::S3);
+}
+
+#[test]
+fn incoming_mail_gets_a_drop_key_whose_public_half_goes_to_the_customers_worker() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-drop");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    assert!(
+        matches!(a.enable_mail_drop(&keys), Err(CloudError::Failed(_))),
+        "a plain drive gets its mail as it is"
+    );
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), None);
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let public = a.enable_mail_drop(&keys).unwrap();
+    assert_eq!(a.enable_mail_drop(&keys).unwrap(), public, "the same key again");
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), Some(public));
+    assert!(s3.keys().iter().any(|k| k == ".azlin/keys/_drop.key"));
+
+    // The Worker's variable, through the customer's own token, straight to Cloudflare.
+    let fake = Fake::new(|_, _| Ok(json(200, r#"{"success": true, "errors": [], "result": {}}"#)));
+    let cloudflare = Cloudflare::new(
+        Box::new(Shared(fake.clone())),
+        "0123456789ABCDEF0123456789abcdef",
+        " cf-token ",
+    )
+    .unwrap()
+    .with_base("https://cf.test/client/v4/");
+    assert!(!format!("{cloudflare:?}").contains("cf-token"));
+    cloudflare
+        .set_worker_secret(DEFAULT_WORKER, DROP_KEY_VARIABLE, &public.to_hex())
+        .unwrap();
+    let calls = fake.calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    let call = &calls[0];
+    assert_eq!(call.method, Method::Put);
+    assert_eq!(
+        call.url,
+        "https://cf.test/client/v4/accounts/0123456789abcdef0123456789abcdef/workers/scripts/\
+         azlin-mail-worker/secrets"
+    );
+    assert_eq!(header(call, "authorization"), Some("Bearer cf-token"));
+    let body: Value = serde_json::from_slice(&call.body).unwrap();
+    assert_eq!(body["name"], DROP_KEY_VARIABLE);
+    assert_eq!(body["text"], public.to_hex());
+    assert_eq!(body["type"], "secret_text");
+
+    // Cloudflare's refusal says why; names that are not names never reach it.
+    let refusing = Fake::new(|_, _| {
+        Ok(json(
+            403,
+            r#"{"success": false, "errors": [{"code": 10000, "message": "Authentication error"}]}"#,
+        ))
+    });
+    let cloudflare =
+        Cloudflare::new(Box::new(Shared(refusing.clone())), &"a".repeat(32), "t").unwrap();
+    let refused = cloudflare.set_worker_secret(DEFAULT_WORKER, DROP_KEY_VARIABLE, "x");
+    assert!(
+        matches!(&refused, Err(CloudError::Failed(why)) if why.contains("Authentication error")),
+        "{refused:?}"
+    );
+    assert!(cloudflare.set_worker_secret("../x", DROP_KEY_VARIABLE, "x").is_err());
+    assert_eq!(refusing.calls.lock().unwrap().len(), 1);
+    assert!(Cloudflare::new(Box::new(Shared(refusing)), "not-an-id", "t").is_err());
+}
+
+#[test]
+fn i_was_hacked_locks_the_drive_down_then_rotates_its_key() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-rotate");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    let old_code = a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    let old = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    let lockdowns = LOCKDOWNS.load(Ordering::SeqCst);
+
+    let rotated = a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    assert!(LOCKDOWNS.load(Ordering::SeqCst) > lockdowns, "the lockdown went first");
+    assert_ne!(rotated.drive_key, old.id());
+    assert_eq!(rotated.rewrapped, 1);
+    assert_eq!(
+        device::load_drive_key(&keys, "d_1").unwrap().map(|k| k.id()),
+        Some(rotated.drive_key)
+    );
+    assert_eq!(
+        a.open_encrypted(&keys, &provider)
+            .unwrap()
+            .get("notes/plan.txt")
+            .unwrap(),
+        b"the plan"
+    );
+    assert!(a.recover_key(&old_code, &MemoryKeyring::new()).is_err());
+    assert!(a.recover_key(&rotated.recovery_code, &MemoryKeyring::new()).is_ok());
+
+    // Re-encrypt everything: the one file into a new object.
+    let before = a
+        .open_encrypted(&keys, &provider)
+        .unwrap()
+        .entry("notes/plan.txt")
+        .unwrap()
+        .object_id();
+    let mut state = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    assert!(a
+        .reencrypt(&keys, &provider, &mut state, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    assert_eq!(state.done, 1);
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    assert_ne!(drive.entry("notes/plan.txt").unwrap().object_id(), before);
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 }

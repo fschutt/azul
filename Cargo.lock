@@ -1462,12 +1462,15 @@ name = "azul-storage"
 version = "0.1.0"
 dependencies = [
  "aegis",
+ "aes-gcm",
  "argon2",
  "azul-dll",
  "blake3",
+ "brotli",
  "chacha20poly1305",
  "futures",
  "getrandom 0.2.17",
+ "hkdf",
  "hmac 0.12.1",
  "http",
  "opendal",

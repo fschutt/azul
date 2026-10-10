@@ -98,6 +98,15 @@ pub use encrypted::{
 /// A plaintext drive's files moved into its encrypted namespace, resumably.
 #[cfg(feature = "encryption")]
 pub mod migrate;
+/// An encrypted drive's files written again, smaller, while the computer is idle.
+#[cfg(feature = "encryption")]
+pub mod recompress;
+/// Links to an encrypted drive's files: share manifests, presigned links.
+#[cfg(feature = "encryption")]
+pub mod sharing;
+/// A new drive key after a compromise ("I was hacked"), and re-encrypting everything.
+#[cfg(feature = "encryption")]
+pub mod rotation;
 
 use std::{fmt, io::Read, path::PathBuf};
 

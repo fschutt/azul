@@ -41,6 +41,18 @@ mod device;
 /// A plaintext drive moved into its encrypted namespace (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod migrate;
+/// The recompression pass (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod recompress;
+/// The drops of incoming mail, AZD1 (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod drops;
+/// Share manifests and links (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod sharing;
+/// The key rotation and re-encryption (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod rotation;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;

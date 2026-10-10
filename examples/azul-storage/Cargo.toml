@@ -90,8 +90,12 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"], optional = true }
 # BLAKE3: the plaintext hash, the key commitment and every key derived from another.
 blake3 = { version = "1.8", optional = true }
-# zstd level 3 per 1 MiB segment (the C library, as zip builds it).
+# zstd level 3 per 1 MiB segment (the C library, as zip builds it); level 19 in the
+# recompression pass.
 zstd = { version = "0.13.3", default-features = false, optional = true }
+# brotli quality 11 per segment in the recompression pass (pure Rust; brotli 8 is in Cargo.lock
+# already through webrender and the dll's `web` feature).
+brotli = { version = "8", optional = true }
 # Argon2id: the key of a recovery code (AzKeys' features).
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"], optional = true }
 # The OS random source: file keys, nonces, object ids, salts.
@@ -106,6 +110,11 @@ zeroize = { version = "1.8", features = ["alloc"], optional = true }
 # engine does not compile there).
 turso = { package = "turso-azul", version = "0.7.2", default-features = false, optional = true }
 aegis = { version = "0.9", features = ["pure-rust"], optional = true }
+# AZD1, the drops of incoming mail (src/crypto/drops.rs): the customer's Email Worker has Web
+# Crypto only, so X25519 + HKDF-SHA256 + AES-256-GCM. Both in Cargo.lock already (aes-gcm 0.10.3
+# through noq-proto, the QUIC stack; hkdf 0.12 through azcloud-kit, AzMeet, AzCalendar).
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"], optional = true }
+hkdf = { version = "0.12", optional = true }
 
 [features]
 default = []
@@ -122,9 +131,12 @@ encryption = [
     "dep:x25519-dalek",
     "dep:blake3",
     "dep:zstd",
+    "dep:brotli",
     "dep:argon2",
     "dep:getrandom",
     "dep:zeroize",
+    "dep:aes-gcm",
+    "dep:hkdf",
 ]
 # The drive index's query cache (search, largest, recent, totals) in a local SQLite.
 index-cache = ["encryption", "dep:turso", "dep:aegis"]
