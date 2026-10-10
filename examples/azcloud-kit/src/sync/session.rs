@@ -271,6 +271,10 @@ pub struct FileRecord {
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<HeldConflict>,
+    /// Its transfer waited for a pass without the session's limit
+    /// ([`SyncSession::with_transfer_limit`]): a file new on the drive still counts as new.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
 }
 
 impl FileRecord {
@@ -620,6 +624,11 @@ impl SyncSession {
         self
     }
 
+    /// Whether a transfer of `size` bytes waits for a pass without the limit.
+    fn over_limit(&self, size: u64) -> bool {
+        self.transfer_limit.is_some_and(|limit| size > limit)
+    }
+
     #[must_use]
     pub fn setup(&self) -> &SyncSetup {
         &self.setup
@@ -743,7 +752,7 @@ impl SyncSession {
                     progress: Some(&hear),
                     cancel: Some(cancel),
                     hold_mass_delete: true,
-                    transfer_limit: None,
+                    transfer_limit: self.transfer_limit,
                 };
                 sync_to(target, root_ref, index_ref, opts_ref, &hooks)
             });
@@ -771,14 +780,21 @@ impl SyncSession {
             states.allow_burst = false;
             states.allow_mass_delete = false;
         }
-        // Pinned files kept in the cloud come down now.
+        // Pinned files kept in the cloud come down now (within the limit; the rest wait).
         let mut fetched = Vec::new();
-        let pinned: Vec<(String, u64)> = report
-            .cloud_only
-            .iter()
-            .filter(|key| states.is_pinned(key))
-            .map(|key| (key.clone(), states.files.get(key).map_or(0, |r| r.size)))
-            .collect();
+        let mut held = report.held_back.clone();
+        let mut pinned: Vec<(String, u64)> = Vec::new();
+        for key in report.cloud_only.iter().filter(|key| states.is_pinned(key)) {
+            let size = states.files.get(key).map_or(0, |r| r.size);
+            if self.over_limit(size) {
+                held.push(key.clone());
+                if let Some(record) = states.files.get_mut(key) {
+                    record.held = true;
+                }
+            } else {
+                pinned.push((key.clone(), size));
+            }
+        }
         for (key, size) in pinned {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -826,7 +842,7 @@ impl SyncSession {
             states: states.clone(),
             fetched,
             freed,
-            held: Vec::new(),
+            held,
         })
     }
 
@@ -1191,6 +1207,7 @@ impl SyncSession {
         let now = crate::now();
         let mut files = BTreeMap::new();
         let mut wanted: Vec<(String, String, u64)> = Vec::new();
+        let mut held = Vec::new();
         for info in listing {
             let Some(key) = info.key.strip_prefix(&self.setup.prefix) else {
                 continue;
@@ -1203,9 +1220,14 @@ impl SyncSession {
             let kept = object.as_deref().is_some_and(|o| objects.has(o));
             let old = states.files.get(key);
             let modified = info.modified.and_then(|m| i64::try_from(m).ok()).unwrap_or(0);
+            // A file whose download waited for the limit is still new.
+            let new = old.is_none_or(|r| r.held);
             let wants = states.is_pinned(key)
-                || (old.is_none() && self.setup.auto_download.wants(info.size));
-            if wants && !kept {
+                || (new && self.setup.auto_download.wants(info.size));
+            let waits = wants && !kept && self.over_limit(info.size);
+            if waits {
+                held.push(key.to_string());
+            } else if wants && !kept {
                 if let Some(object) = &object {
                     wanted.push((key.to_string(), object.clone(), info.size));
                 }
@@ -1221,6 +1243,7 @@ impl SyncSession {
                     last_used: old.map_or(modified, |r| r.last_used),
                     error: None,
                     conflict: None,
+                    held: waits,
                 },
             );
         }
@@ -1273,7 +1296,7 @@ impl SyncSession {
             states: states.clone(),
             fetched,
             freed,
-            held: Vec::new(),
+            held,
         })
     }
 
@@ -1327,6 +1350,7 @@ fn listable(drive: &dyn Drive, prefix: &str) -> bool {
 fn record(states: &mut SyncStates, report: &SyncReport, moved: &BTreeSet<String>) {
     let now = crate::now();
     let cloud_only: BTreeSet<&str> = report.cloud_only.iter().map(String::as_str).collect();
+    let held: BTreeSet<&str> = report.held_back.iter().map(String::as_str).collect();
     let mut files: BTreeMap<String, FileRecord> = match &report.remote {
         Some(remote) => remote
             .files
@@ -1338,11 +1362,15 @@ fn record(states: &mut SyncStates, report: &SyncReport, moved: &BTreeSet<String>
                 } else {
                     old.map_or(file.mtime, |r| r.last_used)
                 };
+                // A file new on the drive whose download waited is not here yet.
+                let waits = held.contains(key.as_str());
                 let record = FileRecord {
                     size: file.size,
                     modified: file.mtime,
-                    cloud_only: cloud_only.contains(key.as_str()),
+                    cloud_only: cloud_only.contains(key.as_str())
+                        || (waits && old.is_none_or(|r| r.cloud_only)),
                     last_used,
+                    held: waits,
                     ..FileRecord::default()
                 };
                 (key.clone(), record)

@@ -1591,6 +1591,32 @@ fn on_demand(
     held
 }
 
+/// Takes the transfers over `limit` bytes out of the plan ([`RunHooks::transfer_limit`]): the
+/// upload of a file bigger than that here, the download of one bigger than that on the drive.
+/// Both sides keep their versions and the base its last synced one, so the next run without the
+/// limit plans them again - as the burst guard's pause holds uploads back. Their keys.
+fn hold_big(
+    actions: &mut Vec<Action>,
+    scan: &Scan,
+    remote: &RemoteIndex,
+    limit: u64,
+) -> Vec<String> {
+    let mut held = Vec::new();
+    actions.retain(|action| {
+        let bytes = match action {
+            Action::Upload { key } => scan.files.get(key).map(|f| f.blob_size),
+            Action::Download { key } => remote.files.get(key).map(|f| f.size),
+            _ => None,
+        };
+        let waits = bytes.is_some_and(|bytes| bytes > limit);
+        if waits {
+            held.push(action.key().to_string());
+        }
+        !waits
+    });
+    held
+}
+
 /// What the plan moves: files and bytes up and down.
 fn planned(
     actions: &[Action],
@@ -1783,6 +1809,9 @@ fn run<R: SyncRemote + ?Sized>(
         if pause.is_some() {
             // Only what the drive changed comes here; nothing goes up.
             actions.retain(|a| !guard::sends(a));
+        }
+        if let Some(limit) = hooks.transfer_limit {
+            report.held_back = hold_big(&mut actions, &scan, &remote, limit);
         }
         if attempt == 1 {
             hooks.tell(planned(&actions, &scan, &remote));
