@@ -543,6 +543,12 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
         }
     }
 
+    /// Whether the copy was opened from the cache without reaching the bucket.
+    #[must_use]
+    pub fn is_offline(&self) -> bool {
+        false
+    }
+
     /// Sets the store's clock (seconds since 1970): the tests' time.
     #[must_use]
     pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
