@@ -3171,10 +3171,8 @@ pub(crate) fn context_menu(app: &RefAny, s: &DriveState) -> Menu {
         // A synced folder's items: kept on this device, or freed (§13.7).
         if crate::sync_view::selected_keys(s).is_some() {
             let pinned = crate::sync_view::selected_keys(s).is_some_and(|(drive_id, keys)| {
-                s.sync
-                    .drives
-                    .get(&drive_id)
-                    .is_some_and(|d| keys.iter().all(|k| d.states.is_pinned(k)))
+                let states = s.sync_view.store.states(&drive_id);
+                keys.iter().all(|k| states.is_pinned(k))
             });
             items.push(check_item(
                 app,

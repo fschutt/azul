@@ -177,6 +177,8 @@ mod ui_sidebar;
 mod ui_view;
 /// The folder sync on worker threads, and what starts it.
 mod sync_jobs;
+/// The synced drives' file states, shared by the window and the search.
+mod sync_store;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
 mod sync_view;
 
@@ -771,7 +773,7 @@ pub(crate) struct DriveState {
     /// the bar with Cancel over the drive in view.
     pub pending_lockdowns: HashMap<String, u64>,
     /// The synced drives' states, passes and status lines in this window.
-    pub sync: sync_view::SyncView,
+    pub sync_view: sync_view::SyncView,
 }
 
 impl DriveState {
@@ -2945,7 +2947,7 @@ pub fn start() {
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
         pending_lockdowns: HashMap::new(),
-        sync: sync_view::SyncView::default(),
+        sync_view: sync_view::SyncView::default(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

@@ -23,6 +23,13 @@
 //!
 //! TODO(SYNC17): the "indexed" / "not indexable" overlays of §13.7 wait for azul-search-index to
 //! answer per file whether it is in the index (it answers per walk, `DriveIndex::unread`).
+//!
+//! SEAM for the kit's guards that stop a pass by themselves (the mass-delete guard today, the
+//! burst / ransomware guard of CLIENT17 round 6): a guard's pause should travel in the pass's
+//! `SyncStates` (written by azcloud-kit's `session::record` / `after_failure`, as `read_only`
+//! and `last_error` are), show in [`status_text`] and [`sidebar_state`] next to "Read-only",
+//! and ask with a [`SyncDialog`] next to `Conflict` (resume - the guard allowed once - or keep
+//! it paused). Until then a tripped guard is the pass's error: "Not synced: <why>".
 
 use std::{
     collections::{HashMap, HashSet},
@@ -42,9 +49,10 @@ use azul::{
     widgets::{ButtonType, DropDown, OnTextInputReturn, TextInputState, TextInputValid},
 };
 
+pub(crate) use crate::sync_store::SyncStore;
 use crate::{
     browse::{self, Entry, Place},
-    ids, jobs,
+    ids,
     sync_jobs::{self, PassProgress},
     ui_dialogs::{button, buttons, label, line, on_cancel_popup, typed_button},
     with_state, DriveState, Popup,
@@ -52,11 +60,9 @@ use crate::{
 
 // ==== What the window keeps ====
 
-/// A synced drive's life in this window.
+/// A synced drive's life in this window (its files' states are in the [`SyncStore`]).
 #[derive(Default)]
 pub(crate) struct DriveSync {
-    /// As the last pass (or answer) left them.
-    pub states: SyncStates,
     /// The pass running now.
     pub running: Option<Running>,
     /// Another pass once this one ends ("Sync now" while it ran, a pin).
@@ -80,6 +86,8 @@ pub(crate) struct SyncView {
     /// The conflicts asked about by themselves already (`<drive id>\n<key>`): "Decide later"
     /// is not asked again at every pass - opening the file asks again.
     pub asked: HashSet<String>,
+    /// Every synced drive's file states, shared with the search (its `SyncLookup`).
+    pub store: SyncStore,
 }
 
 /// What the ribbon, the menus and the Options ask of a synced drive.
@@ -104,21 +112,26 @@ pub(crate) enum SyncAction {
 // ==== Plain data ====
 
 /// The drive's status line (§13.7): paused, read-only, syncing (the files and bytes left), a
-/// conflict waiting, the last error, never synced, up to date. `azlin`: an Azlin drive, whose
-/// refused writes mean an unpaid period.
+/// conflict waiting, the last error, never synced, up to date - from its `states` and the pass
+/// `running`. `azlin`: an Azlin drive, whose refused writes mean an unpaid period.
 #[must_use]
-pub(crate) fn status_text(setup: &SyncSetup, sync: &DriveSync, azlin: bool) -> String {
+pub(crate) fn status_text(
+    setup: &SyncSetup,
+    states: &SyncStates,
+    running: Option<&Running>,
+    azlin: bool,
+) -> String {
     if setup.paused {
         return String::from("Paused");
     }
-    if sync.states.read_only {
+    if states.read_only {
         return String::from(if azlin {
             "Read-only (payment due)"
         } else {
             "Read-only"
         });
     }
-    if let Some(running) = &sync.running {
+    if let Some(running) = running {
         let p = &running.progress;
         let files = p.files_total.saturating_sub(p.files_done);
         if files == 0 {
@@ -131,17 +144,17 @@ pub(crate) fn status_text(setup: &SyncSetup, sync: &DriveSync, azlin: bool) -> S
             browse::format_size(Some(bytes))
         );
     }
-    let conflicts = sync.states.conflicts().len();
+    let conflicts = states.conflicts().len();
     if conflicts > 0 {
         return format!(
             "Waiting for you: {}",
             browse::counted(conflicts, "conflict", "conflicts")
         );
     }
-    if let Some(error) = &sync.states.last_error {
+    if let Some(error) = &states.last_error {
         return format!("Not synced: {error}");
     }
-    if sync.states.last_pass.is_none() {
+    if states.last_pass.is_none() {
         return String::from("Not synced yet");
     }
     String::from("Up to date")
@@ -255,42 +268,21 @@ pub(crate) fn setup_of<'a>(s: &'a DriveState, drive_id: &str) -> Option<&'a Sync
 /// Whether drive `drive_id` is an encrypted drive this build opened as one: its own listing
 /// names its files.
 #[cfg(feature = "encryption")]
-fn names_its_files(s: &DriveState, drive_id: &str) -> bool {
+pub(crate) fn names_its_files(s: &DriveState, drive_id: &str) -> bool {
     s.slot_index(drive_id)
         .and_then(|i| s.slots[i].auto.as_ref())
         .is_some_and(|auto| auto.is_encrypted() == Some(true))
 }
 
 #[cfg(not(feature = "encryption"))]
-fn names_its_files(_s: &DriveState, _drive_id: &str) -> bool {
+pub(crate) fn names_its_files(_s: &DriveState, _drive_id: &str) -> bool {
     false
 }
 
 /// The pairing `key` of drive `drive` lies in, and its key under the pairing: the synced
-/// folder through a drive on this computer, or an encrypted drive's own folder.
+/// folder through a drive on this computer, or an encrypted drive's own folder ([`SyncStore`]).
 pub(crate) fn pair_at(s: &DriveState, drive: &str, key: &str) -> Option<(String, String)> {
-    let is_folder = key.is_empty() || key.ends_with('/');
-    for setup in &s.settings.synced {
-        if setup.drive_id == drive {
-            if names_its_files(s, drive) {
-                if let Some(rel) = key.strip_prefix(setup.prefix.as_str()) {
-                    return Some((setup.drive_id.clone(), rel.to_string()));
-                }
-            }
-            continue;
-        }
-        if setup.local_copies != LocalCopies::Decrypted && names_its_files(s, &setup.drive_id) {
-            continue;
-        }
-        let Some(root) = s.slot_index(drive).and_then(|i| s.local_root(i)) else {
-            continue;
-        };
-        let path = jobs::path_in(&root, key);
-        if let Some(rel) = key_under(&setup.folder, &path, is_folder) {
-            return Some((setup.drive_id.clone(), rel));
-        }
-    }
-    None
+    s.sync_view.store.locate(drive, key)
 }
 
 /// The pairing the open folder lies in.
@@ -334,22 +326,7 @@ pub(crate) fn selected_keys(s: &DriveState) -> Option<(String, Vec<String>)> {
 /// The state of a row of the open folder, when it lies in a pairing.
 pub(crate) fn entry_state(s: &DriveState, entry: &Entry) -> Option<FileState> {
     let drive = s.current_drive_id()?;
-    let (drive_id, rel) = pair_at(s, &drive, &entry.key)?;
-    let sync = s.sync.drives.get(&drive_id)?;
-    if let Some((key, up)) = sync.running.as_ref().and_then(|r| r.progress.moving.as_ref()) {
-        if *key == rel {
-            return Some(if *up {
-                FileState::Uploading { done: 0, total: 0 }
-            } else {
-                FileState::Downloading { done: 0, total: 0 }
-            });
-        }
-    }
-    if entry.is_folder {
-        sync.states.folder_state(&rel)
-    } else {
-        sync.states.state_of(&rel)
-    }
+    s.sync_view.store.file_state(&drive, &entry.key)
 }
 
 /// The icon after a row's name and what it says: its sync state, or - a file of a cloud drive
@@ -395,27 +372,32 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
     let azlin = s
         .slot_index(drive_id)
         .is_some_and(|i| s.slots[i].entry.azlin().is_some());
-    let empty = DriveSync::default();
-    let sync = s.sync.drives.get(drive_id).unwrap_or(&empty);
-    status_text(setup, sync, azlin)
+    let states = s.sync_view.store.states(drive_id);
+    let running = s.sync_view.drives.get(drive_id).and_then(|d| d.running.as_ref());
+    status_text(setup, &states, running, azlin)
 }
 
 /// A synced drive's state on its row of the source list: its glyph and its status line.
 pub(crate) fn sidebar_state(s: &DriveState, drive_id: &str) -> Option<(&'static str, String)> {
     let setup = setup_of(s, drive_id)?;
     let text = drive_status(s, drive_id);
-    let sync = s.sync.drives.get(drive_id);
+    let states = s.sync_view.store.states(drive_id);
+    let running = s
+        .sync_view
+        .drives
+        .get(drive_id)
+        .is_some_and(|d| d.running.is_some());
     let glyph = if setup.paused {
         "pause_circle"
-    } else if sync.is_some_and(|d| d.states.read_only) {
+    } else if states.read_only {
         "cloud_off"
-    } else if sync.is_some_and(|d| d.running.is_some()) {
+    } else if running {
         "sync"
-    } else if sync.is_some_and(|d| !d.states.conflicts().is_empty()) {
+    } else if !states.conflicts().is_empty() {
         "sync_problem"
-    } else if sync.is_some_and(|d| d.states.last_error.is_some()) {
+    } else if states.last_error.is_some() {
         "error"
-    } else if sync.is_some_and(|d| d.states.last_pass.is_some()) {
+    } else if states.last_pass.is_some() {
         "cloud_done"
     } else {
         "cloud_queue"
@@ -435,10 +417,8 @@ pub(crate) fn add_placeholders(s: &mut DriveState) {
     let Some((drive_id, rel)) = pair_at(s, &drive, &prefix) else {
         return;
     };
-    let Some(sync) = s.sync.drives.get(&drive_id) else {
-        return;
-    };
-    let rows = placeholders(&sync.states, &rel, &prefix);
+    let states = s.sync_view.store.states(&drive_id);
+    let rows = placeholders(&states, &rel, &prefix);
     let mut added = false;
     for row in rows {
         if !s.entries.iter().any(|e| e.key == row.key) {
@@ -470,7 +450,7 @@ pub(crate) fn print_changes(drive_id: &str, before: &SyncStates, after: &SyncSta
 /// Prints the drive's status line when it changed (`AZDRIVE_SYNC_STATUS <drive> <text>`).
 pub(crate) fn say_status(s: &mut DriveState, drive_id: &str) {
     let text = drive_status(s, drive_id);
-    let sync = s.sync.drives.entry(drive_id.to_string()).or_default();
+    let sync = s.sync_view.drives.entry(drive_id.to_string()).or_default();
     if sync.said != text {
         println!("AZDRIVE_SYNC_STATUS {drive_id} {text}");
         sync.said = text;
@@ -584,19 +564,20 @@ pub(crate) fn ask_next_conflict(s: &mut DriveState) {
     if s.popup.is_some() {
         return;
     }
-    let asked = &s.sync.asked;
+    let asked = &s.sync_view.asked;
     let next = s
         .settings
         .synced
         .iter()
         .filter(|p| !p.paused)
         .find_map(|p| {
-            let sync = s.sync.drives.get(&p.drive_id)?;
-            sync.states
+            let states = s.sync_view.store.states(&p.drive_id);
+            let found = states
                 .conflicts()
                 .into_iter()
                 .map(|held| (p.drive_id.clone(), held.key.clone()))
-                .find(|(drive_id, key)| !asked.contains(&format!("{drive_id}\n{key}")))
+                .find(|(drive_id, key)| !asked.contains(&format!("{drive_id}\n{key}")));
+            found
         });
     if let Some((drive_id, key)) = next {
         ask_conflict(s, &drive_id, &key);
@@ -608,7 +589,7 @@ pub(crate) fn ask_conflict(s: &mut DriveState, drive_id: &str, key: &str) {
     if s.popup.is_some() {
         return;
     }
-    s.sync.asked.insert(format!("{drive_id}\n{key}"));
+    s.sync_view.asked.insert(format!("{drive_id}\n{key}"));
     println!("AZDRIVE_SYNC_CONFLICT {drive_id} {key}");
     s.popups_opened += 1;
     s.popup = Some(Popup::Sync(SyncDialog::Conflict {
@@ -698,10 +679,11 @@ pub(crate) fn dialog_parts(dialog: &SyncDialog, s: &DriveState, app: &RefAny) ->
         SyncDialog::Conflict { drive_id, key } => {
             let name = azul_storage::key::last_segment(key).to_string();
             let held = s
-                .sync
-                .drives
-                .get(drive_id)
-                .and_then(|d| d.states.files.get(key))
+                .sync_view
+                .store
+                .states(drive_id)
+                .files
+                .get(key)
                 .and_then(|r| r.conflict.clone());
             let mut body = column(vec![line(&format!(
                 "\"{name}\" was changed on this computer and on the drive since they were last \
@@ -1048,6 +1030,7 @@ fn change_setup(
 ) {
     if let Some(setup) = s.settings.synced.iter_mut().find(|p| p.drive_id == drive_id) {
         change(setup);
+        sync_jobs::publish(s);
         crate::save_settings(info, app, s);
     }
 }

@@ -377,6 +377,19 @@ fn poll_secs() -> u64 {
         .unwrap_or(30)
 }
 
+/// The store takes the pairings as the settings have them now, which drives name their files
+/// and the drives on this computer.
+pub(crate) fn publish(s: &DriveState) {
+    let roots: Vec<(String, PathBuf)> = (0..s.slots.len())
+        .filter_map(|i| Some((s.slots[i].entry.id.clone(), s.local_root(i)?)))
+        .collect();
+    s.sync_view.store.set_pairs(
+        &s.settings.synced,
+        &|drive_id: &str| sync_view::names_its_files(s, drive_id),
+        roots,
+    );
+}
+
 /// The folder the pairings' states are kept in: `<cache>/sync`.
 fn state_root(s: &DriveState) -> Option<PathBuf> {
     s.cache_dir.as_ref().map(|dir| dir.join("sync"))
@@ -388,9 +401,11 @@ pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some(root) = state_root(s) else {
         return;
     };
+    publish(s);
     for setup in s.settings.synced.clone() {
         let states = SyncStates::load(&setup.state_dir(&root));
-        s.sync.drives.entry(setup.drive_id.clone()).or_default().states = states;
+        s.sync_view.store.set_states(&setup.drive_id, states);
+        s.sync_view.drives.entry(setup.drive_id.clone()).or_default();
         sync_view::say_status(s, &setup.drive_id);
     }
     if s.settings.synced.is_empty() {
@@ -405,10 +420,10 @@ pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 }
 
 fn start_timer(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    if s.sync.timer {
+    if s.sync_view.timer {
         return;
     }
-    s.sync.timer = true;
+    s.sync_view.timer = true;
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),
@@ -463,7 +478,7 @@ fn work_of(info: &mut CallbackInfo, s: &mut DriveState, drive_id: &str) -> Optio
 
 /// A pass of synced drive `drive_id` now - or, while one runs, right after it.
 pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
-    if let Some(sync) = s.sync.drives.get_mut(drive_id) {
+    if let Some(sync) = s.sync_view.drives.get_mut(drive_id) {
         if sync.running.is_some() {
             sync.again = true;
             return;
@@ -473,7 +488,7 @@ pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         return;
     };
     let cancel = Arc::new(AtomicBool::new(false));
-    s.sync.drives.entry(drive_id.to_string()).or_default().running = Some(Running {
+    s.sync_view.drives.entry(drive_id.to_string()).or_default().running = Some(Running {
         cancel: cancel.clone(),
         progress: PassProgress::default(),
     });
@@ -531,8 +546,9 @@ pub(crate) fn pair(
     s.settings
         .synced
         .push(SyncSetup::new(drive_id, &prefix, &folder));
+    publish(s);
     crate::save_settings(info, app, s);
-    s.sync.drives.entry(drive_id.to_string()).or_default();
+    s.sync_view.drives.entry(drive_id.to_string()).or_default();
     println!("AZDRIVE_SYNC_PAIRED {drive_id} {}", folder.display());
     start_timer(info, app, s);
     request_pass(info, app, s, drive_id);
@@ -551,12 +567,13 @@ fn local_place(s: &DriveState, folder: &Path) -> Option<Place> {
 /// "Stop syncing": the pairing is forgotten (a pass running stops); the files stay on both
 /// sides, the states in the cache folder.
 pub(crate) fn stop(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) {
-    if let Some(sync) = s.sync.drives.remove(drive_id) {
+    if let Some(sync) = s.sync_view.drives.remove(drive_id) {
         if let Some(running) = sync.running {
             running.cancel.store(true, Ordering::SeqCst);
         }
     }
     s.settings.synced.retain(|p| p.drive_id != drive_id);
+    publish(s);
     crate::save_settings(info, app, s);
     println!("AZDRIVE_SYNC_STOPPED {drive_id}");
     s.info("The drive no longer syncs; its files stay where they are.");
@@ -601,12 +618,7 @@ pub(crate) fn open_if_synced(
     let Some((drive_id, rel)) = sync_view::pair_at(s, drive, &entry.key) else {
         return false;
     };
-    let Some(state) = s
-        .sync
-        .drives
-        .get(&drive_id)
-        .and_then(|d| d.states.state_of(&rel))
-    else {
+    let Some(state) = s.sync_view.store.states(&drive_id).state_of(&rel) else {
         return false;
     };
     // A file changed here and on the drive asks which version to keep.
@@ -655,11 +667,8 @@ pub(crate) fn run_action(
         SyncAction::Now => request_pass(info, app, s, &drive_id),
         SyncAction::KeepOnDevice => {
             let Some((_, keys)) = selected else { return };
-            let all_kept = s
-                .sync
-                .drives
-                .get(&drive_id)
-                .is_some_and(|d| keys.iter().all(|k| d.states.is_pinned(k)));
+            let states = s.sync_view.store.states(&drive_id);
+            let all_kept = keys.iter().all(|k| states.is_pinned(k));
             if let Some(work) = work_of(info, s, &drive_id) {
                 spawn(
                     info,
@@ -686,11 +695,12 @@ pub(crate) fn run_action(
             setup.paused = !setup.paused;
             let paused = setup.paused;
             if paused {
-                if let Some(running) = s.sync.drives.get(&drive_id).and_then(|d| d.running.as_ref())
+                if let Some(running) = s.sync_view.drives.get(&drive_id).and_then(|d| d.running.as_ref())
                 {
                     running.cancel.store(true, Ordering::SeqCst);
                 }
             }
+            publish(s);
             crate::save_settings(info, app, s);
             println!(
                 "AZDRIVE_SYNC_{} {drive_id}",
@@ -732,8 +742,11 @@ fn refresh_if_showing(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
 pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, outcome: SyncOutcome) {
     match outcome {
         SyncOutcome::Progress { drive_id, progress } => {
+            s.sync_view
+                .store
+                .set_moving(&drive_id, progress.moving.clone());
             if let Some(running) = s
-                .sync
+                .sync_view
                 .drives
                 .get_mut(&drive_id)
                 .and_then(|d| d.running.as_mut())
@@ -747,10 +760,15 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             result,
             states,
         } => {
-            let sync: &mut DriveSync = s.sync.drives.entry(drive_id.clone()).or_default();
+            let sync: &mut DriveSync = s.sync_view.drives.entry(drive_id.clone()).or_default();
             sync.running = None;
             let again = std::mem::take(&mut sync.again);
-            let before = std::mem::replace(&mut sync.states, states);
+            // An Azlin drive decided by now whether it is encrypted: its own listing may name
+            // its files.
+            publish(s);
+            let before = s.sync_view.store.states(&drive_id);
+            s.sync_view.store.set_moving(&drive_id, None);
+            s.sync_view.store.set_states(&drive_id, states);
             match &result {
                 Ok(done) => println!(
                     "AZDRIVE_SYNC_DONE {drive_id} up={} down={} deleted={} conflicts={} \
@@ -759,9 +777,8 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 ),
                 Err(e) => println!("AZDRIVE_SYNC_FAILED {drive_id} {e}"),
             }
-            if let Some(sync) = s.sync.drives.get(&drive_id) {
-                sync_view::print_changes(&drive_id, &before, &sync.states);
-            }
+            let after = s.sync_view.store.states(&drive_id);
+            sync_view::print_changes(&drive_id, &before, &after);
             sync_view::say_status(s, &drive_id);
             refresh_if_showing(info, app, s, &drive_id);
             sync_view::ask_next_conflict(s);
@@ -830,8 +847,9 @@ pub(crate) fn on_outcome(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
 
 /// The states a job answered with take the place of the drive's (the changes printed).
 fn replace_states(s: &mut DriveState, drive_id: &str, states: SyncStates) {
-    let sync = s.sync.drives.entry(drive_id.to_string()).or_default();
-    let before = std::mem::replace(&mut sync.states, states);
-    sync_view::print_changes(drive_id, &before, &sync.states);
+    let before = s.sync_view.store.states(drive_id);
+    s.sync_view.store.set_states(drive_id, states);
+    let after = s.sync_view.store.states(drive_id);
+    sync_view::print_changes(drive_id, &before, &after);
     sync_view::say_status(s, drive_id);
 }
