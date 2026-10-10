@@ -6,8 +6,8 @@
 //! The helper speaks the `fetch` flavour of the protocol:
 //!
 //! - `capabilities`: `fetch`, `option`, `object-format`;
-//! - `option object-format true`: the `list` names the object format (`:object-format sha256`);
-//!   other options are unsupported;
+//! - `option object-format` (git sends it without a value, the documentation with `true`): the
+//!   `list` names the object format (`:object-format sha256`); other options are unsupported;
 //! - `list`: polls the drive and answers `refs/heads/main` (the drive's history) and `HEAD`;
 //! - `fetch <id> <ref>` (a batch, ended by a blank line): every object the wanted commits
 //!   reach goes to git as one pack (version 2, no deltas, zlib in stored blocks - git inflates
@@ -172,7 +172,8 @@ pub fn serve<B: Bucket, S: Sealer>(
             // The list, then the blank line that ends it.
             writeln!(output, "{CAPABILITIES}")?;
         } else if let Some(option) = command.strip_prefix("option ") {
-            if option == "object-format true" {
+            // git 2.39 sends it without a value; the documentation writes `true`.
+            if option == "object-format" || option == "object-format true" {
                 object_format = true;
                 writeln!(output, "ok")?;
             } else {
