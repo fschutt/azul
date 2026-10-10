@@ -188,6 +188,27 @@ fn a_worker_thread_that_adopts_the_ui_threads_voice_says_its_words_in_its_langua
     assert_ne!(Voice::here(), voice_in("de-DE"), "a printout in another language differs");
 }
 
+/// A worker that said appkit's words before (with nothing kept, `t` keeps appkit's own) speaks
+/// the voice's app words once it adopts it: the voice brings its thread's resources.
+#[test]
+fn a_worker_that_spoke_before_it_adopts_a_voice_speaks_the_voices_words() {
+    keep(&sources(&[
+        ("en", "aztest-voice = Voice\n"),
+        ("de", "aztest-voice = Stimme\n"),
+    ]));
+    set_locale("de-DE");
+    let voice = Voice::here();
+    set_locale("en-US");
+    let said = std::thread::spawn(move || {
+        let _appkits_own = t("kit-general-language");
+        voice.adopt();
+        t("aztest-voice")
+    })
+    .join()
+    .expect("the worker thread ends");
+    assert_eq!(said, "Stimme");
+}
+
 /// The voice of a thread speaking `locale`.
 fn voice_in(locale: &str) -> Voice {
     let here = crate::l10n::locale();
