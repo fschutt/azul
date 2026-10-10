@@ -19,7 +19,7 @@
 //! - **The language:** the engine's (the system's), or the Language setting / `--language`
 //!   (`ui` applies it with `CallbackInfo::set_locale`).
 
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 
 use azul::{
     fluent::{FluentArg, FluentArgKV, FluentLocalizerHandle},
@@ -42,6 +42,9 @@ thread_local! {
     /// The language of the layout pass ([`begin_layout`]).
     static LOCALE: RefCell<String> = RefCell::new(String::from("en-US"));
 }
+
+/// The resources [`keep`] was given last (on any thread), for a worker's [`Voice::adopt`].
+static KEPT: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
 /// The resources per language: appkit's first, then `resources` in their order, each
 /// language's joined into one resource; English first (the engine's fallback).
@@ -83,6 +86,39 @@ pub fn keep(sources: &[(String, String)]) {
         let _ = localizer.add_resource(tag.as_str(), source.as_str());
     }
     LOCALIZER.with(|l| *l.borrow_mut() = Some(localizer));
+    if let Ok(mut kept) = KEPT.lock() {
+        *kept = sources.to_vec();
+    }
+}
+
+/// A thread's language, for a worker thread that writes words itself (a printout laid out off
+/// the UI thread): [`Voice::here`] on the UI thread, [`Voice::adopt`] on the worker, and the
+/// worker's [`t`] says what the UI thread's would. (A worker's answers for the UI stay keys or
+/// [`Text`]s, said by the UI thread.) Two voices are equal when they speak one language: a
+/// printout made in another language is another printout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Voice {
+    locale: String,
+}
+
+impl Voice {
+    /// This thread's language ([`locale`]).
+    #[must_use]
+    pub fn here() -> Self {
+        Self { locale: locale() }
+    }
+
+    /// This thread says its words as the voice's thread does: the app's resources (the ones
+    /// kept last, once per thread) in the voice's language.
+    pub fn adopt(&self) {
+        if LOCALIZER.with(|l| l.borrow().is_none()) {
+            let kept = KEPT.lock().map(|k| k.clone()).unwrap_or_default();
+            if !kept.is_empty() {
+                keep(&kept);
+            }
+        }
+        set_locale(&self.locale);
+    }
 }
 
 /// At the start of an app's layout callback: the window's language for [`t`] in this pass
