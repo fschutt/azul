@@ -73,6 +73,30 @@ pub struct Listed {
     pub modified: Option<u64>,
 }
 
+impl<B: Bucket + ?Sized> Bucket for &B {
+    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
+        (**self).read(key)
+    }
+    fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
+        (**self).read_if_changed(key, known)
+    }
+    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
+        (**self).read_range(key, range)
+    }
+    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
+        (**self).create(key, bytes)
+    }
+    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
+        (**self).replace(key, bytes, known)
+    }
+    fn remove(&self, key: &str) -> Result<(), MetaError> {
+        (**self).remove(key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        (**self).list_keys(prefix)
+    }
+}
+
 impl<B: Bucket + ?Sized> Bucket for Arc<B> {
     fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
         (**self).read(key)
@@ -150,7 +174,7 @@ struct MemoryState {
     whole_reads: Vec<String>,
     /// Runs before the next `replace` of the key (then removed).
     before_replace: BTreeMap<String, Hook>,
-    /// The next create or replace of the key fails with this, writing nothing.
+    /// The next create, replace or remove of the key fails with this, changing nothing.
     fail_next: BTreeMap<String, MetaError>,
 }
 
@@ -209,8 +233,8 @@ impl MemoryBucket {
             .insert(key.to_string(), Box::new(hook));
     }
 
-    /// Makes the next create or replace of `key` fail with `error`, writing
-    /// nothing (a test's 409 or lost connection).
+    /// Makes the next create, replace or remove of `key` fail with `error`,
+    /// changing nothing (a test's 409 or lost connection).
     pub fn fail_next_write(&self, key: &str, error: MetaError) {
         self.lock().fail_next.insert(key.to_string(), error);
     }
@@ -304,6 +328,9 @@ impl Bucket for MemoryBucket {
     fn remove(&self, key: &str) -> Result<(), MetaError> {
         let mut state = self.lock();
         state.counts.removes += 1;
+        if let Some(error) = state.fail_next.remove(key) {
+            return Err(error);
+        }
         state.objects.remove(key);
         Ok(())
     }

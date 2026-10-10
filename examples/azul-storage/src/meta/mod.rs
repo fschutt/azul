@@ -107,8 +107,8 @@ pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
-    LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Packs, Publish, Published, RefUpdate,
-    RepoState, StoreSnapshot, SyncReport,
+    reseal, LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Packs, Publish, Published,
+    RefUpdate, RepoState, Resealed, StoreSnapshot, SyncReport,
 };
 
 use crate::DriveError;
