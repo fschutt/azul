@@ -194,10 +194,7 @@ pub(crate) fn notify_due(info: &mut CallbackInfo, s: &mut DriveState) {
 /// The system notification of `drive_id`'s problem `text` (`AZDRIVE_PROBLEM_NOTIFIED
 /// <drive>` on stdout).
 fn notify(info: &mut CallbackInfo, s: &DriveState, drive_id: &str, text: &str) {
-    let name = s
-        .slot_index(drive_id)
-        .map(|index| s.slots[index].entry.name.clone())
-        .unwrap_or_else(|| drive_id.to_string());
+    let name = s.drive_name(&crate::browse::Place::folder(drive_id, ""));
     println!("AZDRIVE_PROBLEM_NOTIFIED {drive_id}");
     info.post_notification(
         Notification::create(format!("azdrive-problem-{drive_id}"), "AzDrive")

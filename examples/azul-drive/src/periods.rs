@@ -30,7 +30,7 @@ use azul_storage::{
     time::iso8601,
 };
 
-use crate::{actions::now_secs, ids, jobs::Job, spawn, DriveState};
+use crate::{actions::now_secs, browse::Place, ids, jobs::Job, spawn, DriveState};
 
 /// A day: how often a drive's period is looked at while AzDrive runs.
 pub(crate) const DAY_SECS: u64 = 86_400;
@@ -201,7 +201,7 @@ pub(crate) fn periods_redeemed(
         }
         for member in new_devices(&look.new_members) {
             println!("AZDRIVE_NEW_DEVICE {drive_id} {member}");
-            let body = new_device_text(&drive_name(s, &drive_id), member);
+            let body = new_device_text(&s.drive_name(&Place::folder(&drive_id, "")), member);
             info.post_notification(
                 Notification::create(format!("azdrive-device-{drive_id}-{member}"), "AzDrive")
                     .with_body(body),
@@ -242,17 +242,11 @@ fn lockdown_seen(
         return;
     }
     println!("AZDRIVE_LOCKDOWN_PENDING {drive_id} {}", iso8601(until));
-    let body = recovery_text(&drive_name(s, drive_id), until, now_secs());
+    let name = s.drive_name(&Place::folder(drive_id, ""));
+    let body = recovery_text(&name, until, now_secs());
     info.post_notification(
         Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(body),
     );
-}
-
-/// The name of `drive_id` in the source list (its id when it has none there).
-fn drive_name(s: &DriveState, drive_id: &str) -> String {
-    s.slot_index(drive_id)
-        .map(|index| s.slots[index].entry.name.clone())
-        .unwrap_or_else(|| drive_id.to_string())
 }
 
 /// Of the members a look saw first, the devices to announce: the recovery code's is announced
