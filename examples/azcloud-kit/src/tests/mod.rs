@@ -10,6 +10,7 @@ mod endpoints;
 mod fake_s3;
 mod lock;
 mod pending;
+mod period;
 mod secrets;
 mod session;
 mod settings;
