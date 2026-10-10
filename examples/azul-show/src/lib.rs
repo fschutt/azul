@@ -29,6 +29,8 @@ pub mod editor;
 pub mod find;
 mod find_ui;
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 pub mod model;
 pub mod render;
 mod ribbon;
