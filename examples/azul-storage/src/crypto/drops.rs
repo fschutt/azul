@@ -61,6 +61,9 @@ use crate::{ops::list_all, Drive, DriveError};
 pub const DROP_PREFIX: &str = ".azlin/drop/";
 /// The drop key's file in the bucket.
 pub const DROP_KEY_FILE: &str = ".azlin/keys/_drop.key";
+/// The drop key before a key rotation replaced it, kept (sealed with the new drive key) for the
+/// drops the Worker sealed to it until it got the new one.
+pub const PREVIOUS_DROP_KEY_FILE: &str = ".azlin/keys/_drop-previous.key";
 /// The first bytes of a drop.
 pub const MAGIC: &[u8; 4] = b"AZD1";
 pub const VERSION: u8 = 1;
@@ -518,16 +521,63 @@ pub fn load_drop_key(
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropSecret>, DriveError> {
-    let bytes = match bucket.get(DROP_KEY_FILE) {
+    load_drop_key_at(bucket, DROP_KEY_FILE, drive_key, drive)
+}
+
+/// The drop key a rotation replaced (see [`PREVIOUS_DROP_KEY_FILE`]); `None` when there is none.
+pub fn load_previous_drop_key(
+    bucket: &dyn Drive,
+    drive_key: &DriveKey,
+    drive: &str,
+) -> Result<Option<DropSecret>, DriveError> {
+    load_drop_key_at(bucket, PREVIOUS_DROP_KEY_FILE, drive_key, drive)
+}
+
+fn load_drop_key_at(
+    bucket: &dyn Drive,
+    at: &str,
+    drive_key: &DriveKey,
+    drive: &str,
+) -> Result<Option<DropSecret>, DriveError> {
+    let bytes = match bucket.get(at) {
         Ok(bytes) => bytes,
         Err(DriveError::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let file = DropKeyFile::parse(&bytes).map_err(|e| e.for_key(DROP_KEY_FILE))?;
+    let file = DropKeyFile::parse(&bytes).map_err(|e| e.for_key(at))?;
     match file.open(drive_key, drive) {
         Ok(secret) => Ok(Some(secret)),
         Err(CryptoError::WrongKey) => Ok(None),
-        Err(e) => Err(e.for_key(DROP_KEY_FILE)),
+        Err(e) => Err(e.for_key(at)),
+    }
+}
+
+/// A key rotation's step: the drive's drop key (opened with `old`, if there is one) is kept as
+/// the previous one sealed with `new`, and a new drop key takes its place. Returns the new
+/// public half (for the Worker) when the drive had incoming mail on.
+pub fn rotate_drop_key(
+    bucket: &dyn Drive,
+    old: &DriveKey,
+    new: &DriveKey,
+    drive: &str,
+) -> Result<Option<DropPublic>, DriveError> {
+    if let Some(current) = load_drop_key(bucket, new, drive)? {
+        // Done already (a resumed rotation).
+        return Ok(Some(current.public()));
+    }
+    let Some(previous) = load_drop_key(bucket, old, drive)? else {
+        return Ok(None);
+    };
+    let file = DropKeyFile::seal(new, drive, &previous).map_err(|e| e.for_key(PREVIOUS_DROP_KEY_FILE))?;
+    bucket.put(PREVIOUS_DROP_KEY_FILE, &file.to_bytes())?;
+    replace_drop_key(bucket, new, drive).map(Some)
+}
+
+/// Forgets the previous drop key (the Worker seals to the new one, the old drops are in).
+pub fn forget_previous_drop_key(bucket: &dyn Drive) -> Result<(), DriveError> {
+    match bucket.delete(PREVIOUS_DROP_KEY_FILE) {
+        Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
+        Err(e) => Err(e),
     }
 }
 

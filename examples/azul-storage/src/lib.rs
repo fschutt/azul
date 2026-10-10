@@ -104,6 +104,9 @@ pub mod recompress;
 /// Links to an encrypted drive's files: share manifests, presigned links.
 #[cfg(feature = "encryption")]
 pub mod sharing;
+/// A new drive key after a compromise ("I was hacked"), and re-encrypting everything.
+#[cfg(feature = "encryption")]
+pub mod rotation;
 
 use std::{fmt, io::Read, path::PathBuf};
 

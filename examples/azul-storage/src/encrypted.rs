@@ -176,6 +176,24 @@ pub trait IndexProvider: Send + Sync {
         bucket: Arc<dyn Drive>,
         drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError>;
+
+    /// Seals the drive's index under `new` from now on, in place of `old` (a key rotation,
+    /// [`crate::rotation`]): the index's own objects re-sealed with keys derived from `new`, the
+    /// ones sealed with `old` deleted once nothing needs them. Its entries are not changed here
+    /// (the rotation re-wraps them first, through [`NameIndex::apply`]). An index that cannot
+    /// says `Unsupported`, and the rotation stops before it changes anything else.
+    fn rekey(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        old: &DriveKey,
+        new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        let _ = (drive, bucket, old, new);
+        Err(DriveError::Unsupported(String::from(
+            "this drive index cannot be sealed under a new drive key yet",
+        )))
+    }
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else

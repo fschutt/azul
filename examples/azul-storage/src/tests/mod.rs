@@ -50,6 +50,9 @@ mod drops;
 /// Share manifests and links (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod sharing;
+/// The key rotation and re-encryption (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod rotation;
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;

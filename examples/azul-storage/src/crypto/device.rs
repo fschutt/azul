@@ -54,6 +54,38 @@ pub fn member_key_entry(drive: &str) -> String {
     format!("azul-storage/member-key/{drive}")
 }
 
+/// The keyring entries a key rotation keeps both keys in until it is done
+/// ([`crate::rotation`]): the drive key before it and the one after it.
+#[must_use]
+pub fn rotation_key_entries(drive: &str) -> (String, String) {
+    (
+        format!("azul-storage/drive-key-previous/{drive}"),
+        format!("azul-storage/drive-key-next/{drive}"),
+    )
+}
+
+/// Keeps `key` under the keyring entry `entry` (a rotation's two keys).
+pub(crate) fn store_key_at(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+    key: &DriveKey,
+) -> Result<(), DriveError> {
+    store_key(keyring, entry, KIND_DRIVE_KEY, key.as_bytes())
+}
+
+/// The drive key under the keyring entry `entry`; `None` when there is none.
+pub(crate) fn load_key_at(
+    keyring: &dyn KeyringStore,
+    entry: &str,
+) -> Result<Option<DriveKey>, DriveError> {
+    Ok(load_key(keyring, entry, KIND_DRIVE_KEY)?.map(|bytes| DriveKey::from_bytes(*bytes)))
+}
+
+/// Removes the keyring entry `entry`.
+pub(crate) fn delete_key_at(keyring: &dyn KeyringStore, entry: &str) -> Result<(), DriveError> {
+    keyring.delete(entry).map_err(|e| keyring_error(entry, e))
+}
+
 /// A key as the keyring keeps it (JSON): what it is and its bytes in hex.
 #[derive(Serialize, Deserialize)]
 struct StoredKey {
