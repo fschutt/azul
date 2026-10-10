@@ -346,5 +346,50 @@ class RequestLog(ServerTest):
         self.assertEqual(self.server.object_gets(), ["mail/inbox/0001.eml"])
 
 
+class Versions(unittest.TestCase):
+    """A store that keeps versions (the mock stack's: an Azlin node's retention) puts a prefix
+    back as it was at a time - what a token server's restore asks a node for."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="s3-versions-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.store = s3_server.Store(self.root, keep_versions=True)
+        self.store.create_bucket(BUCKET)
+        self.now = [1000.0]
+        self.store.clock = lambda: self.now[0]
+
+    def test_a_restore_puts_the_prefix_back_as_it_was_at_a_time(self):
+        self.store.write(BUCKET, "docs/a.txt", b"a1")
+        self.store.write(BUCKET, "docs/b.txt", b"b1")
+        self.store.write(BUCKET, "other.txt", b"o1")
+        self.now[0] = 2000.0
+        self.store.write(BUCKET, "docs/a.txt", b"encrypted")
+        self.store.delete(BUCKET, "docs/b.txt")
+        self.store.write(BUCKET, "docs/note.txt", b"pay")
+        self.store.write(BUCKET, "other.txt", b"o2")
+        self.now[0] = 3000.0
+        self.assertEqual(self.store.restore(BUCKET, "docs/", 1500), 3)
+        self.assertEqual(self.store.read(BUCKET, "docs/a.txt"), b"a1")
+        self.assertEqual(self.store.read(BUCKET, "docs/b.txt"), b"b1")
+        self.assertIsNone(self.store.info(BUCKET, "docs/note.txt"), "made since: gone")
+        self.assertEqual(self.store.read(BUCKET, "other.txt"), b"o2", "outside the prefix")
+        # Nothing is lost: the objects as they were before the restore come back the same way.
+        self.now[0] = 4000.0
+        self.assertEqual(self.store.restore(BUCKET, "docs/", 2500), 3)
+        self.assertEqual(self.store.read(BUCKET, "docs/a.txt"), b"encrypted")
+        self.assertEqual(self.store.restore(BUCKET, "docs/", 2500), 0, "as it was already")
+
+    def test_an_object_from_before_the_store_kept_versions_comes_back_too(self):
+        s3_server.Store(self.root).write(BUCKET, "old.txt", b"before")
+        os.utime(self.store.path(BUCKET, "old.txt"), (500, 500))
+        self.store.write(BUCKET, "old.txt", b"after")
+        self.assertEqual(self.store.restore(BUCKET, "", 600), 1)
+        self.assertEqual(self.store.read(BUCKET, "old.txt"), b"before")
+
+    def test_a_store_without_versions_refuses_a_restore(self):
+        with self.assertRaises(ValueError):
+            s3_server.Store(self.root).restore(BUCKET, "", 0)
+
+
 if __name__ == "__main__":
     unittest.main()

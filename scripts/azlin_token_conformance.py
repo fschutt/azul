@@ -61,6 +61,11 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     members (GET /v1/drives/<id>) name the new member, `you` the caller -, the owner's lockdown
     is 200 with a new drive token for the caller; the member's token and the caller's old one
     are refused (401) and the new one refreshes.
+15. A restore as of a time (D38, D42): objects put, then rewritten, deleted and added after the
+    time; POST /v1/drives/<id>/restore {"prefix", "as_of": RFC 3339} with the drive token is 202
+    with a `request_id` and `queued`; GET /v1/drives/<id>/restore/<request> reaches `done` with
+    the objects it changed, and the prefix is as it was (the one added since gone, outside it
+    nothing changed); without `as_of` it is 400 `bad_request`, an unknown request 404.
 
 Every drive token, claim secret and issue key is secret: none is printed.
 """
@@ -111,6 +116,11 @@ def unix_of(text):
                                              '%Y-%m-%dT%H:%M:%S'))
     except ValueError:
         return None
+
+
+def rfc3339(unix):
+    """Seconds since 1970 as RFC 3339 (`2026-11-07T09:15:00Z`)."""
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(unix))
 
 
 # A development token server's test vouchers (azlin-proto's voucher module).
@@ -194,6 +204,7 @@ def run(token_url, s3_url=None, vouchers='auto'):
     claim_checks(suite, client)
     recovery_checks(suite, client)
     lockdown_checks(suite, client)
+    restore_checks(suite, client, s3_url)
     if vouchers == 'skip':
         print('skipped: vouchers (--skip-vouchers)', flush=True)
     else:
@@ -240,6 +251,63 @@ def lockdown_checks(suite, client):
     status, value, _ = client.refresh(drive_id, new_token)
     suite.check('the new token refreshes', status == 200,
                 '(HTTP %d %r)' % (status, error_code(value)))
+
+
+def restore_checks(suite, client, s3_url):
+    """15. A restore of a prefix as of a time."""
+    status, bundle, text = client.signup('azlin-conformance-restore')
+    if not suite.check('a drive to restore', status == 201 and isinstance(bundle, dict),
+                       '(HTTP %d %s)' % (status, text[:120])):
+        return
+    drive_id, _, _, _ = azlin_client.bundle_drive(bundle)
+    owner = bundle.get('drive_token') or ''
+    path = '/v1/drives/%s/restore' % drive_id
+    bucket = azlin_client.Bucket(bundle, endpoint=s3_url)
+    try:
+        bucket.put('restore/a.txt', b'a1')
+        bucket.put('restore/b.txt', b'b1')
+        bucket.put('kept.txt', b'k1')
+        # The object times are whole seconds at the node: the time sits between two of them.
+        time.sleep(1.2)
+        as_of = int(time.time())
+        time.sleep(1.2)
+        bucket.put('restore/a.txt', b'encrypted')
+        bucket.delete('restore/b.txt')
+        bucket.put('restore/note.txt', b'pay')
+        bucket.put('kept.txt', b'k2')
+    except (OSError, RuntimeError) as e:
+        suite.check('the objects to restore are put', False, '(%s)' % e)
+        return
+    status, value, _ = client.call('POST', path, {'prefix': 'restore/'}, bearer=owner)
+    suite.check('a restore without as_of is 400 bad_request',
+                status == 400 and error_code(value) == 'bad_request',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path, {'prefix': 'restore/', 'as_of': rfc3339(as_of)},
+                                   bearer=owner)
+    request = (value or {}).get('request_id') or ''
+    if not suite.check('a restore as of a time is 202 queued with a request id',
+                       status == 202 and bool(request) and (value or {}).get('status') == 'queued',
+                       '(HTTP %d %r)' % (status, value)):
+        return
+    deadline = time.time() + 60
+    state = {}
+    while time.time() < deadline:
+        status, state, _ = client.call('GET', '%s/%s' % (path, request), bearer=owner)
+        if status != 200 or (state or {}).get('status') not in ('queued', 'running'):
+            break
+        time.sleep(1)
+    suite.check('the restore is done, with the objects it changed',
+                status == 200 and (state or {}).get('status') == 'done'
+                and ((state or {}).get('objects') or 0) >= 3, '(HTTP %d %r)' % (status, state))
+    try:
+        back = (bucket.get('restore/a.txt'), bucket.get('restore/b.txt'),
+                bucket.keys('restore/'), bucket.get('kept.txt'))
+    except (OSError, RuntimeError) as e:
+        back = ('(%s)' % e,)
+    suite.check('the prefix is as it was, the object added since gone, outside it nothing changed',
+                back == (b'a1', b'b1', ['restore/a.txt', 'restore/b.txt'], b'k2'), '(%r)' % (back,))
+    status, value, _ = client.call('GET', '%s/r_nosuchrequest' % path, bearer=owner)
+    suite.check('an unknown restore request is 404', status == 404, '(HTTP %d)' % status)
 
 
 def voucher_checks(suite, client, required):
