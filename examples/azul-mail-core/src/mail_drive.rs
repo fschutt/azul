@@ -222,6 +222,16 @@ mod tests {
 
     use super::wrap;
 
+    /// "We always encrypt and compress": the mail core's default build opens an encrypted
+    /// account's drive through the encryption (AzMail and the bridge build on it).
+    #[test]
+    fn a_default_build_of_the_mail_core_goes_through_the_encryption() {
+        assert!(
+            cfg!(feature = "encryption"),
+            "azul-mail-core's default features take `encryption`"
+        );
+    }
+
     /// The tests that open drives through the process-wide index provider (its cache root) take
     /// turns: one sets the cache root and counts what lands there.
     #[cfg(feature = "encryption")]

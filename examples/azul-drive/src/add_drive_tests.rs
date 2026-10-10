@@ -614,3 +614,13 @@ fn the_dialogs_debug_text_shows_no_verifier_and_no_refresh_token() {
         assert!(!signed_in.contains(secret), "{secret}: {signed_in}");
     }
 }
+
+/// The user's ruling (2026-10-10): "we always encrypt and compress" - AzDrive's default build
+/// opens Azlin drives through the encryption and makes new ones encrypted.
+#[test]
+fn a_default_build_of_azdrive_encrypts_its_azlin_drives() {
+    assert!(
+        cfg!(feature = "encryption"),
+        "AzDrive's default features take `encryption`"
+    );
+}

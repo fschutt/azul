@@ -1362,6 +1362,16 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
+    /// "We always encrypt and compress": the command line's default build makes, opens and
+    /// writes encrypted drives.
+    #[test]
+    fn a_default_build_of_azcloud_speaks_encrypted_drives() {
+        assert!(
+            cfg!(feature = "encryption"),
+            "azcloud's default features take `encryption`"
+        );
+    }
+
     fn argv(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
     }
