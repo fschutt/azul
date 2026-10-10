@@ -51,7 +51,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     widgets::{ButtonType, OnTextInputReturn, TextInputState, TextInputValid},
-    window::{NetworkKind, NetworkState, PowerState},
+    window::{NetworkState, PowerState},
 };
 use azcloud_kit::{TokenError, TokenServer};
 use azul_storage::{
@@ -1788,6 +1788,8 @@ extern "C" fn on_recovery_lockdown(mut data: RefAny, mut info: CallbackInfo) -> 
 
 #[cfg(test)]
 mod tests {
+    use azul::window::NetworkKind;
+
     use super::*;
 
     /// An encrypted drive's search index (the plain text of its files) lives in the drive's own
