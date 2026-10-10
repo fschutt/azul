@@ -902,8 +902,9 @@ pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom
             continue;
         }
         let name = s.drive_name(&crate::browse::Place::folder(&state.drive_id, ""));
-        let health =
-            health_line(&s.settings.recovery.drives, &state.drive_id, now).unwrap_or_default();
+        let health = health_line(&s.settings.recovery.drives, &state.drive_id, now)
+            .map(|health| azul_appkit::l10n::t_text(&health))
+            .unwrap_or_default();
         let mut block = Dom::create_div()
             .with_css("display: flex; flex-direction: column; padding: 6px 0px;")
             .with_child(line(&format!("{name} - {health}")).with_css("font-weight: bold;"));
@@ -922,11 +923,13 @@ pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom
                 .with_child(
                     Dom::create_div()
                         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-                        .with_child(Dom::create_span_with_text(AzString::from(
+                        .with_child(Dom::create_span_with_text(azul_appkit::l10n::label(
                             row.method.name(),
                         )))
                         .with_child(
-                            Dom::create_span_with_text(AzString::from(row.status.as_str()))
+                            Dom::create_span_with_text(AzString::from(azul_appkit::l10n::t_text(
+                                &row.status,
+                            )))
                                 .with_css("font-size: 12px; opacity: 0.75;"),
                         ),
                 );

@@ -616,7 +616,7 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
                 ) {
                     pane = pane.with_property(
                         label("azdrive-details-recovery-health"),
-                        AzString::from(health),
+                        AzString::from(t_text(&health)),
                     );
                 }
                 match &slot.entry.location {

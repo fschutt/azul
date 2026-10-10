@@ -1035,3 +1035,38 @@ azdrive-bridge-password-copied = Das Kennwort der Brücke wurde kopiert: Füge e
 ## Panes
 
 azdrive-pane-details = Details
+
+## Recovery health
+
+azdrive-method-code = Wiederherstellungscode
+azdrive-method-contacts = Vertrauenswürdige Kontakte
+azdrive-method-device = Ein anderes Gerät
+azdrive-method-passkey = Passkey
+azdrive-health-line = { $health ->
+        [green] Grün
+        [yellow] Gelb
+       *[red] Rot
+    }: { $methods ->
+        [one] 1 Methode
+       *[other] { $methods } Methoden
+    }, { $checked ->
+        [never] der Code nie geprüft
+       *[other] der Code geprüft am { $checked }
+    }
+azdrive-health-add-method = füge eine zweite Methode hinzu
+azdrive-health-check-code = prüfe den Code (Optionen > Laufwerke > Testen)
+azdrive-health-new-code = erstelle einen neuen Wiederherstellungscode
+azdrive-method-code-checked = Geprüft am { $on }
+azdrive-method-code-no-checks = keine weiteren Prüfungen
+azdrive-method-code-next = nächste Prüfung am { $on }
+azdrive-method-code-never = Nie zurückgetippt: Erstelle einen neuen Wiederherstellungscode
+azdrive-method-contacts-none = Keine
+azdrive-method-contacts-handed = { $handed } von { $total } Anteilen übergeben ({ $names })
+azdrive-method-contacts-too-few = { $handed } von { $total } Anteilen übergeben ({ $names }): zwei öffnen den Code
+azdrive-method-devices = { $count ->
+        [0] Keine gezählt
+        [one] 1 anderes Gerät hat den Schlüssel
+       *[other] { $count } andere Geräte haben den Schlüssel
+    }
+azdrive-method-passkey-later = Noch nicht: Ein Passkey kommt mit einem späteren AzDrive
+azdrive-methods-warning = Weniger als zwei Wege zurück: Mit nur einem sperrt dich sein Verlust aus dem Laufwerk aus. Füge vertrauenswürdige Kontakte oder ein anderes Gerät hinzu.

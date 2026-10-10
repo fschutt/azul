@@ -1037,3 +1037,38 @@ azdrive-bridge-password-copied = Copied the bridge's password: paste it where th
 ## Panes
 
 azdrive-pane-details = Details
+
+## Recovery health
+
+azdrive-method-code = Recovery code
+azdrive-method-contacts = Trusted contacts
+azdrive-method-device = Another device
+azdrive-method-passkey = Passkey
+azdrive-health-line = { $health ->
+        [green] Green
+        [yellow] Yellow
+       *[red] Red
+    }: { $methods ->
+        [one] 1 method
+       *[other] { $methods } methods
+    }, { $checked ->
+        [never] the code never checked
+       *[other] the code checked on { $checked }
+    }
+azdrive-health-add-method = add a second method
+azdrive-health-check-code = check the code (Options > Drives > Test)
+azdrive-health-new-code = make a new recovery code
+azdrive-method-code-checked = Checked on { $on }
+azdrive-method-code-no-checks = no more checks
+azdrive-method-code-next = next check on { $on }
+azdrive-method-code-never = Never typed back: make a new recovery code
+azdrive-method-contacts-none = None
+azdrive-method-contacts-handed = { $handed } of { $total } shares handed over ({ $names })
+azdrive-method-contacts-too-few = { $handed } of { $total } shares handed over ({ $names }): two open the code
+azdrive-method-devices = { $count ->
+        [0] None counted
+        [one] 1 other device has the key
+       *[other] { $count } other devices have the key
+    }
+azdrive-method-passkey-later = Not yet: a passkey comes with a later AzDrive
+azdrive-methods-warning = Fewer than two ways back in: with one, losing it locks you out of the drive. Add trusted contacts or another device.
