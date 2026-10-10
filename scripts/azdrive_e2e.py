@@ -456,6 +456,7 @@ def run(args, logs):
     # variables (the shared driver sets them).
     switches = [
         "--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--language", "en",  # the clicks read English words (the system may be German)
         "--home", home,
         "--downloads", os.path.join(logs, "downloads"),
         "--data-dir", os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
@@ -1320,6 +1321,7 @@ def sync_step(args, logs, binary, out):
                                "folder": os.path.join(home, "AzDrive", PAID_NAME)}]}, f)
     switches = [
         "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--language", "en",  # the clicks read English words (the system may be German)
         "--home", home,
         "--downloads", os.path.join(base, "downloads"),
         "--data-dir", os.path.join(base, "data"),
