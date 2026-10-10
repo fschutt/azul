@@ -1010,24 +1010,75 @@ mod tests {
         ));
     }
 
+    /// What a rule does, as messages of azul-appkit's resources an app says in the window's
+    /// language (azul-appkit's `l10n_switch_tests` say them in English and German).
     #[test]
-    fn a_rule_says_what_it_does() {
+    fn a_rule_says_what_it_does_as_messages() {
+        use crate::said::{Said, SaidArg};
         let first = d(2026, 9, 30);
-        let said = |text: &str| Rule::parse(text).unwrap().describe(first);
-        assert_eq!(said("FREQ=WEEKLY"), "Weekly on Wednesday");
-        assert_eq!(said("FREQ=DAILY"), "Daily");
-        assert_eq!(said("FREQ=DAILY;INTERVAL=3"), "Every 3 days");
-        assert_eq!(said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), "Every weekday");
+        let said = |text: &str| Rule::parse(text).unwrap().description(first);
+        let every =
+            |id: &'static str, n: i64| SaidArg::Said(Said::new(id).arg("n", SaidArg::Number(n)));
+        let word = |id: &'static str| Said::new(id);
+        let on = |every: SaidArg, on: SaidArg| {
+            Said::new("kit-rule-on").arg("every", every).arg("on", on)
+        };
+        assert_eq!(
+            said("FREQ=WEEKLY"),
+            on(
+                every("kit-rule-weekly", 1),
+                SaidArg::List(vec![word("kit-weekday-wednesday")])
+            )
+        );
+        assert_eq!(
+            said("FREQ=DAILY;INTERVAL=3"),
+            Said::new("kit-rule-daily").arg("n", SaidArg::Number(3))
+        );
+        assert_eq!(
+            said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"),
+            word("kit-rule-every-weekday")
+        );
         assert_eq!(
             said("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;COUNT=10"),
-            "Every 2 weeks on Monday and Friday, 10 times"
+            Said::new("kit-rule-times")
+                .arg(
+                    "rule",
+                    SaidArg::Said(on(
+                        every("kit-rule-weekly", 2),
+                        SaidArg::List(vec![word("kit-weekday-monday"), word("kit-weekday-friday")])
+                    ))
+                )
+                .arg("count", SaidArg::Number(10))
         );
-        assert_eq!(said("FREQ=MONTHLY"), "Monthly on day 30");
+        assert_eq!(
+            said("FREQ=MONTHLY"),
+            on(
+                every("kit-rule-monthly", 1),
+                SaidArg::Said(Said::new("kit-rule-month-day").arg("day", SaidArg::Number(30)))
+            )
+        );
+        let last_friday = Said::new("kit-rule-nth-weekday")
+            .arg(
+                "nth",
+                SaidArg::Said(Said::new("kit-rule-ordinal-last").arg("n", SaidArg::Number(1))),
+            )
+            .arg("day", SaidArg::Said(word("kit-weekday-friday")));
         assert_eq!(
             said("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20261231"),
-            "Monthly on the last Friday, until 31 December 2026"
+            Said::new("kit-rule-until")
+                .arg(
+                    "rule",
+                    SaidArg::Said(on(
+                        every("kit-rule-monthly", 1),
+                        SaidArg::List(vec![last_friday])
+                    ))
+                )
+                .arg("date", SaidArg::Date(d(2026, 12, 31)))
         );
-        assert_eq!(said("FREQ=YEARLY"), "Yearly on 30 September");
+        assert_eq!(
+            said("FREQ=YEARLY"),
+            on(every("kit-rule-yearly", 1), SaidArg::DayMonth(first))
+        );
     }
 
     #[test]

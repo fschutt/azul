@@ -196,3 +196,76 @@ fn voice_in(locale: &str) -> Voice {
     set_locale(&here);
     voice
 }
+
+/// What a repeat rule does (azul-pim's description) in the window's language.
+#[test]
+fn a_repeat_rule_is_said_in_english_and_german() {
+    use azul_pim::rrule::Rule;
+    use chrono::NaiveDate;
+
+    use crate::l10n::t_said;
+
+    keep(&sources(&[]));
+    let first = NaiveDate::from_ymd_opt(2026, 9, 30).expect("a day");
+    let said = |text: &str| t_said(&Rule::parse(text).expect("a rule").description(first));
+    set_locale("en-US");
+    assert_eq!(said("FREQ=WEEKLY"), "Weekly on Wednesday");
+    assert_eq!(said("FREQ=DAILY"), "Daily");
+    assert_eq!(said("FREQ=DAILY;INTERVAL=3"), "Every 3 days");
+    assert_eq!(said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), "Every weekday");
+    assert_eq!(
+        said("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;COUNT=10"),
+        "Every 2 weeks on Monday and Friday, 10 times"
+    );
+    assert_eq!(said("FREQ=WEEKLY;COUNT=1"), "Weekly on Wednesday, once");
+    assert_eq!(said("FREQ=MONTHLY"), "Monthly on day 30");
+    assert_eq!(
+        said("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20261231"),
+        "Monthly on the last Friday, until 31 December 2026"
+    );
+    assert_eq!(
+        said("FREQ=MONTHLY;BYDAY=2TU"),
+        "Monthly on the second Tuesday"
+    );
+    assert_eq!(said("FREQ=YEARLY"), "Yearly on 30 September");
+    assert_eq!(
+        said("FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU"),
+        "Yearly on the last Sunday of March"
+    );
+    set_locale("de-DE");
+    assert_eq!(said("FREQ=WEEKLY"), "Wöchentlich am Mittwoch");
+    assert_eq!(said("FREQ=DAILY;INTERVAL=3"), "Alle 3 Tage");
+    assert_eq!(said("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"), "Jeden Werktag");
+    assert_eq!(
+        said("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR;COUNT=10"),
+        "Alle 2 Wochen am Montag und Freitag, 10-mal"
+    );
+    assert_eq!(said("FREQ=MONTHLY"), "Monatlich am 30.");
+    assert_eq!(
+        said("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=20261231"),
+        "Monatlich am letzten Freitag, bis 31. Dezember 2026"
+    );
+    assert_eq!(said("FREQ=YEARLY"), "Jährlich am 30. September");
+    assert_eq!(
+        said("FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU"),
+        "Jährlich am letzten Sonntag im März"
+    );
+    set_locale("en-US");
+}
+
+/// "a, b and c", in the window's language.
+#[test]
+fn a_list_is_joined_as_the_language_joins_it() {
+    use crate::l10n::and_list;
+
+    keep(&sources(&[]));
+    let list = |items: &[&str]| and_list(items.iter().map(|i| (*i).to_string()).collect());
+    set_locale("en-US");
+    assert_eq!(list(&[]), "");
+    assert_eq!(list(&["Monday"]), "Monday");
+    assert_eq!(list(&["Monday", "Friday"]), "Monday and Friday");
+    assert_eq!(list(&["a", "b", "c"]), "a, b and c");
+    set_locale("de-DE");
+    assert_eq!(list(&["a", "b", "c"]), "a, b und c");
+    set_locale("en-US");
+}
