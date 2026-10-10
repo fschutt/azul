@@ -1123,11 +1123,14 @@ impl std::error::Error for DnsFailure {}
 /// address, the lookup's time ran out); any other error (a bad URL) as it is.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn dns_failure(error: ureq::Error) -> ureq::Error {
-    match error {
-        ureq::Error::Io(_) | ureq::Error::HostNotFound | ureq::Error::Timeout(_) => {
-            ureq::Error::Other(Box::new(DnsFailure(error.to_string())))
-        }
-        other => other,
+    let lookup = matches!(
+        error,
+        ureq::Error::Io(_) | ureq::Error::HostNotFound | ureq::Error::Timeout(_)
+    );
+    if lookup {
+        ureq::Error::Other(Box::new(DnsFailure(error.to_string())))
+    } else {
+        error
     }
 }
 
