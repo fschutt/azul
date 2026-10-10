@@ -301,7 +301,7 @@ pub enum IssueAnswer {
 }
 
 /// What a recovery-key lockdown answers (202): the drive is read-only until `pending_until`
-/// (every device may cancel until then), and `drive_token` is the new family this side gets
+/// (the recovery code may cancel until then), and `drive_token` is the new family this side gets
 /// after it. `Debug` shows no token.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RecoveryLockdown {

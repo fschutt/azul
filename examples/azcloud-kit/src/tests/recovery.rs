@@ -1,7 +1,7 @@
 //! A drive's recovery key at the token server (AZDRIVE-INTEGRATION §4, §18.7): an Ed25519 key
 //! derived from the recovery code, registered with the drive token, that signs a lockdown
 //! request without one; and the drive's status as the token server keeps it - its period and a
-//! pending recovery-key lockdown, which the owner's other devices may cancel.
+//! pending recovery-key lockdown, which the recovery code may cancel.
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};

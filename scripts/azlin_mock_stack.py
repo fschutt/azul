@@ -205,7 +205,7 @@ OAUTH_CLIENT_ID = 'azdrive-e2e-client'
 OAUTH_PROVIDERS = ('google', 'dropbox', 'onedrive')
 # How long an approved checkout keeps its sealed sign-up (then it answers "expired").
 SEALED_KEEP_SECS = 30 * 86400
-# How long a recovery-key lockdown waits for a device of the owner to cancel it, and how long
+# How long a recovery-key lockdown waits for the recovery code to cancel it, and how long
 # deletes pause after a lockdown.
 LOCKDOWN_PENDING_SECS = 48 * 3600
 LOCKDOWN_DELETE_PAUSE_SECS = 24 * 3600
@@ -1212,7 +1212,7 @@ class TokenState:
             drive['lockdown_pending_until'] = self.now() + LOCKDOWN_PENDING_SECS
             return 202, {'pending_until': rfc3339(drive['lockdown_pending_until']),
                          'drive_token': token,
-                         'note': 'existing devices can cancel within 48 h; the drive is '
+                         'note': 'the recovery code can cancel within 48 h; the drive is '
                                  'read-only meanwhile'}
 
     def revoke_all(self, drive, which):
@@ -1432,7 +1432,7 @@ class TokenState:
                 raise ApiError(401, 'credentials_revoked', 'this device was removed from the drive')
             if state.get('member') == 'recovery-pending' and drive.get('lockdown_pending_until'):
                 # D42: the drive (its bucket, so its recovery wrap) is handed over only when the
-                # notice ends; the owner's devices may cancel meanwhile.
+                # notice ends; the recovery code may cancel meanwhile (F12).
                 raise ApiError(403, 'lockdown_pending',
                                'the drive is handed over when its 48 h notice ends')
             digest = token_hash(bearer)

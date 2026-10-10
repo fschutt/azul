@@ -8,7 +8,8 @@
 //!
 //! A look also tells the owner (D42) of every device the drive was given since the last look
 //! (`AZDRIVE_NEW_DEVICE <drive id> <member>`, a notification) and of a use of the recovery code:
-//! a lockdown that takes the drive in 48 hours unless a device of the owner cancels it.
+//! a lockdown that takes the drive in 48 hours unless the recovery code cancels it (F12: "the
+//! recovery code always wins" - Cancel asks for it).
 //!
 //! On stdout: `AZDRIVE_PERIOD_REDEEMED <drive id> <count> <until>` for a month bought.
 //! `AZDRIVE_PERIOD_CHECK_SECS` (a positive number of seconds) makes the daily look more often,
