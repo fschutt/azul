@@ -12,10 +12,12 @@
 
 use std::collections::HashMap;
 
-use azcloud_kit::{period::REDEEM_AHEAD_SECS, Redeemed};
+use azcloud_kit::{period::REDEEM_AHEAD_SECS, Look, Redeemed};
 use azul::{
-    callbacks::{TimerCallbackInfo, TimerCallbackReturn},
+    callbacks::{ButtonOnClickCallbackType, TimerCallbackInfo, TimerCallbackReturn},
+    notification::Notification,
     prelude::*,
+    str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
 };
@@ -24,7 +26,7 @@ use azul_storage::{
     time::iso8601,
 };
 
-use crate::{actions::now_secs, jobs::Job, spawn, DriveState};
+use crate::{actions::now_secs, ids, jobs::Job, spawn, DriveState};
 
 /// A day: how often a drive's period is looked at while AzDrive runs.
 pub(crate) const DAY_SECS: u64 = 86_400;
@@ -117,7 +119,10 @@ impl Schedule {
 
 /// The Azlin drive of `entry`: its id at the token server and that server (the entry's
 /// `account_url`, else `fallback`); `None` for every other drive.
-fn azlin_drive(entry: &DriveEntry, fallback: Option<&str>) -> Option<(String, String)> {
+pub(crate) fn azlin_drive(
+    entry: &DriveEntry,
+    fallback: Option<&str>,
+) -> Option<(String, String)> {
     let DriveLocation::S3 {
         auth:
             DriveAuth::Azlin {
@@ -178,12 +183,19 @@ pub(crate) fn start_redemptions(
 /// What the looks found: the schedule learns when to look again; a month bought is printed
 /// (`AZDRIVE_PERIOD_REDEEMED <drive> <count> <until>`), a look that failed is tried again an
 /// hour later, quietly.
-pub(crate) fn periods_redeemed(s: &mut DriveState, results: Vec<(String, Redeemed)>) {
+pub(crate) fn periods_redeemed(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    results: Vec<(String, Look)>,
+) {
     s.redemptions.running = false;
     let now = now_secs();
-    for (drive_id, redeemed) in results {
-        s.redemptions.looked(&drive_id, &redeemed, now);
-        match redeemed {
+    for (drive_id, look) in results {
+        s.redemptions.looked(&drive_id, &look.redeemed, now);
+        if let Some(status) = &look.status {
+            lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
+        }
+        match look.redeemed {
             Redeemed::Extended {
                 count,
                 period_until,
@@ -196,6 +208,126 @@ pub(crate) fn periods_redeemed(s: &mut DriveState, results: Vec<(String, Redeeme
             }
             Redeemed::Nothing | Redeemed::NotDue { .. } => {}
         }
+    }
+}
+
+// ==== A pending recovery-key lockdown ====
+
+/// What a look found of `drive_id`'s recovery-key lockdown: a new pending one is said (stdout
+/// `AZDRIVE_LOCKDOWN_PENDING <drive> <until>`, a notification - it takes the drive from every
+/// other device unless one of them cancels it), one no longer pending is forgotten.
+fn lockdown_seen(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    drive_id: &str,
+    pending_until: Option<u64>,
+) {
+    let Some(until) = pending_until else {
+        s.pending_lockdowns.remove(drive_id);
+        return;
+    };
+    if s.pending_lockdowns.insert(drive_id.to_string(), until) == Some(until) {
+        return;
+    }
+    println!("AZDRIVE_LOCKDOWN_PENDING {drive_id} {}", iso8601(until));
+    let name = s
+        .slot_index(drive_id)
+        .map(|index| s.slots[index].entry.name.clone())
+        .unwrap_or_else(|| drive_id.to_string());
+    info.post_notification(
+        Notification::create(format!("azdrive-lockdown-{drive_id}"), "AzDrive").with_body(
+            format!(
+                "A lockdown of \"{name}\" with the recovery code is pending. If that was not \
+                 you, cancel it in AzDrive."
+            ),
+        ),
+    );
+}
+
+/// The bar over the drive in view while a recovery-key lockdown of it is pending, with Cancel.
+#[must_use]
+pub(crate) fn lockdown_bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
+    let drive_id = s.current_drive_id()?;
+    let until = *s.pending_lockdowns.get(&drive_id)?;
+    let text = format!(
+        "A lockdown with the recovery code is pending until {}: then every other device loses \
+         this drive. If that was not you, cancel it now.",
+        iso8601(until)
+    );
+    Some(
+        Dom::create_div()
+            .with_id(ids::LOCKDOWN_BAR)
+            .with_css(
+                "display: flex; flex-direction: row; align-items: center; padding: 8px 12px; \
+                 background: #FFF4CE; color: #3B2E00;",
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css("flex-grow: 1; margin-right: 12px;")
+                    .with_child(Dom::create_span_with_text(AzString::from(text))),
+            )
+            .with_child(
+                Button::create(AzString::from("Cancel lockdown"))
+                    .with_on_click(
+                        RefAny::new(LockdownRef {
+                            app: app.clone(),
+                            drive_id,
+                        }),
+                        on_cancel_lockdown as ButtonOnClickCallbackType,
+                    )
+                    .dom()
+                    .with_id(ids::LOCKDOWN_CANCEL),
+            ),
+    )
+}
+
+/// What Cancel lockdown carries.
+struct LockdownRef {
+    app: RefAny,
+    drive_id: String,
+}
+
+extern "C" fn on_cancel_lockdown(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, drive_id)) = data
+        .downcast_ref::<LockdownRef>()
+        .map(|r| (r.app.clone(), r.drive_id.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let handle = app.clone();
+    let Some(mut s) = app.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    let fallback = s.token.url.clone();
+    let token_url = s
+        .slot_index(&drive_id)
+        .and_then(|index| azlin_drive(&s.slots[index].entry, fallback.as_deref()))
+        .map(|(_, url)| url);
+    let Some(token_url) = token_url else {
+        s.error("The drive's token server is not known: the lockdown cannot be cancelled here.");
+        return Update::RefreshDom;
+    };
+    let job = Job::CancelLockdown {
+        keyring: s.keyring.clone(),
+        drive_id,
+        token_url,
+    };
+    spawn(&mut info, &handle, &mut *s, job);
+    Update::RefreshDom
+}
+
+/// A pending lockdown called off (or why not).
+pub(crate) fn lockdown_cancelled(s: &mut DriveState, drive_id: &str, result: Result<(), String>) {
+    match result {
+        Ok(()) => {
+            s.pending_lockdowns.remove(drive_id);
+            println!("AZDRIVE_LOCKDOWN_CANCELLED {drive_id}");
+            s.info(
+                "The lockdown with the recovery code was cancelled. If you did not start it, \
+                 someone has your recovery code: make a new one.",
+            );
+        }
+        Err(why) => s.error(format!("The lockdown could not be cancelled: {why}")),
     }
 }
 

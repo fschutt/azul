@@ -671,7 +671,7 @@ def run(args, logs):
                   lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
         dialog.page("voucher", lambda: dialog.click("voucher"))
         dialog.type_into("voucher_code", "AZ-E2E-NEW")
-        gift = app.after("the voucher's drive", "AZDRIVE_VOUCHER", r"new d_\S+ \d+",
+        gift = app.after("the voucher's drive", "AZDRIVE_VOUCHER", r"new d_\S+",
                          lambda: dialog.click("voucher_redeem")).split()[1]
         app.until("its row in CLOUD", lambda: app.has(side_drive(gift)))
         wait_closed(app)

@@ -24,9 +24,9 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Claimed, Finished, PendingTokens, Polled},
-    redeem_due, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery,
-    PendingCheckout, PeriodTokenStore, PeriodTokens, Redeemed, SharedKeyring, Tiers, TokenServer,
-    UserError,
+    look_at_drive, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, Look, OptionsQuery,
+    PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
+    TokenServer, UserError, VoucherRedeemed,
 };
 use azul_pay::{Choice, Created, Look, SurfaceKind};
 use azul::{
@@ -310,9 +310,10 @@ pub(crate) enum Job {
         grant: Option<PeriodTokens>,
         token_url: String,
     },
-    /// The Azlin drives `drives` (each one's id and token server) whose periods near their ends
-    /// get their next month from a period token kept in `store` - each under its drive's
-    /// keyring lock, with its newest drive token ([`azcloud_kit::redeem_due`]).
+    /// A look at the Azlin drives `drives` (each one's id and token server): their status (a
+    /// pending recovery-key lockdown) and, when their periods near their ends, their next month
+    /// from a period token kept in `store` - each under its drive's keyring lock, with its
+    /// newest drive token ([`azcloud_kit::look_at_drive`]).
     RedeemPeriods {
         keyring: SharedKeyring,
         store: PeriodTokenStore,
@@ -362,6 +363,25 @@ pub(crate) enum Job {
     /// An encrypted drive's keys, recovery or files moved into the encryption.
     #[cfg(feature = "encryption")]
     Encryption(crate::encryption::EncryptionJob),
+    /// A pending recovery-key lockdown of `drive_id` called off at `token_url` - a grant: under
+    /// the drive's keyring lock with its newest drive token.
+    CancelLockdown {
+        keyring: SharedKeyring,
+        drive_id: String,
+        token_url: String,
+    },
+    /// A voucher `code` at `token_url`: on `drive` (its id, under its keyring lock) the days it
+    /// adds ([`Outcome::VoucherRedeemed`]); without one a new drive of `tier` (empty: the
+    /// voucher's own), its session into the keyring like a test drive's ([`Outcome::Bought`] for
+    /// the Add drive dialog `serial`, which names it).
+    RedeemVoucher {
+        serial: u64,
+        token_url: String,
+        code: String,
+        tier: String,
+        drive: Option<String>,
+        keyring: SharedKeyring,
+    },
 }
 
 /// A search of a cloud drive's folder, as the window asks for it.
@@ -506,8 +526,8 @@ pub(crate) enum Outcome {
         result: Result<Option<Finished>, String>,
         from_claims: bool,
     },
-    /// What the redemption of each drive's period tokens did (drive id, outcome).
-    PeriodsRedeemed { results: Vec<(String, Redeemed)> },
+    /// What each drive's look found (drive id, its status and redemption).
+    PeriodsRedeemed { results: Vec<(String, Look)> },
     SettingsSaved {
         result: Result<(), DriveError>,
     },
@@ -549,6 +569,17 @@ pub(crate) enum Outcome {
     /// The listing `serial` (of the drive in view) met a storage or token server error, as
     /// the user sees it ([`crate::problems`]); a message of a scan that still ends.
     DriveProblem { serial: u64, problem: UserError },
+    /// A pending recovery-key lockdown of `drive_id` called off (or why not).
+    LockdownCancelled {
+        drive_id: String,
+        result: Result<(), String>,
+    },
+    /// A voucher on `drive_id`: the days it added and the period's new end (seconds since
+    /// 1970), or why not.
+    VoucherRedeemed {
+        drive_id: String,
+        result: Result<(u32, Option<u64>), String>,
+    },
 }
 
 /// A thread's start data: the job, taken out once.
@@ -2099,9 +2130,10 @@ fn claim_pending(
     }
 }
 
-/// Each of `drives` (its id and token server) whose period nears its end gets its next month
-/// from a period token kept in `store` ([`redeem_due`]: under the drive's keyring lock, with its
-/// newest drive token; a drive without kept tokens asks nothing).
+/// A look at each of `drives` (its id and token server): its status - the period, a pending
+/// recovery-key lockdown - and, when its period nears its end, its next month from a period
+/// token kept in `store` ([`look_at_drive`]: under the drive's keyring lock, with its newest
+/// drive token).
 fn redeem_periods(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
@@ -2115,7 +2147,7 @@ fn redeem_periods(
             let server = TokenServer::new(token_url, &transport).ok()?;
             Some((
                 drive_id.clone(),
-                redeem_due(&server, keyring, store, drive_id, now),
+                look_at_drive(&server, keyring, store, drive_id, now),
             ))
         })
         .collect();
@@ -2577,7 +2609,113 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
         }
         #[cfg(feature = "encryption")]
         Job::Encryption(job) => Outcome::Encryption(crate::encryption::run(job)),
+        Job::CancelLockdown {
+            keyring,
+            drive_id,
+            token_url,
+        } => Outcome::LockdownCancelled {
+            result: cancel_lockdown(&keyring, &drive_id, &token_url),
+            drive_id,
+        },
+        Job::RedeemVoucher {
+            serial,
+            token_url,
+            code,
+            tier,
+            drive,
+            keyring,
+        } => redeem_voucher(serial, &token_url, &code, &tier, drive, &keyring),
     }
+}
+
+/// A pending recovery-key lockdown of `drive_id` called off: a grant, so under the drive's
+/// keyring lock with its newest drive token. None pending any more (409) is done too.
+fn cancel_lockdown(
+    keyring: &SharedKeyring,
+    drive_id: &str,
+    token_url: &str,
+) -> Result<(), String> {
+    let transport = AzulTransport::new(USER_AGENT);
+    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let answer = keyring
+        .with_drive_token(drive_id, |token| server.lockdown_cancel(drive_id, token))
+        .map_err(|e| e.to_string())?;
+    match answer {
+        Ok(_) => Ok(()),
+        Err(TokenError::Refused { code, .. }) if code == "no_pending_lockdown" => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// A voucher: on `drive` the days it adds (under its keyring lock, with its newest token);
+/// without one a new drive of `tier` for the Add drive dialog `serial`, its session into the
+/// keyring under the drive's lock before anything uses it (as a test drive's).
+fn redeem_voucher(
+    serial: u64,
+    token_url: &str,
+    code: &str,
+    tier: &str,
+    drive: Option<String>,
+    keyring: &SharedKeyring,
+) -> Outcome {
+    let transport = AzulTransport::new(USER_AGENT);
+    let server = match TokenServer::new(token_url, &transport) {
+        Ok(server) => server,
+        Err(e) => {
+            return match drive {
+                Some(drive_id) => Outcome::VoucherRedeemed {
+                    drive_id,
+                    result: Err(e.to_string()),
+                },
+                None => Outcome::Bought {
+                    serial,
+                    result: Err(e.to_string()),
+                },
+            }
+        }
+    };
+    if let Some(drive_id) = drive {
+        let redeemed = keyring
+            .with_drive_token(&drive_id, |token| {
+                server.redeem_voucher(code, Some((drive_id.as_str(), token)), "")
+            })
+            .map_err(|e| e.to_string())
+            .and_then(|answer| answer.map_err(|e| e.to_string()));
+        let result = match redeemed {
+            Ok(VoucherRedeemed::Extended {
+                days_added,
+                period_until,
+            }) => Ok((days_added, period_until)),
+            Ok(VoucherRedeemed::NewDrive(_)) => Err(String::from(
+                "The token server made a new drive instead of extending this one.",
+            )),
+            Err(why) => Err(why),
+        };
+        return Outcome::VoucherRedeemed { drive_id, result };
+    }
+    let result = match server.redeem_voucher(code, None, tier) {
+        Ok(VoucherRedeemed::NewDrive(bundle)) => {
+            let bundle = *bundle;
+            println!("AZDRIVE_VOUCHER new {}", bundle.drive_id());
+            Ok(match keyring.keep_new_drive(&bundle) {
+                Ok((session, _)) => BoughtDrive {
+                    bundle,
+                    session,
+                    unsaved: None,
+                },
+                Err(e) => BoughtDrive {
+                    session: bundle.session().to_keyring_secret(),
+                    bundle,
+                    unsaved: Some(e.to_string()),
+                },
+            })
+        }
+        Ok(VoucherRedeemed::Extended { .. }) => Err(String::from(
+            "The token server answered with days for a drive, not with a new drive.",
+        )),
+        Err(e) => Err(e.to_string()),
+    };
+    Outcome::Bought { serial, result }
 }
 
 /// Runs on a worker thread: the blocking storage call, then its answer to

@@ -119,6 +119,8 @@ mod ids;
 mod periods;
 /// A drive's errors as the user sees them: the table's words, the error ID, notifications.
 mod problems;
+/// Vouchers on a drive (Options > Drives).
+mod vouchers;
 #[cfg(test)]
 mod periods_tests;
 #[cfg(test)]
@@ -534,6 +536,14 @@ pub(crate) enum Popup {
     /// Encrypting a drive, its recovery sheet, unlocking it with the recovery code.
     #[cfg(feature = "encryption")]
     Encryption(encryption::Dialog),
+    /// Options > Drives' "Redeem a voucher" of an Azlin drive: the code, why not, a redemption
+    /// on its way.
+    Voucher {
+        drive_id: String,
+        code: String,
+        error: String,
+        busy: bool,
+    },
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -706,6 +716,9 @@ pub(crate) struct DriveState {
     pub redemptions: periods::Schedule,
     /// The drives' storage and token server problems as the user sees them.
     pub problems: problems::Problems,
+    /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
+    /// the bar with Cancel over the drive in view.
+    pub pending_lockdowns: HashMap<String, u64>,
 }
 
 impl DriveState {
@@ -2278,7 +2291,9 @@ pub(crate) extern "C" fn on_job_done(
             result,
             ..
         } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
-        Outcome::PeriodsRedeemed { results } => periods::periods_redeemed(s, results),
+        Outcome::PeriodsRedeemed { results } => {
+            periods::periods_redeemed(&mut info, s, results);
+        }
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2371,6 +2386,12 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
         Outcome::DriveProblem { serial, problem } => {
             problems::drive_problem(&mut info, s, serial, problem);
+        }
+        Outcome::LockdownCancelled { drive_id, result } => {
+            periods::lockdown_cancelled(s, &drive_id, result);
+        }
+        Outcome::VoucherRedeemed { drive_id, result } => {
+            vouchers::redeemed(s, &drive_id, result);
         }
     }
     Update::RefreshDom
@@ -2864,6 +2885,7 @@ pub fn start() {
         period_tokens,
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
+        pending_lockdowns: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

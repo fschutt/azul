@@ -86,6 +86,10 @@ pub(crate) enum AddEvent {
     ClosePopover,
     /// "Check again" after the dialog stopped waiting.
     CheckAgain,
+    /// Buy storage's "I have a voucher".
+    VoucherPage,
+    /// The voucher page's Redeem.
+    RedeemVoucher,
 }
 
 /// The open dialog, if the popup is it.
@@ -219,6 +223,12 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         AddEvent::CheckAgain => {
             let _ = pay(info, app, s, Event::CheckAgain);
         }
+        AddEvent::VoucherPage => {
+            if !d.busy() {
+                d.choose_voucher();
+            }
+        }
+        AddEvent::RedeemVoucher => redeem_voucher(info, app, s),
     }
     if let Some(d) = dialog(s) {
         if d.page_line() != page_before {
@@ -549,6 +559,45 @@ fn buy_parts(s: &mut DriveState) -> Option<(String, String, String, u64)> {
 }
 
 /// "Create test drive": a drive without payment (a development token server).
+/// "I have a voucher"'s Redeem: the voucher's new drive (its tier, else the one chosen), its
+/// session into the keyring like a test drive's; the answer is a bought drive's.
+fn redeem_voucher(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let token_url = s.token.url.clone();
+    let keyring = s.keyring.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    if d.busy() {
+        return;
+    }
+    let Some(token_url) = token_url else {
+        d.notice = no_token_server();
+        return;
+    };
+    let code = d.voucher_code.trim().to_string();
+    if code.is_empty() {
+        d.notice = String::from("Type the voucher's code.");
+        return;
+    }
+    let tier = d.chosen_tier().map(|t| t.id.clone()).unwrap_or_default();
+    let serial = d.serial;
+    d.step = BuyStep::Creating;
+    d.notice = String::from("Redeeming the voucher...");
+    spawn(
+        info,
+        app,
+        s,
+        Job::RedeemVoucher {
+            serial,
+            token_url,
+            code,
+            tier,
+            drive: None,
+            keyring,
+        },
+    );
+}
+
 fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some((tier, name, token_url, serial)) = buy_parts(s) else {
         return;
