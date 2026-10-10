@@ -1957,47 +1957,61 @@ impl ScrollManager {
         global_pos: LogicalPosition,
     ) -> Option<ScrollbarHit> {
         // Check both vertical and horizontal scrollbars for this node
-        for orientation in [
+        [
             ScrollbarOrientation::Vertical,
             ScrollbarOrientation::Horizontal,
-        ] {
-            let Some(scrollbar_state) = self.scrollbar_states.get(&(dom_id, node_id, orientation))
-            else {
-                continue;
-            };
+        ]
+        .into_iter()
+        .find_map(|orientation| {
+            self.hit_test_scrollbar_axis(dom_id, node_id, orientation, global_pos)
+        })
+    }
 
-            if !scrollbar_state.visible {
-                continue;
-            }
-
-            // Check if position is inside scrollbar track using LogicalRect::contains
-            // - and inside the viewports its dom shows through.
-            if !scrollbar_state.track_rect.contains(global_pos)
-                || !self.dom_shows_at(dom_id, global_pos)
-            {
-                continue;
-            }
-
-            // Calculate local position relative to track origin
-            let local_pos = LogicalPosition::new(
-                global_pos.x - scrollbar_state.track_rect.origin.x,
-                global_pos.y - scrollbar_state.track_rect.origin.y,
-            );
-
-            // Determine which component was hit
-            let component = scrollbar_state.hit_test_component(local_pos);
-
-            return Some(ScrollbarHit {
-                dom_id,
-                node_id,
-                orientation,
-                component,
-                local_position: local_pos,
-                global_position: global_pos,
-            });
+    /// Hit-test ONE bar - `node_id`'s on `orientation`'s axis - at the given
+    /// window position: which part of it lies there, by the bar's live
+    /// geometry. `None` when the bar does not exist, cannot be pressed, or
+    /// does not cover the point.
+    ///
+    /// Geometry only: whether the bar is PAINTED on top there is the press
+    /// arbiter's question (`LayoutWindow::scrollbar_at`).
+    #[must_use]
+    pub fn hit_test_scrollbar_axis(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        orientation: ScrollbarOrientation,
+        global_pos: LogicalPosition,
+    ) -> Option<ScrollbarHit> {
+        let scrollbar_state = self.scrollbar_states.get(&(dom_id, node_id, orientation))?;
+        if !scrollbar_state.visible {
+            return None;
         }
 
-        None
+        // Check if position is inside scrollbar track - and inside the
+        // viewports its dom shows through: a child dom's bar scrolled out
+        // of its `VirtualView` is not there to press.
+        if !scrollbar_state.track_rect.contains(global_pos) || !self.dom_shows_at(dom_id, global_pos)
+        {
+            return None;
+        }
+
+        // Calculate local position relative to track origin
+        let local_pos = LogicalPosition::new(
+            global_pos.x - scrollbar_state.track_rect.origin.x,
+            global_pos.y - scrollbar_state.track_rect.origin.y,
+        );
+
+        // Determine which component was hit
+        let component = scrollbar_state.hit_test_component(local_pos);
+
+        Some(ScrollbarHit {
+            dom_id,
+            node_id,
+            orientation,
+            component,
+            local_position: local_pos,
+            global_position: global_pos,
+        })
     }
 
     /// Perform hit-testing for all scrollbars at the given global position.
@@ -2005,8 +2019,10 @@ impl ScrollManager {
     /// This iterates through all visible scrollbars in reverse z-order (top to bottom)
     /// and returns the first hit. Use this when you don't know which node to check.
     ///
-    /// Every shell asks this BEFORE the content, so a bar found here takes the
-    /// press away from whatever lies under it. Only bars that exist are
+    /// GEOMETRY ONLY: the tracks, not what is painted over them or which
+    /// ancestor clips them away. The press arbiter
+    /// (`LayoutWindow::scrollbar_at`, behind `route_press`) asks this first,
+    /// as the cheap filter, and then the paint order. Only bars that exist are
     /// candidates: [`Self::calculate_scrollbar_states`] builds one per axis
     /// whose [`ScrollbarPresence`] has one, and a box whose style draws no bar
     /// leaves its whole area to its content. A faded-out overlay bar still
@@ -2035,40 +2051,9 @@ impl ScrollManager {
             .iter()
             .rev()
             .filter(|((dom, node, _), _)| !is_viewport_scroller(*dom, *node));
-        for ((dom_id, node_id, orientation), scrollbar_state) in viewport.chain(rest) {
-            if !scrollbar_state.visible {
-                continue;
-            }
-
-            // Check if position is inside scrollbar track - and inside the
-            // viewports its dom shows through: a child dom's bar scrolled out
-            // of its `VirtualView` is not there to press.
-            if !scrollbar_state.track_rect.contains(global_pos)
-                || !self.dom_shows_at(*dom_id, global_pos)
-            {
-                continue;
-            }
-
-            // Calculate local position relative to track origin
-            let local_pos = LogicalPosition::new(
-                global_pos.x - scrollbar_state.track_rect.origin.x,
-                global_pos.y - scrollbar_state.track_rect.origin.y,
-            );
-
-            // Determine which component was hit
-            let component = scrollbar_state.hit_test_component(local_pos);
-
-            return Some(ScrollbarHit {
-                dom_id: *dom_id,
-                node_id: *node_id,
-                orientation: *orientation,
-                component,
-                local_position: local_pos,
-                global_position: global_pos,
-            });
-        }
-
-        None
+        viewport.chain(rest).find_map(|((dom_id, node_id, orientation), _)| {
+            self.hit_test_scrollbar_axis(*dom_id, *node_id, *orientation, global_pos)
+        })
     }
 }
 
