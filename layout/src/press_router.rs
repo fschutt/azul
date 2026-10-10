@@ -7,7 +7,10 @@
 //! button through `modify_window_state` - all of them arrive as a
 //! `ModifyWindowState` / `QueueWindowStateSequence` state push) and the
 //! headless E2E runner. The order is fixed: the scrollbar layer first, then
-//! the content.
+//! the content - and the scrollbar layer is what is PAINTED there
+//! ([`LayoutWindow::scrollbar_at`]): a bar an ancestor clips away, or one
+//! under a box painted over it (a `z-index` dialog's button over a list),
+//! leaves the press to what the user sees, as in Chrome.
 //!
 //! This used to live in each shell, BEFORE the shared event pass
 //! (`perform_scrollbar_hit_test` -> `handle_scrollbar_click` /
@@ -37,6 +40,7 @@ use azul_core::{
 use azul_css::system::ScrollbarTrackClick;
 
 use crate::{
+    headless::CpuHitTester,
     managers::scroll_state::{ScrollManager, ScrollbarComponent, ScrollbarHit},
     window::{LayoutWindow, ScrollbarDragState},
 };
@@ -95,7 +99,7 @@ impl LayoutWindow {
         if self.currently_dragging_thumb.take().is_some() {
             self.scroll_manager.end_thumb_drag(now.clone());
         }
-        let Some(hit) = self.scroll_manager.hit_test_scrollbars(position) else {
+        let Some(hit) = self.scrollbar_at(position) else {
             return PressTarget::Content;
         };
         match hit.component {
@@ -136,6 +140,43 @@ impl LayoutWindow {
             }
         }
         PressTarget::Scrollbar(hit)
+    }
+
+    /// THE SCROLLBAR a press at `position` (window space) lands on: the bar
+    /// PAINTED on top there, and which part of it. `None` leaves the press to
+    /// the content.
+    ///
+    /// Chrome's rule: a scrollbar is hit only where it is painted - clipped
+    /// by its ancestors and under whatever paints after it, like any other
+    /// box. The scroll manager's tracks
+    /// ([`ScrollManager::hit_test_scrollbars`]) know only where each bar
+    /// lies, so an `overflow: hidden` ancestor that cut a bar off, or a
+    /// dialog painted over it, still lost its press to the bar (AzDrive's
+    /// "I was hacked..." button over its file list's clipped bar scrolled the
+    /// list). The tracks stay the cheap first filter - most presses are on no
+    /// bar at all - and the part pressed; the paint order, read off the
+    /// display lists by the layout-side hit tester the shells dispatch with
+    /// ([`CpuHitTester::scrollbar_at`]), says which bar, if any, is on top.
+    ///
+    /// The hit tester is built for the question from the window's own
+    /// layout results: the shells keep theirs outside the window, and a
+    /// press on a bar is rare. A dom the window holds no layout for (a
+    /// scroll manager fed by hand) has no paint order to read, and keeps the
+    /// tracks' answer.
+    #[must_use]
+    pub fn scrollbar_at(&self, position: LogicalPosition) -> Option<ScrollbarHit> {
+        let under = self.scroll_manager.hit_test_scrollbars(position)?;
+        if !self.layout_results.contains_key(&under.dom_id) {
+            return Some(under);
+        }
+        let mut painted = CpuHitTester::new();
+        painted.rebuild_from_layout_with_gpu(&self.layout_results, Some(&self.gpu_state_manager));
+        let resolve = |d: DomId, n: NodeId| self.scroll_manager.get_current_offset(d, n);
+        let resolve_tf = |d: DomId, n: NodeId| self.gpu_state_manager.painted_transform_of(d, n);
+        let (dom_id, node_id, orientation) =
+            painted.scrollbar_at(position, &resolve, &resolve_tf)?;
+        self.scroll_manager
+            .hit_test_scrollbar_axis(dom_id, node_id, orientation, position)
     }
 
     /// The other half of a thumb press: a pointer move while the thumb is
