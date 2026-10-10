@@ -11,7 +11,8 @@ use azul_storage::{
 };
 
 use crate::add_drive::{
-    country_of_locale, source_groups, AddDialog, AddPage, OfferState, TiersState, COUNTRIES,
+    country_from, country_of_locale, source_groups, AddDialog, AddPage, OfferState, TiersState,
+    COUNTRIES,
 };
 
 fn tiers() -> Tiers {
@@ -310,6 +311,29 @@ fn the_country_comes_from_the_locale() {
     assert_eq!(country_of_locale("POSIX"), None);
     assert_eq!(country_of_locale("en_ZZ.UTF-8"), None);
     assert_eq!(country_of_locale(""), None);
+}
+
+#[test]
+fn azlin_country_names_the_payers_country_before_the_locale() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| (*v).to_string())
+        }
+    };
+    assert_eq!(
+        country_from(env(&[("AZLIN_COUNTRY", "fr"), ("LANG", "de_DE.UTF-8")])),
+        "FR"
+    );
+    assert_eq!(
+        country_from(env(&[("AZLIN_COUNTRY", "XX"), ("LANG", "nl_NL.UTF-8")])),
+        "NL",
+        "a country not of the list is no choice"
+    );
+    assert_eq!(country_from(env(&[("LC_ALL", "C"), ("LANG", "en_GB.UTF-8")])), "GB");
+    assert_eq!(country_from(env(&[])), "DE");
 }
 
 #[test]
