@@ -222,6 +222,9 @@ pub struct PreparedOutcome {
     pub delivered: usize,
     pub failed: usize,
     pub pending: usize,
+    /// The recipients that will never get it, each with the reply or problem (what a bounce
+    /// to the sender lists).
+    pub failures: Vec<RecipientState>,
 }
 
 /// Stores, delivers and files a mail another program built ([`PreparedMail`]) exactly as
@@ -1181,6 +1184,7 @@ pub(crate) fn send_prepared_with(
         delivered: 0,
         failed: mail.recipients.len(),
         pending: 0,
+        failures: Vec::new(),
     };
     let _lock = OUTBOX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let from = micromail::message::address_spec(&mail.from);
@@ -1241,6 +1245,12 @@ pub(crate) fn send_prepared_with(
         delivered: entry.count(RecipientProgress::Sent),
         failed: entry.count(RecipientProgress::Failed),
         pending: entry.count(RecipientProgress::Pending),
+        failures: entry
+            .recipients
+            .iter()
+            .filter(|r| r.state == RecipientProgress::Failed)
+            .cloned()
+            .collect(),
     }
 }
 
@@ -3384,6 +3394,10 @@ mod tests {
         );
         assert!(matches!(outcome.status, SendStatus::Failed { .. }), "{outcome:?}");
         assert_eq!((outcome.delivered, outcome.failed, outcome.pending), (1, 1, 0));
+        assert_eq!(outcome.failures.len(), 1);
+        assert_eq!(outcome.failures[0].address, "ben@example.net");
+        assert_eq!(outcome.failures[0].code, Some(550));
+        assert!(outcome.failures[0].reason.contains("5.1.1"), "{:?}", outcome.failures[0]);
         assert_eq!(sent_index(&dir.0).len(), 1, "cy got it: it is in Sent");
 
         let dir = TempDir::new("send");
