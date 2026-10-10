@@ -10,12 +10,25 @@
 //!
 //! `.azlin` at the root - the drive's policy and the members' keys - is never restored: a
 //! restore brings back no removed member and no old key.
+//!
+//! A plain (unencrypted) Azlin drive has no such history: its whole bucket goes back as the
+//! drive's node kept it - every object as it was then, the objects made since gone, within the
+//! node's retention (14 days) - asked of the token server ([`restore_bucket_as_of`]).
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use azul_storage::meta::{
     tree::walk, Bucket, Change, Commit, CommitOutcome, Conflict, MetaError, MetaRepo, Mode,
     ObjectId, Objects, Resolution, Sealer,
+};
+
+use crate::{
+    error::CloudResult,
+    shared::SharedKeyring,
+    token::{TokenError, TokenServer},
 };
 
 /// The root folder no restore touches (the drive's policy and keys).
@@ -154,4 +167,72 @@ fn entries(
     let mut all = walk(objects, root)?;
     all.retain(|path, _| path != RESERVED && !path.starts_with(&format!("{RESERVED}/")));
     Ok(all)
+}
+
+/// How a plain drive's restore at the token server ended ([`restore_bucket_as_of`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BucketRestore {
+    /// The drive's node put the bucket back: the objects it changed.
+    Done { request: String, objects: u64 },
+    /// The node did not (its word).
+    Failed { request: String, error: String },
+    /// Still waiting for the node when the wait was over: the request to ask about later
+    /// ([`TokenServer::restore_status`]).
+    Queued { request: String },
+}
+
+/// A plain Azlin drive's whole bucket back as it was at `as_of` (seconds since 1970), from its
+/// node's retention: the token server queues the restore - a grant, sent under the drive's lock
+/// with its newest drive token ([`SharedKeyring::with_drive_token`]) - and the drive's node
+/// applies it; its progress is asked every `poll` until it is over or `wait` is. Blocks.
+///
+/// # Errors
+///
+/// When the device keeps no session of the drive or the token server refuses the restore.
+pub fn restore_bucket_as_of(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    drive_id: &str,
+    as_of: i64,
+    poll: Duration,
+    wait: Duration,
+) -> CloudResult<BucketRestore> {
+    let started = Instant::now();
+    let as_of = crate::rfc3339(as_of);
+    let queued = shared.with_drive_token(drive_id, |token| {
+        server.restore(drive_id, token, "", &as_of)
+    })??;
+    let request = queued["request_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    if request.is_empty() {
+        return Err(TokenError::Protocol(String::from(
+            "the token server queued the restore without a request id",
+        ))
+        .into());
+    }
+    loop {
+        let state = shared.with_drive_token(drive_id, |token| {
+            server.restore_status(drive_id, token, &request)
+        })??;
+        match state["status"].as_str() {
+            Some("done") => {
+                let objects = state["objects"].as_u64().unwrap_or(0);
+                return Ok(BucketRestore::Done { request, objects });
+            }
+            Some("failed" | "refused") => {
+                let error = state["error"]
+                    .as_str()
+                    .unwrap_or("the drive's node did not restore it")
+                    .to_string();
+                return Ok(BucketRestore::Failed { request, error });
+            }
+            _ => {}
+        }
+        if started.elapsed() >= wait {
+            return Ok(BucketRestore::Queued { request });
+        }
+        std::thread::sleep(poll);
+    }
 }
