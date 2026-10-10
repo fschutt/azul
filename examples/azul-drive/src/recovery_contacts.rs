@@ -608,8 +608,14 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
                 );
                 if let Some(sealed) = &made.sealed {
                     body.add_child(copy_row(app, sealed, ids::contacts_share(row)));
-                } else if made.printed.is_some() {
-                    body.add_child(paper_buttons(app, Which::Share(row), false));
+                } else if let Some(printed) = &made.printed {
+                    // The share itself too: to write down for them, or to check the paper.
+                    body.add_child(
+                        Dom::create_span_with_text(AzString::from(printed.as_str()))
+                            .with_css("font-family: monospace; font-size: 13px; margin-top: 4px;")
+                            .with_id(ids::contacts_share(row)),
+                    );
+                    body.add_child(paper_buttons(app, Which::Share(row)));
                 }
             }
             if !note.is_empty() {

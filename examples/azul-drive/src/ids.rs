@@ -404,3 +404,8 @@ pub fn method_button(
     };
     AzString::from(format!("__azdrive_method_{}_{method}_{action}", id_part(drive_id)))
 }
+/// A printed share's paper buttons on the shares made: `__azdrive_share_<print|save|usb>_<row>`.
+#[must_use]
+pub fn share_paper(row: usize, what: &str) -> AzString {
+    AzString::from(format!("__azdrive_share_{what}_{row}"))
+}

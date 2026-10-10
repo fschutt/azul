@@ -352,11 +352,15 @@ fn set_kit_note(s: &mut DriveState, note: String) {
     }
 }
 
-/// The three paper buttons (Print, Save as PDF, Save to a USB stick) of page `which`; `ids`
-/// names them (the kit's own ids, or none).
-pub(crate) fn paper_buttons(app: &RefAny, which: Which, named: bool) -> Dom {
+/// The three paper buttons (Print, Save as PDF, Save to a USB stick) of page `which`: the
+/// kit's ids, or a printed share's by its row.
+pub(crate) fn paper_buttons(app: &RefAny, which: Which) -> Dom {
+    let id = |kit: AzString, what: &str| match which {
+        Which::Shown => kit,
+        Which::Share(row) => ids::share_paper(row, what),
+    };
     let button = |text: &str, id: AzString, callback: ButtonOnClickCallbackType| {
-        let dom = Button::create(AzString::from(text))
+        Button::create(AzString::from(text))
             .with_on_click(
                 RefAny::new(PaperRef {
                     app: app.clone(),
@@ -365,27 +369,31 @@ pub(crate) fn paper_buttons(app: &RefAny, which: Which, named: bool) -> Dom {
                 callback,
             )
             .dom()
-            .with_css("margin-right: 6px;");
-        if named {
-            dom.with_id(id)
-        } else {
-            dom
-        }
+            .with_id(id)
+            .with_css("margin-right: 6px;")
     };
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; margin-top: 8px;")
-        .with_child(button("Print\u{2026}", ids::KIT_PRINT, on_kit_print))
-        .with_child(button("Save as PDF\u{2026}", ids::KIT_SAVE, on_kit_save))
+        .with_child(button(
+            "Print\u{2026}",
+            id(ids::KIT_PRINT, "print"),
+            on_kit_print,
+        ))
+        .with_child(button(
+            "Save as PDF\u{2026}",
+            id(ids::KIT_SAVE, "save"),
+            on_kit_save,
+        ))
         .with_child(button(
             "Save to a USB stick\u{2026}",
-            ids::KIT_USB,
+            id(ids::KIT_USB, "usb"),
             on_kit_usb,
         ))
 }
 
 /// The kit's three buttons and its QR code, for a dialog that shows a code.
 pub(crate) fn kit_pieces(app: &RefAny, code: &str, note: &str) -> Vec<Dom> {
-    let mut pieces = vec![paper_buttons(app, Which::Shown, true)];
+    let mut pieces = vec![paper_buttons(app, Which::Shown)];
     if !note.is_empty() {
         pieces.push(line(note).with_css("font-size: 12px; opacity: 0.75;"));
     }
