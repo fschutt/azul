@@ -7,13 +7,16 @@
 //! - RefAny data containing menu state and SystemStyle
 //!
 //! This approach works identically on all platforms (X11, Wayland, Windows, macOS).
+//!
+//! A menu window only SHOWS the menu: the item the user picks runs in the window that opened
+//! it, through that window's [`MenuPicks`] mailbox, as a native menu's item does.
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    menu::{Menu, MenuPopupPosition},
+    menu::{CoreMenuCallback, Menu, MenuPopupPosition},
     refany::RefAny,
 };
 use azul_css::system::SystemStyle;
@@ -26,6 +29,51 @@ use crate::{
     },
     log_debug,
 };
+
+/// The items picked in window-drawn menus, on their way to the window that opened them.
+///
+/// A native menu runs an item's callback in the window that opened it (macOS
+/// `handle_menu_action`, Win32 `WM_COMMAND`, both through
+/// `PlatformWindow::invoke_menu_callback`): its DOM, its window state, its timers and threads.
+/// A window-drawn menu ([`show_menu`], Wayland's `create_menu_popup_options`, the headless
+/// menus) is a window of its own, which closes as the item is picked - running the callback
+/// THERE set a text in a field the menu does not have, the menu's title, and timers and threads
+/// that died with it (AzDrive's Saved searches, 2026-10-10).
+///
+/// So the menu only posts the pick here ([`MenuPicks::post`]), and the window that opened the
+/// menu runs it as its own (`PlatformWindow::run_menu_picks`). One mailbox per window
+/// (`CommonWindowState::menu_picks`), shared by every menu it opens and by their submenus.
+#[derive(Debug, Clone, Default)]
+pub struct MenuPicks {
+    picks: Arc<std::sync::Mutex<Vec<CoreMenuCallback>>>,
+}
+
+impl MenuPicks {
+    /// A menu's item was picked: its callback is the owner's to run.
+    pub fn post(&self, callback: CoreMenuCallback) {
+        if let Ok(mut picks) = self.picks.lock() {
+            picks.push(callback);
+        }
+    }
+
+    /// Everything picked since the last call, in the order it was picked.
+    #[must_use]
+    pub fn take(&self) -> Vec<CoreMenuCallback> {
+        self.picks
+            .lock()
+            .map(|mut picks| core::mem::take(&mut *picks))
+            .unwrap_or_default()
+    }
+
+    /// Nothing was picked since the last [`Self::take`]: the owner's loop has nothing to run.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        match self.picks.lock() {
+            Ok(picks) => picks.is_empty(),
+            Err(_) => true,
+        }
+    }
+}
 
 /// Menu window data stored in RefAny
 #[derive(Debug, Clone)]
@@ -54,6 +102,9 @@ pub struct MenuWindowData {
     /// the hover that must NOT open a second one are different items of the
     /// same window. See [`should_open_submenu`].
     pub open_submenu: Arc<std::sync::Mutex<Option<usize>>>,
+    /// Where this menu's picks go: the mailbox of the window that opened it, which its
+    /// submenus share. See [`MenuPicks`].
+    pub picks: MenuPicks,
 }
 
 /// A menu opens where it ASKED to: only the `Auto*` answers hand the choice
@@ -461,8 +512,8 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
         }
     };
     let mut probe = menu_refany.clone();
-    let menu = match probe.downcast_ref::<MenuWindowData>() {
-        Some(d) => d.menu.clone(),
+    let (menu, picks) = match probe.downcast_ref::<MenuWindowData>() {
+        Some(d) => (d.menu.clone(), d.picks.clone()),
         None => {
             crate::log_debug!(
                 LogCategory::Callbacks,
@@ -473,13 +524,21 @@ extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> a
     };
 
     let system_style = &*info.get_system_style();
-    crate::desktop::menu_renderer::create_menu_dom_with_css(&menu, system_style, menu_refany)
+    crate::desktop::menu_renderer::create_menu_dom_with_css(
+        &menu,
+        system_style,
+        menu_refany,
+        &picks,
+    )
 }
 
 /// Show a menu at a specific position by creating a new menu window.
 ///
 /// Main entry point for context menus, dropdown menus, etc.
 /// Returns `WindowCreateOptions` to pass to `CallbackInfo::create_window()`.
+///
+/// `picks` is the mailbox of the window that opens the menu (`CommonWindowState::menu_picks`;
+/// a submenu passes its parent menu's): the items picked in the menu run there.
 pub fn show_menu(
     menu: Menu,
     system_style: Arc<SystemStyle>,
@@ -487,6 +546,7 @@ pub fn show_menu(
     trigger_rect: Option<LogicalRect>,
     cursor_position: Option<LogicalPosition>,
     parent_menu_id: Option<u64>,
+    picks: MenuPicks,
 ) -> WindowCreateOptions {
     // Position the popup at the cursor / trigger with edge-flip + work-area clamp
     // (was hard-coded to (0,0), so menus opened in the top-left corner).
@@ -527,6 +587,7 @@ pub fn show_menu(
         menu_window_id: None,
         child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
         open_submenu: Arc::new(std::sync::Mutex::new(None)),
+        picks,
     };
 
     // A menu is a popup window like any other (`<transient-window>` shares
@@ -969,12 +1030,56 @@ mod chain_tests {
             )),
             None,
             Some(MENU),
+            MenuPicks::default(),
         );
         assert_eq!(
             opts.parent_window_id, MENU,
             "a menu opened FROM a menu is placed against that menu; without the parent id its \
              parent-relative offset is resolved against the monitor instead"
         );
+    }
+
+    /// The item picked in a menu runs in the window that OPENED it: the menu window carries
+    /// that window's mailbox, not one of its own (a submenu is opened with its parent menu's,
+    /// so a whole chain posts to one window).
+    #[test]
+    fn a_menus_picks_go_to_the_window_that_opened_it() {
+        use azul_core::{callbacks::CoreCallback, refany::OptionRefAny};
+
+        let opener = MenuPicks::default();
+        let opts = show_menu(
+            one_item_menu(),
+            Arc::new(azul_css::system::defaults::kde_breeze_light()),
+            LogicalPosition::new(962.0, 451.0),
+            Some(LogicalRect::new(
+                LogicalPosition::new(0.0, 94.0),
+                LogicalSize::new(160.0, 22.0),
+            )),
+            None,
+            Some(MENU),
+            opener.clone(),
+        );
+        let OptionRefAny::Some(mut ctx) = opts.window_state.layout_callback.ctx.clone() else {
+            panic!("a menu window carries its MenuWindowData in its layout callback's ctx");
+        };
+        let menus_mailbox = ctx
+            .downcast_ref::<MenuWindowData>()
+            .map(|d| d.picks.clone())
+            .expect("the ctx is the menu's MenuWindowData");
+
+        menus_mailbox.post(CoreMenuCallback {
+            refany: RefAny::new(()),
+            callback: CoreCallback {
+                cb: 0,
+                ctx: OptionRefAny::None,
+            },
+        });
+        assert!(
+            !opener.is_empty(),
+            "the pick reached the window that opened the menu"
+        );
+        assert_eq!(opener.take().len(), 1, "one pick, run once");
+        assert!(opener.is_empty(), "a pick is taken once");
     }
 
     /// The other half, so the two cannot be confused: the ARITHMETIC is

@@ -2472,26 +2472,13 @@ impl HeadlessWindow {
         }
         let mut opened_by_children = Vec::new();
         let mut a_menu_closed = false;
-        let mut left_by_closed = BTreeMap::new();
         self.children.retain_mut(|child| {
             child.pump_once(false);
             opened_by_children.append(&mut child.pending_window_creates);
             let open = child.is_open();
-            let menu_closed = !open && child.is_menu_window();
-            a_menu_closed |= menu_closed;
-            if menu_closed {
-                // The work a menu item's callback started is this window's: the callback runs
-                // in the menu's own window, which closes as the item is picked (AzDrive's
-                // Saved searches, its Refine) - as a modal's answer's thread is its owner's
-                // (`transient::post_owner_thread`). A window of its own (a dialog) keeps its
-                // threads, and a thread a node of the menu owns stops with it.
-                left_by_closed.append(&mut child.take_unowned_threads());
-            }
+            a_menu_closed |= !open && child.is_menu_window();
             open
         });
-        if !left_by_closed.is_empty() {
-            self.add_threads(left_by_closed);
-        }
         // A menu that closed takes its chain with it (X11's
         // `dismiss_chain_if_menu`): an item picked in a submenu, or an Escape
         // in it, leaves the menu it hangs off too. Every menu of this window
@@ -2499,28 +2486,26 @@ impl HeadlessWindow {
         if a_menu_closed {
             let _ = self.dismiss_menu_windows();
         }
+        // The items picked in those menus run in the windows that OPENED them (this one, or a
+        // popup child that opened a menu), as a native menu's item runs: the menu only posted
+        // the pick (`desktop::menu::MenuPicks`), so the text it sets, the title, its timers and
+        // threads are the opener's, not the closed menu's (AzDrive's Saved searches, its
+        // Refine). The frame they owe is the next turn's (`pump_once`'s Phase 2c).
+        let mut picked = false;
+        for child in &mut self.children {
+            if !child.common.menu_picks.is_empty() {
+                let _ = PlatformWindow::run_menu_picks(child);
+                picked = true;
+            }
+        }
+        if !self.common.menu_picks.is_empty() {
+            let _ = PlatformWindow::run_menu_picks(self);
+            picked = true;
+        }
+        if picked {
+            self.wake();
+        }
         self.pending_window_creates.extend(opened_by_children);
-    }
-
-    /// The threads of this (closing) window that no node of it owns - the work its callbacks
-    /// started for the app -, taken out for the window that owns it
-    /// ([`Self::pump_children`]).
-    fn take_unowned_threads(
-        &mut self,
-    ) -> BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread> {
-        let Some(lw) = self.common.layout_window.as_mut() else {
-            return BTreeMap::new();
-        };
-        let unowned: Vec<azul_core::task::ThreadId> = lw
-            .threads
-            .keys()
-            .filter(|id| lw.thread_owners.owner(id).is_none())
-            .copied()
-            .collect();
-        unowned
-            .into_iter()
-            .filter_map(|id| lw.threads.remove(&id).map(|thread| (id, thread)))
-            .collect()
     }
 
     /// Is this window a window-based menu: a `WindowType::Menu` window with no
@@ -3830,6 +3815,8 @@ impl PlatformWindow for HeadlessWindow {
     /// debug server reaches it by `window_id` (`azul-menu`; see
     /// `list_windows`) and a script can read and click its items. A headless
     /// window sits at the origin of no screen: the parent position is (0, 0).
+    /// The item picked in it runs HERE (`menu_picks`, drained by
+    /// `pump_children`), as on every backend.
     fn show_menu_from_callback(
         &mut self,
         menu: &azul_core::menu::Menu,
@@ -3843,6 +3830,7 @@ impl PlatformWindow for HeadlessWindow {
             anchor,
             Some(position),
             None,
+            self.common.menu_picks.clone(),
         );
         self.pending_window_creates.push(options);
         self.wake();
