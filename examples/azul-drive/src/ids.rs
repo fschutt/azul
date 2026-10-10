@@ -210,6 +210,13 @@ pub const LOCATION_PATH: AzString = AzString::from_const_str("__azdrive_location
 /// Cancel.
 pub const LOCKDOWN_BAR: AzString = AzString::from_const_str("__azdrive_lockdown_bar");
 pub const LOCKDOWN_CANCEL: AzString = AzString::from_const_str("__azdrive_lockdown_cancel");
+/// The cancel dialog's recovery code and its "Cancel the lockdown" (F12: the code signs).
+pub const LOCKDOWN_CANCEL_CODE: AzString =
+    AzString::from_const_str("__azdrive_lockdown_cancel_code");
+pub const LOCKDOWN_CANCEL_CONFIRM: AzString =
+    AzString::from_const_str("__azdrive_lockdown_cancel_confirm");
+/// "I was hacked: new keys": the current recovery code, which signs the new one.
+pub const ROTATE_CODE: AzString = AzString::from_const_str("__azdrive_rotate_code");
 /// The voucher dialog of a drive (Options > Drives): its code and Redeem.
 pub const VOUCHER: AzString = AzString::from_const_str("__azdrive_voucher");
 pub const VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_voucher_code");

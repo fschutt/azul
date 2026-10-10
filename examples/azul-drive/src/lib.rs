@@ -2620,9 +2620,6 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::DriveProblem { serial, problem } => {
             problems::drive_problem(&mut info, s, serial, problem);
         }
-        Outcome::LockdownCancelled { drive_id, result } => {
-            periods::lockdown_cancelled(s, &drive_id, result);
-        }
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
