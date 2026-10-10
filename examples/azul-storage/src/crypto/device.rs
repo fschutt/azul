@@ -387,3 +387,41 @@ pub fn recover(
     enroll(bucket, keyring, drive, &drive_key)?;
     Ok(drive_key)
 }
+
+// ==== Trusted contacts' keys (super::contacts) ====
+
+/// The keyring entry of a contact key - the key this device made to hold one owner's share of a
+/// recovery code - by its public key's id.
+#[must_use]
+pub fn contact_key_entry(id: &str) -> String {
+    format!("azul-storage/contact-key/{id}")
+}
+
+/// The keyring entry of a drive's recovery request key, kept while trusted contacts answer.
+#[must_use]
+pub fn request_key_entry(drive: &str) -> String {
+    format!("azul-storage/recovery-request/{drive}")
+}
+
+/// A new contact key kept in the keyring; its public half (what the owner seals a share to).
+pub fn new_contact_key(_keyring: &dyn KeyringStore) -> Result<super::keys::MemberPublic, DriveError> {
+    Err(DriveError::Unsupported(String::from("contact keys")))
+}
+
+/// The contact key whose public half is `public`; `None` when this device has none.
+pub fn load_contact_key(
+    _keyring: &dyn KeyringStore,
+    _public: &super::keys::MemberPublic,
+) -> Result<Option<MemberSecret>, DriveError> {
+    Ok(None)
+}
+
+/// The drive's recovery request key: the keyring's, else a new one kept there.
+pub fn request_key(_keyring: &dyn KeyringStore, _drive: &str) -> Result<MemberSecret, DriveError> {
+    Err(DriveError::Unsupported(String::from("recovery requests")))
+}
+
+/// Removes the drive's recovery request key (the recovery is done).
+pub fn forget_request_key(_keyring: &dyn KeyringStore, _drive: &str) -> Result<(), DriveError> {
+    Ok(())
+}

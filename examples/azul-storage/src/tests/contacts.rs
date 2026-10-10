@@ -7,9 +7,14 @@ use crate::crypto::{
         request_text, safety_number, seal_reply, seal_share, set_of, share_recipient, CodeShare,
         REPLY_PREFIX, SHARES, SHARE_PREFIX,
     },
+    device::{
+        contact_key_entry, forget_request_key, load_contact_key, new_contact_key, request_key,
+        request_key_entry,
+    },
     keys::{MemberSecret, RecoveryCode},
     CryptoError,
 };
+use crate::keyring::{KeyringStore, MemoryKeyring};
 
 fn code() -> RecoveryCode {
     RecoveryCode::from_bytes([0x5A; 16])
@@ -188,4 +193,40 @@ fn contact_keys_and_requests_travel_as_text_and_shares_never_print() {
     let shown = format!("{:?}", shares[0]);
     assert!(shown.starts_with("CodeShare(1 of 3"), "{shown}");
     assert!(!shown.contains(&shares[0].to_text()[12..]), "{shown}");
+}
+
+#[test]
+fn contact_keys_and_a_drives_request_key_live_in_the_keyring() {
+    let keyring = MemoryKeyring::new();
+    let ada = new_contact_key(&keyring).unwrap();
+    let grace = new_contact_key(&keyring).unwrap();
+    assert_ne!(ada, grace, "a key for each owner");
+    let entry = contact_key_entry(&ada.id());
+    assert!(keyring.get(&entry).unwrap().is_some(), "{entry}");
+    let secret = load_contact_key(&keyring, &ada).unwrap().unwrap();
+    assert_eq!(secret.public(), ada);
+    let stranger = MemberSecret::generate().unwrap().public();
+    assert!(load_contact_key(&keyring, &stranger).unwrap().is_none());
+    // A share sealed to the key opens with what the keyring keeps.
+    let shares = CodeShare::split(&code()).unwrap();
+    let sealed = seal_share(&shares[0], "Felix", &ada).unwrap();
+    let held = share_recipient(&sealed).unwrap();
+    let key = load_contact_key(&keyring, &held).unwrap().unwrap();
+    assert_eq!(open_share(&sealed, &key).unwrap().0, shares[0]);
+
+    // The drive's request key is made once and kept until the recovery is done.
+    let first = request_key(&keyring, "d_1").unwrap();
+    let again = request_key(&keyring, "d_1").unwrap();
+    assert_eq!(first.public(), again.public());
+    assert_ne!(
+        request_key(&keyring, "d_2").unwrap().public(),
+        first.public()
+    );
+    assert!(keyring.get(&request_key_entry("d_1")).unwrap().is_some());
+    forget_request_key(&keyring, "d_1").unwrap();
+    assert!(keyring.get(&request_key_entry("d_1")).unwrap().is_none());
+    assert_ne!(
+        request_key(&keyring, "d_1").unwrap().public(),
+        first.public()
+    );
 }
