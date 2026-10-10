@@ -108,7 +108,10 @@ pub(crate) fn copy_prefix(drive_name: &str) -> String {
         .collect();
     let cleaned = cleaned.trim().trim_matches('.').trim();
     if cleaned.is_empty() {
-        format!("{}/", t("azdrive-ban-copy-folder"))
+        // A folder on disk: the word in the window's language, its English without the
+        // resources - never the key.
+        let word = azul_appkit::l10n::app_word("AzDrive", "ban-copy-folder", "Azlin drive");
+        format!("{word}/")
     } else {
         format!("{cleaned}/")
     }

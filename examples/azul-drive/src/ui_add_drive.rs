@@ -1525,6 +1525,7 @@ mod tests {
 
     /// Buy storage with two tiers loaded.
     fn buy_page() -> Dom {
+        crate::l10n::in_english();
         let tier = |id: &str, gb: u64| Tier {
             id: id.to_string(),
             quota_bytes: gb * 1_000_000_000,

@@ -116,10 +116,11 @@ pub(crate) fn token_text(e: &TokenError) -> String {
         .map_or_else(
             || e.to_string(),
             |user| {
-                if user.fluent_args().is_empty() {
-                    user.message_id()
-                } else {
+                // `detail` is every message's argument; only some rows say it.
+                if user.code.row().en.contains("{detail}") {
                     user.message(Lang::En)
+                } else {
+                    user.message_id()
                 }
             },
         )

@@ -1084,6 +1084,8 @@ mod tests {
 
     #[test]
     fn columns_can_be_added_resized_and_sized_to_fit() {
+        // The titles are measured as the window says them: in English here.
+        crate::l10n::in_english();
         let mut columns = ColumnLayout::default();
         assert_eq!(
             columns.visible(),
