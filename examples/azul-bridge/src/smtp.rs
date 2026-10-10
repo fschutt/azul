@@ -4,7 +4,7 @@
 //! became of it.
 //!
 //! Offered after EHLO: `SIZE`, `8BITMIME`, `SMTPUTF8`, `ENHANCEDSTATUSCODES`, `PIPELINING`,
-//! `AUTH PLAIN LOGIN`. MAIL needs a sign-in; the sender must be one of the account's
+//! `CHUNKING` (BDAT, RFC 3030), `AUTH PLAIN LOGIN`. MAIL needs a sign-in; the sender must be one of the account's
 //! addresses (the DKIM key signs for that domain only); at most so many recipients; the
 //! message at most so big. No STARTTLS: the connection never leaves this computer.
 
@@ -111,6 +111,8 @@ struct Session<'s, C: Conn> {
     errors: u32,
     from: Option<String>,
     recipients: Vec<String>,
+    /// CHUNKING: the octets of the BDAT chunks so far (`Some` once a BDAT came).
+    chunks: Option<Vec<u8>>,
 }
 
 impl<'s, C: Conn> Session<'s, C> {
@@ -121,6 +123,7 @@ impl<'s, C: Conn> Session<'s, C> {
     fn reset(&mut self) {
         self.from = None;
         self.recipients.clear();
+        self.chunks = None;
     }
 
     /// An out-of-order or unknown command: answered, counted; `false` ends the session.
@@ -169,13 +172,14 @@ impl<'s, C: Conn> Session<'s, C> {
                 "MAIL" => self.mail(&argument),
                 "RCPT" => self.rcpt(&argument),
                 "DATA" => self.data(),
+                "BDAT" => self.bdat(&argument),
                 "RSET" => {
                     self.reset();
                     self.reply("250 2.0.0 OK")
                 }
                 "NOOP" => self.reply("250 2.0.0 OK"),
                 "VRFY" => self.reply("252 2.5.0 Cannot verify the address, send and see"),
-                "HELP" => self.reply("214 2.0.0 EHLO AUTH MAIL RCPT DATA RSET NOOP QUIT"),
+                "HELP" => self.reply("214 2.0.0 EHLO AUTH MAIL RCPT DATA BDAT RSET NOOP QUIT"),
                 "QUIT" => {
                     let _ = self.reply("221 2.0.0 Bye");
                     return;
@@ -200,6 +204,7 @@ impl<'s, C: Conn> Session<'s, C> {
              250-SMTPUTF8\r\n\
              250-ENHANCEDSTATUSCODES\r\n\
              250-PIPELINING\r\n\
+             250-CHUNKING\r\n\
              250 AUTH PLAIN LOGIN",
             self.smtp.limits.message_bytes
         );
@@ -340,6 +345,9 @@ impl<'s, C: Conn> Session<'s, C> {
         if self.recipients.is_empty() {
             return self.error("503 5.5.1 RCPT first");
         }
+        if self.chunks.is_some() {
+            return self.error("503 5.5.1 BDAT began this message: end it with BDAT ... LAST");
+        }
         if !self.reply("354 Send the message, end it with <CRLF>.<CRLF>") {
             return false;
         }
@@ -369,6 +377,11 @@ impl<'s, C: Conn> Session<'s, C> {
         if too_big {
             return self.reply("552 5.3.4 The message is bigger than the bridge takes");
         }
+        self.submit(from, recipients, message)
+    }
+
+    /// Hands the message over and answers with what became of it.
+    fn submit(&mut self, from: String, recipients: Vec<String>, message: Vec<u8>) -> bool {
         let submission = Submission {
             from,
             recipients,
@@ -379,6 +392,57 @@ impl<'s, C: Conn> Session<'s, C> {
             Verdict::Temporary(text) => self.reply(&format!("451 4.3.0 {}", one_line(&text))),
             Verdict::Refused(text) => self.reply(&format!("554 5.0.0 {}", one_line(&text))),
         }
+    }
+
+    /// `BDAT <size> [LAST]` (RFC 3030): exactly `size` octets of the message, as they are; the
+    /// last chunk sends it. The octets are read whatever the answer, so the next command comes
+    /// in step; a message over the limit ends the transaction (552).
+    fn bdat(&mut self, argument: &str) -> bool {
+        let mut words = argument.split_whitespace();
+        let Some(size) = words.next().and_then(|n| n.parse::<u64>().ok()) else {
+            return self.error("501 5.5.4 BDAT takes the chunk's size in octets");
+        };
+        let last = match words.next() {
+            None => false,
+            Some(word) if word.eq_ignore_ascii_case("LAST") && words.next().is_none() => true,
+            Some(_) => return self.error("501 5.5.4 BDAT takes a size and LAST"),
+        };
+        let max = self.smtp.limits.message_bytes as u64;
+        let ready = self.from.is_some() && !self.recipients.is_empty();
+        let so_far = self.chunks.as_ref().map_or(0, Vec::len) as u64;
+        let fits = ready && so_far.saturating_add(size) <= max;
+        if fits {
+            let Ok(bytes) = self.input.read_bytes(&mut self.conn, size as usize) else {
+                return false;
+            };
+            self.chunks.get_or_insert_with(Vec::new).extend_from_slice(&bytes);
+        } else {
+            let mut left = size;
+            while left > 0 {
+                let n = left.min(64 * 1024) as usize;
+                if self.input.read_bytes(&mut self.conn, n).is_err() {
+                    return false;
+                }
+                left -= n as u64;
+            }
+        }
+        let Some(from) = self.from.clone() else {
+            return self.error("503 5.5.1 MAIL first");
+        };
+        if self.recipients.is_empty() {
+            return self.error("503 5.5.1 RCPT first");
+        }
+        if !fits {
+            self.reset();
+            return self.reply("552 5.3.4 The message is bigger than the bridge takes");
+        }
+        if !last {
+            return self.reply(&format!("250 2.0.0 {size} octets taken"));
+        }
+        let message = self.chunks.take().unwrap_or_default();
+        let recipients = std::mem::take(&mut self.recipients);
+        self.reset();
+        self.submit(from, recipients, message)
     }
 }
 
@@ -413,6 +477,7 @@ impl Smtp {
             errors: 0,
             from: None,
             recipients: Vec::new(),
+            chunks: None,
         }
         .run();
     }
@@ -667,5 +732,40 @@ mod tests {
         assert!(!plausible("a b@c"));
         assert_eq!(one_line("a\r\nb"), "a b");
         assert_eq!(one_line(&"é".repeat(300)).chars().count(), 203);
+    }
+
+    /// CHUNKING (RFC 3030): BDAT takes the message in chunks of exactly so many octets, as they
+    /// are (no dot-stuffing); the last one sends it. A BDAT out of order is refused after its
+    /// octets are read, so the next command comes in step; DATA does not mix with BDAT.
+    #[test]
+    fn bdat_takes_the_message_in_chunks_of_exact_octets() {
+        let (smtp, fake) = server(Verdict::Accepted(String::from("sent")), Limits::default());
+        let mut client = Client::signed_in(smtp);
+        assert!(client.say("EHLO mail.local").contains("CHUNKING"));
+        let head = "From: Ada <ada@example.org>\r\nTo: ben@example.net\r\nSubject: Hi\r\n\r\n";
+        let body = ".a line that starts with a dot\r\n";
+
+        client.stream.write_all(b"BDAT 5\r\nhello").unwrap();
+        assert!(client.reply().starts_with("503 "), "no MAIL yet");
+        assert!(client.say("NOOP").starts_with("250 "), "still in step");
+
+        assert!(client.say("MAIL FROM:<ada@example.org>").starts_with("250 "));
+        assert!(client.say("RCPT TO:<ben@example.net>").starts_with("250 "));
+        client
+            .stream
+            .write_all(format!("BDAT {}\r\n{head}", head.len()).as_bytes())
+            .unwrap();
+        assert!(client.reply().starts_with("250 "));
+        assert!(client.say("DATA").starts_with("503 "), "DATA does not follow BDAT");
+        client
+            .stream
+            .write_all(format!("BDAT {} LAST\r\n{body}", body.len()).as_bytes())
+            .unwrap();
+        assert_eq!(client.reply(), "250 2.0.0 sent");
+        let seen = fake.seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(String::from_utf8_lossy(&seen[0].message), format!("{head}{body}"));
+        drop(seen);
+        assert!(client.say("QUIT").starts_with("221 "));
     }
 }

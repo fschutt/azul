@@ -15,15 +15,13 @@
 //! `COMPLETED`, `CATEGORIES`, `RRULE` when a to-do's repeat can hold it. What cannot be read
 //! is said, one sentence each; the rest of the file is still read.
 
-use azul_pim::{
-    content_line::{escape_text, fold, parse_line, unfold, ContentLine},
-    rrule::Rule,
-};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
 use crate::{
-    model::{Priority, Task},
-    recur::Repeat,
+    content_line::{escape_text, fold, parse_line, unfold, ContentLine},
+    repeat::Repeat,
+    rrule::Rule,
+    task::{Priority, Task},
 };
 
 /// The `PRODID` AzTasks writes.
@@ -318,7 +316,7 @@ mod tests {
     use chrono::{Duration, Weekday};
 
     use super::*;
-    use crate::recur::Repeat;
+    use crate::repeat::Repeat;
 
     fn at(y: i32, m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(y, m, d)

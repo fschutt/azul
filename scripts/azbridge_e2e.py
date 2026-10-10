@@ -29,6 +29,12 @@ data are never read or written: HOME points into the folder, AZLIN_CONFIG is off
            principal's homes, a vCard 3.0 PUT kept byte for byte as contacts/<uid>.vcf, an
            event PUT under the program's own name read into AzCalendar's calendar/events/<id>.json
            and served back as iCalendar, both deleted
+  encrypted  a second bridge on a drive of its own, encrypted with the azcloud command line
+           (`encrypt`, `mail-drop`: the keys in the bridge's state folder, as a joined device
+           keeps them): a message sealed to the drop key (AZD1, scripts/azlin_drop.py) is put
+           into the bucket's .azlin/drop/ as the mail Worker would; the bridge files it and IMAP
+           reads it back; WebDAV writes and reads a file through the encryption; the bucket holds
+           no mail/ key, no drop, no name and no text in the clear
   doors    the ports answer nothing but 127.0.0.1 (a connection to this computer's network
            address is refused), an HTTP request on the IMAP port is hung up on
 
@@ -36,7 +42,10 @@ The mock S3 server stores no folder marker objects (keys ending in /), so MKCOL,
 folder and IMAP CREATE / DELETE are left to the unit tests (they run on an in-memory bucket that
 keeps markers, as S3 does).
 
-The binary: --bin, else $AZUL_BRIDGE_BIN, else target/release/azul-bridge of this checkout.
+The binary: --bin, else $AZUL_BRIDGE_BIN, else target/release/azul-bridge of this checkout. The
+encrypted step needs the azcloud command line built with encryption: --azcloud, else
+$AZCLOUD_BIN, else target/release/azcloud (cargo build --release -p azcloud-api --features
+encryption).
 Exit code 0 when every step passed.
 """
 
@@ -62,6 +71,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, HERE)
 
+import azlin_drop  # noqa: E402
 import azlin_mock_stack  # noqa: E402
 
 ADDRESS = 'ada@example.org'
@@ -88,6 +98,16 @@ def find_binary(explicit):
         if candidate and os.path.isfile(candidate):
             return candidate
     raise Failure('no azul-bridge binary: cargo build --release -p azul-bridge (or --bin PATH)')
+
+
+def find_azcloud(explicit):
+    name = 'azcloud.exe' if os.name == 'nt' else 'azcloud'
+    for candidate in (explicit, os.environ.get('AZCLOUD_BIN'),
+                      os.path.join(REPO, 'target', 'release', name)):
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    raise Failure('no azcloud binary: cargo build --release -p azcloud-api --features encryption '
+                  '(or --azcloud PATH)')
 
 
 def object_name(data, stamp_secs):
@@ -473,6 +493,65 @@ def step_pim(port, password, drive):
                        host='attacker.example')[0] == 403, 'a foreign Host was answered')
 
 
+def step_encrypted(binary, azcloud, work, stack, s3_root):
+    """An encrypted drive of a bridge of its own: its drops filed, its mail and files through the
+    encryption, nothing in the clear in the bucket."""
+    bridge = Bridge(binary, os.path.join(work, 'encrypted'), stack.token_url)
+    try:
+        out = bridge.run('--keyring', 'file', 'init', '--address', ADDRESS)
+        found = [l.split(' ', 1)[1] for l in out.splitlines() if l.startswith('AZUL_BRIDGE_PASSWORD ')]
+        expect(len(found) == 1, 'init printed no password')
+        password = found[0].strip()
+        bridge.run('signup', '--token-url', stack.token_url)
+        record = json.load(open(os.path.join(bridge.state, 'azlin.json')))
+        drive_id = record['drives'][0]['id']
+        drive = Drive(s3_root, record['drives'][0]['bucket'])
+
+        def azcloud_json(*args):
+            done = subprocess.run([azcloud, '--state-dir', bridge.state, '--json', *args],
+                                  env=bridge.env, capture_output=True, text=True, timeout=300)
+            expect(done.returncode == 0, 'azcloud %s failed (%d): %s' % (
+                args[0], done.returncode, done.stderr.strip()[-800:]))
+            try:
+                return json.loads(done.stdout)
+            except ValueError:
+                raise Failure('azcloud %s printed no JSON: %r' % (args[0], done.stdout[:400]))
+
+        recovery = os.path.join(work, 'encrypted', 'recovery.txt')
+        expect(azcloud_json('encrypt', '--yes', '--out', recovery).get('encrypted') is True,
+               'azcloud encrypt did not encrypt the drive')
+        public = azcloud_json('mail-drop').get('drop_public_key')
+        expect(isinstance(public, str) and len(public) == 64, 'azcloud mail-drop gave no drop key')
+        raw = mail('Sealed', 'Only the drive key opens this.')
+        key = azlin_drop.new_object_key()
+        drive.put(key, azlin_drop.seal(bytes.fromhex(public), drive_id, key,
+                                       int(time.time()) - 60, 'Inbox', raw))
+
+        imap_port, _smtp, dav_port, _pim = bridge.serve()
+        imap = imaplib.IMAP4('127.0.0.1', imap_port)
+        imap.login(ADDRESS, password)
+        typ, data = imap.select('INBOX')
+        expect(typ == 'OK' and data[0] == b'1', 'the drop is not in the Inbox: %r' % (data,))
+        typ, fetched = imap.fetch('1', '(BODY.PEEK[])')
+        expect(typ == 'OK' and fetched[0][1] == raw, 'the message read back is not the one dropped')
+        imap.logout()
+        keys = drive.keys()
+        expect(not any(k.startswith('mail/') or k.startswith('.azlin/drop/') for k in keys),
+               'a message in the clear or a drop left in the bucket: %s' % keys)
+
+        expect(dav_request(dav_port, 'MKCOL', '/Briefe/', password=password)[0] == 201, 'MKCOL')
+        text = b'Liebe Oma, bis bald.'
+        expect(dav_request(dav_port, 'PUT', '/Briefe/an%20Oma.txt', text, password=password)[0] == 201,
+               'PUT through the encryption')
+        status, _, data = dav_request(dav_port, 'GET', '/Briefe/an%20Oma.txt', password=password)
+        expect(status == 200 and data == text, 'GET through the encryption: %s %r' % (status, data[:80]))
+        for key in drive.keys():
+            expect('Briefe' not in key and 'Oma' not in key, 'a name in the clear: %s' % key)
+            expect(b'Liebe Oma' not in drive.get(key), 'the text in the clear in %s' % key)
+    finally:
+        bridge.stop()
+
+
 def step_doors(ports):
     # A connection to this computer's network address (not 127.0.0.1) finds nobody.
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -508,6 +587,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--bin', help='the azul-bridge binary')
     parser.add_argument('--keep', action='store_true', help='keep the temporary folder')
+    parser.add_argument('--azcloud', help='the azcloud binary (built with --features encryption)')
     args = parser.parse_args()
     binary = find_binary(args.bin)
     work = tempfile.mkdtemp(prefix='azbridge-e2e-')
@@ -548,6 +628,8 @@ def main():
                                                       os.path.join(work, 'sink'))),
                            ('webdav', lambda: step_webdav(dav_port, password, drive)),
                            ('pim', lambda: step_pim(pim_port, password, drive)),
+                           ('encrypted', lambda: step_encrypted(binary, find_azcloud(args.azcloud),
+                                                                work, stack, s3_root)),
                            ('doors', lambda: step_doors([imap_port, smtp_port, dav_port, pim_port]))):
             try:
                 step()

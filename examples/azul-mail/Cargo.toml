@@ -84,7 +84,7 @@ default = []
 # An Azlin account's mail through the encryption when its drive is encrypted (mail_drive.rs:
 # azul-storage's AutoEncrypted, the drive key from the keyring AzDrive shares). Off until the
 # drive index (the encrypted metadata repository) is in.
-encryption = ["azul-storage/encryption"]
+encryption = ["azul-storage/encryption", "azul-mail-core/encryption"]
 
 [lib]
 name = "azmail"

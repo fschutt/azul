@@ -49,6 +49,22 @@ pub struct Candidate<'a> {
     /// The header, or the whole message, as [`need`] asked; `None` when it could not be read
     /// (a key on it does not match then).
     pub bytes: Option<&'a [u8]>,
+    /// CONDSTORE's mod-sequence of the message.
+    pub modseq: u64,
+    /// SEARCHRES: the UIDs `$` stands for (`None`: nothing saved).
+    pub saved: Option<&'a [u32]>,
+}
+
+/// Whether `key` asks about mod-sequences (the answer then names the highest found).
+#[must_use]
+pub fn uses_modseq(key: &SearchKey) -> bool {
+    match key {
+        SearchKey::Modseq(_) => true,
+        SearchKey::Not(inner) => uses_modseq(inner),
+        SearchKey::Or(a, b) => uses_modseq(a) || uses_modseq(b),
+        SearchKey::And(keys) => keys.iter().any(uses_modseq),
+        _ => false,
+    }
 }
 
 /// The numbers `*` stands for.
@@ -138,6 +154,8 @@ pub fn matches(key: &SearchKey, candidate: &Candidate<'_>, largest: Largest) -> 
         SearchKey::Not(inner) => !matches(inner, candidate, largest),
         SearchKey::Or(a, b) => matches(a, candidate, largest) || matches(b, candidate, largest),
         SearchKey::And(keys) => keys.iter().all(|k| matches(k, candidate, largest)),
+        SearchKey::Modseq(n) => candidate.modseq >= *n,
+        SearchKey::Saved => candidate.saved.is_some_and(|saved| saved.contains(&candidate.uid)),
     }
 }
 
@@ -165,6 +183,8 @@ mod tests {
             arrived: OCT_1,
             flags,
             bytes,
+            modseq: 9,
+            saved: None,
         }
     }
 

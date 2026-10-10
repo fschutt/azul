@@ -1,6 +1,9 @@
-//! CardDAV's contacts: AzContacts' files, one `contacts/<uid>.vcf` per contact in the drive, as
-//! they are - a program's card is kept byte for byte (vCard 3.0 or 4.0: AzContacts reads both and
-//! takes the file name as the contact's UID), so a PUT's answer carries the new ETag.
+//! CardDAV's contacts: AzContacts' files, one `contacts/<uid>.vcf` per contact in the drive,
+//! read with AzContacts' own code (azul-contacts-core). A program's card is kept byte for byte
+//! (vCard 3.0 or 4.0: AzContacts reads both and takes the file name as the contact's UID), so a
+//! PUT's answer carries the new ETag. A card is served in vCard 3.0 - what every CardDAV program
+//! reads, Apple's Contacts above all - unless the program asks for 4.0: a 4.0 file (AzContacts
+//! writes 4.0) is then written in 3.0 by AzContacts' contact model ([`card_as`]).
 
 use std::collections::HashSet;
 
@@ -12,38 +15,42 @@ use crate::{
     http::{Head, Response, Status},
 };
 
-/// AzContacts' folder in the drive (its `store::APP_FOLDER`).
-pub const CONTACTS_DIR: &str = "contacts";
+// AzContacts' file rules, its own code: the folder (`contacts`), whether a UID can name a file,
+// `contacts/<uid>.vcf` and back.
+pub use azcontacts_core::store::{
+    contact_key as card_key, is_safe_uid as is_contact_uid, uid_of_key, APP_FOLDER as CONTACTS_DIR,
+};
+pub use azcontacts_core::vcard::Version;
+use azcontacts_core::{contact, vcard};
+
 /// What a card is served as.
 pub const CONTENT_TYPE: &str = "text/vcard; charset=utf-8";
 
-/// Whether `uid` can name a contact's file: AzContacts' own rule (`store::is_safe_uid`) - letters,
-/// digits, `-`, `_`, `.`, not starting with a dot, at most 100 long.
+/// The vCard version a GET asks for: 4.0 when its `Accept` says `version=4.0`, else 3.0.
 #[must_use]
-pub fn is_contact_uid(uid: &str) -> bool {
-    !uid.is_empty()
-        && uid.len() <= 100
-        && !uid.starts_with('.')
-        && uid
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-}
-
-/// `contacts/<uid>.vcf`.
-#[must_use]
-pub fn card_key(uid: &str) -> String {
-    format!("{CONTACTS_DIR}/{uid}.vcf")
-}
-
-/// The UID of a contact file's key, if it is one (directly in the folder, a UID's name).
-#[must_use]
-pub fn uid_of_key(key: &str) -> Option<String> {
-    let name = key.strip_prefix(CONTACTS_DIR)?.strip_prefix('/')?;
-    if name.contains('/') {
-        return None;
+pub fn wanted_of_accept(accept: Option<&str>) -> Version {
+    match accept {
+        Some(value) if value.to_ascii_lowercase().replace(' ', "").contains("version=4.0") => Version::V4,
+        _ => Version::V3,
     }
-    let uid = name.strip_suffix(".vcf")?;
-    is_contact_uid(uid).then(|| uid.to_string())
+}
+
+/// A card's bytes in the version `wanted`: the file as it is when it is that version already;
+/// else the contact - AzContacts' model of it - written in that version, with the file's UID. A
+/// file that holds no card is served as it is.
+#[must_use]
+pub fn card_as(bytes: &[u8], uid: &str, wanted: Version) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let (cards, _) = vcard::parse(&text);
+    if cards.first().is_none_or(|card| card.version == wanted) {
+        return bytes.to_vec();
+    }
+    let (contacts, _) = contact::parse_vcf(&text);
+    let Some(mut contact) = contacts.into_iter().next() else {
+        return bytes.to_vec();
+    };
+    contact.uid = uid.to_string();
+    contact.to_vcf(wanted).into_bytes()
 }
 
 /// Whether `text` is a vCard: it has a `BEGIN:VCARD` line.
@@ -111,11 +118,12 @@ impl Pim {
         }
     }
 
-    pub(crate) fn get_card(&self, name: &str) -> Result<Response, DriveError> {
-        let Some((_, info)) = self.card(name)? else {
+    /// The card `name` in the version the program's `Accept` asks for (3.0 unless it says 4.0).
+    pub(crate) fn get_card(&self, name: &str, accept: Option<&str>) -> Result<Response, DriveError> {
+        let Some((uid, info)) = self.card(name)? else {
             return Ok(Response::text(Status::NOT_FOUND, "Not there."));
         };
-        let bytes = self.contacts.get(&info.key)?;
+        let bytes = card_as(&self.contacts.get(&info.key)?, &uid, wanted_of_accept(accept));
         let mut response = Response::new(Status::OK)
             .with_header("ETag", format!("\"{}\"", version_of(&info)))
             .with_body(CONTENT_TYPE, bytes);

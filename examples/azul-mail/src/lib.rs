@@ -65,7 +65,9 @@
 
 // The mail logic without azul types lives in azul-mail-core, so a headless process (the Azlin
 // Bridge) runs the same code; it keeps its module names here (`azmail::send`, `crate::folders`).
-pub use azmail_core::{account, args, auth, azlin, dkim, folders, message, mutf7, send, store, submit};
+pub use azmail_core::{
+    account, args, auth, azlin, dkim, folders, mail_drive, message, mutf7, send, store, submit,
+};
 
 pub mod azlin_sync;
 pub mod compose;
@@ -73,7 +75,6 @@ pub mod html;
 pub mod ids;
 pub mod imap_client;
 pub mod listing;
-pub mod mail_drive;
 pub mod pictures;
 pub mod sample;
 pub mod sending;

@@ -37,6 +37,19 @@ impl SequenceSet {
         })
     }
 
+    /// `$` (SEARCHRES): the messages the last `SEARCH RETURN (SAVE)` found; it holds no range
+    /// (the session looks them up).
+    #[must_use]
+    pub fn saved() -> SequenceSet {
+        SequenceSet(Vec::new())
+    }
+
+    /// Whether it is `$`.
+    #[must_use]
+    pub fn is_saved(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Whether it names `*` (a UID set that does: the highest UID is in it, RFC 3501 6.4.8).
     #[must_use]
     pub fn has_star(&self) -> bool {
@@ -113,6 +126,17 @@ pub enum FetchAtt {
     Rfc822Header,
     /// `RFC822.TEXT`: `BODY[TEXT]` named the old way (sets \Seen).
     Rfc822Text,
+    /// CONDSTORE: the message's mod-sequence.
+    Modseq,
+    /// BINARY (RFC 3516): a part with its content transfer encoding undone, `BINARY[1.2]` /
+    /// `BINARY.PEEK[...]`, with an optional `<start.length>`.
+    Binary {
+        peek: bool,
+        path: Vec<u32>,
+        partial: Option<(u64, u64)>,
+    },
+    /// `BINARY.SIZE[...]`: the decoded part's size.
+    BinarySize { path: Vec<u32> },
     /// `BODY[...]` / `BODY.PEEK[...]` with an optional `<start.length>`.
     Section {
         peek: bool,
@@ -163,6 +187,11 @@ pub enum SearchKey {
     Not(Box<SearchKey>),
     Or(Box<SearchKey>, Box<SearchKey>),
     And(Vec<SearchKey>),
+    /// CONDSTORE: a mod-sequence at least this (an entry name and type before it are read and
+    /// not used: the bridge keeps one mod-sequence per message).
+    Modseq(u64),
+    /// SEARCHRES: `$`, the messages the last `SEARCH RETURN (SAVE)` found.
+    Saved,
 }
 
 /// STORE's `FLAGS` / `+FLAGS` / `-FLAGS`.
@@ -181,6 +210,12 @@ pub enum StatusItem {
     UidNext,
     UidValidity,
     Unseen,
+    /// CONDSTORE.
+    HighestModseq,
+    /// STATUS=SIZE (RFC 8438): the bytes of every message.
+    Size,
+    /// IMAP4rev2: the messages marked `\Deleted`.
+    Deleted,
 }
 
 /// What a command asks.
@@ -263,6 +298,39 @@ pub enum CommandKind {
 pub struct Command {
     pub tag: String,
     pub kind: CommandKind,
+    /// What extensions add to it.
+    pub modifiers: Modifiers,
+}
+
+/// What the extensions add to a command: ENABLE's list, CONDSTORE / QRESYNC's modifiers (RFC
+/// 7162), SEARCH's RETURN options (RFC 4731).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Modifiers {
+    /// ENABLE: the capabilities named, upper case.
+    pub enable: Vec<String>,
+    /// SELECT / EXAMINE (CONDSTORE).
+    pub condstore: bool,
+    /// SELECT / EXAMINE (QRESYNC (...)).
+    pub qresync: Option<Qresync>,
+    /// FETCH (CHANGEDSINCE n).
+    pub changed_since: Option<u64>,
+    /// UID FETCH (... VANISHED).
+    pub vanished: bool,
+    /// STORE (UNCHANGEDSINCE n).
+    pub unchanged_since: Option<u64>,
+    /// SEARCH RETURN (...): the options named, upper case (`None` without RETURN).
+    pub search_return: Option<Vec<String>>,
+    /// LIST-STATUS (RFC 5819): LIST ... RETURN (STATUS (items)).
+    pub list_status: Option<Vec<StatusItem>>,
+}
+
+/// SELECT's QRESYNC parameters: what the program knew of the mailbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Qresync {
+    pub validity: u32,
+    pub modseq: u64,
+    /// The UIDs it knew (none named: every UID).
+    pub known: Option<SequenceSet>,
 }
 
 /// Why a command could not be read: what the BAD response says.
@@ -538,6 +606,10 @@ impl<'a> Cursor<'a> {
     }
 
     fn sequence_set(&mut self) -> Result<SequenceSet> {
+        if self.peek() == Some(b'$') {
+            self.i += 1;
+            return Ok(SequenceSet::saved());
+        }
         let mut ranges = Vec::new();
         loop {
             let a = self.bound()?;
@@ -640,6 +712,20 @@ impl<'a> Cursor<'a> {
             "RFC822" => FetchAtt::Rfc822,
             "RFC822.HEADER" => FetchAtt::Rfc822Header,
             "RFC822.TEXT" => FetchAtt::Rfc822Text,
+            "MODSEQ" => FetchAtt::Modseq,
+            "BINARY" | "BINARY.PEEK" | "BINARY.SIZE" => {
+                let path = self.binary_section()?;
+                if name == "BINARY.SIZE" {
+                    FetchAtt::BinarySize { path }
+                } else {
+                    let partial = self.partial()?;
+                    FetchAtt::Binary {
+                        peek: name == "BINARY.PEEK",
+                        path,
+                        partial,
+                    }
+                }
+            }
             "BODY" if self.peek() != Some(b'[') => FetchAtt::Body,
             "BODY" | "BODY.PEEK" => {
                 let section = self.section()?;
@@ -663,6 +749,52 @@ impl<'a> Cursor<'a> {
                 }
             }
             other => return Err(format!("unknown fetch item \"{other}\"")),
+        })
+    }
+
+    /// BINARY's `[1.2]`: part numbers only (empty: the whole message).
+    fn binary_section(&mut self) -> Result<Vec<u32>> {
+        self.expect(b'[')?;
+        let mut path = Vec::new();
+        while self.peek() != Some(b']') {
+            if !path.is_empty() {
+                self.expect(b'.')?;
+            }
+            path.push(self.nz_number32()?);
+        }
+        self.expect(b']')?;
+        Ok(path)
+    }
+
+    /// An optional `<start.length>`.
+    fn partial(&mut self) -> Result<Option<(u64, u64)>> {
+        if self.peek() != Some(b'<') {
+            return Ok(None);
+        }
+        self.i += 1;
+        let start = self.number()?;
+        self.expect(b'.')?;
+        let length = self.number()?;
+        if length == 0 {
+            return Err(String::from("a partial of no octets"));
+        }
+        self.expect(b'>')?;
+        Ok(Some((start, length)))
+    }
+
+    /// One STATUS item.
+    fn status_item(&mut self) -> Result<StatusItem> {
+        let word = self.word()?;
+        Ok(match word.as_str() {
+            "MESSAGES" => StatusItem::Messages,
+            "RECENT" => StatusItem::Recent,
+            "UIDNEXT" => StatusItem::UidNext,
+            "UIDVALIDITY" => StatusItem::UidValidity,
+            "UNSEEN" => StatusItem::Unseen,
+            "HIGHESTMODSEQ" => StatusItem::HighestModseq,
+            "SIZE" => StatusItem::Size,
+            "DELETED" => StatusItem::Deleted,
+            other => return Err(format!("unknown status item \"{other}\"")),
         })
     }
 
@@ -711,6 +843,10 @@ impl<'a> Cursor<'a> {
         }
         if self.peek().is_some_and(|b| b.is_ascii_digit() || b == b'*') {
             return self.sequence_set().map(SearchKey::Seq);
+        }
+        if self.peek() == Some(b'$') {
+            self.i += 1;
+            return Ok(SearchKey::Saved);
         }
         let word = self.word()?;
         let string = |c: &mut Cursor<'a>| -> Result<String> {
@@ -777,6 +913,16 @@ impl<'a> Cursor<'a> {
                 self.sp()?;
                 SearchKey::Uid(self.sequence_set()?)
             }
+            "MODSEQ" => {
+                self.sp()?;
+                if self.peek() == Some(b'"') {
+                    self.quoted()?;
+                    self.sp()?;
+                    self.word()?;
+                    self.sp()?;
+                }
+                SearchKey::Modseq(self.number()?)
+            }
             "NOT" => {
                 self.sp()?;
                 SearchKey::Not(Box::new(self.search_key(depth + 1)?))
@@ -826,7 +972,8 @@ pub fn parse_command(bytes: &[u8]) -> std::result::Result<Command, ParseError> {
             return Err(bad(format!("UID {name} is no command")));
         }
     }
-    let kind = parse_args(&mut c, &name, uid).map_err(|e| match e {
+    let mut modifiers = Modifiers::default();
+    let kind = parse_args(&mut c, &name, uid, &mut modifiers).map_err(|e| match e {
         ArgError::Bad(message) => bad(message),
         ArgError::Charset => ParseError {
             tag: tag.clone(),
@@ -837,6 +984,7 @@ pub fn parse_command(bytes: &[u8]) -> std::result::Result<Command, ParseError> {
     Ok(Command {
         tag: tag_text,
         kind,
+        modifiers,
     })
 }
 
@@ -851,7 +999,66 @@ impl From<String> for ArgError {
     }
 }
 
-fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<CommandKind, ArgError> {
+/// SELECT's parameters (RFC 4466): `(CONDSTORE)`, `(QRESYNC (validity modseq [known-uids
+/// [seq-match]]))`; another is refused.
+fn select_params(c: &mut Cursor<'_>, m: &mut Modifiers) -> Result<()> {
+    let params = c.list(|c| {
+        let word = c.word()?;
+        match word.as_str() {
+            "CONDSTORE" => Ok(None),
+            "QRESYNC" => {
+                c.sp()?;
+                c.expect(b'(')?;
+                let validity = c.nz_number32()?;
+                c.sp()?;
+                let modseq = c.number()?;
+                let mut known = None;
+                if c.peek() == Some(b' ') {
+                    c.i += 1;
+                    if c.peek() == Some(b'(') {
+                        // seq-match-data: the program's own check, not needed here.
+                        c.expect(b'(')?;
+                        c.sequence_set()?;
+                        c.sp()?;
+                        c.sequence_set()?;
+                        c.expect(b')')?;
+                    } else {
+                        known = Some(c.sequence_set()?);
+                        if c.peek() == Some(b' ') {
+                            c.i += 1;
+                            c.expect(b'(')?;
+                            c.sequence_set()?;
+                            c.sp()?;
+                            c.sequence_set()?;
+                            c.expect(b')')?;
+                        }
+                    }
+                }
+                c.expect(b')')?;
+                Ok(Some(Qresync {
+                    validity,
+                    modseq,
+                    known,
+                }))
+            }
+            other => Err(format!("SELECT takes no \"{other}\"")),
+        }
+    })?;
+    for param in params {
+        match param {
+            None => m.condstore = true,
+            Some(qresync) => m.qresync = Some(qresync),
+        }
+    }
+    Ok(())
+}
+
+fn parse_args(
+    c: &mut Cursor<'_>,
+    name: &str,
+    uid: bool,
+    m: &mut Modifiers,
+) -> std::result::Result<CommandKind, ArgError> {
     let kind = match name {
         "CAPABILITY" => CommandKind::Capability,
         "NOOP" => CommandKind::Noop,
@@ -868,8 +1075,13 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
             CommandKind::Id
         }
         "ENABLE" => {
-            c.sp()?;
-            c.rest();
+            loop {
+                c.sp()?;
+                m.enable.push(c.word()?);
+                if c.at_end() {
+                    break;
+                }
+            }
             CommandKind::Enable
         }
         "LOGIN" => {
@@ -897,7 +1109,11 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
         "SELECT" | "EXAMINE" | "CREATE" | "DELETE" | "SUBSCRIBE" | "UNSUBSCRIBE" => {
             c.sp()?;
             let mailbox = c.astring()?;
-            // CREATE and SELECT may carry parameters (RFC 4466); none are offered: refused.
+            // SELECT / EXAMINE's parameters: CONDSTORE, QRESYNC (RFC 7162); others are refused.
+            if matches!(name, "SELECT" | "EXAMINE") && c.peek() == Some(b' ') {
+                c.sp()?;
+                select_params(c, m)?;
+            }
             match name {
                 "SELECT" => CommandKind::Select(mailbox),
                 "EXAMINE" => CommandKind::Examine(mailbox),
@@ -929,8 +1145,24 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
             } else {
                 c.list_mailbox()?
             };
-            // ... and its RETURN options.
-            c.rest();
+            // ... and its RETURN options: STATUS (LIST-STATUS) is answered, the others are
+            // read and not needed (every answer has the children and special-use attributes).
+            if c.peek() == Some(b' ') {
+                c.sp()?;
+                if c.word()? != "RETURN" {
+                    return Err(ArgError::Bad(String::from("expected RETURN")));
+                }
+                c.sp()?;
+                let options = c.list(|c| {
+                    let option = c.word()?;
+                    if option == "STATUS" {
+                        c.sp()?;
+                        return c.list(|c| c.status_item()).map(Some);
+                    }
+                    Ok(None)
+                })?;
+                m.list_status = options.into_iter().flatten().next();
+            }
             CommandKind::List {
                 reference,
                 pattern,
@@ -941,17 +1173,7 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
             c.sp()?;
             let mailbox = c.astring()?;
             c.sp()?;
-            let items = c.list(|c| {
-                let word = c.word()?;
-                Ok(match word.as_str() {
-                    "MESSAGES" => StatusItem::Messages,
-                    "RECENT" => StatusItem::Recent,
-                    "UIDNEXT" => StatusItem::UidNext,
-                    "UIDVALIDITY" => StatusItem::UidValidity,
-                    "UNSEEN" => StatusItem::Unseen,
-                    other => return Err(format!("unknown status item \"{other}\"")),
-                })
-            })?;
+            let items = c.list(|c| c.status_item())?;
             CommandKind::Status { mailbox, items }
         }
         "APPEND" => {
@@ -972,6 +1194,10 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
             } else {
                 None
             };
+            // BINARY: a literal8 (`~{n}`) takes any octets.
+            if c.peek() == Some(b'~') {
+                c.i += 1;
+            }
             let message = c.literal()?;
             CommandKind::Append {
                 mailbox,
@@ -991,6 +1217,13 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
         }
         "SEARCH" => {
             c.sp()?;
+            // ESEARCH (RFC 4731): RETURN (MIN MAX COUNT ALL SAVE) before the keys.
+            if c.b[c.i..].len() >= 7 && c.b[c.i..c.i + 7].eq_ignore_ascii_case(b"RETURN ") {
+                c.word()?;
+                c.sp()?;
+                m.search_return = Some(c.list(|c| c.word())?);
+                c.sp()?;
+            }
             let mut keys = Vec::new();
             if c.b[c.i..].len() >= 7 && c.b[c.i..c.i + 7].eq_ignore_ascii_case(b"CHARSET") {
                 c.word()?;
@@ -1021,12 +1254,46 @@ fn parse_args(c: &mut Cursor<'_>, name: &str, uid: bool) -> std::result::Result<
             let set = c.sequence_set()?;
             c.sp()?;
             let atts = c.fetch_atts()?;
+            // CONDSTORE / QRESYNC: (CHANGEDSINCE n [VANISHED]).
+            if c.peek() == Some(b' ') {
+                c.sp()?;
+                let modifiers = c.list(|c| {
+                    let word = c.word()?;
+                    match word.as_str() {
+                        "CHANGEDSINCE" => {
+                            c.sp()?;
+                            Ok(Some(c.number()?))
+                        }
+                        "VANISHED" => Ok(None),
+                        other => Err(format!("FETCH takes no \"{other}\"")),
+                    }
+                })?;
+                for modifier in modifiers {
+                    match modifier {
+                        Some(n) => m.changed_since = Some(n),
+                        None => m.vanished = true,
+                    }
+                }
+            }
             CommandKind::Fetch { uid, set, atts }
         }
         "STORE" => {
             c.sp()?;
             let set = c.sequence_set()?;
             c.sp()?;
+            // CONDSTORE: (UNCHANGEDSINCE n) before the flags.
+            if c.peek() == Some(b'(') {
+                let since = c.list(|c| {
+                    let word = c.word()?;
+                    if word != "UNCHANGEDSINCE" {
+                        return Err(format!("STORE takes no \"{word}\""));
+                    }
+                    c.sp()?;
+                    c.number()
+                })?;
+                m.unchanged_since = since.into_iter().next();
+                c.sp()?;
+            }
             let mode = match c.peek() {
                 Some(b'+') => {
                     c.i += 1;
@@ -1350,5 +1617,66 @@ mod tests {
         assert_eq!(e.tag.as_deref(), Some("A1"));
         assert!(bad(b"A1 FROBNICATE").message.contains("unknown command"));
         assert!(bad(b"A1 UID NOOP").message.contains("no command"));
+    }
+
+    #[test]
+    fn condstore_qresync_and_esearch_modifiers_and_enable_are_read() {
+        let command =
+            parse_command(b"A1 SELECT INBOX (QRESYNC (67890007 20050715194045000 41,43:211,214:541))").unwrap();
+        assert_eq!(command.kind, CommandKind::Select(b"INBOX".to_vec()));
+        let qresync = command.modifiers.qresync.expect("QRESYNC's parameters");
+        assert_eq!((qresync.validity, qresync.modseq), (67_890_007, 20_050_715_194_045_000));
+        assert!(qresync.known.is_some());
+        assert!(parse_command(b"A2 EXAMINE INBOX (CONDSTORE)").unwrap().modifiers.condstore);
+        let fetch = parse_command(b"A3 UID FETCH 1:* (FLAGS) (CHANGEDSINCE 12345 VANISHED)").unwrap();
+        assert_eq!((fetch.modifiers.changed_since, fetch.modifiers.vanished), (Some(12345), true));
+        let store = parse_command(b"A4 STORE 1:3 (UNCHANGEDSINCE 320162338) +FLAGS.SILENT (\\Deleted)").unwrap();
+        assert_eq!(store.modifiers.unchanged_since, Some(320_162_338));
+        assert!(matches!(store.kind, CommandKind::Store { silent: true, .. }));
+        let enable = parse_command(b"A5 ENABLE CONDSTORE qresync").unwrap();
+        assert_eq!(enable.modifiers.enable, vec!["CONDSTORE", "QRESYNC"]);
+        assert_eq!(
+            parse("A6 SEARCH MODSEQ \"/flags/\\\\draft\" all 620162338"),
+            CommandKind::Search {
+                uid: false,
+                key: SearchKey::Modseq(620_162_338),
+            }
+        );
+        assert_eq!(
+            parse("A7 FETCH 1 (UID MODSEQ)"),
+            CommandKind::Fetch {
+                uid: false,
+                set: set(&[(Bound::Num(1), Bound::Num(1))]),
+                atts: vec![FetchAtt::Uid, FetchAtt::Modseq],
+            }
+        );
+        assert_eq!(
+            parse("A8 STATUS INBOX (HIGHESTMODSEQ SIZE DELETED)"),
+            CommandKind::Status {
+                mailbox: b"INBOX".to_vec(),
+                items: vec![StatusItem::HighestModseq, StatusItem::Size, StatusItem::Deleted],
+            }
+        );
+        assert_eq!(
+            parse("B1 UID FETCH $ (BINARY.PEEK[1.2]<0.100> BINARY.SIZE[1])"),
+            CommandKind::Fetch {
+                uid: true,
+                set: SequenceSet::saved(),
+                atts: vec![
+                    FetchAtt::Uid,
+                    FetchAtt::Binary {
+                        peek: true,
+                        path: vec![1, 2],
+                        partial: Some((0, 100)),
+                    },
+                    FetchAtt::BinarySize { path: vec![1] },
+                ],
+            }
+        );
+        let list = parse_command(b"B2 LIST \"\" * RETURN (CHILDREN STATUS (MESSAGES SIZE))").unwrap();
+        assert_eq!(list.modifiers.list_status, Some(vec![StatusItem::Messages, StatusItem::Size]));
+        let search = parse_command(b"A9 UID SEARCH RETURN (MIN COUNT) UNSEEN").unwrap();
+        assert_eq!(search.modifiers.search_return, Some(vec![String::from("MIN"), String::from("COUNT")]));
+        assert_eq!(search.kind, CommandKind::Search { uid: true, key: SearchKey::Unseen });
     }
 }

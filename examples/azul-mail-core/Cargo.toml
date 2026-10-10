@@ -50,6 +50,9 @@ default = []
 # `testutil` (a temporary folder, a one-connection SMTP sink) for the tests of AzMail's other
 # modules (a dev-dependency turns it on).
 testing = ["azul-storage/testing"]
+# An Azlin account's mail through the encryption when its drive is encrypted (mail_drive.rs:
+# azul-storage's AutoEncrypted and the drive index; AZD1 drops filed into the mail folders).
+encryption = ["azul-storage/encryption"]
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).

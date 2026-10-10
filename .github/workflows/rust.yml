@@ -830,6 +830,12 @@ jobs:
           cargo test -p AzCalculator --lib --no-fail-fast 2>&1 | tee azul-calculator-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-calculator-tests.txt
 
+      - name: Run azul-contacts-core tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-contacts-core --no-fail-fast 2>&1 | tee azul-contacts-core-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-contacts-core-tests.txt
+
       - name: Run AzContacts tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
@@ -897,7 +903,8 @@ jobs:
       - name: Run azul-mail-core tests
         run: |
           set -o pipefail
-          cargo test -p azul-mail-core --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
+          # With the encryption: the mail drive's encrypted path and its drops (mail_drive.rs).
+          cargo test -p azul-mail-core --features encryption --no-fail-fast 2>&1 | tee azul-mail-core-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-mail-core-tests.txt
 
       - name: Run azul-bridge tests

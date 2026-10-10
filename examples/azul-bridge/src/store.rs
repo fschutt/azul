@@ -269,10 +269,36 @@ pub fn check_mailbox_path(path: &str) -> Result<(), StoreError> {
 /// STATUS in a row).
 const MAILBOX_CACHE: Duration = Duration::from_secs(5);
 
+/// How often a folder listing looks for incoming mail ([`DriveMailStore::with_incoming`]).
+pub const INCOMING_EVERY: Duration = Duration::from_secs(2);
+
+/// Files the drive's incoming mail into its folders (an encrypted drive's AZD1 drops,
+/// [`drops_incoming`]); how many messages it filed.
+pub type Incoming = Arc<dyn Fn() -> Result<u64, StoreError> + Send + Sync>;
+
+/// The incoming mail of an encrypted drive opened with azul-mail-core's
+/// `mail_drive::wrap_auto` - AzMail's own path: the AZD1 drops the mail Worker leaves in the
+/// bucket, filed into the same open drive's folders (`mail_drive::receive_drops_into`). Nothing
+/// for a plain drive or one whose key this computer does not keep.
+#[cfg(feature = "encryption")]
+#[must_use]
+pub fn drops_incoming(
+    auto: Arc<azul_storage::encrypted::AutoEncrypted>,
+    keyring: Arc<dyn azul_storage::keyring::KeyringStore>,
+) -> Incoming {
+    Arc::new(move || {
+        azmail_core::mail_drive::receive_drops_into(&auto, keyring.as_ref()).map_err(drive_error)
+    })
+}
+
 /// The Azlin drive's mailbox (`AZLIN_MAIL.md`) as a [`MailStore`].
 pub struct DriveMailStore {
     drive: Arc<dyn Drive>,
     mailboxes: Mutex<Option<(Instant, Vec<MailboxInfo>)>>,
+    /// Run before a folder is listed ([`DriveMailStore::with_incoming`]).
+    incoming: Option<Incoming>,
+    /// When it last ran; held while it runs (the other listings go on with what is there).
+    incoming_at: Mutex<Option<Instant>>,
 }
 
 impl std::fmt::Debug for DriveMailStore {
@@ -287,7 +313,42 @@ impl DriveMailStore {
         DriveMailStore {
             drive,
             mailboxes: Mutex::new(None),
+            incoming: None,
+            incoming_at: Mutex::new(None),
         }
+    }
+
+    /// Runs `incoming` before a folder is listed - at most every [`INCOMING_EVERY`], one at a
+    /// time - so a mail program sees new mail the drive keeps outside its folders (an encrypted
+    /// drive's drops) as AzMail's Send / Receive does.
+    #[must_use]
+    pub fn with_incoming(mut self, incoming: Incoming) -> DriveMailStore {
+        self.incoming = Some(incoming);
+        self
+    }
+
+    /// The incoming mail into the folders, when it is due. A failure is said; the listing goes on
+    /// with what is there.
+    fn receive(&self) {
+        let Some(incoming) = &self.incoming else {
+            return;
+        };
+        let mut at = match self.incoming_at.try_lock() {
+            Ok(at) => at,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            // Another listing is filing it now.
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        if at.is_some_and(|then| then.elapsed() < INCOMING_EVERY) {
+            return;
+        }
+        match incoming() {
+            Ok(0) => {}
+            // A drop may bring a folder the listing of the mailboxes did not have yet.
+            Ok(_) => self.forget_mailboxes(),
+            Err(e) => eprintln!("[azul-bridge] incoming mail: {e}"),
+        }
+        *at = Some(Instant::now());
     }
 
     /// The drive under it.
@@ -362,6 +423,7 @@ impl MailStore for DriveMailStore {
     }
 
     fn messages(&self, path: &str) -> Result<Vec<StoredMessage>, StoreError> {
+        self.receive();
         let level = ops::list_folder_all(&*self.drive, &azlin::folder_prefix(path))
             .map_err(drive_error)?;
         let mut out: Vec<StoredMessage> = level
@@ -748,5 +810,55 @@ mod tests {
         }
         assert!(check_mailbox_path(&"a/".repeat(20)[..39]).is_err());
         assert!(check_mailbox_path(&"x".repeat(300)).is_err());
+    }
+
+    /// An encrypted drive, opened as AzMail opens it (azul-mail-core's mail_drive): its incoming
+    /// mail - AZD1 drops the mail Worker put into the bucket - is in the folder as soon as a mail
+    /// program lists it, and the bucket never holds a message in the clear.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn an_encrypted_drives_drops_are_filed_before_a_folder_is_listed() {
+        use azmail_core::mail_drive;
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DropFolder},
+                keys::RecoveryKdf,
+            },
+            keyring::{KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+        };
+        const DRIVE: &str = "d_bridge";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), DRIVE, cheap).unwrap();
+        let drive_key = device::load_drive_key(keyring.as_ref(), DRIVE).unwrap().unwrap();
+        let public = drops::enable_drop(bucket.as_ref(), &drive_key, DRIVE).unwrap();
+        let raw = mail("Lunch on Thursday");
+        let key = drops::new_drop_key().unwrap();
+        let sealed = drops::seal_drop(&public, DRIVE, &key, OCT_1, DropFolder::Inbox, &raw).unwrap();
+        bucket.put(&key, &sealed).unwrap();
+
+        let auto = mail_drive::wrap_auto(bucket.clone(), DRIVE, keyring.clone());
+        let store = DriveMailStore::new(auto.clone()).with_incoming(drops_incoming(auto, keyring));
+        let inbox = store.messages("Inbox").unwrap();
+        assert_eq!(inbox.len(), 1, "{inbox:?}");
+        assert_eq!(inbox[0].arrived, OCT_1);
+        assert_eq!(store.read("Inbox", &inbox[0].name).unwrap(), raw);
+        // What a mail program files goes through the encryption too.
+        store
+            .append("Drafts", &mail("A draft"), OCT_1, Marks::default())
+            .unwrap();
+        let keys: Vec<String> = ops::list_all(bucket.as_ref(), "")
+            .unwrap()
+            .into_iter()
+            .map(|object| object.key)
+            .collect();
+        assert!(
+            keys.iter()
+                .all(|k| !k.starts_with("mail/") && !k.starts_with(".azlin/drop/")),
+            "{keys:?}"
+        );
     }
 }

@@ -15,6 +15,11 @@
 //! - UIDVALIDITY is the time (seconds since 1970) the map was made. A lost or damaged map is
 //!   made anew with the time of then: the mail programs see a new UIDVALIDITY and fetch the
 //!   mailbox again, rather than trusting UIDs that now mean other messages.
+//! - CONDSTORE / QRESYNC (RFC 7162): [`UidMaps::track`] numbers the messages with their state
+//!   (their flags as IMAP shows them) and gives every change the bridge sees - a new message,
+//!   other flags, an expunge - a mod-sequence higher than any before (HIGHESTMODSEQ); the
+//!   newest [`MAX_VANISHED`] expunged UIDs are kept with theirs, for VANISHED. Changes made on
+//!   another device are seen when the bridge next looks at the mailbox.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -29,6 +34,8 @@ use serde::{Deserialize, Serialize};
 pub const UIDS_DIR: &str = "imap-uids";
 /// A map file's `format`.
 pub const UIDS_FORMAT: &str = "azul-bridge.uids";
+/// Expunged UIDs kept per mailbox for QRESYNC's VANISHED (the oldest are forgotten).
+pub const MAX_VANISHED: usize = 4096;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MapFile {
@@ -38,6 +45,18 @@ struct MapFile {
     validity: u32,
     next: u32,
     uids: BTreeMap<String, u32>,
+    /// HIGHESTMODSEQ (a file from before CONDSTORE: 0, then made).
+    #[serde(default)]
+    highest: u64,
+    /// Each message's mod-sequence and the state it was given for, by name.
+    #[serde(default)]
+    modseqs: BTreeMap<String, (u64, String)>,
+    /// The newest expunged UIDs with their mod-sequences.
+    #[serde(default)]
+    vanished: Vec<(u32, u64)>,
+    /// The highest mod-sequence of an expunge no longer in `vanished`.
+    #[serde(default)]
+    vanished_floor: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -45,15 +64,28 @@ struct UidMap {
     validity: u32,
     next: u32,
     by_name: BTreeMap<String, u32>,
+    highest: u64,
+    modseqs: BTreeMap<String, (u64, String)>,
+    vanished: Vec<(u32, u64)>,
+    vanished_floor: u64,
 }
 
-/// A mailbox's numbers after [`UidMaps::number`]: its UIDVALIDITY, UIDNEXT, and every name
-/// with its UID, by UID.
+/// A mailbox's numbers after [`UidMaps::number`] / [`UidMaps::track`]: its UIDVALIDITY,
+/// UIDNEXT, every name with its UID (by UID), and CONDSTORE's mod-sequences.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Numbered {
     pub validity: u32,
     pub next: u32,
     pub uids: Vec<(String, u32)>,
+    /// HIGHESTMODSEQ: no change of the mailbox has a higher mod-sequence.
+    pub highest_modseq: u64,
+    /// Each message's mod-sequence, by name.
+    pub modseqs: HashMap<String, u64>,
+    /// The newest expunged UIDs with the mod-sequences of their expunges...
+    pub vanished: Vec<(u32, u64)>,
+    /// ...and the highest mod-sequence of one forgotten (a client that knew less than this one
+    /// is told every UID that is not there).
+    pub vanished_floor: u64,
 }
 
 /// The maps of every mailbox, in a folder of their own (or in memory).
@@ -109,6 +141,10 @@ impl UidMaps {
             validity,
             next: 1,
             by_name: BTreeMap::new(),
+            highest: 1,
+            modseqs: BTreeMap::new(),
+            vanished: Vec::new(),
+            vanished_floor: 0,
         }
     }
 
@@ -123,6 +159,10 @@ impl UidMaps {
             validity: file.validity,
             next: file.next,
             by_name: file.uids,
+            highest: file.highest.max(1),
+            modseqs: file.modseqs,
+            vanished: file.vanished,
+            vanished_floor: file.vanished_floor,
         })
     }
 
@@ -137,6 +177,10 @@ impl UidMaps {
             validity: map.validity,
             next: map.next,
             uids: map.by_name.clone(),
+            highest: map.highest,
+            modseqs: map.modseqs.clone(),
+            vanished: map.vanished.clone(),
+            vanished_floor: map.vanished_floor,
         };
         // A map that cannot be written is made anew next time: a new UIDVALIDITY, never a
         // wrong UID.
@@ -145,7 +189,43 @@ impl UidMaps {
 
     /// Numbers the messages `names` of `mailbox` (any order; the store's is name order): the
     /// known keep their UIDs, the gone are dropped, the new get the next UIDs in name order.
+    /// The mod-sequences of the known stay; a new message and an expunge get one.
     pub fn number(&self, mailbox: &str, names: &[String]) -> Numbered {
+        self.number_with(mailbox, names, None)
+    }
+
+    /// [`UidMaps::number`] with each message's state (its flags as IMAP shows them): a message
+    /// whose state is not the one its mod-sequence was given for gets a new one.
+    pub fn track(&self, mailbox: &str, names: &[String], states: &HashMap<String, String>) -> Numbered {
+        self.number_with(mailbox, names, Some(states))
+    }
+
+    /// The message `name` of `mailbox` is in `state` now (a STORE): its new mod-sequence, or
+    /// the one it has when that was its state already; `None` for a message not numbered.
+    pub fn record(&self, mailbox: &str, name: &str, state: &str) -> Option<u64> {
+        let mut maps = self
+            .maps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map = maps.get_mut(mailbox)?;
+        if !map.by_name.contains_key(name) {
+            return None;
+        }
+        if let Some((modseq, known)) = map.modseqs.get(name) {
+            if known == state {
+                return Some(*modseq);
+            }
+        }
+        map.highest += 1;
+        let modseq = map.highest;
+        map.modseqs.insert(name.to_string(), (modseq, state.to_string()));
+        let snapshot = map.clone();
+        drop(maps);
+        self.save(mailbox, &snapshot);
+        Some(modseq)
+    }
+
+    fn number_with(&self, mailbox: &str, names: &[String], states: Option<&HashMap<String, String>>) -> Numbered {
         let mut maps = self
             .maps
             .lock()
@@ -158,6 +238,25 @@ impl UidMaps {
             unreachable!("inserted above");
         };
         let present: HashSet<&str> = names.iter().map(String::as_str).collect();
+        // The expunged: remembered with the mod-sequence of their going.
+        let gone: Vec<(String, u32)> = map
+            .by_name
+            .iter()
+            .filter(|(name, _)| !present.contains(name.as_str()))
+            .map(|(name, uid)| (name.clone(), *uid))
+            .collect();
+        for (name, uid) in &gone {
+            map.highest += 1;
+            map.vanished.push((*uid, map.highest));
+            map.modseqs.remove(name);
+        }
+        if map.vanished.len() > MAX_VANISHED {
+            let forgotten: Vec<(u32, u64)> = map.vanished.drain(..map.vanished.len() - MAX_VANISHED).collect();
+            map.vanished_floor = forgotten
+                .iter()
+                .map(|(_, modseq)| *modseq)
+                .fold(map.vanished_floor, u64::max);
+        }
         let before = map.by_name.len();
         map.by_name.retain(|name, _| present.contains(name.as_str()));
         let mut changed = map.by_name.len() != before;
@@ -175,10 +274,37 @@ impl UidMaps {
             new.sort();
             new.dedup();
         }
+        let state_of = |name: &str| -> String {
+            states
+                .and_then(|states| states.get(name))
+                .cloned()
+                .unwrap_or_default()
+        };
         for name in new {
             map.by_name.insert(name.clone(), map.next);
             map.next += 1;
+            map.highest += 1;
+            map.modseqs.insert(name.clone(), (map.highest, state_of(name)));
             changed = true;
+        }
+        // A message of a map from before CONDSTORE gets its first mod-sequence; a known one whose
+        // state changed, a new one.
+        let names_now: Vec<String> = map.by_name.keys().cloned().collect();
+        for name in names_now {
+            let state = states.and_then(|states| states.get(&name));
+            match map.modseqs.get(&name) {
+                None => {
+                    map.highest += 1;
+                    map.modseqs.insert(name.clone(), (map.highest, state_of(&name)));
+                    changed = true;
+                }
+                Some((_, known)) if state.is_some_and(|state| state != known) => {
+                    map.highest += 1;
+                    map.modseqs.insert(name.clone(), (map.highest, state_of(&name)));
+                    changed = true;
+                }
+                Some(_) => {}
+            }
         }
         let mut uids: Vec<(String, u32)> = map
             .by_name
@@ -190,6 +316,14 @@ impl UidMaps {
             validity: map.validity,
             next: map.next,
             uids,
+            highest_modseq: map.highest,
+            modseqs: map
+                .modseqs
+                .iter()
+                .map(|(name, (modseq, _))| (name.clone(), *modseq))
+                .collect(),
+            vanished: map.vanished.clone(),
+            vanished_floor: map.vanished_floor,
         };
         if changed {
             let snapshot = map.clone();
@@ -265,5 +399,60 @@ mod tests {
         let numbered = fresh.number("Work/Projects", &names(&["b.eml", "c.eml"]));
         assert_eq!(numbered.validity, 300);
         assert_eq!(uids_of(&numbered), vec![("b.eml", 1), ("c.eml", 2)]);
+    }
+
+    fn states(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(name, state)| (name.to_string(), state.to_string()))
+            .collect()
+    }
+
+    /// CONDSTORE (RFC 7162): every change the bridge sees of a message - new, its flags - gets a
+    /// mod-sequence higher than any before; an expunge too, remembered with the UID for QRESYNC's
+    /// VANISHED; a STORE's change is recorded at once and not counted again.
+    #[test]
+    fn every_change_of_a_message_gets_a_higher_mod_sequence_and_an_expunge_is_remembered() {
+        let maps = UidMaps::in_memory().with_clock(|| 7);
+        let both = names(&["a.eml", "b.eml"]);
+        let first = maps.track("Inbox", &both, &states(&[("a.eml", ""), ("b.eml", "")]));
+        let (a, b) = (first.modseqs["a.eml"], first.modseqs["b.eml"]);
+        assert!(a > 0 && b > a, "{first:?}");
+        assert_eq!(first.highest_modseq, b);
+        let same = maps.track("Inbox", &both, &states(&[("a.eml", ""), ("b.eml", "")]));
+        assert_eq!(same.highest_modseq, first.highest_modseq, "nothing changed, nothing moves");
+
+        let flagged = maps.track("Inbox", &both, &states(&[("a.eml", ""), ("b.eml", "\\Flagged")]));
+        assert_eq!(flagged.modseqs["a.eml"], a);
+        assert!(flagged.modseqs["b.eml"] > first.highest_modseq);
+        assert_eq!(flagged.highest_modseq, flagged.modseqs["b.eml"]);
+
+        let gone = maps.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Flagged")]));
+        assert_eq!(gone.vanished.len(), 1, "{gone:?}");
+        assert_eq!(gone.vanished[0].0, 1, "a's UID");
+        assert!(gone.vanished[0].1 > flagged.highest_modseq);
+        assert_eq!(gone.highest_modseq, gone.vanished[0].1);
+
+        let stored = maps.record("Inbox", "b.eml", "\\Flagged \\Seen").expect("a numbered message");
+        assert!(stored > gone.highest_modseq);
+        let after = maps.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Flagged \\Seen")]));
+        assert_eq!(after.modseqs["b.eml"], stored, "the same state is no second change");
+        assert_eq!(after.highest_modseq, stored);
+        // Plain numbering (an APPEND's UID) leaves the mod-sequences as they are.
+        let numbered = maps.number("Inbox", &names(&["b.eml"]));
+        assert_eq!(numbered.highest_modseq, stored);
+    }
+
+    #[test]
+    fn the_mod_sequences_and_the_vanished_outlive_the_process() {
+        let dir = TempDir::new("uids-modseq");
+        let maps = UidMaps::in_folder(dir.0.join(UIDS_DIR)).with_clock(|| 100);
+        maps.track("Inbox", &names(&["a.eml", "b.eml"]), &states(&[("a.eml", ""), ("b.eml", "")]));
+        let before = maps.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Seen")]));
+        let again = UidMaps::in_folder(dir.0.join(UIDS_DIR)).with_clock(|| 200);
+        let after = again.track("Inbox", &names(&["b.eml"]), &states(&[("b.eml", "\\Seen")]));
+        assert_eq!(after.highest_modseq, before.highest_modseq);
+        assert_eq!(after.modseqs, before.modseqs);
+        assert_eq!(after.vanished, before.vanished);
     }
 }
