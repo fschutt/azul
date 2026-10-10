@@ -618,6 +618,33 @@ def run(args, logs):
         log("6c. AzDrive running, the period of %s nearly over at the token server: the next "
             "look bought it a month with its kept token" % paid)
 
+        # 6d. The drive's node answers "read-only, unpaid" (x-azlin-error): AzDrive says it in
+        # the table's words with the request ID as the error ID, and notifies once.
+        bucket = stack.token.state.drives[paid]["bucket"]
+        stack.s3.fail_bucket(bucket, 403, "AccessDenied", "the drive takes no writes",
+                             {"x-azlin-error": "read_only_unpaid"})
+        problem = app.after("the refused listing", "AZDRIVE_PROBLEM",
+                            r"%s read_only_unpaid \S+" % re.escape(paid), lambda: app.key("f5"))
+        refused = [r for r in stack.s3.requests() if r.get("bucket") == bucket][-1]
+        if problem.split()[-1] != refused.get("request_id"):
+            raise Failure("the error ID %r is not the node's request ID %r"
+                          % (problem.split()[-1], refused.get("request_id")))
+        app.until("the table's text with the error ID", lambda: app.shows(
+            "Your last payment didn't go through") and app.shows(
+            "Error ID: %s" % refused.get("request_id")))
+        try:
+            answer = app.op("assert_notification", title="AzDrive")
+            if isinstance(answer, dict) and answer.get("status") == "error":
+                log("WARN assert_notification: %s" % json.dumps(answer)[:200])
+        except (OSError, ValueError) as e:
+            log("WARN assert_notification unavailable: %s" % e)
+        stack.s3.clear_faults()
+        app.after("the drive answering again", "AZDRIVE_PROBLEM_GONE", re.escape(paid),
+                  lambda: app.key("f5"))
+        log("6d. The node refused %s as unpaid (x-azlin-error read_only_unpaid): the table's "
+            "text with error ID %s; after it answered again the problem left the status line"
+            % (paid, refused.get("request_id")))
+
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
         token = stack.token_url
