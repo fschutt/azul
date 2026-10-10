@@ -194,4 +194,41 @@ mod tests {
         };
         assert!(UreqTransport::new().send(&nobody).is_err());
     }
+
+    /// DNS down: a name that does not resolve is reached at the addresses the failover handed
+    /// over (the request still names the host), and without them it fails as a DNS failure.
+    #[test]
+    fn a_name_that_does_not_resolve_is_reached_at_its_fallback_address_under_its_name() {
+        let (url, requests) = server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+        let port = url.rsplit(':').next().unwrap().to_string();
+        let call = HttpCall {
+            method: Method::Get,
+            url: format!("http://n2.azlin-dns-test.invalid:{port}/bucket/a.txt"),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+        };
+        let transport = UreqTransport::new();
+        let why = transport.send(&call).unwrap_err();
+        assert!(
+            azul_storage::transport::is_dns_failure(&why)
+                && why.starts_with(azul_storage::transport::DNS_FAILED),
+            "{why}"
+        );
+        assert!(!transport.fallback_addresses("n2.azlin-dns-test.invalid", &[String::from("no")]));
+        assert!(transport.fallback_addresses("N2.azlin-dns-test.invalid", &[String::from("127.0.0.1")]));
+        let reply = transport.send(&call).unwrap();
+        assert_eq!(reply.status, 200);
+        let request = String::from_utf8(requests.recv().unwrap()).unwrap();
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains(&format!("host: n2.azlin-dns-test.invalid:{port}")),
+            "the request still names the host: {request}"
+        );
+        assert!(
+            UreqTransport::new().send(&call).is_err(),
+            "another transport of its own knows no address"
+        );
+    }
 }

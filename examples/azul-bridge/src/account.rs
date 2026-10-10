@@ -196,3 +196,82 @@ impl Drive for AccountDrive {
         self.with_bucket(|b| b.metadata(key))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use azcloud_kit::{
+        account::{read_grant, store_grant},
+        drive::TransportFactory,
+        StateDir,
+    };
+    use azul_storage::{testing::TempDir, Drive, HttpCall, HttpReply, ListRequest, Transport};
+
+    use super::AccountDrive;
+
+    const TOKEN: &str = "http://127.0.0.1:18081";
+    const BLOCK: &str = "http://127.0.0.1:19000";
+    const NODE: &str = "http://127.0.0.1:19002";
+
+    /// The block endpoint refuses every connection; the node answers an empty listing. Every
+    /// call's URL is kept.
+    struct Cloud(Arc<Mutex<Vec<String>>>);
+
+    impl Transport for Cloud {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.0.lock().unwrap().push(call.url.clone());
+            if call.url.starts_with(BLOCK) {
+                return Err(String::from("connection refused"));
+            }
+            Ok(HttpReply {
+                status: 200,
+                headers: vec![(String::from("content-type"), String::from("application/xml"))],
+                body: b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult><Name>d-1</Name>\
+                        <Prefix></Prefix><KeyCount>0</KeyCount><MaxKeys>1000</MaxKeys>\
+                        <IsTruncated>false</IsTruncated></ListBucketResult>"
+                    .to_vec(),
+            })
+        }
+    }
+
+    /// The bridge's device holding drive d_1 at the block endpoint, its refresh's node list
+    /// naming one node (credentials good until 2099: no refresh).
+    fn device(dir: &TempDir) -> StateDir {
+        let state = StateDir::open(dir.path()).unwrap();
+        let answer: serde_json::Value = serde_json::from_str(&format!(
+            r#"{{"drive": {{"id": "d_1", "name": "Azlin Storage",
+                  "location": {{"kind": "s3", "endpoint": "{BLOCK}", "region": "us-east-1",
+                                "bucket": "d-1", "path_style": true,
+                                "auth": {{"type": "azlin", "drive_id": "d_1",
+                                          "account_url": "{TOKEN}"}}}}}},
+                "credentials": {{"access_key_id": "AKID1", "secret_access_key": "secret",
+                                 "session_token": "session", "expires_at": "2099-01-01T00:00:00Z"}},
+                "failover": [], "nodes": [{{"name": "n2", "url": "{NODE}", "ready": true}}],
+                "quota_bytes": 100000000000, "read_only": false,
+                "period_until": "2099-01-01T00:00:00Z", "drive_token": "dt_f.0.aaa",
+                "tier": "100GB"}}"#
+        ))
+        .unwrap();
+        store_grant(&state, &read_grant(&answer, TOKEN, "owner", 0).unwrap()).unwrap();
+        state
+    }
+
+    #[test]
+    fn the_bridges_drive_fails_over_to_the_nodes_its_refresh_listed() {
+        let dir = TempDir::new("bridge-failover");
+        let state = device(&dir);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let transports: TransportFactory =
+            Arc::new(move || Box::new(Cloud(seen.clone())) as Box<dyn Transport>);
+        let drive = AccountDrive::open(&state, TOKEN, transports, None).unwrap();
+        drive.list(&ListRequest::folder("")).unwrap();
+        let calls = calls.lock().unwrap().clone();
+        assert!(calls.first().is_some_and(|url| url.starts_with(BLOCK)), "{calls:?}");
+        assert!(
+            calls.last().is_some_and(|url| url.starts_with(NODE)),
+            "the block endpoint gave no answer: the node did - {calls:?}"
+        );
+    }
+}
