@@ -1089,6 +1089,17 @@ mod tests {
         assert_eq!(Settings::from_json("not json"), Settings::default());
     }
 
+    /// The drives the user asked to index ("Index this drive") are remembered: none at first.
+    #[test]
+    fn the_drives_to_index_are_remembered() {
+        assert!(Settings::default().indexed_drives.is_empty());
+        let mut settings = Settings::default();
+        settings.indexed_drives.push(String::from("home"));
+        assert_eq!(Settings::from_json(&settings.to_json()), settings);
+        let read = Settings::from_json(r#"{"indexed_drives":["home","data"]}"#);
+        assert_eq!(read.indexed_drives, vec!["home", "data"]);
+    }
+
     /// The icon grid speaks positions: the selection reads back as positions in the visible
     /// order (anchor and focus too), and takes the grid's positions back as the same keys.
     #[test]

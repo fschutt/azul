@@ -607,3 +607,46 @@ fn a_drives_index_has_a_folder_of_its_own_and_reads_what_the_search_box_does() {
     assert!(filters.exclude.iter().any(|glob| glob.contains(azul_storage::manifest::MANIFEST_DIR)));
     assert_eq!(filters.max_depth, None, "every folder");
 }
+
+/// A drive's index says on the status line how far its update got, what it holds, or why it
+/// could not be brought up to date; a search asks it once it holds the drive (a former run's
+/// index too, while it is brought up to date).
+#[test]
+fn an_index_says_how_far_it_got_and_is_asked_once_it_holds_the_drive() {
+    use azul_search_index::{IndexStatus, UpdateProgress};
+
+    let mut info = find::IndexInfo::default();
+    assert!(!info.usable());
+    assert_eq!(info.status_text(), "Not indexed yet");
+    info.progress = Some(UpdateProgress::default());
+    assert_eq!(info.status_text(), "Indexing: looking at the files...");
+    info.progress = Some(UpdateProgress {
+        listed: 4000,
+        to_read: 4000,
+        read: 120,
+    });
+    assert_eq!(info.status_text(), "Indexing: 120 of 4,000 files read...");
+    info.status = Some(IndexStatus {
+        files: 10,
+        documents: 8,
+        updated: Some(1_700_000_000),
+    });
+    assert!(info.usable(), "a former run's index is asked while it is brought up to date");
+    info.progress = None;
+    info.status = Some(IndexStatus {
+        files: 4000,
+        documents: 3500,
+        updated: Some(1_700_000_100),
+    });
+    assert_eq!(info.status_text(), "Indexed: 4,000 files");
+    info.error = Some(String::from("another window is updating this index"));
+    assert_eq!(
+        info.status_text(),
+        "The index could not be updated: another window is updating this index"
+    );
+    let never = find::IndexInfo {
+        status: Some(IndexStatus::default()),
+        ..find::IndexInfo::default()
+    };
+    assert!(!never.usable(), "an index no update went over holds nothing");
+}

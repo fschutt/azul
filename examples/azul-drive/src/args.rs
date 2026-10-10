@@ -572,6 +572,22 @@ mod tests {
         );
     }
 
+    /// The folder AzDrive keeps its caches in (a cloud drive's last listing, the drives'
+    /// indexes) is a switch, `$AZDRIVE_CACHE` filling in when it is absent.
+    #[test]
+    fn the_cache_folder_is_a_switch_with_its_variable() {
+        let args = parse(&["--cache-dir", "/tmp/cache"]).unwrap();
+        assert_eq!(args.cache_dir, Some(PathBuf::from("/tmp/cache")));
+        assert_eq!(parse(&[]).unwrap().cache_dir, None, "the user's cache folder");
+        assert!(parse(&["--cache-dir="]).unwrap_err().contains("--cache-dir needs a folder"));
+        let env = |var: &str| (var == "AZDRIVE_CACHE").then(|| String::from("/env/cache"));
+        let filled = parse(&[]).unwrap().with_env_fallbacks(env);
+        assert_eq!(filled.cache_dir, Some(PathBuf::from("/env/cache")));
+        let kept = parse(&["--cache-dir", "/flag"]).unwrap().with_env_fallbacks(env);
+        assert_eq!(kept.cache_dir, Some(PathBuf::from("/flag")), "the switch wins");
+        assert!(parse(&["-h"]).unwrap_err().contains("--cache-dir"));
+    }
+
     #[test]
     fn the_sample_files_land_in_the_home_folder_and_a_second_run_keeps_them() {
         let dir = std::env::temp_dir().join(format!("azdrive-sample-{}", std::process::id()));
