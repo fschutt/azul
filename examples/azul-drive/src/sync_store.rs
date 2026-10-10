@@ -17,7 +17,11 @@ use std::{
 
 use azcloud_kit::sync::session::{FileState, LocalCopies, SyncSetup, SyncStates};
 
-use crate::{jobs, sync_view::key_under};
+use crate::{
+    jobs,
+    sync_lookup::{SyncLookup, SyncState},
+    sync_view::key_under,
+};
 
 /// One pairing as the store keeps it.
 struct Pair {
@@ -194,5 +198,34 @@ impl SyncStore {
     #[must_use]
     pub(crate) fn any(&self) -> bool {
         !self.read().pairs.is_empty()
+    }
+}
+
+/// A file state as a search result's Status cell says it.
+#[must_use]
+pub(crate) fn lookup_state(state: &FileState) -> SyncState {
+    match state {
+        FileState::CloudOnly => SyncState::OnlineOnly,
+        FileState::Downloading { .. } | FileState::Uploading { .. } => SyncState::Syncing,
+        FileState::OnDevice | FileState::OnDeviceEncrypted | FileState::Pinned => {
+            SyncState::OnThisDevice
+        }
+        FileState::Conflict | FileState::Error(_) => SyncState::Problem,
+    }
+}
+
+/// The search's seam: a result's sync state, the plain local copy its index reads, whether a
+/// Status column shows - all from the store, from memory.
+impl SyncLookup for SyncStore {
+    fn local_copy(&self, drive_id: &str, key: &str) -> Option<PathBuf> {
+        SyncStore::local_copy(self, drive_id, key)
+    }
+
+    fn sync_state(&self, drive_id: &str, key: &str) -> Option<SyncState> {
+        self.file_state(drive_id, key).as_ref().map(lookup_state)
+    }
+
+    fn syncs(&self) -> bool {
+        self.any()
     }
 }

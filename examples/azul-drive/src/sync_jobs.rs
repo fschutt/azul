@@ -398,6 +398,9 @@ fn state_root(s: &DriveState) -> Option<PathBuf> {
 /// At the window's start: every synced drive's states as they were kept, the poll timer, a
 /// first pass of each drive that is not paused.
 pub(crate) fn start(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    // The search asks the store (its SyncLookup) from now on: no Status column while nothing
+    // syncs.
+    s.sync = Arc::new(s.sync_view.store.clone());
     let Some(root) = state_root(s) else {
         return;
     };
