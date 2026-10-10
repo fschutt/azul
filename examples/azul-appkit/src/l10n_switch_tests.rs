@@ -4,7 +4,7 @@
 
 use crate::l10n::{
     app_word, date_text, decimal, grouped, is_key, keep, money, named, named_key, set_locale,
-    sources, t, t_args, t_phrase, Arg, DateStyle, Phrase,
+    sources, t, t_args, t_phrase, Arg, DateStyle, Phrase, Voice,
 };
 
 #[test]
@@ -167,4 +167,32 @@ fn a_date_is_written_as_the_language_writes_it() {
     assert_eq!(day(DateStyle::DayOnly), "30.");
     assert_eq!(date_text(DateStyle::MonthYear, 2026, 3, 1, 6), "März 2026");
     set_locale("en-US");
+}
+
+#[test]
+fn a_worker_thread_that_adopts_the_ui_threads_voice_says_its_words_in_its_language() {
+    keep(&sources(&[]));
+    set_locale("de-DE");
+    let voice = Voice::here();
+    set_locale("en-US");
+    let (before, after) = std::thread::spawn(move || {
+        let before = t("kit-general-language");
+        voice.adopt();
+        (before, t("kit-general-language"))
+    })
+    .join()
+    .expect("the worker thread ends");
+    assert_eq!(before, "kit-general-language", "a new thread has no words of its own");
+    assert_eq!(after, "Sprache", "the voice's language, not this thread's English");
+    assert_eq!(Voice::here(), Voice::here());
+    assert_ne!(Voice::here(), voice_in("de-DE"), "a printout in another language differs");
+}
+
+/// The voice of a thread speaking `locale`.
+fn voice_in(locale: &str) -> Voice {
+    let here = crate::l10n::locale();
+    set_locale(locale);
+    let voice = Voice::here();
+    set_locale(&here);
+    voice
 }
