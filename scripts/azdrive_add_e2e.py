@@ -484,11 +484,14 @@ def found(texts, pattern):
 
 
 def saved_pdf(app, what):
-    """The newest export recorded by FileDialog::save_bytes is a PDF of some size."""
-    answer = app.op("assert_saved_file", name_ends_with=".pdf", mime="application/pdf",
-                    min_len=2000, contains="%PDF")
-    if not isinstance(answer, dict) or answer.get("status") == "error":
-        raise Failure("%s was not saved as a PDF: %s" % (what, json.dumps(answer)[:300]))
+    """The newest export recorded by FileDialog::save_bytes is a PDF of some size. A headless
+    run's save goes to the armed mock store, not to a file, and `assert_saved_file` reads it
+    there - a scenario step, so it runs through `run_e2e_tests`."""
+    try:
+        app.scenario_assert("assert_saved_file", name_ends_with=".pdf", mime="application/pdf",
+                            min_len=2000, contains="%PDF")
+    except Failure as e:
+        raise Failure("%s was not saved as a PDF: %s" % (what, e))
 
 
 def settings_text(data_dir):

@@ -375,6 +375,21 @@ class App:
             return data["value"]
         return data if data is not None else answer
 
+    def scenario_assert(self, op, **params):
+        """A scenario-only assertion - `assert_saved_file`, `assert_notification`, ...: steps of
+        a scenario, no debug-server ops of their own - run as a one-step `run_e2e_tests` test
+        in this window. Its step result (`status`, `logs`, `response`); a failure raises."""
+        step = {"op": op}
+        step.update(params)
+        data = self.value("run_e2e_tests", tests=[{"name": op, "steps": [step]}])
+        results = data.get("results") if isinstance(data, dict) else None
+        result = results[0] if results else {}
+        steps = result.get("steps") or []
+        outcome = steps[0] if steps else {}
+        if result.get("status") != "pass" or outcome.get("status") != "pass":
+            raise Failure("%s %s failed: %s" % (op, json.dumps(params), json.dumps(result)[:400]))
+        return outcome
+
     def frame(self, n=1):
         for _ in range(n):
             self.must("wait_frame")
