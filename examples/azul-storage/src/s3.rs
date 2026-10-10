@@ -292,7 +292,20 @@ fn quoted_etag(etag: &str) -> String {
 /// The error of a failed answer: a missing key and a bad range become their own
 /// variants, everything else a readable [`ServiceError`].
 fn failure(reply: &HttpReply, key: Option<&str>) -> DriveError {
-    let error = xml::parse_error(reply.status, &String::from_utf8_lossy(&reply.body));
+    let mut error = xml::parse_error(reply.status, &String::from_utf8_lossy(&reply.body));
+    // An Azlin node's code and pause, and the request ID a body without one leaves out (D33).
+    let header = |name: &str| {
+        reply
+            .header(name)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    error.azlin_error = header("x-azlin-error");
+    error.retry_after = header("retry-after").and_then(|secs| secs.parse::<u64>().ok());
+    if error.request_id.is_none() {
+        error.request_id = header("x-amz-request-id");
+    }
     match (error.code.as_str(), key) {
         ("NoSuchKey" | "NotFound", Some(key)) => DriveError::NotFound {
             key: key.to_string(),

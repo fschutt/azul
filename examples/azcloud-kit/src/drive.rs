@@ -24,7 +24,7 @@ use azul_storage::{
     config::{keyring_key, DriveEntry},
     time::now_unix,
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive,
-    Transport,
+    ServiceError, Transport,
 };
 
 use crate::{
@@ -85,9 +85,19 @@ fn drive_error_of(e: &TokenError) -> DriveError {
             message: e.to_string(),
         },
         TokenError::Config(why) => DriveError::InvalidConfig(why.clone()),
-        TokenError::Refused { .. } | TokenError::Protocol(_) => {
-            DriveError::Protocol(e.to_string())
-        }
+        // A refusal keeps its status and code: a busy token server is a busy service to the
+        // user (user_errors), not a broken answer.
+        TokenError::Refused {
+            status,
+            code,
+            message,
+        } => DriveError::Service(ServiceError {
+            status: *status,
+            code: code.clone(),
+            message: message.clone(),
+            ..ServiceError::default()
+        }),
+        TokenError::Protocol(_) => DriveError::Protocol(e.to_string()),
     }
 }
 

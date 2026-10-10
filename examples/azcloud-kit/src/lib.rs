@@ -61,6 +61,8 @@
 //!   through azul-storage's `EncryptedDrive` with the index an `IndexProvider` opens.
 //! - [`error`]: [`CloudError`], what went wrong, telling a drive token to sign in again for
 //!   from everything else.
+//! - [`user_errors`]: the errors users see - one table from the token server's and the
+//!   storage's codes to a class, a behaviour and an English and German text with the error ID.
 //!
 //! Every call blocks and goes through azul-storage's `Transport` (azul's HTTP client in the
 //! apps, a fake in the tests): call it from an azul `Thread`, never from a UI callback.
@@ -92,6 +94,7 @@ pub mod store;
 pub mod sync;
 pub mod token;
 pub mod transport;
+pub mod user_errors;
 
 #[cfg(test)]
 mod tests;
@@ -119,6 +122,7 @@ pub use token::{
     RecoveryLockdown, Tier, Tiers, TokenError, TokenServer, VoucherRedeemed,
 };
 pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
+pub use user_errors::{Lang, UserError};
 
 /// Now, in seconds since 1970-01-01 UTC.
 #[must_use]
