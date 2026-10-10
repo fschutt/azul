@@ -151,7 +151,7 @@ impl LayoutWindow {
     /// box. The scroll manager's tracks
     /// ([`ScrollManager::hit_test_scrollbars`]) know only where each bar
     /// lies, so an `overflow: hidden` ancestor that cut a bar off, or a
-    /// dialog painted over it, still lost its press to the bar (AzDrive's
+    /// dialog painted over it, still lost its press to the bar (`AzDrive`'s
     /// "I was hacked..." button over its file list's clipped bar scrolled the
     /// list). The tracks stay the cheap first filter - most presses are on no
     /// bar at all - and the part pressed; the paint order, read off the
