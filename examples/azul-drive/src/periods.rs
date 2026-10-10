@@ -205,6 +205,8 @@ pub(crate) fn periods_redeemed(
         s.redemptions.looked(&drive_id, &look.redeemed, now);
         if let Some(status) = &look.status {
             lockdown_seen(info, s, &drive_id, status.lockdown_pending_until);
+            // A ban (ban contract v1): the banner and the refusals, or none any more.
+            crate::ban::seen(s, &drive_id, status.ban.clone());
             // A synced drive's status line says "Read-only (payment due)" by this word.
             crate::sync_jobs::drive_status_seen(s, &drive_id, status.read_only);
         }
@@ -409,5 +411,10 @@ extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> Time
     crate::problems::notify_due(&mut callback_info, &mut *s);
     // A cash order's daily look (its letter may have arrived).
     crate::cash::look_if_due(&mut callback_info, &app, &mut *s);
-    TimerCallbackReturn::continue_unchanged()
+    // A banned drive's banner counts its hours down.
+    if s.bans.is_empty() {
+        TimerCallbackReturn::continue_unchanged()
+    } else {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    }
 }

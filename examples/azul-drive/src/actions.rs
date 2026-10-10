@@ -249,6 +249,10 @@ pub(crate) fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
 /// Why `action` cannot run now, or `None` when it can (the ribbon greys the
 /// control and says why).
 pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
+    // A banned drive takes nothing new, a closed one opens nothing (ban contract v1).
+    if let Some(reason) = crate::ban::refuses(s, action) {
+        return Some(reason);
+    }
     // A source AzDrive browses but does not write (a database, a web server).
     let read_only = s.current_drive().is_some_and(|i| s.slots[i].read_only());
     if read_only
@@ -1866,6 +1870,18 @@ pub(crate) fn enqueue_routed(
     s: &mut DriveState,
     transfer: crate::sync_jobs::Transfer,
 ) {
+    // Nothing goes into a banned drive (an upload, a paste, a drop), nothing moves out of it.
+    let banned = crate::ban::refuses_writes_to(s, &transfer.target.0).or_else(|| {
+        transfer
+            .kind
+            .removes_source()
+            .then(|| crate::ban::refuses_writes_to(s, &transfer.source.0))
+            .flatten()
+    });
+    if let Some(why) = banned {
+        s.warn(why);
+        return;
+    }
     let Some(crate::sync_jobs::Transfer {
         kind,
         source,

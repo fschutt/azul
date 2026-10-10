@@ -182,10 +182,17 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     if let Some(bar) = crate::periods::lockdown_bar(s, app) {
         area.add_child(bar);
     }
+    // A banned drive in view: why, the hours left, Copy everything to this computer.
+    if let Some(bar) = crate::ban::banner(s, app) {
+        area.add_child(bar);
+    }
     let grid = uses_icon_grid(s);
     // A search's results (of This PC too) are a folder's view of rows.
     let folder = matches!(s.place, Place::Folder { .. }) || s.find.is_some();
+    // A closed drive in view shows when and why it was closed, and nothing else.
+    let closed = crate::ban::closed_view(s);
     let view = match &s.place {
+        Place::Folder { .. } if closed.is_some() => closed.unwrap_or_else(Dom::create_div),
         Place::ThisPc if s.find.is_some() => folder_view(s, app),
         Place::ThisPc => this_pc(s, app),
         Place::QuickAccess => quick_access(s, app),

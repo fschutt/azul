@@ -220,6 +220,13 @@ pub const ADD_VOUCHER_CODE: AzString = AzString::from_const_str("__azdrive_add_v
 pub const ADD_VOUCHER_REDEEM: AzString =
     AzString::from_const_str("__azdrive_add_voucher_redeem");
 
+/// A banned drive (ban contract v1): its banner, the banner's text, Copy everything, the closed
+/// drive's message.
+pub const BAN_BAR: AzString = AzString::from_const_str("__azdrive_ban_bar");
+pub const BAN_TEXT: AzString = AzString::from_const_str("__azdrive_ban_text");
+pub const BAN_COPY: AzString = AzString::from_const_str("__azdrive_ban_copy");
+pub const BAN_CLOSED: AzString = AzString::from_const_str("__azdrive_ban_closed");
+
 /// Cash by post: Add drive's "Pick up a paid drive with a claim code" (the first page's
 /// button, the code's box, Pick up), the posted order's waiting line and claim code, its pages'
 /// buttons.

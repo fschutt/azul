@@ -852,6 +852,8 @@ pub(crate) struct DriveState {
     pub cash_waits: Vec<cash::Wait>,
     /// When the cash orders are asked about next: once a day (`AZDRIVE_PERIOD_CHECK_SECS`).
     pub cash_looks: periods::Schedule,
+    /// The banned Azlin drives (ban contract v1), by their Azlin id: why, until when.
+    pub bans: HashMap<String, azcloud_kit::Ban>,
 }
 
 impl DriveState {
@@ -3172,6 +3174,7 @@ pub fn start() {
         sign_in_settings,
         cash_waits: Vec::new(),
         cash_looks: periods::Schedule::default(),
+        bans: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());
