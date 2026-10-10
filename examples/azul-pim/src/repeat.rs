@@ -15,8 +15,12 @@
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 pub use crate::dates::WORK_DAYS;
-use crate::dates::{add_months_clamped, days_in_month, ordinal_suffix, weekday_short, ymd_clamped};
+use crate::dates::{
+    add_months_clamped, days_in_month, ordinal_suffix, weekday_short, weekday_short_message_id,
+    ymd_clamped,
+};
 use crate::rrule::{ByDay, Freq, RepeatEnd, Rule};
+use crate::said::{Said, SaidArg};
 
 /// The step of a rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -250,6 +254,45 @@ impl Repeat {
             text.push_str(" after completion");
         }
         text
+    }
+
+    /// What the rule does as messages of azul-appkit's resources an app says in the window's
+    /// language (`l10n::t_said`): "Weekdays", "Every 3 days", "Weekly on Mon and Wed", "Monthly
+    /// on the 31st", "... after completion" ([`Repeat::label`]'s English is for logs).
+    #[must_use]
+    pub fn description(&self) -> Said {
+        let every = Said::new(match self.unit {
+            Unit::Day => "kit-rule-daily",
+            Unit::Week => "kit-rule-weekly",
+            Unit::Month => "kit-rule-monthly",
+            Unit::Year => "kit-rule-yearly",
+        })
+        .arg("n", SaidArg::Number(i64::from(self.every.max(1))));
+        let on = |every: Said, on: SaidArg| {
+            Said::new("kit-rule-on")
+                .arg("every", SaidArg::Said(every))
+                .arg("on", on)
+        };
+        let rule = if self.is_weekdays() {
+            Said::new("kit-repeat-weekdays")
+        } else if self.unit == Unit::Week && !self.weekdays.is_empty() {
+            let days = self
+                .weekdays
+                .iter()
+                .map(|d| Said::new(weekday_short_message_id(*d)))
+                .collect();
+            on(every, SaidArg::List(days))
+        } else if let (Unit::Month, Some(day)) = (self.unit, self.month_day) {
+            let day = Said::new("kit-repeat-month-day").arg("day", SaidArg::Number(i64::from(day)));
+            on(every, SaidArg::Said(day))
+        } else {
+            every
+        };
+        if self.from_completion {
+            Said::new("kit-repeat-after-completion").arg("rule", SaidArg::Said(rule))
+        } else {
+            rule
+        }
     }
 }
 

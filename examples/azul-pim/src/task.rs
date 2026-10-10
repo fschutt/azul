@@ -122,6 +122,18 @@ impl Priority {
         }
     }
 
+    /// Its word in azul-appkit's resources (`kit-task-priority-high`): an app says it in the
+    /// window's language.
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            Priority::None => "kit-task-priority-none",
+            Priority::Low => "kit-task-priority-low",
+            Priority::Medium => "kit-task-priority-medium",
+            Priority::High => "kit-task-priority-high",
+        }
+    }
+
     /// The row's mark: nothing, `!`, `!!`, `!!!`.
     #[must_use]
     pub fn mark(self) -> &'static str {
@@ -436,6 +448,21 @@ impl ListColor {
         }
     }
 
+    /// Its word in azul-appkit's resources (`kit-task-color-teal`).
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            ListColor::Blue => "kit-task-color-blue",
+            ListColor::Green => "kit-task-color-green",
+            ListColor::Red => "kit-task-color-red",
+            ListColor::Orange => "kit-task-color-orange",
+            ListColor::Purple => "kit-task-color-purple",
+            ListColor::Teal => "kit-task-color-teal",
+            ListColor::Gray => "kit-task-color-gray",
+            ListColor::Pink => "kit-task-color-pink",
+        }
+    }
+
     /// The colour's dot: `#rrggbb` for the light mode, a lighter twin for the dark one.
     #[must_use]
     pub fn hex(self, dark: bool) -> &'static str {
@@ -540,6 +567,18 @@ impl SortMode {
             SortMode::Priority => "Priority",
             SortMode::Title => "Title",
             SortMode::Created => "Created",
+        }
+    }
+
+    /// Its word in azul-appkit's resources (`kit-task-sort-due`).
+    #[must_use]
+    pub fn message_id(self) -> &'static str {
+        match self {
+            SortMode::Manual => "kit-task-sort-manual",
+            SortMode::Due => "kit-task-sort-due",
+            SortMode::Priority => "kit-task-sort-priority",
+            SortMode::Title => "kit-task-sort-title",
+            SortMode::Created => "kit-task-sort-created",
         }
     }
 }

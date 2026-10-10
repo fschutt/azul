@@ -207,3 +207,33 @@ kit-rule-times = { $count ->
 kit-rule-until = { $rule }, until { $date }
 kit-date-style-short-date-year = { $wd } { $day } { $mon } { $year }
 kit-date-style-weekday-date = { $weekday } { $day } { $month } { $year }
+# A task's words (azul-pim's task and repeat, AzTasks).
+kit-task-priority-none = None
+kit-task-priority-low = Low
+kit-task-priority-medium = Medium
+kit-task-priority-high = High
+kit-task-color-blue = Blue
+kit-task-color-green = Green
+kit-task-color-red = Red
+kit-task-color-orange = Orange
+kit-task-color-purple = Purple
+kit-task-color-teal = Teal
+kit-task-color-gray = Gray
+kit-task-color-pink = Pink
+kit-task-sort-manual = Manual
+kit-task-sort-due = Due date
+kit-task-sort-priority = Priority
+kit-task-sort-title = Title
+kit-task-sort-created = Created
+kit-repeat-weekdays = Weekdays
+kit-repeat-month-day = the { $day }{ $day ->
+    [1] st
+    [2] nd
+    [3] rd
+    [21] st
+    [22] nd
+    [23] rd
+    [31] st
+   *[other] th
+ }
+kit-repeat-after-completion = { $rule } after completion
