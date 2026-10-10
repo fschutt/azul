@@ -527,3 +527,139 @@ azdrive-voucher-made-new-drive = Der Tokenserver hat ein neues Laufwerk erstellt
 
 azdrive-about-credits = Mitwirkende
 azdrive-about-public-domain = Gemeinfrei
+
+## The sync
+
+azdrive-sync-status-paused = Angehalten
+azdrive-sync-status-payment-due = Schreibgeschützt (Zahlung fällig)
+azdrive-sync-status-newer-format = Hier schreibgeschützt: Aktualisiere die App, um dieses Laufwerk zu synchronisieren
+azdrive-sync-status-burst = Hochladen angehalten: { $count ->
+        [one] eine Änderung
+       *[other] { $count } Änderungen
+    } auf einmal
+azdrive-sync-status-encrypted = Hochladen angehalten: { $count ->
+        [one] eine Datei sieht
+       *[other] { $count } Dateien sehen
+    } verschlüsselt aus
+azdrive-sync-status-mass-delete = Wartet auf dich: { $count ->
+        [one] eine Datei würde
+       *[other] { $count } Dateien würden
+    } gelöscht
+azdrive-sync-status-read-only = Schreibgeschützt
+azdrive-sync-status-syncing = Wird synchronisiert…
+azdrive-sync-status-syncing-files = { $count ->
+        [one] Eine Datei wird
+       *[other] { $count } Dateien werden
+    } synchronisiert ({ $size })
+azdrive-sync-status-conflicts = Wartet auf dich: { $count ->
+        [one] ein Konflikt
+       *[other] { $count } Konflikte
+    }
+azdrive-sync-status-failed = Nicht synchronisiert: { $error }
+azdrive-sync-status-never = Noch nicht synchronisiert
+azdrive-sync-status-up-to-date = Auf dem neuesten Stand
+azdrive-sync-state-cloud-only = Nur in der Cloud: wird beim Öffnen heruntergeladen
+azdrive-sync-state-downloading = Wird heruntergeladen
+azdrive-sync-state-uploading = Wird hochgeladen
+azdrive-sync-state-on-device = Auf diesem Gerät
+azdrive-sync-state-on-device-encrypted = Auf diesem Gerät (verschlüsselt): wird beim Öffnen entschlüsselt
+azdrive-sync-state-pinned = Immer auf diesem Gerät behalten
+azdrive-sync-state-conflict = Hier und auf dem Laufwerk geändert
+azdrive-sync-state-error = Nicht synchronisiert: { $error }
+azdrive-sync-in-the-cloud = In der Cloud: wird beim Öffnen abgerufen
+azdrive-index-overlay-indexed = Im Suchindex
+azdrive-index-overlay-not-indexable = Nicht indizierbar: kein Text oder zu groß
+azdrive-sync-mass-delete-there = Laut dem Laufwerk wurden { $count } der { $of } Dateien dieses Ordners auf einem anderen Gerät gelöscht. Das kann ein Versehen sein oder Ransomware: Hier wurde noch nichts gelöscht.
+azdrive-sync-mass-delete-here = { $count } der { $of } Dateien dieses Ordners sind daraus verschwunden (wurde ein Datenträger entfernt oder der Ordner geleert?). Auf dem Laufwerk wurde noch nichts gelöscht.
+azdrive-sync-pair-what = Die Dateien des Ordners auf diesem Computer und des Ordners des Laufwerks werden in beide Richtungen gleich gehalten. Neue Dateien unter 25 MB werden von selbst heruntergeladen; größere bleiben in der Cloud, bis du sie öffnest (Optionen > Laufwerke).
+azdrive-sync-pair-folder = Ordner auf diesem Computer
+azdrive-sync-pair-prefix = Ordner des Laufwerks (leer: das ganze Laufwerk)
+azdrive-sync-pair-ok = Synchronisieren
+azdrive-sync-pair-title = „{ $name }“ mit einem Ordner synchronisieren
+azdrive-sync-conflict-what = „{ $name }“ wurde auf diesem Computer und auf dem Laufwerk geändert, seit beide zuletzt gleich waren.
+azdrive-sync-another-device = einem anderen Gerät
+azdrive-sync-conflict-theirs = Die Version des Laufwerks: { $size }, von { $device }.
+azdrive-sync-keep-mine = Meine behalten: Das Laufwerk bekommt die Version dieses Computers
+azdrive-sync-take-theirs = Ihre übernehmen: Dieser Computer bekommt die Version des Laufwerks
+azdrive-sync-keep-both = Beide behalten: Die des Laufwerks behält den Namen, die dieses Computers wird eine Kopie
+azdrive-sync-decide-later = Später entscheiden
+azdrive-sync-conflict-title = Jemand hat diese Datei geändert
+azdrive-sync-delete-title = Vom Laufwerk löschen
+azdrive-sync-delete-what = { $count ->
+        [one] „{ $one }“
+       *[other] Diese { $count } Elemente
+    } aus „{ $drive }“ löschen? Die nächste Synchronisierung löscht sie auf dem Laufwerk, hier und auf deinen anderen Geräten.
+azdrive-sync-burst-changed = { $count ->
+        [one] Eine Datei wurde
+       *[other] { $count } Dateien wurden
+    } in wenigen Minuten geändert oder gelöscht.
+azdrive-sync-burst-encrypted = { $count ->
+        [one] Eine Datei wurde
+       *[other] { $count } Dateien wurden
+    } zu etwas, das wie verschlüsselte Daten aussieht.
+azdrive-sync-burst-stopped = AzDrive sendet keine Änderungen von „{ $name }“ mehr an das Laufwerk – was sich auf dem Laufwerk ändert, kommt weiterhin hierher.
+azdrive-sync-burst-changes = Die Änderungen
+azdrive-sync-i-was-hacked-button = Ich wurde gehackt…
+azdrive-sync-changes-are-mine = Diese Änderungen sind von mir
+azdrive-sync-burst-title = Viele Dateien auf einmal geändert
+azdrive-sync-hacked-what = Das Laufwerk sperren (jeder andere Computer, Schlüssel und Link verliert den Zugriff) und seine Dateien so zurücksetzen, wie sie vor den Änderungen waren.
+azdrive-sync-lock-down = Sperren…
+azdrive-sync-hacked-not-azlin = Nur ein Azlin-Laufwerk kann von AzDrive gesperrt und wiederhergestellt werden: Erledige das in der Konsole des Speicherdienstes.
+azdrive-sync-hacked-title = Ich wurde gehackt
+azdrive-sync-mass-files = Die Dateien
+azdrive-sync-mass-keep = Behalten
+azdrive-sync-mass-delete-here-too = Auch hier löschen
+azdrive-sync-mass-delete-there-too = Auch auf dem Laufwerk löschen
+azdrive-sync-mass-title = Die meisten Dateien löschen?
+azdrive-sync-stop-title = Synchronisierung von „{ $name }“ beenden?
+azdrive-sync-stop-what = Die Dateien bleiben, wo sie sind: auf dem Laufwerk und in { $folder }. Änderungen werden nicht mehr zwischen ihnen übertragen.
+azdrive-sync-stop-button = Synchronisierung beenden
+azdrive-sync-auto-everything = Alles
+azdrive-sync-auto-new-under = Neue Dateien unter { $mb } MB
+azdrive-sync-auto-pinned = Nur angeheftete Ordner
+azdrive-sync-auto-nothing = Nichts (bei Bedarf)
+azdrive-sync-auto-download = Von selbst herunterladen
+azdrive-sync-under-mb = Neue Dateien unter (MB)
+azdrive-sync-keep-gb = Lokale Kopien höchstens behalten (GB; leer: keine Grenze)
+azdrive-sync-keep-gb-note = Die am längsten nicht verwendeten Dateien werden zuerst freigegeben; auf diesem Gerät behaltene (angeheftete) Dateien nie.
+azdrive-sync-local-copies = Lokale Kopien
+azdrive-sync-copies-decrypted = Entschlüsselt (schnell zu öffnen und zu durchsuchen)
+azdrive-sync-copies-encrypted = Verschlüsselt, beim Öffnen entschlüsselt
+azdrive-sync-resume = Fortsetzen
+azdrive-sync-pause = Anhalten
+azdrive-sync-none = Noch kein Laufwerk wird mit einem Ordner synchronisiert: Das Menü eines Cloud-Laufwerks in der Navigationsleiste (oder Freigeben > Mit einem Ordner synchronisieren) verbindet es mit einem.
+azdrive-sync-freed = { $count ->
+        [one] Eine Datei wurde
+       *[other] { $count } Dateien wurden
+    } auf diesem Computer freigegeben; das Laufwerk behält sie.
+azdrive-sync-freed-kept = „{ $name }“ bleibt: { $why }.
+azdrive-sync-pinned = { $count ->
+        [one] Ein Element wird
+       *[other] { $count } Elemente werden
+    } immer auf diesem Computer behalten.
+azdrive-sync-unpinned = { $count ->
+        [one] Ein Element wird
+       *[other] { $count } Elemente werden
+    } nicht mehr immer auf diesem Computer behalten.
+azdrive-sync-deleted = { $count ->
+        [one] Eine Datei ist
+       *[other] { $count } Dateien sind
+    } gelöscht; die nächste Synchronisierung löscht sie auf dem Laufwerk.
+azdrive-sync-fetched = { $count ->
+        [one] Eine Datei heruntergeladen.
+       *[other] { $count } Dateien heruntergeladen.
+    }
+azdrive-sync-pair-type-folder = Gib den Ordner auf diesem Computer ein.
+azdrive-sync-pair-whole-path = Gib den ganzen Pfad des Ordners ein (er beginnt oben auf dem Datenträger).
+azdrive-sync-pair-synced = Dieses Laufwerk wird schon mit einem Ordner synchronisiert.
+azdrive-sync-pair-taken = { $folder } wird schon mit einem anderen Laufwerk synchronisiert; wähle einen Ordner außerhalb davon.
+azdrive-sync-pair-not-shown = Der Ordner muss im Startordner oder in einem als Laufwerk hinzugefügten Ordner liegen, damit AzDrive ihn anzeigen kann.
+azdrive-sync-stopped = Das Laufwerk wird nicht mehr synchronisiert; seine Dateien bleiben, wo sie sind.
+azdrive-sync-downloading-first = { $count ->
+        [one] Zuerst wird eine Datei vom Laufwerk heruntergeladen…
+       *[other] Zuerst werden { $count } Dateien vom Laufwerk heruntergeladen…
+    }
+azdrive-sync-folder-not-shown = Der synchronisierte Ordner liegt in keinem Laufwerk, das dieses Fenster zeigt.
+azdrive-sync-open-failed = „{ $name }“ konnte nicht geöffnet werden:
+azdrive-sync-pairing-whole = { $folder } mit dem ganzen Laufwerk
+azdrive-sync-pairing-folder = { $folder } mit seinem Ordner { $prefix }

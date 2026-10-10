@@ -529,3 +529,139 @@ azdrive-voucher-made-new-drive = The token server made a new drive instead of ex
 
 azdrive-about-credits = Credits
 azdrive-about-public-domain = Public domain
+
+## The sync
+
+azdrive-sync-status-paused = Paused
+azdrive-sync-status-payment-due = Read-only (payment due)
+azdrive-sync-status-newer-format = Read-only here: update the app to sync this drive
+azdrive-sync-status-burst = Uploads paused: { $count ->
+        [one] one change
+       *[other] { $count } changes
+    } at once
+azdrive-sync-status-encrypted = Uploads paused: { $count ->
+        [one] one file looks
+       *[other] { $count } files look
+    } encrypted
+azdrive-sync-status-mass-delete = Waiting for you: { $count ->
+        [one] one file
+       *[other] { $count } files
+    } would be deleted
+azdrive-sync-status-read-only = Read-only
+azdrive-sync-status-syncing = Syncing…
+azdrive-sync-status-syncing-files = Syncing { $count ->
+        [one] one file
+       *[other] { $count } files
+    } ({ $size })
+azdrive-sync-status-conflicts = Waiting for you: { $count ->
+        [one] one conflict
+       *[other] { $count } conflicts
+    }
+azdrive-sync-status-failed = Not synced: { $error }
+azdrive-sync-status-never = Not synced yet
+azdrive-sync-status-up-to-date = Up to date
+azdrive-sync-state-cloud-only = Cloud only: downloaded when opened
+azdrive-sync-state-downloading = Downloading
+azdrive-sync-state-uploading = Uploading
+azdrive-sync-state-on-device = On this device
+azdrive-sync-state-on-device-encrypted = On this device (encrypted): decrypted when opened
+azdrive-sync-state-pinned = Always kept on this device
+azdrive-sync-state-conflict = Changed here and on the drive
+azdrive-sync-state-error = Not synced: { $error }
+azdrive-sync-in-the-cloud = In the cloud: fetched when it is opened
+azdrive-index-overlay-indexed = In the search index
+azdrive-index-overlay-not-indexable = Not indexable: no text, or too big
+azdrive-sync-mass-delete-there = The drive says { $count } of the { $of } files of this folder were deleted on another device. That may be a mistake, or ransomware: nothing was deleted here yet.
+azdrive-sync-mass-delete-here = { $count } of the { $of } files this folder held are gone from it (was a disk removed, or the folder emptied?). Nothing was deleted on the drive yet.
+azdrive-sync-pair-what = The files of the folder on this computer and of the drive's folder are kept the same, both ways. New files under 25 MB come down by themselves; bigger ones stay in the cloud until you open them (Options > Drives).
+azdrive-sync-pair-folder = Folder on this computer
+azdrive-sync-pair-prefix = Folder of the drive (empty: the whole drive)
+azdrive-sync-pair-ok = Sync
+azdrive-sync-pair-title = Sync "{ $name }" with a folder
+azdrive-sync-conflict-what = "{ $name }" was changed on this computer and on the drive since they were last the same.
+azdrive-sync-another-device = another device
+azdrive-sync-conflict-theirs = The drive's version: { $size }, from { $device }.
+azdrive-sync-keep-mine = Keep mine: the drive gets this computer's version
+azdrive-sync-take-theirs = Take theirs: this computer gets the drive's version
+azdrive-sync-keep-both = Keep both: the drive's keeps the name, this computer's becomes a copy
+azdrive-sync-decide-later = Decide later
+azdrive-sync-conflict-title = Someone changed this file
+azdrive-sync-delete-title = Delete from the drive
+azdrive-sync-delete-what = Delete { $count ->
+        [one] "{ $one }"
+       *[other] these { $count } items
+    } from "{ $drive }"? The next sync deletes them on the drive, here and on your other devices.
+azdrive-sync-burst-changed = { $count ->
+        [one] One file was
+       *[other] { $count } files were
+    } changed or deleted in a few minutes.
+azdrive-sync-burst-encrypted = { $count ->
+        [one] One file turned
+       *[other] { $count } files turned
+    } into what looks like encrypted data.
+azdrive-sync-burst-stopped = AzDrive stopped sending changes of "{ $name }" to the drive - what the drive changes still comes here.
+azdrive-sync-burst-changes = The changes
+azdrive-sync-i-was-hacked-button = I was hacked…
+azdrive-sync-changes-are-mine = These changes are mine
+azdrive-sync-burst-title = Many files changed at once
+azdrive-sync-hacked-what = Lock the drive down (every other computer, key and link loses access) and put its files back as they were before the changes.
+azdrive-sync-lock-down = Lock it down…
+azdrive-sync-hacked-not-azlin = Only an Azlin drive can be locked down and restored by AzDrive: do it at the storage service's console.
+azdrive-sync-hacked-title = I was hacked
+azdrive-sync-mass-files = The files
+azdrive-sync-mass-keep = Keep them
+azdrive-sync-mass-delete-here-too = Delete them here too
+azdrive-sync-mass-delete-there-too = Delete them on the drive too
+azdrive-sync-mass-title = Delete most of the files?
+azdrive-sync-stop-title = Stop syncing "{ $name }"?
+azdrive-sync-stop-what = The files stay where they are: on the drive, and in { $folder }. Changes no longer travel between them.
+azdrive-sync-stop-button = Stop syncing
+azdrive-sync-auto-everything = Everything
+azdrive-sync-auto-new-under = New files under { $mb } MB
+azdrive-sync-auto-pinned = Only pinned folders
+azdrive-sync-auto-nothing = Nothing (on demand)
+azdrive-sync-auto-download = Download by themselves
+azdrive-sync-under-mb = New files under (MB)
+azdrive-sync-keep-gb = Keep local copies at most (GB; empty: no limit)
+azdrive-sync-keep-gb-note = The least recently used files are freed first; files kept on this device (pinned) never are.
+azdrive-sync-local-copies = Local copies
+azdrive-sync-copies-decrypted = Decrypted (fast to open and search)
+azdrive-sync-copies-encrypted = Encrypted, decrypted when opened
+azdrive-sync-resume = Resume
+azdrive-sync-pause = Pause
+azdrive-sync-none = No drive syncs with a folder yet: a cloud drive's menu in the source list (or Share > Sync with a folder) pairs it with one.
+azdrive-sync-freed = Freed { $count ->
+        [one] one file
+       *[other] { $count } files
+    } on this computer; the drive keeps them.
+azdrive-sync-freed-kept = "{ $name }" stays: { $why }.
+azdrive-sync-pinned = { $count ->
+        [one] One item is
+       *[other] { $count } items are
+    } always kept on this computer.
+azdrive-sync-unpinned = { $count ->
+        [one] One item is
+       *[other] { $count } items are
+    } no longer always kept on this computer.
+azdrive-sync-deleted = { $count ->
+        [one] One file is
+       *[other] { $count } files are
+    } deleted; the next sync deletes them on the drive.
+azdrive-sync-fetched = { $count ->
+        [one] One file downloaded.
+       *[other] { $count } files downloaded.
+    }
+azdrive-sync-pair-type-folder = Type the folder on this computer.
+azdrive-sync-pair-whole-path = Type the whole path of the folder (it starts at the top of the disk).
+azdrive-sync-pair-synced = This drive syncs with a folder already.
+azdrive-sync-pair-taken = { $folder } syncs with another drive already; pick a folder outside it.
+azdrive-sync-pair-not-shown = The folder must lie in Home or in a folder added as a drive, so AzDrive can show it.
+azdrive-sync-stopped = The drive no longer syncs; its files stay where they are.
+azdrive-sync-downloading-first = { $count ->
+        [one] Downloading one file from the drive first…
+       *[other] Downloading { $count } files from the drive first…
+    }
+azdrive-sync-folder-not-shown = The synced folder is not in a drive this window shows.
+azdrive-sync-open-failed = "{ $name }" could not be opened:
+azdrive-sync-pairing-whole = { $folder } with the whole drive
+azdrive-sync-pairing-folder = { $folder } with its folder { $prefix }

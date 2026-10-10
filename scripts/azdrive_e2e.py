@@ -1361,10 +1361,10 @@ def sync_step(args, logs, binary, out):
         app.until("the first pass", lambda: app.printed("AZDRIVE_SYNC_DONE",
                                                          re.escape(SYNC_DRIVE) + r" .*"))
         app.until("Up to date", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
-                                                    r" Up to date"))
+                                                    r" azdrive-sync-status-up-to-date"))
         app.until("the status line says it", lambda: "Up to date" in status())
         app.until("the unpaid drive is read-only by its token server's word", lambda: app.printed(
-            status_key, re.escape(paid_id) + r" Read-only \(payment due\)"))
+            status_key, re.escape(paid_id) + r" azdrive-sync-status-payment-due"))
         log("25a. paired: %s, the first pass, \"Up to date\" on the status line; the unpaid "
             "Azlin drive: \"Read-only (payment due)\"" % folder)
 
@@ -1403,7 +1403,8 @@ def sync_step(args, logs, binary, out):
         app.tab("Share")
         app.after("Pause syncing", "AZDRIVE_SYNC_PAUSED", re.escape(SYNC_DRIVE),
                   lambda: app.ribbon("Pause syncing"))
-        app.until("Paused", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) + r" Paused"))
+        app.until("Paused", lambda: app.printed(status_key, re.escape(SYNC_DRIVE) +
+                                                r" azdrive-sync-status-paused"))
         other_device_writes(s3_root, "notes.txt", b"third version, from the desktop\n")
         with open(notes, "wb") as f:
             f.write(b"third version, from the laptop!\n")

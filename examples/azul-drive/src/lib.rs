@@ -116,9 +116,11 @@
 //! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
 //! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
 //! `AZDRIVE_SYNC_DONE <drive id> up=<n> down=<n> deleted=<n> conflicts=<n> cloud_only=<n>
-//! freed=<n> paused=<bool> newer_format=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`, `AZDRIVE_SYNC_STATUS <drive id> <status
-//! line>`, `AZDRIVE_SYNC_FILE <drive id> <state> <key>` (a file whose state changed: cloud-only,
-//! on-device, on-device-encrypted, pinned, conflict, error, gone), `AZDRIVE_SYNC_CONFLICT
+//! freed=<n> paused=<bool> newer_format=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`,
+//! `AZDRIVE_SYNC_STATUS <drive id> <status line>` (its key and arguments, the same in any
+//! language: `azdrive-sync-status-up-to-date`), `AZDRIVE_SYNC_FILE <drive id> <state> <key>` (a
+//! file whose state changed: cloud-only, on-device, on-device-encrypted, pinned, conflict,
+//! error, gone), `AZDRIVE_SYNC_CONFLICT
 //! <drive id> <key>` (the question shows), `AZDRIVE_SYNC_RESOLVED <drive id> mine|theirs|both
 //! <key>`, `AZDRIVE_SYNC_OPENED <drive id> <key>`, `AZDRIVE_SYNC_PINNED <drive id> on|off`,
 //! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_DELETED <drive id>` (files deleted through

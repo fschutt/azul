@@ -38,16 +38,32 @@ fn setup() -> SyncSetup {
     SyncSetup::new("d_photos", "", Path::new("/home/me/AzDrive/Photos"))
 }
 
+/// The key a status line says.
+fn status_key(
+    paired: &SyncSetup,
+    states: &SyncStates,
+    running: Option<&Running>,
+    azlin: bool,
+    payment_due: bool,
+) -> String {
+    sync_view::status_text(paired, states, running, azlin, payment_due).key
+}
+
 #[test]
 fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
+    use azul_appkit::l10n::Arg;
+
     let mut states = SyncStates::default();
     let mut paired = setup();
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true, false),
-        "Not synced yet"
+        status_key(&paired, &states, None, true, false),
+        "azdrive-sync-status-never"
     );
     states.last_pass = Some(1);
-    assert_eq!(sync_view::status_text(&paired, &states, None, true, false), "Up to date");
+    assert_eq!(
+        status_key(&paired, &states, None, true, false),
+        "azdrive-sync-status-up-to-date"
+    );
     let running = Running {
         cancel: Arc::new(AtomicBool::new(false)),
         progress: PassProgress {
@@ -59,8 +75,12 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
         },
     };
     let syncing = sync_view::status_text(&paired, &states, Some(&running), true, false);
-    assert!(syncing.starts_with("Syncing 12 files ("), "{syncing}");
-    assert!(syncing.contains("340"), "{syncing}");
+    assert_eq!(syncing.key, "azdrive-sync-status-syncing-files");
+    assert_eq!(syncing.get("count"), Some(&Arg::Int(12)));
+    assert!(
+        syncing.get("size").is_some_and(|size| size.to_string().contains("340")),
+        "{syncing:?}"
+    );
     states.files.insert(
         String::from("a.jpg"),
         FileRecord {
@@ -74,24 +94,29 @@ fn the_status_line_says_up_to_date_syncing_paused_read_only_and_conflicts() {
             ..FileRecord::default()
         },
     );
-    assert_eq!(
-        sync_view::status_text(&paired, &states, None, true, false),
-        "Waiting for you: 1 conflict"
-    );
+    let waiting = sync_view::status_text(&paired, &states, None, true, false);
+    assert_eq!(waiting.key, "azdrive-sync-status-conflicts");
+    assert_eq!(waiting.get("count"), Some(&Arg::Int(1)));
     // An Azlin drive is read-only when its token server says so (its drive status), not
     // because a write was refused; another drive when it refuses writes.
     states.read_only = true;
     assert_ne!(
-        sync_view::status_text(&paired, &states, None, true, false),
-        "Read-only (payment due)"
+        status_key(&paired, &states, None, true, false),
+        "azdrive-sync-status-payment-due"
     );
     assert_eq!(
-        sync_view::status_text(&paired, &states, None, true, true),
-        "Read-only (payment due)"
+        status_key(&paired, &states, None, true, true),
+        "azdrive-sync-status-payment-due"
     );
-    assert_eq!(sync_view::status_text(&paired, &states, None, false, false), "Read-only");
+    assert_eq!(
+        status_key(&paired, &states, None, false, false),
+        "azdrive-sync-status-read-only"
+    );
     paired.paused = true;
-    assert_eq!(sync_view::status_text(&paired, &states, None, true, false), "Paused");
+    assert_eq!(
+        status_key(&paired, &states, None, true, false),
+        "azdrive-sync-status-paused"
+    );
 }
 
 /// The store the window and the search share: a synced folder's file through a drive on this
@@ -596,11 +621,11 @@ fn an_indexed_drives_rows_say_whether_the_index_holds_them() {
 
     assert_eq!(
         sync_view::index_overlay(FileIndexing::Indexed),
-        Some(("manage_search", "In the search index"))
+        Some(("manage_search", "azdrive-index-overlay-indexed"))
     );
     assert_eq!(
         sync_view::index_overlay(FileIndexing::NotIndexable),
-        Some(("search_off", "Not indexable: no text, or too big"))
+        Some(("search_off", "azdrive-index-overlay-not-indexable"))
     );
     assert_eq!(sync_view::index_overlay(FileIndexing::Unread), None);
     let row = |known: bool| crate::browse::Entry {
@@ -731,7 +756,7 @@ fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
         files: vec![String::from("docs/a.txt")],
     });
     let text = sync_view::status_text(&paired, &states, None, false, false);
-    assert!(text.starts_with("Uploads paused"), "{text}");
+    assert_eq!(text.key, "azdrive-sync-status-encrypted", "{text:?}");
     states.burst = None;
     let asked = MassDelete {
         here: false,
@@ -741,14 +766,20 @@ fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
     };
     states.mass_delete = Some(asked.clone());
     let text = sync_view::status_text(&paired, &states, None, false, false);
-    assert!(text.starts_with("Waiting for you"), "{text}");
+    assert_eq!(text.key, "azdrive-sync-status-mass-delete", "{text:?}");
     let question = sync_view::mass_delete_text(&asked);
-    assert!(question.contains("14"), "{question}");
-    assert!(!question.contains("--allow"), "{question}");
+    assert_eq!(question.key, "azdrive-sync-mass-delete-here");
+    assert_eq!(question.get("count"), Some(&azul_appkit::l10n::Arg::Int(14)));
+    let english = crate::l10n::EN;
+    let said = english
+        .lines()
+        .find(|line| line.starts_with("azdrive-sync-mass-delete-here ="))
+        .expect("the question in English");
+    assert!(!said.contains("--allow"), "{said}");
     states.mass_delete = None;
     states.newer_format = vec![String::from("teleport")];
     let text = sync_view::status_text(&paired, &states, None, false, false);
-    assert!(text.contains("update the app"), "{text}");
+    assert_eq!(text.key, "azdrive-sync-status-newer-format", "{text:?}");
 }
 
 /// A rename in a plain synced drive's own listing goes through the sync: the copy in the synced
