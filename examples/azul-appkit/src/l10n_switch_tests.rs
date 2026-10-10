@@ -2,7 +2,7 @@
 //! appkit's resources in English, in German, and English for a language without words of its
 //! own.
 
-use crate::l10n::{is_key, keep, set_locale, sources, t, t_args, Arg};
+use crate::l10n::{is_key, keep, named, set_locale, sources, t, t_args, Arg};
 
 #[test]
 fn switching_the_language_changes_a_known_label() {
@@ -39,4 +39,26 @@ fn an_apps_words_join_appkits_and_a_key_is_told_from_plain_words() {
     set_locale("en-US");
     assert!(is_key("kit-general-language"));
     assert!(!is_key("Data folder") && !is_key("General") && !is_key("kit_x"));
+}
+
+/// An app keys its own Options categories by their English names (`View`, its DOM id and
+/// `open_settings`' argument); the list shows its message `<app>-category-<name>`.
+#[test]
+fn an_apps_own_category_is_said_by_its_key_and_shown_as_it_is_without_one() {
+    keep(&sources(&[
+        (
+            "en",
+            "aztest-category-view = View\naztest-category-use-with-others = Use with others\n",
+        ),
+        (
+            "de",
+            "aztest-category-view = Ansicht\naztest-category-use-with-others = Mit anderen\n",
+        ),
+    ]));
+    set_locale("de-DE");
+    assert_eq!(named("AzTest", "category", "View"), "Ansicht");
+    assert_eq!(named("AzTest", "category", "Use with others"), "Mit anderen");
+    assert_eq!(named("AzTest", "category", "Drives"), "Drives", "no message: the name");
+    set_locale("en-US");
+    assert_eq!(named("AzTest", "category", "View"), "View");
 }
