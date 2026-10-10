@@ -1926,6 +1926,21 @@ fn process_layout_children<T: ParsedFontTrait>(
             continue;
         }
 
+        // An out-of-flow child (position: absolute / fixed) takes no room in
+        // the lines and contributes nothing to the IFC's min- or max-content
+        // width (CSS 2.2 10.3.7, CSS Sizing 3 section 5) - the same skip as
+        // the line layout's own collection (`fc::collect_and_measure_inline_
+        // content`). Its OWN intrinsic sizes are stored on its node (for its
+        // shrink-to-fit width), and entered here as an atomic inline they
+        // widened the line: a flora tab grew by its hung curves and run-outs
+        // (18 + 18 + 34 + 34 px).
+        if matches!(
+            get_position_type(ctx.styled_dom, Some(child_dom_id)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) {
+            continue;
+        }
+
         let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
 
         // CSS Sizing Level 3: Inline-level boxes participate in the IFC
