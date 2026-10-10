@@ -8,6 +8,8 @@
 //!   mail account whose keyring names and sending settings the bridge uses, the ports. No secret.
 //! - `spool/`: the outbox the submission port sends from (an AzMail folder of its own).
 //! - `imap-uids/`: the UID map of every mailbox ([`crate::uids`]).
+//! - `index-cache/`: this computer's copy of an encrypted drive's index (azul-mail-core's
+//!   `mail_drive`, as AzMail keeps its own).
 //! - `pim-names.json`: the names calendar and contacts programs gave events and cards whose files
 //!   are named otherwise ([`crate::pim::Names`]).
 
@@ -33,6 +35,7 @@ pub const DAV_PORT: u16 = 1180;
 pub const PIM_PORT: u16 = azcloud_kit::bridge::PIM_PORT;
 /// The folders inside the state folder.
 pub const SPOOL_DIR: &str = "spool";
+pub const INDEX_CACHE_DIR: &str = "index-cache";
 
 /// `bridge.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

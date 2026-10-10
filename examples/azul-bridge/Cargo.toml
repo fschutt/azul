@@ -58,7 +58,11 @@ dirs = "6"
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
 
 [features]
-default = []
+default = ["encryption"]
+# An encrypted account's drive, as AzMail opens it (azul-mail-core's mail_drive: AutoEncrypted,
+# the drive index, the AZD1 drops filed into the mail folders) and the join code's key seal
+# (azcloud-kit). On by default: a bridge without it would show an encrypted drive's raw objects.
+encryption = ["azul-mail-core/encryption", "azcloud-kit/encryption", "azul-storage/encryption"]
 # The OS keyring (Keychain, Credential Manager, the Secret Service) through azul's blocking keyring
 # calls: azul-storage's AzulKeyring, which links libazul (AZ_LINK_PATH) - the build the apps
 # ship. Without it the secrets are the state folder's 0600 file.

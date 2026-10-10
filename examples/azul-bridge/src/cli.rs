@@ -299,6 +299,16 @@ pub fn run(options: &Options) -> Result<(), String> {
             let account = Account::join(&state_dir, &token_url, transports(), &code)
                 .map_err(|e| e.to_string())?;
             say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
+            // An encrypted drive's key rides in the code (sealed to a one-time key): the bridge
+            // keeps it in its keyring and enrols itself, as every other device does.
+            #[cfg(feature = "encryption")]
+            if account
+                .adopt_join_key(&code, &*secrets)
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                say("AZUL_BRIDGE_DRIVE_KEY kept");
+            }
             Ok(())
         }
         "autostart" => autostart(options.action.as_deref().unwrap_or("status"), &state),
@@ -447,29 +457,58 @@ fn serve(
     if let Some(secs) = options.idle_poll {
         limits.idle_poll = Duration::from_secs(secs);
     }
-    let (drive, uids): (Arc<dyn Drive>, UidMaps) = if options.memory {
+    // The Azlin drive's id (`None`: a development drive of this computer).
+    let (drive, uids, drive_id): (Arc<dyn Drive>, UidMaps, Option<String>) = if options.memory {
         (
             Arc::new(MemoryDrive::new()) as Arc<dyn Drive>,
             UidMaps::in_memory(),
+            None,
         )
     } else if let Some(folder) = &options.folder {
         std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         (
             Arc::new(LocalDrive::without_manifest(folder.clone())) as Arc<dyn Drive>,
             UidMaps::in_folder(state.join(UIDS_DIR)),
+            None,
         )
     } else {
         let (token_url, s3_url) = endpoints(options);
         let token_url = token_url.ok_or("no token server: pass --token-url or set AZLIN_TOKEN_URL")?;
         let drive = AccountDrive::open(state_dir, &token_url, transports(), s3_url)
             .map_err(|e| e.to_string())?;
-        say(&format!("AZUL_BRIDGE_DRIVE {}", drive.drive_id()));
+        let id = drive.drive_id();
+        say(&format!("AZUL_BRIDGE_DRIVE {id}"));
         (
             Arc::new(drive) as Arc<dyn Drive>,
             UidMaps::in_folder(state.join(UIDS_DIR)),
+            Some(id),
         )
     };
-    let store: Arc<dyn MailStore> = Arc::new(DriveMailStore::new(drive.clone()));
+    // An Azlin drive goes through the encryption when it is encrypted, as AzMail's does
+    // (azul-mail-core's mail_drive: AutoEncrypted with the drive index, its copy in the state
+    // folder; the drive key from the bridge's keyring), and the drops the mail Worker leaves are
+    // filed before a folder is listed. IMAP, SMTP, WebDAV, CalDAV and CardDAV all use this drive.
+    #[cfg(feature = "encryption")]
+    let (drive, incoming) = match &drive_id {
+        Some(id) => {
+            azmail_core::mail_drive::set_device_name("Azlin Bridge");
+            azmail_core::mail_drive::set_index_cache_root(Some(state.join(config::INDEX_CACHE_DIR)));
+            let auto = azmail_core::mail_drive::wrap_auto(drive, id, secrets.clone());
+            let incoming = crate::store::drops_incoming(Arc::clone(&auto), secrets.clone());
+            (auto as Arc<dyn Drive>, Some(incoming))
+        }
+        None => (drive, None),
+    };
+    #[cfg(not(feature = "encryption"))]
+    let incoming: Option<crate::store::Incoming> = {
+        let _ = &drive_id;
+        None
+    };
+    let mut mail_store = DriveMailStore::new(drive.clone());
+    if let Some(incoming) = incoming {
+        mail_store = mail_store.with_incoming(incoming);
+    }
+    let store: Arc<dyn MailStore> = Arc::new(mail_store);
     let gate = Arc::new(FailureGate::new(
         limits.auth_failures_free,
         limits.auth_window,

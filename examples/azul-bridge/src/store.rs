@@ -269,10 +269,36 @@ pub fn check_mailbox_path(path: &str) -> Result<(), StoreError> {
 /// STATUS in a row).
 const MAILBOX_CACHE: Duration = Duration::from_secs(5);
 
+/// How often a folder listing looks for incoming mail ([`DriveMailStore::with_incoming`]).
+pub const INCOMING_EVERY: Duration = Duration::from_secs(2);
+
+/// Files the drive's incoming mail into its folders (an encrypted drive's AZD1 drops,
+/// [`drops_incoming`]); how many messages it filed.
+pub type Incoming = Arc<dyn Fn() -> Result<u64, StoreError> + Send + Sync>;
+
+/// The incoming mail of an encrypted drive opened with azul-mail-core's
+/// `mail_drive::wrap_auto` - AzMail's own path: the AZD1 drops the mail Worker leaves in the
+/// bucket, filed into the same open drive's folders (`mail_drive::receive_drops_into`). Nothing
+/// for a plain drive or one whose key this computer does not keep.
+#[cfg(feature = "encryption")]
+#[must_use]
+pub fn drops_incoming(
+    auto: Arc<azul_storage::encrypted::AutoEncrypted>,
+    keyring: Arc<dyn azul_storage::keyring::KeyringStore>,
+) -> Incoming {
+    Arc::new(move || {
+        azmail_core::mail_drive::receive_drops_into(&auto, keyring.as_ref()).map_err(drive_error)
+    })
+}
+
 /// The Azlin drive's mailbox (`AZLIN_MAIL.md`) as a [`MailStore`].
 pub struct DriveMailStore {
     drive: Arc<dyn Drive>,
     mailboxes: Mutex<Option<(Instant, Vec<MailboxInfo>)>>,
+    /// Run before a folder is listed ([`DriveMailStore::with_incoming`]).
+    incoming: Option<Incoming>,
+    /// When it last ran; held while it runs (the other listings go on with what is there).
+    incoming_at: Mutex<Option<Instant>>,
 }
 
 impl std::fmt::Debug for DriveMailStore {
@@ -287,7 +313,42 @@ impl DriveMailStore {
         DriveMailStore {
             drive,
             mailboxes: Mutex::new(None),
+            incoming: None,
+            incoming_at: Mutex::new(None),
         }
+    }
+
+    /// Runs `incoming` before a folder is listed - at most every [`INCOMING_EVERY`], one at a
+    /// time - so a mail program sees new mail the drive keeps outside its folders (an encrypted
+    /// drive's drops) as AzMail's Send / Receive does.
+    #[must_use]
+    pub fn with_incoming(mut self, incoming: Incoming) -> DriveMailStore {
+        self.incoming = Some(incoming);
+        self
+    }
+
+    /// The incoming mail into the folders, when it is due. A failure is said; the listing goes on
+    /// with what is there.
+    fn receive(&self) {
+        let Some(incoming) = &self.incoming else {
+            return;
+        };
+        let mut at = match self.incoming_at.try_lock() {
+            Ok(at) => at,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            // Another listing is filing it now.
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
+        if at.is_some_and(|then| then.elapsed() < INCOMING_EVERY) {
+            return;
+        }
+        match incoming() {
+            Ok(0) => {}
+            // A drop may bring a folder the listing of the mailboxes did not have yet.
+            Ok(_) => self.forget_mailboxes(),
+            Err(e) => eprintln!("[azul-bridge] incoming mail: {e}"),
+        }
+        *at = Some(Instant::now());
     }
 
     /// The drive under it.
@@ -362,6 +423,7 @@ impl MailStore for DriveMailStore {
     }
 
     fn messages(&self, path: &str) -> Result<Vec<StoredMessage>, StoreError> {
+        self.receive();
         let level = ops::list_folder_all(&*self.drive, &azlin::folder_prefix(path))
             .map_err(drive_error)?;
         let mut out: Vec<StoredMessage> = level
