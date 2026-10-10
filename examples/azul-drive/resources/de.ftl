@@ -663,3 +663,35 @@ azdrive-sync-folder-not-shown = Der synchronisierte Ordner liegt in keinem Laufw
 azdrive-sync-open-failed = „{ $name }“ konnte nicht geöffnet werden:
 azdrive-sync-pairing-whole = { $folder } mit dem ganzen Laufwerk
 azdrive-sync-pairing-folder = { $folder } mit seinem Ordner { $prefix }
+
+## Keyboard shortcuts
+
+azdrive-shortcut-group-open = Öffnen und wechseln
+azdrive-shortcut-open-selected = Ausgewähltes Element öffnen
+azdrive-shortcut-properties = Eigenschaften
+azdrive-shortcut-up = Eine Ebene nach oben
+azdrive-shortcut-back = Zurück
+azdrive-shortcut-forward = Vor
+azdrive-shortcut-refresh = Aktualisieren
+azdrive-shortcut-search = Diesen Ordner durchsuchen
+azdrive-shortcut-group-organize = Organisieren
+azdrive-shortcut-rename = Direkt umbenennen
+azdrive-shortcut-delete = Löschen (ein lokales Laufwerk behält es in seinem Papierkorbordner)
+azdrive-shortcut-delete-for-good = Endgültig löschen
+azdrive-shortcut-copy = Kopieren
+azdrive-shortcut-cut = Ausschneiden
+azdrive-shortcut-paste = Einfügen
+azdrive-shortcut-undo = Rückgängig
+azdrive-shortcut-new-folder = Neuer Ordner
+azdrive-shortcut-group-select = Auswählen
+azdrive-shortcut-select-all = Alles auswählen
+azdrive-shortcut-toggle-focused = Fokussiertes Element auswählen oder abwählen
+azdrive-shortcut-extend = Auswahl erweitern
+azdrive-shortcut-select-none = Auswahl aufheben
+azdrive-shortcut-context-menu = Das Kontextmenü
+azdrive-shortcut-group-view = Ansicht
+azdrive-shortcut-large-icons = Große Symbole
+azdrive-shortcut-list = Liste
+azdrive-shortcut-details = Details
+azdrive-shortcut-preview-pane = Vorschaufenster
+azdrive-shortcut-details-pane = Detailbereich

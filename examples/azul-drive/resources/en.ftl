@@ -665,3 +665,35 @@ azdrive-sync-folder-not-shown = The synced folder is not in a drive this window 
 azdrive-sync-open-failed = "{ $name }" could not be opened:
 azdrive-sync-pairing-whole = { $folder } with the whole drive
 azdrive-sync-pairing-folder = { $folder } with its folder { $prefix }
+
+## Keyboard shortcuts
+
+azdrive-shortcut-group-open = Open and go
+azdrive-shortcut-open-selected = Open the selected item
+azdrive-shortcut-properties = Properties
+azdrive-shortcut-up = Up one level
+azdrive-shortcut-back = Back
+azdrive-shortcut-forward = Forward
+azdrive-shortcut-refresh = Refresh
+azdrive-shortcut-search = Search this folder
+azdrive-shortcut-group-organize = Organize
+azdrive-shortcut-rename = Rename in place
+azdrive-shortcut-delete = Delete (a local drive keeps it in its trash folder)
+azdrive-shortcut-delete-for-good = Delete for good
+azdrive-shortcut-copy = Copy
+azdrive-shortcut-cut = Cut
+azdrive-shortcut-paste = Paste
+azdrive-shortcut-undo = Undo
+azdrive-shortcut-new-folder = New folder
+azdrive-shortcut-group-select = Select
+azdrive-shortcut-select-all = Select all
+azdrive-shortcut-toggle-focused = Select or clear the focused item
+azdrive-shortcut-extend = Extend the selection
+azdrive-shortcut-select-none = Select nothing
+azdrive-shortcut-context-menu = The context menu
+azdrive-shortcut-group-view = View
+azdrive-shortcut-large-icons = Large icons
+azdrive-shortcut-list = List
+azdrive-shortcut-details = Details
+azdrive-shortcut-preview-pane = Preview pane
+azdrive-shortcut-details-pane = Details pane
