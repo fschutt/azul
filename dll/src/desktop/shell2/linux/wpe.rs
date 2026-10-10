@@ -90,6 +90,7 @@ pub type GSourceFunc = Option<unsafe extern "C" fn(data: *mut c_void) -> GBoolea
 /// `view-backend-exportable.h`): the frame callbacks, `data` the pointer
 /// given to `wpe_view_backend_exportable_fdo_create`.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct WpeViewBackendExportableFdoClient {
     pub export_buffer_resource: Option<unsafe extern "C" fn(*mut c_void, *mut WlResource)>,
     pub export_dmabuf_resource: Option<unsafe extern "C" fn(*mut c_void, *mut c_void)>,
