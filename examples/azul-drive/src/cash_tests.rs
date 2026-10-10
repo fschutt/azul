@@ -228,3 +228,31 @@ fn a_long_claims_run_asks_a_cash_checkout_again_only_after_its_daily_interval() 
     assert!(!cash_ask_due(Some(asked), 86_400, now), "not every round of the run");
     assert!(cash_ask_due(Some(asked), 5, now), "a test run's short interval is over");
 }
+
+#[test]
+fn a_token_server_whose_tiers_list_cash_offers_cash_by_post_without_payment_options() {
+    use crate::add_drive::OfferState;
+
+    let tiers = |methods: &[&str]| azcloud_kit::Tiers {
+        tiers: vec![azcloud_kit::Tier {
+            id: String::from("100GB"),
+            quota_bytes: 100_000_000_000,
+            price_cents_month: Some(99),
+            price_cents_year: Some(990),
+            currency: String::from("EUR"),
+            first_month_free: true,
+        }],
+        methods: methods.iter().map(|m| (*m).to_string()).collect(),
+        withdrawal_consent: None,
+    };
+    let mut dialog = AddDialog::new(1);
+    dialog.choose_buy();
+    // The real token server has no payment options (the v1 checkout's page): its tier list
+    // says it takes cash.
+    dialog.offer = OfferState::Legacy;
+    dialog.tiers = TiersState::Loaded(tiers(&["sepa", "card", "cash"]));
+    let choice = dialog.cash_choice().expect("cash by post beside the payment page");
+    assert_eq!(choice.method.method, Method::Cash);
+    dialog.tiers = TiersState::Loaded(tiers(&["sepa", "card"]));
+    assert!(dialog.cash_choice().is_none(), "a server without cash by post");
+}

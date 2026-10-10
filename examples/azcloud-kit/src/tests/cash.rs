@@ -13,7 +13,7 @@ use crate::{
     lock::LockDir,
     pending::{self, CashKept, PendingCheckout, Polled},
     shared::SharedKeyring,
-    token::{CheckoutStatus, TokenServer},
+    token::{CheckoutStatus, Tiers, TokenServer},
     ClaimKey,
 };
 
@@ -244,4 +244,50 @@ fn a_picked_up_checkout_learns_its_tier_from_the_sealed_sign_up() {
         listed[0].tier, "100GB",
         "its period tokens are issued for the tier the drive has"
     );
+}
+
+#[test]
+fn the_tier_list_says_whether_the_token_server_takes_cash_by_post() {
+    let ladder = |methods: &str| {
+        Tiers::parse(&format!(
+            r#"{{"tiers": [{{"id": "100GB", "quota_bytes": 100000000000,
+                 "price_cents_month": 99, "price_cents_year": 990, "currency": "EUR"}}],
+                "methods": {methods}}}"#
+        ))
+        .unwrap()
+    };
+    assert!(ladder(r#"["sepa", "card", "cash"]"#).takes_cash());
+    assert!(!ladder(r#"["sepa", "card"]"#).takes_cash(), "a server without its cash key");
+}
+
+#[test]
+fn a_cash_checkout_names_its_method_and_claim_key_and_no_provider() {
+    // The token server takes cash as a method of POST /v1/checkout (cash contract v1), with or
+    // without payment options: the app names no provider or surface for it.
+    let fake = Fake::new(|_, _| {
+        Ok(json(
+            201,
+            r#"{"checkout_id": "ck_aaaqeayeaudaocajbifqydiob4", "status": "awaiting_cash",
+                "tier": "100GB", "months": 12, "amount_cents": 1188, "currency": "EUR",
+                "activation_code": "AZC1-AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4AA-ABFE-IVKV-F3QG-5NDF-5KZK-SMTY-I",
+                "mail_to": {"name": "Azlin", "lines": ["Postfach 1"]},
+                "expires_at": "2026-12-09T00:00:00Z"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let claim = ClaimKey::generate().unwrap();
+    let (checkout, answer) = server.checkout_cash("100GB", 12, "de", true, &claim).unwrap();
+    assert_eq!(checkout.checkout_id, CODE_CHECKOUT);
+    assert_eq!(checkout.amount_cents, 1188);
+    assert_eq!(answer["status"], "awaiting_cash");
+    let sent: serde_json::Value = serde_json::from_slice(&fake.calls()[0].body).unwrap();
+    assert_eq!(sent["method"], "cash");
+    assert_eq!(sent["tier"], "100GB");
+    assert_eq!(sent["months"], 12);
+    assert_eq!(sent["vat_country"], "DE");
+    assert_eq!(sent["withdrawal_consent"], true);
+    assert_eq!(sent["claim_key"], claim.public_base64());
+    assert!(sent.get("provider").is_none() && sent.get("surface").is_none(), "{sent}");
+    assert!(fake.calls()[0].url.ends_with("/v1/checkout"));
 }

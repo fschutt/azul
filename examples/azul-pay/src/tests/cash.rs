@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use super::fixtures::run;
 use crate::{
-    cash::{amount_in_words, CashSlip, ACTIVATION_PREFIX},
+    cash::{self, amount_in_words, CashSlip, ACTIVATION_PREFIX},
     machine::{step, Effect, Event, Notice, State},
     offer::{Offer, OfferContext, Settles},
     pills::{self, Choice, Pill, PillContext},
@@ -310,4 +310,18 @@ fn the_waiting_notice_says_postal_cash_takes_a_while_and_azdrive_looks_daily() {
     assert!(text.starts_with("Waiting for your letter"), "{text}");
     assert!(text.contains("postal cash takes a while"), "{text}");
     assert!(text.contains("once a day"), "{text}");
+}
+
+#[test]
+fn a_token_server_whose_tiers_list_cash_offers_it_without_payment_options() {
+    // The token server says it takes cash by post in GET /v1/tiers (its methods): the app needs
+    // no GET /v1/checkout/options for it - the registry's provider makes the choice.
+    let choice = cash::choice(&ctx(12, false, APP)).expect("cash can be shown");
+    assert_eq!(choice.method.method, Method::Cash);
+    assert_eq!(choice.method.surfaces, vec![SurfaceKind::Paper]);
+    assert_eq!(choice.provider.spec.id, "cash");
+    assert_eq!(choice.method.settles, Settles::Post);
+    assert!(cash::choice(&ctx(1, true, APP)).is_none(), "never a subscription");
+    const NO_PAPER: &[SurfaceKind] = &[SurfaceKind::WebviewPage, SurfaceKind::SystemBrowser];
+    assert!(cash::choice(&ctx(12, false, NO_PAPER)).is_none(), "an app that prints nothing");
 }
