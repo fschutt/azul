@@ -45,7 +45,7 @@ use super::{
     bucket::{Bucket, Fetched, Version},
     keys,
     objects::{ObjectId, Objects},
-    pack::{PackIndex, PackWriter},
+    pack::{PackIndex, PackWriter, SealedPack},
     MetaError, SealError, Sealer,
 };
 
@@ -249,6 +249,45 @@ pub struct Compacted {
     pub replaced: Vec<String>,
 }
 
+/// When a maintenance round ([`MetaStore::maintain`]) does what.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Maintenance {
+    /// How long the round may hold the lease (seconds).
+    pub lease_secs: u64,
+    /// Fold the live packs into one from this many on.
+    pub compact_at_packs: usize,
+    /// Write a checkpoint from this many log entries after the last one on.
+    pub checkpoint_at_entries: usize,
+    /// How old an object no manifest names must be before the sweep retires it (seconds).
+    pub orphan_age: u64,
+    /// How long a retired object waits before it is deleted (seconds).
+    pub grace: u64,
+}
+
+impl Default for Maintenance {
+    /// Ten minutes of lease; 16 packs; 64 log entries; a day for orphans and for the grace.
+    fn default() -> Self {
+        Maintenance {
+            lease_secs: 600,
+            compact_at_packs: 16,
+            checkpoint_at_entries: 64,
+            orphan_age: 86_400,
+            grace: 86_400,
+        }
+    }
+}
+
+/// What a maintenance round did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Maintained {
+    /// The objects no manifest named, retired.
+    pub swept: usize,
+    pub compacted: bool,
+    pub checkpointed: bool,
+    /// The retired objects deleted.
+    pub collected: usize,
+}
+
 fn sealed_error(key: &str, e: &SealError) -> MetaError {
     MetaError::Sealed {
         key: key.to_string(),
@@ -261,6 +300,55 @@ fn corrupt(key: &str, reason: impl Into<String>) -> MetaError {
         key: key.to_string(),
         reason: reason.into(),
     }
+}
+
+/// `value` as JSON, sealed by `sealer` with the bucket key `key` as context.
+fn seal_json<T: Serialize, S: Sealer + ?Sized>(
+    sealer: &S,
+    key: &str,
+    value: &T,
+) -> Result<Vec<u8>, MetaError> {
+    let plain = serde_json::to_vec(value).map_err(|e| corrupt(key, e.to_string()))?;
+    sealer
+        .seal(key.as_bytes(), &plain)
+        .map_err(|e| sealed_error(key, &e))
+}
+
+/// The JSON value `sealed` holds, opened by `sealer` with the bucket key `key`.
+fn open_json<T: DeserializeOwned, S: Sealer + ?Sized>(
+    sealer: &S,
+    key: &str,
+    sealed: &[u8],
+) -> Result<T, MetaError> {
+    let plain = sealer
+        .open(key.as_bytes(), sealed)
+        .map_err(|e| sealed_error(key, &e))?;
+    serde_json::from_slice(&plain).map_err(|e| corrupt(key, e.to_string()))
+}
+
+/// Writes a sealed pack and its index (create-only; one of the same name holds
+/// the same objects) and says what a manifest holds of it.
+fn put_sealed_pack<B: Bucket + ?Sized>(
+    bucket: &B,
+    sealed: SealedPack,
+    seq: u64,
+) -> Result<PackRef, MetaError> {
+    for (key, bytes) in [
+        (keys::pack(&sealed.name), &sealed.pack),
+        (keys::idx(&sealed.name), &sealed.idx),
+    ] {
+        match bucket.create(&key, bytes) {
+            Ok(_) | Err(MetaError::Conflict { .. }) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(PackRef {
+        name: sealed.name,
+        objects: sealed.objects,
+        pack_size: sealed.pack.len() as u64,
+        idx_size: sealed.idx.len() as u64,
+        seq,
+    })
 }
 
 /// Waits a little before the next attempt after a 409 (another conditional
@@ -527,18 +615,11 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     // ---- sealing ----
 
     fn seal<T: Serialize>(&self, key: &str, value: &T) -> Result<Vec<u8>, MetaError> {
-        let plain = serde_json::to_vec(value).map_err(|e| corrupt(key, e.to_string()))?;
-        self.sealer
-            .seal(key.as_bytes(), &plain)
-            .map_err(|e| sealed_error(key, &e))
+        seal_json(&self.sealer, key, value)
     }
 
     fn open_sealed<T: DeserializeOwned>(&self, key: &str, sealed: &[u8]) -> Result<T, MetaError> {
-        let plain = self
-            .sealer
-            .open(key.as_bytes(), sealed)
-            .map_err(|e| sealed_error(key, &e))?;
-        serde_json::from_slice(&plain).map_err(|e| corrupt(key, e.to_string()))
+        open_json(&self.sealer, key, sealed)
     }
 
     fn read_sealed<T: DeserializeOwned>(&self, key: &str) -> Result<T, MetaError> {
@@ -634,23 +715,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// Writes the sealed pack and its index (create-only; one of the same name
     /// is the same objects) and says what the manifest will hold of it.
     fn put_pack(&self, writer: &PackWriter, seq: u64) -> Result<PackRef, MetaError> {
-        let sealed = writer.seal(&self.sealer)?;
-        for (key, bytes) in [
-            (keys::pack(&sealed.name), &sealed.pack),
-            (keys::idx(&sealed.name), &sealed.idx),
-        ] {
-            match self.bucket.create(&key, bytes) {
-                Ok(_) | Err(MetaError::Conflict { .. }) => {}
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(PackRef {
-            name: sealed.name,
-            objects: sealed.objects,
-            pack_size: sealed.pack.len() as u64,
-            idx_size: sealed.idx.len() as u64,
-            seq,
-        })
+        put_sealed_pack(&self.bucket, writer.seal(&self.sealer)?, seq)
     }
 
     /// Opens the index of `pack`.
@@ -1162,6 +1227,56 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// and the bucket's lease is still the one the guard took (not released,
     /// not taken over). The lease only saves double work: every change of the
     /// manifest is a swap anyway.
+    /// One maintenance round under the lease - `None` when another device holds it (the work
+    /// is that device's): the orphan sweep (where the bucket can list), compaction from
+    /// `compact_at_packs` live packs on, a checkpoint from `checkpoint_at_entries` log entries
+    /// on, the garbage collection; then the lease goes back. A device runs it now and then,
+    /// idle and on mains power.
+    pub fn maintain(&mut self, rules: &Maintenance) -> Result<Option<Maintained>, MetaError> {
+        let guard = match self.acquire_lease(MAINTENANCE, rules.lease_secs) {
+            Ok(guard) => guard,
+            Err(MetaError::LeaseHeld { .. }) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let done = self.maintain_under(&guard, rules);
+        let released = self.release_lease(guard);
+        let done = done?;
+        released?;
+        Ok(Some(done))
+    }
+
+    fn maintain_under(
+        &mut self,
+        guard: &LeaseGuard,
+        rules: &Maintenance,
+    ) -> Result<Maintained, MetaError> {
+        let swept = match self.sweep_orphans(guard, rules.orphan_age) {
+            Ok(swept) => swept,
+            Err(MetaError::Unsupported(_)) => 0,
+            Err(e) => return Err(e),
+        };
+        self.sync()?;
+        let compacted = if self.state.packs.len() >= rules.compact_at_packs.max(2) {
+            self.compact(guard)?.is_some()
+        } else {
+            false
+        };
+        let entries = self.synced.as_ref().map_or(0, |s| s.manifest.log.len());
+        let checkpointed = if entries >= rules.checkpoint_at_entries.max(1) {
+            self.checkpoint()?;
+            true
+        } else {
+            false
+        };
+        let collected = self.collect_garbage(guard, rules.grace)?;
+        Ok(Maintained {
+            swept,
+            compacted,
+            checkpointed,
+            collected,
+        })
+    }
+
     /// Finds what no manifest names - the packs of lost swaps, the log entries
     /// and checkpoints of writers that crashed between their write and their
     /// swap - and retires it (under `guard`): [`MetaStore::collect_garbage`]
@@ -1243,6 +1358,198 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             }),
         }
     }
+}
+
+/// What [`reseal`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Resealed {
+    /// Whether this call made the switch (`false`: there was no repository, or it was
+    /// switched already by a call that stopped later).
+    pub switched: bool,
+    /// The objects sealed with the old key that were deleted.
+    pub removed: usize,
+}
+
+/// Seals the repository in `bucket` under `new` from now on, in place of `old` (a key
+/// rotation; `device` writes, `now` dates).
+///
+/// 1. Every live object is read with `old` and written again with `new`: the objects in one
+///    pack (its name is new too - a pack's name is a keyed hash), the refs in a checkpoint at
+///    the head.
+/// 2. **The switch:** the manifest is swapped (compare-and-swap) for one sealed with `new` that
+///    names only those, everything the old one named listed as retired. Before it the
+///    repository opens with `old`, after it with `new`; never with neither. Losing the swap to
+///    another device starts again from 1.
+/// 3. The objects sealed with `old` are deleted - what the old manifest named and what it had
+///    retired - and the lease; then the manifest stops listing them.
+///
+/// Run again after a stop at any point, it finishes: a manifest that opens with `new` is past
+/// the switch, and 3 runs (again). Objects a crashed writer left behind are the orphan sweep's.
+/// A bucket without a repository has nothing to re-seal.
+pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
+    bucket: &B,
+    old: &O,
+    new: &N,
+    device: &str,
+    now: u64,
+) -> Result<Resealed, MetaError> {
+    for attempt in 1..=DEFAULT_ATTEMPTS {
+        let Some((bytes, version)) = bucket.read(keys::MANIFEST)? else {
+            return Ok(Resealed::default());
+        };
+        if let Ok(manifest) = open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
+            let removed = remove_old(bucket, new, manifest, Some(version), device, now)?;
+            return Ok(Resealed {
+                switched: false,
+                removed,
+            });
+        }
+        let manifest: Manifest = open_json(old, keys::MANIFEST, &bytes)?;
+        check_manifest(&manifest)?;
+        // The repository as the old key reads it: the refs at the head, every object.
+        let store = MetaStore::open(bucket, old, device)?;
+        if store.state().revision != manifest.revision {
+            continue;
+        }
+        let mut objects = Objects::new();
+        for pack in &store.state().packs {
+            store.fetch_pack(pack, &mut objects)?;
+        }
+        let head = store.state().head_seq;
+        let mut packs = Vec::new();
+        if !objects.is_empty() {
+            let mut writer = PackWriter::new();
+            let ids: Vec<ObjectId> = objects.ids().copied().collect();
+            for id in &ids {
+                writer.add_from(&objects, id)?;
+            }
+            match put_sealed_pack(bucket, writer.seal(new)?, head) {
+                Ok(pack) => packs.push(pack),
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        let checkpoint = Checkpoint {
+            seq: head,
+            refs: store.state().refs.clone(),
+            packs: packs.clone(),
+            writer: device.to_string(),
+            created_at: now,
+        };
+        let checkpoint_key = keys::checkpoint(head, &attempt_id());
+        match bucket.create(&checkpoint_key, &seal_json(new, &checkpoint_key, &checkpoint)?) {
+            Ok(_) => {}
+            Err(MetaError::Raced { .. }) => {
+                back_off(attempt);
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+        let mut retired = manifest.retired.clone();
+        for key in live_keys(&manifest) {
+            if key != keys::MANIFEST {
+                retired.push(Retired { key, at: now });
+            }
+        }
+        let next = Manifest {
+            format: FORMAT,
+            object_format: OBJECT_FORMAT.to_string(),
+            head_seq: head,
+            revision: manifest.revision + 1,
+            checkpoint: Some(CheckpointRef {
+                seq: head,
+                key: checkpoint_key.clone(),
+                created_at: now,
+            }),
+            log: Vec::new(),
+            packs,
+            retired,
+            writer: device.to_string(),
+            updated_at: now,
+        };
+        let sealed = seal_json(new, keys::MANIFEST, &next)?;
+        match bucket.replace(keys::MANIFEST, &sealed, &version) {
+            Ok(version) => {
+                let removed = remove_old(bucket, new, next, version, device, now)?;
+                return Ok(Resealed {
+                    switched: true,
+                    removed,
+                });
+            }
+            Err(MetaError::Conflict { .. }) => {
+                let _ = bucket.remove(&checkpoint_key);
+            }
+            Err(MetaError::Raced { .. }) => {
+                let _ = bucket.remove(&checkpoint_key);
+                back_off(attempt);
+            }
+            Err(e) => {
+                // The swap may have landed and only its answer got lost: a fresh read decides.
+                match bucket.read(keys::MANIFEST) {
+                    Ok(Some((bytes, version))) => {
+                        if let Ok(landed) = open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
+                            let removed =
+                                remove_old(bucket, new, landed, Some(version), device, now)?;
+                            return Ok(Resealed {
+                                switched: true,
+                                removed,
+                            });
+                        }
+                        // Not switched: the new checkpoint is nobody's.
+                        let _ = bucket.remove(&checkpoint_key);
+                    }
+                    Ok(None) | Err(_) => {}
+                }
+                return Err(e);
+            }
+        }
+    }
+    Err(MetaError::Contended {
+        attempts: DEFAULT_ATTEMPTS,
+    })
+}
+
+/// Step 3 of [`reseal`]: deletes what `manifest` (sealed with `new`, past the switch) lists
+/// as retired - the objects sealed with the old key - and a lease the new key does not open,
+/// then swaps the manifest for one that lists none of them (a lost swap leaves them listed;
+/// garbage collection drops the names of objects that are gone). An object that cannot be
+/// deleted stops it: run again, it goes on.
+fn remove_old<B: Bucket + ?Sized, N: Sealer>(
+    bucket: &B,
+    new: &N,
+    manifest: Manifest,
+    version: Option<Version>,
+    device: &str,
+    now: u64,
+) -> Result<usize, MetaError> {
+    let mut removed = 0;
+    for retired in &manifest.retired {
+        bucket.remove(&retired.key)?;
+        removed += 1;
+    }
+    let lease = keys::lease(MAINTENANCE);
+    if let Some((bytes, _)) = bucket.read(&lease)? {
+        if open_json::<Lease, N>(new, &lease, &bytes).is_err() {
+            bucket.remove(&lease)?;
+            removed += 1;
+        }
+    }
+    if let (false, Some(version)) = (manifest.retired.is_empty(), version) {
+        let mut next = manifest;
+        next.retired.clear();
+        next.revision += 1;
+        next.writer = device.to_string();
+        next.updated_at = now;
+        let sealed = seal_json(new, keys::MANIFEST, &next)?;
+        match bucket.replace(keys::MANIFEST, &sealed, &version) {
+            Ok(_) | Err(MetaError::Conflict { .. } | MetaError::Raced { .. }) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(removed)
 }
 
 /// Every key the manifest names: itself, the live packs and their indexes, the

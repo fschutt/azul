@@ -14,7 +14,10 @@
 //! at `.azlin/drop/<random>`. [`receive_drops`] (Send/Receive, before the folders sync) files
 //! them into the drive's encrypted `mail/<Folder>/` under their stable names and deletes them.
 
-use std::sync::Arc;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 #[cfg(feature = "encryption")]
 use azul_storage::{
@@ -29,12 +32,29 @@ use azul_storage::{keyring::KeyringStore, Drive, DriveError, Transport};
 
 use crate::azlin::AzlinSession;
 
+/// Where the drive index keeps this computer's copies of encrypted drives
+/// ([`set_index_cache_root`]; `None`: in memory, read anew on every start).
+static INDEX_CACHE_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
 /// The provider of encrypted drives' indexes: the drive's encrypted metadata repository
-/// (azul-storage's `meta` module), this process's copy of it in memory (read anew on every
-/// start; AzDrive keeps its copy on disk).
+/// (azul-storage's `meta` module), this computer's copy of it under the cache root.
 #[cfg(feature = "encryption")]
 fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    Some(Arc::new(azul_storage::meta::MetaIndexProvider::new("AzMail")))
+    let root = INDEX_CACHE_ROOT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    Some(Arc::new(
+        azul_storage::meta::MetaIndexProvider::new("AzMail").with_cache_root(root),
+    ))
+}
+
+/// Keeps the drive index's copies of encrypted drives under `root` between runs (`None`: in
+/// memory). AzMail sets it once at start.
+pub fn set_index_cache_root(root: Option<PathBuf>) {
+    *INDEX_CACHE_ROOT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = root;
 }
 
 /// `bucket`, the Azlin drive `drive_id`'s, as the mail's drive.
@@ -158,7 +178,8 @@ mod tests {
     }
 
     /// With the feature, a drive this computer keeps the key of is never written as plaintext:
-    /// without the drive index it is refused.
+    /// over a folder that cannot hold the drive index (`.azlin/` is a folder's own) it is
+    /// refused.
     #[cfg(feature = "encryption")]
     #[test]
     fn an_encrypted_drive_is_never_written_as_plaintext() {
@@ -177,9 +198,35 @@ mod tests {
         );
         assert!(matches!(
             drive.put("mail/Sent/2.eml", b"secret"),
-            Err(DriveError::Unsupported(_))
+            Err(DriveError::InvalidKey { .. } | DriveError::Unsupported(_))
         ));
         assert!(!tmp.path().join("mail").exists(), "nothing written");
+    }
+
+    /// With a cache root set, an encrypted drive's index keeps this computer's copy there
+    /// between runs (as AzDrive's does).
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn an_encrypted_drives_index_keeps_its_copy_under_the_cache_root() {
+        use azul_storage::{
+            crypto::{device, keys::RecoveryKdf},
+            meta::MemoryBucket,
+        };
+        let tmp = TempDir::new("azmail-index-cache");
+        super::set_index_cache_root(Some(tmp.path().to_path_buf()));
+        let keyring = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_cache", cheap).unwrap();
+        let drive = wrap(bucket, "d_cache", keyring);
+        drive.put("mail/Inbox/1.eml", b"hello").unwrap();
+        super::set_index_cache_root(None);
+        let kept: Vec<String> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(kept.iter().any(|name| name == "device-id"), "{kept:?}");
+        assert_eq!(kept.len(), 2, "the device id and the drive's copy: {kept:?}");
     }
 
     /// A drop's message lands under its stable name in the encrypted drive, once however often

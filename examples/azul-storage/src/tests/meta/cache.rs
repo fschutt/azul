@@ -1,11 +1,14 @@
 //! A device's copy of the drive index on disk, and the lazy copy (C6).
 
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
-use super::TempDir;
-use crate::meta::{
-    keys, merge::keep_both, repo::RepoOptions, tree::walk, Bucket, Change, MemoryBucket,
-    MetaError, MetaRepo, Mode, TestSealer,
+use super::{TempDir, Unplugged};
+use crate::{
+    meta::{
+        keys, merge::keep_both, repo::RepoOptions, tree::walk, Bucket, Change, MemoryBucket,
+        MetaError, MetaRepo, Mode, TestSealer,
+    },
+    DriveError,
 };
 
 type Repo = MetaRepo<MemoryBucket, TestSealer>;
@@ -23,19 +26,19 @@ fn cached(dir: &TempDir) -> RepoOptions {
     }
 }
 
-fn put(repo: &mut Repo, path: &str, content: &str) -> Change {
+fn put<B: Bucket>(repo: &mut MetaRepo<B, TestSealer>, path: &str, content: &str) -> Change {
     Change::Put {
         path: path.to_string(),
         id: repo.write_blob(content.as_bytes()),
     }
 }
 
-fn commit(repo: &mut Repo, files: &[(&str, &str)]) {
+fn commit<B: Bucket>(repo: &mut MetaRepo<B, TestSealer>, files: &[(&str, &str)]) {
     let changes: Vec<Change> = files.iter().map(|(p, c)| put(repo, p, c)).collect();
     repo.commit(&changes, "edit", &mut keep_both).unwrap();
 }
 
-fn files(repo: &Repo) -> BTreeMap<String, String> {
+fn files<B: Bucket>(repo: &MetaRepo<B, TestSealer>) -> BTreeMap<String, String> {
     let Some(root) = repo.root().unwrap() else {
         return BTreeMap::new();
     };
@@ -258,4 +261,45 @@ fn a_lazy_device_reopened_from_its_cache_reads_no_chunk_twice() {
     assert_eq!(after.range_reads, before.range_reads);
     assert_eq!(after.reads, before.reads);
     assert_eq!(after.not_modified - before.not_modified, 1);
+}
+
+#[test]
+fn a_device_opens_its_copy_from_the_cache_when_the_bucket_cannot_be_reached() {
+    let bucket = Arc::new(Unplugged::default());
+    let dir = TempDir::new("meta-cache-offline");
+    let mut laptop =
+        MetaRepo::create_with(bucket.clone(), sealer(), "dev-laptop", "Laptop", &cached(&dir))
+            .unwrap();
+    commit(&mut laptop, &[("a.txt", "a1"), ("docs/b.txt", "b1")]);
+    let expected = files(&laptop);
+    drop(laptop);
+
+    bucket.set_down(true);
+    let mut offline =
+        MetaRepo::open_with(bucket.clone(), sealer(), "dev-laptop", "Laptop", &cached(&dir))
+            .unwrap();
+    assert!(offline.is_offline());
+    assert_eq!(files(&offline), expected);
+    // A change needs the bucket.
+    let change = put(&mut offline, "c.txt", "c1");
+    assert!(matches!(
+        offline.commit(&[change], "offline edit", &mut keep_both),
+        Err(MetaError::Drive(DriveError::Transport(_)))
+    ));
+    // Back online, the next pull reaches the bucket again.
+    bucket.set_down(false);
+    offline.pull().unwrap();
+    assert!(!offline.is_offline());
+    assert_eq!(files(&offline), expected);
+}
+
+#[test]
+fn without_a_cache_an_unreachable_bucket_does_not_open() {
+    let bucket = Arc::new(Unplugged::default());
+    MetaRepo::create(bucket.clone(), sealer(), "dev-laptop", "Laptop").unwrap();
+    bucket.set_down(true);
+    assert!(matches!(
+        MetaRepo::open(bucket, sealer(), "dev-laptop", "Laptop"),
+        Err(MetaError::Drive(DriveError::Transport(_)))
+    ));
 }

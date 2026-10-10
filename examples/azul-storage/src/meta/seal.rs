@@ -80,6 +80,18 @@ impl<S: Sealer + ?Sized> Sealer for Arc<S> {
     }
 }
 
+impl<S: Sealer + ?Sized> Sealer for &S {
+    fn seal(&self, context: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
+        (**self).seal(context, plaintext)
+    }
+    fn open(&self, context: &[u8], sealed: &[u8]) -> Result<Vec<u8>, SealError> {
+        (**self).open(context, sealed)
+    }
+    fn name_hash(&self, data: &[u8]) -> [u8; 32] {
+        (**self).name_hash(data)
+    }
+}
+
 impl<S: Sealer + ?Sized> Sealer for Box<S> {
     fn seal(&self, context: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, SealError> {
         (**self).seal(context, plaintext)

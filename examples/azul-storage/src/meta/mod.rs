@@ -76,10 +76,14 @@
 //!   repository (`MetaIndex`, `open_encrypted_drive`) and its pointer files.
 //! - `cache` (feature `index-cache`): the local SQLite query cache (search, largest,
 //!   recent, totals), rebuilt from the tree.
+//! - [`git`]: `git-remote-azlin` (C7), plain git reading the repository.
+//! - `policy` (feature `encryption`): `.azlin/policy.toml` (members, roles, folder grants) and
+//!   the members' key wraps as files of the repository: every membership change a commit.
 
 pub mod bucket;
 #[cfg(feature = "index-cache")]
 pub mod cache;
+pub mod git;
 #[cfg(feature = "encryption")]
 pub mod index;
 pub mod merge;
@@ -87,6 +91,8 @@ pub mod objects;
 pub mod pack;
 #[cfg(feature = "encryption")]
 pub mod pointer;
+#[cfg(feature = "encryption")]
+pub mod policy;
 pub mod repo;
 pub mod seal;
 pub mod shard;
@@ -107,8 +113,8 @@ pub use repo::{CommitOutcome, MetaRepo, RepoOptions};
 pub use seal::{SealError, Sealer, TestSealer};
 pub use tree::Change;
 pub use wal::{
-    LeaseGuard, LogEntry, Manifest, MetaStore, PackRef, Packs, Publish, Published, RefUpdate,
-    RepoState, StoreSnapshot, SyncReport,
+    reseal, LeaseGuard, LogEntry, Maintained, Maintenance, Manifest, MetaStore, PackRef, Packs,
+    Publish, Published, RefUpdate, RepoState, Resealed, StoreSnapshot, SyncReport,
 };
 
 use crate::DriveError;

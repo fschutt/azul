@@ -802,6 +802,41 @@ fn a_conditional_put_asks_if_none_match_or_if_match_and_reads_a_412_as_a_conflic
     assert_eq!(fake.calls().len(), 3);
 }
 
+/// S3's answer to a conditional write that met another one in flight: nothing was written.
+const IN_FLIGHT: &str = "<Error><Code>ConditionalRequestConflict</Code><Message>A conflicting \
+     conditional operation is currently in progress against this resource. Please try \
+     again.</Message></Error>";
+
+#[test]
+fn a_conditional_put_that_meets_another_in_flight_is_sent_again() {
+    let fake = Fake::default();
+    fake.answer(409, &[], IN_FLIGHT);
+    fake.answer(200, &[("ETag", "\"e1\"")], "");
+    let drive = local_drive(&fake);
+    assert_eq!(
+        drive.put_if("data/ab/obj", b"one", &Precondition::Absent),
+        Ok(Some(String::from("e1")))
+    );
+    assert_eq!(fake.calls().len(), 2);
+    assert_eq!(header(&fake.last(), "if-none-match"), Some("*"));
+}
+
+#[test]
+fn a_conditional_put_that_keeps_meeting_others_says_so_after_a_few_tries() {
+    let fake = Fake::default();
+    for _ in 0..8 {
+        fake.answer(409, &[], IN_FLIGHT);
+    }
+    let drive = local_drive(&fake);
+    let result = drive.put_if("data/ab/obj", b"one", &Precondition::Matches(String::from("e1")));
+    assert!(
+        matches!(&result, Err(DriveError::Service(e)) if e.status == 409),
+        "{result:?}"
+    );
+    let sent = fake.calls().len();
+    assert!(sent > 1 && sent <= 5, "{sent} tries");
+}
+
 /// 8 MiB: the part size of a streamed upload.
 const PART: usize = 8 * 1024 * 1024;
 

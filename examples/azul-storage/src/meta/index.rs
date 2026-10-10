@@ -31,11 +31,11 @@ use super::{
     objects::{Commit, Mode, ObjectId},
     pack::PackWriter,
     pointer,
-    repo::{remote_head, unpublished, Local, MetaRepo, RepoOptions, MAIN},
+    repo::{remote_head, unpublished, unreachable, Local, MetaRepo, RepoOptions, MAIN},
     seal::Sealer,
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
-    wal::{Packs, Publish, RefUpdate},
+    wal::{reseal, Packs, Publish, RefUpdate},
     MetaError,
 };
 use crate::{
@@ -338,7 +338,12 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
             .last_poll
             .map_or(true, |last| now.saturating_sub(last) >= self.poll_every);
         if due {
-            inner.repo.pull().map_err(to_drive)?;
+            match inner.repo.pull() {
+                Ok(_) => {}
+                // No bucket: reads go on from the copy (changes need the bucket).
+                Err(e) if unreachable(&e) && inner.repo.head().is_some() => {}
+                Err(e) => return Err(to_drive(e)),
+            }
             inner.last_poll = Some(now);
         }
         Ok(inner)
@@ -566,6 +571,13 @@ impl MetaIndexProvider {
         self
     }
 
+    /// The folder of this device's copy of the drive `drive` (named by a hash of its id).
+    fn cache_dir(&self, drive: &str) -> Option<PathBuf> {
+        self.cache_root
+            .as_ref()
+            .map(|root| root.join(hex(&Sha256::digest(drive.as_bytes())[..16])))
+    }
+
     /// This device's id in the drives' logs and leases: kept in `<cache
     /// root>/device-id` (made once); a new one per run without a cache root.
     fn device_id(&self) -> String {
@@ -594,13 +606,32 @@ impl IndexProvider for MetaIndexProvider {
         drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError> {
         let options = RepoOptions {
-            cache_dir: self
-                .cache_root
-                .as_ref()
-                .map(|root| root.join(hex(&Sha256::digest(drive.as_bytes())[..16]))),
+            cache_dir: self.cache_dir(drive),
             lazy: self.lazy,
         };
         let repo = open_or_create(&bucket, drive_key, &self.device_id(), &self.device_name, &options)?;
         Ok(Arc::new(MetaIndex::new(repo)))
+    }
+
+    /// The repository re-sealed under `new` ([`reseal`]: crash-safe, run again after a stop
+    /// and it finishes), then this device's copy - sealed with `old` - deleted; the next open
+    /// reads the repository anew.
+    fn rekey(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        old: &DriveKey,
+        new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        let bucket = DriveBucket::new(bucket);
+        reseal(&bucket, old, new, &self.device_id(), crate::time::now_unix()).map_err(to_drive)?;
+        if let Some(dir) = self.cache_dir(drive) {
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(DriveError::Io(format!("{}: {e}", dir.display()))),
+            }
+        }
+        Ok(())
     }
 }
