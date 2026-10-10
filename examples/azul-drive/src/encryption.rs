@@ -1068,6 +1068,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_drives_recovery_key_at_the_token_server_comes_from_its_recovery_code() {
+        // The key a lockdown without a drive token is signed with: derived from the code on
+        // the sheet (azcloud-kit's RecoveryKey), the same wherever the code is typed.
+        let code = RecoveryCode::from_bytes([0x5A; 16]);
+        assert_eq!(
+            recovery_key_of(&code, "d_1").public_base64(),
+            "TZrvbj1nF30/6IIsz2wc36FCNEID9Pu4HUE9+wjQ7Wo="
+        );
+        let typed = RecoveryCode::parse(&code.to_text()).unwrap();
+        assert_eq!(
+            recovery_key_of(&typed, "d_1").public_base64(),
+            recovery_key_of(&code, "d_1").public_base64(),
+            "the code as typed back"
+        );
+        assert_ne!(
+            recovery_key_of(&code, "d_2").public_base64(),
+            recovery_key_of(&code, "d_1").public_base64()
+        );
+    }
+
+    #[test]
     fn a_rotations_sheet_offers_re_encryption_next() {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         assert!(!Sheet::new("d_1", code.to_text()).after_rotation);
