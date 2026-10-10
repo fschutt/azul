@@ -44,6 +44,7 @@
 //! apps, feature `azul`). The Add drive dialog's sources and their forms are
 //! [`catalog`]. Nothing here logs a secret or puts one in `Debug` output.
 
+pub mod base32;
 pub mod catalog;
 pub mod config;
 pub mod ids;

@@ -38,6 +38,7 @@ use crate::{
     session::AzlinSession,
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
+    user_errors::Code,
 };
 
 /// Makes a transport: one for every S3 drive the credentials open, one for every refresh.
@@ -96,7 +97,8 @@ fn drive_error_of(e: &TokenError) -> DriveError {
         },
         TokenError::Config(why) => DriveError::InvalidConfig(why.clone()),
         // A refusal keeps its status and code: a busy token server is a busy service to the
-        // user (user_errors), not a broken answer.
+        // user (user_errors), not a broken answer - and a code of the errors table (a banned
+        // drive past its end: drive_banned) stays that code.
         TokenError::Refused {
             status,
             code,
@@ -105,6 +107,9 @@ fn drive_error_of(e: &TokenError) -> DriveError {
             status: *status,
             code: code.clone(),
             message: message.clone(),
+            azlin_error: Code::parse(code)
+                .filter(|known| *known != Code::Other)
+                .map(|_| code.clone()),
             ..ServiceError::default()
         }),
         TokenError::Protocol(_) => DriveError::Protocol(e.to_string()),

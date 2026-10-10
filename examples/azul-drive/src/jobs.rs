@@ -24,11 +24,12 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Claimed, Finished, PendingTokens, Polled},
-    look_at_drive, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery,
+    look_at_drive, ActivationCode, Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle,
+    OptionsQuery,
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
-use azul_pay::{Choice, Created, Look, SurfaceKind};
+use azul_pay::{CashSlip, Choice, Created, Look, SurfaceKind};
 use azul::{
     image::{ImageRef, RawImage},
     prelude::*,
@@ -96,11 +97,13 @@ pub(crate) struct PayVia {
 }
 
 /// A checkout made: the token server's answer, the keyring's entry of it, and - through a
-/// provider - its checked surface (`None`: the v1 checkout's payment page).
+/// provider - its checked surface (`None`: the v1 checkout's payment page), or - cash by post -
+/// its checked slip.
 pub(crate) struct Started {
     pub checkout: Checkout,
     pub kept: PendingCheckout,
     pub created: Option<Created>,
+    pub cash: Option<CashSlip>,
 }
 
 /// A folder's size, counted for the Properties dialog.
@@ -304,11 +307,13 @@ pub(crate) enum Job {
     },
     /// The background claims: the keyring's unfinished checkouts asked about every few seconds
     /// (each at its own token server, else `token_url`) until none is left or an hour is gone;
-    /// a claimed one's period tokens issued into `store`.
+    /// a claimed one's period tokens issued into `store`. A cash checkout is asked once, and
+    /// again only every `cash_every` seconds (the daily look's interval).
     Claims {
         keyring: SharedKeyring,
         token_url: Option<String>,
         store: PeriodTokenStore,
+        cash_every: u64,
     },
     /// A claimed checkout whose drive `drive_id` is in the drives file: without a `grant` it
     /// leaves the keyring's list; with one it stays there (its issue key with its claim secret)
@@ -404,6 +409,13 @@ pub(crate) enum Job {
         token_url: String,
         keyring: SharedKeyring,
         encrypted: Option<crate::restore::EncryptedRestore>,
+    },
+    /// "Pick up a paid drive with a claim code": the cash checkout `checkout` (made of the
+    /// code) onto `keyring`'s list of unfinished checkouts, for the Add drive dialog `serial`.
+    PickUp {
+        serial: u64,
+        checkout: PendingCheckout,
+        keyring: SharedKeyring,
     },
 }
 
@@ -640,6 +652,15 @@ pub(crate) enum Outcome {
         drive_id: String,
         as_of: u64,
         result: Result<crate::restore::Restored, String>,
+    },
+    /// The background claims asked about the cash checkout `checkout`: it awaits its letter. A
+    /// job that still runs.
+    CashWaiting { checkout: PendingCheckout },
+    /// A claim code's checkout is on the keyring's list (or why not), for the dialog `serial`.
+    PickedUp {
+        serial: u64,
+        checkout: PendingCheckout,
+        result: Result<(), String>,
     },
 }
 
@@ -2169,11 +2190,23 @@ fn start_checkout(
             (checkout, Some(answer))
         }
     };
-    let kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
+    let mut kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
+    // Cash by post: the slip, checked, waits in the list with its checkout (it is printed
+    // again from there); one that is not this order's is never printed.
+    let cash = match (via, &answer) {
+        (Some(via), Some(answer)) if via.surface == SurfaceKind::Paper => {
+            let slip = cash_slip(answer, via)?;
+            kept.method = String::from(azcloud_kit::cash::CASH_METHOD);
+            kept.cash = Some(crate::cash::Letter::of_slip(&slip, tier, months).kept());
+            Some(slip)
+        }
+        _ => None,
+    };
     pending::add(keyring, &kept).map_err(|e| {
         format!("the keyring did not keep the checkout's claim key ({e}), so it was not opened")
     })?;
     let created = match (via, answer) {
+        (Some(_), Some(_)) if cash.is_some() => None,
         (Some(via), Some(answer)) => match Created::parse(&answer, &via.choice, &via.look) {
             Ok(created) => Some(created),
             Err(refused) => {
@@ -2189,7 +2222,30 @@ fn start_checkout(
         checkout,
         kept,
         created,
+        cash,
     })
+}
+
+/// A cash checkout's answer as its slip: checked by azul-pay (its parts) and by azcloud-kit
+/// (its activation code is this checkout's, for its amount and currency).
+fn cash_slip(answer: &serde_json::Value, via: &PayVia) -> Result<CashSlip, String> {
+    let slip = CashSlip::parse(answer, &via.choice).map_err(|e| e.to_string())?;
+    ActivationCode::parse(&slip.activation_code)
+        .and_then(|code| code.check(&slip.checkout_id, slip.amount_cents, &slip.currency))
+        .map_err(|e| {
+            format!("the slip's activation code is not this order's ({e}), so it was not printed")
+        })?;
+    Ok(slip)
+}
+
+/// A claim code picked up (cash by post, on another computer): its checkout onto the keyring's
+/// list - unless the list has it already (this computer bought it: its slip stays).
+fn pick_up(keyring: &SharedKeyring, checkout: &PendingCheckout) -> Result<(), String> {
+    let listed = pending::list(keyring).map_err(|e| e.to_string())?;
+    if listed.iter().any(|c| c.checkout_id == checkout.checkout_id) {
+        return Ok(());
+    }
+    pending::add(keyring, checkout).map_err(|e| e.to_string())
 }
 
 /// The checkout `checkout_id` on the surface `kind`, checked for `choice`.
@@ -2306,20 +2362,40 @@ fn await_payment(
 /// whose period tokens are not issued yet (AZLINSEC17 F24) is not asked about again: its tokens
 /// are issued with the issue key it keeps ([`pending::finish`]) - the sealed sign-up may be
 /// gone by now.
+/// Whether a cash checkout last asked at `last` (in this claims run) is to be asked at `now`:
+/// never asked yet, or `every` seconds (its daily look's interval) gone since.
+#[must_use]
+pub(crate) fn cash_ask_due(last: Option<Instant>, every: u64, now: Instant) -> bool {
+    last.is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(every))
+}
+
 fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
     store: &PeriodTokenStore,
+    cash_every: u64,
     sender: &mut ThreadSender,
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
     let started = Instant::now();
     let mut reported: Vec<String> = Vec::new();
+    // A cash checkout is asked once, then once each daily interval (its letter takes days):
+    // never every round.
+    let mut asked_cash: HashMap<String, Instant> = HashMap::new();
     loop {
         let open: Vec<PendingCheckout> = match pending::list(keyring) {
             Ok(checkouts) => checkouts
                 .into_iter()
                 .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
+                .filter(|c| {
+                    !(c.is_cash()
+                        && c.period.is_none()
+                        && !cash_ask_due(
+                            asked_cash.get(&c.checkout_id).copied(),
+                            cash_every,
+                            Instant::now(),
+                        ))
+                })
                 .collect(),
             Err(e) => {
                 // A system without a keyring kept no checkout either: nothing to say then.
@@ -2363,7 +2439,13 @@ fn claim_pending(
                 }
                 continue;
             }
+            if checkout.is_cash() {
+                asked_cash.insert(checkout.checkout_id.clone(), Instant::now());
+            }
             match pending::poll(&server, keyring, &checkout) {
+                Polled::Pending if checkout.is_cash() => {
+                    send(sender, Outcome::CashWaiting { checkout });
+                }
                 Polled::Claimed(claimed) => {
                     reported.push(checkout.checkout_id.clone());
                     send(
@@ -2797,7 +2879,8 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             token_url,
             store,
-        } => claim_pending(&keyring, token_url.as_deref(), &store, sender),
+            cash_every,
+        } => claim_pending(&keyring, token_url.as_deref(), &store, cash_every, sender),
         Job::FinishCheckout {
             keyring,
             store,
@@ -2939,6 +3022,15 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             result: crate::restore::run(&drive_id, as_of, &token_url, &keyring, encrypted),
             drive_id,
             as_of,
+        },
+        Job::PickUp {
+            serial,
+            checkout,
+            keyring,
+        } => Outcome::PickedUp {
+            serial,
+            result: pick_up(&keyring, &checkout),
+            checkout,
         },
     }
 }

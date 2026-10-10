@@ -14,6 +14,7 @@
 //! | Wero          | a payer in DE, BE, FR, LU or NL, in EUR, not recurring            |
 //! | Bank transfer | a prepaid period of 12 or 24 months (not recurring)               |
 //! | Voucher       | never a pill ("I have a voucher" is a line of its own)            |
+//! | Cash by post  | one prepaid payment (not recurring), where the app prints paper   |
 //!
 //! and only with a surface the app can show. The default pill is the direct debit where it
 //! shows, else the card, else the first.
@@ -64,6 +65,7 @@ pub fn method_shown(method: Method, ctx: &PillContext) -> bool {
         Method::PayPal | Method::BankTransfer => prepaid_year,
         Method::Wero => euro && !ctx.recurring && WERO_COUNTRIES.contains(&country.as_str()),
         Method::Voucher => false,
+        Method::Cash => !ctx.recurring,
     }
 }
 

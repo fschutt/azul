@@ -485,3 +485,27 @@ fn a_token_server_that_cannot_refresh_now_is_a_busy_service_to_the_user() {
         Some(Code::Unavailable)
     );
 }
+
+#[test]
+fn a_banned_drive_past_its_end_refuses_the_refresh_in_the_tables_words() {
+    // Ban contract v1: past the ban's end the token server refuses the credentials (403
+    // drive_banned) - the listing says it is the banned drive, not "something went wrong".
+    let dir = TempDir::new("azcloud-drive");
+    let fake = Fake::new(|call, _| {
+        Ok(if call.url.ends_with("/credentials") {
+            json(
+                403,
+                r#"{"error": "drive_banned", "message": "this drive was closed",
+                    "ban_reason": "spam distribution", "ban_until": "2026-10-08T21:00:00Z"}"#,
+            )
+        } else {
+            empty_listing()
+        })
+    });
+    let (drive, _, _) = drive(&fake, EXPIRES + 60, &dir);
+    let error = drive.list(&ListRequest::folder("")).unwrap_err();
+    assert_eq!(
+        UserError::from_drive_error(&error).map(|user| user.code),
+        Some(Code::DriveBanned)
+    );
+}

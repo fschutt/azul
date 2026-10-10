@@ -1,6 +1,7 @@
 //! azul-pay's tests: no window, no network.
 
 mod bridge;
+mod cash;
 mod fixtures;
 mod machine;
 mod offer;

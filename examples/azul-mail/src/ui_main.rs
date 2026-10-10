@@ -210,8 +210,12 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
     };
     let mut column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(title_row(s))
-        .with_child(shell.dom());
+        .with_child(title_row(s));
+    // An Azlin account on a banned drive (ban contract v1): the banner every Azlin app shows.
+    if let Some(bar) = ban_bar(s) {
+        column.add_child(bar);
+    }
+    let mut column = column.with_child(shell.dom());
     if s.about_open {
         column.add_child(about_dialog(&app));
     }
@@ -232,6 +236,22 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
             app,
             on_main_key,
         )
+}
+
+/// The banner over an Azlin account whose drive is banned: why, the hours left to migrate (the
+/// kit's words, AzDrive's too), and that AzMail sends nothing from it.
+fn ban_bar(s: &MailApp) -> Option<Dom> {
+    let account = s.current_account()?;
+    let text = s.sending_refused(&account.id)?;
+    Some(
+        Dom::create_div()
+            .with_id(crate::ids::BAN_BAR)
+            .with_css(
+                "display: flex; flex-direction: row; align-items: center; padding: 8px 12px; \
+                 background: #FDE7E9; color: #5C0F14; font-size: 13px;",
+            )
+            .with_child(Dom::create_span_with_text(text.as_str())),
+    )
 }
 
 /// The window's title row, drawn by azul (the window is `NoTitle`): Outlook's "Inbox -

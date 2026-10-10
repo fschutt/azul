@@ -204,6 +204,7 @@ fn share_paper(drive_name: &str, made: &Made, secret: &Zeroizing<String>) -> Pap
             "Share {} of {SHARES}, for {}, made on {day}.",
             made.index, made.name
         ),
+        address: Vec::new(),
         text: vec![
             format!(
                 "This is one of three pieces of a recovery code for {drive_name}. Alone it \

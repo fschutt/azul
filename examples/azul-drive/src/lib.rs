@@ -134,12 +134,20 @@
 //! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
 
 mod actions;
+/// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
+mod ban;
+#[cfg(test)]
+mod ban_tests;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
 mod add_drive;
 #[cfg(test)]
 mod add_drive_tests;
 /// What the Add drive dialog's buttons start, and the answers of its jobs.
 mod add_flow;
+/// Cash by post: the two pages, the waiting line, a claim code picked up, the daily look.
+mod cash;
+#[cfg(test)]
+mod cash_tests;
 /// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
 mod sign_in;
 pub mod args;
@@ -186,6 +194,7 @@ pub mod listing;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
+mod paper;
 pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
@@ -839,6 +848,12 @@ pub(crate) struct DriveState {
     /// `AZDRIVE_<PROVIDER>_<KEY>` over the shared Azlin config's `oauth` section, read at the
     /// start (`sign_in`).
     pub sign_in_settings: sign_in::SignInSettings,
+    /// The cash orders this AzDrive waits for (cash by post): the drive list's lines.
+    pub cash_waits: Vec<cash::Wait>,
+    /// When the cash orders are asked about next: once a day (`AZDRIVE_PERIOD_CHECK_SECS`).
+    pub cash_looks: periods::Schedule,
+    /// The banned Azlin drives (ban contract v1), by their Azlin id: why, until when.
+    pub bans: HashMap<String, azcloud_kit::Ban>,
 }
 
 impl DriveState {
@@ -2238,6 +2253,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Scanned { done: false, .. }
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+            | Outcome::CashWaiting { .. }
             | Outcome::CheckoutFinished {
                 from_claims: true,
                 ..
@@ -2617,6 +2633,12 @@ pub(crate) extern "C" fn on_job_done(
             as_of,
             result,
         } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
+        Outcome::CashWaiting { checkout } => cash::waiting(s, checkout),
+        Outcome::PickedUp {
+            serial,
+            checkout,
+            result,
+        } => add_flow::picked_up_answered(&mut info, &handle, s, serial, checkout, result),
     }
     Update::RefreshDom
 }
@@ -3053,6 +3075,9 @@ pub fn start() {
         None if args.kit.shot.is_some() => None,
         None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
     };
+    // Print's copies of a page (an emergency kit, cash by post's two) live there; a run before's
+    // go first.
+    paper::set_print_root(cache_dir.clone());
     #[cfg(feature = "encryption")]
     encryption::set_cache_dir(cache_dir.clone());
     // A big upload outlives the app: its state file in the cache, resumed by the next upload of
@@ -3147,6 +3172,9 @@ pub fn start() {
         pending_lockdowns: HashMap::new(),
         sync_view: sync_view::SyncView::default(),
         sign_in_settings,
+        cash_waits: Vec::new(),
+        cash_looks: periods::Schedule::default(),
+        bans: HashMap::new(),
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

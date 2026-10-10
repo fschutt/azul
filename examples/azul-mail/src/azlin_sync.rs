@@ -813,6 +813,20 @@ pub fn fetch_message(
     Ok(bytes.len() as u64)
 }
 
+/// Why an Azlin account on a drive under `ban` sends nothing at `now` (ban contract v1): the
+/// banner every Azlin app shows, and that its mail waits; `None` for a drive in good standing.
+#[must_use]
+pub fn sending_refused(ban: Option<&azcloud_kit::Ban>, now: u64) -> Option<String> {
+    let ban = ban?;
+    if ban.is_closed(now) {
+        return Some(ban.closed_text());
+    }
+    Some(format!(
+        "{} AzMail sends nothing from this account: its mail waits in the Outbox.",
+        ban.banner(now)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use azul_storage::{ListPage, ListRequest, LocalDrive};
@@ -1342,5 +1356,29 @@ mod tests {
             drive_error(DriveError::Protocol(String::from("?"))),
             SyncError::Protocol(_)
         ));
+    }
+
+    // ==== A banned drive (ban contract v1) ====
+
+    #[test]
+    fn an_azlin_account_on_a_banned_drive_sends_nothing_and_says_why() {
+        let until = 1_791_799_200; // 2026-10-12T10:00:00Z
+        let ban = azcloud_kit::Ban {
+            reason: String::from("spam distribution"),
+            until: Some(until),
+            closed: false,
+        };
+        let why = sending_refused(Some(&ban), until - 10 * 3_600).expect("sending stops");
+        assert!(
+            why.starts_with(
+                "Due to spam distribution, your account has been banned, but you have 10 hours \
+                 to migrate your files."
+            ),
+            "the same banner as AzDrive's: {why}"
+        );
+        assert!(why.contains("AzMail sends nothing"), "{why}");
+        let closed = sending_refused(Some(&ban), until + 1).expect("closed");
+        assert!(closed.starts_with("This drive was closed on 2026-10-12"), "{closed}");
+        assert_eq!(sending_refused(None, until), None, "a drive in good standing sends");
     }
 }

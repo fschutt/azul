@@ -2,7 +2,9 @@
 //! as the real ones do (the token server's JSON, S3's XML) and records every call.
 
 mod account;
+mod ban;
 mod bucket;
+mod cash;
 mod claim;
 mod cloud_drive;
 mod drive;

@@ -78,6 +78,22 @@ sheet of `--dialogs inline`:
        they give back signs the lockdown, the token server holds it 48 hours without
        credentials for it while the owner's AzDrive shows it, then (the mock's clock advanced)
        hands the drive over, the owner's old token is refused and the code unlocks the drive.
+   14. Cash by post (cash contract v1): with the mock's "cash" offer Buy storage shows the "Cash
+       by post" pill; Buy makes a cash checkout (awaiting_cash at the mock, on the keyring's list
+       with its slip and method "cash"), the dialog says "Waiting for your letter ..." and shows
+       the AZK1 claim code (the checkout id and the kept claim secret, as scripts/azlin_claim.py
+       writes it), both pages are saved as PDFs (FileDialog::save_bytes under the mock store), a
+       look finds it waiting (AZDRIVE_CASH_WAITING) and the drive list shows the order; the
+       operator activates it through the mock's switch and the next daily look
+       (AZDRIVE_PERIOD_CHECK_SECS) brings the drive; on a second AzDrive profile (its own drives
+       file and keyring) "Pick up a paid drive with a claim code" takes the code as typed (lower
+       case, blanks) and the drive arrives there too.
+   15. A ban with a grace period (ban contract v1) on step 14's drive: the mock bans it for 48
+       hours; the next look shows the banner with its hours, a paste into it and a new folder
+       are refused with the reason (nothing reaches its bucket), "Copy everything to this
+       computer" downloads its files into a folder picked (the mock store's file_open); the
+       mock's clock past the end: the drive shows "This drive was closed on <date> because
+       <reason>." and nothing else.
 
 Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
 step 6 stays closed and the mock's test provider is paid directly; in steps 7 - 11 nothing loads
@@ -117,7 +133,7 @@ import azlin_e2e as e2e
 import azlin_mock_stack
 import azlin_period
 from azlin_e2e import Failure
-from azdrive_e2e import Drive, I, item_names, open_item
+from azdrive_e2e import Drive, I, item_names, open_item, select_item
 
 # The ids of the dialog (examples/azul-drive/src/ids.rs).
 DIALOG = "#__azdrive_add_drive"
@@ -679,6 +695,207 @@ def recovery_steps(app, stack, args, logs, out, binary, switches, env, drives_fi
             "refused), and the code the shares gave back unlocked it: hello.txt in its listing")
     finally:
         second.stop()
+
+
+# ==== 14. Cash by post, 15. a ban (cash and ban contracts v1) ====
+
+# A claim code as the dialog shows it (AZK1, base32 in blocks of four).
+CLAIM_CODE_RE = re.compile(r"\bAZK1(?:-[A-Z2-7]{1,4})+\b")
+WAITING = "Waiting for your letter: postal cash takes a while, AzDrive checks once a day."
+
+
+def other_profile(logs, name, switches, env):
+    """A second AzDrive profile of this run: its own drives file, data, home and keyring file
+    (another computer); the switches and the environment it starts with."""
+    root = os.path.join(logs, name)
+    os.makedirs(os.path.join(root, "config"), exist_ok=True)
+    os.makedirs(os.path.join(root, "home"), exist_ok=True)
+    other = list(switches)
+    for flag, value in (("--drives", os.path.join(root, "config", "drives.json")),
+                        ("--data-dir", os.path.join(root, "data")),
+                        ("--downloads", os.path.join(root, "downloads")),
+                        ("--home", os.path.join(root, "home"))):
+        if flag in other:
+            other[other.index(flag) + 1] = value
+        else:
+            other += [flag, value]
+    if "--cache-dir" in other:
+        other[other.index("--cache-dir") + 1] = os.path.join(root, "cache")
+    return other, dict(env, AZ_KEYRING_FILE=os.path.join(root, "keyring.json"))
+
+
+def cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file):
+    """14. Cash by post: the pill, the checkout and its slip, both PDFs, the waiting order, the
+    operator's activation and the daily look that brings the drive, the claim code picked up on
+    a second profile. The drive's id."""
+    stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS) + ["cash"])
+    added = set(app.printed("AZDRIVE_ADDED", r"d_\S+"))
+    dialog = open_dialog(app, "the source list",
+                         lambda: app.click(selector="#" + I("side-add-drive")))
+    pills = app.after("the payment pills", "AZDRIVE_PILLS", r".+",
+                      lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+    if "cash:cash" not in pills.split():
+        raise Failure("Buy storage shows no cash pill: %r" % pills)
+    dialog.click("tier_0")
+    dialog.type_into("name", "Paid in cash", clear=len("Azlin Storage"))
+    dialog.click("pill_cash")
+    dialog.click("consent")
+    checkout = app.after("the cash checkout", "AZDRIVE_CHECKOUT", r"ck_\S+",
+                         lambda: dialog.click("buy_button"))
+    app.until("the slip offered", lambda: app.printed("AZDRIVE_CASH_SLIP", re.escape(checkout)))
+    record = stack.token.state.checkouts.get(checkout) or {}
+    if record.get("method") != "cash" or record.get("status") != "awaiting_cash":
+        raise Failure("the mock made %r" % {k: record.get(k) for k in ("method", "status")})
+    kept = pending_checkouts(keyring_file).get(checkout) or {}
+    if kept.get("method") != "cash" \
+            or (kept.get("cash") or {}).get("activation_code") != record.get("activation_code"):
+        raise Failure("the keyring's list keeps no slip of %s: %r"
+                      % (checkout, {k: v for k, v in kept.items() if k != "claim_secret"}))
+    dialog.win.until("the waiting line", lambda: dialog.shows(WAITING))
+    code = dialog.win.until("the claim code", lambda: found(dialog.win.texts(), CLAIM_CODE_RE))
+    code = code.group(0)
+    if code != azlin_claim.claim_code(checkout, kept["claim_secret"]):
+        raise Failure("the claim code shown is not the checkout id and its kept claim secret")
+    app.op("mock", set={"save_bytes": {"accept": True}})
+    app.after("the buyer's copy saved", "AZDRIVE_CASH_SAVED", r"copy \d+",
+              lambda: dialog.click("#__azdrive_cash_copy_save"))
+    saved_pdf(app, "the buyer's copy")
+    app.after("the slip saved", "AZDRIVE_CASH_SAVED", r"slip \d+",
+              lambda: dialog.click("#__azdrive_cash_slip_save"))
+    saved_pdf(app, "the slip")
+    app.until("a look found it waiting", lambda: app.printed(
+        "AZDRIVE_CASH_WAITING", re.escape(checkout)))
+    dialog.screenshot(os.path.join(out, "14-cash-posted.png"))
+    dialog.click("cancel")
+    wait_closed(app)
+    app.until("the drive list's waiting order", lambda: app.has("#__azdrive_side_cash_0_line")
+              and app.shows("Waiting for your letter"))
+    if checkout not in pending_checkouts(keyring_file):
+        raise Failure("closing the dialog took the cash checkout off the keyring's list")
+    app.screenshot(os.path.join(out, "14-cash-waiting.png"))
+    log("14. Cash by post: %s awaits its letter at the mock, on the keyring's list with its "
+        "slip; the dialog showed the waiting line and the claim code, both pages were saved as "
+        "PDFs, a look found it waiting and the drive list shows it" % checkout)
+
+    # The operator activates it (the mock's AzCtl stand-in): the next daily look brings it.
+    stack.token.state.activate_cash(checkout)
+    drive_id = app.until("the drive of the cash order", lambda: [
+        d for d in app.printed("AZDRIVE_ADDED", r"d_\S+") if d not in added])[0]
+    app.until("its claim", lambda: app.printed(
+        "AZDRIVE_CLAIMED", r"%s %s" % (re.escape(checkout), re.escape(drive_id))))
+    app.until("its row in CLOUD", lambda: app.has(side_drive(drive_id)))
+    app.until("the order off the drive list",
+              lambda: not app.has("#__azdrive_side_cash_0_line"))
+    app.until("the checkout off the keyring's list",
+              lambda: checkout not in pending_checkouts(keyring_file))
+    log("14. The operator activated %s at the mock; the next daily look claimed %s" %
+        (checkout, drive_id))
+
+    # Another computer picks the drive up with the claim code.
+    other_switches, other_env = other_profile(logs, "cash-other", switches, env)
+    second = Drive("azdrive-cash-other", binary, other_switches, args.debug_port + 1, logs,
+                   args.timeout, extra_env=other_env)
+    try:
+        second.until("the This PC view", lambda: second.printed("AZDRIVE_PLACE", r"this-pc"))
+        second.until("the debug server", lambda: second.op("get_dom_tree"))
+        picker = open_dialog(second, "the source list",
+                             lambda: second.click(selector="#" + I("side-add-drive")))
+        picker.page("claim-code", lambda: picker.click("choice_claim"))
+        picker.type_into("claim_code", code.lower().replace("-", " "))
+        picker.type_into("name", "Picked up", clear=len("Azlin Storage"))
+        second.after("the code picked up", "AZDRIVE_PICKED_UP", re.escape(checkout),
+                     lambda: picker.click("pick_up"))
+        claimed = second.until("the drive picked up", lambda: second.printed(
+            "AZDRIVE_CLAIMED", r"%s \S+" % re.escape(checkout)))[-1]
+        if claimed.split()[-1] != drive_id:
+            raise Failure("the claim code brought %s, not %s" % (claimed, drive_id))
+        picker.click("cancel")
+        wait_closed(second)
+        second.after("the picked-up drive's bucket", "AZDRIVE_LISTED",
+                     r"%s / \d+" % re.escape(drive_id),
+                     lambda: second.click(selector=side_drive(drive_id)))
+        second.screenshot(os.path.join(out, "14-picked-up.png"))
+    finally:
+        second.stop()
+    log("14. A second profile picked %s up with the claim code typed in lower case with "
+        "blanks: AZDRIVE_CLAIMED there, its bucket listed" % drive_id)
+    return drive_id
+
+
+def ban_steps(app, stack, logs, out, drive_id):
+    """15. A ban with a grace period on `drive_id`: the banner with its hours, writes refused,
+    Copy everything to this computer, the closed drive past the end."""
+    drive = stack.token.state.drives[drive_id]
+    stack.s3.store.write(drive["bucket"], "notes/keep.txt", b"keep me\n")
+    stack.s3.store.write(drive["bucket"], "photo.txt", b"a photo\n")
+    reason = "spam distribution"
+    until = stack.token.state.ban(drive_id, reason, 48 * 3600)
+    hours = app.until("the ban seen by the daily look", lambda: app.printed(
+        "AZDRIVE_BANNED", r"%s \d+" % re.escape(drive_id)))[-1].split()[-1]
+    # The mock's clock may be ahead of this computer's (step 13 moved it): AzDrive counts by its
+    # own.
+    expected = max(1, -(-(until - int(time.time())) // 3600))
+    if abs(int(hours) - expected) > 1:
+        raise Failure("the banner counts %s hours, not about %d" % (hours, expected))
+    app.after("the banned drive's listing", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id),
+              lambda: app.click(selector=side_drive(drive_id)))
+    banner = ("Due to %s, your account has been banned, but you have %s hours to migrate your "
+              "files." % (reason, hours))
+    app.until("the banner", lambda: app.has("#__azdrive_ban_bar") and app.shows(banner))
+    app.screenshot(os.path.join(out, "15-banned.png"))
+
+    # Writes are refused with the reason, before anything reaches the bucket.
+    refused = "This drive is banned (%s)" % reason
+    stack.s3.clear_log()
+    app.key("n", primary=True, shift=True)
+    app.until("the new folder refused", lambda: app.shows(refused))
+    with open(os.path.join(logs, "home", "Documents", "upload-me.txt"), "wb") as f:
+        f.write(b"an upload\n")
+    app.after("Documents", "AZDRIVE_LISTED", r"home Documents/ \d+",
+              lambda: app.click(selector="#" + I("side-fav-documents")))
+    app.after("the file selected", "AZDRIVE_SELECTED", r"1 .*upload-me\.txt",
+              lambda: select_item(app, "upload-me.txt"))
+    app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.key("c", primary=True))
+    app.after("back to the banned drive", "AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id),
+              lambda: app.click(selector=side_drive(drive_id)))
+    app.key("v", primary=True)
+    app.until("the paste refused", lambda: app.shows(refused))
+    writes = [r for r in stack.s3.requests() if r.get("bucket") == drive["bucket"]
+              and r.get("method") in ("PUT", "POST", "DELETE")]
+    if writes:
+        raise Failure("a refused write reached the bucket: %r" % writes[:3])
+    log("15. Banned for %s: the banner says %s hours; a new folder and a paste were refused "
+        "with the reason, nothing reached the bucket" % (reason, hours))
+
+    # Copy everything to this computer: a folder picked, the whole drive downloaded into it.
+    copy_to = os.path.join(logs, "ban-copy")
+    os.makedirs(copy_to, exist_ok=True)
+    app.op("mock", set={"file_open": {"path": copy_to}})
+    app.after("Copy everything", "AZDRIVE_COPY_EVERYTHING", re.escape(drive_id),
+              lambda: app.click(selector="#__azdrive_ban_copy"))
+    copied = os.path.join(copy_to, "Paid in cash")
+
+    def files_copied():
+        try:
+            with open(os.path.join(copied, "notes", "keep.txt"), "rb") as f1, \
+                    open(os.path.join(copied, "photo.txt"), "rb") as f2:
+                return f1.read() == b"keep me\n" and f2.read() == b"a photo\n"
+        except OSError:
+            return False
+    app.until("the drive's files on this computer", files_copied)
+    log("15. Copy everything to this computer downloaded the drive into %s" % copied)
+
+    # Past the end: the drive is closed.
+    stack.token.state.advance(48 * 3600 + 60)
+    app.until("the drive closed", lambda: app.printed("AZDRIVE_CLOSED", re.escape(drive_id)))
+    closed = "This drive was closed on %s because %s." % (
+        time.strftime("%Y-%m-%d", time.gmtime(until)), reason)
+    app.until("the closed drive's message", lambda: app.has("#__azdrive_ban_closed")
+              and app.shows(closed))
+    if app.has("#__azdrive_ban_bar"):
+        raise Failure("the closed drive still shows the banner")
+    app.screenshot(os.path.join(out, "15-closed.png"))
+    log("15. Past the end (the mock's clock moved on): %s" % closed)
 
 
 def run(args, logs):
@@ -1345,6 +1562,10 @@ def run(args, logs):
             "in through the headless sign-in (PKCE checked at the mock's token endpoint), %s keeps "
             "its refresh token in the keyring only and refreshed its access token before its "
             "first listing" % gdrive_id)
+
+        # 14. Cash by post; 15. a ban with a grace period on its drive.
+        cash_drive = cash_steps(app, stack, args, logs, out, binary, switches, env, keyring_file)
+        ban_steps(app, stack, logs, out, cash_drive)
 
         # 13. The recovery methods of an encrypted drive (C14): AzDrive with `encryption`.
         if args.recovery:

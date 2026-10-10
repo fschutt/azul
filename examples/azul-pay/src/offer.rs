@@ -467,8 +467,11 @@ fn method(
         return None;
     }
     let settles = match m["settles"].as_str() {
+        // Cash comes by post whatever the server says: the app never waits for it.
+        _ if method_spec.settles == Settles::Post => Settles::Post,
         Some("days") => Settles::Days,
         Some("instant") => Settles::Instant,
+        Some("post") => Settles::Post,
         _ => method_spec.settles,
     };
     Some(OfferedMethod {

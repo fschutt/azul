@@ -569,6 +569,10 @@ pub(crate) fn drive_status(s: &DriveState, drive_id: &str) -> String {
     let Some(setup) = setup_of(s, drive_id) else {
         return String::new();
     };
+    // A banned drive's sync pauses (ban contract v1): its uploads would be refused.
+    if let Some(text) = crate::ban::sync_status(s, drive_id) {
+        return text;
+    }
     let azlin = s
         .slot_index(drive_id)
         .is_some_and(|i| s.slots[i].entry.azlin().is_some());
