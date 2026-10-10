@@ -21,6 +21,7 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     data::app_key,
     files::{FileJob, FileOutcome},
+    l10n::{t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -28,6 +29,7 @@ use azul_appkit::{
 pub mod code;
 pub mod ids;
 pub mod ink;
+mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod model;
@@ -57,9 +59,9 @@ pub const ABOUT: AboutInfo = AboutInfo {
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
 pub const SHORTCUTS: [Shortcut; 3] = [
-    Shortcut::new("Review", "Mod+S", "Save the session now"),
-    Shortcut::new("Review", "1 to 9", "Pick the ink's meaning"),
-    Shortcut::new("Review", "Right click", "The previous nib"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
+    Shortcut::new("azreview-shortcuts-review", "1 to 9", "azreview-shortcut-meaning"),
+    Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
 ];
 
 /// The write-back tag of a session write.
@@ -132,7 +134,7 @@ fn derive_findings(
         let voice = recording
             .as_ref()
             .filter(|c| c.stroke_ids.contains(&s.id))
-            .map(|c| format!("{} samples of spoken rationale", c.samples.len()));
+            .map(|c| t_args("azreview-voice-note", &[("count", Arg::from(c.samples.len()))]));
         out.push(Finding {
             semantic: s.semantic,
             file: file.display.clone(),
@@ -161,6 +163,15 @@ pub fn run() {
         .cloned()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    // The words first: everything from here is said in the language chosen (Settings,
+    // `--language`; the system's otherwise).
+    let mut config = kit::app_config(&kit_ref);
+    crate::l10n::register(&mut config);
+    let mut kit_now = kit_ref.clone();
+    let language = kit_now.downcast_ref::<kit::Kit>().map(|k| k.language());
+    if let Some(language) = language.filter(|l| *l != azul_appkit::args::LanguagePref::System) {
+        azul_appkit::l10n::set_locale(language.tag());
+    }
     let data_root = {
         let mut k = kit_ref.clone();
         k.downcast_ref::<kit::Kit>()
@@ -169,9 +180,9 @@ pub fn run() {
     };
     let files = code::load_tree(&root, 400);
     let status = if files.is_empty() {
-        format!("no reviewable files under {}", root.display())
+        t_args("azreview-no-files", &[("folder", Arg::from(root.display().to_string()))])
     } else {
-        format!("{} files \u{2014} pick one to start", files.len())
+        t_args("azreview-files-pick", &[("count", Arg::from(files.len()))])
     };
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
@@ -199,7 +210,7 @@ pub fn run() {
         saving: false,
         save_pending: false,
     };
-    let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
+    let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
     app.run(window);
@@ -259,12 +270,12 @@ extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
             match (outcome.error(), outcome) {
                 (None, FileOutcome::Put { key, .. }) => {
                     println!("AZREVIEW_SAVED {key}");
-                    s.status = format!("saved to {key}");
+                    s.status = t_args("azreview-saved-to", &[("path", Arg::from(key.as_str()))]);
                 }
                 (None, _) => {}
                 (Some(why), _) => {
                     println!("AZREVIEW_SAVE_ERROR {why}");
-                    s.status = format!("save FAILED: {why}");
+                    s.status = t_args("azreview-save-failed", &[("why", Arg::from(why.to_string()))]);
                 }
             }
         }
@@ -317,7 +328,7 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     if let Some(mut s) = data.downcast_mut::<AppState>() {
         s.active = sem;
-        s.status = format!("{} - {}", s.tool.label(), sem.label());
+        s.status = format!("{} - {}", crate::l10n::word("nib", s.tool.label()), crate::l10n::word("meaning", sem.label()));
     }
     Update::RefreshDom
 }
@@ -415,7 +426,7 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
             s.clips.push(clip);
         }
     }
-    s.status = format!("{} - {}", s.tool.label(), s.active.label());
+    s.status = format!("{} - {}", crate::l10n::word("nib", s.tool.label()), crate::l10n::word("meaning", s.active.label()));
     Update::RefreshDom
 }
 
@@ -497,7 +508,7 @@ pub extern "C" fn on_annotation_idle(
             s.clips.push(clip);
             s.level_samples = 0;
         }
-        s.status = format!("annotation {} sealed", s.epoch);
+        s.status = t_args("azreview-sealed", &[("n", Arg::from(s.epoch.to_string()))]);
     }
     save_session(&data, &mut info.callback_info);
     TimerCallbackReturn {
@@ -523,7 +534,10 @@ pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
     let index = pressed.trailing_zeros() as usize;
     if let Some(&sem) = Semantic::ALL.get(index) {
         s.active = sem;
-        s.status = format!("pad key {index} -> {}", sem.label());
+        s.status = t_args(
+            "azreview-pad-key",
+            &[("index", Arg::from(index.to_string())), ("meaning", Arg::from(crate::l10n::word("meaning", sem.label())))],
+        );
         return Update::RefreshDom;
     }
     Update::DoNothing
@@ -571,7 +585,7 @@ pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
     // apps' one opener; what went wrong (no folder yet) is said in the status line.
     let dir = s.data_root.join(ABOUT.app_folder);
     s.status = match azul_appkit::files::open_external(&dir.to_string_lossy()) {
-        Ok(()) => format!("archives in {}", dir.display()),
+        Ok(()) => t_args("azreview-archives-in", &[("folder", Arg::from(dir.display().to_string()))]),
         Err(e) => e,
     };
     Update::RefreshDom
@@ -621,7 +635,7 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, mut info: CallbackInfo) -> 
         };
         match s.recording.take() {
             Some(clip) => {
-                s.status = format!("recording stopped - {} samples kept", clip.samples.len());
+                s.status = t_args("azreview-recording-stopped", &[("count", Arg::from(clip.samples.len()))]);
                 s.clips.push(clip);
                 s.level_samples = 0;
                 true
@@ -640,7 +654,7 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, mut info: CallbackInfo) -> 
         sample_rate: 48_000,
         ..VoiceClip::default()
     });
-    s.status = "recording - strokes drawn now carry this audio".to_string();
+    s.status = t("azreview-recording");
     Update::RefreshDom
 }
 

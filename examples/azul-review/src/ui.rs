@@ -8,7 +8,7 @@ use azul::{
     vec::{MenuItemVec, U8VecRef},
     widgets::{Button, StatusBar, StatusBarSegment},
 };
-use azul_appkit::ui as kit;
+use azul_appkit::{l10n::label, ui as kit};
 
 use crate::{code, ids, ink, model::Semantic, AppState};
 
@@ -68,7 +68,7 @@ pub fn index_of(info: &mut CallbackInfo) -> Option<usize> {
 
 fn named(name: &str) -> AccessibilityInfo {
     AccessibilityInfo {
-        accessibility_name: OptionString::Some(name.into()),
+        accessibility_name: OptionString::Some(label(name)),
         ..AccessibilityInfo::default()
     }
 }
@@ -79,6 +79,7 @@ pub struct PageTag {
 }
 
 pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let mut d = data.clone();
@@ -122,29 +123,29 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
 fn menu_bar(data: &RefAny) -> Menu {
     let mut items: Vec<MenuItem> = Vec::new();
 
-    let mut ink = StringMenuItem::create("Ink");
+    let mut ink = StringMenuItem::create(label("azreview-menu-ink"));
     for (i, sem) in Semantic::ALL.iter().enumerate() {
         ink = ink.with_child(MenuItem::String(
-            StringMenuItem::create(sem.label())
+            StringMenuItem::create(crate::l10n::word("meaning", sem.label()))
                 .with_callback(RefAny::new(IndexTag { index: i }), crate::on_menu_semantic),
         ));
     }
     ink = ink.with_child(MenuItem::Separator);
     ink = ink.with_child(MenuItem::String(
-        StringMenuItem::create("Cycle nib").with_callback(data.clone(), crate::on_cycle_tool),
+        StringMenuItem::create(label("azreview-cycle-nib")).with_callback(data.clone(), crate::on_cycle_tool),
     ));
     ink = ink.with_child(MenuItem::String(
-        StringMenuItem::create("Start / stop recording")
+        StringMenuItem::create(label("azreview-toggle-recording"))
             .with_callback(data.clone(), crate::on_toggle_record),
     ));
     items.push(MenuItem::String(ink));
 
-    let mut session = StringMenuItem::create("Session");
+    let mut session = StringMenuItem::create(label("azreview-menu-session"));
     session = session.with_child(MenuItem::String(
-        StringMenuItem::create("Save now").with_callback(data.clone(), crate::on_menu_save),
+        StringMenuItem::create(label("azreview-save-now")).with_callback(data.clone(), crate::on_menu_save),
     ));
     session = session.with_child(MenuItem::String(
-        StringMenuItem::create("Reveal archive folder")
+        StringMenuItem::create(label("azreview-reveal-archive"))
             .with_callback(data.clone(), crate::on_menu_reveal),
     ));
     items.push(MenuItem::String(session));
@@ -154,7 +155,7 @@ fn menu_bar(data: &RefAny) -> Menu {
 
 fn sidebar(s: &AppState, data: &RefAny) -> Dom {
     let mut col = Dom::create_div().with_css(COLUMN);
-    col.add_child(Dom::create_span_with_text("Name").with_css(
+    col.add_child(Dom::create_span_with_text(label("azreview-name")).with_css(
         "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
          border-bottom: 1px solid system:separator;",
     ));
@@ -162,7 +163,7 @@ fn sidebar(s: &AppState, data: &RefAny) -> Dom {
     let mut list = Dom::create_div()
         .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; overflow-x: hidden;")
         .with_id(ids::FILES)
-        .with_accessibility_name("Files");
+        .with_accessibility_name(label("azreview-files"));
 
     let mut prev: Vec<String> = Vec::new();
     for (i, f) in s.files.iter().enumerate() {
@@ -301,7 +302,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         bar.add_child(
             swatch
                 .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
-                .with_accessibility_info(named(sem.label()))
+                .with_accessibility_info(named(&crate::l10n::word("meaning", sem.label())))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -315,7 +316,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
          dashed system:separator;",
     );
     nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
-    nib.add_child(Dom::create_span_with_text(s.tool.label()));
+    nib.add_child(Dom::create_span_with_text(crate::l10n::word("nib", s.tool.label())));
     bar.add_child(nib);
 
     // The meter, then record, save and the settings at the end of the row.
@@ -325,7 +326,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         bar.add_child(meter(s));
     }
     bar.add_child(
-        Button::create(if rec { "Stop recording" } else { "Record" })
+        Button::create(label(if rec { "azreview-stop-recording" } else { "azreview-record" }))
             .with_icon(if rec { "fiber_manual_record" } else { "mic" })
             .with_toggled(rec)
             .with_on_click(data.clone(), crate::on_toggle_record as ButtonOnClickCallbackType)
@@ -333,7 +334,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
             .with_id(ids::RECORD),
     );
     bar.add_child(
-        Button::create("Save")
+        Button::create(label("azreview-save"))
             .with_icon("save")
             .with_on_click(data.clone(), crate::on_save_button as ButtonOnClickCallbackType)
             .dom()
@@ -345,7 +346,7 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
             .with_on_click(data.clone(), crate::on_settings_open as ButtonOnClickCallbackType)
             .dom()
             .with_id(ids::SETTINGS)
-            .with_accessibility_name("Settings"),
+            .with_accessibility_name(label("azreview-settings")),
     );
     bar
 }
@@ -419,7 +420,7 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
     );
     if s.file().is_none() {
         area.add_child(
-            Dom::create_p_with_text("Open a file to begin")
+            Dom::create_p_with_text(label("azreview-open-file"))
                 .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
         );
         return area;
@@ -643,9 +644,9 @@ fn status_bar(s: &AppState) -> Dom {
     let pages = s.file().map_or(0, code::SourceFile::page_count);
     let clips = s.clips.len() + usize::from(s.recording.is_some());
     StatusBar::create(vec![
-        StatusBarSegment::create(format!("{pages} sheets")),
-        StatusBarSegment::create(format!("{} strokes", s.strokes.len())),
-        StatusBarSegment::create(format!("{clips} clips")),
+        StatusBarSegment::create(azul_appkit::l10n::t_args("azreview-sheets", &[("count", azul_appkit::l10n::Arg::from(pages))])),
+        StatusBarSegment::create(azul_appkit::l10n::t_args("azreview-strokes", &[("count", azul_appkit::l10n::Arg::from(s.strokes.len()))])),
+        StatusBarSegment::create(azul_appkit::l10n::t_args("azreview-clips", &[("count", azul_appkit::l10n::Arg::from(clips))])),
         StatusBarSegment::create(s.status.as_str()),
     ])
     .dom()
