@@ -327,7 +327,7 @@ impl DriveIndex {
         let removed: Vec<String> = state
             .files
             .keys()
-            .filter(|path| !present.contains(path.as_str()))
+            .filter(|path| !present.contains(String::as_str(path)))
             .cloned()
             .collect();
         let mut changed = unread_in(&state, &files);
