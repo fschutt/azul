@@ -37,6 +37,8 @@ use azul_termkit::{
     vt::GridSize,
 };
 
+use azul_appkit::l10n;
+
 use crate::{app::AppState, commands, ids, ui};
 
 /// Lines of scrollback a shell keeps.
@@ -196,7 +198,12 @@ pub fn new_terminal(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
             start_ticking(st, info, app);
             commands::focus_soon(info, ids::TERMINAL.as_str());
         }
-        Err(e) => st.notice = format!("The terminal could not be started: {e}"),
+        Err(e) => {
+            st.notice = l10n::t_args(
+                "azcode-terminal-failed",
+                &[("why", l10n::Arg::from(e.to_string()))],
+            );
+        }
     }
 }
 
@@ -372,9 +379,9 @@ pub fn panel(app: &RefAny, st: &AppState) -> Dom {
         header.add_child(terminal_tab(app, i, t, i == st.panel.active));
     }
     header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
-    header.add_child(ui::icon_button(ids::TERMINAL_NEW, "add", "New Terminal", app.clone(), on_new_terminal));
-    header.add_child(ui::icon_button(ids::TERMINAL_KILL, "delete", "Kill Terminal", app.clone(), on_kill_terminal));
-    header.add_child(ui::icon_button(ids::PANEL_CLOSE, "close", "Close Panel", app.clone(), on_close_panel));
+    header.add_child(ui::icon_button(ids::TERMINAL_NEW, "add", "azcode-action-new-terminal", app.clone(), on_new_terminal));
+    header.add_child(ui::icon_button(ids::TERMINAL_KILL, "delete", "azcode-action-kill-terminal", app.clone(), on_kill_terminal));
+    header.add_child(ui::icon_button(ids::PANEL_CLOSE, "close", "azcode-close-panel", app.clone(), on_close_panel));
     let body = match st.panel.terminals.get(st.panel.active) {
         Some(t) => TerminalView::create()
             .with_data_source(app.clone(), terminal_screen as TerminalViewDataSourceCallbackType)
@@ -385,7 +392,7 @@ pub fn panel(app: &RefAny, st: &AppState) -> Dom {
             .dom(),
         None => Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; justify-content: center; flex-grow: 1;")
-            .with_child(Dom::create_span_with_text("The shell has ended. New Terminal starts another.")),
+            .with_child(Dom::create_span_with_text(l10n::label("azcode-shell-ended"))),
     };
     Dom::create_div()
         .with_id(ids::PANEL)

@@ -41,6 +41,8 @@ use azul::{
 };
 use azul_appkit::ui as kit;
 
+use azul_appkit::l10n::{self, t, t_args, Arg};
+
 use crate::{
     actions::{self, Action},
     app::{doc_line, AppState, Doc, Side},
@@ -83,18 +85,20 @@ pub fn with_state(
     Update::RefreshDom
 }
 
-/// A line of text in a row (the find bar's count).
+/// A line of text in a row (the find bar's count): a key of the resources, or words as they
+/// are.
 fn text(content: &str) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 0px 6px;")
-        .with_child(Dom::create_span_with_text(content))
+        .with_child(Dom::create_span_with_text(l10n::label(content)))
 }
 
-/// A run of text in a box styled with `css`.
+/// A run of text in a box styled with `css`: a key of the resources, or words as they are (a
+/// file's name).
 pub fn label(content: &str, css: &str) -> Dom {
     Dom::create_div()
         .with_css(css)
-        .with_child(Dom::create_span_with_text(content))
+        .with_child(Dom::create_span_with_text(l10n::label(content)))
 }
 
 /// A column that fills its parent.
@@ -112,7 +116,7 @@ pub fn clickable(id: AzString, css: &str, name: &str, data: RefAny, callback: Ca
     Dom::create_div()
         .with_id(id)
         .with_css(css)
-        .with_accessibility_name(name)
+        .with_accessibility_name(l10n::label(name))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data, callback)
 }
 
@@ -122,27 +126,27 @@ pub fn clickable(id: AzString, css: &str, name: &str, data: RefAny, callback: Ca
 /// palette over it while it is showing.
 pub fn window(app: &RefAny, st: &AppState) -> Dom {
     let (side, side_label) = match st.side {
-        Side::Explorer => (explorer::explorer(app, st), "Explorer"),
-        Side::Search => (find_in_files::search_panel(app, st), "Search"),
+        Side::Explorer => (explorer::explorer(app, st), "azcode-action-explorer"),
+        Side::Search => (find_in_files::search_panel(app, st), "azcode-category-search"),
     };
     let shell = OfficeShell::create()
         .with_pane(
             ShellPane::create(ACTIVITY_BAR_ID, activity_bar(app, st))
                 .with_kind(ShellPaneKind::Navigation)
-                .with_label("Activity bar")
+                .with_label(l10n::label("azcode-activity-bar"))
                 .with_width(ACTIVITY_WIDTH),
         )
         .with_pane(
             ShellPane::create(SIDE_BAR_ID, side)
                 .with_kind(ShellPaneKind::Navigation)
-                .with_label(side_label)
+                .with_label(l10n::label(side_label))
                 .with_ratio(st.side_ratio)
                 .with_visible(st.side_visible),
         )
         .with_pane(
             ShellPane::create(EDITOR_ID, editor_area(app, st))
                 .with_kind(ShellPaneKind::Main)
-                .with_label("Editor"),
+                .with_label(l10n::label("azcode-editor")),
         )
         .with_title_row(kit::title_row(&st.title()))
         .with_status_bar(status_bar(app, st))
@@ -212,7 +216,7 @@ fn activity_bar(app: &RefAny, st: &AppState) -> Dom {
             app,
             ids::ACTIVITY_EXPLORER,
             "content_copy",
-            "Explorer",
+            "azcode-action-explorer",
             showing(Side::Explorer),
             on_show_explorer,
         ))
@@ -220,7 +224,7 @@ fn activity_bar(app: &RefAny, st: &AppState) -> Dom {
             app,
             ids::ACTIVITY_SEARCH,
             "search",
-            "Search",
+            "azcode-category-search",
             showing(Side::Search),
             on_show_search,
         ))
@@ -229,7 +233,7 @@ fn activity_bar(app: &RefAny, st: &AppState) -> Dom {
             app,
             ids::ACTIVITY_SETTINGS,
             "settings",
-            "Settings",
+            "azcode-action-settings",
             false,
             on_open_settings,
         ))
@@ -307,7 +311,7 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
         id,
         "display: flex; flex-direction: row; align-items: center; padding: 3px 4px; border-radius: 3px; \
          cursor: pointer; :hover { background: rgba(128, 128, 128, 0.15); }",
-        &format!("Open {folder}"),
+        &t_args("azcode-open-place", &[("folder", Arg::from(folder))]),
         RefAny::new(RecentRef { app: app.clone(), index }),
         on_recent_click,
     )
@@ -328,8 +332,8 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
 fn find_input(app: &RefAny, st: &AppState, id: AzString) -> Dom {
     TextInput::create()
         .with_text(AzString::from(st.find.query.as_str()))
-        .with_placeholder(AzString::from("Find"))
-        .with_accessibility_name(AzString::from("Find"))
+        .with_placeholder(l10n::label("azcode-action-find"))
+        .with_accessibility_name(l10n::label("azcode-action-find"))
         .with_on_text_input(app.clone(), on_find_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(app.clone(), on_find_key as TextInputOnVirtualKeyDownCallbackType)
         .dom()
@@ -408,7 +412,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
     let glyph = if doc.dirty {
         Dom::create_div()
             .with_class(ids::TAB_DIRTY_CLASS)
-            .with_accessibility_name("Unsaved changes")
+            .with_accessibility_name(l10n::label("azcode-unsaved-changes"))
             .with_css("width: 8px; height: 8px; border-radius: 4px; background: system:text; opacity: 0.85;")
     } else if active {
         Dom::create_icon("close").with_css(format!("font-size: 16px; {FLORA_GLYPH}"))
@@ -420,7 +424,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
         "display: flex; flex-direction: row; align-items: center; justify-content: center; width: 20px; \
          height: 20px; margin-right: 6px; border-radius: 4px; cursor: pointer; \
          :hover { background: rgba(128, 128, 128, 0.25); }",
-        &format!("Close {}", doc.name),
+        &t_args("azcode-close-tab", &[("name", Arg::from(doc.name.as_str()))]),
         tab_ref(),
         on_tab_close,
     )
@@ -472,20 +476,20 @@ fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
         .dom()
 }
 
-/// What the welcome page lists under "Keyboard shortcuts".
+/// What the welcome page lists under "Keyboard shortcuts" (keys of the resources).
 const WELCOME_KEYS: [(&str, &str); 12] = [
-    ("Open Folder", "Mod+K Mod+O"),
-    ("Quick Open a File", "Mod+P"),
-    ("Command Palette", "Mod+Shift+P"),
-    ("Find in Files", "Mod+Shift+F"),
-    ("Toggle Terminal", "Ctrl+`"),
-    ("Save", "Mod+S"),
-    ("Close the Tab", "Mod+W"),
-    ("Show / Hide the Side Bar", "Mod+B"),
-    ("Find in the File", "Mod+F"),
-    ("Go to Line", "Mod+G"),
-    ("Settings", "Mod+,"),
-    ("Every Shortcut", "F1"),
+    ("azcode-welcome-open-folder", "Mod+K Mod+O"),
+    ("azcode-welcome-quick-open", "Mod+P"),
+    ("azcode-welcome-palette", "Mod+Shift+P"),
+    ("azcode-action-find-in-files", "Mod+Shift+F"),
+    ("azcode-welcome-toggle-terminal", "Ctrl+`"),
+    ("azcode-welcome-save", "Mod+S"),
+    ("azcode-welcome-close-tab", "Mod+W"),
+    ("azcode-welcome-side-bar", "Mod+B"),
+    ("azcode-welcome-find", "Mod+F"),
+    ("azcode-welcome-go-to-line", "Mod+G"),
+    ("azcode-action-settings", "Mod+,"),
+    ("azcode-welcome-every-shortcut", "F1"),
 ];
 
 /// The editor while no file is open: VSCode's welcome page - the app's
@@ -495,32 +499,32 @@ fn welcome(app: &RefAny, st: &AppState) -> Dom {
     let mut page = Dom::create_div()
         .with_css("display: flex; flex-direction: column; width: 560px; max-width: 100%; padding: 48px 32px;")
         .with_child(label("AzCode", "font-size: 36px; font-weight: 300;"))
-        .with_child(label("A code editor on azul", "font-size: 16px; opacity: 0.7; padding-bottom: 12px;"))
-        .with_child(heading("Start"))
+        .with_child(label("azcode-welcome-what", "font-size: 16px; opacity: 0.7; padding-bottom: 12px;"))
+        .with_child(heading("azcode-welcome-start"))
         .with_child(link(
             app,
             ids::WELCOME_OPEN_FOLDER,
             "create_new_folder",
-            "Open Folder...",
+            "azcode-action-open-folder",
             &commands::keys("Mod+K Mod+O"),
             on_open_folder,
         ))
-        .with_child(link(app, ids::WELCOME_OPEN_FILE, "file_open", "Open File...", "", on_open_file))
+        .with_child(link(app, ids::WELCOME_OPEN_FILE, "file_open", "azcode-action-open-file", "", on_open_file))
         .with_child(link(
             app,
             ids::OPEN_SAMPLE,
             "science",
-            "Open the sample workspace",
+            "azcode-welcome-sample",
             "",
             on_open_sample,
         ));
     if !st.recent.is_empty() {
-        page.add_child(heading("Recent"));
+        page.add_child(heading("azcode-welcome-recent"));
         for (i, folder) in st.recent.iter().enumerate().take(5) {
             page.add_child(recent_row(app, ids::welcome_recent(i), i, folder));
         }
     }
-    page.add_child(heading("Keyboard shortcuts"));
+    page.add_child(heading("azcode-welcome-shortcuts"));
     for (action, keys) in WELCOME_KEYS {
         page.add_child(shortcut_row(action, &commands::keys(keys)));
     }
@@ -583,34 +587,38 @@ fn shortcut_row(action: &str, keys: &str) -> Dom {
 fn find_bar(app: &RefAny, st: &AppState) -> Dom {
     let count = match (st.find.current, st.find.found.len()) {
         (_, 0) if st.find.query.is_empty() => String::new(),
-        (_, 0) => "No results".to_string(),
-        (Some(i), n) => format!("{} of {n}", i + 1),
-        (None, n) => format!("{n} results"),
+        (_, 0) => t("azcode-find-none"),
+        (Some(i), n) => t_args("azcode-find-of", &[("match", Arg::from(i + 1)), ("count", Arg::from(n))]),
+        (None, n) => t_args("azcode-find-results", &[("count", Arg::from(n))]),
     };
     let mut items = vec![
-        ToolbarItem::create_custom(ids::FIND_INPUT, "Find", find_input(app, st, ids::FIND_INPUT), 220.0)
+        ToolbarItem::create_custom(ids::FIND_INPUT, l10n::label("azcode-action-find"), find_input(app, st, ids::FIND_INPUT), 220.0)
             .with_never_overflow(true),
-        ToolbarItem::create_custom(ids::FIND_COUNT, "Results", text(&count).with_id(ids::FIND_COUNT), 90.0),
-        ToolbarItem::create_button(ids::FIND_PREVIOUS, "Previous", ""),
-        ToolbarItem::create_button(ids::FIND_NEXT, "Next", ""),
+        ToolbarItem::create_custom(ids::FIND_COUNT, l10n::label("azcode-find-results-title"), text(&count).with_id(ids::FIND_COUNT), 90.0),
+        ToolbarItem::create_button(ids::FIND_PREVIOUS, l10n::label("azcode-find-previous"), ""),
+        ToolbarItem::create_button(ids::FIND_NEXT, l10n::label("azcode-find-next"), ""),
         ToolbarItem::create_separator(),
-        ToolbarItem::create_toggle(ids::MATCH_CASE, "Aa", "", st.find.how.match_case).with_tooltip("Match case"),
-        ToolbarItem::create_toggle(ids::WHOLE_WORD, "Word", "", st.find.how.whole_word).with_tooltip("Whole word"),
+        ToolbarItem::create_toggle(ids::MATCH_CASE, "Aa", "", st.find.how.match_case).with_tooltip(l10n::label("azcode-match-case")),
+        ToolbarItem::create_toggle(ids::WHOLE_WORD, l10n::label("azcode-word"), "", st.find.how.whole_word)
+            .with_tooltip(l10n::label("azcode-whole-word")),
     ];
     if st.find.replace_open {
         let replace = TextInput::create()
             .with_text(AzString::from(st.find.replacement.as_str()))
-            .with_placeholder(AzString::from("Replace"))
-            .with_accessibility_name(AzString::from("Replace"))
+            .with_placeholder(l10n::label("azcode-action-replace"))
+            .with_accessibility_name(l10n::label("azcode-action-replace"))
             .with_on_text_input(app.clone(), on_replace_text as TextInputOnTextInputCallbackType)
             .dom()
             .with_id(ids::REPLACE_INPUT);
         items.push(ToolbarItem::create_separator());
-        items.push(ToolbarItem::create_custom(ids::REPLACE_INPUT, "Replace with", replace, 220.0).with_never_overflow(true));
-        items.push(ToolbarItem::create_button(ids::REPLACE_ONE, "Replace", ""));
-        items.push(ToolbarItem::create_button(ids::REPLACE_ALL, "Replace all", ""));
+        items.push(
+            ToolbarItem::create_custom(ids::REPLACE_INPUT, l10n::label("azcode-replace-with"), replace, 220.0)
+                .with_never_overflow(true),
+        );
+        items.push(ToolbarItem::create_button(ids::REPLACE_ONE, l10n::label("azcode-action-replace"), ""));
+        items.push(ToolbarItem::create_button(ids::REPLACE_ALL, l10n::label("azcode-replace-all"), ""));
     }
-    Toolbar::create("Find")
+    Toolbar::create(l10n::label("azcode-action-find"))
         .with_items(items)
         .with_available_width(editor_size(st).0)
         .with_on_event(app.clone(), on_find_tool as ToolbarOnEventCallbackType)
@@ -622,12 +630,12 @@ fn find_bar(app: &RefAny, st: &AppState) -> Dom {
 fn goto_bar(app: &RefAny, typed: &str) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 6px;")
-        .with_child(text("Go to line"))
+        .with_child(text("azcode-shortcut-go-to-line"))
         .with_child(
             TextInput::create()
                 .with_text(AzString::from(typed))
-                .with_placeholder(AzString::from("line or line:column"))
-                .with_accessibility_name(AzString::from("Go to line"))
+                .with_placeholder(l10n::label("azcode-go-to-placeholder"))
+                .with_accessibility_name(l10n::label("azcode-shortcut-go-to-line"))
                 .with_on_text_input(app.clone(), on_goto_text as TextInputOnTextInputCallbackType)
                 .with_on_virtual_key_down(app.clone(), on_goto_key as TextInputOnVirtualKeyDownCallbackType)
                 .dom()
@@ -656,9 +664,9 @@ fn status_bar(app: &RefAny, st: &AppState) -> Dom {
     let shells = st.panel.terminals.len();
     segments.push(
         StatusBarSegment::create(AzString::from(if shells == 0 {
-            "Terminal".to_string()
+            t("azcode-action-terminal")
         } else {
-            format!("Terminal ({shells})")
+            t_args("azcode-status-terminals", &[("count", Arg::from(shells))])
         }))
         .with_icon(AzString::from("terminal"))
         .with_on_click(app.clone(), on_status_terminal as ButtonOnClickCallbackType),
@@ -669,7 +677,10 @@ fn status_bar(app: &RefAny, st: &AppState) -> Dom {
                 .with_marker(ids::STATUS_CARET)
                 .with_on_click(app.clone(), on_status_caret as ButtonOnClickCallbackType),
         );
-        segments.push(StatusBarSegment::create(AzString::from(format!("Spaces: {TAB_WIDTH}"))));
+        segments.push(StatusBarSegment::create(AzString::from(t_args(
+            "azcode-status-spaces",
+            &[("count", Arg::from(TAB_WIDTH))],
+        ))));
         segments.push(StatusBarSegment::create(AzString::from("UTF-8")));
         segments.push(StatusBarSegment::create(AzString::from(match doc.ending {
             crate::buffer::LineEnding::Lf => "LF",
@@ -678,7 +689,7 @@ fn status_bar(app: &RefAny, st: &AppState) -> Dom {
         segments.push(StatusBarSegment::create(AzString::from(doc.language.as_str())));
     }
     if st.is_saving() {
-        segments.push(StatusBarSegment::create(AzString::from("Saving")).with_icon(AzString::from("save")));
+        segments.push(StatusBarSegment::create(l10n::label("azcode-status-saving")).with_icon(AzString::from("save")));
     }
     if !st.notice.is_empty() {
         segments.push(StatusBarSegment::create(AzString::from(st.notice.as_str())).with_marker(ids::NOTICE));
@@ -945,7 +956,7 @@ extern "C" fn on_replace_one(mut data: RefAny, mut info: CallbackInfo) -> Update
 extern "C" fn on_replace_all(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |st, _, _| {
         let n = st.replace_all();
-        st.notice = format!("Replaced {n}");
+        st.notice = t_args("azcode-replaced", &[("count", Arg::from(n))]);
         println!("AZCODE_REPLACED {n}");
     })
 }
@@ -974,7 +985,7 @@ extern "C" fn on_goto_key(mut data: RefAny, mut info: CallbackInfo, state: TextI
                     st.goto = None;
                     commands::focus_soon(info, ids::EDITOR.as_str());
                 } else {
-                    st.notice = format!("\"{typed}\" is not a line");
+                    st.notice = t_args("azcode-not-a-line", &[("typed", Arg::from(typed.as_str()))]);
                 }
             })
         }

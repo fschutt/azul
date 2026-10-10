@@ -23,6 +23,8 @@ use azul::{
 };
 use azul_appkit::{shortcuts::display_keys, ui as kit};
 
+use azul_appkit::l10n::{label, t_args, Arg};
+
 use crate::{
     actions::{self, Action},
     app::{AppState, Doc, FolderSearch, IndexState, Palette, PaletteKind, PendingSave, Side},
@@ -101,7 +103,7 @@ fn reset_search(st: &mut AppState) {
 /// the recent list.
 pub fn open_workspace(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, root: Root) {
     if st.any_dirty() {
-        st.notice = format!("Save the open files first ({}).", keys("Mod+S"));
+        st.notice = t_args("azcode-save-first", &[("keys", Arg::from(keys("Mod+S")))]);
         return;
     }
     st.tabs = Tabs::default();
@@ -138,7 +140,7 @@ pub fn close_folder(st: &mut AppState) {
         return;
     }
     if st.any_dirty() {
-        st.notice = format!("Save the open files first ({}).", keys("Mod+S"));
+        st.notice = t_args("azcode-save-first", &[("keys", Arg::from(keys("Mod+S")))]);
         return;
     }
     st.workspace = None;
@@ -164,7 +166,7 @@ pub fn open_recent(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, ind
     } else {
         st.recent.retain(|f| *f != folder);
         kit::set_value(&st.kit, info, RECENT_KEY, &recent_to_json(&st.recent));
-        st.notice = format!("{folder} is not there any more.");
+        st.notice = t_args("azcode-folder-gone", &[("folder", Arg::from(folder.as_str()))]);
     }
 }
 
@@ -173,7 +175,7 @@ pub fn open_recent(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, ind
 /// workspace ([`on_folder_picked`]).
 pub fn ask_folder(app: &RefAny) {
     let _request = FileDialog::open_directory(
-        "Open a folder",
+        label("azcode-dialog-open-folder"),
         OptionString::None,
         app.clone(),
         on_folder_picked,
@@ -202,7 +204,7 @@ extern "C" fn on_folder_picked(mut data: RefAny, mut info: CallbackInfo, result:
 /// dialog; the file picked opens ([`open_path`]).
 pub fn ask_file(app: &RefAny) {
     let _request = FileDialog::open_file(
-        "Open a file",
+        label("azcode-dialog-open-file"),
         OptionString::None,
         OptionFileTypeList::None,
         app.clone(),
@@ -272,7 +274,9 @@ pub fn open_path(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, path:
     }
     match file_root(path) {
         Some((root, key)) => open_file_in(st, info, app, root, &key),
-        None => st.notice = format!("{} is not a file AzCode can open.", path.display()),
+        None => {
+            st.notice = t_args("azcode-not-a-file", &[("path", Arg::from(path.display().to_string()))]);
+        }
     }
 }
 
@@ -329,7 +333,10 @@ pub fn close_tab(st: &mut AppState) {
 pub fn close_tab_at(st: &mut AppState, index: usize) {
     match st.tabs.docs.get(index) {
         Some(doc) if doc.dirty => {
-            st.notice = format!("{} has unsaved changes: save it first ({}).", doc.name, keys("Mod+S"));
+            st.notice = t_args(
+                "azcode-tab-unsaved",
+                &[("name", Arg::from(doc.name.as_str())), ("keys", Arg::from(keys("Mod+S")))],
+            );
         }
         Some(_) => {
             st.tabs.close(index);
@@ -372,7 +379,7 @@ pub fn save(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
 /// first time, on a Thread), its field focused.
 pub fn quick_open(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
     let Some(root) = st.workspace.as_ref().map(|w| w.root.clone()) else {
-        st.notice = format!("Open a folder first ({}): quick open searches its files.", keys("Mod+O"));
+        st.notice = t_args("azcode-quick-open-no-folder", &[("keys", Arg::from(keys("Mod+O")))]);
         return;
     };
     st.palette = Some(Palette {
@@ -518,13 +525,13 @@ pub fn handle_key(
         st.notice.clear();
         match chord_command(key, m) {
             Some(action) => actions::run(st, info, app, action),
-            None => st.notice = format!("The key combination ({}, ...) is not a command.", keys("Mod+K")),
+            None => st.notice = t_args("azcode-chord-unknown", &[("keys", Arg::from(keys("Mod+K")))]),
         }
         return true;
     }
     if key == VirtualKeyCode::K && m.primary_down() && !m.shift {
         st.chord = true;
-        st.notice = format!("({}) was pressed. Waiting for the second key of the chord...", keys("Mod+K"));
+        st.notice = t_args("azcode-chord-waiting", &[("keys", Arg::from(keys("Mod+K")))]);
         return true;
     }
     let has_file = st.tabs.active().is_some();
@@ -619,7 +626,10 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     continue;
                 }
                 if let Some(e) = error {
-                    st.notice = format!("{folder} could not be listed: {e}");
+                    st.notice = t_args(
+                        "azcode-folder-unlisted",
+                        &[("folder", Arg::from(folder.as_str())), ("why", Arg::from(e.to_string()))],
+                    );
                 }
                 let empty_sample = folder.is_empty()
                     && folders.is_empty()
@@ -653,7 +663,12 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     st.refresh_find();
                     focus_soon(&mut info, ids::EDITOR.as_str());
                 }
-                Err(e) => st.notice = format!("{key} could not be read: {e}"),
+                Err(e) => {
+                    st.notice = t_args(
+                        "azcode-file-unread",
+                        &[("file", Arg::from(key.as_str())), ("why", Arg::from(e.to_string()))],
+                    );
+                }
             },
             DriveOutcome::Written { key, result } => {
                 let ident = doc_ident(&root, &key);
@@ -673,7 +688,10 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     }
                     Err(e) => {
                         st.close_after_save = false;
-                        st.notice = format!("{key} could not be saved: {e}");
+                        st.notice = t_args(
+                            "azcode-file-unsaved",
+                            &[("file", Arg::from(key.as_str())), ("why", Arg::from(e.to_string()))],
+                        );
                     }
                 }
             }
@@ -686,9 +704,9 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     continue;
                 }
                 if let Some(e) = error {
-                    st.notice = format!("The folder's files could not be listed: {e}");
+                    st.notice = t_args("azcode-index-failed", &[("why", Arg::from(e.to_string()))]);
                 } else if !complete {
-                    st.notice = format!("Quick open searches the first {} files of the folder.", files.len());
+                    st.notice = t_args("azcode-index-first", &[("count", Arg::from(files.len()))]);
                 }
                 println!("AZCODE_INDEXED {}", files.len());
                 st.index = files;

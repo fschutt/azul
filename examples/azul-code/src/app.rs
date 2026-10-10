@@ -183,7 +183,13 @@ impl Doc {
                 col
             })
             .unwrap_or(0);
-        format!("Ln {}, Col {}", head.line + 1, column + 1)
+        azul_appkit::l10n::t_args(
+            "azcode-status-caret",
+            &[
+                ("line", azul_appkit::l10n::Arg::from(head.line + 1)),
+                ("column", azul_appkit::l10n::Arg::from(column + 1)),
+            ],
+        )
     }
 
     /// The file's bytes as they go to the disk, and the undo depth they are.
@@ -391,15 +397,18 @@ impl FolderSearch {
             return String::new();
         }
         if self.running && hits == 0 {
-            return "Searching...".to_string();
+            return azul_appkit::l10n::t("azcode-searching");
         }
         if hits == 0 {
-            return "No results found.".to_string();
+            return azul_appkit::l10n::t("azcode-no-results-found");
         }
-        let results = if hits == 1 { "1 result".to_string() } else { format!("{hits} results") };
-        let in_files = if files == 1 { "1 file".to_string() } else { format!("{files} files") };
-        let more = if self.complete { "" } else { " (the first ones)" };
-        format!("{results} in {in_files}{more}")
+        azul_appkit::l10n::t_args(
+            if self.complete { "azcode-search-summary" } else { "azcode-search-summary-first" },
+            &[
+                ("hits", azul_appkit::l10n::Arg::from(hits)),
+                ("files", azul_appkit::l10n::Arg::from(files)),
+            ],
+        )
     }
 }
 
@@ -659,6 +668,7 @@ mod tests {
 
     #[test]
     fn the_search_results_list_each_file_then_its_matches_unless_folded() {
+        crate::l10n::in_english();
         let mut s = FolderSearch {
             query: "picked".to_string(),
             complete: true,

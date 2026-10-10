@@ -92,7 +92,8 @@ def code(args, logs, out):
     os.makedirs(data_dir, exist_ok=True)
     binary = e2e.find_binary("AzCode", args.bin, "AZCODE_BIN")
     app = e2e.App("azcode-scroll", binary, ["--sample", "--data-dir", data_dir, "--size",
-                                             "1280x800", "--theme", "flat", "--mode", "light"],
+                                             "1280x800", "--theme", "flat", "--mode", "light",
+                                             "--language", "en"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("the window", lambda: app.printed("AZCODE_READY", r".*"))

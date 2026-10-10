@@ -71,38 +71,38 @@ impl Action {
         Action::About,
     ];
 
-    /// What the menu and the palette call it.
+    /// What the menu and the palette call it: a key of the resources.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
-            Action::OpenFolder => "Open Folder...",
-            Action::OpenFile => "Open File...",
-            Action::OpenSample => "Open the Sample Workspace",
-            Action::Save => "Save All",
-            Action::CloseEditor => "Close Editor",
-            Action::CloseFolder => "Close Folder",
-            Action::Undo => "Undo",
-            Action::Redo => "Redo",
-            Action::Find => "Find",
-            Action::Replace => "Replace",
-            Action::FindInFiles => "Find in Files",
-            Action::CommandPalette => "Command Palette...",
-            Action::ShowExplorer => "Explorer",
-            Action::ToggleSideBar => "Toggle Side Bar",
-            Action::ToggleTerminal => "Terminal",
-            Action::QuickOpen => "Go to File...",
-            Action::GoToLine => "Go to Line...",
-            Action::NewTerminal => "New Terminal",
-            Action::KillTerminal => "Kill Terminal",
-            Action::RefreshExplorer => "Refresh Explorer",
-            Action::CollapseFolders => "Collapse Folders in Explorer",
-            Action::Settings => "Settings",
-            Action::KeyboardShortcuts => "Keyboard Shortcuts",
-            Action::About => "About AzCode",
+            Action::OpenFolder => "azcode-action-open-folder",
+            Action::OpenFile => "azcode-action-open-file",
+            Action::OpenSample => "azcode-action-open-sample",
+            Action::Save => "azcode-action-save-all",
+            Action::CloseEditor => "azcode-action-close-editor",
+            Action::CloseFolder => "azcode-action-close-folder",
+            Action::Undo => "azcode-action-undo",
+            Action::Redo => "azcode-action-redo",
+            Action::Find => "azcode-action-find",
+            Action::Replace => "azcode-action-replace",
+            Action::FindInFiles => "azcode-action-find-in-files",
+            Action::CommandPalette => "azcode-action-command-palette",
+            Action::ShowExplorer => "azcode-action-explorer",
+            Action::ToggleSideBar => "azcode-action-toggle-side-bar",
+            Action::ToggleTerminal => "azcode-action-terminal",
+            Action::QuickOpen => "azcode-action-quick-open",
+            Action::GoToLine => "azcode-action-go-to-line",
+            Action::NewTerminal => "azcode-action-new-terminal",
+            Action::KillTerminal => "azcode-action-kill-terminal",
+            Action::RefreshExplorer => "azcode-action-refresh-explorer",
+            Action::CollapseFolders => "azcode-action-collapse-folders",
+            Action::Settings => "azcode-action-settings",
+            Action::KeyboardShortcuts => "azcode-action-keyboard-shortcuts",
+            Action::About => "azcode-action-about",
         }
     }
 
-    /// The palette's category ("File: Open Folder...").
+    /// The palette's category ("File: Open Folder..."): a key of the resources.
     #[must_use]
     pub fn category(self) -> &'static str {
         match self {
@@ -111,18 +111,18 @@ impl Action {
             | Action::OpenSample
             | Action::Save
             | Action::CloseEditor
-            | Action::CloseFolder => "File",
-            Action::Undo | Action::Redo | Action::Find | Action::Replace => "Edit",
-            Action::FindInFiles => "Search",
+            | Action::CloseFolder => "azcode-menu-file",
+            Action::Undo | Action::Redo | Action::Find | Action::Replace => "azcode-menu-edit",
+            Action::FindInFiles => "azcode-category-search",
             Action::CommandPalette
             | Action::ShowExplorer
             | Action::ToggleSideBar
-            | Action::ToggleTerminal => "View",
-            Action::QuickOpen | Action::GoToLine => "Go",
-            Action::NewTerminal | Action::KillTerminal => "Terminal",
-            Action::RefreshExplorer | Action::CollapseFolders => "Explorer",
-            Action::Settings => "Preferences",
-            Action::KeyboardShortcuts | Action::About => "Help",
+            | Action::ToggleTerminal => "azcode-menu-view",
+            Action::QuickOpen | Action::GoToLine => "azcode-menu-go",
+            Action::NewTerminal | Action::KillTerminal => "azcode-action-terminal",
+            Action::RefreshExplorer | Action::CollapseFolders => "azcode-action-explorer",
+            Action::Settings => "azcode-category-preferences",
+            Action::KeyboardShortcuts | Action::About => "azcode-menu-help",
         }
     }
 
