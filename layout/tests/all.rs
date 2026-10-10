@@ -1019,3 +1019,5 @@ mod a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it;
 mod a_facts_row_in_a_card_keeps_its_words;
 #[path = "an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width.rs"]
 mod an_absolutely_positioned_child_adds_nothing_to_its_paragraphs_width;
+#[path = "a_letter_spaced_line_is_aligned_by_its_spaced_width.rs"]
+mod a_letter_spaced_line_is_aligned_by_its_spaced_width;
