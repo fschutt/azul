@@ -16,6 +16,7 @@ use crate::{
     error::CloudResult,
     lock::{HeldLock, LockDir},
     session::AzlinSession,
+    token::TokenError,
 };
 
 /// How long a change waits for another process's change of the same entry: a refresh holds the
@@ -85,6 +86,35 @@ impl SharedKeyring {
     /// When the keyring cannot remove it.
     pub fn delete(&self, key: &str) -> CloudResult<()> {
         Ok(self.keyring.delete(key)?)
+    }
+
+    /// Runs `call` with the newest drive token of `drive_id` the keyring has, under the drive's
+    /// lock - the one every refresh of the drive holds: no refresh rotates the token while the
+    /// call is out, so a call that takes only the current token (members, keys, lockdown,
+    /// restores) never sends a spent one, which the token server would take for a reuse
+    /// (AZDRIVE-INTEGRATION §4). One such call at a time per drive.
+    ///
+    /// # Errors
+    ///
+    /// When the lock cannot be taken, or the keyring has no session of the drive.
+    pub fn with_drive_token<T>(
+        &self,
+        drive_id: &str,
+        call: impl FnOnce(&str) -> T,
+    ) -> CloudResult<T> {
+        let key = keyring_key(drive_id);
+        let _lock = self.lock(&key)?;
+        let session = self
+            .get(&key)?
+            .map(|text| AzlinSession::from_keyring_secret(&text))
+            .transpose()?
+            .filter(|session| session.drive_id == drive_id && !session.drive_token.is_empty())
+            .ok_or_else(|| {
+                TokenError::SignIn(format!(
+                    "this device keeps no session of the drive {drive_id}"
+                ))
+            })?;
+        Ok(call(&session.drive_token))
     }
 
     /// The session of a new drive (`bundle`: a sign-up, a paid checkout's) into the drive's

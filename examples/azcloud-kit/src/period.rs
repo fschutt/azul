@@ -45,6 +45,7 @@ use sha2::{Digest, Sha384};
 use crate::{
     bundle::PeriodTokens,
     error::{CloudError, CloudResult, Context},
+    shared::SharedKeyring,
     state::{create_private_dir, read_json, write_json},
     token::{check_id, IssueAnswer, TokenError, TokenServer, MAX_BLINDED},
 };
@@ -579,6 +580,113 @@ fn issuer_key_named(
         key_id: key_id.to_string(),
         public_key_pem,
     })
+}
+
+// ==== Redeeming ====
+
+/// How long before a drive's period ends its next month is bought: a week (a redemption adds
+/// 30 days to the end - to tomorrow's start for a lapsed drive - so nothing is lost by it).
+pub const REDEEM_AHEAD_SECS: u64 = 7 * 86_400;
+
+/// The token server's refusals of a token that can never buy a month: it was redeemed before,
+/// it does not verify, it is too old, or its issuer key is gone. It is dropped.
+const USELESS: [&str; 4] = ["token_used", "bad_token", "token_expired", "unknown_issuer"];
+
+/// What [`redeem_due`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Redeemed {
+    /// No period token of the drive's tier is kept for it.
+    Nothing,
+    /// The period ends more than [`REDEEM_AHEAD_SECS`] from now (or the token server named no
+    /// end, in seconds since 1970): the tokens wait.
+    NotDue { period_until: Option<u64> },
+    /// `count` tokens bought a month each (used or useless ones were dropped on the way); the
+    /// period now ends at `period_until`.
+    Extended {
+        count: usize,
+        period_until: Option<u64>,
+    },
+    /// Nothing bought this time: why (no answer, a refusal, no session of the drive, the store).
+    /// The tokens stay for the next try.
+    Kept(String),
+}
+
+/// Buys `drive_id` its next month when its period nears its end: under the drive's lock, with
+/// its newest drive token ([`SharedKeyring::with_drive_token`]), the period's end is asked
+/// (`GET /v1/drives/{id}`) and, within [`REDEEM_AHEAD_SECS`] of `now`, the oldest kept token of
+/// the drive's tier redeemed (`POST /v1/drives/{id}/redeem`) and taken out of `store` - again
+/// until the end is far enough. A token the server calls used or useless is dropped and the
+/// next one tried. Asks nothing when no token is kept for the drive.
+#[must_use]
+pub fn redeem_due(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    store: &PeriodTokenStore,
+    drive_id: &str,
+    now: u64,
+) -> Redeemed {
+    let kept = match store.tokens(drive_id) {
+        Ok(kept) => kept,
+        Err(e) => return Redeemed::Kept(e.to_string()),
+    };
+    if kept.is_empty() {
+        return Redeemed::Nothing;
+    }
+    shared
+        .with_drive_token(drive_id, |token| {
+            redeem_with(server, store, drive_id, token, &kept, now)
+        })
+        .unwrap_or_else(|e| Redeemed::Kept(e.to_string()))
+}
+
+/// [`redeem_due`] with the drive token `token`, the drive's lock held.
+fn redeem_with(
+    server: &TokenServer<'_>,
+    store: &PeriodTokenStore,
+    drive_id: &str,
+    token: &str,
+    kept: &[PeriodToken],
+    now: u64,
+) -> Redeemed {
+    let info = match server.info(drive_id, token) {
+        Ok(info) => info,
+        Err(e) => return Redeemed::Kept(e.to_string()),
+    };
+    let tier = info["tier"].as_str().unwrap_or_default();
+    let mut period_until = info["period_until"]
+        .as_str()
+        .and_then(azul_storage::time::parse_iso8601);
+    let due =
+        |until: Option<u64>| until.is_some_and(|at| at <= now.saturating_add(REDEEM_AHEAD_SECS));
+    let mut count = 0;
+    for candidate in kept.iter().filter(|t| tier.is_empty() || t.tier == tier) {
+        if !due(period_until) {
+            break;
+        }
+        match server.redeem_period_token(drive_id, token, candidate) {
+            Ok(until) => {
+                // A token left behind is refused as used next time, and dropped then.
+                let _ = store.remove(drive_id, &candidate.nonce);
+                count += 1;
+                period_until = until;
+            }
+            Err(TokenError::Refused { code, .. }) if USELESS.contains(&code.as_str()) => {
+                let _ = store.remove(drive_id, &candidate.nonce);
+            }
+            Err(e) if count == 0 => return Redeemed::Kept(e.to_string()),
+            Err(_) => break,
+        }
+    }
+    if count > 0 {
+        Redeemed::Extended {
+            count,
+            period_until,
+        }
+    } else if due(period_until) {
+        Redeemed::Nothing
+    } else {
+        Redeemed::NotDue { period_until }
+    }
 }
 
 // ==== RFC 9474 / RFC 8017 pieces ====

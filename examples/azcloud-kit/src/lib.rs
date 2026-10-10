@@ -100,7 +100,10 @@ pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
 pub use pending::{Finished, PendingCheckout, PendingTokens, Polled};
-pub use period::{issue_tokens, IssueRequest, Issuer, IssuerKey, PeriodToken, PeriodTokenStore};
+pub use period::{
+    issue_tokens, redeem_due, IssueRequest, Issuer, IssuerKey, PeriodToken, PeriodTokenStore,
+    Redeemed,
+};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
