@@ -2,9 +2,12 @@
 //! blinded here, blind-signed by the token server against the issue key, finalized and checked
 //! here, kept per drive until each buys the drive a month.
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
-use azul_storage::{testing::TempDir, Method};
+use azul_storage::{testing::TempDir, HttpReply, Method};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rsa::{
     pkcs8::{EncodePublicKey, LineEnding},
@@ -177,38 +180,43 @@ fn an_issuer_key_that_is_no_rsa_public_key_is_refused() {
     assert!(Issuer::new(" ", 2026, &pem(N1)).is_err(), "a tier");
 }
 
-/// A token server that hands out `keys` and blind-signs every blinded message with `n`/`d`,
-/// answering `key_id` as the key it signed with.
+/// A token server that hands out `keys` and blind-signs every blinded message with `n`/`d` for
+/// the key `key_id` - the one the request must name.
 pub(crate) fn issuing_server(
     keys: String,
     n: &'static str,
     d: &'static str,
     key_id: &'static str,
 ) -> Arc<Fake> {
-    Fake::new(move |call, before| {
-        if before == 0 {
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
             assert_eq!(call.method, Method::Get);
-            assert_eq!(call.url, format!("{TOKEN}/v1/tokens/keys"));
             return Ok(json(200, &keys));
         }
-        assert_eq!(call.method, Method::Post);
-        assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
-        assert_eq!(header(call, "authorization"), None, "no drive token");
-        let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
-        assert_eq!(body["checkout_id"], "ck_1");
-        assert_eq!(body["issue_key"], ISSUE_KEY);
-        let signatures: Vec<String> = body["blinded"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|b| blind_sign(n, d, b.as_str().unwrap()))
-            .collect();
-        let answer = serde_json::json!({
-            "tier": "100GB", "key_id": key_id, "public_key_pem": pem(n),
-            "blind_signatures": signatures,
-        });
-        Ok(json(200, &answer.to_string()))
+        Ok(signed(call, n, d, key_id))
     })
+}
+
+/// The token server's answer to an issue request `call` for `key_id`, signed with `n`/`d`.
+fn signed(call: &azul_storage::HttpCall, n: &str, d: &str, key_id: &str) -> HttpReply {
+    assert_eq!(call.method, Method::Post);
+    assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
+    assert_eq!(header(call, "authorization"), None, "no drive token");
+    let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+    assert_eq!(body["checkout_id"], "ck_1");
+    assert_eq!(body["issue_key"], ISSUE_KEY);
+    assert_eq!(body["key_id"], key_id, "the key the messages were blinded for");
+    let signatures: Vec<String> = body["blinded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| blind_sign(n, d, b.as_str().unwrap()))
+        .collect();
+    let answer = serde_json::json!({
+        "tier": "100GB", "key_id": key_id, "public_key_pem": pem(n),
+        "blind_signatures": signatures,
+    });
+    json(200, &answer.to_string())
 }
 
 pub(crate) fn keys() -> String {
@@ -227,13 +235,19 @@ fn grant(months: u32) -> PeriodTokens {
     }
 }
 
+fn store_in(dir: &TempDir) -> PeriodTokenStore {
+    PeriodTokenStore::new(dir.path().join("period-tokens"))
+}
+
 #[test]
-fn a_paid_checkouts_months_of_period_tokens_are_blinded_issued_against_its_issue_key_and_finalized(
+fn a_paid_checkouts_months_of_period_tokens_are_blinded_issued_against_its_issue_key_and_kept(
 ) {
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
     let fake = issuing_server(keys(), N1, D1, "100GB/2026");
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
-    let tokens = issue_tokens(&server, &grant(3), "100GB").unwrap();
+    let tokens = issue_tokens(&server, &store, &grant(3), "100GB", "d_1").unwrap();
     assert_eq!(tokens.len(), 3, "one per paid month");
     let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
     for token in &tokens {
@@ -245,31 +259,136 @@ fn a_paid_checkouts_months_of_period_tokens_are_blinded_issued_against_its_issue
     assert_eq!(calls.len(), 2, "the keys, then one issue");
     let body: serde_json::Value = serde_json::from_slice(&calls[1].body).unwrap();
     assert_eq!(body["blinded"].as_array().unwrap().len(), 3);
+    // Kept for the drive; the request they were issued for is gone.
+    assert_eq!(store.tokens("d_1").unwrap(), tokens);
+    assert!(store.issue_request("ck_1").unwrap().is_none());
 }
 
 #[test]
-fn period_tokens_signed_by_another_key_than_the_one_they_were_blinded_for_are_refused() {
-    // The token server signs with the next year's key (its year turned between the two calls).
-    let fake = issuing_server(keys(), N2, D2, "100GB/2027");
+fn a_lost_answer_is_asked_for_again_with_the_identical_request_and_its_signatures_kept() {
+    // AZDRIVE-INTEGRATION §4: the token server answers the same request (key, messages, order)
+    // with the same signatures, counted once - so the request is kept before it is sent.
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    let keys = keys();
+    let fake = Fake::new(move |call, n| match n {
+        0 => Ok(json(200, &keys)),
+        1 => Err(String::from("connection reset")),
+        _ => Ok(signed(call, N1, D1, "100GB/2026")),
+    });
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        issue_tokens(&server, &grant(1), "100GB"),
+        issue_tokens(&server, &store, &grant(3), "100GB", "d_1"),
+        Err(TokenError::Connect(_))
+    ));
+    let kept = store.issue_request("ck_1").unwrap().expect("the request, kept");
+    assert_eq!((kept.checkout_id(), kept.key_id()), ("ck_1", "100GB/2026"));
+    assert_eq!(kept.messages().len(), 3);
+    let shown = format!("{kept:?}");
+    assert!(!shown.contains(&kept.messages()[0]), "Debug shows no blinding: {shown}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = store.issue_request_path("ck_1").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+    }
+    // The next try (another round, the next start) sends the very same request.
+    let tokens = issue_tokens(&server, &store, &grant(3), "100GB", "d_1").unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 3, "no new keys, no new blinding");
+    assert_eq!(calls[1].body, calls[2].body, "the identical request");
+    let issuer = Issuer::new("100GB", 2026, &pem(N1)).unwrap();
+    assert!(tokens.iter().all(|token| issuer.verify(token).is_ok()));
+    assert_eq!(store.tokens("d_1").unwrap().len(), 3);
+    assert!(store.issue_request("ck_1").unwrap().is_none());
+}
+
+#[test]
+fn a_key_that_changed_since_the_keys_were_read_is_blinded_for_again_before_anything_is_signed() {
+    // The year turned between GET /v1/tokens/keys and the issue: 409 key_changed names the
+    // current key (with it, when the token server holds it) and nothing is signed or counted.
+    for with_key in [true, false] {
+        let dir = TempDir::new("azcloud-period");
+        let store = store_in(&dir);
+        let old = keys();
+        let new = serde_json::json!({"keys": [
+            {"tier": "100GB", "year": 2027, "key_id": "100GB/2027", "public_key_pem": pem(N2)},
+        ]})
+        .to_string();
+        let reads = AtomicUsize::new(0);
+        let fake = Fake::new(move |call, _| {
+            if call.url.ends_with("/v1/tokens/keys") {
+                let first = reads.fetch_add(1, Ordering::SeqCst) == 0;
+                return Ok(json(200, if first { &old } else { &new }));
+            }
+            let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+            if body["key_id"] == "100GB/2026" {
+                let answer = serde_json::json!({
+                    "error": "key_changed", "message": "blind the messages for this key",
+                    "key_id": "100GB/2027", "public_key_pem": with_key.then(|| pem(N2)),
+                });
+                return Ok(json(409, &answer.to_string()));
+            }
+            Ok(signed(call, N2, D2, "100GB/2027"))
+        });
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let tokens = issue_tokens(&server, &store, &grant(2), "100GB", "d_1").unwrap();
+        let issuer = Issuer::new("100GB", 2027, &pem(N2)).unwrap();
+        assert_eq!(tokens.len(), 2);
+        assert!(tokens.iter().all(|t| t.year == 2027 && issuer.verify(t).is_ok()));
+        let calls = fake.calls();
+        let reads = calls.iter().filter(|c| c.url.ends_with("/v1/tokens/keys")).count();
+        assert_eq!(reads, if with_key { 1 } else { 2 }, "the keys again only without the key");
+        let issues: Vec<_> = calls
+            .iter()
+            .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+            .collect();
+        assert_eq!(issues.len(), 2);
+        assert_ne!(issues[0].body, issues[1].body, "blinded anew for the new key");
+        assert!(store.issue_request("ck_1").unwrap().is_none());
+    }
+}
+
+#[test]
+fn period_tokens_signed_by_another_key_than_the_one_asked_for_are_refused() {
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    // The answer names another key than the request did.
+    let keys = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &keys));
+        }
+        let answer = serde_json::json!({
+            "tier": "100GB", "key_id": "100GB/2025", "public_key_pem": pem(N2),
+            "blind_signatures": [blind_sign(N2, D2, &STANDARD.encode([1_u8; 256]))],
+        });
+        Ok(json(200, &answer.to_string()))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        issue_tokens(&server, &store, &grant(1), "100GB", "d_1"),
         Err(TokenError::Protocol(_))
     ));
+    assert!(store.tokens("d_1").unwrap().is_empty());
     // No key for the tier: nothing is issued.
     let fake = issuing_server(keys(), N1, D1, "100GB/2026");
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     assert!(matches!(
-        issue_tokens(&server, &grant(1), "10TB"),
+        issue_tokens(&server, &store_in(&dir), &grant(1), "10TB", "d_2"),
         Err(TokenError::Protocol(_))
     ));
     assert_eq!(fake.calls().len(), 1, "only the keys were asked for");
     // No months, more than one call takes: nothing is sent.
+    let dir = TempDir::new("azcloud-period");
     for months in [0, 25] {
         assert!(matches!(
-            issue_tokens(&server, &grant(months), "100GB"),
+            issue_tokens(&server, &store_in(&dir), &grant(months), "100GB", "d_1"),
             Err(TokenError::Config(_))
         ));
     }

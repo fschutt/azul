@@ -7,8 +7,8 @@ use super::{bundle, header, json, Fake, Shared, TOKEN};
 use crate::{
     claim::seal,
     token::{
-        check_id, check_token_url, is_loopback_host, CheckoutStatus, CheckoutVia, OptionsQuery,
-        TokenError, TokenServer,
+        check_id, check_token_url, is_loopback_host, CheckoutStatus, CheckoutVia, IssueAnswer,
+        OptionsQuery, TokenError, TokenServer,
     },
     ClaimKey, CloudError, DriveBundle,
 };
@@ -762,6 +762,7 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
             0 => {
                 assert_eq!(body["checkout_id"], "ck_1");
                 assert_eq!(body["issue_key"], ISSUE_KEY);
+                assert_eq!(body["key_id"], "100GB/2026", "the key the messages are blinded for");
                 assert_eq!(body["blinded"], serde_json::json!(["Ymxp", "bmQ="]));
                 json(
                     200,
@@ -778,6 +779,21 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
                 403,
                 r#"{"error": "issue_key_wrong", "message": "not this checkout's issue key"}"#,
             ),
+            3 => json(
+                400,
+                r#"{"error": "key_id_required", "message": "key_id required"}"#,
+            ),
+            // The year turned: nothing signed, blind again for this key.
+            4 => json(
+                409,
+                r#"{"error": "key_changed", "message": "blind the messages for this key",
+                    "key_id": "100GB/2027", "public_key_pem": "-----BEGIN PUBLIC KEY-----"}"#,
+            ),
+            5 => json(
+                409,
+                r#"{"error": "key_changed", "message": "blind the messages for this key",
+                    "key_id": "100GB/2027", "public_key_pem": null}"#,
+            ),
             _ => json(
                 200,
                 r#"{"tier": "100GB", "key_id": "100GB/2026", "public_key_pem": "",
@@ -788,9 +804,13 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
     let transport = Shared(fake.clone());
     let server = TokenServer::new(TOKEN, &transport).unwrap();
     let blinded = vec![String::from("Ymxp"), String::from("bmQ=")];
-    let issued = server
-        .issue_period_tokens("ck_1", ISSUE_KEY, &blinded)
-        .unwrap();
+    let issue = |issue_key: &str, key_id: &str| {
+        server.issue_period_tokens("ck_1", issue_key, key_id, &blinded)
+    };
+    let issued = match issue(ISSUE_KEY, "100GB/2026").unwrap() {
+        IssueAnswer::Signed(issued) => issued,
+        other => panic!("not signed: {other:?}"),
+    };
     assert_eq!(issued.tier, "100GB");
     assert_eq!(issued.key_id, "100GB/2026");
     assert_eq!(issued.signatures, vec!["c2ln", "bmVk"]);
@@ -798,22 +818,37 @@ fn period_tokens_are_issued_only_with_the_issue_key_the_sealed_signup_carries() 
     assert_eq!(call.method, Method::Post);
     assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
     assert_eq!(header(call, "authorization"), None, "no drive token");
-    // No issue key: nothing is sent (the checkout id alone issues nothing).
-    assert!(matches!(
-        server.issue_period_tokens("ck_1", " ", &blinded),
-        Err(TokenError::Config(_))
-    ));
+    // No issue key, no key id: nothing is sent (the checkout id alone issues nothing).
+    for (issue_key, key_id) in [(" ", "100GB/2026"), (ISSUE_KEY, " ")] {
+        assert!(matches!(issue(issue_key, key_id), Err(TokenError::Config(_))));
+    }
     assert_eq!(fake.calls().len(), 1);
-    // The token server's two refusals, as refusals with their codes.
-    for code in ["issue_key_required", "issue_key_wrong"] {
-        match server.issue_period_tokens("ck_1", ISSUE_KEY, &blinded) {
+    // The token server's refusals, as refusals with their codes.
+    for code in ["issue_key_required", "issue_key_wrong", "key_id_required"] {
+        match issue(ISSUE_KEY, "100GB/2026") {
             Err(TokenError::Refused { code: got, .. }) => assert_eq!(got, code),
             other => panic!("not refused with {code}: {other:?}"),
         }
     }
+    // Another key than the one the messages were blinded for: its id, and its key when the token
+    // server holds it - no refusal, the messages are blinded again.
+    assert_eq!(
+        issue(ISSUE_KEY, "100GB/2026").unwrap(),
+        IssueAnswer::KeyChanged {
+            key_id: String::from("100GB/2027"),
+            public_key_pem: Some(String::from("-----BEGIN PUBLIC KEY-----")),
+        }
+    );
+    assert_eq!(
+        issue(ISSUE_KEY, "100GB/2026").unwrap(),
+        IssueAnswer::KeyChanged {
+            key_id: String::from("100GB/2027"),
+            public_key_pem: None,
+        }
+    );
     // One signature for two blinded messages: an answer that makes no sense.
     assert!(matches!(
-        server.issue_period_tokens("ck_1", ISSUE_KEY, &blinded),
+        issue(ISSUE_KEY, "100GB/2026"),
         Err(TokenError::Protocol(_))
     ));
 }
