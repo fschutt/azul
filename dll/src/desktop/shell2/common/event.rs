@@ -5277,6 +5277,20 @@ pub trait PlatformWindow {
         }
     }
 
+    /// `<transient-window>`, parent side: this window is going away, so the
+    /// popups it opened go with it (`common::transient::close_parent`) - a
+    /// popup's own popup has no other parent to close it. Every backend's
+    /// close path calls it before the window is gone; idempotent (a second
+    /// call finds nothing open).
+    fn close_transient_windows(&mut self) {
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        if super::transient::close_parent(lw) {
+            self.request_regeneration_all_windows();
+        }
+    }
+
     /// The app asks this window to close (`CallbackInfo::close_window`, here
     /// or in one of its popups): a REQUEST, like the window manager's - the
     /// backend's loop runs the close protocol for it (`confirm_app_close`)
