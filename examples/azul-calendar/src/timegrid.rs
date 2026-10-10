@@ -44,7 +44,7 @@ const GUTTER_PX: u32 = 56;
 /// new draft (on some systems the popover's own window reports the click first).
 const DISMISSING_PRESS: std::time::Duration = std::time::Duration::from_millis(250);
 /// What the popover's "Add AzMeet link" line says once it is ticked.
-const WILL_MINT: &str = "azcalendar-meet-will-mint";
+pub(crate) const WILL_MINT: &str = "azcalendar-meet-will-mint";
 /// How long after a zoom step the zoom is saved: one write a second at most, not one per step.
 const ZOOM_SAVE_DELAY_MS: u64 = 1000;
 

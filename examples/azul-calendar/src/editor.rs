@@ -11,7 +11,8 @@
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 
-use azul_pim::dates::{nth_weekday_of_month, ordinal_word, weekday_name, WORK_DAYS};
+use azul_appkit::l10n::{t, t_args, t_said, Arg};
+use azul_pim::dates::{nth_weekday_of_month, WORK_DAYS};
 
 use crate::{
     event::{Event, EventError, Meeting},
@@ -58,16 +59,16 @@ impl Ends {
     pub const CHOICES: [Ends; 3] = [Ends::Never, Ends::After, Ends::On];
 }
 
-/// The reminder choices: minutes before the start, and what the list says.
+/// The reminder choices: minutes before the start, and what the list says (its key).
 pub const REMINDERS: [(Option<u32>, &str); 8] = [
-    (None, "None"),
-    (Some(0), "At the start"),
-    (Some(5), "5 minutes before"),
-    (Some(10), "10 minutes before"),
-    (Some(15), "15 minutes before"),
-    (Some(30), "30 minutes before"),
-    (Some(60), "1 hour before"),
-    (Some(1440), "1 day before"),
+    (None, "azcalendar-reminder-none"),
+    (Some(0), "azcalendar-reminder-at-start"),
+    (Some(5), "azcalendar-reminder-5-minutes"),
+    (Some(10), "azcalendar-reminder-10-minutes"),
+    (Some(15), "azcalendar-reminder-15-minutes"),
+    (Some(30), "azcalendar-reminder-30-minutes"),
+    (Some(60), "azcalendar-reminder-1-hour"),
+    (Some(1440), "azcalendar-reminder-1-day"),
 ];
 
 /// How many times a repeat ends after when "After a number of times" is first picked.
@@ -267,7 +268,7 @@ impl EditorForm {
         meeting: Option<Meeting>,
     ) -> Result<(Event, Event), String> {
         let Some(day) = self.occurrence else {
-            return Err(String::from("This appointment is not an occurrence of a series."));
+            return Err(t("azcalendar-not-an-occurrence"));
         };
         let one = EditorForm {
             id: new_id.to_string(),
@@ -319,12 +320,10 @@ impl EditorForm {
         if self.repeat != Repeat::Never {
             match self.ends {
                 Ends::After if self.count == 0 => {
-                    return Err(String::from("Repeat it at least once."));
+                    return Err(t("azcalendar-repeat-at-least-once"));
                 }
                 Ends::On if self.until < self.date => {
-                    return Err(String::from(
-                        "The repeat must end on or after the event's first day.",
-                    ));
+                    return Err(t("azcalendar-repeat-ends-before"));
                 }
                 _ => {}
             }
@@ -342,9 +341,7 @@ impl EditorForm {
     /// The event the form saves, with `meeting`; `Err` with what to tell the user.
     pub fn event(&self, meeting: Option<Meeting>) -> Result<Event, String> {
         if !self.all_day && self.last_day != self.date {
-            return Err(String::from(
-                "An event with times ends on the day it starts: make it all day to span days.",
-            ));
+            return Err(t("azcalendar-times-end-that-day"));
         }
         let repeat = self.rule()?;
         let attendees = parse_attendees(&self.attendees)?;
@@ -374,13 +371,20 @@ impl EditorForm {
     #[must_use]
     pub fn window_title(&self) -> String {
         let title = self.title.trim();
-        let title = if title.is_empty() { "Untitled" } else { title };
-        let kind = if self.meeting_request || !self.attendees.trim().is_empty() {
-            "Meeting"
+        let title = if title.is_empty() {
+            t("azcalendar-untitled-window")
         } else {
-            "Appointment"
+            title.to_string()
         };
-        format!("{title} - {kind}")
+        let kind = if self.meeting_request || !self.attendees.trim().is_empty() {
+            "azcalendar-kind-meeting"
+        } else {
+            "azcalendar-kind-appointment"
+        };
+        t_args(
+            "azcalendar-editor-title",
+            &[("title", Arg::from(title)), ("kind", Arg::from(t(kind)))],
+        )
     }
 
     /// Anything the form saves differs from `opened` (the form as the window opened with it):
@@ -454,14 +458,24 @@ pub fn close_answer(form: Option<&EditorForm>, opened: Option<&EditorForm>) -> C
 #[must_use]
 pub fn error_text(e: &EventError) -> String {
     match e {
-        EventError::EmptyTitle => String::from("Give the event a title."),
-        EventError::EndNotAfterStart => String::from("The event must end after it starts."),
-        EventError::LastDayBeforeFirst => {
-            String::from("The event must end on or after its first day.")
-        }
-        EventError::BadAttendee(who) => format!("{who:?} is not an e-mail address."),
-        other => format!("This event cannot be saved: {other}."),
+        EventError::EmptyTitle => t("azcalendar-give-a-title"),
+        EventError::EndNotAfterStart => t("azcalendar-end-after-start"),
+        EventError::LastDayBeforeFirst => t("azcalendar-end-on-first-day"),
+        EventError::BadAttendee(who) => not_an_address(who),
+        // The rest are no edit of the form's: the event's own words (`event.rs`).
+        other => t_args(
+            "azcalendar-cannot-save",
+            &[("why", Arg::from(other.to_string()))],
+        ),
     }
+}
+
+/// "\"team\" is not an e-mail address." (`who` quoted).
+fn not_an_address(who: &str) -> String {
+    t_args(
+        "azcalendar-not-an-address",
+        &[("who", Arg::from(format!("{who:?}")))],
+    )
 }
 
 /// The nth weekday a monthly rule repeats a `date` on: its count from the month's start, or
@@ -559,27 +573,20 @@ pub fn repeat_of(rule: &Rule, date: NaiveDate) -> Shown {
 #[must_use]
 pub fn repeat_label(repeat: Repeat, date: NaiveDate, custom: Option<&Rule>) -> String {
     match repeat {
-        Repeat::Never => String::from("Does not repeat"),
-        Repeat::Daily => String::from("Daily"),
-        Repeat::Weekly => format!("Weekly on {}", weekday_name(date.weekday())),
-        Repeat::Weekdays => String::from("Every weekday (Monday to Friday)"),
-        Repeat::MonthlyDay => format!("Monthly on day {}", date.day()),
-        Repeat::MonthlyWeekday => {
-            let by = monthly_weekday(date);
-            format!(
-                "Monthly on the {} {}",
-                ordinal_word(i32::from(by.nth)),
-                weekday_name(by.weekday)
-            )
-        }
-        Repeat::Yearly => format!("Yearly on {}", date.format("%-d %B")),
+        Repeat::Never => t("azcalendar-repeat-never"),
+        Repeat::Weekdays => t("azcalendar-repeat-weekdays"),
         Repeat::Custom => match custom {
-            Some(rule) => format!(
-                "Custom: {}",
-                azul_appkit::l10n::t_said(&rule.description(date))
+            Some(rule) => t_args(
+                "azcalendar-repeat-custom-rule",
+                &[("rule", Arg::from(t_said(&rule.description(date))))],
             ),
-            None => String::from("Custom"),
+            None => t("azcalendar-repeat-custom"),
         },
+        // The choice's rule says what it does: "Weekly on Wednesday", "Monthly on the last
+        // Friday".
+        _ => rule_of(repeat, 1, Ends::Never, 0, date, date)
+            .map(|rule| t_said(&rule.description(date)))
+            .unwrap_or_default(),
     }
 }
 
@@ -618,7 +625,7 @@ pub fn reminder_index(minutes: Option<u32>) -> usize {
 pub fn parse_attendees(text: &str) -> Result<Vec<String>, String> {
     // A separator inside a quoted name ("Lovelace, Ada" <ada@example.org>) is part of the name.
     azul_pim::mail_address::address_list(text)
-        .map_err(|entry| format!("{entry:?} is not an e-mail address."))
+        .map_err(|entry| not_an_address(&entry))
 }
 
 #[cfg(test)]
@@ -752,6 +759,7 @@ mod tests {
 
     #[test]
     fn the_repeat_list_names_each_choice_by_the_first_day() {
+        crate::l10n::in_english();
         let labels: Vec<String> = repeat_choices(d(2026, 10, 13), None)
             .into_iter()
             .map(|(_, l)| l)
@@ -789,6 +797,7 @@ mod tests {
 
     #[test]
     fn an_all_day_event_spans_its_days_and_one_with_times_ends_on_its_day() {
+        crate::l10n::in_english();
         let mut f = form();
         f.set_all_day(true);
         f.set_last_day(d(2026, 10, 2));
@@ -822,6 +831,7 @@ mod tests {
 
     #[test]
     fn the_attendees_line_takes_names_and_addresses_and_names_a_bad_one() {
+        crate::l10n::in_english();
         assert_eq!(
             parse_attendees("Ana <ana@example.com>, bo@example.org;\n ANA@example.com ; "),
             Ok(vec![
@@ -844,6 +854,7 @@ mod tests {
 
     #[test]
     fn a_form_without_a_title_or_with_the_end_first_says_why() {
+        crate::l10n::in_english();
         let mut f = form();
         f.title = String::from("  ");
         assert_eq!(f.event(None), Err(String::from("Give the event a title.")));
@@ -866,6 +877,7 @@ mod tests {
 
     #[test]
     fn the_window_says_what_it_edits() {
+        crate::l10n::in_english();
         let mut f = form();
         assert_eq!(f.window_title(), "Team sync - Appointment");
         f.title.clear();
