@@ -754,6 +754,12 @@ pub struct Settings {
     pub indexed_drives: Vec<String>,
     /// The Search tab's saved searches, in the order they were saved.
     pub saved_searches: Vec<crate::find::SavedSearch>,
+    /// "Index files in the cloud": a cloud drive's index downloads the files that are not on
+    /// this computer (each within the cap), reads them and drops them again; off, it reads the
+    /// local copies only.
+    pub index_cloud_files: bool,
+    /// The largest file "Index files in the cloud" downloads (MB).
+    pub index_download_cap_mb: u64,
 }
 
 impl Default for Settings {
@@ -777,11 +783,22 @@ impl Default for Settings {
             search_subfolders: true,
             indexed_drives: Vec::new(),
             saved_searches: Vec::new(),
+            index_cloud_files: false,
+            index_download_cap_mb: 25,
         }
     }
 }
 
 impl Settings {
+    /// The largest file a cloud drive's index downloads (bytes, at least 1 MB); `None` while
+    /// "Index files in the cloud" is off.
+    #[must_use]
+    pub fn download_cap(&self) -> Option<u64> {
+        const MB: u64 = 1024 * 1024;
+        self.index_cloud_files
+            .then(|| self.index_download_cap_mb.max(1).saturating_mul(MB))
+    }
+
     /// The settings file's text.
     #[must_use]
     pub fn to_json(&self) -> String {

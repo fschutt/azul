@@ -21,7 +21,8 @@
 //!        [Remove drive]  System [Refresh][Options]
 //! Search (Search Tools, while a search is open): Location [Current folder][All subfolders]
 //!        Refine [Date modified v] Kind v / Size v  Options [File contents] Hidden items /
-//!        Skip ignored files / Open file location / Index this drive  Saved [Save search]
+//!        Skip ignored files / Open file location / Index this drive / Index files in the
+//!        cloud  Saved [Save search]
 //!        Saved searches v  Close [Close search]
 //! ```
 //!
@@ -582,6 +583,16 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                 small(
                     button(s, app, "manage_search", "Index this drive", Action::IndexDrive)
                         .with_toggled(indexed),
+                ),
+                small(
+                    button(
+                        s,
+                        app,
+                        "cloud_download",
+                        "Index files in the cloud",
+                        Action::Toggle(Toggle::IndexCloudFiles),
+                    )
+                    .with_toggled(settings.index_cloud_files),
                 ),
             ],
         ))

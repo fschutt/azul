@@ -1324,7 +1324,8 @@ pub(crate) fn update_index(
             jobs::IndexSource::Drive(jobs::DriveSource {
                 drive,
                 sync: s.sync.clone(),
-                download_cap: None,
+                // "Index files in the cloud": the files not on this computer, within the cap.
+                download_cap: s.settings.download_cap(),
             })
         }
     };

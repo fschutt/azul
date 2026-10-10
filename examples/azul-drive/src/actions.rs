@@ -56,6 +56,8 @@ pub(crate) enum Toggle {
     SearchContents,
     /// The search passes over what .gitignore / .ignore files name.
     SearchIgnoreFiles,
+    /// A cloud drive's index downloads the files not on this computer, within the cap.
+    IndexCloudFiles,
 }
 
 /// Every command of the ribbon, its File menu, the menus and the backstage.
@@ -365,10 +367,22 @@ pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
             }
         }),
         Action::HideSelected => need_selection(),
-        Action::Toggle(Toggle::SearchContents) if s.find.as_ref().is_some_and(|f| f.remote) => {
+        Action::Toggle(Toggle::SearchContents)
+            if s.find.as_ref().is_some_and(|f| f.remote)
+                && !s
+                    .current_drive_id()
+                    .is_some_and(|id| s.settings.indexed_drives.contains(&id)) =>
+        {
             Some(String::from(
-                "A cloud drive is searched by name: its files would have to be downloaded to be \
-                 read.",
+                "A cloud drive's files are searched through its index: turn on Index this drive \
+                 first.",
+            ))
+        }
+        Action::Toggle(Toggle::IndexCloudFiles)
+            if s.current_drive().is_some_and(|i| s.local_root(i).is_some()) =>
+        {
+            Some(String::from(
+                "The files of a drive on this computer are read where they are.",
             ))
         }
         Action::CloseSearch => s
@@ -3094,6 +3108,7 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
         Toggle::SearchIgnoreFiles => {
             settings.search_ignore_files = !settings.search_ignore_files;
         }
+        Toggle::IndexCloudFiles => settings.index_cloud_files = !settings.index_cloud_files,
     }
     println!(
         "AZDRIVE_PANES {} {} {}",
@@ -3118,6 +3133,16 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
         Toggle::PreviewPane | Toggle::DetailsPane => {
             s.clear_preview();
             request_preview(info, app, s);
+        }
+        Toggle::IndexCloudFiles => {
+            println!("AZDRIVE_INDEX_CLOUD_FILES {}", s.settings.index_cloud_files);
+            // The open drive's index reads (or forgets) its files in the cloud now.
+            let indexed = s
+                .current_drive_id()
+                .filter(|id| s.settings.indexed_drives.contains(id));
+            if let Some(drive_id) = indexed {
+                crate::update_index(info, app, s, &drive_id);
+            }
         }
         _ => {}
     }
