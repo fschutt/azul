@@ -56,6 +56,11 @@ pub(super) struct FakeBucket {
     part_delay: Mutex<Duration>,
     in_flight: AtomicUsize,
     most_in_flight: AtomicUsize,
+    /// `Some(n)`: n more ranged GETs are answered, then none gets an answer.
+    ranges_left: Mutex<Option<usize>>,
+    range_delay: Mutex<Duration>,
+    ranges_in_flight: AtomicUsize,
+    most_ranges_in_flight: AtomicUsize,
 }
 
 fn reply(status: u16, headers: &[(&str, &str)], body: impl Into<Vec<u8>>) -> HttpReply {
@@ -168,6 +173,44 @@ impl FakeBucket {
         self.most_in_flight.load(Ordering::SeqCst)
     }
 
+    /// `n` more ranged GETs are answered, then none gets an answer; `None`: every one is.
+    pub(super) fn take_ranges(&self, n: Option<usize>) {
+        *lock(&self.ranges_left) = n;
+    }
+
+    /// Every ranged GET takes `delay` before it is answered.
+    pub(super) fn slow_ranges(&self, delay: Duration) {
+        *lock(&self.range_delay) = delay;
+    }
+
+    /// The most ranged GETs that were in flight at once.
+    pub(super) fn most_ranges_at_once(&self) -> usize {
+        self.most_ranges_in_flight.load(Ordering::SeqCst)
+    }
+
+    /// The switches of a ranged GET: lost after the count, slow, counted while in flight.
+    fn range_gate(&self, key: &str) -> Result<(), String> {
+        {
+            let mut left = lock(&self.ranges_left);
+            match left.as_mut() {
+                Some(0) => {
+                    self.note(format!("GET lost-range {key}"));
+                    return Err(String::from("connection reset (the app was killed)"));
+                }
+                Some(n) => *n -= 1,
+                None => {}
+            }
+        }
+        let now = self.ranges_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most_ranges_in_flight.fetch_max(now, Ordering::SeqCst);
+        let delay = *lock(&self.range_delay);
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+        self.ranges_in_flight.fetch_sub(1, Ordering::SeqCst);
+        Ok(())
+    }
+
     pub(super) fn log(&self) -> Vec<String> {
         lock(&self.log).clone()
     }
@@ -263,6 +306,9 @@ impl FakeBucket {
                 Ok(reply(200, &[("ETag", etag.as_str())], Vec::new()))
             }
             (Method::Get | Method::Head, None) => {
+                if call.method == Method::Get && header(call, "range").is_some() {
+                    self.range_gate(&key)?;
+                }
                 self.note(format!("{} object {key}", call.method.as_str()));
                 let state = lock(&self.state);
                 let Some((bytes, etag)) = state.objects.get(&key) else {
