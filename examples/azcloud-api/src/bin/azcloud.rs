@@ -283,7 +283,7 @@ type Output = (Value, String);
 /// dialer of S3 over iroh when this build has one.
 struct Net {
     transports: TransportFactory,
-    dialer: Option<Box<dyn IrohDialer>>,
+    dialer: Option<Arc<dyn IrohDialer>>,
 }
 
 fn rfc3339(unix: i64) -> String {
@@ -326,7 +326,7 @@ fn open_account(settings: &Settings, net: &Net, args: &Args) -> Result<Account> 
 }
 
 fn open_drive(settings: &Settings, net: &Net, account: &Account, args: &Args) -> Result<CloudDrive> {
-    let drive = CloudDrive::open(account, settings, net.dialer.as_deref())?;
+    let drive = CloudDrive::open(account, settings, net.dialer.clone())?;
     if let Some(parallel) = args.number::<usize>("--parallel")? {
         drive.set_parallel(parallel);
     }
@@ -670,10 +670,11 @@ fn cmd_transport(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
             format!(
                 "{}{} ({})",
                 t.id,
-                t.addr
-                    .as_deref()
-                    .map(|a| format!(" at {a}"))
-                    .unwrap_or_default(),
+                if t.addrs.is_empty() {
+                    String::new()
+                } else {
+                    format!(" at {}", t.addrs.join(", "))
+                },
                 t.source
             )
         })
@@ -1473,11 +1474,11 @@ fn net_on(runtime: &tokio::runtime::Runtime) -> Result<Net> {
     let transports: TransportFactory =
         Arc::new(move || Box::new(https.clone()) as Box<dyn Transport>);
     #[cfg(feature = "iroh")]
-    let dialer: Option<Box<dyn IrohDialer>> = Some(Box::new(
+    let dialer: Option<Arc<dyn IrohDialer>> = Some(Arc::new(
         azcloud_api::iroh_lane::IrohLane::new(runtime.handle().clone()),
     ));
     #[cfg(not(feature = "iroh"))]
-    let dialer: Option<Box<dyn IrohDialer>> = None;
+    let dialer: Option<Arc<dyn IrohDialer>> = None;
     Ok(Net { transports, dialer })
 }
 
