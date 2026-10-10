@@ -37,6 +37,19 @@ impl SequenceSet {
         })
     }
 
+    /// `$` (SEARCHRES): the messages the last `SEARCH RETURN (SAVE)` found; it holds no range
+    /// (the session looks them up).
+    #[must_use]
+    pub fn saved() -> SequenceSet {
+        SequenceSet(Vec::new())
+    }
+
+    /// Whether it is `$`.
+    #[must_use]
+    pub fn is_saved(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Whether it names `*` (a UID set that does: the highest UID is in it, RFC 3501 6.4.8).
     #[must_use]
     pub fn has_star(&self) -> bool {
@@ -115,6 +128,15 @@ pub enum FetchAtt {
     Rfc822Text,
     /// CONDSTORE: the message's mod-sequence.
     Modseq,
+    /// BINARY (RFC 3516): a part with its content transfer encoding undone, `BINARY[1.2]` /
+    /// `BINARY.PEEK[...]`, with an optional `<start.length>`.
+    Binary {
+        peek: bool,
+        path: Vec<u32>,
+        partial: Option<(u64, u64)>,
+    },
+    /// `BINARY.SIZE[...]`: the decoded part's size.
+    BinarySize { path: Vec<u32> },
     /// `BODY[...]` / `BODY.PEEK[...]` with an optional `<start.length>`.
     Section {
         peek: bool,
@@ -298,6 +320,8 @@ pub struct Modifiers {
     pub unchanged_since: Option<u64>,
     /// SEARCH RETURN (...): the options named, upper case (`None` without RETURN).
     pub search_return: Option<Vec<String>>,
+    /// LIST-STATUS (RFC 5819): LIST ... RETURN (STATUS (items)).
+    pub list_status: Option<Vec<StatusItem>>,
 }
 
 /// SELECT's QRESYNC parameters: what the program knew of the mailbox.
@@ -582,6 +606,10 @@ impl<'a> Cursor<'a> {
     }
 
     fn sequence_set(&mut self) -> Result<SequenceSet> {
+        if self.peek() == Some(b'$') {
+            self.i += 1;
+            return Ok(SequenceSet::saved());
+        }
         let mut ranges = Vec::new();
         loop {
             let a = self.bound()?;
@@ -685,6 +713,19 @@ impl<'a> Cursor<'a> {
             "RFC822.HEADER" => FetchAtt::Rfc822Header,
             "RFC822.TEXT" => FetchAtt::Rfc822Text,
             "MODSEQ" => FetchAtt::Modseq,
+            "BINARY" | "BINARY.PEEK" | "BINARY.SIZE" => {
+                let path = self.binary_section()?;
+                if name == "BINARY.SIZE" {
+                    FetchAtt::BinarySize { path }
+                } else {
+                    let partial = self.partial()?;
+                    FetchAtt::Binary {
+                        peek: name == "BINARY.PEEK",
+                        path,
+                        partial,
+                    }
+                }
+            }
             "BODY" if self.peek() != Some(b'[') => FetchAtt::Body,
             "BODY" | "BODY.PEEK" => {
                 let section = self.section()?;
@@ -708,6 +749,52 @@ impl<'a> Cursor<'a> {
                 }
             }
             other => return Err(format!("unknown fetch item \"{other}\"")),
+        })
+    }
+
+    /// BINARY's `[1.2]`: part numbers only (empty: the whole message).
+    fn binary_section(&mut self) -> Result<Vec<u32>> {
+        self.expect(b'[')?;
+        let mut path = Vec::new();
+        while self.peek() != Some(b']') {
+            if !path.is_empty() {
+                self.expect(b'.')?;
+            }
+            path.push(self.nz_number32()?);
+        }
+        self.expect(b']')?;
+        Ok(path)
+    }
+
+    /// An optional `<start.length>`.
+    fn partial(&mut self) -> Result<Option<(u64, u64)>> {
+        if self.peek() != Some(b'<') {
+            return Ok(None);
+        }
+        self.i += 1;
+        let start = self.number()?;
+        self.expect(b'.')?;
+        let length = self.number()?;
+        if length == 0 {
+            return Err(String::from("a partial of no octets"));
+        }
+        self.expect(b'>')?;
+        Ok(Some((start, length)))
+    }
+
+    /// One STATUS item.
+    fn status_item(&mut self) -> Result<StatusItem> {
+        let word = self.word()?;
+        Ok(match word.as_str() {
+            "MESSAGES" => StatusItem::Messages,
+            "RECENT" => StatusItem::Recent,
+            "UIDNEXT" => StatusItem::UidNext,
+            "UIDVALIDITY" => StatusItem::UidValidity,
+            "UNSEEN" => StatusItem::Unseen,
+            "HIGHESTMODSEQ" => StatusItem::HighestModseq,
+            "SIZE" => StatusItem::Size,
+            "DELETED" => StatusItem::Deleted,
+            other => return Err(format!("unknown status item \"{other}\"")),
         })
     }
 
@@ -1058,8 +1145,24 @@ fn parse_args(
             } else {
                 c.list_mailbox()?
             };
-            // ... and its RETURN options.
-            c.rest();
+            // ... and its RETURN options: STATUS (LIST-STATUS) is answered, the others are
+            // read and not needed (every answer has the children and special-use attributes).
+            if c.peek() == Some(b' ') {
+                c.sp()?;
+                if c.word()? != "RETURN" {
+                    return Err(ArgError::Bad(String::from("expected RETURN")));
+                }
+                c.sp()?;
+                let options = c.list(|c| {
+                    let option = c.word()?;
+                    if option == "STATUS" {
+                        c.sp()?;
+                        return c.list(|c| c.status_item()).map(Some);
+                    }
+                    Ok(None)
+                })?;
+                m.list_status = options.into_iter().flatten().next();
+            }
             CommandKind::List {
                 reference,
                 pattern,
@@ -1070,20 +1173,7 @@ fn parse_args(
             c.sp()?;
             let mailbox = c.astring()?;
             c.sp()?;
-            let items = c.list(|c| {
-                let word = c.word()?;
-                Ok(match word.as_str() {
-                    "MESSAGES" => StatusItem::Messages,
-                    "RECENT" => StatusItem::Recent,
-                    "UIDNEXT" => StatusItem::UidNext,
-                    "UIDVALIDITY" => StatusItem::UidValidity,
-                    "UNSEEN" => StatusItem::Unseen,
-                    "HIGHESTMODSEQ" => StatusItem::HighestModseq,
-                    "SIZE" => StatusItem::Size,
-                    "DELETED" => StatusItem::Deleted,
-                    other => return Err(format!("unknown status item \"{other}\"")),
-                })
-            })?;
+            let items = c.list(|c| c.status_item())?;
             CommandKind::Status { mailbox, items }
         }
         "APPEND" => {
@@ -1104,6 +1194,10 @@ fn parse_args(
             } else {
                 None
             };
+            // BINARY: a literal8 (`~{n}`) takes any octets.
+            if c.peek() == Some(b'~') {
+                c.i += 1;
+            }
             let message = c.literal()?;
             CommandKind::Append {
                 mailbox,

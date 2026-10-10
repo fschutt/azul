@@ -5,9 +5,10 @@
 //! the user's own device, the way Proton Mail Bridge works. The bridge is a background process
 //! that listens on 127.0.0.1 and serves:
 //!
-//! - **IMAP4rev1** (RFC 3501, with IDLE, UIDPLUS, MOVE, SPECIAL-USE, NAMESPACE, ID, UNSELECT,
-//!   LITERAL+, SASL-IR) for Apple Mail, Outlook and Thunderbird: the drive's mailbox as AzMail
-//!   keeps it (`examples/azul-mail/AZLIN_MAIL.md`).
+//! - **IMAP4rev1 and IMAP4rev2** (RFC 3501, RFC 9051, with IDLE, UIDPLUS, MOVE, SPECIAL-USE,
+//!   NAMESPACE, ID, UNSELECT, LITERAL+, SASL-IR, CONDSTORE / QRESYNC, ESEARCH, SEARCHRES,
+//!   LIST-STATUS, STATUS=SIZE, BINARY) for Apple Mail, Outlook and Thunderbird: the drive's
+//!   mailbox as AzMail keeps it (`examples/azul-mail/AZLIN_MAIL.md`).
 //! - **SMTP submission** (RFC 6409): a mail program's message goes out through AzMail's own
 //!   sending path (azul-mail-core's `send::send_prepared`: the outbox, a DKIM signature per
 //!   attempt, direct delivery or the relay) and the copy that went out is filed in Sent.

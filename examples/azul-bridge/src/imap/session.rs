@@ -92,6 +92,25 @@ fn uid_set(numbers: &[u32]) -> String {
     parts.join(",")
 }
 
+/// STATUS's items of a mailbox: `MESSAGES 2 UNSEEN 1`.
+fn status_values(snap: &Snap, items: &[StatusItem]) -> String {
+    let msgs = &snap.msgs;
+    items
+        .iter()
+        .map(|item| match item {
+            StatusItem::Messages => format!("MESSAGES {}", msgs.len()),
+            StatusItem::Recent => String::from("RECENT 0"),
+            StatusItem::UidNext => format!("UIDNEXT {}", snap.next),
+            StatusItem::UidValidity => format!("UIDVALIDITY {}", snap.validity),
+            StatusItem::Unseen => format!("UNSEEN {}", msgs.iter().filter(|m| !m.flags.seen).count()),
+            StatusItem::HighestModseq => format!("HIGHESTMODSEQ {}", snap.highest),
+            StatusItem::Size => format!("SIZE {}", msgs.iter().map(|m| m.size).sum::<u64>()),
+            StatusItem::Deleted => format!("DELETED {}", msgs.iter().filter(|m| m.flags.deleted).count()),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The UIDs below `next` that are not `present` (sorted), as ranges: what a program that knew
 /// less than the oldest remembered expunge is told went.
 fn missing_set(present: &[u32], next: u32) -> String {
@@ -137,6 +156,8 @@ pub(super) struct Session<'s, C: Conn> {
     qresync: bool,
     /// SEARCHRES: the UIDs the last `SEARCH RETURN (SAVE)` found (`$`).
     saved: Option<Vec<u32>>,
+    /// IMAP4rev2 is on (ENABLE IMAP4rev2): UTF-8 mailbox names, ESEARCH answers, no RECENT.
+    rev2: bool,
 }
 
 /// A mailbox's name as IMAP lists it: `INBOX`, else its path in modified UTF-7.
@@ -211,6 +232,7 @@ impl<'s, C: Conn> Session<'s, C> {
             condstore: false,
             qresync: false,
             saved: None,
+            rev2: false,
         }
     }
 
@@ -416,6 +438,10 @@ impl<'s, C: Conn> Session<'s, C> {
                             self.qresync = true;
                             enabled.push("QRESYNC");
                         }
+                        "IMAP4REV2" => {
+                            self.rev2 = true;
+                            enabled.push("IMAP4rev2");
+                        }
                         _ => {}
                     }
                 }
@@ -464,7 +490,7 @@ impl<'s, C: Conn> Session<'s, C> {
                 reference,
                 pattern,
                 subscribed,
-            } => self.list(&tag, &reference, &pattern, subscribed),
+            } => self.list(&tag, &reference, &pattern, subscribed, &modifiers),
             CommandKind::Status { mailbox, items } => self.status(&tag, &mailbox, &items),
             CommandKind::Append {
                 mailbox,
@@ -592,8 +618,37 @@ impl<'s, C: Conn> Session<'s, C> {
     }
 
     /// The mailbox a client names (modified UTF-7; `INBOX` in any case).
+    /// A mailbox name as the program sends it: UTF-8 for an IMAP4rev2 program, modified UTF-7
+    /// otherwise.
+    fn name_from(&self, raw: &[u8]) -> String {
+        if self.rev2 {
+            String::from_utf8_lossy(raw).into_owned()
+        } else {
+            mutf7::decode(&String::from_utf8_lossy(raw))
+        }
+    }
+
+    /// A mailbox's name for the program: `INBOX`, else its path - UTF-8 for an IMAP4rev2
+    /// program, modified UTF-7 otherwise.
+    fn name_of(&self, info: &MailboxInfo) -> String {
+        if self.rev2 && info.role != Role::Inbox {
+            info.path.clone()
+        } else {
+            imap_name(info)
+        }
+    }
+
+    /// Writes a mailbox name for the program (an IMAP string).
+    fn write_name(&self, out: &mut Vec<u8>, name: &str) {
+        if self.rev2 {
+            fetch::utf8_string(out, name);
+        } else {
+            fetch::string(out, name.as_bytes());
+        }
+    }
+
     fn resolve(&self, raw: &[u8]) -> Result<Option<MailboxInfo>, StoreError> {
-        let name = mutf7::decode(&String::from_utf8_lossy(raw));
+        let name = self.name_from(raw);
         let name = name.trim_end_matches('/');
         let boxes = self.imap.store.mailboxes()?;
         if name.eq_ignore_ascii_case("INBOX") {
@@ -607,8 +662,8 @@ impl<'s, C: Conn> Session<'s, C> {
     }
 
     /// A new mailbox's path from the name a client gives.
-    fn new_path(raw: &[u8]) -> Result<String, StoreError> {
-        let name = mutf7::decode(&String::from_utf8_lossy(raw));
+    fn new_path(&self, raw: &[u8]) -> Result<String, StoreError> {
+        let name = self.name_from(raw);
         let name = name.trim_end_matches('/').to_string();
         if name.eq_ignore_ascii_case("INBOX") {
             return Err(StoreError::Exists(String::from("INBOX")));
@@ -706,9 +761,17 @@ impl<'s, C: Conn> Session<'s, C> {
             // \Draft follows from the folder; keywords are kept (label markers).
             out.push_str("* OK [PERMANENTFLAGS (\\Answered \\Flagged \\Deleted \\Seen \\*)] Kept in the drive\r\n");
         }
-        out.push_str(&format!("* {} EXISTS\r\n* 0 RECENT\r\n", msgs.len()));
-        if let Some(first) = msgs.iter().position(|m| !m.flags.seen) {
-            out.push_str(&format!("* OK [UNSEEN {}] First unseen\r\n", first + 1));
+        if self.rev2 {
+            // IMAP4rev2: the mailbox's own name, no RECENT and no UNSEEN.
+            let mut line = b"* LIST () \"/\" ".to_vec();
+            self.write_name(&mut line, &self.name_of(&info));
+            out.push_str(&String::from_utf8_lossy(&line));
+            out.push_str(&format!("\r\n* {} EXISTS\r\n", msgs.len()));
+        } else {
+            out.push_str(&format!("* {} EXISTS\r\n* 0 RECENT\r\n", msgs.len()));
+            if let Some(first) = msgs.iter().position(|m| !m.flags.seen) {
+                out.push_str(&format!("* OK [UNSEEN {}] First unseen\r\n", first + 1));
+            }
         }
         out.push_str(&format!("* OK [UIDVALIDITY {validity}] UIDs valid\r\n"));
         out.push_str(&format!("* OK [UIDNEXT {next}] Predicted next UID\r\n"));
@@ -761,7 +824,7 @@ impl<'s, C: Conn> Session<'s, C> {
     }
 
     fn create(&mut self, tag: &str, raw: &[u8]) -> Next {
-        let path = match Self::new_path(raw) {
+        let path = match self.new_path(raw) {
             Ok(path) => path,
             Err(e) => return self.store_no(tag, &e),
         };
@@ -792,7 +855,7 @@ impl<'s, C: Conn> Session<'s, C> {
             Ok(None) => return self.no(tag, "[NONEXISTENT] No such mailbox"),
             Err(e) => return self.store_no(tag, &e),
         };
-        let path = match Self::new_path(to) {
+        let path = match self.new_path(to) {
             Ok(path) => path,
             Err(e) => return self.store_no(tag, &e),
         };
@@ -802,7 +865,7 @@ impl<'s, C: Conn> Session<'s, C> {
         }
     }
 
-    fn list(&mut self, tag: &str, reference: &[u8], pattern: &[u8], subscribed: bool) -> Next {
+    fn list(&mut self, tag: &str, reference: &[u8], pattern: &[u8], subscribed: bool, m: &Modifiers) -> Next {
         let word = if subscribed { "LSUB" } else { "LIST" };
         if pattern.is_empty() {
             // The hierarchy delimiter and root.
@@ -817,7 +880,7 @@ impl<'s, C: Conn> Session<'s, C> {
         };
         let mut full = reference.to_vec();
         full.extend_from_slice(pattern);
-        let names: Vec<(String, &MailboxInfo)> = boxes.iter().map(|b| (imap_name(b), b)).collect();
+        let names: Vec<(String, &MailboxInfo)> = boxes.iter().map(|b| (self.name_of(b), b)).collect();
         let mut out = Vec::new();
         for (name, info) in &names {
             let matched = if name == "INBOX" {
@@ -839,8 +902,16 @@ impl<'s, C: Conn> Session<'s, C> {
                 attributes.push(attribute);
             }
             out.extend_from_slice(format!("* {word} ({}) \"/\" ", attributes.join(" ")).as_bytes());
-            fetch::string(&mut out, name.as_bytes());
+            self.write_name(&mut out, name);
             out.extend_from_slice(b"\r\n");
+            // LIST-STATUS: the mailbox's STATUS right after it.
+            if let Some(items) = &m.list_status {
+                if let Ok(snap) = self.snapshot(&info.path) {
+                    out.extend_from_slice(b"* STATUS ");
+                    self.write_name(&mut out, name);
+                    out.extend_from_slice(format!(" ({})\r\n", status_values(&snap, items)).as_bytes());
+                }
+            }
         }
         if !self.send(&out) {
             return Next::Close;
@@ -861,27 +932,9 @@ impl<'s, C: Conn> Session<'s, C> {
         if items.contains(&StatusItem::HighestModseq) {
             self.condstore = true;
         }
-        let (validity, next, msgs) = (snap.validity, snap.next, &snap.msgs);
-        let values: Vec<String> = items
-            .iter()
-            .map(|item| match item {
-                StatusItem::Messages => format!("MESSAGES {}", msgs.len()),
-                StatusItem::Recent => String::from("RECENT 0"),
-                StatusItem::UidNext => format!("UIDNEXT {next}"),
-                StatusItem::UidValidity => format!("UIDVALIDITY {validity}"),
-                StatusItem::Unseen => {
-                    format!("UNSEEN {}", msgs.iter().filter(|m| !m.flags.seen).count())
-                }
-                StatusItem::HighestModseq => format!("HIGHESTMODSEQ {}", snap.highest),
-                StatusItem::Size => format!("SIZE {}", msgs.iter().map(|m| m.size).sum::<u64>()),
-                StatusItem::Deleted => {
-                    format!("DELETED {}", msgs.iter().filter(|m| m.flags.deleted).count())
-                }
-            })
-            .collect();
         let mut out = b"* STATUS ".to_vec();
         fetch::string(&mut out, raw);
-        out.extend_from_slice(format!(" ({})\r\n", values.join(" ")).as_bytes());
+        out.extend_from_slice(format!(" ({})\r\n", status_values(&snap, items)).as_bytes());
         if !self.send(&out) {
             return Next::Close;
         }
@@ -967,7 +1020,7 @@ impl<'s, C: Conn> Session<'s, C> {
         let Ok(snap) = self.snapshot(&path) else {
             return Vec::new();
         };
-        let (condstore, qresync) = (self.condstore, self.qresync);
+        let (condstore, qresync, rev2) = (self.condstore, self.qresync, self.rev2);
         let (validity, highest, fresh) = (snap.validity, snap.highest, snap.msgs);
         let State::Selected(selected) = &mut self.state else {
             return Vec::new();
@@ -1032,9 +1085,8 @@ impl<'s, C: Conn> Session<'s, C> {
         if !added.is_empty() {
             selected.msgs.extend(added);
             selected.msgs.sort_by_key(|m| m.uid);
-            out.extend_from_slice(
-                format!("* {} EXISTS\r\n* 0 RECENT\r\n", selected.msgs.len()).as_bytes(),
-            );
+            let recent = if rev2 { "" } else { "* 0 RECENT\r\n" };
+            out.extend_from_slice(format!("* {} EXISTS\r\n{recent}", selected.msgs.len()).as_bytes());
         }
         out
     }
@@ -1049,6 +1101,13 @@ impl<'s, C: Conn> Session<'s, C> {
             return Vec::new();
         }
         let largest_uid = selected.msgs[count - 1].uid;
+        // `$` (SEARCHRES): the messages the last saved search found, by UID.
+        if set.is_saved() {
+            let saved = self.saved.as_deref().unwrap_or_default();
+            return (0..count)
+                .filter(|&i| saved.contains(&selected.msgs[i].uid))
+                .collect();
+        }
         (0..count)
             .filter(|&i| {
                 if uid {
@@ -1120,7 +1179,12 @@ impl<'s, C: Conn> Session<'s, C> {
             return self.bad(tag, "VANISHED is for UID FETCH with CHANGEDSINCE once QRESYNC is enabled");
         }
         let needs_whole = atts.iter().any(|att| match att {
-            FetchAtt::Body | FetchAtt::BodyStructure | FetchAtt::Rfc822 | FetchAtt::Rfc822Text => true,
+            FetchAtt::Body
+            | FetchAtt::BodyStructure
+            | FetchAtt::Rfc822
+            | FetchAtt::Rfc822Text
+            | FetchAtt::Binary { .. }
+            | FetchAtt::BinarySize { .. } => true,
             FetchAtt::Section { section, .. } => !fetch::header_only(section),
             _ => false,
         });
@@ -1129,7 +1193,7 @@ impl<'s, C: Conn> Session<'s, C> {
             .any(|att| matches!(att, FetchAtt::Envelope | FetchAtt::Rfc822Header | FetchAtt::Section { .. }));
         let marks_seen = atts.iter().any(|att| match att {
             FetchAtt::Rfc822 | FetchAtt::Rfc822Text => true,
-            FetchAtt::Section { peek, .. } => !peek,
+            FetchAtt::Section { peek, .. } | FetchAtt::Binary { peek, .. } => !peek,
             _ => false,
         });
         let Some((path, read_only)) = self.selected().map(|s| (s.path.clone(), s.read_only)) else {
@@ -1228,6 +1292,30 @@ impl<'s, C: Conn> Session<'s, C> {
                 FetchAtt::Flags => item.extend_from_slice(format!("FLAGS {}", flags.render()).as_bytes()),
                 FetchAtt::Uid => item.extend_from_slice(format!("UID {}", msg.uid).as_bytes()),
                 FetchAtt::Modseq => item.extend_from_slice(format!("MODSEQ ({})", msg.modseq).as_bytes()),
+                FetchAtt::Binary { path, partial, .. } => {
+                    let spec = path.iter().map(u32::to_string).collect::<Vec<_>>().join(".");
+                    item.extend_from_slice(format!("BINARY[{spec}]").as_bytes());
+                    match fetch::binary_bytes(bytes, &root, path) {
+                        Some(data) => {
+                            let data: &[u8] = match partial {
+                                Some((start, length)) => {
+                                    item.extend_from_slice(format!("<{start}>").as_bytes());
+                                    fetch::partial(&data, *start, *length)
+                                }
+                                None => &data,
+                            };
+                            item.push(b' ');
+                            fetch::binary_literal(&mut item, data);
+                        }
+                        // A part that is not there, an encoding the bridge does not know.
+                        None => item.extend_from_slice(b" NIL"),
+                    }
+                }
+                FetchAtt::BinarySize { path } => {
+                    let spec = path.iter().map(u32::to_string).collect::<Vec<_>>().join(".");
+                    let size = fetch::binary_bytes(bytes, &root, path).map_or(0, |data| data.len());
+                    item.extend_from_slice(format!("BINARY.SIZE[{spec}] {size}").as_bytes());
+                }
                 FetchAtt::InternalDate => item.extend_from_slice(
                     format!(
                         "INTERNALDATE \"{}\"",
@@ -1409,8 +1497,11 @@ impl<'s, C: Conn> Session<'s, C> {
             self.condstore = true;
         }
         let highest_found = found_msgs.iter().map(|(_, modseq)| *modseq).max();
+        let modseq = with_modseq.then_some(highest_found).flatten();
         let line = match &m.search_return {
-            Some(options) => self.esearch(tag, uid, options, &found, &found_msgs, with_modseq.then_some(highest_found).flatten()),
+            Some(options) => self.esearch(tag, uid, options, &found, &found_msgs, modseq),
+            // IMAP4rev2 answers ESEARCH (ALL) where IMAP4rev1 answers SEARCH.
+            None if self.rev2 => self.esearch(tag, uid, &[], &found, &found_msgs, modseq),
             None => {
                 let mut line = String::from("* SEARCH");
                 for n in &found {
