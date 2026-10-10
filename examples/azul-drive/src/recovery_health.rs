@@ -324,6 +324,40 @@ pub fn health_line(states: &[RecoveryState], drive_id: &str, now: u64) -> Option
     Some(format!("{}: {counted}, {checked}{advice}", health.word()))
 }
 
+/// What a method's row in the methods list offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodAction {
+    /// Check that it still works (a drill; two contacts' shares; ...).
+    Test,
+    /// Set it up.
+    Add,
+    /// Stop counting it.
+    Remove,
+    /// Count again (the other devices).
+    CountAgain,
+}
+
+/// A method's row in Options > Drives: whether the drive has it, what it says, what it offers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodRow {
+    pub method: Method,
+    pub present: bool,
+    pub status: String,
+    pub actions: Vec<MethodAction>,
+}
+
+/// The methods list of a drive: the code, trusted contacts, other devices, a passkey (later).
+#[must_use]
+pub fn methods_list(_state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
+    Vec::new()
+}
+
+/// The warning over the list when the drive has fewer than two methods.
+#[must_use]
+pub fn methods_warning(_state: &RecoveryState) -> Option<&'static str> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,6 +506,72 @@ mod tests {
         assert_eq!(state.recovery_key.as_deref(), Some("new key"));
         state.setup_verified(NOW + 9 * DAY);
         assert_eq!(state.next_drill(), Some(NOW + 16 * DAY));
+    }
+
+    #[test]
+    fn the_methods_list_shows_each_method_what_it_offers_and_warns_below_two() {
+        let mut state = checked();
+        let rows = methods_list(&state, NOW);
+        assert_eq!(
+            rows.iter().map(|row| row.method).collect::<Vec<_>>(),
+            [
+                Method::Code,
+                Method::Contacts,
+                Method::OtherDevice,
+                Method::Passkey
+            ]
+        );
+        assert!(rows[0].present, "{:?}", rows[0]);
+        assert!(rows[0].status.contains("Checked on"), "{}", rows[0].status);
+        assert!(rows[0].status.contains("next check"), "{}", rows[0].status);
+        assert_eq!(rows[0].actions, [MethodAction::Test]);
+        assert!(!rows[1].present);
+        assert_eq!(rows[1].actions, [MethodAction::Add]);
+        assert!(!rows[2].present);
+        assert_eq!(
+            rows[2].actions,
+            [MethodAction::CountAgain, MethodAction::Add]
+        );
+        assert!(!rows[3].present && rows[3].actions.is_empty());
+        assert!(rows[3].status.contains("later"), "{}", rows[3].status);
+        assert!(methods_warning(&state).is_some(), "one method");
+
+        state.contacts = vec![
+            contact("Ada", 1, ShareKind::App),
+            contact("Grace", 2, ShareKind::Printed),
+            TrustedContact {
+                handed: None,
+                ..contact("Linus", 3, ShareKind::App)
+            },
+        ];
+        let rows = methods_list(&state, NOW);
+        assert!(rows[1].present);
+        assert!(rows[1].status.contains("2 of 3"), "{}", rows[1].status);
+        assert_eq!(rows[1].actions, [MethodAction::Test, MethodAction::Remove]);
+        assert!(methods_warning(&state).is_none(), "two methods");
+
+        state.contacts.truncate(1);
+        let rows = methods_list(&state, NOW);
+        assert!(!rows[1].present, "one share opens nothing");
+        assert_eq!(rows[1].actions, [MethodAction::Remove]);
+
+        state.other_devices = 2;
+        let rows = methods_list(&state, NOW);
+        assert!(
+            rows[2].present && rows[2].status.contains('2'),
+            "{}",
+            rows[2].status
+        );
+
+        let mut unchecked = RecoveryState::new("d_1");
+        unchecked.code_made(NOW, None);
+        let rows = methods_list(&unchecked, NOW);
+        assert!(!rows[0].present);
+        assert!(
+            rows[0].status.contains("new recovery code"),
+            "{}",
+            rows[0].status
+        );
     }
 
     #[test]
