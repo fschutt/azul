@@ -1106,6 +1106,22 @@ mod tests {
         assert_eq!(read.indexed_drives, vec!["home", "data"]);
     }
 
+    /// "Index files in the cloud" is off at first (a cloud drive's index reads its local copies
+    /// only); on, the index downloads each file up to the cap - 25 MB unless the settings file
+    /// says otherwise, at least 1 MB - to read it, and drops it again.
+    #[test]
+    fn indexing_files_in_the_cloud_is_off_at_first_and_capped() {
+        let mut settings = Settings::default();
+        assert!(!settings.index_cloud_files);
+        assert_eq!(settings.index_download_cap_mb, 25);
+        assert_eq!(settings.download_cap(), None, "off: nothing is downloaded for the index");
+        settings.index_cloud_files = true;
+        assert_eq!(settings.download_cap(), Some(25 * 1024 * 1024));
+        settings.index_download_cap_mb = 0;
+        assert_eq!(settings.download_cap(), Some(1024 * 1024), "at least a megabyte");
+        assert_eq!(Settings::from_json(&settings.to_json()), settings);
+    }
+
     /// The icon grid speaks positions: the selection reads back as positions in the visible
     /// order (anchor and focus too), and takes the grid's positions back as the same keys.
     #[test]
