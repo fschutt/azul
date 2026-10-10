@@ -54,6 +54,16 @@ sheet of `--dialogs inline`:
        system browser; Stop waiting keeps the claim.
    11. Closing the dialog while the popover shows the fields abandons the checkout at the token
        server and takes it off the keyring's list.
+   12. A consumer cloud's sign-in (AuthSession): Connect data source > Dropbox without an OAuth
+       client id says which setting is missing (AZDRIVE_DROPBOX_CLIENT_ID); Google Drive with
+       one (AZDRIVE_GOOGLE_CLIENT_ID, the mock's token endpoint as AZDRIVE_GOOGLE_TOKEN_URL)
+       signs in through azul's headless sign-in fake (AZ_AUTH_SESSION_REDIRECT: the redirect
+       carries the mock's code for the PKCE challenge and the request's state), the mock's
+       token endpoint checks the code against the verifier (PKCE S256), the client and the
+       redirect URI; Add drive keeps the refresh token in the keyring only (the drives file has
+       the client id and the token endpoint), and the drive refreshes its access token at that
+       endpoint before its first listing (googleapis.com answered by azul's request mock: an
+       empty My Drive).
 
 Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
 step 6 stays closed and the mock's test provider is paid directly; in steps 7 - 11 nothing loads
@@ -381,7 +391,15 @@ def run(args, logs):
     # The headless keyring in a file of this run: it outlives AzDrive's restart (step 6). The
     # payer pays from Germany whatever this machine's locale is (the pills of steps 7 - 11).
     keyring_file = os.path.join(logs, "keyring.json")
-    env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE"}
+    google_token_url = stack.token_url + "/oauth/google/token"
+    env = {"AZ_KEYRING_FILE": keyring_file, "AZLIN_COUNTRY": "DE",
+           # Step 12: Google Drive's OAuth client and token endpoint (the mock's), the headless
+           # sign-in fake's redirect, and the local stack as the HTTP a run may still send once
+           # step 12's `mock` op armed azul's request mock (googleapis.com).
+           "AZDRIVE_GOOGLE_CLIENT_ID": azlin_mock_stack.OAUTH_CLIENT_ID,
+           "AZDRIVE_GOOGLE_TOKEN_URL": google_token_url,
+           "AZ_AUTH_SESSION_REDIRECT": "{redirect_uri}?code=e2e-{code_challenge}&state={state}",
+           "AZ_E2E_ALLOW_HTTP": "http://127.0.0.1:*,http://localhost:*"}
     app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout, extra_env=env)
     try:
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
@@ -778,12 +796,78 @@ def run(args, logs):
         log("11. Closing the dialog while the popover showed the fields abandoned %s at the "
             "token server and took it off the keyring's list" % closed)
 
+        # 12. A consumer cloud's sign-in. Dropbox has no client id in this run: the form says
+        # which setting is missing.
+        app.after("This PC", "AZDRIVE_PLACE", r"this-pc",
+                  lambda: app.click(selector="#" + I("side-this-pc")))
+        dialog = open_dialog(app, "the source list",
+                             lambda: app.click(selector="#" + I("side-add-drive")))
+        dialog.page("sources", lambda: dialog.click("choice_connect"))
+        dialog.page("form dropbox", lambda: dialog.click("service_dropbox"))
+        dialog.win.until("the sign-in's missing setting",
+                         lambda: dialog.shows("AZDRIVE_DROPBOX_CLIENT_ID"))
+        dialog.screenshot(os.path.join(out, "12-dropbox-no-client.png"))
+        dialog.page("sources", lambda: dialog.click("back"))
+        # Google Drive signs in: the fake redirect's code is the mock's for the PKCE challenge.
+        dialog.page("form gdrive", lambda: dialog.click("service_gdrive"))
+        dialog.type_into("name", "E2E Google", clear=len("Google Drive"))
+        oauth = stack.token.state.oauth_requests
+        before = len(oauth)
+        signed = app.after("the sign-in", "AZDRIVE_SIGNED_IN", r"gdrive \S+",
+                           lambda: dialog.click("sign_in"))
+        if signed != "gdrive ok":
+            raise Failure("the sign-in said %s: %s" % (signed, dialog.win.texts()))
+        exchanges = [r for r in oauth[before:] if r["grant_type"] == "authorization_code"]
+        if len(exchanges) != 1 or not exchanges[0]["ok"] \
+                or exchanges[0]["client_id"] != azlin_mock_stack.OAUTH_CLIENT_ID \
+                or exchanges[0]["redirect_uri"] != "http://127.0.0.1/" \
+                or exchanges[0]["provider"] != "google":
+            raise Failure("the token endpoint saw %r" % exchanges)
+        refresh_token = exchanges[0]["refresh_token"]
+        dialog.win.until('"Signed in to Google Drive"',
+                         lambda: dialog.shows("Signed in to Google Drive"))
+        dialog.screenshot(os.path.join(out, "12-gdrive-signed-in.png"))
+        # The drive's API (googleapis.com) through azul's request mock: an empty My Drive. The
+        # mock stack stays reachable (AZ_E2E_ALLOW_HTTP).
+        app.must("mock", set={"http": {"https://www.googleapis.com/*": {
+            "status": 200, "text": '{"files": []}', "content_type": "application/json"}}})
+        gdrive_id = app.after("the Google Drive added", "AZDRIVE_ADDED", r"\S+",
+                              lambda: dialog.click("save"))
+        wait_closed(app)
+        app.until("the Google Drive's (empty) root", lambda: app.printed(
+            "AZDRIVE_LISTED", r"%s / 0" % re.escape(gdrive_id)))
+        app.until("its row in CLOUD", lambda: app.has(side_drive(gdrive_id)))
+        text, entries = drives_file_entries(drives_file)
+        location = next(e for e in entries if e["id"] == gdrive_id)["location"]
+        options = location.get("options") or {}
+        if location.get("kind") != "opendal" or location.get("scheme") != "gdrive" \
+                or not location.get("keyring") \
+                or options.get("client_id") != azlin_mock_stack.OAUTH_CLIENT_ID \
+                or options.get("token_url") != google_token_url:
+            raise Failure("the Google Drive's entry is %s" % location)
+        if "e2e-refresh" in text or "e2e-access" in text:
+            raise Failure("the drives file holds a token: %s" % text)
+        kept = keyring_entries(keyring_file).get("azul-storage/s3/" + gdrive_id)
+        if not kept or json.loads(kept).get("refresh_token") != refresh_token:
+            raise Failure("the keyring does not hold the drive's refresh token")
+        refreshed = [r for r in oauth if r["grant_type"] == "refresh_token" and r["ok"]
+                     and r.get("refresh_token") == refresh_token]
+        if not refreshed:
+            raise Failure("the drive did not refresh its access token at %s: %r"
+                          % (google_token_url, oauth))
+        app.screenshot(os.path.join(out, "12-gdrive-drive.png"))
+        log("12. Dropbox without a client id named AZDRIVE_DROPBOX_CLIENT_ID; Google Drive signed "
+            "in through the headless sign-in (PKCE checked at the mock's token endpoint), %s keeps "
+            "its refresh token in the keyring only and refreshed its access token before its "
+            "first listing" % gdrive_id)
+
         log("PASS: Add drive connected an S3 bucket, a folder and a SQLite database (tables as "
             "folders), bought a test drive, and claimed two paid drives - one in the background "
             "after Stop waiting, one at the start after AzDrive was closed - from the source list, "
             "This PC's ribbon and Home's ribbon, in the dialog's own window; and paid through "
             "azul-pay: a card in the popover's fields, a direct debit on a hosted page, PayPal in "
-            "the system browser, with blocked navigations, the fallback chain and an abandon")
+            "the system browser, with blocked navigations, the fallback chain and an abandon; "
+            "and signed in to Google Drive through azul's sign-in session")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
