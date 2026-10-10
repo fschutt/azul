@@ -236,12 +236,42 @@ pub enum State {
     Posted { slip: Box<CashSlip> },
 }
 
+/// What the page in the popover is (the words of [`Chip::what`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChipPage {
+    /// The provider's card fields.
+    CardFields,
+    /// The provider's direct debit fields.
+    DebitFields,
+    /// The provider's fields of another method.
+    Fields,
+    /// The provider's payment page.
+    Page,
+}
+
+impl ChipPage {
+    /// The page's words with the provider's name: `card fields by Stripe`.
+    #[must_use]
+    pub fn text(self, provider: &str) -> String {
+        match self {
+            ChipPage::CardFields => format!("card fields by {provider}"),
+            ChipPage::DebitFields => format!("direct debit fields by {provider}"),
+            ChipPage::Fields => format!("payment fields by {provider}"),
+            ChipPage::Page => format!("payment page of {provider}"),
+        }
+    }
+}
+
 /// The popover's chrome: the verified host, what the page is, who runs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chip {
     pub host: String,
-    /// `card fields by Stripe`, `payment page of GoCardless`.
+    /// `card fields by Stripe`, `payment page of GoCardless`: [`ChipPage::text`].
     pub what: String,
+    /// What `what` says, for an app that says it in its own language.
+    pub page: ChipPage,
+    /// The provider's name (the registry's).
+    pub provider: &'static str,
     pub legal_name: &'static str,
     /// The seller, for a merchant of record.
     pub seller: Option<&'static str>,
@@ -314,20 +344,17 @@ impl State {
         } else {
             page.host.clone()
         };
-        let what = match checkout.surface.kind {
-            SurfaceKind::PopoverFields => {
-                let fields = match checkout.choice.method.method {
-                    Method::Card => "card fields",
-                    Method::SepaDebit => "direct debit fields",
-                    _ => "payment fields",
-                };
-                format!("{fields} by {}", spec.name)
-            }
-            _ => format!("payment page of {}", spec.name),
+        let page = match (checkout.surface.kind, checkout.choice.method.method) {
+            (SurfaceKind::PopoverFields, Method::Card) => ChipPage::CardFields,
+            (SurfaceKind::PopoverFields, Method::SepaDebit) => ChipPage::DebitFields,
+            (SurfaceKind::PopoverFields, _) => ChipPage::Fields,
+            _ => ChipPage::Page,
         };
         Some(Chip {
             host,
-            what,
+            what: page.text(spec.name),
+            page,
+            provider: spec.name,
             legal_name: spec.legal_name,
             seller: spec.kind.seller(),
         })
