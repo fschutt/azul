@@ -642,6 +642,9 @@ pub(crate) struct DriveState {
     pub keyring: azcloud_kit::SharedKeyring,
     /// The background claims of unfinished checkouts run (one job at a time).
     pub claiming: bool,
+    /// The paid checkouts' period tokens until each buys its drive a month: one 0600 file per
+    /// drive in `period-tokens` beside the drives file.
+    pub period_tokens: azcloud_kit::PeriodTokenStore,
 }
 
 impl DriveState {
@@ -1751,6 +1754,10 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Scanned { done: false, .. }
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+            | Outcome::CheckoutFinished {
+                from_claims: true,
+                ..
+            }
             | Outcome::Searched { end: None, .. }
     );
     if !still_running {
@@ -1999,10 +2006,11 @@ pub(crate) extern "C" fn on_job_done(
             add_flow::checkout_dropped(s, &checkout_id, &why);
         }
         Outcome::ClaimsDone { problem } => add_flow::claims_done(s, problem),
-        Outcome::CheckoutForgotten {
+        Outcome::CheckoutFinished {
             checkout_id,
             result,
-        } => add_flow::checkout_forgotten(s, &checkout_id, result),
+            ..
+        } => add_flow::checkout_finished(s, &checkout_id, result),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2260,6 +2268,18 @@ fn lock_dir(drives_file: Option<&Path>) -> PathBuf {
         )
 }
 
+/// The folder of the paid checkouts' period tokens (one 0600 file per drive): beside the drives
+/// file (`<config dir>/azul-storage/period-tokens`), else in the temporary folder.
+fn period_tokens_dir(drives_file: Option<&Path>) -> PathBuf {
+    drives_file
+        .and_then(Path::parent)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map_or_else(
+            || std::env::temp_dir().join("azul-storage-period-tokens"),
+            |dir| dir.join("period-tokens"),
+        )
+}
+
 /// The data tree as a drive: the data root, opened as the data tree's `LocalDrive` (the one that
 /// keeps its `.azlin/` bookkeeping, which it never lists), named "Azlin".
 fn data_slot(data_root: &Path) -> Slot {
@@ -2418,6 +2438,8 @@ pub fn start() {
         Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
         azcloud_kit::LockDir::new(lock_dir(drives_file.as_deref())),
     );
+    let period_tokens =
+        azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
     let mut state = DriveState {
         slots,
         place,
@@ -2491,6 +2513,7 @@ pub fn start() {
         rotated: RotatedSessions::default(),
         keyring,
         claiming: false,
+        period_tokens,
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

@@ -22,9 +22,9 @@ use std::{
 };
 
 use azcloud_kit::{
-    pending::{self, Claimed, Polled},
-    Checkout, ClaimKey, CloudError, DriveBundle, PendingCheckout, SharedKeyring, Tiers,
-    TokenServer,
+    pending::{self, Claimed, Finished, PendingTokens, Polled},
+    Checkout, ClaimKey, CloudError, DriveBundle, PendingCheckout, PeriodTokenStore, PeriodTokens,
+    SharedKeyring, Tiers, TokenServer,
 };
 use azul::{
     image::{ImageRef, RawImage},
@@ -237,15 +237,23 @@ pub(crate) enum Job {
         cancel: Arc<AtomicBool>,
     },
     /// The background claims: the keyring's unfinished checkouts asked about every few seconds
-    /// (each at its own token server, else `token_url`) until none is left or an hour is gone.
+    /// (each at its own token server, else `token_url`) until none is left or an hour is gone;
+    /// a claimed one's period tokens issued into `store`.
     Claims {
         keyring: SharedKeyring,
         token_url: Option<String>,
+        store: PeriodTokenStore,
     },
-    /// A claimed checkout taken off the keyring's list (its drive is in the drives file).
-    ForgetCheckout {
+    /// A claimed checkout whose drive `drive_id` is in the drives file: without a `grant` it
+    /// leaves the keyring's list; with one it stays there (its issue key with its claim secret)
+    /// until its period tokens are issued at `token_url` and kept in `store`.
+    FinishCheckout {
         keyring: SharedKeyring,
-        checkout_id: String,
+        store: PeriodTokenStore,
+        checkout: PendingCheckout,
+        drive_id: String,
+        grant: Option<PeriodTokens>,
+        token_url: String,
     },
     /// The settings file written (through a LocalDrive on the config folder).
     SaveSettings {
@@ -388,10 +396,13 @@ pub(crate) enum Outcome {
     CheckoutDropped { checkout_id: String, why: String },
     /// The background claims ended: what kept them from asking, if anything.
     ClaimsDone { problem: Option<String> },
-    /// A claimed checkout off the keyring's list (`false`: another window took it off).
-    CheckoutForgotten {
+    /// A claimed checkout finished: `Ok(None)` off the keyring's list (no period tokens to
+    /// issue), `Ok(Some(..))` what became of its period tokens, `Err` the list could not be
+    /// changed. `from_claims`: a message of the background claims, which still run.
+    CheckoutFinished {
         checkout_id: String,
-        result: Result<bool, String>,
+        result: Result<Option<Finished>, String>,
+        from_claims: bool,
     },
     SettingsSaved {
         result: Result<(), DriveError>,
@@ -1254,10 +1265,14 @@ fn await_payment(
 /// own token server (else `token_url`), every few seconds until none is left or an hour is gone
 /// (the next start asks again). The list is read anew every round (another window adds to it).
 /// A paid one's drive and a dropped one go to the window at once; a drive claimed here is not
-/// reported again while the window takes its checkout off the list.
+/// reported again while the window finishes its checkout. A checkout whose drive is saved and
+/// whose period tokens are not issued yet (AZLINSEC17 F24) is not asked about again: its tokens
+/// are issued with the issue key it keeps ([`pending::finish`]) - the sealed sign-up may be
+/// gone by now.
 fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
+    store: &PeriodTokenStore,
     sender: &mut ThreadSender,
 ) -> Outcome {
     let transport = AzulTransport::new(USER_AGENT);
@@ -1267,7 +1282,7 @@ fn claim_pending(
         let open: Vec<PendingCheckout> = match pending::list(keyring) {
             Ok(checkouts) => checkouts
                 .into_iter()
-                .filter(|c| !reported.contains(&c.checkout_id))
+                .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
                 .collect(),
             Err(e) => {
                 // A system without a keyring kept no checkout either: nothing to say then.
@@ -1296,6 +1311,21 @@ fn claim_pending(
                 continue;
             };
             asked += 1;
+            if let Some(owed) = &checkout.period {
+                let finished = pending::finish(&server, keyring, store, &checkout, owed);
+                // A try that failed is tried again next round, quietly.
+                if !matches!(finished, Finished::Kept(_)) {
+                    send(
+                        sender,
+                        Outcome::CheckoutFinished {
+                            checkout_id: checkout.checkout_id.clone(),
+                            result: Ok(Some(finished)),
+                            from_claims: true,
+                        },
+                    );
+                }
+                continue;
+            }
             match pending::poll(&server, keyring, &checkout) {
                 Polled::Claimed(claimed) => {
                     reported.push(checkout.checkout_id.clone());
@@ -1331,6 +1361,43 @@ fn claim_pending(
         }
         std::thread::sleep(Duration::from_secs(CLAIM_POLL_SECS));
     }
+}
+
+/// The claimed `checkout`'s drive `drive_id` is in the drives file (AZDRIVE-INTEGRATION §4):
+/// without a `grant` its checkout leaves the keyring's list; with one the list keeps its issue
+/// key with its claim secret ([`pending::claimed`]) and its period tokens are issued at
+/// `token_url` and kept in `store` - only then does it leave the list ([`pending::finish`]).
+fn finish_checkout(
+    keyring: &SharedKeyring,
+    store: &PeriodTokenStore,
+    checkout: &PendingCheckout,
+    drive_id: &str,
+    grant: Option<&PeriodTokens>,
+    token_url: &str,
+) -> Outcome {
+    let checkout_id = checkout.checkout_id.clone();
+    let outcome = |result| Outcome::CheckoutFinished {
+        checkout_id: checkout_id.clone(),
+        result,
+        from_claims: false,
+    };
+    if let Err(e) = pending::claimed(keyring, &checkout.checkout_id, drive_id, grant) {
+        return outcome(Err(e.to_string()));
+    }
+    let Some(grant) = grant else {
+        return outcome(Ok(None));
+    };
+    let owed = PendingTokens {
+        drive_id: drive_id.to_string(),
+        months: grant.months,
+        issue_key: grant.issue_key.clone(),
+    };
+    let transport = AzulTransport::new(USER_AGENT);
+    let finished = match TokenServer::new(token_url, &transport) {
+        Ok(server) => pending::finish(&server, keyring, store, checkout, &owed),
+        Err(e) => Finished::Kept(e.to_string()),
+    };
+    outcome(Ok(Some(finished)))
 }
 
 fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
@@ -1602,16 +1669,26 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             keyring,
             cancel,
         } => await_payment(serial, &checkout, &token_url, &keyring, &cancel),
-        Job::Claims { keyring, token_url } => {
-            claim_pending(&keyring, token_url.as_deref(), sender)
-        }
-        Job::ForgetCheckout {
+        Job::Claims {
             keyring,
-            checkout_id,
-        } => Outcome::CheckoutForgotten {
-            result: pending::remove(&keyring, &checkout_id).map_err(|e| e.to_string()),
-            checkout_id,
-        },
+            token_url,
+            store,
+        } => claim_pending(&keyring, token_url.as_deref(), &store, sender),
+        Job::FinishCheckout {
+            keyring,
+            store,
+            checkout,
+            drive_id,
+            grant,
+            token_url,
+        } => finish_checkout(
+            &keyring,
+            &store,
+            &checkout,
+            &drive_id,
+            grant.as_ref(),
+            &token_url,
+        ),
         Job::SaveSettings { drive, text } => Outcome::SettingsSaved {
             result: drive.put(crate::SETTINGS_KEY, text.as_bytes()),
         },
