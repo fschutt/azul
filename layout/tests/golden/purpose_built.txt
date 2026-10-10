@@ -1201,12 +1201,12 @@ n2 p1 d2 Block { establishes_new_context: true } @0,0 200x100 ov=400x300 sb=vh b
 n3 p2 d3 Inline @0,0 400x300 ov=79.203125x16 bl=13 ic=400/400 rel=0,0
 n4 p3 d4 Inline @0,0 -x- ic=56/79.203125
 n5 p1 d5 Inline @0,100 200x60 ov=92x16 sb=vh bl=13 ic=200/200 rel=0,100
-n6 p5 d6 Inline @-inf,-inf -x- ic=49.609375/92
+n6 p5 d6 Inline @0,100 -x- ic=49.609375/92
 n7 p1 d7 Block { establishes_new_context: true } @0,160 150x40 ov=150x96 bl=77 ic=150/150 rel=0,160
 n8 p7 d8 Inline @0,176 150x64 ov=148.79688x64 bl=61 ic=65.609375/506.40625 rel=0,16
 n9 p8 d9 Inline @0,176 -x- ic=65.609375/506.40625
-n10 p1 d10 Inline @0,200 150x0 ov=464.79688x16 sb=vh bl=13 ic=150/150 rel=0,200
-n11 p10 d11 Inline @-inf,-inf -x- ic=464.8125/464.8125
+n10 p1 d10 Inline @0,200 150x16 ov=464.79688x16 sb=vh bl=13 ic=150/150 rel=0,200
+n11 p10 d11 Inline @0,200 -x- ic=464.8125/464.8125
 n12 p1 d12 Block { establishes_new_context: false } @0,216 100x50 ov=100x80 mt=0 mb=0 bl=13 ic=100/100 rel=0,216
 n13 p12 d13 Inline @0,216 100x80 ov=41.59375x16 bl=13 ic=41.609375/41.609375 rel=0,0
 n14 p13 d14 Inline @0,216 -x- ic=41.609375/41.609375
@@ -1250,14 +1250,14 @@ n23 p22 d23 Inline @0,378 -x- ic=8/8
   dl28 HitTestArea 0,224.20313 101.59375x16
   dl29 PopScrollFrame
   dl30 PopClip
-  dl31 PushClip 0,200 138x0
-  dl32 PushScrollFrame 0,200 138x0 content=464.79688x16
-  dl33 Text 0,200 0x0 glyphs=66 fs=16
+  dl31 PushClip 0,200 138x4
+  dl32 PushScrollFrame 0,200 138x4 content=464.79688x16
+  dl33 Text 0,200 150x16 glyphs=66 fs=16
   dl34 HitTestArea 0,200.20313 464.79688x16
   dl35 PopScrollFrame
   dl36 PopClip
-  dl37 ScrollBarStyled 138,200 12x-12
-  dl38 ScrollBarStyled 0,188 138x12
+  dl37 ScrollBarStyled 138,200 12x4
+  dl38 ScrollBarStyled 0,204 138x12
   dl39 HitTestArea 0,216 100x80
   dl40 Text -16,216 132x80 glyphs=7 fs=16
   dl41 HitTestArea 0,216.20313 41.59375x16
