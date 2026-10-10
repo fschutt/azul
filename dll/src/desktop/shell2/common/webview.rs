@@ -309,6 +309,29 @@ pub fn pump<W: PlatformWindow + ?Sized>(window: &mut W) -> ProcessEventResult {
     result
 }
 
+/// Dispatch `report` NOW - for a backend that must answer inside its own
+/// callback (`WebView2`'s `NavigationStarting`, whose arguments are valid
+/// only there) - and hand the answer to the backend's `decide_navigation`
+/// before returning. A DOM rebuild the callbacks asked for is requested.
+pub fn deliver_now<W: PlatformWindow + ?Sized>(
+    window: &mut W,
+    report: &WebViewReport,
+) -> ProcessEventResult {
+    let result = deliver(window, report);
+    if matches!(
+        result,
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows
+            | ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain
+    ) {
+        window
+            .get_common_mut()
+            .request_regeneration(RelayoutReason::RefreshDom);
+    }
+    result
+}
+
 /// Dispatch one report at its view's node and answer it.
 fn deliver<W: PlatformWindow + ?Sized>(
     window: &mut W,

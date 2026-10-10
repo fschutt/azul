@@ -1987,6 +1987,11 @@ pub fn run(
                         window.common.mark_os_synced();
                     }
 
+                    // `<webview>`s: what WebView2 reported (its events ran
+                    // during the dispatch above) and the ops of the last
+                    // frames.
+                    window.pump_webviews_if_any();
+
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
                         log_debug!(
