@@ -231,10 +231,18 @@ pub fn t_label(text: &str) -> String {
 /// the layout pass; the name as it is when the app has no such message.
 #[must_use]
 pub fn named(app: &str, what: &str, name: &str) -> String {
-    let key = format!("{}-{what}-{}", slug(app, false), slug(name, true));
+    app_word(app, &format!("{what}-{}", slug(name, true)), name)
+}
+
+/// An app's own sentence of the kit's pages (the About page's summary): the message
+/// `<app>-<what>` of the app's resources (`azdrive-about-summary`) in the language of the
+/// layout pass, else `fallback` (the words the app gave the kit).
+#[must_use]
+pub fn app_word(app: &str, what: &str, fallback: &str) -> String {
+    let key = format!("{}-{what}", slug(app, false));
     let said = t(&key);
     if said == key {
-        name.to_string()
+        fallback.to_string()
     } else {
         said
     }

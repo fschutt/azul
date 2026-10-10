@@ -1011,7 +1011,7 @@ fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
             .with_id("appkit-about-name")
             .with_css("font-size: 20px; font-weight: 600; padding-bottom: 4px;")
             .with_child(text(k.about.name)),
-        note(k.about.summary),
+        note(&l10n::app_word(k.about.name, "about-summary", k.about.summary)),
     ];
     for (label, value) in about_rows(&k.about, &k.data_root) {
         children.push(row(
