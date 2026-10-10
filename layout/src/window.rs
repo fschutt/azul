@@ -397,6 +397,31 @@ pub fn set_app_mode(mode: azul_core::window::OptionDarkLightMode) {
     APP_MODE.store(v, Ordering::Relaxed);
 }
 
+/// App-global language choice (`CallbackInfo::set_locale`; `None` follows the system's
+/// language), global like [`APP_MODE`] and for the same reason: a window built after a switch
+/// - a dialog - has to start in it ([`LayoutWindow::set_app_localization`] adopts it).
+static APP_LOCALE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Publish the app's language choice (`None`, or an empty tag: the system's language).
+pub fn set_app_locale(locale: Option<&str>) {
+    let chosen = locale
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string);
+    *APP_LOCALE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = chosen;
+}
+
+/// The app's language choice; `None` follows the system's language.
+#[must_use]
+pub fn app_locale() -> Option<String> {
+    APP_LOCALE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
 /// The app's mode choice: `None` follows the desktop.
 #[must_use]
 pub fn app_mode() -> azul_core::window::OptionDarkLightMode {
@@ -19216,6 +19241,11 @@ impl LayoutWindow {
             self.fluent_localizer =
                 FluentLocalizerHandle::from_locale_sources(config.fluent_locales.as_ref());
         }
+        // The app's language choice as it stands now ([`set_app_locale`]): a window built
+        // after a switch starts in it.
+        if let Some(locale) = app_locale() {
+            let _ = self.set_locale(&locale);
+        }
     }
 
     /// The language this window's text is in: the one the app chose with
@@ -19237,7 +19267,8 @@ impl LayoutWindow {
 
     /// Make `locale` this window's language (`CallbackInfo::set_locale`),
     /// its right-to-left-ness resolved against the app's known languages
-    /// ([`azul_css::system::SystemLanguage::resolve`]).
+    /// ([`azul_css::system::SystemLanguage::resolve`]); an empty `locale`
+    /// follows the system's language again ("System").
     ///
     /// Only records the choice (and re-points the ICU formatter); what has to
     /// be redone because of it is the caller's: [`LocaleChange`] says which
@@ -19245,16 +19276,16 @@ impl LayoutWindow {
     /// the strings.
     pub fn set_locale(&mut self, locale: &str) -> LocaleChange {
         let before = self.active_language();
-        let chosen =
-            azul_css::system::SystemLanguage::resolve(locale, self.known_languages.as_ref());
-        let change = LocaleChange {
-            locale_changed: before.id != chosen.id,
-            direction_changed: before.is_rtl != chosen.is_rtl,
-        };
+        self.locale_override = (!locale.trim().is_empty()).then(|| {
+            azul_css::system::SystemLanguage::resolve(locale, self.known_languages.as_ref())
+        });
+        let after = self.active_language();
         #[cfg(feature = "icu")]
-        self.icu_localizer.set_locale(chosen.id.as_str());
-        self.locale_override = Some(chosen);
-        change
+        self.icu_localizer.set_locale(after.id.as_str());
+        LocaleChange {
+            locale_changed: before.id != after.id,
+            direction_changed: before.is_rtl != after.is_rtl,
+        }
     }
 
     /// Re-translate the text of every DOM this window has laid out into
