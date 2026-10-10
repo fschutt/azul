@@ -2824,7 +2824,218 @@ mod tests {
             pattern,
             options: options.clone(),
             cache,
+            drive_index: false,
+            contents: None,
         }
+    }
+
+    /// A drive that records the listings asked of it (the drive underneath answers).
+    struct Recorded {
+        drive: LocalDrive,
+        asked: std::sync::Mutex<Vec<ListRequest>>,
+    }
+
+    impl Drive for Recorded {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            if let Ok(mut asked) = self.asked.lock() {
+                asked.push(request.clone());
+            }
+            self.drive.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.drive.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.drive.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.drive.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.drive.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.drive.head(key)
+        }
+    }
+
+    /// The sync's answers as a test sets them: the local copies by key, the states by key.
+    #[derive(Default)]
+    struct Copies {
+        copies: std::collections::HashMap<String, PathBuf>,
+        states: std::collections::HashMap<String, crate::sync_lookup::SyncState>,
+    }
+
+    impl crate::sync_lookup::SyncLookup for Copies {
+        fn local_copy(&self, _drive_id: &str, key: &str) -> Option<PathBuf> {
+            self.copies.get(key).cloned()
+        }
+        fn sync_state(&self, _drive_id: &str, key: &str) -> Option<crate::sync_lookup::SyncState> {
+            self.states.get(key).copied()
+        }
+    }
+
+    /// An encrypted drive's names come from its drive index: the folder in one recursive
+    /// listing (the index answers it on this computer - no listing side by side), and nothing
+    /// is kept on disk even when a cache file is named.
+    #[test]
+    fn an_encrypted_drives_names_come_from_its_index_in_one_listing_and_none_is_kept() {
+        use azul_search::Pattern;
+
+        let dir = TempDir::new("azdrive-find-encrypted");
+        let cache = TempDir::new("azdrive-find-encrypted-cache");
+        for folder in ["a", "b", "c"] {
+            fs::create_dir_all(dir.path().join(folder)).expect("a folder");
+            fs::write(dir.path().join(format!("{folder}/report-{folder}.txt")), b"x").expect("a file");
+        }
+        let drive = Recorded {
+            drive: LocalDrive::without_manifest(dir.path().to_path_buf()),
+            asked: std::sync::Mutex::new(Vec::new()),
+        };
+        let cache_file = cache.path().join("drive.tsv");
+        let mut search = remote(
+            5,
+            "",
+            Pattern::literal("report"),
+            &crate::find::FindOptions::default(),
+            Some(cache_file.clone()),
+        );
+        search.drive_index = true;
+        let cancel = AtomicBool::new(false);
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(&search, &drive, &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        let mut keys: Vec<String> = searched(&outcomes).iter().map(|f| f.entry.key.clone()).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["a/report-a.txt", "b/report-b.txt", "c/report-c.txt"]);
+        let asked = drive.asked.lock().map(|a| a.clone()).unwrap_or_default();
+        assert!(!asked.is_empty());
+        assert!(
+            asked.iter().all(|r| r.prefix.is_empty() && r.delimiter.is_none()),
+            "one recursive listing of the folder: {asked:?}"
+        );
+        assert!(!cache_file.exists(), "an encrypted drive's names are never kept on disk");
+    }
+
+    /// A drive whose files are not on this computer (a cloud drive, an encrypted drive) is
+    /// indexed from its listing: a file with a local copy is read there (its plain text, never
+    /// the bucket); the others only when downloads are allowed, each at most `download_cap`
+    /// bytes - read and dropped, nothing kept but the index.
+    #[test]
+    fn a_drives_index_reads_its_local_copies_and_downloads_within_the_cap_when_allowed() {
+        let bucket = TempDir::new("azdrive-index-bucket");
+        let copies = TempDir::new("azdrive-index-copies");
+        let dir = TempDir::new("azdrive-index-of-drive");
+        fs::create_dir_all(bucket.path().join("notes")).expect("a folder");
+        fs::write(bucket.path().join("notes/a.txt"), b"alpha in the cloud\n").expect("a file");
+        fs::write(bucket.path().join("notes/b.txt"), b"beta\n").expect("a file");
+        fs::write(bucket.path().join("big.txt"), b"gamma gamma gamma gamma\n").expect("a file");
+        fs::write(copies.path().join("a-copy.txt"), b"alpha copied here\n").expect("a copy");
+        let mut sync = Copies::default();
+        sync.copies
+            .insert(String::from("notes/a.txt"), copies.path().join("a-copy.txt"));
+        let drive: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(bucket.path().to_path_buf()));
+        let sync: Arc<dyn crate::sync_lookup::SyncLookup> = Arc::new(sync);
+        let none = azul_search_index::Extractors::default();
+        let cancel = AtomicBool::new(false);
+        let source = |download_cap| DriveSource {
+            drive: drive.clone(),
+            sync: sync.clone(),
+            download_cap,
+        };
+        let held = |outcome: Outcome| match outcome {
+            Outcome::Indexed {
+                result: Ok((summary, status)),
+                ..
+            } => (summary, status),
+            _ => panic!("the update did not end well"),
+        };
+        let (_, status) = held(run_drive_index_update(
+            "cloud",
+            &source(None),
+            dir.path(),
+            &none,
+            &cancel,
+            &mut |_| {},
+        ));
+        assert_eq!(status.files, 1, "only the local copy is read");
+        let index = azul_search_index::DriveIndex::open(dir.path()).expect("the index");
+        assert_eq!(index.query("copied", "", 10).expect("q"), vec!["notes/a.txt"]);
+        assert!(index.query("beta", "", 10).expect("q").is_empty(), "not downloaded");
+        drop(index);
+
+        let (summary, _) = held(run_drive_index_update(
+            "cloud",
+            &source(Some(10)),
+            dir.path(),
+            &none,
+            &cancel,
+            &mut |_| {},
+        ));
+        assert_eq!(summary.indexed, 1, "notes/b.txt, downloaded; big.txt is over the cap");
+        let index = azul_search_index::DriveIndex::open(dir.path()).expect("the index");
+        assert_eq!(index.query("beta", "", 10).expect("q"), vec!["notes/b.txt"]);
+        assert!(index.query("gamma", "", 10).expect("q").is_empty(), "over the cap");
+        assert_eq!(index.query("copied", "", 10).expect("q"), vec!["notes/a.txt"]);
+    }
+
+    /// A cloud or encrypted drive with an index: its search finds the names as before, then the
+    /// files whose text holds the words from the index - a local copy's line read there, a
+    /// downloaded file's without one -, each once.
+    #[test]
+    fn a_drives_contents_come_from_its_index_with_the_lines_of_its_local_copies() {
+        use azul_search::Pattern;
+
+        let bucket = TempDir::new("azdrive-contents-bucket");
+        let copies = TempDir::new("azdrive-contents-copies");
+        let dir = TempDir::new("azdrive-contents-index");
+        fs::create_dir_all(bucket.path().join("Docs")).expect("a folder");
+        fs::write(bucket.path().join("Docs/a.txt"), b"one\nthe walrus line\n").expect("a file");
+        fs::write(bucket.path().join("Docs/b.txt"), b"a walrus too\n").expect("a file");
+        fs::write(bucket.path().join("Docs/c.txt"), b"nothing\n").expect("a file");
+        fs::write(copies.path().join("a.txt"), b"one\nthe walrus line\n").expect("a copy");
+        let mut sync = Copies::default();
+        sync.copies.insert(String::from("Docs/a.txt"), copies.path().join("a.txt"));
+        let drive: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(bucket.path().to_path_buf()));
+        let sync: Arc<dyn crate::sync_lookup::SyncLookup> = Arc::new(sync);
+        let none = azul_search_index::Extractors::default();
+        let cancel = AtomicBool::new(false);
+        let source = DriveSource {
+            drive: drive.clone(),
+            sync: sync.clone(),
+            download_cap: Some(1024),
+        };
+        run_drive_index_update("cloud", &source, dir.path(), &none, &cancel, &mut |_| {});
+
+        let mut search = remote(
+            6,
+            "Docs/",
+            Pattern::literal("walrus"),
+            &crate::find::FindOptions {
+                contents: true,
+                ..crate::find::FindOptions::default()
+            },
+            None,
+        );
+        search.contents = Some(crate::find::RemoteContents {
+            dir: dir.path().to_path_buf(),
+            drive_id: String::from("cloud"),
+            sync: sync.clone(),
+        });
+        let mut outcomes = Vec::new();
+        let last = run_find_remote(&search, &*drive, &cancel, &mut |o| outcomes.push(o));
+        outcomes.push(last);
+        let found = searched(&outcomes);
+        let mut keys: Vec<&str> = found.iter().map(|f| f.entry.key.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec!["Docs/a.txt", "Docs/b.txt"]);
+        let a = found.iter().find(|f| f.entry.key == "Docs/a.txt").expect("a.txt");
+        let line = a.line.as_ref().expect("the local copy's line");
+        assert_eq!((line.line, line.text.as_str()), (2, "the walrus line"));
+        let b = found.iter().find(|f| f.entry.key == "Docs/b.txt").expect("b.txt");
+        assert!(b.line.is_none(), "no copy here: found by the index, no line");
+        assert_eq!(b.entry.size, Some(13), "its size from the listing");
+        assert!(end_of(&outcomes).error.is_none());
     }
 
     /// The end of a search's last answer.

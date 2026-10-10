@@ -667,3 +667,12 @@ fn a_drive_keeps_its_listing_unless_its_names_are_encrypted() {
     });
     assert!(crate::keeps_listing(&slot));
 }
+
+/// An encrypted drive's names come from its drive index (on this computer, no listing of the
+/// bucket): the status line says so, not "in the cloud (slower)".
+#[test]
+fn an_encrypted_drives_search_says_it_reads_the_drives_names() {
+    let mut find = state("pick", false, true);
+    find.drive_index = true;
+    assert_eq!(find.status_text(), "Searching the drive's names... 0 found");
+}

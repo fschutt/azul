@@ -1067,6 +1067,20 @@ pub(crate) fn on_outcome(
 mod tests {
     use super::*;
 
+    /// An encrypted drive's search index (the plain text of its files) lives in the drive's own
+    /// cache folder, beside its drive index - one folder per drive, gone with it - never in the
+    /// cache the other drives share.
+    #[test]
+    fn an_encrypted_drives_search_index_lives_in_the_drives_own_cache_folder() {
+        let cache = PathBuf::from("/cache/AzDrive/drive-index");
+        let a = search_index_dir(Some(cache.clone()), "drive-a").expect("a folder");
+        let b = search_index_dir(Some(cache.clone()), "drive-b").expect("a folder");
+        assert!(a.starts_with(&cache) && a.ends_with("search"), "{}", a.display());
+        assert_ne!(a, b);
+        assert_eq!(a.parent().and_then(std::path::Path::parent), Some(cache.as_path()));
+        assert_eq!(search_index_dir(None, "drive-a"), None, "no cache folder, no index");
+    }
+
     #[test]
     fn a_rotations_sheet_offers_re_encryption_next() {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
