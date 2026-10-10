@@ -403,6 +403,10 @@ crash-mail = ["telemetry", "dep:micromail"]
 # runtime — the system package manager owns those updates.
 updater = ["std", "http", "dep:serde_json", "dep:sha2", "dep:minisign-verify"]
 
+# Sign-in sessions (OAuth 2.0 for native apps): PKCE's S256 challenge needs SHA-256 (sha2,
+# already in the tree through the updater and rustls-rustcrypto). See src/auth_session.rs.
+auth_session = ["std", "dep:sha2"]
+
 # Icon provider support (material icons, icon packs from fonts or ZIP files)
 icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 

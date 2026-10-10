@@ -19,10 +19,10 @@ struct Script {
 }
 
 #[derive(Clone, Default)]
-struct Fake(Arc<Script>);
+pub(super) struct Fake(Arc<Script>);
 
 impl Fake {
-    fn answer(&self, status: u16, headers: &[(&str, &str)], body: &str) -> &Self {
+    pub(super) fn answer(&self, status: u16, headers: &[(&str, &str)], body: &str) -> &Self {
         self.0.replies.lock().unwrap().push_back(Ok(HttpReply {
             status,
             headers: headers
@@ -34,7 +34,7 @@ impl Fake {
         self
     }
 
-    fn fail(&self, message: &str) -> &Self {
+    pub(super) fn fail(&self, message: &str) -> &Self {
         self.0
             .replies
             .lock()
@@ -43,11 +43,11 @@ impl Fake {
         self
     }
 
-    fn calls(&self) -> Vec<HttpCall> {
+    pub(super) fn calls(&self) -> Vec<HttpCall> {
         self.0.calls.lock().unwrap().clone()
     }
 
-    fn last(&self) -> HttpCall {
+    pub(super) fn last(&self) -> HttpCall {
         self.calls().pop().expect("a request was sent")
     }
 }

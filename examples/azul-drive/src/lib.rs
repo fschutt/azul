@@ -131,6 +131,8 @@ mod add_drive;
 mod add_drive_tests;
 /// What the Add drive dialog's buttons start, and the answers of its jobs.
 mod add_flow;
+/// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
+mod sign_in;
 pub mod args;
 pub mod browse;
 pub mod fileops;
@@ -379,9 +381,29 @@ impl Slot {
             };
             azlin
         } else {
-            Arc::from(self.entry.open_with_secret(
+            // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
+            // token itself; a refresh token its provider rotates (OneDrive) is stored at once,
+            // on the worker thread that got it, and handed to the slot like an Azlin session.
+            let queue = rotated.clone();
+            let id = self.entry.id.clone();
+            let keyring = keyring.clone();
+            let keep: azul_storage::oauth::SecretSink = Box::new(move |secret: String| {
+                let unsaved = keyring
+                    .set(&config::keyring_key(&id), &secret)
+                    .err()
+                    .map(|e| e.to_string());
+                if let Ok(mut queue) = queue.lock() {
+                    queue.push(Rotated {
+                        drive_id: id.clone(),
+                        secret,
+                        unsaved,
+                    });
+                }
+            });
+            Arc::from(self.entry.open_with_secret_rotating(
                 self.secret.as_deref(),
                 Box::new(AzulTransport::new(USER_AGENT)),
+                Some(keep),
             )?)
         };
         self.drive = Some(drive.clone());
@@ -778,6 +800,10 @@ pub(crate) struct DriveState {
     pub pending_lockdowns: HashMap<String, u64>,
     /// The synced drives' states, passes and status lines in this window.
     pub sync_view: sync_view::SyncView,
+    /// The OAuth clients of Connect data source's sign-ins (Google Drive, Dropbox, OneDrive):
+    /// `AZDRIVE_<PROVIDER>_<KEY>` over the shared Azlin config's `oauth` section, read at the
+    /// start (`sign_in`).
+    pub sign_in_settings: sign_in::SignInSettings,
 }
 
 impl DriveState {
@@ -2413,6 +2439,7 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Tested { serial, result } => {
             add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
         }
+        Outcome::SignedIn { serial, result } => add_flow::signed_in(s, serial, result),
         Outcome::Tiers { serial, result } => {
             add_flow::tiers_answered(&mut info, &handle, s, serial, result);
         }
@@ -2848,6 +2875,23 @@ pub fn start() {
     for problem in &token.problems {
         eprintln!("[azdrive] {problem}");
     }
+    // The OAuth clients of the consumer clouds' sign-ins: AZDRIVE_<PROVIDER>_<KEY> over the
+    // shared Azlin config's `oauth` section (AZLIN_CONFIG, else ~/.azlin/config.json - not in a
+    // `--shot` run). No client id is built in.
+    let shared_config = if args.kit.shot.is_some() {
+        None
+    } else {
+        azul_appkit::azlin_config::config_path(
+            std::env::var(azul_appkit::azlin_config::CONFIG_VAR)
+                .ok()
+                .as_deref(),
+            user_home.as_deref(),
+        )
+    };
+    let sign_in_settings = sign_in::SignInSettings::resolve(
+        &|var: &str| std::env::var(var).ok(),
+        shared_config.as_deref(),
+    );
     // The kit resolves the data root (--data-dir, $AZLIN_DATA, <data dir>/Azlin) and reads the
     // theme and mode saved last time, before the window exists.
     let kit = azul_appkit::ui::create_kit(
@@ -3050,6 +3094,7 @@ pub fn start() {
         problems: problems::Problems::default(),
         pending_lockdowns: HashMap::new(),
         sync_view: sync_view::SyncView::default(),
+        sign_in_settings,
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

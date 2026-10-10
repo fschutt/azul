@@ -60,6 +60,7 @@ pub mod files;
 pub mod find;
 pub mod history;
 pub mod migrate;
+pub mod oauth_clients;
 pub mod options;
 pub mod settings;
 pub mod shared_endpoint;
