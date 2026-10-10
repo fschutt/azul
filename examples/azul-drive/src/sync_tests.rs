@@ -744,7 +744,7 @@ fn the_guards_pauses_say_themselves_and_ask_in_azdrives_words() {
     states.mass_delete = None;
     states.newer_format = vec![String::from("teleport")];
     let text = sync_view::status_text(&paired, &states, None, false, false);
-    assert!(text.contains("Update the app"), "{text}");
+    assert!(text.contains("update the app"), "{text}");
 }
 
 /// A rename in a plain synced drive's own listing goes through the sync: the copy in the synced

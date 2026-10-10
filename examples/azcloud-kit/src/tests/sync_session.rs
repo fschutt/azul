@@ -491,8 +491,8 @@ fn a_mass_delete_waits_for_the_user_and_each_answer_does_what_it_says() {
     b.session.answer_mass_delete(true).unwrap();
     let (states, _) = b.pass();
     assert!(states.mass_delete.is_none());
-    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
-    assert!(!index.contains("\"gone/0.txt\""), "{index}");
+    let index = index_of(&store);
+    assert!(!lists(&index, "gone/0.txt"), "{index:#}");
 }
 
 /// The drive deleted most of this folder's files elsewhere: asked; "keep them" puts them back
@@ -558,9 +558,9 @@ fn a_rename_through_the_session_moves_the_file_with_the_next_pass() {
     b.session.rename("folder/", "renamed/").unwrap();
     assert_eq!(b.read("renamed/x.txt").as_deref(), Some(&b"x"[..]));
     b.pass();
-    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
-    assert!(index.contains("\"new.txt\"") && !index.contains("\"old.txt\""), "{index}");
-    assert!(index.contains("\"renamed/x.txt\""), "{index}");
+    let index = index_of(&store);
+    assert!(lists(&index, "new.txt") && !lists(&index, "old.txt"), "{index:#}");
+    assert!(lists(&index, "renamed/x.txt"), "{index:#}");
 }
 
 #[cfg(feature = "encryption")]
@@ -663,8 +663,8 @@ fn a_file_deleted_through_the_session_goes_from_the_drive_with_the_next_pass() {
     assert_eq!(deleted, vec![String::from("here.txt")]);
     assert!(a.read("here.txt").is_none(), "its copy here goes at once");
     a.pass();
-    let index = String::from_utf8(store.read("Documents/.azlin/index.json").unwrap()).unwrap();
-    assert!(!index.contains("\"here.txt\""), "{index}");
+    let index = index_of(&store);
+    assert!(!lists(&index, "here.txt"), "{index:#}");
 }
 
 /// Opening a file that is on this device already marks it used: the size cap frees it last.
@@ -679,4 +679,15 @@ fn touching_a_file_marks_it_used_now() {
     let after = a.session.states().files["old.txt"].last_used;
     assert!(after >= crate::now() - 60 && after >= before, "{before} -> {after}");
     assert!(a.session.touch("missing.txt").is_ok(), "a file the drive does not have: nothing");
+}
+
+/// The drive's sync index of `Documents/`, parsed.
+fn index_of(store: &S3Bucket) -> serde_json::Value {
+    serde_json::from_slice(&store.read("Documents/.azlin/index.json").unwrap()).unwrap()
+}
+
+/// Whether the index lists `key` as a live file (a deleted one keeps a tombstone under
+/// `deleted`, so a plain text search finds its name there).
+fn lists(index: &serde_json::Value, key: &str) -> bool {
+    index["files"].get(key).is_some()
 }
