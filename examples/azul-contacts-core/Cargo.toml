@@ -1,0 +1,29 @@
+[package]
+name = "azul-contacts-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzContacts' address book without azul types, for AzContacts and for
+    headless processes (the Azlin Bridge's CardDAV): vCard 3.0 / 4.0 content
+    lines, the contact and its vCard forms, the list (sorting, sections,
+    search, groups), duplicates and merging, CSV import, the file layout
+    (contacts/<uid>.vcf, loading, the import preview, export) and the
+    --sample book. AzContacts re-exports every module under the name it
+    always had. No libazul.
+"""
+publish = false
+
+[dependencies]
+# The PIM logic the Azlin apps share: vCard / iCalendar content lines, addresses, search folding,
+# initials, dates.
+azul-pim = { path = "../azul-pim" }
+# The apps' one CSV reader and the data root's helpers (uuids); plain Rust without `azul`.
+azul-appkit = { path = "../azul-appkit" }
+# The ids every Azlin app mints file names from.
+azul-storage = { path = "../azul-storage" }
+
+[lib]
+name = "azcontacts_core"
+path = "src/lib.rs"

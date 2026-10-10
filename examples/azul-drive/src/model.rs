@@ -752,6 +752,17 @@ pub struct Settings {
     pub search_subfolders: bool,
     /// The drives whose full-text index is kept (the Search tab's "Index this drive"), by id.
     pub indexed_drives: Vec<String>,
+    /// The Search tab's saved searches, in the order they were saved.
+    pub saved_searches: Vec<crate::find::SavedSearch>,
+    /// "Index files in the cloud": a cloud drive's index downloads the files that are not on
+    /// this computer (each within the cap), reads them and drops them again; off, it reads the
+    /// local copies only.
+    pub index_cloud_files: bool,
+    /// The largest file "Index files in the cloud" downloads (MB).
+    pub index_download_cap_mb: u64,
+    /// The drives that sync with a folder on this computer, each with its settings
+    /// (auto-download, local copies, the size cap, paused): Options > Drives > Sync.
+    pub synced: Vec<azcloud_kit::sync::session::SyncSetup>,
 }
 
 impl Default for Settings {
@@ -774,11 +785,24 @@ impl Default for Settings {
             search_ignore_files: true,
             search_subfolders: true,
             indexed_drives: Vec::new(),
+            saved_searches: Vec::new(),
+            index_cloud_files: false,
+            index_download_cap_mb: 25,
+            synced: Vec::new(),
         }
     }
 }
 
 impl Settings {
+    /// The largest file a cloud drive's index downloads (bytes, at least 1 MB); `None` while
+    /// "Index files in the cloud" is off.
+    #[must_use]
+    pub fn download_cap(&self) -> Option<u64> {
+        const MB: u64 = 1024 * 1024;
+        self.index_cloud_files
+            .then(|| self.index_download_cap_mb.max(1).saturating_mul(MB))
+    }
+
     /// The settings file's text.
     #[must_use]
     pub fn to_json(&self) -> String {
@@ -1101,6 +1125,22 @@ mod tests {
         assert_eq!(Settings::from_json(&settings.to_json()), settings);
         let read = Settings::from_json(r#"{"indexed_drives":["home","data"]}"#);
         assert_eq!(read.indexed_drives, vec!["home", "data"]);
+    }
+
+    /// "Index files in the cloud" is off at first (a cloud drive's index reads its local copies
+    /// only); on, the index downloads each file up to the cap - 25 MB unless the settings file
+    /// says otherwise, at least 1 MB - to read it, and drops it again.
+    #[test]
+    fn indexing_files_in_the_cloud_is_off_at_first_and_capped() {
+        let mut settings = Settings::default();
+        assert!(!settings.index_cloud_files);
+        assert_eq!(settings.index_download_cap_mb, 25);
+        assert_eq!(settings.download_cap(), None, "off: nothing is downloaded for the index");
+        settings.index_cloud_files = true;
+        assert_eq!(settings.download_cap(), Some(25 * 1024 * 1024));
+        settings.index_download_cap_mb = 0;
+        assert_eq!(settings.download_cap(), Some(1024 * 1024), "at least a megabyte");
+        assert_eq!(Settings::from_json(&settings.to_json()), settings);
     }
 
     /// The icon grid speaks positions: the selection reads back as positions in the visible

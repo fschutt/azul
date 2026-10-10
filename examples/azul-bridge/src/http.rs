@@ -276,6 +276,141 @@ pub fn read_body<R: Read + ?Sized>(
     }
 }
 
+/// A request body as a stream: its bytes as `framing` says, at most `max`, read from the
+/// connection's buffer (`input`) and `reader` as they are asked for, so a big PUT is never held
+/// whole. A failure - the client gone, too large, a malformed chunk - ends the stream with an
+/// error and is kept for [`BodyReader::take_failure`]. A length is checked against `max` by the
+/// caller before the body is read (the answer is 413 before any byte); a chunked body here.
+pub struct BodyReader<'a, R: Read + ?Sized> {
+    input: &'a mut Input,
+    reader: &'a mut R,
+    framing: Framing,
+    max: u64,
+    /// Bytes handed out.
+    taken: u64,
+    /// Left of the body (a length) or of the current chunk.
+    left: u64,
+    /// A chunk came before: its line end is read before the next size.
+    chunk_started: bool,
+    done: bool,
+    failure: Option<HttpError>,
+}
+
+impl<'a, R: Read + ?Sized> BodyReader<'a, R> {
+    #[must_use]
+    pub fn new(input: &'a mut Input, reader: &'a mut R, framing: Framing, max: u64) -> Self {
+        let left = match framing {
+            Framing::Length(n) => n,
+            Framing::Chunked => 0,
+        };
+        BodyReader {
+            input,
+            reader,
+            framing,
+            max,
+            taken: 0,
+            left,
+            chunk_started: false,
+            done: false,
+            failure: None,
+        }
+    }
+
+    /// Why the stream ended early, if it did.
+    pub fn take_failure(&mut self) -> Option<HttpError> {
+        self.failure.take()
+    }
+
+    fn fail(&mut self, failure: HttpError) -> std::io::Error {
+        self.done = true;
+        let text = match &failure {
+            HttpError::Gone => "the client went away",
+            HttpError::Refuse(status) => status.1,
+        };
+        self.failure = Some(failure);
+        std::io::Error::other(text)
+    }
+
+    /// The next chunk's size; 0 is the last chunk (its trailers read).
+    fn next_chunk(&mut self) -> Result<u64, HttpError> {
+        if self.chunk_started {
+            let end = self
+                .input
+                .read_line(self.reader, 2)
+                .map_err(|e| read_error(e, Status::BAD_REQUEST))?;
+            if !end.is_empty() {
+                return Err(HttpError::Refuse(Status::BAD_REQUEST));
+            }
+        }
+        self.chunk_started = true;
+        let line = self
+            .input
+            .read_line(self.reader, 4096)
+            .map_err(|e| read_error(e, Status::BAD_REQUEST))?;
+        let text = String::from_utf8_lossy(&line);
+        let size_text = text.split(';').next().unwrap_or_default().trim();
+        if size_text.is_empty()
+            || size_text.len() > 15
+            || !size_text.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(HttpError::Refuse(Status::BAD_REQUEST));
+        }
+        let size = u64::from_str_radix(size_text, 16).map_err(|_| HttpError::Refuse(Status::BAD_REQUEST))?;
+        if size == 0 {
+            // Trailers, up to the empty line.
+            loop {
+                let trailer = self
+                    .input
+                    .read_line(self.reader, 4096)
+                    .map_err(|e| read_error(e, Status::BAD_REQUEST))?;
+                if trailer.is_empty() {
+                    return Ok(0);
+                }
+            }
+        }
+        if self.taken + size > self.max {
+            return Err(HttpError::Refuse(Status::TOO_LARGE));
+        }
+        Ok(size)
+    }
+}
+
+impl<R: Read + ?Sized> Read for BodyReader<'_, R> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.done || out.is_empty() {
+            return Ok(0);
+        }
+        if self.left == 0 {
+            match self.framing {
+                Framing::Length(_) => {
+                    self.done = true;
+                    return Ok(0);
+                }
+                Framing::Chunked => match self.next_chunk() {
+                    Ok(0) => {
+                        self.done = true;
+                        return Ok(0);
+                    }
+                    Ok(size) => self.left = size,
+                    Err(failure) => return Err(self.fail(failure)),
+                },
+            }
+        }
+        let n = out
+            .len()
+            .min(usize::try_from(self.left).unwrap_or(usize::MAX))
+            .min(64 * 1024);
+        let bytes = match self.input.read_bytes(self.reader, n) {
+            Ok(bytes) => bytes,
+            Err(_) => return Err(self.fail(HttpError::Gone)),
+        };
+        out[..n].copy_from_slice(&bytes);
+        self.left -= n as u64;
+        self.taken += n as u64;
+        Ok(n)
+    }
+}
+
 /// A response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Response {

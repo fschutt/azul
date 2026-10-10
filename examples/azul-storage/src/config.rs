@@ -282,6 +282,20 @@ impl DriveEntry {
         secret: Option<&str>,
         transport: Box<dyn Transport>,
     ) -> Result<Box<dyn Drive>, DriveError> {
+        self.open_with_secret_rotating(secret, transport, None)
+    }
+
+    /// [`Self::open_with_secret`]. A consumer cloud signed in at its provider (Google Drive,
+    /// Dropbox, OneDrive with a refresh token and a client id: [`crate::oauth::signed_in`])
+    /// keeps its access token fresh itself; when the provider rotates the refresh token
+    /// (OneDrive), the drive's new keyring text goes to `rotated`, to be stored under
+    /// [`keyring_key`] (without a sink the new token lives as long as the drive).
+    pub fn open_with_secret_rotating(
+        &self,
+        secret: Option<&str>,
+        transport: Box<dyn Transport>,
+        rotated: Option<crate::oauth::SecretSink>,
+    ) -> Result<Box<dyn Drive>, DriveError> {
         match &self.location {
             DriveLocation::Local { .. } => self.open(None, transport),
             DriveLocation::S3 { .. } => {
@@ -296,13 +310,15 @@ impl DriveEntry {
                 let secrets = self.secret_options(secret, *keyring)?;
                 #[cfg(feature = "opendal")]
                 {
+                    let (options, secrets, transport) =
+                        crate::oauth::signed_in(scheme, options, &secrets, transport, rotated);
                     Ok(Box::new(crate::opendal_drive::OpendalDrive::open(
-                        scheme, options, &secrets, transport,
+                        scheme, &options, &secrets, transport,
                     )?))
                 }
                 #[cfg(not(feature = "opendal"))]
                 {
-                    let _ = (options, secrets, transport);
+                    let _ = (options, secrets, transport, rotated);
                     Err(DriveError::Unsupported(format!(
                         "\"{}\" is a {scheme} source, and this app was built without OpenDAL \
                          (azul-storage's feature \"opendal\")",

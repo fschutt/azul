@@ -30,6 +30,7 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import com.azul.a11y.AzulAccessibilityBridge;
+import com.azul.auth.AzulAuthSession;
 import com.azul.gesture.NativeGestureBridge;
 import com.azul.picker.AzulFilePicker;
 import com.azul.text.NativeTextBridge;
@@ -144,6 +145,11 @@ public class AzulActivity extends NativeActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        // A sign-in's redirect (AzulAuthSession$RedirectActivity forwards it here): the waiting
+        // AuthSession takes it; anything else may be a notification tap.
+        if (AzulAuthSession.onIntent(intent)) {
+            return;
+        }
         AzulNotifications.onIntent(this, intent, false);
     }
 
@@ -187,7 +193,18 @@ public class AzulActivity extends NativeActivity {
         // Sensors and location keep draining the battery behind a backgrounded
         // app unless something stops them; nothing did.
         AzulSensors.stop(this);
+        // A sign-in's Custom Tab covers the app: noted, so a return without the
+        // redirect reads as a cancel (onResume).
+        AzulAuthSession.onPause();
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Back from a sign-in's Custom Tab without its redirect (that arrives in
+        // onNewIntent, before onResume): the user closed the tab.
+        AzulAuthSession.onResume();
     }
 
     @Override

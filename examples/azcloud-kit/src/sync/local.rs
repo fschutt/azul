@@ -46,8 +46,14 @@ pub struct BaseEntry {
     pub hash: String,
     /// The file's bytes on this device.
     pub size: u64,
-    /// The file's modification time on this device (nanoseconds).
+    /// The file's modification time on this device (nanoseconds; 0 for a
+    /// cloud-only file).
     pub mtime_ns: u64,
+    /// This device keeps no bytes of it (an app's on-demand file: left in the
+    /// cloud, or freed): the next run takes it as unchanged here at `hash`, so
+    /// it is never a delete; deleted on the drive it is forgotten.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cloud_only: bool,
 }
 
 /// The local index of one folder.
@@ -505,5 +511,6 @@ pub fn entry_now(root: &Path, key: &str, hash: &str) -> Option<BaseEntry> {
         hash: hash.to_string(),
         size: meta.len(),
         mtime_ns: mtime_ns(&meta),
+        cloud_only: false,
     })
 }

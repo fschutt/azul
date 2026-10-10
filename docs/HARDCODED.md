@@ -41,6 +41,29 @@ Readers: `azul_appkit::shared_endpoint` (`of`, `read`, `in_file`: `endpoints.<na
 `azul_appkit::azlin_config` carries the typed section with profiles and provenance
 (`EndpointsSection`, `resolve_endpoints`; AZCLOUD15), which keeps unknown keys such as `tiles`.
 
+The `oauth` section holds the OAuth clients of the apps' sign-ins (AzDrive's Connect data source >
+Google Drive / Dropbox / OneDrive; AUTHSESSION17). An OAuth client id is configuration, never built
+into an app: whoever distributes the app registers its own at each provider. Per provider
+(`google`, `dropbox`, `onedrive`): `client_id`; `client_secret` (only Google's desktop clients have
+one; it is not secret in an app anybody can download, but Google's token endpoint wants it);
+`redirect_uri` (default `http://127.0.0.1/`, a free port: the provider's app registration has to
+allow it - Google's desktop clients and Microsoft's public clients do, Dropbox wants the exact URI
+with its port registered); and for tests `authorize_url`, `token_url`, `scope`. The environment
+outranks the file key by key: `AZDRIVE_<PROVIDER>_<KEY>` (`AZDRIVE_GOOGLE_CLIENT_ID`,
+`AZDRIVE_DROPBOX_CLIENT_ID`, `AZDRIVE_ONEDRIVE_CLIENT_ID`, `AZDRIVE_GOOGLE_CLIENT_SECRET`, ...).
+Without a client id the Sign in button is off and its line names the variable and the key.
+Reader: `azul_appkit::oauth_clients` (`of`, `from_env`, `resolve`).
+
+```json
+{
+  "oauth": {
+    "google": { "client_id": "123-abc.apps.googleusercontent.com", "client_secret": "GOCSPX-..." },
+    "dropbox": { "client_id": "abcdefghijklmno", "redirect_uri": "http://localhost:53682/" },
+    "onedrive": { "client_id": "00000000-0000-0000-0000-000000000000" }
+  }
+}
+```
+
 The data root of every kit app: `--data-dir` > `AZLIN_DATA` > `<user data dir>/Azlin` (one folder
 per app under it). The apps that keep a folder of their own are listed at the end.
 
@@ -106,6 +129,9 @@ by those agents (listed, not edited here) - **AZCLOUD15** being done in the endp
 | azul-drive/src/browse.rs:547, 570, 609; ui_dialogs.rs:202 | region `us-east-1` when blank (the Azlin token server says the same), `path_style: true`, placeholder `https://s3.eu-central-1.amazonaws.com`, no endpoint prefilled | the Add-drive form | low: the right shape for the :9000 balancer; nothing prefills it | prefill from `endpoints.s3` | OPEN (AZCLOUD15's Azlin drive signs up through the token server instead) |
 | azul-storage/src/azul_transport.rs:30-32 (AzDrive lib.rs:186, jobs.rs:1033, actions.rs:2380; UA lib.rs:125) | 60 s + 30 s grace; UA `AzDrive/0.2` | S3 request timeout | low (`with_timeout` exists, AzDrive never calls it) | `storage.http_timeout_secs` | OPEN |
 | azul-drive/src/actions.rs:2364; azul-storage/src/s3.rs:434 | 7 days | presigned share link expiry (also the maximum) | low | `drive.link_expiry_secs` | OPEN |
+| azul-drive/src/sign_in.rs (`plan`, `DEFAULT_REDIRECT_URI`) | no OAuth client id built in; the redirect `http://127.0.0.1/` (a free port) | Connect data source > Google Drive / Dropbox / OneDrive: Sign in | med: without a client id there is no sign-in (the button says which setting); a redirect the provider's registration does not allow fails at the provider | `oauth.<provider>.client_id` / `client_secret` / `redirect_uri`; `AZDRIVE_GOOGLE_CLIENT_ID`, `AZDRIVE_DROPBOX_CLIENT_ID`, `AZDRIVE_ONEDRIVE_CLIENT_ID` (and `_CLIENT_SECRET`, `_REDIRECT_URI`) | DESIGN (AUTHSESSION17) |
+| azul-storage/src/oauth.rs (`GOOGLE`, `DROPBOX`, `ONEDRIVE`) | the providers' authorize and token endpoints; scopes `https://www.googleapis.com/auth/drive`, Dropbox's app scopes, `offline_access Files.ReadWrite`; `access_type=offline&prompt=consent` (Google), `token_access_type=offline` (Dropbox) | the authorization request, the code exchange, the refreshes | low: a test points them at the mock stack | `oauth.<provider>.authorize_url` / `token_url` / `scope`, `AZDRIVE_<PROVIDER>_AUTHORIZE_URL` / `_TOKEN_URL` / `_SCOPE`; a drive signed in at another token endpoint keeps it (`token_url` in its options) | DESIGN (AUTHSESSION17) |
+| dll/src/desktop/extra/auth_session/mod.rs; layout/src/auth_session.rs | a sign-in waits 300 s; the loopback listener takes one request, 5 s per silent connection; a headless or E2E run answers from `AZ_AUTH_SESSION_REDIRECT` (`{redirect_uri}`, `{state}`, `{code_challenge}`; `cancel`, `timeout`) and opens no browser | the sign-in session | low | `AuthRequest.timeout_secs`; `AZ_AUTH_SESSION_REDIRECT` | DESIGN (AUTHSESSION17) |
 | azul-storage/src/config.rs:103-106, 239-240 | `DriveAuth::AccessLink` -> Unsupported; keyring names `azul-storage/s3/<drive id>` | access-link drives; S3 credentials in the keyring | low today; a windowed test leaves the stack's test keys in the user's keychain | `endpoints.token`; `AZ_KEYRING_SERVICE` | AZCLOUD15 / OPEN |
 | azul-drive/src/lib.rs:2077; azul-tasks/src/detail.rs:1032 | `<tmp>/AzDrive-open`, `<tmp>/AzTasks-open/<id>` | where Open copies a file for the OS | low: parallel runs share the folder | `<tmp>/<app>-<pid>` | OPEN |
 | azul-drive/scripts/browse.py:369-385 | the caller's environment only | AzDrive's e2e | med: `drive/view.json`, the "Azlin" drive and `~/.azlin/config.json` were the user's | `--data-dir <logs>/data`, `AZLIN_CONFIG=off` | FIXED 999636fe7 |

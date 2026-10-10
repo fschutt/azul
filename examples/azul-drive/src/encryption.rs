@@ -27,10 +27,10 @@
 //! sits beside the migration's, so the next idle minute continues where it stopped.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, OnceLock,
     },
 };
 
@@ -74,11 +74,47 @@ use crate::{
 /// between runs (`<cache>/AzDrive/drive-index`), so a drive opens with one conditional read and
 /// browses without listing the bucket.
 pub(crate) fn index_provider() -> Option<Arc<dyn IndexProvider>> {
-    let cache = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
-        .map(|dir| dir.join("AzDrive").join("drive-index"));
     Some(Arc::new(
-        MetaIndexProvider::new("AzDrive").with_cache_root(cache),
+        MetaIndexProvider::new("AzDrive").with_cache_root(drive_index_root()),
     ))
+}
+
+/// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
+/// without the switch), set once at the start.
+static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Sets the run's cache folder (the start, once): the drives' index copies live in it.
+pub(crate) fn set_cache_dir(dir: Option<PathBuf>) {
+    let _ = CACHE_DIR.set(dir);
+}
+
+/// The folder of this computer's copies of the encrypted drives' indexes: `drive-index/` in the
+/// run's cache folder (before the start set it: in `<cache>/AzDrive`).
+pub(crate) fn drive_index_root() -> Option<PathBuf> {
+    match CACHE_DIR.get() {
+        Some(dir) => drive_index_root_in(dir.as_deref()),
+        None => {
+            let default = crate::path_of(azul::file::FilePath::get_cache_dir().into_option())
+                .map(|dir| dir.join("AzDrive"));
+            drive_index_root_in(default.as_deref())
+        }
+    }
+}
+
+/// `drive-index/` in the cache folder `cache_dir`; `None` without one (the copies in memory).
+pub(crate) fn drive_index_root_in(cache_dir: Option<&Path>) -> Option<PathBuf> {
+    cache_dir.map(|dir| dir.join("drive-index"))
+}
+
+/// Where the encrypted drive `drive`'s search index (the plain text of its files) is kept: in
+/// the drive's own cache folder under `root`, beside its drive index (`<root>/<hash of the
+/// drive>/search`, gone with it when the drive's key is rotated) - never in the cache the other
+/// drives share; `None` without a cache folder.
+pub(crate) fn search_index_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
+    MetaIndexProvider::new("AzDrive")
+        .with_cache_root(root)
+        .drive_cache_dir(drive)
+        .map(|dir| dir.join("search"))
 }
 
 /// An Azlin drive's bucket as the drive the app uses: decided plain or encrypted on its first
@@ -1323,6 +1359,30 @@ extern "C" fn on_recovery_lockdown(mut data: RefAny, mut info: CallbackInfo) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An encrypted drive's search index (the plain text of its files) lives in the drive's own
+    /// cache folder, beside its drive index - one folder per drive, gone with it - never in the
+    /// cache the other drives share.
+    #[test]
+    fn an_encrypted_drives_search_index_lives_in_the_drives_own_cache_folder() {
+        let cache = PathBuf::from("/cache/AzDrive/drive-index");
+        let a = search_index_dir(Some(cache.clone()), "drive-a").expect("a folder");
+        let b = search_index_dir(Some(cache.clone()), "drive-b").expect("a folder");
+        assert!(a.starts_with(&cache) && a.ends_with("search"), "{}", a.display());
+        assert_ne!(a, b);
+        assert_eq!(a.parent().and_then(std::path::Path::parent), Some(cache.as_path()));
+        assert_eq!(search_index_dir(None, "drive-a"), None, "no cache folder, no index");
+    }
+
+    /// This computer's copies of the drives' indexes (and the search indexes beside them) live
+    /// in the run's cache folder - `--cache-dir`, else `<cache>/AzDrive` - so a test run keeps
+    /// them in its own folder; a run without one (`--shot`) keeps them in memory.
+    #[test]
+    fn the_drive_index_copies_live_in_the_runs_cache_folder() {
+        let cache = PathBuf::from("/run/cache");
+        assert_eq!(drive_index_root_in(Some(&cache)), Some(cache.join("drive-index")));
+        assert_eq!(drive_index_root_in(None), None);
+    }
 
     #[test]
     fn a_drives_recovery_key_at_the_token_server_comes_from_its_recovery_code() {

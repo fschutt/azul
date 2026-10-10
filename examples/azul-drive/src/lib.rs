@@ -104,6 +104,25 @@
 //! (azcloud-kit's `pending`). An Azlin drive's session is written by worker threads only, under
 //! the drive's lock every AzDrive window shares: a second window never spends a drive token the
 //! first one has spent (the token server would revoke the device).
+//!
+//! A cloud drive syncs with a folder on this computer (`sync_view`, `sync_jobs`; azcloud-kit's
+//! `sync::session`): "Sync with a folder..." pairs it (by default `AzDrive/<drive name>` in
+//! Home), the folder's files carry their state (cloud only, downloading, on this device,
+//! pinned, a conflict, an error), cloud-only files are listed and come down when opened,
+//! Share > Sync has Sync now, "Always keep on this device" and "Free up space", the drive's
+//! status line ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment
+//! due)") is in the status bar and on its row in the source list, a conflict asks keep mine /
+//! take theirs / keep both, Options > Drives > Sync has each drive's settings. A timer polls
+//! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
+//! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
+//! `AZDRIVE_SYNC_DONE <drive id> up=<n> down=<n> deleted=<n> conflicts=<n> cloud_only=<n>
+//! freed=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`, `AZDRIVE_SYNC_STATUS <drive id> <status
+//! line>`, `AZDRIVE_SYNC_FILE <drive id> <state> <key>` (a file whose state changed: cloud-only,
+//! on-device, on-device-encrypted, pinned, conflict, error, gone), `AZDRIVE_SYNC_CONFLICT
+//! <drive id> <key>` (the question shows), `AZDRIVE_SYNC_RESOLVED <drive id> mine|theirs|both
+//! <key>`, `AZDRIVE_SYNC_OPENED <drive id> <key>`, `AZDRIVE_SYNC_PINNED <drive id> on|off`,
+//! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_PAUSED|RESUMED|STOPPED <drive id>`,
+//! `AZDRIVE_SYNC_SETTING <drive id> <name> <value>`.
 
 mod actions;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
@@ -112,6 +131,8 @@ mod add_drive;
 mod add_drive_tests;
 /// What the Add drive dialog's buttons start, and the answers of its jobs.
 mod add_flow;
+/// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
+mod sign_in;
 pub mod args;
 pub mod browse;
 pub mod fileops;
@@ -119,6 +140,8 @@ pub mod fileops;
 pub mod find;
 #[cfg(test)]
 mod find_tests;
+#[cfg(test)]
+mod sync_tests;
 mod ids;
 /// The Azlin drives' paid months: when their periods are looked at, the redemptions.
 mod periods;
@@ -154,8 +177,15 @@ mod ui_panes;
 /// Windows 8's ribbon and its File menu.
 mod ui_ribbon;
 /// The navigation pane: Finder's source list.
+mod sync_lookup;
 mod ui_sidebar;
 mod ui_view;
+/// The folder sync on worker threads, and what starts it.
+mod sync_jobs;
+/// The synced drives' file states, shared by the window and the search.
+mod sync_store;
+/// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
+mod sync_view;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -249,6 +279,10 @@ pub(crate) struct Slot {
     /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked").
     #[cfg(feature = "encryption")]
     pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+    /// An Azlin drive's AZL1 objects kept on this computer, below its encryption: a synced
+    /// encrypted drive's "encrypted local copies".
+    #[cfg(feature = "encryption")]
+    pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
 }
 
 impl Slot {
@@ -261,6 +295,8 @@ impl Slot {
             auto: None,
             #[cfg(feature = "encryption")]
             azlin: None,
+            #[cfg(feature = "encryption")]
+            objects: None,
         }
     }
 
@@ -328,15 +364,48 @@ impl Slot {
                     .entry
                     .azlin()
                     .map_or_else(|| self.entry.id.clone(), |(id, _)| id.to_string());
+                // Below the encryption, the objects a sync keeps on this computer (encrypted
+                // local copies; nothing is kept until a sync asks).
+                let objects_dir = path_of(FilePath::get_cache_dir().into_option())
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("AzDrive")
+                    .join("objects")
+                    .join(&drive_id);
+                let objects = Arc::new(azcloud_kit::sync::objects::ObjectCache::new(
+                    azlin,
+                    objects_dir,
+                ));
+                self.objects = Some(objects.clone());
+                let azlin: Arc<dyn Drive> = objects;
                 let auto = crate::encryption::wrap(&drive_id, azlin);
                 self.auto = Some(auto.clone());
                 auto
             };
             azlin
         } else {
-            Arc::from(self.entry.open_with_secret(
+            // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
+            // token itself; a refresh token its provider rotates (OneDrive) is stored at once,
+            // on the worker thread that got it, and handed to the slot like an Azlin session.
+            let queue = rotated.clone();
+            let id = self.entry.id.clone();
+            let keyring = keyring.clone();
+            let keep: azul_storage::oauth::SecretSink = Box::new(move |secret: String| {
+                let unsaved = keyring
+                    .set(&config::keyring_key(&id), &secret)
+                    .err()
+                    .map(|e| e.to_string());
+                if let Ok(mut queue) = queue.lock() {
+                    queue.push(Rotated {
+                        drive_id: id.clone(),
+                        secret,
+                        unsaved,
+                    });
+                }
+            });
+            Arc::from(self.entry.open_with_secret_rotating(
                 self.secret.as_deref(),
                 Box::new(AzulTransport::new(USER_AGENT)),
+                Some(keep),
             )?)
         };
         self.drive = Some(drive.clone());
@@ -551,6 +620,8 @@ pub(crate) enum Popup {
         error: String,
         busy: bool,
     },
+    /// The folder sync's dialogs: pairing a drive with a folder, a conflict (D52), stopping.
+    Sync(sync_view::SyncDialog),
 }
 
 /// The source list: which sections are open, which drives and folders show their folders,
@@ -686,6 +757,9 @@ pub(crate) struct DriveState {
     /// `--cache-dir`, else AzDrive's folder in the user's cache folder; `None` in a `--shot` run
     /// without the switch (nothing kept) or on a system without a cache folder.
     pub cache_dir: Option<PathBuf>,
+    /// The sync's answers for the search (local copies, sync states): SYNC17's store once it is
+    /// in, else none.
+    pub sync: Arc<dyn sync_lookup::SyncLookup>,
     pub inline_dialogs: bool,
     /// Worker threads running.
     pub running: u32,
@@ -726,6 +800,12 @@ pub(crate) struct DriveState {
     /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
     /// the bar with Cancel over the drive in view.
     pub pending_lockdowns: HashMap<String, u64>,
+    /// The synced drives' states, passes and status lines in this window.
+    pub sync_view: sync_view::SyncView,
+    /// The OAuth clients of Connect data source's sign-ins (Google Drive, Dropbox, OneDrive):
+    /// `AZDRIVE_<PROVIDER>_<KEY>` over the shared Azlin config's `oauth` section, read at the
+    /// start (`sign_in`).
+    pub sign_in_settings: sign_in::SignInSettings,
 }
 
 impl DriveState {
@@ -1163,6 +1243,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     let cancel = Arc::new(AtomicBool::new(false));
     let mut jobs = Vec::new();
     let mut remote = false;
+    let mut drive_index = false;
     if let Some(index) = s.current_drive() {
         let Some(drive) = open_slot(s, index) else {
             return;
@@ -1185,7 +1266,15 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             }
             None => {
                 remote = true;
-                options.contents = false;
+                // An encrypted drive's names come from its drive index.
+                drive_index = names_from_drive_index(&s.slots[index]);
+                // Contents only from the drive's index (its files are not on this computer).
+                let contents = if options.contents {
+                    remote_index_for_search(info, app, s, index)
+                } else {
+                    None
+                };
+                options.contents = contents.is_some();
                 // The drive's last complete listing is kept in the cache folder (never an
                 // encrypted drive's).
                 let cache = s
@@ -1202,6 +1291,8 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                         pattern: azul_search::Pattern::guess(query.clone()),
                         options: options.clone(),
                         cache,
+                        drive_index,
+                        contents,
                     },
                     drive,
                     cancel: cancel.clone(),
@@ -1237,6 +1328,7 @@ pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     }
     let mut state = find::FindState::new(query.clone(), options.contents, remote, serial, cancel);
     state.pending = jobs.len();
+    state.drive_index = drive_index;
     s.find = Some(state);
     // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
     // with every key typed into it (the user may have chosen another tab meanwhile).
@@ -1267,31 +1359,83 @@ fn keeps_listing(_slot: &Slot) -> bool {
     true
 }
 
+/// Whether a drive's names come from its drive index on this computer: an encrypted drive's.
+#[cfg(feature = "encryption")]
+fn names_from_drive_index(slot: &Slot) -> bool {
+    slot.auto
+        .as_ref()
+        .is_some_and(|auto| auto.is_encrypted() == Some(true))
+}
+
+/// Without encrypted drives every cloud drive's names are its bucket's listing.
+#[cfg(not(feature = "encryption"))]
+fn names_from_drive_index(_slot: &Slot) -> bool {
+    false
+}
+
 // ==== A drive's full-text index ====
 
 /// How old a drive's index may be before a search of it brings it up to date in the background
 /// (seconds); the search asks it as it is meanwhile and reads what changed itself.
 const INDEX_REFRESH_SECS: u64 = 600;
 
-/// The folder drive `drive_id`'s index is in; `None` without a cache folder.
+/// The folder drive `drive_id`'s index is in: an encrypted drive's in its own cache folder
+/// beside its drive index (the plain text of its files never in the shared cache), any other's
+/// in the cache's `index/`; `None` without a cache folder, or for an Azlin drive not known to be
+/// plain or encrypted yet.
 fn index_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
+    #[cfg(feature = "encryption")]
+    {
+        let auto = s
+            .slot_index(drive_id)
+            .and_then(|index| s.slots[index].auto.as_ref());
+        if let Some(auto) = auto {
+            match auto.is_encrypted() {
+                Some(true) => {
+                    return encryption::search_index_dir(
+                        encryption::drive_index_root(),
+                        auto.drive(),
+                    )
+                }
+                Some(false) => {}
+                None => return None,
+            }
+        }
+    }
     Some(find::index_dir(&s.cache_dir.as_ref()?.join("index"), drive_id))
 }
 
-/// Brings drive `drive_id`'s index up to its folder on this computer, on a worker thread - not
-/// while an update of it runs, for a drive that is not on this computer, or without a cache
-/// folder.
+/// Brings drive `drive_id`'s index up to its files, on a worker thread: a drive on this
+/// computer's folder walked, a cloud or encrypted drive's listing read from its local copies -
+/// not while an update of it runs, or without a folder for it.
 pub(crate) fn update_index(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
 ) {
-    let Some(root) = s.slot_index(drive_id).and_then(|index| s.local_root(index)) else {
+    let Some(slot) = s.slot_index(drive_id) else {
         return;
     };
     let Some(dir) = index_folder(s, drive_id) else {
         return;
+    };
+    if s.indexes.get(drive_id).is_some_and(|index| index.progress.is_some()) {
+        return;
+    }
+    let source = match s.local_root(slot) {
+        Some(root) => jobs::IndexSource::Folder(root),
+        None => {
+            let Some(drive) = open_slot(s, slot) else {
+                return;
+            };
+            jobs::IndexSource::Drive(jobs::DriveSource {
+                drive,
+                sync: s.sync.clone(),
+                // "Index files in the cloud": the files not on this computer, within the cap.
+                download_cap: s.settings.download_cap(),
+            })
+        }
     };
     let index = s.indexes.entry(drive_id.to_string()).or_default();
     if index.progress.is_some() {
@@ -1308,7 +1452,7 @@ pub(crate) fn update_index(
         s,
         Job::IndexDrive {
             drive_id: drive_id.to_string(),
-            root,
+            source,
             dir,
             cancel,
         },
@@ -1346,6 +1490,39 @@ fn index_for_search(
     index: usize,
     under: &str,
 ) -> Option<find::IndexAsk> {
+    let (_, dir) = usable_index(info, app, s, index)?;
+    Some(find::IndexAsk {
+        dir,
+        root: s.local_root(index)?,
+        under: under.to_string(),
+    })
+}
+
+/// The index a contents search of the cloud or encrypted drive `index` asks: as
+/// [`index_for_search`]; a result's line comes from its local copy (the sync's).
+fn remote_index_for_search(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+) -> Option<find::RemoteContents> {
+    let (drive_id, dir) = usable_index(info, app, s, index)?;
+    Some(find::RemoteContents {
+        dir,
+        drive_id,
+        sync: s.sync.clone(),
+    })
+}
+
+/// Drive `index`'s id and index folder when the user asked for its index and it holds the
+/// drive (one older than [`INDEX_REFRESH_SECS`], or not known yet, is brought up to date
+/// meanwhile, for the next search).
+fn usable_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+) -> Option<(String, PathBuf)> {
     let drive_id = s.slots.get(index)?.entry.id.clone();
     if !s.settings.indexed_drives.contains(&drive_id) {
         return None;
@@ -1365,11 +1542,8 @@ fn index_for_search(
     if !s.indexes.get(&drive_id).is_some_and(find::IndexInfo::usable) {
         return None;
     }
-    Some(find::IndexAsk {
-        dir: index_folder(s, &drive_id)?,
-        root: s.local_root(index)?,
-        under: under.to_string(),
-    })
+    let dir = index_folder(s, &drive_id)?;
+    Some((drive_id, dir))
 }
 
 /// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
@@ -1972,6 +2146,8 @@ fn scanned(
         browse::sort_entries(&mut fresh, sort);
         s.entries = fresh;
     }
+    // A synced folder lists its cloud-only files too.
+    sync_view::add_placeholders(s);
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
@@ -2036,6 +2212,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Searched { end: None, .. }
             | Outcome::IndexProgress { .. }
             | Outcome::DriveProblem { .. }
+            | Outcome::Sync(sync_jobs::SyncOutcome::Progress { .. })
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
@@ -2264,6 +2441,7 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Tested { serial, result } => {
             add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
         }
+        Outcome::SignedIn { serial, result } => add_flow::signed_in(s, serial, result),
         Outcome::Tiers { serial, result } => {
             add_flow::tiers_answered(&mut info, &handle, s, serial, result);
         }
@@ -2400,6 +2578,7 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::VoucherRedeemed { drive_id, result } => {
             vouchers::redeemed(s, &drive_id, result);
         }
+        Outcome::Sync(outcome) => sync_jobs::on_outcome(&mut info, &handle, s, outcome),
     }
     Update::RefreshDom
 }
@@ -2614,6 +2793,8 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         for drive_id in s.settings.indexed_drives.clone() {
             update_index(info, app, s, &drive_id);
         }
+        // The synced drives show their kept states, and sync.
+        sync_jobs::start(info, app, s);
     })
 }
 
@@ -2696,6 +2877,23 @@ pub fn start() {
     for problem in &token.problems {
         eprintln!("[azdrive] {problem}");
     }
+    // The OAuth clients of the consumer clouds' sign-ins: AZDRIVE_<PROVIDER>_<KEY> over the
+    // shared Azlin config's `oauth` section (AZLIN_CONFIG, else ~/.azlin/config.json - not in a
+    // `--shot` run). No client id is built in.
+    let shared_config = if args.kit.shot.is_some() {
+        None
+    } else {
+        azul_appkit::azlin_config::config_path(
+            std::env::var(azul_appkit::azlin_config::CONFIG_VAR)
+                .ok()
+                .as_deref(),
+            user_home.as_deref(),
+        )
+    };
+    let sign_in_settings = sign_in::SignInSettings::resolve(
+        &|var: &str| std::env::var(var).ok(),
+        shared_config.as_deref(),
+    );
     // The kit resolves the data root (--data-dir, $AZLIN_DATA, <data dir>/Azlin) and reads the
     // theme and mode saved last time, before the window exists.
     let kit = azul_appkit::ui::create_kit(
@@ -2801,6 +2999,15 @@ pub fn start() {
     );
     let period_tokens =
         azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
+    // The caches' folder: `--cache-dir`, else AzDrive's in the user's cache folder; none in a
+    // `--shot` run without the switch. The drives' index copies (encryption) live there too.
+    let cache_dir = match &args.cache_dir {
+        Some(dir) => Some(dir.clone()),
+        None if args.kit.shot.is_some() => None,
+        None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
+    };
+    #[cfg(feature = "encryption")]
+    encryption::set_cache_dir(cache_dir.clone());
     let mut state = DriveState {
         slots,
         place,
@@ -2869,13 +3076,8 @@ pub fn start() {
         settings_drive,
         downloads,
         open_dir: std::env::temp_dir().join("AzDrive-open"),
-        cache_dir: match &args.cache_dir {
-            Some(dir) => Some(dir.clone()),
-            None if args.kit.shot.is_some() => None,
-            None => {
-                path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive"))
-            }
-        },
+        sync: Arc::new(sync_lookup::NoSync),
+        cache_dir,
         inline_dialogs,
         running: 0,
         trash_serial: 0,
@@ -2893,6 +3095,8 @@ pub fn start() {
         redemptions: periods::Schedule::default(),
         problems: problems::Problems::default(),
         pending_lockdowns: HashMap::new(),
+        sync_view: sync_view::SyncView::default(),
+        sign_in_settings,
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());

@@ -22,6 +22,8 @@
 //! - [`task`] and [`task_store`]: the one task store - `tasks/<list>/<task
 //!   uuid>.json` - every app reads and writes, through `azul-storage`'s
 //!   `Drive`, with the migration of AzCalendar's old To-Do bar files.
+//! - [`vtodo`]: to-dos as iCalendar (VTODO) and back - AzTasks' import and
+//!   export, the Azlin Bridge's CalDAV task lists.
 //! - [`data_uri`]: `data:` URIs and standard base64 both ways (a contact's
 //!   photo, a mail's inline image).
 //! - [`write_queue`]: the write-behind queue the apps' durable writes go
@@ -38,6 +40,7 @@ pub mod rrule;
 pub mod search;
 pub mod task;
 pub mod task_store;
+pub mod vtodo;
 pub mod write_queue;
 
 /// A temporary folder for tests: this crate's, and the apps' through the `test-util` feature.

@@ -6,6 +6,10 @@ use azcal_core::{
     calendars::{self, Colour},
     event::{self, Meeting},
 };
+use azul_pim::{
+    task::{self, Subtask, Task, TaskList},
+    task_store,
+};
 use chrono::{NaiveDate, NaiveTime};
 
 use super::*;
@@ -165,9 +169,15 @@ fn contacts_are_azcontacts_files_served_and_written_as_they_are() {
     assert!(listing.contains(&format!("<D:href>/addressbooks/contacts/{CARD}.vcf</D:href>")), "{listing}");
     assert!(!listing.contains("readme") && !listing.contains("old/"), "{listing}");
     let ctag = between(&listing, "<CS:getctag>", "</CS:getctag>");
-    let get = ask(&f.pim, "GET", &format!("/addressbooks/contacts/{CARD}.vcf"), &[], "");
+    let get = ask(
+        &f.pim,
+        "GET",
+        &format!("/addressbooks/contacts/{CARD}.vcf"),
+        &[("Accept", "text/vcard; version=4.0")],
+        "",
+    );
     assert_eq!(get.status, Status::OK);
-    assert_eq!(get.body, CARD_TEXT.as_bytes(), "byte for byte");
+    assert_eq!(get.body, CARD_TEXT.as_bytes(), "a 4.0 file asked for as 4.0: byte for byte");
     assert_eq!(get.header("Content-Type"), Some(cards::CONTENT_TYPE));
     assert!(get.header("ETag").is_some());
 
@@ -218,6 +228,40 @@ fn contacts_are_azcontacts_files_served_and_written_as_they_are() {
     assert_eq!(ask(&f.pim, "DELETE", href, &[("If-Match", current.as_str())], "").status, Status::NO_CONTENT);
     assert!(f.contacts.head("contacts/ABCDEF-1234.vcf").is_err());
     assert_eq!(ask(&f.pim, "GET", href, &[], "").status, Status::NOT_FOUND);
+}
+
+/// AzContacts writes vCard 4.0; Apple's Contacts reads 3.0. A card is served in 3.0 unless the
+/// program asks for 4.0 (`Accept`, or address-data's `version` in a REPORT), written by
+/// AzContacts' own model (azul-contacts-core) with the file's UID; a 3.0 card a program put is
+/// served as it came.
+#[test]
+fn a_vcard_4_file_is_served_as_3_0_unless_the_program_asks_for_4_0() {
+    let f = fixture();
+    let href = format!("/addressbooks/contacts/{CARD}.vcf");
+    let plain = ask(&f.pim, "GET", &href, &[], "");
+    assert_eq!(plain.status, Status::OK);
+    let plain = text(&plain);
+    assert!(plain.contains("VERSION:3.0") && !plain.contains("VERSION:4.0"), "{plain}");
+    assert!(plain.contains("FN:Grace Hopper") && plain.contains("grace@example.org"), "{plain}");
+    assert!(plain.contains(&format!("UID:{CARD}")), "{plain}");
+    let four = ask(&f.pim, "GET", &href, &[("Accept", "text/vcard; version=4.0")], "");
+    assert_eq!(four.body, CARD_TEXT.as_bytes(), "as the file is");
+
+    let multiget = |version: &str| {
+        format!(
+            "<CR:addressbook-multiget xmlns:D=\"DAV:\" xmlns:CR=\"urn:ietf:params:xml:ns:carddav\">\
+             <D:prop><D:getetag/><CR:address-data content-type=\"text/vcard\" version=\"{version}\"/></D:prop>\
+             <D:href>{href}</D:href></CR:addressbook-multiget>"
+        )
+    };
+    let three = text(&ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], &multiget("3.0")));
+    assert!(three.contains("VERSION:3.0") && three.contains("FN:Grace Hopper"), "{three}");
+    let four = text(&ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], &multiget("4.0")));
+    assert!(four.contains("VERSION:4.0"), "{four}");
+
+    let apple = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:A1B2-C3\r\nFN:Ada Lovelace\r\nEND:VCARD\r\n";
+    assert_eq!(ask(&f.pim, "PUT", "/addressbooks/contacts/A1B2-C3.vcf", &[], apple).status, Status::CREATED);
+    assert_eq!(ask(&f.pim, "GET", "/addressbooks/contacts/A1B2-C3.vcf", &[], "").body, apple.as_bytes());
 }
 
 #[test]
@@ -413,21 +457,218 @@ fn the_meeting_azcalendar_registered_survives_a_programs_edit() {
     assert_eq!(planning.meeting.map(|m| m.code), Some(String::from("482913")));
 }
 
+/// Apple Calendar's "New Calendar" on the account: MKCALENDAR makes an AzCalendar calendar (its
+/// name, the AzCalendar colour nearest the program's), found again under the program's own path;
+/// PROPPATCH renames and recolours it; events go into it.
+#[test]
+fn mkcalendar_makes_an_azcalendar_calendar_under_the_programs_path() {
+    let f = fixture();
+    let body = "<?xml version=\"1.0\"?><C:mkcalendar xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\" \
+         xmlns:A=\"http://apple.com/ns/ical/\"><D:set><D:prop><D:displayname>Holidays</D:displayname>\
+         <A:calendar-color>#C4691AFF</A:calendar-color></D:prop></D:set></C:mkcalendar>";
+    let made = ask(&f.pim, "MKCALENDAR", "/calendars/7D3A51C2-HOLIDAYS/", &[], body);
+    assert_eq!(made.status, Status::CREATED, "{}", text(&made));
+    let all = calendars::load(&*f.calendar);
+    let holidays = all
+        .iter()
+        .find(|c| c.name == "Holidays")
+        .expect("a calendar file AzCalendar reads")
+        .clone();
+    assert_eq!(holidays.colour, Colour::Orange, "the colour nearest #C4691A");
+    let home = text(&ask(&f.pim, "PROPFIND", "/calendars/", &[("Depth", "1")], CALENDAR_PROPS));
+    assert!(home.contains("<D:href>/calendars/7D3A51C2-HOLIDAYS/</D:href>"), "{home}");
+    assert!(!home.contains(&format!("/calendars/{}/", holidays.id)), "{home}");
+    assert_eq!(
+        ask(&f.pim, "MKCALENDAR", "/calendars/7D3A51C2-HOLIDAYS/", &[], body).status,
+        Status::METHOD_NOT_ALLOWED
+    );
+
+    assert_eq!(ask(&f.pim, "PUT", "/calendars/7D3A51C2-HOLIDAYS/beach.ics", &[], DENTIST).status, Status::CREATED);
+    let id = f.pim.names.id_of(Kind::Event, "beach").expect("the program's name");
+    assert_eq!(stored(&f.calendar, &id).calendar, holidays.id);
+
+    let patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"http://apple.com/ns/ical/\"><D:set><D:prop>\
+         <D:displayname>Vacation</D:displayname><A:calendar-color>#3A8A3AFF</A:calendar-color>\
+         </D:prop></D:set></D:propertyupdate>";
+    let patched = text(&ask(&f.pim, "PROPPATCH", "/calendars/7D3A51C2-HOLIDAYS/", &[], patch));
+    assert!(patched.contains("HTTP/1.1 200 OK") && !patched.contains("403"), "{patched}");
+    let renamed = calendars::load(&*f.calendar)
+        .into_iter()
+        .find(|c| c.id == holidays.id)
+        .expect("the same calendar");
+    assert_eq!((renamed.name.as_str(), renamed.colour), ("Vacation", Colour::Green));
+}
+
+/// RFC 6578: a program keeps a sync token and asks what changed since: the members that are new
+/// or changed (with the properties it asks for) and the ones that went (404), and a new token; a
+/// token the bridge does not know (from before a restart) sends it back to a full listing.
+#[test]
+fn sync_collection_gives_what_changed_and_what_went_since_a_token() {
+    let f = fixture();
+    let sync = |token: &str| {
+        format!(
+            "<D:sync-collection xmlns:D=\"DAV:\"><D:sync-token>{token}</D:sync-token>\
+             <D:sync-level>1</D:sync-level><D:prop><D:getetag/></D:prop></D:sync-collection>"
+        )
+    };
+    let book = "/addressbooks/contacts/";
+    let first = text(&ask(&f.pim, "REPORT", book, &[], &sync("")));
+    assert!(first.contains(&format!("<D:href>/addressbooks/contacts/{CARD}.vcf</D:href>")), "{first}");
+    let token = between(&first, "<D:sync-token>", "</D:sync-token>");
+    let again = text(&ask(&f.pim, "REPORT", book, &[], &sync(&token)));
+    assert_eq!(again.matches("<D:response>").count(), 0, "nothing changed: {again}");
+
+    let card = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:new-card\r\nFN:Ada Lovelace\r\nEND:VCARD\r\n";
+    assert_eq!(ask(&f.pim, "PUT", "/addressbooks/contacts/new-card.vcf", &[], card).status, Status::CREATED);
+    assert_eq!(
+        ask(&f.pim, "DELETE", &format!("/addressbooks/contacts/{CARD}.vcf"), &[], "").status,
+        Status::NO_CONTENT
+    );
+    let changes = text(&ask(&f.pim, "REPORT", book, &[], &sync(&token)));
+    assert!(
+        changes.contains("<D:href>/addressbooks/contacts/new-card.vcf</D:href>") && changes.contains("<D:getetag>"),
+        "{changes}"
+    );
+    assert!(
+        changes.contains(&format!(
+            "<D:href>/addressbooks/contacts/{CARD}.vcf</D:href><D:status>HTTP/1.1 404 Not Found</D:status>"
+        )),
+        "{changes}"
+    );
+    assert_ne!(between(&changes, "<D:sync-token>", "</D:sync-token>"), token);
+
+    let unknown = ask(&f.pim, "REPORT", book, &[], &sync("http://azlin-bridge.localhost/sync/unknown"));
+    assert_eq!(unknown.status, Status::FORBIDDEN);
+    assert!(text(&unknown).contains("<D:valid-sync-token/>"));
+
+    // A calendar too, its token read as a property.
+    let props = text(&ask(
+        &f.pim,
+        "PROPFIND",
+        "/calendars/default/",
+        &[("Depth", "0")],
+        "<D:propfind xmlns:D=\"DAV:\"><D:prop><D:sync-token/><D:supported-report-set/></D:prop></D:propfind>",
+    ));
+    assert!(props.contains("<D:sync-collection/>"), "{props}");
+    let calendar_token = between(&props, "<D:sync-token>", "</D:sync-token>");
+    assert_eq!(ask(&f.pim, "PUT", "/calendars/default/dentist.ics", &[], DENTIST).status, Status::CREATED);
+    let calendar = text(&ask(&f.pim, "REPORT", "/calendars/default/", &[], &sync(&calendar_token)));
+    assert!(calendar.contains("<D:href>/calendars/default/dentist.ics</D:href>"), "{calendar}");
+    assert_eq!(calendar.matches("<D:response>").count(), 1, "only what changed: {calendar}");
+}
+
+/// A list of AzTasks and a task of it.
+const LIST: &str = "6c5b4a39-2817-4f06-9e5d-4c3b2a190807";
+const TASK: &str = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+
+fn vtodo(lines: &str) -> String {
+    format!("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Apple Inc.//Reminders//EN\r\nBEGIN:VTODO\r\n{lines}END:VTODO\r\nEND:VCALENDAR\r\n")
+}
+
+/// AzTasks' lists are CalDAV to-do lists (VTODO) - what Apple Reminders and Thunderbird show: in
+/// the calendar home, each task served as AzTasks' own iCalendar export, a program's to-do
+/// written into the task file (what iCalendar does not carry staying: the steps, the flag), a
+/// new to-do kept under the program's own name and UID, a new list made with MKCALENDAR, a to-do
+/// deleted with DELETE.
+#[test]
+fn aztasks_lists_are_caldav_to_do_lists() {
+    let f = fixture();
+    let list = TaskList::new(LIST.to_string(), String::from("Home"), 1);
+    f.contacts.put(&list.key(), task::list_to_json(&list).as_bytes()).unwrap();
+    let made = day(2026, 10, 1).and_time(at(8, 0));
+    let mut rent = Task::new(TASK.to_string(), LIST.to_string(), String::from("Pay rent"), made);
+    rent.due = Some(day(2026, 10, 2));
+    rent.flagged = true;
+    rent.subtasks = vec![Subtask {
+        id: String::from("s1"),
+        title: String::from("Check the amount"),
+        done: false,
+    }];
+    f.contacts.put(&rent.key(), task::task_to_json(&rent).as_bytes()).unwrap();
+
+    let home = text(&ask(&f.pim, "PROPFIND", "/calendars/", &[("Depth", "1")], CALENDAR_PROPS));
+    assert!(home.contains(&format!("<D:href>/calendars/tasks-{LIST}/</D:href>")), "{home}");
+    assert!(home.contains("<D:displayname>Home</D:displayname>"), "{home}");
+    assert!(home.contains("<C:comp name=\"VTODO\"/>"), "{home}");
+    let listing = text(&ask(&f.pim, "PROPFIND", &format!("/calendars/tasks-{LIST}/"), &[("Depth", "1")], ""));
+    assert!(listing.contains(&format!("<D:href>/calendars/tasks-{LIST}/{TASK}.ics</D:href>")), "{listing}");
+    let href = format!("/calendars/tasks-{LIST}/{TASK}.ics");
+    let served = text(&ask(&f.pim, "GET", &href, &[], ""));
+    for wanted in ["BEGIN:VTODO", "SUMMARY:Pay rent", "DUE;VALUE=DATE:20261002"] {
+        assert!(served.contains(wanted), "{wanted}: {served}");
+    }
+    assert!(served.contains(&format!("UID:{TASK}")), "{served}");
+
+    // Apple Reminders ticks it off and renames it.
+    let done = vtodo(&format!(
+        "UID:{TASK}\r\nSUMMARY:Pay the rent\r\nDUE;VALUE=DATE:20261002\r\nSTATUS:COMPLETED\r\n\
+         COMPLETED:20261002T090000Z\r\n"
+    ));
+    assert_eq!(ask(&f.pim, "PUT", &href, &[], &done).status, Status::NO_CONTENT);
+    let bytes = f.contacts.get(&task::task_key(LIST, TASK)).unwrap();
+    let stored = task::task_from_json(&String::from_utf8(bytes).unwrap()).unwrap();
+    assert_eq!(stored.title, "Pay the rent");
+    assert!(stored.completed.is_some(), "done");
+    assert!(stored.flagged && stored.subtasks.len() == 1, "the flag and the steps stay: {stored:?}");
+
+    // A new reminder under the program's own name and UID.
+    let plumber = vtodo("UID:C0FFEE-REMINDER\r\nSUMMARY:Call the plumber\r\n");
+    let plumber_href = format!("/calendars/tasks-{LIST}/C0FFEE-REMINDER.ics");
+    assert_eq!(ask(&f.pim, "PUT", &plumber_href, &[], &plumber).status, Status::CREATED);
+    let id = f.pim.names.id_of(Kind::Todo, "C0FFEE-REMINDER").expect("the program's name");
+    assert!(task::is_id(&id), "{id}");
+    let again = text(&ask(&f.pim, "GET", &plumber_href, &[], ""));
+    assert!(again.contains("UID:C0FFEE-REMINDER") && again.contains("SUMMARY:Call the plumber"), "{again}");
+
+    let query = |component: &str| {
+        format!(
+            "<C:calendar-query xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><D:prop><D:getetag/></D:prop>\
+             <C:filter><C:comp-filter name=\"VCALENDAR\"><C:comp-filter name=\"{component}\"/></C:comp-filter>\
+             </C:filter></C:calendar-query>"
+        )
+    };
+    let list_href = format!("/calendars/tasks-{LIST}/");
+    let todos = text(&ask(&f.pim, "REPORT", &list_href, &[("Depth", "1")], &query("VTODO")));
+    assert_eq!(todos.matches("<D:response>").count(), 2, "{todos}");
+    let events = text(&ask(&f.pim, "REPORT", &list_href, &[("Depth", "1")], &query("VEVENT")));
+    assert_eq!(events.matches("<D:response>").count(), 0, "{events}");
+
+    // Apple Reminders' "Add List": MKCALENDAR for to-dos only.
+    let mk = "<C:mkcalendar xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><D:set><D:prop>\
+         <D:displayname>Groceries</D:displayname><C:supported-calendar-component-set><C:comp name=\"VTODO\"/>\
+         </C:supported-calendar-component-set></D:prop></D:set></C:mkcalendar>";
+    assert_eq!(ask(&f.pim, "MKCALENDAR", "/calendars/9A8B-GROCERIES/", &[], mk).status, Status::CREATED);
+    let lists = task_store::load_all(&*f.contacts).unwrap().lists;
+    assert!(lists.iter().any(|l| l.name == "Groceries"), "{lists:?}");
+    assert!(calendars::load(&*f.calendar).iter().all(|c| c.name != "Groceries"), "a list, not a calendar");
+    let home = text(&ask(&f.pim, "PROPFIND", "/calendars/", &[("Depth", "1")], CALENDAR_PROPS));
+    assert!(home.contains("<D:href>/calendars/9A8B-GROCERIES/</D:href>"), "{home}");
+
+    assert_eq!(ask(&f.pim, "DELETE", &plumber_href, &[], "").status, Status::NO_CONTENT);
+    assert!(f.contacts.head(&task::task_key(LIST, &id)).is_err());
+}
+
 #[test]
 fn what_the_bridge_does_not_do_is_refused_plainly() {
     let f = fixture();
-    let sync = "<D:sync-collection xmlns:D=\"DAV:\"><D:sync-token/><D:prop><D:getetag/></D:prop></D:sync-collection>";
-    let refused = ask(&f.pim, "REPORT", "/addressbooks/contacts/", &[], sync);
+    let busy = "<C:free-busy-query xmlns:C=\"urn:ietf:params:xml:ns:caldav\"/>";
+    let refused = ask(&f.pim, "REPORT", "/calendars/default/", &[], busy);
     assert_eq!(refused.status, Status::FORBIDDEN);
     assert!(text(&refused).contains("<D:supported-report/>"));
-    let patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"http://apple.com/ns/ical/\"><D:set><D:prop>\
-         <A:calendar-color>#FF0000FF</A:calendar-color></D:prop></D:set></D:propertyupdate>";
+    // A property no calendar keeps (a dead one) is refused; the name and the colour are not.
+    let patch = "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:Z=\"urn:example:dead\"><D:set><D:prop>\
+         <Z:note>kept nowhere</Z:note></D:prop></D:set></D:propertyupdate>";
     let patched = text(&ask(&f.pim, "PROPPATCH", "/calendars/default/", &[], patch));
     assert!(
-        patched.contains("<x:calendar-color xmlns:x=\"http://apple.com/ns/ical/\"/>") && patched.contains("403 Forbidden"),
+        patched.contains("<x:note xmlns:x=\"urn:example:dead\"/>") && patched.contains("403 Forbidden"),
         "{patched}"
     );
-    assert_eq!(ask(&f.pim, "MKCALENDAR", "/calendars/new/", &[], "").status, Status::FORBIDDEN);
+    assert_eq!(
+        ask(&f.pim, "MKCALENDAR", "/calendars/default/", &[], "").status,
+        Status::METHOD_NOT_ALLOWED,
+        "a calendar is there"
+    );
+    assert_eq!(ask(&f.pim, "MKCOL", "/addressbooks/second/", &[], "").status, Status::FORBIDDEN);
     assert_eq!(ask(&f.pim, "PROPFIND", "/calendars/", &[], "").status, Status::FORBIDDEN, "no Depth is infinity");
     assert_eq!(ask(&f.pim, "PROPFIND", "/elsewhere/", &[("Depth", "0")], "").status, Status::NOT_FOUND);
     assert_eq!(ask(&f.pim, "DELETE", "/calendars/default/", &[], "").status, Status::FORBIDDEN);

@@ -21,7 +21,9 @@
 //!        [Remove drive]  System [Refresh][Options]
 //! Search (Search Tools, while a search is open): Location [Current folder][All subfolders]
 //!        Refine [Date modified v] Kind v / Size v  Options [File contents] Hidden items /
-//!        Skip ignored files / Open file location / Index this drive  Close [Close search]
+//!        Skip ignored files / Open file location / Index this drive / Index files in the
+//!        cloud  Saved [Save search]
+//!        Saved searches v  Close [Close search]
 //! ```
 //!
 //! Every control runs its [`Action`] or is greyed with the reason it cannot run now
@@ -54,6 +56,7 @@ use crate::{
     browse::{self, Place},
     ids,
     model::ViewLayout,
+    sync_view::SyncAction,
     with_state, DriveState,
 };
 
@@ -324,6 +327,50 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
             ],
         ))
         .with_group(group(
+            "Sync",
+            vec![
+                large(button(
+                    s,
+                    app,
+                    "sync",
+                    "Sync now",
+                    Action::Sync(SyncAction::Now),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "push_pin",
+                    "Always keep on this device",
+                    Action::Sync(SyncAction::KeepOnDevice),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "cloud_queue",
+                    "Free up space",
+                    Action::Sync(SyncAction::FreeUpSpace),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "pause_circle",
+                    if sync_paused(s) {
+                        "Resume syncing"
+                    } else {
+                        "Pause syncing"
+                    },
+                    Action::Sync(SyncAction::Pause),
+                )),
+                small(button(
+                    s,
+                    app,
+                    "drive_folder_upload",
+                    "Sync with a folder",
+                    Action::Sync(SyncAction::Pair),
+                )),
+            ],
+        ))
+        .with_group(group(
             "Share with",
             vec![large(unavailable(
                 "security",
@@ -332,6 +379,13 @@ fn share_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                  system's sharing settings.",
             ))],
         ))
+}
+
+/// Whether the drive the sync commands are about is paused.
+fn sync_paused(s: &DriveState) -> bool {
+    crate::sync_view::target_drive(s)
+        .and_then(|id| crate::sync_view::setup_of(s, &id).map(|p| p.paused))
+        .unwrap_or(false)
 }
 
 // ==== View ====
@@ -582,6 +636,29 @@ fn search_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     button(s, app, "manage_search", "Index this drive", Action::IndexDrive)
                         .with_toggled(indexed),
                 ),
+                small(
+                    button(
+                        s,
+                        app,
+                        "cloud_download",
+                        "Index files in the cloud",
+                        Action::Toggle(Toggle::IndexCloudFiles),
+                    )
+                    .with_toggled(settings.index_cloud_files),
+                ),
+            ],
+        ))
+        .with_group(group(
+            "Saved",
+            vec![
+                large(button(s, app, "bookmark_add", "Save search", Action::SaveSearch)),
+                small(menu_button(
+                    s,
+                    app,
+                    "bookmarks",
+                    "Saved searches",
+                    Action::SavedSearchesMenu,
+                )),
             ],
         ))
         .with_group(group(

@@ -181544,6 +181544,27 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionAuthSessionResult": {
+                        "external": "azul_layout::auth_session::OptionAuthSessionResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "AuthSessionResult"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -197989,6 +198010,384 @@
                                 "fn_body": "azul_core::url::Url::open_path(path.as_str())"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "AuthCode": {
+                        "external": "azul_layout::auth_session::AuthCode",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "status": {
+                                    "type": "AuthCodeStatus"
+                                },
+                                "code": {
+                                    "type": "String"
+                                },
+                                "message": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "is_code": {
+                                "doc": [
+                                    "Whether the redirect brought a code."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_code()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AuthCodeStatus": {
+                        "external": "azul_layout::auth_session::AuthCodeStatus",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Code": {},
+                                "ProviderError": {},
+                                "StateMismatch": {},
+                                "NoCode": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AuthPkce": {
+                        "external": "azul_layout::auth_session::AuthPkce",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "code_verifier": {
+                                    "type": "String"
+                                },
+                                "code_challenge": {
+                                    "type": "String"
+                                },
+                                "state": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A fresh PKCE pair and state for one sign-in, from the operating system's random source (on wasm: an empty pair, so a sign-in with it fails)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::auth_session::create_pkce()"
+                            }
+                        },
+                        "functions": {
+                            "authorize_url": {
+                                "doc": [
+                                    "The authorization request at `endpoint` (the provider's authorize URL; a query it has",
+                                    "already is kept): `response_type=code`, `client_id`, `scope` (left out when empty), the",
+                                    "S256 challenge and the state, each escaped. The session adds `redirect_uri`; provider",
+                                    "extras (`access_type=offline`, `token_access_type=offline`) are appended by the app."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "endpoint": "String"
+                                    },
+                                    {
+                                        "client_id": "String"
+                                    },
+                                    {
+                                        "scope": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.authorize_url(endpoint, client_id, scope).into()"
+                            },
+                            "read_redirect": {
+                                "doc": [
+                                    "The URL the browser came back to, read: its `state` must be this sign-in's (else",
+                                    "[`AuthCodeStatus::StateMismatch`], whatever else it says), then the provider's `error`",
+                                    "(with its `error_description`) or the `code`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "redirect_url": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AuthCode"
+                                },
+                                "fn_body": "object.read_redirect(redirect_url)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AuthRequest": {
+                        "external": "azul_layout::auth_session::AuthRequest",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "authorize_url": {
+                                    "type": "String"
+                                },
+                                "redirect_uri": {
+                                    "type": "String"
+                                },
+                                "prefers_ephemeral": {
+                                    "type": "bool"
+                                },
+                                "timeout_secs": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A sign-in at `authorize_url` coming back to `redirect_uri`, sharing the browser's",
+                                    "cookies, waiting the default time."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "authorize_url": "String"
+                                    },
+                                    {
+                                        "redirect_uri": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::auth_session::AuthRequest::create(authorize_url, redirect_uri)"
+                            }
+                        },
+                        "functions": {
+                            "effective_timeout_secs": {
+                                "doc": [
+                                    "The seconds the session waits: [`Self::timeout_secs`], or the default for `0`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u32"
+                                },
+                                "fn_body": "object.effective_timeout_secs()"
+                            },
+                            "with_prefers_ephemeral": {
+                                "doc": [
+                                    "The same request, with or without the browser's cookies."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "prefers_ephemeral": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AuthRequest"
+                                },
+                                "fn_body": "object.with_prefers_ephemeral(prefers_ephemeral)"
+                            },
+                            "with_timeout_secs": {
+                                "doc": [
+                                    "The same request, waiting `timeout_secs` seconds (`0`: the default)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "timeout_secs": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AuthRequest"
+                                },
+                                "fn_body": "object.with_timeout_secs(timeout_secs)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AuthSession": {
+                        "external": "azul_dll::unified::auth_session::AuthSession",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "start": {
+                                "doc": [
+                                    "Starts a sign-in (see the module documentation) from a callback of the window that shows",
+                                    "it, and resumes `on_result` with an [`AuthSessionResult`] once it ends - never inside",
+                                    "this call. `data` is handed back untouched. The request's `authorize_url` has every",
+                                    "parameter but `redirect_uri`, which the session adds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "CallbackInfo"
+                                    },
+                                    {
+                                        "request": "AuthRequest"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_result": "ResumeCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RequestId"
+                                },
+                                "fn_body": "{ let mut info = info; azul_dll::unified::auth_session::AuthSession::start(&mut info, request, data, on_result) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AuthSessionResult": {
+                        "external": "azul_layout::auth_session::AuthSessionResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "status": {
+                                    "type": "AuthSessionStatus"
+                                },
+                                "redirect_url": {
+                                    "type": "String"
+                                },
+                                "redirect_uri": {
+                                    "type": "String"
+                                },
+                                "message": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "downcast": {
+                                "doc": [
+                                    "Downcast the `result` `RefAny` delivered to a `ResumeCallback`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "result": "RefAny"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionAuthSessionResult"
+                                },
+                                "fn_body": "azul_layout::auth_session::AuthSessionResult::downcast(result)"
+                            },
+                            "is_redirected": {
+                                "doc": [
+                                    "Whether the browser came back to the redirect URI."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_redirected()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "AuthSessionStatus": {
+                        "external": "azul_layout::auth_session::AuthSessionStatus",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Redirected": {},
+                                "Cancelled": {},
+                                "TimedOut": {},
+                                "Unsupported": {},
+                                "Failed": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }

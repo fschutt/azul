@@ -527,6 +527,10 @@ pub mod glyph_cache;
 /// callbacks until the runtime delivers the result as a fresh activation.
 #[cfg(feature = "text_layout")]
 pub mod request;
+/// Sign-in sessions (OAuth 2.0 for native apps, RFC 8252): PKCE, the state, the redirect
+/// checks and the loopback listener - the platform-free half of azul-dll's `AuthSession`.
+#[cfg(feature = "auth_session")]
+pub mod auth_session;
 
 /// Headless backend for CPU-only rendering without a display server.
 ///

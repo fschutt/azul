@@ -26,6 +26,93 @@ pub fn string(out: &mut Vec<u8>, bytes: &[u8]) {
     }
 }
 
+/// Writes a mailbox name for an IMAP4rev2 program: UTF-8 in a quoted string when it can be
+/// one, a literal otherwise.
+pub fn utf8_string(out: &mut Vec<u8>, text: &str) {
+    let quotable = text.len() <= 1024 && !text.chars().any(char::is_control);
+    if quotable {
+        out.push(b'"');
+        for c in text.chars() {
+            if c == '"' || c == '\\' {
+                out.push(b'\\');
+            }
+            let mut buffer = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buffer).as_bytes());
+        }
+        out.push(b'"');
+    } else {
+        literal(out, text.as_bytes());
+    }
+}
+
+/// Writes BINARY data: a literal8 (`~{n}`) when it holds a NUL, a literal otherwise.
+pub fn binary_literal(out: &mut Vec<u8>, bytes: &[u8]) {
+    if bytes.contains(&0) {
+        out.push(b'~');
+    }
+    literal(out, bytes);
+}
+
+/// Quoted-printable undone (RFC 2045 6.7): `=XX` octets, soft line breaks (`=` at a line's end)
+/// dropped, a stray `=` kept.
+#[must_use]
+pub fn quoted_printable(body: &[u8]) -> Vec<u8> {
+    let hex = |b: u8| char::from(b).to_digit(16).map(|d| d as u8);
+    let mut out = Vec::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        if body[i] == b'=' {
+            if body.get(i + 1) == Some(&b'\r') && body.get(i + 2) == Some(&b'\n') {
+                i += 3;
+                continue;
+            }
+            if body.get(i + 1) == Some(&b'\n') {
+                i += 2;
+                continue;
+            }
+            if let (Some(a), Some(b)) = (body.get(i + 1).and_then(|b| hex(*b)), body.get(i + 2).and_then(|b| hex(*b))) {
+                out.push(a * 16 + b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(body[i]);
+        i += 1;
+    }
+    out
+}
+
+/// BINARY's data of the part `path` (RFC 3516): the whole message for none; a part's body with
+/// its Content-Transfer-Encoding undone (base64, quoted-printable; 7bit, 8bit and binary as
+/// they are); a multipart or a message inside as it is. `None` for a part that is not there or
+/// an encoding the bridge does not know.
+#[must_use]
+pub fn binary_bytes(bytes: &[u8], root: &Node, path: &[u32]) -> Option<Vec<u8>> {
+    if path.is_empty() {
+        return Some(bytes.to_vec());
+    }
+    let node = mime::resolve(root, path)?;
+    let body = &bytes[node.body.clone()];
+    if !matches!(node.kind, Kind::Leaf) {
+        return Some(body.to_vec());
+    }
+    let encoding = mime::field(&bytes[node.header.clone()], "Content-Transfer-Encoding")
+        .map(|value| value.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    match encoding.as_str() {
+        "" | "7bit" | "8bit" | "binary" => Some(body.to_vec()),
+        "base64" => {
+            let text: String = String::from_utf8_lossy(body)
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            crate::auth::decode_base64(&text)
+        }
+        "quoted-printable" => Some(quoted_printable(body)),
+        _ => None,
+    }
+}
+
 /// Writes `bytes` as a literal: `{n}` CRLF and the bytes.
 pub fn literal(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(format!("{{{}}}\r\n", bytes.len()).as_bytes());

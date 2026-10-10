@@ -490,6 +490,9 @@ enum SideAction {
     /// "Lock down with the recovery code...".
     #[cfg(feature = "encryption")]
     RecoveryLockdown(String),
+    /// The folder sync of the drive: pair it with a folder, sync now, pause, stop, open the
+    /// synced folder.
+    Sync(String, crate::sync_view::SyncAction),
 }
 
 /// What a row's callbacks carry.
@@ -554,6 +557,13 @@ fn menu_entries(s: &DriveState, row: &Row) -> Vec<(String, SideAction)> {
                 String::from("Lock down with the recovery code\u{2026}"),
                 SideAction::RecoveryLockdown(slot.entry.id.clone()),
             ));
+        }
+        if !slot.is_local() {
+            entries.extend(
+                crate::sync_view::menu_entries(s, &slot.entry.id)
+                    .into_iter()
+                    .map(|(label, what)| (label, SideAction::Sync(slot.entry.id.clone(), what))),
+            );
         }
         if !slot.is_built_in() {
             entries.push((
@@ -625,6 +635,9 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         #[cfg(feature = "encryption")]
         SideAction::RecoveryLockdown(drive_id) => {
             crate::encryption::ask_recovery_lockdown(s, &drive_id);
+        }
+        SideAction::Sync(drive_id, what) => {
+            crate::sync_jobs::run_action(info, app, s, Some(drive_id), what);
         }
     }
 }
@@ -794,8 +807,9 @@ fn pill(n: usize, selected: bool) -> Dom {
     )
 }
 
-/// A cloud drive's state: its glyph, what it says, its transfers.
-fn cloud_state(s: &DriveState, index: usize) -> (&'static str, &'static str, usize) {
+/// A cloud drive's state: its glyph, what it says, its transfers. A synced drive says its
+/// sync's status line ("Up to date", "Syncing 12 files (340 MB)", "Paused", ...).
+fn cloud_state(s: &DriveState, index: usize) -> (&'static str, String, usize) {
     let slot = &s.slots[index];
     let id = slot.entry.id.as_str();
     let busy = s
@@ -804,13 +818,15 @@ fn cloud_state(s: &DriveState, index: usize) -> (&'static str, &'static str, usi
         .filter(|t| t.source_id == id || t.target_id == id)
         .count();
     if busy > 0 {
-        ("sync", "Syncing", busy)
+        ("sync", String::from("Syncing"), busy)
+    } else if let Some((glyph, says)) = crate::sync_view::sidebar_state(s, id) {
+        (glyph, says, 0)
     } else if slot.locked() {
-        ("lock", "Its keys are in the keyring", 0)
+        ("lock", String::from("Its keys are in the keyring"), 0)
     } else if slot.drive.is_some() {
-        ("cloud_done", "Connected", 0)
+        ("cloud_done", String::from("Connected"), 0)
     } else {
-        ("cloud_queue", "Not opened yet", 0)
+        ("cloud_queue", String::from("Not opened yet"), 0)
     }
 }
 
@@ -918,6 +934,7 @@ fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
             let (glyph, says, busy) = cloud_state(s, index);
             dom.add_child(
                 Dom::create_icon(glyph)
+                    .with_id(ids::side_sync_state(&slot.entry.id))
                     .with_css(look::STATE)
                     .with_accessibility_name(says),
             );

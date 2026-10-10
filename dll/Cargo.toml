@@ -29,7 +29,7 @@ azul-css = { path = "../css", version = "0.0.16", default-features = false, opti
 # feature unification handed the full default set to every crate in the
 # graph. Scoping webrender (2026-08-05) exposed the under-declaration -
 # the dll stopped compiling until this line named what it actually uses.
-azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater", "auth_session"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -73,6 +73,10 @@ serde_json = { version = "1.0", optional = true }
 # the HTML head, wasm client deserializes at AzStartup_init.
 postcard = { version = "1.0", features = ["use-std"], optional = true }
 base64 = { version = "0.22", optional = true }
+# The OS's random source for a sign-in's PKCE verifier and state (`AuthPkce::create`,
+# desktop/extra/auth_session). getrandom 0.2.17 is in Cargo.lock already (this crate's wasm
+# section, azul-storage, the rustls crypto stack); no build script.
+getrandom = "0.2"
 
 # Accessibility
 accesskit = { version = "0.24", default-features = false, optional = true }

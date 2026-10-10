@@ -72,6 +72,7 @@ name = "AzContacts"
 version = "0.1.0"
 dependencies = [
  "azul-appkit",
+ "azul-contacts-core",
  "azul-dll",
  "azul-pim",
  "azul-storage",
@@ -1184,8 +1185,10 @@ dependencies = [
  "azcloud-kit",
  "azul-appkit",
  "azul-calendar-core",
+ "azul-contacts-core",
  "azul-dll",
  "azul-mail-core",
+ "azul-pim",
  "azul-storage",
  "base64 0.22.1",
  "chrono",
@@ -1208,6 +1211,15 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "azul-contacts-core"
+version = "0.1.0"
+dependencies = [
+ "azul-appkit",
+ "azul-pim",
+ "azul-storage",
 ]
 
 [[package]]

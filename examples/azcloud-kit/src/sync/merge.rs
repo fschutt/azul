@@ -50,6 +50,10 @@ pub enum Action {
     /// A JSON-merge file changed on both sides: merged per key, written here
     /// and uploaded.
     MergeJson { key: String },
+    /// The drive's version stays in the cloud (an app's on-demand file: new
+    /// there and not wanted here yet, or kept in the cloud only already): the
+    /// base takes it as a cloud-only entry, nothing is written here.
+    CloudOnly { key: String },
 }
 
 impl Action {
@@ -64,7 +68,8 @@ impl Action {
             | Action::DeleteRemote { key }
             | Action::Forget { key }
             | Action::Conflict { key, .. }
-            | Action::MergeJson { key } => key,
+            | Action::MergeJson { key }
+            | Action::CloudOnly { key } => key,
         }
     }
 
@@ -82,6 +87,7 @@ impl Action {
                 format!("conflict {key}: the drive's stays, this one becomes {copy}")
             }
             Action::MergeJson { key } => format!("merge {key} key by key"),
+            Action::CloudOnly { key } => format!("cloud only {key}"),
         }
     }
 }

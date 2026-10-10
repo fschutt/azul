@@ -50,6 +50,9 @@ pub mod keyring;
 pub mod local;
 pub mod manifest;
 pub mod meta;
+/// OAuth 2.0 for the consumer clouds (Google Drive, Dropbox, OneDrive): the token endpoint and
+/// the transport that keeps a signed-in drive's access token fresh.
+pub mod oauth;
 pub mod ops;
 pub mod s3;
 pub mod scoped;
@@ -125,6 +128,11 @@ pub const DEFAULT_PAGE_SIZE: u32 = 1000;
 
 /// The folder separator of every key.
 pub const DELIMITER: &str = "/";
+
+/// The name of a [`Drive::metadata`] row that holds the BLAKE3 of the file's content (64
+/// lowercase hex digits), where the drive knows it without reading the file: an encrypted
+/// drive's index keeps it. A sync compares it with a file on this device without a download.
+pub const CONTENT_HASH_METADATA: &str = "BLAKE3";
 
 /// One object of a drive.
 #[derive(Debug, Clone, PartialEq, Eq)]

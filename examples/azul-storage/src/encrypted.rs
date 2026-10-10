@@ -1308,6 +1308,10 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
         )];
         if let Some(object) = &entry.object {
             pairs.push((
+                crate::CONTENT_HASH_METADATA.to_string(),
+                blake3::Hash::from(object.blake3).to_hex().to_string(),
+            ));
+            pairs.push((
                 String::from("Stored size"),
                 format!("{} bytes", object.stored_size),
             ));

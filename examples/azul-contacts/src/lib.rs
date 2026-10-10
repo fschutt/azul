@@ -1,7 +1,8 @@
 //! AzContacts: the address book of the Azlin apps (the plan:
 //! azul-apps/planning/core/contacts.md).
 //!
-//! The model is plain Rust, tested without a window:
+//! The model is plain Rust, tested without a window, in azul-contacts-core (so the Azlin Bridge's
+//! CardDAV runs the same code); it keeps its module names here (`crate::contact`):
 //! - [`vcard`]: vCard 3.0 / 4.0 content lines - folding, escaping, parameters, multiple values;
 //! - [`contact`]: the contact and its vCard 3.0 / 4.0 form;
 //! - [`book`]: the list - sort by first or last name (diacritics folded), letter sections, the A-Z jump, initials, search, groups;
@@ -9,15 +10,10 @@
 //! - [`store`]: one contacts/<uid>.vcf file per contact, loading, the import preview, export;
 //! - [`sample`]: the --sample address book (300 contacts, the plan's special cards and duplicate pairs).
 
-pub mod book;
-pub mod contact;
-pub mod csv;
-pub mod dupes;
+pub use azcontacts_core::{book, contact, csv, dupes, sample, store, vcard};
+
 pub mod ids;
 pub mod photo;
-pub mod sample;
-pub mod store;
-pub mod vcard;
 
 /// The window (azul's PimShell, the list, the card, the edit form, import, merge, settings).
 pub mod ui;

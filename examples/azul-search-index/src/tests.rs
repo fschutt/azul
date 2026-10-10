@@ -297,3 +297,79 @@ fn a_files_text_is_read_as_the_index_reads_it() {
     assert_eq!(crate::document_text(drive.path(), "photo.jpg", &none), None);
     assert_eq!(crate::document_text(drive.path(), "gone.txt", &none), None);
 }
+
+/// A file's text read from wherever it is on this computer (a drive's local copy, named apart
+/// from its key): its kind by its own name.
+#[test]
+fn a_files_text_is_read_from_any_file_on_this_computer() {
+    let (drive, _dir) = drive();
+    let none = Extractors::default();
+    let text = crate::file_text(&drive.path().join("docs/Report.docx"), &none).expect("its text");
+    assert!(text.contains("Quarterly report"), "{text:?}");
+    let plan = crate::file_text(&drive.path().join("notes/plan.txt"), &none);
+    assert!(plan.is_some_and(|t| t.contains("zebra-quartz")));
+    assert_eq!(crate::file_text(&drive.path().join("photo.jpg"), &none), None);
+    assert_eq!(crate::file_text(&drive.path().join("gone.txt"), &none), None);
+}
+
+/// An index reads the files a source names (a cloud drive's listing, an encrypted drive's index)
+/// through the source's reader, asked for the bytes the file's kind needs: a file the reader
+/// has nothing for is recorded as read without text, one it cannot read now (offline) is not -
+/// the next update asks for it again and reads nothing else.
+#[test]
+fn an_index_reads_a_sources_files_through_its_reader_and_asks_again_for_what_failed() {
+    use std::cell::{Cell, RefCell};
+
+    let dir = TempDir::new("index-source");
+    let index = DriveIndex::open(dir.path()).expect("the index");
+    let file = |path: &str, size: u64| azul_search::FileEntry {
+        path: path.to_string(),
+        size,
+        modified: Some(1_700_000_000),
+    };
+    let files = vec![
+        file("notes/a.txt", 11),
+        file("notes/b.txt", 9),
+        file("big.txt", 1 << 40),
+        file("Report.docx", 500),
+    ];
+    let offline = Cell::new(true);
+    let asked: RefCell<Vec<(String, Kind, u64)>> = RefCell::new(Vec::new());
+    let mut read = |f: &azul_search::FileEntry, kind: Kind, limit: u64| {
+        asked.borrow_mut().push((f.path.clone(), kind, limit));
+        match f.path.as_str() {
+            "notes/a.txt" => Ok(Some(b"alpha words".to_vec())),
+            "notes/b.txt" if offline.get() => Err(String::from("offline")),
+            "notes/b.txt" => Ok(Some(b"beta word".to_vec())),
+            "Report.docx" => Ok(Some(zipped(&[("word/document.xml", DOCX)]))),
+            _ => Ok(None),
+        }
+    };
+    let cancel = AtomicBool::new(false);
+    let none = Extractors::default();
+    let first = index
+        .update_files(&files, &mut read, &none, &cancel, &mut |_| {})
+        .expect("the first update");
+    assert_eq!((first.indexed, first.without_text, first.failed), (2, 1, 1));
+    assert_eq!(index.status().files, 3, "the file that failed is not recorded");
+    assert_eq!(index.query("alpha", "", 10).expect("q"), vec!["notes/a.txt"]);
+    assert_eq!(index.query("quarterly", "", 10).expect("q"), vec!["Report.docx"]);
+    assert!(asked
+        .borrow()
+        .contains(&(String::from("notes/a.txt"), Kind::Text, crate::MAX_TEXT_BYTES as u64)));
+    assert!(asked.borrow().contains(&(
+        String::from("Report.docx"),
+        Kind::Office,
+        crate::MAX_DOCUMENT_BYTES
+    )));
+
+    offline.set(false);
+    asked.borrow_mut().clear();
+    let second = index
+        .update_files(&files, &mut read, &none, &cancel, &mut |_| {})
+        .expect("the second update");
+    assert_eq!((second.indexed, second.failed, second.unchanged), (1, 0, 3));
+    let again: Vec<String> = asked.borrow().iter().map(|(p, _, _)| p.clone()).collect();
+    assert_eq!(again, vec!["notes/b.txt"], "only what failed is asked for again");
+    assert_eq!(index.query("beta", "", 10).expect("q"), vec!["notes/b.txt"]);
+}

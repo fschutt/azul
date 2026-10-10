@@ -91,6 +91,28 @@ No Rust cluster, no cloud, no pip: Python's standard library only.
   as blind-signed period tokens (RFC 9474, scripts/azlin_period.py), issued only against that key
   (the mock keeps its hash) - the checkout id alone issues nothing.
 
+  Not azlin-token's: a fake OAuth 2.0 token endpoint for the consumer clouds' sign-ins
+  (AzDrive's Connect data source > Google Drive / Dropbox / OneDrive, AUTHSESSION17), so a test
+  signs in without a provider:
+
+    POST /oauth/<provider>/token                    200 RFC 6749 tokens (access_token,
+        application/x-www-form-urlencoded:          refresh_token, expires_in, token_type
+        grant_type=authorization_code, code,        Bearer). The code must be the one the headless
+        code_verifier, redirect_uri, client_id      sign-in fake hands out for the verifier:
+                                                    e2e-<BASE64URL(SHA256(verifier))>
+                                                    (AZ_AUTH_SESSION_REDIRECT=
+                                                    {redirect_uri}?code=e2e-{code_challenge}&
+                                                    state={state}) - so PKCE S256 is checked;
+                                                    the client id OAUTH_CLIENT_ID (401
+                                                    invalid_client), 400 invalid_grant else
+        grant_type=refresh_token, refresh_token,    200 a new access token (onedrive also a new
+        client_id                                   refresh token: it rotates); 400
+                                                    invalid_grant for one it did not issue
+
+  Its errors are RFC 6749's {"error", "error_description"}; every request is in
+  `state.oauth_requests` (grant, client, redirect URI, whether the code or the refresh token
+  was good).
+
   Errors are {"error": "<code>", "message": "<sentence>"} with azlin-token's codes (no_such_drive,
   unauthorized, token_reuse, credentials_revoked, bad_tier, no_such_checkout, claim_key_required,
   bad_claim_key, issue_key_required, issue_key_wrong, not_paid, already_issued, bad_token,
@@ -160,6 +182,9 @@ METHODS = ['sepa', 'bank_transfer', 'prepaid', 'voucher', 'app_store', 'card']
 PREPAY_MONTHS = [1, 3, 6, 12, 24]
 APPROVING_CARD = '4242424242424242'
 DECLINING_CARD = '4000000000000002'
+# The fake OAuth token endpoint's one client id, and the providers it answers for.
+OAUTH_CLIENT_ID = 'azdrive-e2e-client'
+OAUTH_PROVIDERS = ('google', 'dropbox', 'onedrive')
 # How long an approved checkout keeps its sealed sign-up (then it answers "expired").
 SEALED_KEEP_SECS = 30 * 86400
 # How long a recovery-key lockdown waits for a device of the owner to cancel it, and how long
@@ -334,6 +359,13 @@ ACCESS_KEY = 'AZLINMOCKKEY'
 SECRET_KEY = 'azlin-mock-secret-key'
 
 
+def oauth_code_for(code_verifier):
+    """The authorization code the headless sign-in fake hands out for `code_verifier`:
+    e2e-<BASE64URL(SHA256(verifier))>, its PKCE S256 challenge."""
+    digest = hashlib.sha256(code_verifier.encode('ascii', 'replace')).digest()
+    return 'e2e-' + base64.urlsafe_b64encode(digest).rstrip(b'=').decode('ascii')
+
+
 def b32(raw):
     """azlin_proto::b32: lowercase, unpadded base32."""
     return base64.b32encode(raw).decode('ascii').rstrip('=').lower()
@@ -395,6 +427,55 @@ class TokenState:
         self.webhooks = []
         # The checkouts abandoned (POST /v1/checkout/<id>/abandon), in order.
         self.abandoned = []
+        # The fake OAuth token endpoint: every request (POST /oauth/<provider>/token), and the
+        # refresh tokens it issued, by token -> provider.
+        self.oauth_requests = []
+        self.oauth_refresh = {}
+
+    def oauth_token(self, provider, form):
+        """The fake OAuth token endpoint (see the module documentation): (status, answer)."""
+        def refused(status, error, description):
+            return status, {'error': error, 'error_description': description}
+
+        grant = form.get('grant_type', '')
+        record = {'provider': provider, 'grant_type': grant,
+                  'client_id': form.get('client_id', ''),
+                  'redirect_uri': form.get('redirect_uri', ''), 'ok': False}
+        with self.lock:
+            self.oauth_requests.append(record)
+            if provider not in OAUTH_PROVIDERS:
+                return refused(404, 'not_found', 'no OAuth provider %r here' % provider)
+            if form.get('client_id') != OAUTH_CLIENT_ID:
+                return refused(401, 'invalid_client', 'unknown client')
+            if grant == 'authorization_code':
+                verifier = form.get('code_verifier', '')
+                if not verifier or form.get('code') != oauth_code_for(verifier):
+                    return refused(400, 'invalid_grant',
+                                   'the code was not issued for this code_verifier')
+                if not form.get('redirect_uri'):
+                    return refused(400, 'invalid_request', 'redirect_uri is missing')
+                refresh = 'e2e-refresh-%s-%s' % (provider, secrets.token_hex(8))
+                self.oauth_refresh[refresh] = provider
+                record['ok'] = True
+                record['refresh_token'] = refresh
+                return 200, {'access_token': 'e2e-access-' + secrets.token_hex(8),
+                             'refresh_token': refresh, 'expires_in': 3600,
+                             'token_type': 'Bearer', 'scope': 'e2e'}
+            if grant == 'refresh_token':
+                refresh = form.get('refresh_token', '')
+                record['refresh_token'] = refresh
+                if self.oauth_refresh.get(refresh) != provider:
+                    return refused(400, 'invalid_grant', 'unknown refresh token')
+                record['ok'] = True
+                answer = {'access_token': 'e2e-access-' + secrets.token_hex(8),
+                          'expires_in': 3600, 'token_type': 'Bearer'}
+                if provider == 'onedrive':
+                    rotated = 'e2e-refresh-%s-%s' % (provider, secrets.token_hex(8))
+                    del self.oauth_refresh[refresh]
+                    self.oauth_refresh[rotated] = provider
+                    answer['refresh_token'] = rotated
+                return 200, answer
+            return refused(400, 'unsupported_grant_type', 'grant_type %r' % grant)
 
     def set_providers(self, providers):
         """Offers the fake payment providers `providers` (ids of FAKE_PROVIDERS) from now on."""
@@ -1507,6 +1588,14 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.command == 'POST' and segments == ['v1', 'vouchers', 'redeem']:
             self.answer(*state.redeem_voucher(self.bearer(), self.body() or {}))
+            return
+        if self.command == 'POST' and len(segments) == 3 and segments[0] == 'oauth' \
+                and segments[2] == 'token':
+            raw = self.raw_body().decode('utf-8', 'replace')
+            form = {k: v[0] for k, v in
+                    urllib.parse.parse_qs(raw, keep_blank_values=True).items()}
+            status, value = state.oauth_token(segments[1], form)
+            self.answer(status, value)
             return
         raise ApiError(404, 'not_found', 'no route for %s /%s' % (self.command, path))
 

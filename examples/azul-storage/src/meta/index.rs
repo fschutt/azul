@@ -571,8 +571,11 @@ impl MetaIndexProvider {
         self
     }
 
-    /// The folder of this device's copy of the drive `drive` (named by a hash of its id).
-    fn cache_dir(&self, drive: &str) -> Option<PathBuf> {
+    /// The folder of this device's copy of the drive `drive` (named by a hash of its id): the
+    /// drive's own cache folder - an app keeps what it derives from the drive's plain contents
+    /// there (a search index), and it goes with the copy when the drive's key is rotated.
+    #[must_use]
+    pub fn drive_cache_dir(&self, drive: &str) -> Option<PathBuf> {
         self.cache_root
             .as_ref()
             .map(|root| root.join(hex(&Sha256::digest(drive.as_bytes())[..16])))
@@ -606,7 +609,7 @@ impl IndexProvider for MetaIndexProvider {
         drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError> {
         let options = RepoOptions {
-            cache_dir: self.cache_dir(drive),
+            cache_dir: self.drive_cache_dir(drive),
             lazy: self.lazy,
         };
         let repo = open_or_create(&bucket, drive_key, &self.device_id(), &self.device_name, &options)?;
@@ -625,7 +628,7 @@ impl IndexProvider for MetaIndexProvider {
     ) -> Result<(), DriveError> {
         let bucket = DriveBucket::new(bucket);
         reseal(&bucket, old, new, &self.device_id(), crate::time::now_unix()).map_err(to_drive)?;
-        if let Some(dir) = self.cache_dir(drive) {
+        if let Some(dir) = self.drive_cache_dir(drive) {
             match std::fs::remove_dir_all(&dir) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

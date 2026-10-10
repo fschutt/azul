@@ -161,7 +161,7 @@ extern "C" fn on_form_text(
 pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (String, Dom) {
     match popup {
         Popup::AddDrive(dialog) => {
-            crate::ui_add_drive::dialog(dialog, s.token.development, app)
+            crate::ui_add_drive::dialog(dialog, s.token.development, &s.sign_in_settings, app)
         }
         Popup::ConfirmDelete { drive_id, items } => {
             let what = match items.as_slice() {
@@ -252,6 +252,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
         }
         #[cfg(feature = "encryption")]
         Popup::Encryption(dialog) => crate::encryption::dialog_parts(dialog, s, app),
+        Popup::Sync(dialog) => crate::sync_view::dialog_parts(dialog, s, app),
     }
 }
 
@@ -989,6 +990,7 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                 .map_or_else(|| String::from("(none)"), |p| p.display().to_string());
             vec![
                 section("Drives", column_of(rows)),
+                section("Sync", crate::sync_view::options_section(s, app)),
                 section("Use with other programs", crate::ui_bridge::section(&s.bridge, app)),
                 section(
                     "Add a drive",

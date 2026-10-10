@@ -4,11 +4,14 @@
 use std::{
     io::{Read, Write},
     net::TcpStream,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
-use azul_storage::Drive;
+use azul_storage::{Drive, ListPage, ListRequest};
 
 use super::*;
 use crate::{memory::MemoryDrive, net::bind_loopback};
@@ -571,4 +574,174 @@ fn the_calendar_and_contacts_port_has_the_same_doors() {
     );
     wire.send(request.as_bytes());
     assert_eq!(wire.response().0, 403);
+}
+
+/// A drive in memory that counts how files came: whole (`put`) or streamed (`put_from`).
+struct Counting {
+    inner: MemoryDrive,
+    whole: AtomicUsize,
+    streamed: AtomicUsize,
+}
+
+impl Drive for Counting {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.whole.fetch_add(1, Ordering::SeqCst);
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.streamed.fetch_add(1, Ordering::SeqCst);
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes)
+            .map_err(|e| DriveError::Io(e.to_string()))?;
+        self.inner.put(key, &bytes)?;
+        Ok(bytes.len() as u64)
+    }
+}
+
+/// A PUT goes into the drive as a stream (`Drive::put_from`: an encrypted drive spools a big
+/// file to a temporary file, a bucket sends it in parts), so the bridge never holds a file of
+/// Finder's whole in memory - with a length and chunked.
+#[test]
+fn a_put_streams_its_body_into_the_drive_and_never_holds_it_whole() {
+    let drive = Arc::new(Counting {
+        inner: MemoryDrive::new(),
+        whole: AtomicUsize::new(0),
+        streamed: AtomicUsize::new(0),
+    });
+    drive.inner.put("docs/", b"").unwrap();
+    let dav = Arc::new(Dav::new(
+        drive.clone(),
+        Credentials::new(USER, PASSWORD),
+        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        Limits::default(),
+        0,
+    ));
+    let mut wire = Wire::connect(dav);
+    let body = vec![b'x'; 200 * 1024];
+    let request = format!(
+        "PUT /docs/big.bin HTTP/1.1\r\nHost: localhost\r\nAuthorization: {}\r\nContent-Length: {}\r\n\r\n",
+        basic(USER, PASSWORD),
+        body.len()
+    );
+    wire.send(request.as_bytes());
+    wire.send(&body);
+    assert_eq!(wire.response().0, 201);
+    let chunked = format!(
+        "PUT /docs/finder.txt HTTP/1.1\r\nHost: localhost\r\nAuthorization: {}\r\n\
+         Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
+        basic(USER, PASSWORD)
+    );
+    wire.send(chunked.as_bytes());
+    assert_eq!(wire.response().0, 201);
+    assert_eq!(drive.inner.get("docs/big.bin").unwrap(), body);
+    assert_eq!(drive.inner.get("docs/finder.txt").unwrap(), b"hello world");
+    assert_eq!(
+        (drive.streamed.load(Ordering::SeqCst), drive.whole.load(Ordering::SeqCst)),
+        (2, 0),
+        "both streamed, neither held whole"
+    );
+}
+
+#[test]
+fn a_chunked_put_over_the_limit_is_refused_while_it_streams_and_nothing_is_kept() {
+    let drive = drive();
+    let limits = Limits {
+        put_bytes: 8,
+        ..Limits::default()
+    };
+    let dav = Arc::new(Dav::new(
+        drive.clone(),
+        Credentials::new(USER, PASSWORD),
+        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        limits,
+        0,
+    ));
+    let mut wire = Wire::connect(dav);
+    let request = format!(
+        "PUT /docs/too-big.txt HTTP/1.1\r\nHost: localhost\r\nAuthorization: {}\r\n\
+         Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
+        basic(USER, PASSWORD)
+    );
+    wire.send(request.as_bytes());
+    assert_eq!(wire.response().0, 413);
+    assert!(wire.closed());
+    assert!(drive.head("docs/too-big.txt").is_err(), "nothing kept");
+}
+
+/// WebDAV over an encrypted drive opened as the bridge opens an encrypted account's
+/// (azul-mail-core's mail_drive): folders, files, ranges, moves and deletes work, and the bucket
+/// holds no name and no byte of them in the clear.
+#[cfg(feature = "encryption")]
+#[test]
+fn webdav_over_an_encrypted_drive_keeps_no_name_or_byte_in_the_bucket_in_the_clear() {
+    use azmail_core::mail_drive;
+    use azul_storage::{
+        crypto::{device, keys::RecoveryKdf},
+        keyring::{KeyringStore, MemoryKeyring},
+        meta::MemoryBucket,
+        ops::list_all,
+    };
+    let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+    let bucket = Arc::new(MemoryBucket::new());
+    let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_dav", cheap).unwrap();
+    let drive = mail_drive::wrap_auto(bucket.clone(), "d_dav", keyring);
+    let dav = Dav::new(
+        drive,
+        Credentials::new(USER, PASSWORD),
+        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        Limits::default(),
+        0,
+    );
+    let expect = |response: Response, status: Status| -> Response {
+        assert_eq!(response.status, status, "{}", text(&response));
+        response
+    };
+    expect(dav.respond(&head("MKCOL", "/Briefe/", &[]), b""), Status::CREATED);
+    expect(
+        dav.respond(&head("PUT", "/Briefe/an%20Oma.txt", &[]), b"Liebe Oma, bis bald."),
+        Status::CREATED,
+    );
+    let range = expect(
+        dav.respond(&head("GET", "/Briefe/an%20Oma.txt", &[("Range", "bytes=0-4")]), b""),
+        Status::PARTIAL,
+    );
+    assert_eq!(range.body, b"Liebe");
+    let listing = text(&expect(
+        dav.respond(&head("PROPFIND", "/Briefe/", &[("Depth", "1")]), b""),
+        Status::MULTI_STATUS,
+    ));
+    assert!(listing.contains("<D:href>/Briefe/an%20Oma.txt</D:href>"), "{listing}");
+    expect(
+        dav.respond(
+            &head("MOVE", "/Briefe/an%20Oma.txt", &[("Destination", "/Briefe/Oma.txt")]),
+            b"",
+        ),
+        Status::CREATED,
+    );
+    assert_eq!(dav.respond(&head("GET", "/Briefe/Oma.txt", &[]), b"").body, b"Liebe Oma, bis bald.");
+    let root = text(&dav.respond(&head("PROPFIND", "/", &[("Depth", "1")]), b""));
+    assert!(root.contains("<D:href>/Briefe/</D:href>") && !root.contains(".azlin"), "{root}");
+    for object in list_all(bucket.as_ref(), "").unwrap() {
+        assert!(!object.key.contains("Briefe") && !object.key.contains("Oma"), "{}", object.key);
+        let bytes = bucket.get(&object.key).unwrap();
+        assert!(!bytes.windows(9).any(|w| w == b"Liebe Oma"), "{} holds the text", object.key);
+    }
+    expect(dav.respond(&head("DELETE", "/Briefe/", &[]), b""), Status::NO_CONTENT);
+    assert_eq!(dav.respond(&head("GET", "/Briefe/Oma.txt", &[]), b"").status, Status::NOT_FOUND);
 }

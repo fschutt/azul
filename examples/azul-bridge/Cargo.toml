@@ -46,6 +46,12 @@ md-5 = "0.11"
 # CalDAV: AzCalendar's events without azul types (the event and calendar files, iCalendar
 # import and export), so the bridge reads and writes them with AzCalendar's own code.
 azul-calendar-core = { path = "../azul-calendar-core" }
+# CalDAV's to-do lists: the one task store of the Azlin apps (azul-pim's task model, AzTasks'
+# VTODO import and export).
+azul-pim = { path = "../azul-pim" }
+# CardDAV: AzContacts' address book without azul types (the file rules, the vCard 3.0 / 4.0
+# forms of a contact), so a 4.0 file reaches a 3.0 program written by AzContacts' own model.
+azul-contacts-core = { path = "../azul-contacts-core" }
 # The dates of the events, this computer's zone for an imported time: the features
 # azul-calendar-core builds chrono with.
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
@@ -58,7 +64,11 @@ dirs = "6"
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
 
 [features]
-default = []
+default = ["encryption"]
+# An encrypted account's drive, as AzMail opens it (azul-mail-core's mail_drive: AutoEncrypted,
+# the drive index, the AZD1 drops filed into the mail folders) and the join code's key seal
+# (azcloud-kit). On by default: a bridge without it would show an encrypted drive's raw objects.
+encryption = ["azul-mail-core/encryption", "azcloud-kit/encryption", "azul-storage/encryption"]
 # The OS keyring (Keychain, Credential Manager, the Secret Service) through azul's blocking keyring
 # calls: azul-storage's AzulKeyring, which links libazul (AZ_LINK_PATH) - the build the apps
 # ship. Without it the secrets are the state folder's 0600 file.

@@ -15,7 +15,8 @@ use azcloud_kit::{
     Account, StateDir,
 };
 use azul_storage::{
-    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, S3Config, S3Drive,
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Config,
+    S3Drive,
 };
 
 /// The S3 error codes that mean "these credentials no longer work".
@@ -156,6 +157,22 @@ impl Drive for AccountDrive {
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.with_bucket(|b| b.put(key, bytes))
+    }
+    // The bucket's conditional write (S3 If-None-Match / If-Match): what an encrypted drive's
+    // index commits with; the default of the trait would refuse it.
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.with_bucket(|b| b.put_if(key, bytes, condition))
+    }
+    // The bucket's streamed write (parts for a big file). Once: the body cannot be read again for
+    // a retry, so the credentials are made fresh before it starts.
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
+        let (drive, _) = self.current(false)?;
+        drive.put_from(key, body)
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         self.with_bucket(|b| b.delete(key))

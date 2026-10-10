@@ -27,10 +27,12 @@ use azul_search::{
 use azul_search_index::{IndexStatus, UpdateProgress};
 use azul_storage::{key, ListPage, ObjectInfo};
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    browse::{self, Entry, Sort},
+    browse::{self, Entry, Place, Sort},
     listing,
+    model::Settings,
 };
 
 /// The most results a search shows ("the first ones" after that).
@@ -234,7 +236,7 @@ pub fn found_content(prefix: &str, hit: ContentHit) -> Found {
 }
 
 /// Whether a path has a hidden part (a name starting with a dot).
-fn hidden_path(path: &str) -> bool {
+pub(crate) fn hidden_path(path: &str) -> bool {
     path.split('/').any(|part| part.starts_with('.'))
 }
 
@@ -330,10 +332,25 @@ pub fn split_pc_key(row: &str) -> Option<(&str, &str)> {
     row.split_once('\u{0}')
 }
 
+/// The sync state of the result row `row` (the sync's answer): a This PC row's by its own
+/// drive, any other's by the open drive `open_drive`; `None` where nothing syncs.
+#[must_use]
+pub fn result_sync(
+    sync: &dyn crate::sync_lookup::SyncLookup,
+    open_drive: Option<&str>,
+    row: &str,
+) -> Option<crate::sync_lookup::SyncState> {
+    match split_pc_key(row) {
+        Some((drive, key)) => sync.sync_state(drive, key),
+        None => sync.sync_state(open_drive?, row),
+    }
+}
+
 // ==== Refine (the Search tab's Date modified, Kind and Size) ====
 
 /// Explorer's Date modified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DateRefine {
     #[default]
     Any,
@@ -377,7 +394,8 @@ impl DateRefine {
 }
 
 /// Explorer's Kind: the files of a kind's extensions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum KindRefine {
     #[default]
     Any,
@@ -446,7 +464,8 @@ const MB: u64 = 1024 * KB;
 const GB: u64 = 1024 * MB;
 
 /// Explorer's Size buckets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SizeRefine {
     #[default]
     Any,
@@ -635,6 +654,8 @@ pub struct FindState {
     pub contents: bool,
     /// A cloud drive: names over a listing, slower.
     pub remote: bool,
+    /// An encrypted drive: its names from its drive index on this computer.
+    pub drive_index: bool,
     /// Which search this is: a batch of an older one is dropped.
     pub serial: u64,
     /// Raised to stop it (a new key, Escape, another folder).
@@ -675,6 +696,7 @@ impl FindState {
             query,
             contents,
             remote,
+            drive_index: false,
             serial,
             cancel,
             rows: Vec::new(),
@@ -802,13 +824,14 @@ impl FindState {
     pub fn status_text(&self) -> String {
         let n = listing::grouped_digits(self.rows.len());
         match &self.end {
+            None if self.phase == FindPhase::Contents => {
+                format!("Searching file contents... {n} found")
+            }
+            None if self.drive_index => format!("Searching the drive's names... {n} found"),
             None if self.remote && self.phase == FindPhase::Cached => {
                 format!("Searching the last listing, then the cloud... {n} found")
             }
             None if self.remote => format!("Searching names in the cloud (slower)... {n} found"),
-            None if self.phase == FindPhase::Contents => {
-                format!("Searching file contents... {n} found")
-            }
             None => format!("Searching... {n} found"),
             Some(FindEnd {
                 error: Some(error), ..
@@ -818,6 +841,31 @@ impl FindState {
                 let noun = if self.rows.len() == 1 { "item" } else { "items" };
                 let more = if end.limited { " (the first ones)" } else { "" };
                 format!("{n} {noun} found{more}")
+            }
+        }
+    }
+
+    /// The note over a cloud or encrypted drive's results: where its names and contents come
+    /// from.
+    #[must_use]
+    pub fn cloud_note_text(&self) -> &'static str {
+        match (self.drive_index, self.contents) {
+            (true, true) => {
+                "The drive's names come from its index on this computer, file contents from its \
+                 search index (Index this drive)."
+            }
+            (true, false) => {
+                "The drive's names come from its index on this computer; Index this drive (the \
+                 Search tab) searches its files' contents too."
+            }
+            (false, true) => {
+                "A cloud drive is searched by name over a listing of every file below this folder \
+                 (slower than a folder on this computer), file contents from its search index."
+            }
+            (false, false) => {
+                "A cloud drive is searched by name, over a listing of every file below this \
+                 folder: slower than a folder on this computer, and file contents are not \
+                 searched."
             }
         }
     }
@@ -1141,5 +1189,137 @@ impl IndexInfo {
             }
             _ => String::from("Not indexed yet"),
         }
+    }
+}
+
+/// A cloud or encrypted drive's index as its search asks it for the contents.
+#[derive(Clone)]
+pub struct RemoteContents {
+    /// The index's folder.
+    pub dir: PathBuf,
+    /// The drive's id (the sync's name for it).
+    pub drive_id: String,
+    /// Where a result's local copy is (its line is read there).
+    pub sync: Arc<dyn crate::sync_lookup::SyncLookup>,
+}
+
+impl std::fmt::Debug for RemoteContents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteContents")
+            .field("dir", &self.dir)
+            .field("drive_id", &self.drive_id)
+            .finish_non_exhaustive()
+    }
+}
+
+// ==== Saved searches (the Search tab's Save search) ====
+
+/// The longest name a saved search takes from its text (characters, the ellipsis included).
+const SAVED_NAME_CHARS: usize = 40;
+
+/// A search kept in AzDrive's settings (Save search): its name, the search box's text, the
+/// Search tab's choices and the place it searched; Saved searches runs it again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedSearch {
+    pub name: String,
+    /// The search box's text.
+    pub query: String,
+    /// File contents.
+    pub contents: bool,
+    /// All subfolders (`false`: Current folder).
+    pub subfolders: bool,
+    /// Skip ignored files.
+    pub ignore_files: bool,
+    pub date: DateRefine,
+    pub kind: KindRefine,
+    pub size: SizeRefine,
+    /// The drive searched (`""`: This PC, every drive on this computer).
+    pub drive: String,
+    /// Its folder (`""`: its root).
+    pub prefix: String,
+}
+
+impl Default for SavedSearch {
+    fn default() -> Self {
+        SavedSearch {
+            name: String::new(),
+            query: String::new(),
+            contents: false,
+            subfolders: true,
+            ignore_files: true,
+            date: DateRefine::Any,
+            kind: KindRefine::Any,
+            size: SizeRefine::Any,
+            drive: String::new(),
+            prefix: String::new(),
+        }
+    }
+}
+
+impl SavedSearch {
+    /// The search of `text` in `place` as the Search tab sets it (`settings`, `refines`), named
+    /// after the text (cut to [`SAVED_NAME_CHARS`] with an ellipsis when longer).
+    #[must_use]
+    pub fn of(text: &str, settings: &Settings, refines: Refines, place: &Place) -> SavedSearch {
+        let query = text.trim().to_string();
+        let name = if query.chars().count() > SAVED_NAME_CHARS {
+            let kept: String = query.chars().take(SAVED_NAME_CHARS - 1).collect();
+            format!("{kept}\u{2026}")
+        } else {
+            query.clone()
+        };
+        let (drive, prefix) = match place {
+            Place::Folder { drive, prefix } => (drive.clone(), prefix.clone()),
+            Place::ThisPc | Place::QuickAccess => (String::new(), String::new()),
+        };
+        SavedSearch {
+            name,
+            query,
+            contents: settings.search_contents,
+            subfolders: settings.search_subfolders,
+            ignore_files: settings.search_ignore_files,
+            date: refines.date,
+            kind: refines.kind,
+            size: refines.size,
+            drive,
+            prefix,
+        }
+    }
+
+    /// Its Refine.
+    #[must_use]
+    pub fn refines(&self) -> Refines {
+        Refines {
+            date: self.date,
+            kind: self.kind,
+            size: self.size,
+        }
+    }
+
+    /// The place it searches.
+    #[must_use]
+    pub fn place(&self) -> Place {
+        if self.drive.is_empty() {
+            Place::ThisPc
+        } else {
+            Place::folder(&self.drive, &self.prefix)
+        }
+    }
+}
+
+/// Where the saved search named `name` (without case) is in `list`.
+#[must_use]
+pub fn saved_position(list: &[SavedSearch], name: &str) -> Option<usize> {
+    let name = name.to_lowercase();
+    list.iter().position(|saved| saved.name.to_lowercase() == name)
+}
+
+/// Keeps `saved` in `list`: in place of the saved search of its name (without case), else at
+/// the end.
+pub fn save_search(list: &mut Vec<SavedSearch>, saved: SavedSearch) {
+    match saved_position(list, &saved.name) {
+        Some(at) => list[at] = saved,
+        None => list.push(saved),
     }
 }
