@@ -223,7 +223,7 @@ fn the_size_cap_frees_the_least_recently_used_files_first_never_a_pinned_one() {
     states.pinned.insert(String::from("pinned.bin"));
     assert_eq!(states.local_bytes(), 2000);
     assert_eq!(
-        states.to_free(1000),
+        states.to_free(1300),
         vec![String::from("old.bin"), String::from("mid.bin")],
         "least recently used first; pinned and conflicting files stay"
     );

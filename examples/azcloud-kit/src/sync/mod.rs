@@ -51,8 +51,10 @@ pub mod drive_store;
 pub mod local;
 pub mod merge;
 pub mod named;
+pub mod objects;
 pub mod remote;
 pub mod rules;
+pub mod session;
 
 use std::{
     collections::{BTreeMap, BTreeSet},

@@ -171,6 +171,10 @@ impl SyncRemote for NamedFiles<'_> {
             {
                 continue;
             }
+            // A name that cannot be a file here (`..`, a backslash) is never synced.
+            if remote::check_key(key).is_err() {
+                continue;
+            }
             let etag = object.etag.as_deref().map(bare).unwrap_or_default();
             let hash = self.hash_of(key, &etag, &mut memo);
             index.files.insert(
