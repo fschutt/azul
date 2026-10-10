@@ -650,3 +650,20 @@ fn an_index_says_how_far_it_got_and_is_asked_once_it_holds_the_drive() {
     };
     assert!(!never.usable(), "an index no update went over holds nothing");
 }
+
+/// A cloud drive's last listing is kept on this computer - never an encrypted drive's, whose
+/// names would lie in the cache in the clear (nor an Azlin drive's not known to be plain yet); a
+/// drive without encryption keeps it.
+#[test]
+fn a_drive_keeps_its_listing_unless_its_names_are_encrypted() {
+    use azul_storage::config::{DriveEntry, DriveLocation};
+
+    let slot = crate::Slot::new(DriveEntry {
+        id: String::from("bucket"),
+        name: String::from("Bucket"),
+        location: DriveLocation::Local {
+            root: String::from("/tmp/bucket"),
+        },
+    });
+    assert!(crate::keeps_listing(&slot));
+}
