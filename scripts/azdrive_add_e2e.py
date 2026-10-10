@@ -646,6 +646,54 @@ def run(args, logs):
             "text with error ID %s; after it answered again the problem left the status line"
             % (paid, refused.get("request_id")))
 
+        # 6e. A pending recovery-key lockdown (made elsewhere, with the recovery code): this
+        # device of the owner shows it with Cancel at its next look, and cancels it.
+        stack.token.state.drives[paid]["lockdown_pending_until"] = int(time.time()) + 2 * 86400
+        app.until("the pending lockdown seen", lambda: app.printed(
+            "AZDRIVE_LOCKDOWN_PENDING", r"%s \S+" % re.escape(paid)))
+        app.until("its bar", lambda: app.has("#__azdrive_lockdown_bar"))
+        if not app.shows("lockdown with the recovery code is pending"):
+            raise Failure("the pending lockdown's bar does not say what it is")
+        app.after("the lockdown cancelled", "AZDRIVE_LOCKDOWN_CANCELLED", re.escape(paid),
+                  lambda: app.click(selector="#__azdrive_lockdown_cancel"))
+        if stack.token.state.drives[paid].get("lockdown_pending_until"):
+            raise Failure("the mock still has the lockdown pending")
+        app.until("the bar gone", lambda: not app.has("#__azdrive_lockdown_bar"))
+        log("6e. A recovery-key lockdown of %s pending at the token server: AzDrive's next look "
+            "showed it with Cancel, and Cancel called it off" % paid)
+
+        # 6f. Vouchers: one buys a new drive in Add drive > Buy storage ("I have a voucher"),
+        # one adds days to a drive in Options > Drives.
+        stack.token.state.add_voucher("AZ-E2E-NEW", months=1)
+        dialog = open_dialog(app, "the source list",
+                             lambda: app.click(selector="#" + I("side-add-drive")))
+        app.after("the tiers", "AZDRIVE_TIERS", r"\d+",
+                  lambda: dialog.page("buy", lambda: dialog.click("choice_buy")))
+        dialog.page("voucher", lambda: dialog.click("voucher"))
+        dialog.type_into("voucher_code", "AZ-E2E-NEW")
+        gift = app.after("the voucher's drive", "AZDRIVE_VOUCHER", r"new d_\S+ \d+",
+                         lambda: dialog.click("voucher_redeem")).split()[1]
+        app.until("its row in CLOUD", lambda: app.has(side_drive(gift)))
+        wait_closed(app)
+        if gift not in stack.token.state.drives or "AZ-E2E-NEW" in stack.token.state.vouchers:
+            raise Failure("the voucher made no drive at the mock")
+        stack.token.state.add_voucher("AZ-E2E-DAYS", months=2)
+        before = stack.token.state.drives[paid]["period_until"]
+        app.tab("View")
+        app.ribbon("Options")
+        app.click(text="Drives")
+        app.click(selector="#__azdrive_voucher_" + re.sub(r"[^A-Za-z0-9_-]", "_", paid).lower())
+        popup = e2e.modal_window(app)
+        popup.until("the voucher field", lambda: popup.has("#__azdrive_voucher_code"))
+        popup.text_input("#__azdrive_voucher_code", "AZ-E2E-DAYS")
+        days = app.after("the voucher's days", "AZDRIVE_VOUCHER", r"%s \d+" % re.escape(paid),
+                         lambda: popup.click(selector="#__azdrive_voucher_redeem")).split()[-1]
+        if int(days) != 60 or stack.token.state.drives[paid]["period_until"] <= before:
+            raise Failure("the voucher added %s days; the mock's period %s -> %s"
+                          % (days, before, stack.token.state.drives[paid]["period_until"]))
+        log("6f. Vouchers: AZ-E2E-NEW bought %s in Add drive, AZ-E2E-DAYS added %s days to %s "
+            "in Options > Drives" % (gift, days, paid))
+
         # 7. A card payment in the popover: Fake Stripe's fields in the web view.
         stack.token.state.set_providers(list(azlin_mock_stack.DEFAULT_PROVIDERS))
         token = stack.token_url
