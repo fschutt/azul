@@ -29,7 +29,12 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     page; paid with the test provider's approving card, GET /v1/checkout/<id> answers `approved`
     with a `sealed_signup` (and no plaintext `signup`) that opens with the claim secret for that
     checkout id to a drive bundle - and opens for no other checkout id; a second GET answers it
-    again (kept, not deleted on read); an unknown checkout is 404.
+    again (kept, not deleted on read); an unknown checkout is 404. The sealed sign-up carries
+    `claim: {"ticket", "max": 3, "window_days": 30}`: POST /v1/drives/<id>/claim {"ticket"} (no
+    drive token) with another ticket is 401; with its ticket 201 `{"member": "owner",
+    "drive_token", "claims_left": 2}` - a family of its own, whose token refreshes - and so on
+    up to three, then 409 `claims_used`; a drive from before the tickets (a development
+    sign-up) is 401, and the app keeps the sealed drive token.
 10. The period tokens (AZLINSEC17 F24, F36, scripts/azlin_period.py): the sealed sign-up carries
     `period_tokens` with the checkout's id, its months and an issue key; GET /v1/tokens/keys names
     the tier's issuer key; POST /v1/tokens/issue without the issue key is 400
@@ -87,8 +92,10 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     sign-up but the code, the address and the end again (an app that lost its page prints it
     anew); the claim code (AZK1) of the checkout id and the claim secret reads back. With the
     operator's switches (`--mock`: the mock's stand-ins for AzCtl): activated it is `approved`
-    and the claim code alone opens its sealed sign-up to the drive; rejected it is `rejected`
-    with the reason; one nobody activated is `expired` after 60 days, its end still said.
+    and the claim code alone opens its sealed sign-up to the drive, whose ticket claims a family;
+    rejected it is `rejected` with the reason; one nobody activated is `expired` after 60 days,
+    its end still said - and 30 days after its first pick-up the drive's ticket is 410
+    `claim_expired`.
 17. A ban with a grace period (ban contract v1, `--mock`: the operator's switch): before the ban a
     public link (a presigned GET) of the drive reads; banned, its status is `banned` with
     `ban_reason` and `ban_until` and read-only, its credentials are handed out with the same
@@ -399,14 +406,20 @@ def cash_checks(suite, client, operator, cash_key):
                 status == 200 and polled.get('status') == 'approved' and bool(sealed),
                 '(HTTP %d %r)' % (status, polled.get('status')))
     picked_id, picked_secret = azlin_claim.parse_claim_code(claim_code)
+    cash_drive, cash_ticket = '', ''
     try:
         bundle = json.loads(azlin_claim.open_sealed(sealed, picked_secret, picked_id))
-        drive_id = (bundle.get('drive') or {}).get('id') or ''
+        cash_drive = (bundle.get('drive') or {}).get('id') or ''
+        cash_ticket = (bundle.get('claim') or {}).get('ticket') or ''
         suite.check('the claim code alone opens its sealed sign-up to the drive',
-                    drive_id.startswith('d_'), '(drive %r)' % drive_id)
+                    cash_drive.startswith('d_'), '(drive %r)' % cash_drive)
     except ValueError as e:
         suite.check('the claim code alone opens its sealed sign-up to the drive', False,
                     '(%s)' % e)
+    status, value = claim_ticket(client, cash_drive, cash_ticket)
+    suite.check("the picked-up computer claims a family with the drive's ticket (201)",
+                status == 201 and bool(value.get('drive_token')),
+                '(HTTP %d %r)' % (status, error_code(value)))
     reason = 'the envelope held less than the amount'
     _, other_key = azlin_claim.new_claim_key()
     _, second, _ = client.call('POST', '/v1/checkout', dict(order, claim_key=other_key))
@@ -428,6 +441,10 @@ def cash_checks(suite, client, operator, cash_key):
                 and unix_of((polled or {}).get('expires_at')) is not None
                 and 'activation_code' not in (polled or {}),
                 '(HTTP %d %r)' % (status, (polled or {}).get('status')))
+    status, value = claim_ticket(client, cash_drive, cash_ticket)
+    suite.check('30 days after its first pick-up the ticket is 410 claim_expired',
+                status == 410 and error_code(value) == 'claim_expired',
+                '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def ban_checks(suite, client, operator, s3_url):
@@ -1034,7 +1051,53 @@ def claim_checks(suite, client):
     status, value, _ = client.call('GET', '/v1/checkout/ck_' + 'a' * 26)
     suite.check('an unknown checkout is 404', status == 404, '(HTTP %d %r)' % (status, value))
     if bundle is not None:
+        ticket_checks(suite, client, bundle)
         period_checks(suite, client, checkout_id, order, bundle)
+
+
+def claim_ticket(client, drive_id, ticket):
+    """POST /v1/drives/<id>/claim {"ticket"}, with no drive token: (status, answer)."""
+    status, value, _ = client.call('POST', '/v1/drives/%s/claim' % drive_id, {'ticket': ticket})
+    return status, value or {}
+
+
+def ticket_checks(suite, client, bundle):
+    """9b. The claim tickets: each pick-up of the paid drive a token family of its own, three at
+    most; a drive from before the tickets is 401."""
+    drive_id = (bundle.get('drive') or {}).get('id') or ''
+    claim = bundle.get('claim') or {}
+    ticket = claim.get('ticket') or ''
+    suite.check('the sealed sign-up carries its claim ticket, three pick-ups in 30 days',
+                bool(ticket) and claim.get('max') == 3 and claim.get('window_days') == 30,
+                '(%r)' % {k: claim.get(k) for k in ('max', 'window_days')})
+    if not ticket:
+        return
+    status, value = claim_ticket(client, drive_id, ticket + 'x')
+    suite.check('another ticket claims nothing (401)', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    sealed = TOKEN.match(bundle.get('drive_token') or '')
+    status, value = claim_ticket(client, drive_id, ticket)
+    own = TOKEN.match(value.get('drive_token') or '')
+    suite.check('the ticket claims a token family of its own (201, owner, two left)',
+                status == 201 and value.get('member') == 'owner' and own is not None
+                and sealed is not None and own.group(1) != sealed.group(1)
+                and value.get('claims_left') == 2,
+                '(HTTP %d %r)' % (status, error_code(value) or value.get('claims_left')))
+    if own is not None:
+        status, _, _ = client.refresh(drive_id, value.get('drive_token'))
+        suite.check("the claimed family's token refreshes", status == 200, '(HTTP %d)' % status)
+    lefts = [claim_ticket(client, drive_id, ticket)[1].get('claims_left') for _ in range(2)]
+    suite.check('up to three pick-ups', lefts == [1, 0], '(%r)' % lefts)
+    status, value = claim_ticket(client, drive_id, ticket)
+    suite.check('a fourth is 409 claims_used',
+                status == 409 and error_code(value) == 'claims_used',
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, older, _ = client.signup('azlin-conformance-no-ticket')
+    if status == 201 and isinstance(older, dict):
+        status, value = claim_ticket(client, (older.get('drive') or {}).get('id') or '',
+                                     ticket)
+        suite.check('a drive without a ticket (a development sign-up) is 401', status == 401,
+                    '(HTTP %d %r)' % (status, error_code(value)))
 
 
 def period_checks(suite, client, checkout_id, order, bundle):
