@@ -209,16 +209,18 @@ impl Pim {
         let Place::Calendar(segment) = place else {
             return Ok(Response::text(Status::FORBIDDEN, "A calendar is made under /calendars/."));
         };
-        let calendars = self.calendars();
-        if self
-            .calendar_id(segment)
-            .is_some_and(|id| calendars.iter().any(|calendar| calendar.id == id))
-        {
+        if self.item(place)?.is_some() {
             return Ok(Response::text(Status::METHOD_NOT_ALLOWED, "A calendar is there."));
         }
         let Some(props) = super::mkcalendar_props(body) else {
             return Ok(Response::text(Status::BAD_REQUEST, "Not a MKCALENDAR body."));
         };
+        // For to-dos only (Apple Reminders' new list): one of AzTasks' lists.
+        let components = super::mkcalendar_components(body);
+        if components.iter().any(|c| c == "VTODO") && !components.iter().any(|c| c == "VEVENT") {
+            return self.make_task_list(segment, &props);
+        }
+        let calendars = self.calendars();
         let id = if event::is_event_id(segment) {
             segment.clone()
         } else {

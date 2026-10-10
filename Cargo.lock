@@ -1187,6 +1187,7 @@ dependencies = [
  "azul-contacts-core",
  "azul-dll",
  "azul-mail-core",
+ "azul-pim",
  "azul-storage",
  "base64 0.22.1",
  "chrono",

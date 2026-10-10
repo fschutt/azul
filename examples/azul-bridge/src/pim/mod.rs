@@ -36,8 +36,10 @@
 //!   property is dead and refused (403, the rest of the request 424). MKCOL is refused.
 //! - sync-collection (RFC 6578) on a calendar and the address book: what changed and what went
 //!   since a token; the tokens of the last 32 states of each collection are kept in
-//!   memory (one from before a start is refused and the program lists again). Not yet:
-//!   scheduling (iTIP), tasks (VTODO).
+//!   memory (one from before a start is refused and the program lists again).
+//! - To-dos ([`todos`]): AzTasks' lists are calendar collections of VTODOs in the calendar home
+//!   (`/calendars/tasks-<list id>/`), read and written with AzTasks' own iCalendar code. Not yet:
+//!   scheduling (iTIP).
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -46,6 +48,7 @@ use std::{
 };
 
 use azcal_core::{calendars::Calendar, event::Event};
+use azul_pim::task::{Task, TaskList};
 use azul_storage::{Drive, DriveError, ObjectInfo};
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +61,7 @@ use crate::{
 
 pub mod cards;
 pub mod events;
+pub mod todos;
 
 /// CalDAV's namespace.
 pub const CALDAV: &str = "urn:ietf:params:xml:ns:caldav";
@@ -159,6 +163,12 @@ pub enum Kind {
     Contact,
     /// A calendar a program made (MKCALENDAR) under a path that is no calendar id.
     Calendar,
+    /// A to-do's resource name to its task id.
+    Todo,
+    /// A to-do list a program made under a path of its own, to the list id.
+    TaskList,
+    /// A task id to the UID the program gave its to-do (served back in the VTODO).
+    TaskUid,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +186,12 @@ struct NamesFile {
     /// A calendar's URL segment to the calendar's id.
     #[serde(default)]
     calendars: BTreeMap<String, String>,
+    #[serde(default)]
+    todos: BTreeMap<String, String>,
+    #[serde(default)]
+    task_lists: BTreeMap<String, String>,
+    #[serde(default)]
+    task_uids: BTreeMap<String, String>,
 }
 
 /// The names programs gave resources whose files are named otherwise, kept in the state folder
@@ -233,6 +249,9 @@ impl Names {
             Kind::Event => &mut file.events,
             Kind::Contact => &mut file.contacts,
             Kind::Calendar => &mut file.calendars,
+            Kind::Todo => &mut file.todos,
+            Kind::TaskList => &mut file.task_lists,
+            Kind::TaskUid => &mut file.task_uids,
         }
     }
 
@@ -359,6 +378,20 @@ pub(crate) enum Item {
     },
     /// A contact: its resource name and its file.
     Card { name: String, info: ObjectInfo },
+    /// One of AzTasks' lists as a calendar of to-dos: its URL segment, the list, its CTag.
+    TaskList {
+        segment: String,
+        list: TaskList,
+        ctag: String,
+    },
+    /// A to-do: its list's segment and name, its resource name, its file.
+    Todo {
+        segment: String,
+        list_name: String,
+        name: String,
+        info: ObjectInfo,
+        task: Task,
+    },
 }
 
 impl Item {
@@ -369,9 +402,11 @@ impl Item {
             Item::Principal => String::from(PRINCIPAL),
             Item::CalendarHome => String::from(CALENDAR_HOME),
             Item::BookHome => String::from(BOOK_HOME),
-            Item::Calendar { segment, .. } => format!("{CALENDAR_HOME}{}/", dav::encode_segment(segment)),
+            Item::Calendar { segment, .. } | Item::TaskList { segment, .. } => {
+                format!("{CALENDAR_HOME}{}/", dav::encode_segment(segment))
+            }
             Item::Book { .. } => format!("{BOOK_HOME}{BOOK}/"),
-            Item::Event { segment, name, .. } => event_href(segment, name),
+            Item::Event { segment, name, .. } | Item::Todo { segment, name, .. } => event_href(segment, name),
             Item::Card { name, .. } => card_href(name),
         }
     }
@@ -380,16 +415,16 @@ impl Item {
         match self {
             Item::Root | Item::CalendarHome | Item::BookHome => "<D:collection/>",
             Item::Principal => "<D:collection/><D:principal/>",
-            Item::Calendar { .. } => "<D:collection/><C:calendar/>",
+            Item::Calendar { .. } | Item::TaskList { .. } => "<D:collection/><C:calendar/>",
             Item::Book { .. } => "<D:collection/><CR:addressbook/>",
-            Item::Event { .. } | Item::Card { .. } => "",
+            Item::Event { .. } | Item::Card { .. } | Item::Todo { .. } => "",
         }
     }
 
     /// The file an event or a contact is.
     fn info(&self) -> Option<&ObjectInfo> {
         match self {
-            Item::Event { info, .. } | Item::Card { info, .. } => Some(info),
+            Item::Event { info, .. } | Item::Card { info, .. } | Item::Todo { info, .. } => Some(info),
             _ => None,
         }
     }
@@ -398,7 +433,12 @@ impl Item {
     fn writable(&self) -> bool {
         matches!(
             self,
-            Item::Calendar { .. } | Item::Book { .. } | Item::Event { .. } | Item::Card { .. }
+            Item::Calendar { .. }
+                | Item::Book { .. }
+                | Item::Event { .. }
+                | Item::Card { .. }
+                | Item::TaskList { .. }
+                | Item::Todo { .. }
         )
     }
 }
@@ -700,6 +740,22 @@ fn patched_props(body: &[u8]) -> Option<Vec<Patched>> {
     dav::is_dav(&root, "propertyupdate").then(|| patched_of(&root))
 }
 
+/// The components a MKCALENDAR body asks the calendar to hold (`VEVENT`, `VTODO`; none named:
+/// nothing).
+fn mkcalendar_components(body: &[u8]) -> Vec<String> {
+    let Ok(Some(text)) = dav::parse_xml(body) else {
+        return Vec::new();
+    };
+    let Ok(doc) = roxmltree::Document::parse(&text) else {
+        return Vec::new();
+    };
+    doc.descendants()
+        .filter(|n| is_caldav(n, "comp"))
+        .filter_map(|n| n.attribute("name"))
+        .map(str::to_ascii_uppercase)
+        .collect()
+}
+
 /// The properties a MKCALENDAR body sets; nothing for no body; `None` for a body that is no
 /// mkcalendar.
 fn mkcalendar_props(body: &[u8]) -> Option<Vec<Patched>> {
@@ -730,6 +786,8 @@ pub struct Pim {
     events: Mutex<HashMap<String, (String, Event)>>,
     /// The sync tokens given out, per collection href, with what they name.
     sync: Mutex<HashMap<String, Vec<(String, Snapshot)>>>,
+    /// The tasks read so far, as the events are ([`todos`]).
+    tasks: Mutex<HashMap<String, (String, Task)>>,
 }
 
 impl std::fmt::Debug for Pim {
@@ -752,6 +810,7 @@ impl Pim {
             address: address.trim().to_string(),
             events: Mutex::new(HashMap::new()),
             sync: Mutex::new(HashMap::new()),
+            tasks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -796,6 +855,15 @@ impl Pim {
         result.unwrap_or_else(dav::drive_answer)
     }
 
+    /// The event or the to-do `name` of the calendar or the list at `segment`.
+    fn calendar_object(&self, segment: &str, name: &str) -> Result<Option<Item>, DriveError> {
+        if self.is_task_list(segment) {
+            self.todo_item(segment, name)
+        } else {
+            self.event_item(segment, name)
+        }
+    }
+
     /// The item `place` names, if it is there.
     fn item(&self, place: &Place) -> Result<Option<Item>, DriveError> {
         Ok(match place {
@@ -804,11 +872,15 @@ impl Pim {
             Place::Principal => Some(Item::Principal),
             Place::CalendarHome => Some(Item::CalendarHome),
             Place::BookHome => Some(Item::BookHome),
+            Place::Calendar(segment) if self.is_task_list(segment) => self
+                .task_list_items()?
+                .into_iter()
+                .find(|item| matches!(item, Item::TaskList { segment: s, .. } if s == segment)),
             Place::Calendar(segment) => self
                 .calendar_items()?
                 .into_iter()
                 .find(|item| matches!(item, Item::Calendar { segment: s, .. } if s == segment)),
-            Place::Event(segment, name) => self.event_item(segment, name)?,
+            Place::Event(segment, name) => self.calendar_object(segment, name)?,
             Place::Book => Some(self.book_item()?),
             Place::Card(name) => self
                 .card(name)?
@@ -820,7 +892,12 @@ impl Pim {
     fn children(&self, place: &Place) -> Result<Vec<Item>, DriveError> {
         Ok(match place {
             Place::Root => vec![Item::Principal, Item::CalendarHome, Item::BookHome],
-            Place::CalendarHome => self.calendar_items()?,
+            Place::CalendarHome => {
+                let mut items = self.calendar_items()?;
+                items.extend(self.task_list_items()?);
+                items
+            }
+            Place::Calendar(segment) if self.is_task_list(segment) => self.todo_items(segment)?,
             Place::Calendar(segment) => self.event_items(segment)?,
             Place::BookHome => vec![self.book_item()?],
             Place::Book => self
@@ -844,6 +921,8 @@ impl Pim {
             Item::Calendar { calendar, .. } => calendar.name.clone(),
             Item::Book { .. } => String::from("Contacts"),
             Item::Event { event, .. } => event.title.clone(),
+            Item::TaskList { list, .. } => list.name.clone(),
+            Item::Todo { task, .. } => task.title.clone(),
             Item::Card { .. } => return None,
         })
     }
@@ -861,7 +940,7 @@ impl Pim {
                 element(DAV, name, if item.writable() { READ_WRITE } else { READ_ONLY })
             }
             (DAV, "supported-report-set") => match item {
-                Item::Calendar { .. } => element(DAV, name, CALENDAR_REPORTS),
+                Item::Calendar { .. } | Item::TaskList { .. } => element(DAV, name, CALENDAR_REPORTS),
                 Item::Book { .. } => element(DAV, name, BOOK_REPORTS),
                 _ => return None,
             },
@@ -872,6 +951,7 @@ impl Pim {
             ),
             (DAV, "getcontenttype") => match item {
                 Item::Event { .. } => element(DAV, name, events::CONTENT_TYPE),
+                Item::Todo { .. } => element(DAV, name, todos::CONTENT_TYPE),
                 Item::Card { .. } => element(DAV, name, cards::CONTENT_TYPE),
                 _ => return None,
             },
@@ -888,10 +968,12 @@ impl Pim {
             (CALDAV, "calendar-user-address-set") if principal => {
                 element(CALDAV, name, &href_element(&format!("mailto:{}", self.address)))
             }
-            (CALDAV, "supported-calendar-component-set") if matches!(item, Item::Calendar { .. }) => {
-                element(CALDAV, name, "<C:comp name=\"VEVENT\"/>")
-            }
-            (CALDAV, "supported-calendar-data") if matches!(item, Item::Calendar { .. }) => element(
+            (CALDAV, "supported-calendar-component-set") => match item {
+                Item::Calendar { .. } => element(CALDAV, name, "<C:comp name=\"VEVENT\"/>"),
+                Item::TaskList { .. } => element(CALDAV, name, "<C:comp name=\"VTODO\"/>"),
+                _ => return None,
+            },
+            (CALDAV, "supported-calendar-data") if matches!(item, Item::Calendar { .. } | Item::TaskList { .. }) => element(
                 CALDAV,
                 name,
                 "<C:calendar-data content-type=\"text/calendar\" version=\"2.0\"/>",
@@ -903,6 +985,19 @@ impl Pim {
                     event,
                     ..
                 } => element(CALDAV, name, &dav::xml_escape(&events::ics_of(event, calendar_name, info))),
+                Item::Todo {
+                    list_name,
+                    info,
+                    task,
+                    ..
+                } => {
+                    let uid = self.todo_uid(task);
+                    element(
+                        CALDAV,
+                        name,
+                        &dav::xml_escape(&todos::ics_of(task, list_name, info, uid.as_deref())),
+                    )
+                }
                 _ => return None,
             },
             (CARDDAV, "addressbook-home-set") if principal => element(CARDDAV, name, &href_element(BOOK_HOME)),
@@ -919,7 +1014,9 @@ impl Pim {
             },
             (DAV, "sync-token") => element(DAV, name, &dav::xml_escape(&self.sync_token(item)?)),
             (CALSERVER, "getctag") => match item {
-                Item::Calendar { ctag, .. } | Item::Book { ctag } => element(CALSERVER, name, &dav::xml_escape(ctag)),
+                Item::Calendar { ctag, .. } | Item::Book { ctag } | Item::TaskList { ctag, .. } => {
+                    element(CALSERVER, name, &dav::xml_escape(ctag))
+                }
                 _ => return None,
             },
             (CALSERVER, "email-address-set") if principal => element(
@@ -929,6 +1026,7 @@ impl Pim {
             ),
             (APPLE, "calendar-color") => match item {
                 Item::Calendar { calendar, .. } => element(APPLE, name, &events::colour_of(calendar)),
+                Item::TaskList { list, .. } => element(APPLE, name, &todos::colour_of(list)),
                 _ => return None,
             },
             _ => return None,
@@ -1007,7 +1105,7 @@ impl Pim {
                 for href in &report.hrefs {
                     let item = match place_of(href) {
                         Ok(Some(Place::Event(segment, name))) if report.kind == ReportKind::CalendarMultiget => {
-                            self.event_item(&segment, &name)?
+                            self.calendar_object(&segment, &name)?
                         }
                         Ok(Some(Place::Card(name))) if report.kind == ReportKind::BookMultiget => self
                             .card(&name)?
@@ -1024,8 +1122,15 @@ impl Pim {
                 let Place::Calendar(segment) = place else {
                     return Ok(Response::text(Status::FORBIDDEN, "calendar-query asks a calendar."));
                 };
-                // The bridge's calendars hold events only: a query for tasks finds none.
-                if report.component.as_deref().is_none_or(|c| c == "VEVENT") {
+                if self.is_task_list(segment) {
+                    // A list holds to-dos only; their due dates are not filtered.
+                    if report.component.as_deref().is_none_or(|c| c == "VTODO") {
+                        for item in self.todo_items(segment)? {
+                            out.push_str(&self.response_of(&item, &report.props, report.vcard));
+                        }
+                    }
+                // A calendar holds events only: a query for to-dos finds none there.
+                } else if report.component.as_deref().is_none_or(|c| c == "VEVENT") {
                     let (from, to) = report.range.unwrap_or((None, None));
                     for item in self.event_items(segment)? {
                         if let Item::Event { event, .. } = &item {
@@ -1054,6 +1159,7 @@ impl Pim {
 
     fn get(&self, head: &Head, place: &Place) -> Result<Response, DriveError> {
         match place {
+            Place::Event(segment, name) if self.is_task_list(segment) => self.get_todo(segment, name),
             Place::Event(segment, name) => self.get_event(segment, name),
             Place::Card(name) => self.get_card(name, head.header("Accept")),
             _ => match self.item(place)? {
@@ -1069,6 +1175,7 @@ impl Pim {
 
     fn put(&self, head: &Head, place: &Place, body: &[u8]) -> Result<Response, DriveError> {
         match place {
+            Place::Event(segment, name) if self.is_task_list(segment) => self.put_todo(head, segment, name, body),
             Place::Event(segment, name) => self.put_event(head, segment, name, body),
             Place::Card(name) => self.put_card(head, name, body),
             _ => Ok(Response::text(
@@ -1080,6 +1187,7 @@ impl Pim {
 
     fn delete(&self, head: &Head, place: &Place) -> Result<Response, DriveError> {
         match place {
+            Place::Event(segment, name) if self.is_task_list(segment) => self.delete_todo(head, segment, name),
             Place::Event(segment, name) => self.delete_event(head, segment, name),
             Place::Card(name) => self.delete_card(head, name),
             _ => Ok(Response::text(
@@ -1121,7 +1229,7 @@ impl Pim {
     /// A calendar's or the address book's current sync token (its `sync-token` property).
     fn sync_token(&self, item: &Item) -> Option<String> {
         let place = match item {
-            Item::Calendar { segment, .. } => Place::Calendar(segment.clone()),
+            Item::Calendar { segment, .. } | Item::TaskList { segment, .. } => Place::Calendar(segment.clone()),
             Item::Book { .. } => Place::Book,
             _ => return None,
         };
@@ -1181,19 +1289,19 @@ impl Pim {
         let Some(props) = patched_props(body) else {
             return Ok(Response::text(Status::BAD_REQUEST, "Not a PROPPATCH body."));
         };
-        let calendar = match &item {
-            Item::Calendar { calendar, .. } => Some(calendar),
-            _ => None,
-        };
+        // What a PROPPATCH can change: a calendar's or a to-do list's name and colour.
+        let named = matches!(item, Item::Calendar { .. } | Item::TaskList { .. });
         let refused: Vec<&Patched> = props
             .iter()
-            .filter(|p| calendar.is_none() || !events::patchable(p))
+            .filter(|p| !named || !events::patchable(p))
             .collect();
         let mut out = String::from(MULTISTATUS);
         out.push_str(&format!("<D:response>{}", href_element(&item.href())));
         if refused.is_empty() {
-            if let Some(calendar) = calendar {
-                self.patch_calendar(calendar, &props)?;
+            match &item {
+                Item::Calendar { calendar, .. } => self.patch_calendar(calendar, &props)?,
+                Item::TaskList { list, .. } => self.patch_task_list(list, &props)?,
+                _ => {}
             }
             let all: Vec<&Patched> = props.iter().collect();
             out.push_str(&patch_propstat(&all, "200 OK"));
