@@ -51,6 +51,8 @@
 //! (the last tab closed: the window closes).
 
 pub mod ids;
+#[cfg(test)]
+mod l10n_tests;
 pub mod scroll;
 // The shell on a PTY and its screen: shared with AzCode's terminal panel.
 pub use azul_termkit::{sample, session, vt};
