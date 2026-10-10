@@ -252,3 +252,48 @@ fn a_folder_of_another_format_is_made_again() {
     assert_eq!(update(&index, &drive).indexed, 3);
     assert_eq!(index.query("pasta", "", 10).expect("q"), vec!["mail/0001.eml"]);
 }
+
+/// Every file the walk finds below the drive's folder.
+fn listed(drive: &TempDir) -> Vec<azul_search::FileEntry> {
+    let mut files = Vec::new();
+    azul_search::list_files(drive.path(), &Filters::default(), &AtomicBool::new(false), &mut |f| {
+        files.push(f)
+    })
+    .expect("listed");
+    files
+}
+
+/// What the index has not read as it is now - a new file, one whose size or date changed - is
+/// what a search still reads itself; the index answers for the rest.
+#[test]
+fn the_files_the_index_has_not_read_as_they_are_are_named() {
+    let (drive, dir) = drive();
+    let index = DriveIndex::open(dir.path()).expect("the index");
+    assert_eq!(index.unread(&listed(&drive)).len(), 4, "nothing read yet");
+    update(&index, &drive);
+    assert!(index.unread(&listed(&drive)).is_empty(), "every file read as it is");
+    drive.write("notes/new.txt", b"fresh\n");
+    drive.write("notes/plan.txt", b"the zebra-quartz plan, and a longer line\n");
+    let files = listed(&drive);
+    let mut unread: Vec<&str> = index
+        .unread(&files)
+        .iter()
+        .map(|f| f.path.as_str())
+        .collect();
+    unread.sort_unstable();
+    assert_eq!(unread, vec!["notes/new.txt", "notes/plan.txt"]);
+}
+
+/// A file's text as the index reads it - an office document's paragraphs, a mail's text -, for
+/// the line a result of a document shows; none for a picture or a file that is not there.
+#[test]
+fn a_files_text_is_read_as_the_index_reads_it() {
+    let (drive, _dir) = drive();
+    let none = Extractors::default();
+    let text = crate::document_text(drive.path(), "docs/Report.docx", &none).expect("its text");
+    assert!(text.contains("Quarterly report"), "{text:?}");
+    let mail = crate::document_text(drive.path(), "mail/0001.eml", &none);
+    assert!(mail.is_some_and(|t| t.contains("Pasta at noon")));
+    assert_eq!(crate::document_text(drive.path(), "photo.jpg", &none), None);
+    assert_eq!(crate::document_text(drive.path(), "gone.txt", &none), None);
+}
