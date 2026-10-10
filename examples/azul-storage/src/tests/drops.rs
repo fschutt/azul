@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::mem_bucket::MemBucket;
 use crate::{
     crypto::{
-        drop::{
+        drops::{
             disable_drop, enable_drop, ingest, is_drop_key, load_drop_key, new_drop_key,
             open_drop, replace_drop_key, seal_drop, seal_drop_with, DropFolder, DropKeyFile,
             DropPublic, DropSecret, Dropped, DROP_KEY_FILE, DROP_PREFIX, HEADER_LEN,

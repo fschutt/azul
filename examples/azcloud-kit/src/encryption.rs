@@ -12,6 +12,9 @@
 //! - [`Account::open_encrypted`] / [`open_encrypted`]: the drive's files through
 //!   azul-storage's `EncryptedDrive`, the index from an `IndexProvider` (the bucket's
 //!   encrypted metadata repository).
+//! - [`Account::enable_mail_drop`]: incoming mail for the encrypted drive - its drop key
+//!   (azul-storage's `crypto::drops`), whose public half the customer's mail Worker seals to
+//!   (set there with the customer's own Cloudflare token: [`crate::cloudflare`]).
 //!
 //! `keyring` is the OS keyring in the apps (azul-storage's `AzulKeyring`) and the state
 //! folder's secrets file on the command line ([`crate::secrets::FileSecrets`]). Blocking: call
@@ -23,6 +26,7 @@ pub use azul_storage::encrypted::{open_encrypted, IndexProvider};
 use azul_storage::{
     crypto::{
         device,
+        drops::{self, DropPublic},
         keys::{RecoveryCode, RecoveryKdf},
         DriveKey,
     },
@@ -171,6 +175,41 @@ impl Account {
     ) -> CloudResult<DriveKey> {
         let bucket = self.bucket_drive()?;
         Ok(device::recover(&bucket, keyring, &self.record().id, code)?)
+    }
+
+    /// Turns incoming mail on for the encrypted drive: its drop key (the bucket's, else a new
+    /// one sealed with the drive key). Returns the public half for the customer's mail Worker
+    /// ([`crate::cloudflare::Cloudflare::set_worker_secret`] with
+    /// [`crate::cloudflare::DROP_KEY_VARIABLE`]).
+    ///
+    /// # Errors
+    ///
+    /// No drive key on this device (the drive is not encrypted, or not unlocked here), the
+    /// bucket's or the keyring's refusal.
+    pub fn enable_mail_drop(&self, keyring: &dyn KeyringStore) -> CloudResult<DropPublic> {
+        let Some(drive_key) = self.unlock_key(keyring)? else {
+            fail!(
+                "incoming mail is sealed to an encrypted drive's key, and this device has none for \
+                 drive {} (encrypt it, or unlock it here first)",
+                self.record().id
+            );
+        };
+        let bucket = self.bucket_drive()?;
+        Ok(drops::enable_drop(&bucket, &drive_key, &self.record().id)?)
+    }
+
+    /// The drive's drop public key when incoming mail is on (and this device holds the drive
+    /// key); `None` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's or the keyring's refusal, a damaged key file.
+    pub fn mail_drop_key(&self, keyring: &dyn KeyringStore) -> CloudResult<Option<DropPublic>> {
+        let Some(drive_key) = device::load_drive_key(keyring, &self.record().id)? else {
+            return Ok(None);
+        };
+        let bucket = self.bucket_drive()?;
+        Ok(drops::load_drop_key(&bucket, &drive_key, &self.record().id)?.map(|secret| secret.public()))
     }
 
     /// The drive's files through the encryption: the bucket with the current credentials, the

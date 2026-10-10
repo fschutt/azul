@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AZD1, one incoming message sealed to an encrypted Azlin drive's DROP KEY, in Python's
 standard library only: the reference the Cloudflare Email Worker (examples/azlin-mail-worker,
-Web Crypto) and azul-storage's `crypto::drop` (Rust) are checked against.
+Web Crypto) and azul-storage's `crypto::drops` (Rust) are checked against.
 
     bytes   0   4  magic "AZD1"
             4   1  version 1

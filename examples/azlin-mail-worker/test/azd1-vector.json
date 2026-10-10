@@ -1,5 +1,5 @@
 {
-  "about": "AZD1 test vector: fixed keys and nonce (never fixed for real mail). Checked by the Worker's tests, azul-storage's crypto::drop tests and scripts/azlin_drop.py.",
+  "about": "AZD1 test vector: fixed keys and nonce (never fixed for real mail). Checked by the Worker's tests, azul-storage's crypto::drops tests and scripts/azlin_drop.py.",
   "drop_secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
   "drop_public": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51a",
   "drop_key_id": "1800bf02a5fe11e0c6ae34f454d57640",

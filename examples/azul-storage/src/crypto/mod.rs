@@ -21,7 +21,7 @@
 //!
 //! Incoming mail for an encrypted drive arrives sealed to the drive's DROP KEY by the
 //! customer's Email Worker, which has Web Crypto only: AZD1 is X25519, HKDF-SHA256 and
-//! AES-256-GCM ([`drop`]).
+//! AES-256-GCM ([`drops`]).
 //!
 //! No primitive is made here; each comes from its crate: XChaCha20-Poly1305 and aead's STREAM
 //! (`chacha20poly1305`), X25519 (`x25519-dalek`), BLAKE3's hash, keyed hash and key derivation
@@ -34,7 +34,7 @@
 pub mod azl1;
 pub mod codec;
 pub mod device;
-pub mod drop;
+pub mod drops;
 pub mod keys;
 
 use std::fmt;

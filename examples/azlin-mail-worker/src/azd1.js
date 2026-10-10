@@ -18,7 +18,7 @@
 //
 // The drive's devices hold the drop key's secret (sealed with the drive key in the bucket's
 // `.azlin/keys/_drop.key`); one of them opens each drop, files the message into the drive's
-// encrypted mail folders and deletes the drop. azul-storage's `crypto::drop` is the Rust side;
+// encrypted mail folders and deletes the drop. azul-storage's `crypto::drops` is the Rust side;
 // scripts/azlin_drop.py the Python reference; test/azd1-vector.json the vector all three check.
 
 const encoder = new TextEncoder();

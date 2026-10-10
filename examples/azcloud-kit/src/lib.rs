@@ -66,6 +66,8 @@ pub mod account;
 pub mod bucket;
 pub mod bundle;
 pub mod claim;
+#[cfg(feature = "encryption")]
+pub mod cloudflare;
 pub mod drive;
 #[cfg(feature = "encryption")]
 pub mod encryption;

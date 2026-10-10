@@ -36,4 +36,4 @@ python3 ../../scripts/azlin_drop.py --vector   # the same vector in a standard-l
 ```
 
 `test/azd1-vector.json` is the vector the Worker, the Python reference and azul-storage's Rust
-side (`crypto::drop`) all check.
+side (`crypto::drops`) all check.

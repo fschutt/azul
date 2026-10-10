@@ -4,17 +4,20 @@
 
 use std::sync::Arc;
 
+use serde_json::Value;
+
 use azul_storage::{
     crypto::{device, keys::RecoveryKdf, DriveKey},
     encrypted::{IndexProvider, MemoryIndex, NameIndex},
     keyring::{KeyringStore, MemoryKeyring},
     testing::TempDir,
-    Drive, DriveError, Transport,
+    Drive, DriveError, Method, Transport,
 };
 
 use super::{bundle, fake_s3::FakeS3, header, json, Fake, Shared, TOKEN};
 use crate::{
     account::{Account, JoinCode},
+    cloudflare::{Cloudflare, DEFAULT_WORKER, DROP_KEY_VARIABLE},
     drive::TransportFactory,
     error::CloudError,
     state::StateDir,
@@ -197,4 +200,69 @@ fn a_configured_s3_endpoint_is_the_one_the_keys_go_to() {
     assert_eq!(a.bucket_drive().unwrap().config().endpoint, "http://127.0.0.1:19999");
     let a = a.with_s3_endpoint(None);
     assert_eq!(a.s3_endpoint(), super::S3);
+}
+
+#[test]
+fn incoming_mail_gets_a_drop_key_whose_public_half_goes_to_the_customers_worker() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-drop");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    assert!(
+        matches!(a.enable_mail_drop(&keys), Err(CloudError::Failed(_))),
+        "a plain drive gets its mail as it is"
+    );
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), None);
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let public = a.enable_mail_drop(&keys).unwrap();
+    assert_eq!(a.enable_mail_drop(&keys).unwrap(), public, "the same key again");
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), Some(public));
+    assert!(s3.keys().iter().any(|k| k == ".azlin/keys/_drop.key"));
+
+    // The Worker's variable, through the customer's own token, straight to Cloudflare.
+    let fake = Fake::new(|_, _| Ok(json(200, r#"{"success": true, "errors": [], "result": {}}"#)));
+    let cloudflare = Cloudflare::new(
+        Box::new(Shared(fake.clone())),
+        "0123456789ABCDEF0123456789abcdef",
+        " cf-token ",
+    )
+    .unwrap()
+    .with_base("https://cf.test/client/v4/");
+    assert!(!format!("{cloudflare:?}").contains("cf-token"));
+    cloudflare
+        .set_worker_secret(DEFAULT_WORKER, DROP_KEY_VARIABLE, &public.to_hex())
+        .unwrap();
+    let calls = fake.calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    let call = &calls[0];
+    assert_eq!(call.method, Method::Put);
+    assert_eq!(
+        call.url,
+        "https://cf.test/client/v4/accounts/0123456789abcdef0123456789abcdef/workers/scripts/\
+         azlin-mail-worker/secrets"
+    );
+    assert_eq!(header(call, "authorization"), Some("Bearer cf-token"));
+    let body: Value = serde_json::from_slice(&call.body).unwrap();
+    assert_eq!(body["name"], DROP_KEY_VARIABLE);
+    assert_eq!(body["text"], public.to_hex());
+    assert_eq!(body["type"], "secret_text");
+
+    // Cloudflare's refusal says why; names that are not names never reach it.
+    let refusing = Fake::new(|_, _| {
+        Ok(json(
+            403,
+            r#"{"success": false, "errors": [{"code": 10000, "message": "Authentication error"}]}"#,
+        ))
+    });
+    let cloudflare =
+        Cloudflare::new(Box::new(Shared(refusing.clone())), &"a".repeat(32), "t").unwrap();
+    let refused = cloudflare.set_worker_secret(DEFAULT_WORKER, DROP_KEY_VARIABLE, "x");
+    assert!(
+        matches!(&refused, Err(CloudError::Failed(why)) if why.contains("Authentication error")),
+        "{refused:?}"
+    );
+    assert!(cloudflare.set_worker_secret("../x", DROP_KEY_VARIABLE, "x").is_err());
+    assert_eq!(refusing.calls.lock().unwrap().len(), 1);
+    assert!(Cloudflare::new(Box::new(Shared(refusing)), "not-an-id", "t").is_err());
 }
