@@ -1027,3 +1027,5 @@ mod a_clipped_or_covered_scroll_box_takes_no_pointer;
 mod a_screen_reader_walks_the_tree_both_ways;
 #[path = "a_screen_reader_reads_only_what_is_rendered.rs"]
 mod a_screen_reader_reads_only_what_is_rendered;
+#[path = "an_assistive_technology_never_sees_a_stale_tree.rs"]
+mod an_assistive_technology_never_sees_a_stale_tree;
