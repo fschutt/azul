@@ -4,7 +4,9 @@
 No Rust cluster, no cloud, no pip: Python's standard library only.
 
 - S3: AzDrive's stdlib test server (examples/azul-drive/scripts/s3_server.py): SigV4 checked, path
-  style, ListObjectsV2 / Get (Range) / Put / Copy / Delete / Head, one access key.
+  style, ListObjectsV2 / Get (Range) / Put / Copy / Delete / Head, one access key. HeadBucket
+  answers as an Azlin node (SRV17): x-azlin-used-bytes (the bucket's stored bytes) and
+  x-azlin-quota-bytes (the quota of the drive's tier).
 - The token server: the routes of azlin-token (azul-apps iso/crates/azlin-token, drives.rs) the apps
   use, answering the same JSON:
 
@@ -1132,6 +1134,15 @@ class TokenState:
                     'you': state.get('member', 'owner'), 'members': members,
                     'usage_bytes': None}
 
+    def quota_of_bucket(self, bucket):
+        """The quota of the drive whose bucket `bucket` is (its tier's, in stored bytes); None
+        for a bucket of no drive."""
+        with self.lock:
+            for drive in self.drives.values():
+                if drive.get('bucket') == bucket:
+                    return drive.get('quota_bytes')
+        return None
+
     def set_read_only(self, drive_id, read_only=True):
         """A test's switch: drive `drive_id` takes no writes (unpaid past its grace) - its
         status says `read_only` (the S3 server is not told)."""
@@ -1756,6 +1767,8 @@ def start(root, host='127.0.0.1', token_port=0, s3_port=0, ttl=DEFAULT_TTL, verb
                          secret_key=SECRET_KEY, region=REGION, verbose=verbose,
                          keep_versions=True)
     state = TokenState(s3, s3.url, ttl)
+    # SRV17: the node answers HeadBucket with the stored bytes and the quota of the drive's tier.
+    s3.space_quota = state.quota_of_bucket
     state.set_providers(providers)
     token = TokenServer((host, token_port), state, verbose).start_background()
     state.base_url = token.url
