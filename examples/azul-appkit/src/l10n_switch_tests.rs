@@ -3,7 +3,7 @@
 //! own.
 
 use crate::l10n::{
-    app_word, grouped, is_key, keep, named, set_locale, sources, t, t_args, Arg,
+    app_word, decimal, grouped, is_key, keep, money, named, set_locale, sources, t, t_args, Arg,
 };
 
 #[test]
@@ -91,5 +91,25 @@ fn a_big_number_is_grouped_as_the_language_groups_it() {
     set_locale("de-DE");
     assert_eq!(grouped(1_234_567), "1.234.567");
     assert_eq!(grouped(0), "0");
+    set_locale("en-US");
+}
+
+/// Money as the window's language writes it: EUR 1,234.50 in English, 1.234,50 EUR in German
+/// (Buy storage's prices); a number written with a point takes the language's decimal mark
+/// (1,5 TB, 7,5 % in German).
+#[test]
+fn money_and_decimals_are_written_as_the_language_writes_them() {
+    keep(&sources(&[]));
+    set_locale("en-US");
+    assert_eq!(money(4990, "EUR"), "EUR 49.90");
+    assert_eq!(money(123_450, "EUR"), "EUR 1,234.50");
+    assert_eq!(money(5, "CHF"), "CHF 0.05");
+    assert_eq!(decimal("1.5 TB"), "1.5 TB");
+    set_locale("de-DE");
+    assert_eq!(money(4990, "EUR"), "49,90 EUR");
+    assert_eq!(money(123_450, "EUR"), "1.234,50 EUR");
+    assert_eq!(decimal("1.5 TB"), "1,5 TB");
+    assert_eq!(decimal("7.5"), "7,5");
+    assert_eq!(decimal("100 GB"), "100 GB");
     set_locale("en-US");
 }
