@@ -56,6 +56,8 @@
 //!   content-addressed BLAKE3 blobs, a local index per folder, a three-way merge per file, the
 //!   Azlin tree (the data root and `~/.azlin`) with what never leaves the computer.
 //! - [`share`]: presigned links, lockdown and restore.
+//! - [`restore`]: an encrypted drive put back as it was at a time - its metadata repository's
+//!   files then, as one new commit (D42's "restore as of").
 //! - `encryption` (feature `encryption`): the drive encrypted on this device - its keys in the
 //!   keyring, the join code's key seal for a second device, the recovery code, the files
 //!   through azul-storage's `EncryptedDrive` with the index an `IndexProvider` opens.
@@ -85,6 +87,7 @@ pub mod lock;
 pub mod pending;
 pub mod period;
 pub mod recovery;
+pub mod restore;
 pub mod secrets;
 pub mod session;
 pub mod settings;
@@ -114,6 +117,7 @@ pub use period::{
     PeriodTokenStore, Redeemed,
 };
 pub use recovery::RecoveryKey;
+pub use restore::{restore_drive_as_of, DriveRestore};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
