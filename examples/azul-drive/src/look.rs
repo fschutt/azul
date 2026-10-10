@@ -466,6 +466,44 @@ pub(crate) const STATUS_CHIP: &str = themed!(
     "background: #1E3260; color: #DCE3F2;",
 );
 
+// ==== Buy storage's payment popover ====
+
+/// The verified-origin chip at the popover's head: native, outside the web view, so no page
+/// can draw over it - a lock, the host, the provider's legal name.
+pub(crate) const PAY_CHIP: &str = themed!(
+    "display: flex; flex-direction: row; align-items: center; padding: 6px 10px; \
+     margin-bottom: 10px; border-radius: 6px; font-size: 12px;",
+    "background: #EEF3EA; color: #2D5016; border: 1px solid #C9DCBC;",
+    "background: #24331B; color: #CFE6BF; border: 1px solid #3C5530;",
+    "background: #EDEFE6; color: #34452A; border: 1px solid #D3D8C6;",
+    "background: #232A1F; color: #C9D6BD; border: 1px solid #39432F;",
+);
+
+/// The card artwork: the brand the fields page reports, the masked number, the cardholder's
+/// name - drawn by the app, never the provider's page.
+pub(crate) const PAY_CARD: &str = themed!(
+    "width: 300px; height: 172px; box-sizing: border-box; padding: 18px 20px; \
+     margin: 0px auto 12px auto; border-radius: 12px; display: flex; flex-direction: column; \
+     justify-content: space-between; color: #FFFFFF; font-size: 13px; letter-spacing: 1px;",
+    "background: linear-gradient(135deg, #2A63B8, #6C9BDB); \
+     box-shadow: 0px 3px 10px rgba(30, 60, 110, 0.35);",
+    "background: linear-gradient(135deg, #1E3E70, #3C6AAE); \
+     box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.60);",
+    "background: linear-gradient(135deg, var(--az-accent, #2F4A85), #6B5B95); \
+     box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.20), 0px 8px 20px rgba(48, 45, 38, 0.22);",
+    "background: linear-gradient(135deg, #1E2E55, #44396A); \
+     box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 8px 20px rgba(0, 0, 0, 0.45);",
+);
+
+/// The frame around the provider's page in the popover.
+pub(crate) const PAY_SLOT: &str = themed!(
+    "width: 100%; box-sizing: border-box; border-radius: 6px; overflow: hidden;",
+    "border: 1px solid #C7CED8;",
+    "border: 1px solid #44484F;",
+    "border: 1px solid #D3D0C8;",
+    "border: 1px solid #3A3A3A;",
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

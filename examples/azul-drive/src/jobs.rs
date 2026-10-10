@@ -23,9 +23,10 @@ use std::{
 
 use azcloud_kit::{
     pending::{self, Claimed, Polled},
-    Checkout, ClaimKey, CloudError, DriveBundle, PendingCheckout, SharedKeyring, Tiers,
-    TokenServer,
+    Checkout, CheckoutVia, ClaimKey, CloudError, DriveBundle, OptionsQuery, PendingCheckout,
+    SharedKeyring, Tiers, TokenServer,
 };
+use azul_pay::{Choice, Created, Look, SurfaceKind};
 use azul::{
     image::{ImageRef, RawImage},
     prelude::*,
@@ -73,6 +74,24 @@ pub(crate) struct BoughtDrive {
     /// Never printed.
     pub session: String,
     pub unsaved: Option<String>,
+}
+
+/// How the order button's checkout is paid (azul-pay): the pill's choice, the first surface,
+/// the fields page's look, the VAT country, the consent.
+pub(crate) struct PayVia {
+    pub choice: Choice,
+    pub surface: SurfaceKind,
+    pub look: Look,
+    pub country: String,
+    pub consent: bool,
+}
+
+/// A checkout made: the token server's answer, the keyring's entry of it, and - through a
+/// provider - its checked surface (`None`: the v1 checkout's payment page).
+pub(crate) struct Started {
+    pub checkout: Checkout,
+    pub kept: PendingCheckout,
+    pub created: Option<Created>,
 }
 
 /// A folder's size, counted for the Properties dialog.
@@ -216,13 +235,41 @@ pub(crate) enum Job {
     },
     /// A checkout of `tier` for `months` months, its sign-up sealed to a new claim key, on the
     /// keyring's list of unfinished checkouts (with the drive's `name`) before its payment page
-    /// opens.
+    /// opens - through `via`'s provider, method and surface (azul-pay), else the v1 checkout.
     Checkout {
         serial: u64,
         token_url: String,
         tier: String,
         months: u32,
         name: String,
+        keyring: SharedKeyring,
+        via: Option<Box<PayVia>>,
+    },
+    /// Buy storage's payment options (`GET /v1/checkout/options`) for `tier`, `months`, the
+    /// payer's `country` and `currency`.
+    Options {
+        serial: u64,
+        token_url: String,
+        tier: String,
+        months: u32,
+        country: String,
+        currency: String,
+    },
+    /// The checkout `checkout_id` on the surface `kind` (`POST /v1/checkout/{id}/surface`),
+    /// checked for `choice`.
+    Surface {
+        serial: u64,
+        token_url: String,
+        checkout_id: String,
+        kind: SurfaceKind,
+        choice: Box<Choice>,
+        look: Look,
+    },
+    /// The checkout `checkout_id` abandoned (`POST /v1/checkout/{id}/abandon`) and taken off
+    /// the keyring's list: nobody pays it any more.
+    Abandon {
+        token_url: String,
+        checkout_id: String,
         keyring: SharedKeyring,
     },
     /// The dialog's wait for `checkout`'s payment: its status asked every few seconds (at
@@ -347,11 +394,25 @@ pub(crate) enum Outcome {
         serial: u64,
         result: Result<BoughtDrive, String>,
     },
-    /// A checkout to pay in the browser, on the keyring's list of unfinished checkouts (or why
-    /// there is none).
+    /// A checkout, on the keyring's list of unfinished checkouts (or why there is none).
     CheckoutStarted {
         serial: u64,
-        result: Result<(Checkout, PendingCheckout), String>,
+        result: Result<Started, String>,
+    },
+    /// Buy storage's payment options: the offer's text (`None`: the token server has none).
+    Options {
+        serial: u64,
+        result: Result<Option<String>, String>,
+    },
+    /// The checkout's next surface, checked (or why there is none).
+    Surface {
+        serial: u64,
+        result: Result<azul_pay::Surface, String>,
+    },
+    /// A checkout abandoned (or why the token server did not hear it).
+    Abandoned {
+        checkout_id: String,
+        result: Result<(), String>,
     },
     /// The wait for a payment ended without a drive: why (empty: "Stop waiting" said it).
     PaymentEnded { serial: u64, why: String },
@@ -949,18 +1010,83 @@ fn start_checkout(
     months: u32,
     name: &str,
     keyring: &SharedKeyring,
-) -> Result<(Checkout, PendingCheckout), String> {
+    via: Option<&PayVia>,
+) -> Result<Started, String> {
     let transport = AzulTransport::new(USER_AGENT);
     let claim = ClaimKey::generate().map_err(|e| e.to_string())?;
     let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
-    let checkout = server
-        .checkout(tier, months, azcloud_kit::token::DEFAULT_METHOD, &claim)
-        .map_err(|e| e.to_string())?;
+    let (checkout, answer) = match via {
+        None => (
+            server
+                .checkout(tier, months, azcloud_kit::token::DEFAULT_METHOD, &claim)
+                .map_err(|e| e.to_string())?,
+            None,
+        ),
+        Some(via) => {
+            let through = CheckoutVia {
+                provider: via.choice.provider.spec.id,
+                method: via.choice.method.method.as_str(),
+                surface: via.surface.as_str(),
+                vat_country: &via.country,
+                withdrawal_consent: via.consent,
+            };
+            let (checkout, answer) = server
+                .checkout_via(tier, months, &through, &claim)
+                .map_err(|e| e.to_string())?;
+            (checkout, Some(answer))
+        }
+    };
     let kept = PendingCheckout::new(&checkout.checkout_id, &claim, tier, server.base(), name);
     pending::add(keyring, &kept).map_err(|e| {
         format!("the keyring did not keep the checkout's claim key ({e}), so it was not opened")
     })?;
-    Ok((checkout, kept))
+    let created = match (via, answer) {
+        (Some(via), Some(answer)) => match Created::parse(&answer, &via.choice, &via.look) {
+            Ok(created) => Some(created),
+            Err(refused) => {
+                // Nothing of it is shown: nobody may pay it.
+                let _ = server.abandon_checkout(&checkout.checkout_id);
+                let _ = pending::remove(keyring, &checkout.checkout_id);
+                return Err(refused.to_string());
+            }
+        },
+        _ => None,
+    };
+    Ok(Started {
+        checkout,
+        kept,
+        created,
+    })
+}
+
+/// The checkout `checkout_id` on the surface `kind`, checked for `choice`.
+fn switch_surface(
+    token_url: &str,
+    checkout_id: &str,
+    kind: SurfaceKind,
+    choice: &Choice,
+    look: &Look,
+) -> Result<azul_pay::Surface, String> {
+    let transport = AzulTransport::new(USER_AGENT);
+    let server = TokenServer::new(token_url, &transport).map_err(|e| e.to_string())?;
+    let answer = server
+        .checkout_surface(checkout_id, kind.as_str())
+        .map_err(|e| e.to_string())?;
+    let surface = answer
+        .get("surface")
+        .ok_or_else(|| String::from("the answer has no surface"))?;
+    azul_pay::Surface::parse(surface, choice, look).map_err(|e| e.to_string())
+}
+
+/// The checkout `checkout_id` abandoned at the token server and off the keyring's list.
+fn abandon(token_url: &str, checkout_id: &str, keyring: &SharedKeyring) -> Result<(), String> {
+    let transport = AzulTransport::new(USER_AGENT);
+    // Off the list first: whatever the token server says, this app never claims it.
+    let removed = pending::remove(keyring, checkout_id).map(|_| ());
+    let told = TokenServer::new(token_url, &transport)
+        .and_then(|server| server.abandon_checkout(checkout_id))
+        .map_err(|e| e.to_string());
+    told.and(removed.map_err(|e| e.to_string()))
 }
 
 /// Asks the token server about `checkout` every few seconds until its drive is the app's (its
@@ -1380,9 +1506,54 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             months,
             name,
             keyring,
+            via,
         } => Outcome::CheckoutStarted {
             serial,
-            result: start_checkout(&token_url, &tier, months, &name, &keyring),
+            result: start_checkout(&token_url, &tier, months, &name, &keyring, via.as_deref()),
+        },
+        Job::Options {
+            serial,
+            token_url,
+            tier,
+            months,
+            country,
+            currency,
+        } => {
+            let transport = AzulTransport::new(USER_AGENT);
+            let surfaces: Vec<&str> = crate::add_drive::PAY_SURFACES
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            let query = OptionsQuery {
+                tier: &tier,
+                months,
+                country: &country,
+                currency: &currency,
+                surfaces: &surfaces,
+            };
+            let result = TokenServer::new(&token_url, &transport)
+                .and_then(|server| server.checkout_options(&query))
+                .map_err(|e| e.to_string());
+            Outcome::Options { serial, result }
+        }
+        Job::Surface {
+            serial,
+            token_url,
+            checkout_id,
+            kind,
+            choice,
+            look,
+        } => Outcome::Surface {
+            serial,
+            result: switch_surface(&token_url, &checkout_id, kind, &choice, &look),
+        },
+        Job::Abandon {
+            token_url,
+            checkout_id,
+            keyring,
+        } => Outcome::Abandoned {
+            result: abandon(&token_url, &checkout_id, &keyring),
+            checkout_id,
         },
         Job::AwaitPayment {
             serial,

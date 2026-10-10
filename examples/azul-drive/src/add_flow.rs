@@ -6,24 +6,42 @@
 //! their claim keys outlive AzDrive in the keyring). The dialog's data is `add_drive`, its view
 //! `ui_add_drive`.
 //!
+//! Buy storage pays through the token server's payment options when it has them: a pill per
+//! method, the consent, and azul-pay's checkout machine ([`pay`]) - its effects run here: the
+//! checkout (with the claim key, onto the keyring's list), the popover with the provider's page
+//! in its web view, `prevent_default` for every navigation the policy cancels, the fields
+//! page's commands, the system browser, the next surface of the same checkout, the abandon of
+//! a checkout nobody pays, the wait for the drive. Then the claim flow takes over unchanged.
+//!
 //! On stdout, for scripts: `AZDRIVE_ADD_PAGE <page>`, `AZDRIVE_TESTED ok|error`,
-//! `AZDRIVE_TIERS <n>`, `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive
-//! id>`, `AZDRIVE_ADDED <drive id>`. No secret and no payment page address is printed.
+//! `AZDRIVE_TIERS <n>`, `AZDRIVE_PILLS <method>:<provider> ...` (`-` for none: the v1 checkout),
+//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_PAY <state>`, `AZDRIVE_PAY_SURFACE <kind> <host>`,
+//! `AZDRIVE_PAY_BLOCKED <host>`, `AZDRIVE_OPEN_BROWSER <host>`, `AZDRIVE_ABANDONED <checkout id>
+//! ok|error`, `AZDRIVE_CLAIMED <checkout id> <drive id>`, `AZDRIVE_ADDED <drive id>`. No secret,
+//! no cardholder name and no payment page address is printed - hosts only.
 
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
-use azcloud_kit::{pending::Claimed, Checkout, PendingCheckout, Tiers};
-use azul::{prelude::*, url::Url};
+use azcloud_kit::{pending::Claimed, PendingCheckout, Tiers};
+use azul::{css::DarkLightMode, prelude::*, str::String as AzString, url::Url};
+use azul_pay::{
+    machine::Notice,
+    offer::{Offer, OfferContext},
+    Effect, Event, Method, SecretUrl, State as PayState,
+};
 use azul_storage::{
     config::{self, DriveEntry, DrivesFile},
     DriveError,
 };
 
 use crate::{
-    add_drive::{AddDialog, BuyStep, TiersState},
+    add_drive::{AddDialog, BuyStep, OfferState, TiersState, COUNTRIES},
     browse::Place,
-    go,
-    jobs::{BoughtDrive, Job},
+    go, ids,
+    jobs::{BoughtDrive, Job, PayVia, Started},
     keyring, refresh_disks, spawn, DriveState, KeyringCall, KeyringOp, Popup, Slot,
 };
 
@@ -47,6 +65,22 @@ pub(crate) enum AddEvent {
     CreateTestDrive,
     Buy,
     StopWaiting,
+    /// A payment pill (its method).
+    Pill(Method),
+    /// The pill's other provider (an index of the offer's providers).
+    PillProvider(usize),
+    /// Buy storage's country (an index of `COUNTRIES`).
+    Country(usize),
+    /// The order's consent.
+    Consent,
+    /// The popover's Pay.
+    PayConfirm,
+    /// "Open in browser instead" (the popover), "Open the page again" (waiting for the browser).
+    OpenInBrowser,
+    /// The popover's close button.
+    ClosePopover,
+    /// "Check again" after the dialog stopped waiting.
+    CheckAgain,
 }
 
 /// The open dialog, if the popup is it.
@@ -99,11 +133,16 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         }
         AddEvent::ChooseConnect => d.choose_connect(),
         AddEvent::Back => {
-            if let BuyStep::Paying { cancel, .. } = &d.step {
-                cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            // A payment shown is abandoned, one on its way waited for in the background.
+            let _ = pay(info, app, s, Event::Close);
+            if let Some(d) = dialog(s) {
+                if let BuyStep::Paying { cancel, .. } = &d.step {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+                d.step = BuyStep::Idle;
+                d.pay = PayState::Choosing;
+                d.back();
             }
-            d.step = BuyStep::Idle;
-            d.back();
         }
         AddEvent::Service(id) => {
             if !d.open_service(id) {
@@ -111,20 +150,70 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
             }
         }
         AddEvent::Tier(index) => {
-            d.tier = index;
-            d.notice.clear();
+            // The order is fixed while a payment runs.
+            if !d.busy() {
+                d.tier = index;
+                d.notice.clear();
+            }
         }
         AddEvent::Yearly => {
-            d.yearly = !d.yearly;
-            d.notice.clear();
+            if !d.busy() {
+                d.yearly = !d.yearly;
+                d.notice.clear();
+                print_pills(d);
+            }
         }
         AddEvent::RetryTiers => load_tiers(info, app, s, true),
         AddEvent::Test => test(info, app, s),
         AddEvent::Save => save(info, app, s),
-        AddEvent::Cancel => cancel(s),
+        AddEvent::Cancel => close(info, app, s),
         AddEvent::CreateTestDrive => create_test_drive(info, app, s),
         AddEvent::Buy => buy(info, app, s),
-        AddEvent::StopWaiting => stop_waiting(info, app, s),
+        AddEvent::StopWaiting => {
+            if d.pay.busy() {
+                let _ = pay(info, app, s, Event::StopWaiting);
+            } else {
+                stop_waiting(info, app, s);
+            }
+        }
+        AddEvent::Pill(method) => {
+            if !d.busy() {
+                d.choose_pill(method);
+            }
+        }
+        AddEvent::PillProvider(index) => {
+            if !d.busy() {
+                d.choose_provider(index);
+            }
+        }
+        AddEvent::Country(index) => {
+            let changed = !d.busy()
+                && COUNTRIES
+                    .get(index)
+                    .is_some_and(|(code, _)| d.set_country(code));
+            if changed {
+                load_options(info, app, s);
+            }
+        }
+        AddEvent::Consent => {
+            d.consent = !d.consent;
+            if d.consent && matches!(d.pay, PayState::Choosing) {
+                d.notice.clear();
+            }
+        }
+        AddEvent::PayConfirm => {
+            let name = d.card_name.clone();
+            let _ = pay(info, app, s, Event::Confirm { name });
+        }
+        AddEvent::OpenInBrowser => {
+            let _ = pay(info, app, s, Event::OpenInBrowser);
+        }
+        AddEvent::ClosePopover => {
+            let _ = pay(info, app, s, Event::Close);
+        }
+        AddEvent::CheckAgain => {
+            let _ = pay(info, app, s, Event::CheckAgain);
+        }
     }
     if let Some(d) = dialog(s) {
         if d.page_line() != page_before {
@@ -137,10 +226,18 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
 pub(crate) fn cancel(s: &mut DriveState) {
     if let Some(d) = dialog(s) {
         if let BuyStep::Paying { cancel, .. } = &d.step {
-            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            cancel.store(true, Ordering::SeqCst);
         }
     }
     s.popup = None;
+}
+
+/// The user closes the dialog (Cancel, its close button, Escape): a payment shown and not
+/// confirmed is abandoned (nobody may pay it later), one on its way is waited for in the
+/// background (the claim stays) - then it closes.
+pub(crate) fn close(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let _ = pay(info, app, s, Event::Close);
+    cancel(s);
 }
 
 // ==== Connect data source ====
@@ -327,21 +424,100 @@ fn no_token_server() -> String {
     )
 }
 
-/// The tier list's answer.
-pub(crate) fn tiers_answered(s: &mut DriveState, serial: u64, result: Result<Tiers, String>) {
+/// The tier list's answer; then the payment options are asked for (the page is ready -
+/// `AZDRIVE_TIERS` - once they have answered too).
+pub(crate) fn tiers_answered(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
+    result: Result<Tiers, String>,
+) {
     let Some(d) = dialog_of(s, serial) else {
         return;
     };
     match result {
         Ok(tiers) => {
-            println!("AZDRIVE_TIERS {}", tiers.tiers.len());
             if d.tier >= tiers.tiers.len() {
                 d.tier = 0;
             }
             d.tiers = TiersState::Loaded(tiers);
+            load_options(info, app, s);
         }
         Err(why) => d.tiers = TiersState::Failed(why),
     }
+}
+
+/// Asks the token server for its payment options for the chosen tier and period and the
+/// payer's country (`GET /v1/checkout/options`).
+fn load_options(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let token_url = s.token.url.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    let Some(token_url) = token_url else {
+        d.offer = OfferState::Failed(no_token_server());
+        tiers_ready(d);
+        return;
+    };
+    let (tier, currency) = d
+        .chosen_tier()
+        .map(|t| (t.id.clone(), t.currency.clone()))
+        .unwrap_or_else(|| (String::new(), String::from("EUR")));
+    d.offer = OfferState::Loading;
+    let job = Job::Options {
+        serial: d.serial,
+        token_url,
+        tier,
+        months: d.months(),
+        country: d.country.clone(),
+        currency,
+    };
+    spawn(info, app, s, job);
+}
+
+/// The payment options' answer: the offer, narrowed by azul-pay's registry (what it dropped
+/// goes to the log), or the v1 checkout (an older token server, a failure).
+pub(crate) fn options_answered(
+    s: &mut DriveState,
+    serial: u64,
+    result: Result<Option<String>, String>,
+) {
+    let token_url = s.token.url.clone().unwrap_or_default();
+    let Some(d) = dialog_of(s, serial) else {
+        return;
+    };
+    match result {
+        Ok(Some(text)) => match Offer::parse(&text, &OfferContext::for_token_url(&token_url)) {
+            Ok(offer) => {
+                for why in &offer.dropped {
+                    eprintln!("[azdrive] a payment option was not taken: {why}");
+                }
+                d.offer_loaded(offer);
+            }
+            Err(why) => d.offer = OfferState::Failed(why.to_string()),
+        },
+        Ok(None) => d.offer = OfferState::Legacy,
+        Err(why) => d.offer = OfferState::Failed(why),
+    }
+    tiers_ready(d);
+}
+
+/// The page is ready: the tiers and the payment options are in.
+fn tiers_ready(d: &AddDialog) {
+    if let TiersState::Loaded(tiers) = &d.tiers {
+        println!("AZDRIVE_TIERS {}", tiers.tiers.len());
+    }
+    print_pills(d);
+}
+
+/// For scripts: the pills shown now (`-`: none, the v1 checkout).
+fn print_pills(d: &AddDialog) {
+    let line = d.pills_line();
+    println!(
+        "AZDRIVE_PILLS {}",
+        if line.is_empty() { "-" } else { line.as_str() }
+    );
 }
 
 /// The chosen tier's id, the bought drive's name and the token server - or why Buy storage
@@ -391,9 +567,49 @@ fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
     );
 }
 
-/// "Buy": a checkout, on the keyring's list of unfinished checkouts with its claim key; its
-/// payment page opens in the browser when it is made.
+/// "Buy": with the token server's payment options, the chosen pill's checkout through azul-pay's
+/// machine (the consent first); without them the v1 checkout, its payment page in the browser.
 fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if !dialog(s).is_some_and(|d| d.pays_with_pills()) {
+        buy_on_the_payment_page(info, app, s);
+        return;
+    }
+    if buy_parts(s).is_none() {
+        return;
+    }
+    let look = look_name(info);
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    d.look_name = look;
+    let Some(choice) = d.choice() else {
+        d.notice = String::from("Choose how to pay first.");
+        return;
+    };
+    let consent = d.consent;
+    let _ = pay(info, app, s, Event::Pay { choice, consent });
+}
+
+/// The look the provider's fields should take: the app theme and the mode (`flora-dark`).
+fn look_name(info: &CallbackInfo) -> String {
+    let theme: String = info
+        .get_theme()
+        .as_str()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    let mode = match info.get_mode().into_option() {
+        Some(DarkLightMode::Dark) => "dark",
+        _ => "light",
+    };
+    let theme = if theme.is_empty() { "flat" } else { theme.as_str() };
+    format!("{theme}-{mode}")
+}
+
+/// The v1 checkout: on the keyring's list of unfinished checkouts with its claim key; its
+/// payment page opens in the browser when it is made.
+fn buy_on_the_payment_page(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let Some((tier, name, token_url, serial)) = buy_parts(s) else {
         return;
     };
@@ -417,33 +633,320 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
             months,
             name,
             keyring,
+            via: None,
         },
     );
 }
 
-/// The checkout's answer: its payment page opens in the browser, and the dialog waits for the
-/// drive (the checkout is on the keyring's list already: a payment the dialog does not see
-/// still brings the drive).
+// ==== The checkout machine (azul-pay) ====
+
+/// Feeds `event` to the dialog's checkout machine and runs its effects; whether the web view's
+/// navigation `event` asked about is to be cancelled (`prevent_default` - also when no dialog
+/// is there to ask).
+pub(crate) fn pay(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    event: Event,
+) -> bool {
+    let navigation = matches!(event, Event::Navigation { .. });
+    let Some(d) = dialog(s) else {
+        return navigation;
+    };
+    let before = d.pay.name();
+    let state = std::mem::replace(&mut d.pay, PayState::Choosing);
+    let (next, effects) = azul_pay::step(state, event);
+    if next.name() != before {
+        println!("AZDRIVE_PAY {}", next.name());
+    }
+    d.pay = next;
+    let mut cancel = false;
+    for effect in effects {
+        cancel |= run_effect(info, app, s, effect);
+    }
+    cancel
+}
+
+/// One effect of the machine; whether it cancels the navigation asked about.
+fn run_effect(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, effect: Effect) -> bool {
+    match effect {
+        Effect::CreateCheckout { surface, .. } => start_pay_checkout(info, app, s, surface),
+        Effect::ShowSurface(surface) => {
+            println!(
+                "AZDRIVE_PAY_SURFACE {} {}",
+                surface.kind.as_str(),
+                surface.url.host()
+            );
+            if let Some(d) = dialog(s) {
+                d.notice.clear();
+            }
+        }
+        Effect::WebviewNavigate(url) => {
+            let node = info
+                .get_node_id_by_marker(AzString::from(ids::PAY_WEBVIEW_MARKER))
+                .into_option();
+            match node {
+                Some(node) => info.webview_navigate(node, AzString::from(url.reveal())),
+                None => {
+                    if let Some(d) = dialog(s) {
+                        d.notice = String::from(
+                            "The payment page is not shown here, so it could not be told to pay.",
+                        );
+                    }
+                }
+            }
+        }
+        Effect::AllowNavigation => {}
+        Effect::CancelNavigation => return true,
+        Effect::OpenBrowser(url) => open_browser(s, &url),
+        Effect::SwitchSurface { checkout_id, kind } => {
+            let token_url = s.token.url.clone().unwrap_or_default();
+            let Some(d) = dialog(s) else {
+                return false;
+            };
+            let Some((checkout, _)) = d.pay.presenting() else {
+                return false;
+            };
+            let job = Job::Surface {
+                serial: d.serial,
+                token_url: checkout_token_url(d, &token_url),
+                checkout_id,
+                kind,
+                choice: Box::new(checkout.choice.clone()),
+                look: d.look(),
+            };
+            spawn(info, app, s, job);
+        }
+        Effect::Abandon { checkout_id } => {
+            let token_url = s.token.url.clone().unwrap_or_default();
+            let keyring = s.keyring.clone();
+            let token_url = match dialog(s) {
+                Some(d) => checkout_token_url(d, &token_url),
+                None => token_url,
+            };
+            spawn(
+                info,
+                app,
+                s,
+                Job::Abandon {
+                    token_url,
+                    checkout_id,
+                    keyring,
+                },
+            );
+        }
+        Effect::StartPoll { checkout_id } => start_poll(info, app, s, &checkout_id),
+        Effect::StopPoll => {
+            if let Some(d) = dialog(s) {
+                if let BuyStep::Paying { cancel, .. } = &d.step {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+                d.step = BuyStep::Idle;
+            }
+            start_claims(info, app, s);
+        }
+        Effect::Notice(notice) => {
+            if let Notice::Blocked { host } = &notice {
+                println!("AZDRIVE_PAY_BLOCKED {host}");
+            }
+            if let Some(d) = dialog(s) {
+                d.notice = notice.text();
+            }
+        }
+    }
+    false
+}
+
+/// The token server the dialog's checkout was made at (the keyring's entry knows), else this
+/// run's.
+fn checkout_token_url(d: &AddDialog, fallback: &str) -> String {
+    match &d.kept {
+        Some(kept) if !kept.token_url.is_empty() => kept.token_url.clone(),
+        _ => fallback.to_string(),
+    }
+}
+
+/// The machine's checkout through the chosen provider: on the keyring's list with its claim key
+/// before anything shows it.
+fn start_pay_checkout(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    surface: azul_pay::SurfaceKind,
+) {
+    let token_url = s.token.url.clone();
+    let keyring = s.keyring.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    let PayState::Preparing { choice, .. } = &d.pay else {
+        return;
+    };
+    let via = PayVia {
+        choice: choice.clone(),
+        surface,
+        look: d.look(),
+        country: d.country.clone(),
+        consent: d.consent,
+    };
+    let (Some(token_url), Some(tier)) = (token_url, d.chosen_tier().map(|t| t.id.clone())) else {
+        let _ = pay(
+            info,
+            app,
+            s,
+            Event::CreateFailed(String::from("there is no token server or no tier")),
+        );
+        return;
+    };
+    d.step = BuyStep::StartingCheckout;
+    d.notice = String::from("Preparing the payment...");
+    d.kept = None;
+    let job = Job::Checkout {
+        serial: d.serial,
+        token_url,
+        tier,
+        months: d.months(),
+        name: d.buy_name.trim().to_string(),
+        keyring,
+        via: Some(Box::new(via)),
+    };
+    spawn(info, app, s, job);
+}
+
+/// The system browser opens `url` (a headless run opens nothing); the dialog says where, the
+/// script line names the host only.
+fn open_browser(s: &mut DriveState, url: &SecretUrl) {
+    println!("AZDRIVE_OPEN_BROWSER {}", url.host());
+    let page = url.reveal();
+    let opened = Url::parse(page.as_str())
+        .into_result()
+        .map(|parsed| parsed.open())
+        .unwrap_or(false);
+    if !opened {
+        if let Some(d) = dialog(s) {
+            d.notice = format!("Open this payment page in your browser: {page}");
+        }
+    }
+}
+
+/// The dialog waits for the drive of the machine's checkout (the claim flow's wait).
+fn start_poll(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, checkout_id: &str) {
+    let keyring = s.keyring.clone();
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    let Some(kept) = d.kept.clone().filter(|k| k.checkout_id == checkout_id) else {
+        return;
+    };
+    if let BuyStep::Paying { cancel, .. } = &d.step {
+        cancel.store(true, Ordering::SeqCst);
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    d.step = BuyStep::Paying {
+        checkout_id: checkout_id.to_string(),
+        cancel: cancel.clone(),
+    };
+    let serial = d.serial;
+    let token_url = kept.token_url.clone();
+    spawn(
+        info,
+        app,
+        s,
+        Job::AwaitPayment {
+            serial,
+            checkout: kept,
+            token_url,
+            keyring,
+            cancel,
+        },
+    );
+}
+
+/// The next surface of the machine's checkout (or why there is none).
+pub(crate) fn surface_answered(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
+    result: Result<azul_pay::Surface, String>,
+) {
+    if dialog_of(s, serial).is_none() {
+        return;
+    }
+    let event = match result {
+        Ok(surface) => Event::Switched(surface),
+        Err(why) => Event::SwitchFailed(why),
+    };
+    let _ = pay(info, app, s, event);
+}
+
+/// A checkout abandoned at the token server (and off the keyring's list).
+pub(crate) fn abandoned(checkout_id: &str, result: Result<(), String>) {
+    match result {
+        Ok(()) => println!("AZDRIVE_ABANDONED {checkout_id} ok"),
+        Err(why) => {
+            println!("AZDRIVE_ABANDONED {checkout_id} error");
+            eprintln!("[azdrive] the checkout {checkout_id} was not abandoned: {why}");
+        }
+    }
+}
+
+/// The checkout's answer. Through a provider: the machine shows its surface (the checkout is on
+/// the keyring's list already). The v1 checkout: its payment page opens in the browser, and the
+/// dialog waits for the drive (a payment the dialog does not see still brings the drive).
 pub(crate) fn checkout_started(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<(Checkout, PendingCheckout), String>,
+    result: Result<Started, String>,
 ) {
     let keyring = s.keyring.clone();
     if dialog_of(s, serial).is_none() {
-        // The dialog closed while the checkout was made: the background claims wait for it.
-        if result.is_ok() {
-            start_claims(info, app, s);
+        match result {
+            // A checkout through a provider whose popover nobody sees: nobody pays it.
+            Ok(started) if started.created.is_some() => {
+                let job = Job::Abandon {
+                    token_url: started.kept.token_url.clone(),
+                    checkout_id: started.checkout.checkout_id.clone(),
+                    keyring,
+                };
+                spawn(info, app, s, job);
+            }
+            // The dialog closed while the v1 checkout was made: the background claims wait
+            // for it.
+            Ok(_) => start_claims(info, app, s),
+            Err(_) => {}
         }
         return;
     }
     let Some(d) = dialog_of(s, serial) else {
         return;
     };
+    // Through a provider: the machine decides (a checkout for a popover that closed meanwhile
+    // is abandoned by it).
+    let through_provider = matches!(&result, Ok(started) if started.created.is_some())
+        || matches!(d.pay, PayState::Preparing { .. });
+    if through_provider {
+        d.step = BuyStep::Idle;
+        let event = match result {
+            Ok(started) => {
+                println!("AZDRIVE_CHECKOUT {}", started.checkout.checkout_id);
+                d.kept = Some(started.kept);
+                match started.created {
+                    Some(created) => Event::Created(Box::new(created)),
+                    None => Event::CreateFailed(String::from(
+                        "the token server answered without a payment surface",
+                    )),
+                }
+            }
+            Err(why) => Event::CreateFailed(why),
+        };
+        let _ = pay(info, app, s, event);
+        return;
+    }
     let (checkout, kept) = match result {
-        Ok(started) => started,
+        Ok(started) => (started.checkout, started.kept),
         Err(why) => {
             d.step = BuyStep::Idle;
             d.notice = format!("The payment could not be prepared: {why}");
@@ -498,7 +1001,7 @@ fn stop_waiting(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
             cancel,
             checkout_id,
         } => {
-            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            cancel.store(true, Ordering::SeqCst);
             Some(format!(
                 "Stopped waiting for the payment of checkout {checkout_id}. A payment made now \
                  still brings the drive: AzDrive asks in the background, and again at its next \
@@ -530,12 +1033,22 @@ pub(crate) fn payment_ended(
         start_claims(info, app, s);
         return;
     }
-    match dialog_of(s, serial) {
+    let waiting = match dialog_of(s, serial) {
         Some(d) => {
             d.step = BuyStep::Idle;
-            d.notice = why;
+            matches!(d.pay, PayState::Waiting { .. })
         }
-        None => s.info(why),
+        None => {
+            s.info(why);
+            return;
+        }
+    };
+    if waiting {
+        // The machine's checkout ended: a new order may follow.
+        let _ = pay(info, app, s, Event::Declined(why.clone()));
+    }
+    if let Some(d) = dialog_of(s, serial) {
+        d.notice = why;
     }
 }
 

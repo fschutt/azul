@@ -152,6 +152,39 @@ pub fn add_choose(key: &str) -> AzString {
 pub fn add_tier(index: usize) -> AzString {
     AzString::from(format!("__azdrive_add_tier_{index}"))
 }
+
+/// Buy storage's payment: the country, the provider switch of a pill, the price line, the
+/// consent, "Check again" and "Open the page again"; a pill is `__azdrive_add_pill_<method>`
+/// (`card`, `sepa_debit`, ...).
+pub const ADD_COUNTRY: AzString = AzString::from_const_str("__azdrive_add_country");
+pub const ADD_PROVIDER: AzString = AzString::from_const_str("__azdrive_add_provider");
+pub const ADD_PRICE: AzString = AzString::from_const_str("__azdrive_add_price");
+pub const ADD_CONSENT: AzString = AzString::from_const_str("__azdrive_add_consent");
+pub const ADD_CHECK_AGAIN: AzString = AzString::from_const_str("__azdrive_add_check_again");
+pub const ADD_OPEN_AGAIN: AzString = AzString::from_const_str("__azdrive_add_open_again");
+
+/// A payment pill of Buy storage: `__azdrive_add_pill_card`.
+#[must_use]
+pub fn add_pill(method: &str) -> AzString {
+    AzString::from(format!("__azdrive_add_pill_{}", id_part(method)))
+}
+
+/// The payment popover (its own window, a `<transient-window>` of the dialog): its content, the
+/// verified-origin chip and its host, the card artwork and its brand, the cardholder name, the
+/// provider's page in the web view, Pay, "Open in browser instead", the provider's message.
+pub const PAY_POPOVER: AzString = AzString::from_const_str("__azdrive_pay_popover");
+pub const PAY_CHIP: AzString = AzString::from_const_str("__azdrive_pay_chip");
+pub const PAY_HOST: AzString = AzString::from_const_str("__azdrive_pay_host");
+pub const PAY_CARD: AzString = AzString::from_const_str("__azdrive_pay_card");
+pub const PAY_BRAND: AzString = AzString::from_const_str("__azdrive_pay_brand");
+pub const PAY_NAME: AzString = AzString::from_const_str("__azdrive_pay_name");
+pub const PAY_WEBVIEW: AzString = AzString::from_const_str("__azdrive_pay_webview");
+pub const PAY_CONFIRM: AzString = AzString::from_const_str("__azdrive_pay_confirm");
+pub const PAY_BROWSER: AzString = AzString::from_const_str("__azdrive_pay_browser");
+pub const PAY_NOTICE: AzString = AzString::from_const_str("__azdrive_pay_notice");
+/// The web view's marker: how Pay's callback (in the popover's window) finds the web view to
+/// tell the fields page to confirm.
+pub const PAY_WEBVIEW_MARKER: &str = "azdrive-pay-webview";
 /// The "delete for good?" question.
 pub const CONFIRM_DELETE: AzString = AzString::from_const_str("__azdrive_confirm_delete");
 /// "Move to / Copy to > Choose location" and its typed path.

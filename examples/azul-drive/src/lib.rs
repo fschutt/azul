@@ -1831,7 +1831,17 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::Tested { serial, result } => {
             add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
         }
-        Outcome::Tiers { serial, result } => add_flow::tiers_answered(s, serial, result),
+        Outcome::Tiers { serial, result } => {
+            add_flow::tiers_answered(&mut info, &handle, s, serial, result);
+        }
+        Outcome::Options { serial, result } => add_flow::options_answered(s, serial, result),
+        Outcome::Surface { serial, result } => {
+            add_flow::surface_answered(&mut info, &handle, s, serial, result);
+        }
+        Outcome::Abandoned {
+            checkout_id,
+            result,
+        } => add_flow::abandoned(&checkout_id, result),
         Outcome::Bought { serial, result } => {
             add_flow::bought(&mut info, &handle, s, serial, result);
         }
