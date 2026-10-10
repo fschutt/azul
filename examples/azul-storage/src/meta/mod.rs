@@ -193,6 +193,10 @@ pub enum MetaError {
     /// A conditional write lost: the object was there already, or it changed
     /// since it was read (S3: 412 Precondition Failed). Nothing was written.
     Conflict { key: String },
+    /// Another conditional write of the object was in progress (S3: 409
+    /// `ConditionalRequestConflict`): nothing was written, try again. Never
+    /// "the object is there".
+    Raced { key: String },
     /// The bucket's own error.
     Drive(DriveError),
     /// The object does not open with this drive key (another key, or a changed byte).
@@ -227,6 +231,9 @@ impl fmt::Display for MetaError {
         match self {
             MetaError::Conflict { key } => {
                 write!(f, "\"{key}\" was written by another device in the meantime")
+            }
+            MetaError::Raced { key } => {
+                write!(f, "\"{key}\" was being written by another device; try again")
             }
             MetaError::Drive(e) => write!(f, "{e}"),
             MetaError::Sealed { key, reason } => {

@@ -133,6 +133,8 @@ struct MemoryState {
     whole_reads: Vec<String>,
     /// Runs before the next `replace` of the key (then removed).
     before_replace: BTreeMap<String, Hook>,
+    /// The next create or replace of the key fails with this, writing nothing.
+    fail_next: BTreeMap<String, MetaError>,
 }
 
 impl MemoryState {
@@ -190,6 +192,12 @@ impl MemoryBucket {
             .insert(key.to_string(), Box::new(hook));
     }
 
+    /// Makes the next create or replace of `key` fail with `error`, writing
+    /// nothing (a test's 409 or lost connection).
+    pub fn fail_next_write(&self, key: &str, error: MetaError) {
+        self.lock().fail_next.insert(key.to_string(), error);
+    }
+
     /// Writes the object whatever is there (a test's tampering).
     pub fn overwrite(&self, key: &str, bytes: &[u8]) {
         let mut state = self.lock();
@@ -236,6 +244,9 @@ impl Bucket for MemoryBucket {
     fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
         let mut state = self.lock();
         state.counts.writes += 1;
+        if let Some(error) = state.fail_next.remove(key) {
+            return Err(error);
+        }
         if state.objects.contains_key(key) {
             state.counts.conflicts += 1;
             return Err(MetaError::Conflict {
@@ -256,6 +267,9 @@ impl Bucket for MemoryBucket {
         }
         let mut state = self.lock();
         state.counts.writes += 1;
+        if let Some(error) = state.fail_next.remove(key) {
+            return Err(error);
+        }
         let current = state.objects.get(key).map(|(_, version)| version.clone());
         if current.as_deref() != Some(known) {
             state.counts.conflicts += 1;
@@ -479,17 +493,30 @@ impl<D: Drive> Bucket for DriveBucket<D> {
     fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
         self.drive
             .put_if(key, bytes, &Precondition::Absent)
-            .map_err(MetaError::from)
+            .map_err(|e| conditional_error(key, e))
     }
 
     fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
         self.drive
             .put_if(key, bytes, &Precondition::Matches(known.to_string()))
-            .map_err(MetaError::from)
+            .map_err(|e| conditional_error(key, e))
     }
 
     fn remove(&self, key: &str) -> Result<(), MetaError> {
         self.drive.delete(key).map_err(MetaError::Drive)
+    }
+}
+
+/// What a lost conditional write of a drive is for the repository: 412 is
+/// [`MetaError::Conflict`]; 409 (S3's `ConditionalRequestConflict`: another
+/// conditional write of the object was in progress, nothing was written) is
+/// [`MetaError::Raced`], to be tried again.
+fn conditional_error(key: &str, e: DriveError) -> MetaError {
+    match e {
+        DriveError::Service(service) if service.status == 409 => MetaError::Raced {
+            key: key.to_string(),
+        },
+        other => MetaError::from(other),
     }
 }
 

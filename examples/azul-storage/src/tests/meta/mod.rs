@@ -9,6 +9,7 @@ mod index;
 mod merge;
 mod objects;
 mod pack;
+mod race;
 mod repo;
 mod seal;
 mod shard;

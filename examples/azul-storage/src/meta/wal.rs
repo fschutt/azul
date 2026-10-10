@@ -263,6 +263,15 @@ fn corrupt(key: &str, reason: impl Into<String>) -> MetaError {
     }
 }
 
+/// Waits a little before the next attempt after a 409 (another conditional
+/// write of the object was in progress): 1 to 2^attempt ms, at most ~64 ms,
+/// at random, so racing devices do not meet again.
+fn back_off(attempt: u32) {
+    let ceiling = 1u64 << attempt.min(6);
+    let millis = 1 + crate::ids::random_seed() % ceiling;
+    std::thread::sleep(std::time::Duration::from_millis(millis));
+}
+
 /// 128 random bits as 32 hex digits: an attempt id.
 fn attempt_id() -> String {
     format!(
@@ -704,7 +713,14 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             }
             let seq = self.state.head_seq + 1;
             let pack = match &publish.pack {
-                Some(writer) if !writer.is_empty() => Some(self.put_pack(writer, seq)?),
+                Some(writer) if !writer.is_empty() => match self.put_pack(writer, seq) {
+                    Ok(pack) => Some(pack),
+                    Err(MetaError::Raced { .. }) => {
+                        back_off(attempt);
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                },
                 _ => None,
             };
             let entry = LogEntry {
@@ -717,16 +733,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 created_at: self.now(),
                 message: publish.message.clone(),
             };
-            if self.commit_entry(&entry, |manifest| {
+            let committed = self.commit_entry(&entry, |manifest| {
                 if let Some(pack) = &pack {
                     manifest.packs.push(pack.clone());
                 }
-            })? {
-                return Ok(Some(Published {
-                    seq,
-                    pack,
-                    attempts: attempt,
-                }));
+            });
+            match committed {
+                Ok(true) => {
+                    return Ok(Some(Published {
+                        seq,
+                        pack,
+                        attempts: attempt,
+                    }))
+                }
+                Ok(false) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
+                Err(e) => return Err(e),
             }
         }
         Err(MetaError::Contended {
@@ -775,8 +797,9 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 });
                 Ok(true)
             }
-            Err(MetaError::Conflict { .. }) => {
-                // Nobody else names this key: removing it is safe.
+            Err(MetaError::Conflict { .. } | MetaError::Raced { .. }) => {
+                // Nothing was swapped, and nobody else names this key: removing
+                // it is safe. A race (409) is tried again like a lost swap.
                 let _ = self.bucket.remove(&log_key);
                 Ok(false)
             }
@@ -817,7 +840,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// entries and the checkpoint it replaces are retired. A device behind it
     /// starts from it.
     pub fn checkpoint(&mut self) -> Result<CheckpointRef, MetaError> {
-        for _ in 0..self.attempts {
+        for attempt in 1..=self.attempts {
             self.sync()?;
             let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
             if synced
@@ -840,7 +863,14 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             };
             let key = keys::checkpoint(checkpoint.seq, &attempt_id());
             let sealed = self.seal(&key, &checkpoint)?;
-            self.bucket.create(&key, &sealed)?;
+            match self.bucket.create(&key, &sealed) {
+                Ok(_) => {}
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
             let cp_ref = CheckpointRef {
                 seq: checkpoint.seq,
                 key: key.clone(),
@@ -869,6 +899,10 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 }
                 Err(MetaError::Conflict { .. }) => {
                     let _ = self.bucket.remove(&key);
+                }
+                Err(MetaError::Raced { .. }) => {
+                    let _ = self.bucket.remove(&key);
+                    back_off(attempt);
                 }
                 Err(e) => return Err(e),
             }
@@ -994,7 +1028,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// packs are retired. `Ok(None)` when there is at most one pack.
     pub fn compact(&mut self, guard: &LeaseGuard) -> Result<Option<Compacted>, MetaError> {
         self.check_guard(guard)?;
-        for _ in 0..self.attempts {
+        for attempt in 1..=self.attempts {
             self.sync()?;
             let old = self.state.packs.clone();
             if old.len() < 2 {
@@ -1010,7 +1044,14 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 writer.add_from(&objects, id)?;
             }
             let seq = self.state.head_seq + 1;
-            let pack = self.put_pack(&writer, seq)?;
+            let pack = match self.put_pack(&writer, seq) {
+                Ok(pack) => pack,
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             let replaced: Vec<String> = old.iter().map(|p| p.name.clone()).collect();
             let entry = LogEntry {
                 seq,
@@ -1041,7 +1082,15 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                         at: now,
                     });
                 }
-            })?;
+            });
+            let committed = match committed {
+                Ok(committed) => committed,
+                Err(MetaError::Raced { .. }) => {
+                    back_off(attempt);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             if committed {
                 return Ok(Some(Compacted {
                     seq,
@@ -1060,7 +1109,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// Returns how many objects were deleted.
     pub fn collect_garbage(&mut self, guard: &LeaseGuard, grace: u64) -> Result<usize, MetaError> {
         self.check_guard(guard)?;
-        for _ in 0..self.attempts {
+        for attempt in 1..=self.attempts {
             self.sync()?;
             let synced = self.synced.as_ref().ok_or(MetaError::NoRepository)?;
             let now = self.now();
@@ -1095,6 +1144,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     return Ok(due.len());
                 }
                 Err(MetaError::Conflict { .. }) => {}
+                Err(MetaError::Raced { .. }) => back_off(attempt),
                 Err(e) => return Err(e),
             }
         }
