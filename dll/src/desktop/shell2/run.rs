@@ -2496,6 +2496,10 @@ fn run_linux_windows(
                     // Event handling is done inside poll_event
                 }
 
+                // `<webview>`s: what the `azul-webview` thread reported
+                // (it wakes this loop) and the frames it drew.
+                window.pump_webviews();
+
                 // A callback may have set flags.close_requested (e.g. a menu item
                 // click closing the menu, or a CSD close button). Honor it here so the
                 // pass below unregisters + drops the window (destroying it and ungrabbing

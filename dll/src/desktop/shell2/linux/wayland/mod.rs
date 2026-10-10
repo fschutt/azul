@@ -947,6 +947,10 @@ pub struct WaylandWindow {
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
+
+    /// The window's `<webview>`s (`linux::webview::WpeWebViews`), made at
+    /// the first one: an app without a web view never loads WPE WebKit.
+    webviews: Option<super::webview::WpeWebViews>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1537,6 +1541,24 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
+    /// WPE WebKit, composited (`linux::webview`), made at the first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        let views = self
+            .webviews
+            .get_or_insert_with(|| super::webview::WpeWebViews::new(scale));
+        views.set_scale(scale);
+        Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
+
     /// `handle_key` forwards every key to a focus-taking `active_popup` (the
     /// `xdg_popup` grab) before the shared pass sees it, so the shared
     /// mailbox forwarding must not deliver it a second time. (A list popup's
@@ -2309,6 +2331,7 @@ impl WaylandWindow {
                 };
                 ctx
             },
+            webviews: None,
         };
 
         // Initialize the accessibility adapter (open the AT-SPI connection via
