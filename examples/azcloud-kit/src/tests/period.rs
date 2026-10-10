@@ -371,10 +371,10 @@ fn period_tokens_signed_by_another_key_than_the_one_asked_for_are_refused() {
     let dir = TempDir::new("azcloud-period");
     let store = store_in(&dir);
     // The answer names another key than the request did.
-    let keys = keys();
+    let listed = keys();
     let fake = Fake::new(move |call, _| {
         if call.url.ends_with("/v1/tokens/keys") {
-            return Ok(json(200, &keys));
+            return Ok(json(200, &listed));
         }
         let answer = serde_json::json!({
             "tier": "100GB", "key_id": "100GB/2025", "public_key_pem": pem(N2),
