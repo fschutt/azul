@@ -17,6 +17,8 @@
 //!        `AZUL_BRIDGE_READY imap=<port> smtp=<port> dav=<port>`. `--folder` serves a folder of
 //!        this computer as the drive, `--memory` an empty drive in memory (development).
 //!   status     What the bridge is set up with (no secret).
+//!   autostart enable|disable|status
+//!        The login item that starts `serve` at every login ([`crate::autostart`]).
 //! ```
 //!
 //! The state folder: `--state-dir`, else `$AZUL_BRIDGE_HOME`, else `<OS config folder>/azul-bridge`
@@ -38,6 +40,7 @@ use azul_storage::{Drive, LocalDrive, Transport};
 
 use crate::{
     account::AccountDrive,
+    autostart,
     auth::{self, Credentials, FailureGate},
     config::{self, BridgeConfig},
     dav::{self, Dav},
@@ -79,13 +82,15 @@ pub struct Options {
     pub idle_poll: Option<u64>,
     /// `os` (the OS keyring; a build with the os-keyring feature) or `file`.
     pub keyring: Option<String>,
+    /// `autostart`'s `enable` / `disable` / `status`.
+    pub action: Option<String>,
 }
 
 /// The usage text.
 pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
      <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
      [--smtp-port N] [--dav-port N] | password | signup [--name NAME] [--tier TIER] | \
-     join --code-file FILE | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
+     join --code-file FILE | autostart enable|disable|status | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
      [--folder DIR | --memory] [--idle-poll SECS] | status>";
 
 /// Reads the arguments (without the program's name).
@@ -136,11 +141,20 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             }
             "-h" | "--help" => return Err(String::from("help")),
             other if other.starts_with('-') => return Err(format!("unknown option {other}")),
+            word if options.command == "autostart" && options.action.is_none() => {
+                if !matches!(word, "enable" | "disable" | "status") {
+                    return Err(format!("autostart takes enable, disable or status, not {word}"));
+                }
+                options.action = Some(word.to_string());
+            }
             command => {
                 if !options.command.is_empty() {
                     return Err(format!("one command at a time ({} and {command})", options.command));
                 }
-                if !matches!(command, "init" | "password" | "signup" | "join" | "serve" | "status") {
+                if !matches!(
+                    command,
+                    "init" | "password" | "signup" | "join" | "serve" | "status" | "autostart"
+                ) {
                     return Err(format!("unknown command {command}"));
                 }
                 options.command = command.to_string();
@@ -153,6 +167,9 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
     }
     if options.command == "init" && options.address.is_none() {
         return Err(String::from("init needs --address (the address the mail programs sign in with)"));
+    }
+    if options.command == "autostart" && options.action.is_none() {
+        return Err(String::from("autostart needs enable, disable or status"));
     }
     if options.command == "join" && options.code_file.is_none() {
         return Err(String::from("join needs --code-file (the join code, in a file only you can read)"));
@@ -246,6 +263,7 @@ pub fn run(options: &Options) -> Result<(), String> {
             say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
             Ok(())
         }
+        "autostart" => autostart(options.action.as_deref().unwrap_or("status"), &state),
         "status" => {
             let config = BridgeConfig::load(&state).map_err(|e| e.to_string())?;
             match config {
@@ -267,6 +285,32 @@ pub fn run(options: &Options) -> Result<(), String> {
         "serve" => serve(options, &state, &state_dir, secrets),
         other => Err(format!("unknown command {other}")),
     }
+}
+
+/// `autostart enable|disable|status`: the login item of this system ([`crate::autostart`]).
+fn autostart(action: &str, state: &Path) -> Result<(), String> {
+    let system = autostart::System::current().ok_or("this system has no login items the bridge knows")?;
+    let home = dirs::home_dir().ok_or("no home folder")?;
+    let config = dirs::config_dir().ok_or("no config folder")?;
+    match action {
+        "enable" => {
+            let binary = std::env::current_exe().map_err(|e| format!("where this program is: {e}"))?;
+            let path = autostart::enable(system, &home, &config, &binary, state)
+                .map_err(|e| e.to_string())?;
+            say(&format!("AZUL_BRIDGE_AUTOSTART on {}", path.display()));
+            say("The bridge starts at the next login (azul-bridge serve starts it now).");
+        }
+        "disable" => {
+            let removed = autostart::disable(system, &home, &config).map_err(|e| e.to_string())?;
+            say(if removed { "AZUL_BRIDGE_AUTOSTART off" } else { "AZUL_BRIDGE_AUTOSTART off (it was not on)" });
+        }
+        _ => say(if autostart::is_enabled(system, &home, &config) {
+            "AZUL_BRIDGE_AUTOSTART on"
+        } else {
+            "AZUL_BRIDGE_AUTOSTART off"
+        }),
+    }
+    Ok(())
 }
 
 fn print_password(password: &str, config: Option<&BridgeConfig>) {
@@ -456,6 +500,10 @@ mod tests {
         assert_eq!(options.address.as_deref(), Some("ada@example.org"));
         assert_eq!(options.aliases, vec!["info@example.org"]);
         assert_eq!(options.imap_port, Some(0));
+        let on = parse_args(&args("autostart enable")).unwrap();
+        assert_eq!((on.command.as_str(), on.action.as_deref()), ("autostart", Some("enable")));
+        assert!(parse_args(&args("autostart")).is_err());
+        assert!(parse_args(&args("autostart sometimes")).is_err());
         let serve = parse_args(&args("serve --memory --dav-port 8080")).unwrap();
         assert!(serve.memory && serve.dav_port == Some(8080));
         for bad in [
