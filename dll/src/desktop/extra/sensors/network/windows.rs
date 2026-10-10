@@ -10,6 +10,8 @@
 //!   user or the carrier set to metered);
 //! - constrained: it approaches or is over its data limit, roams, or its background data is
 //!   restricted (Data Saver);
+//! - hotspot: a WLAN profile whose cost is `Variable` or that roams - the cost Windows gives a
+//!   phone's hotspot it recognises ([`super::hotspot_guess`]);
 //! - the kind: a WLAN profile is Wi-Fi, a WWAN one cellular, else the adapter's IANA interface
 //!   type (6 Ethernet, 71 Wi-Fi, 243 / 244 mobile broadband) - anything else is other.
 
@@ -20,7 +22,7 @@ use windows::Networking::Connectivity::{
     NetworkStatusChangedEventHandler,
 };
 
-use super::{last_seen, seen, NetworkKind, NetworkState};
+use super::{hotspot_guess, last_seen, seen, NetworkKind, NetworkState};
 
 /// IANA `ifType` numbers, as the adapter's `IanaInterfaceType` says them.
 const IF_TYPE_ETHERNET: u32 = 6;
@@ -48,19 +50,21 @@ fn kind_of(profile: &ConnectionProfile) -> NetworkKind {
     }
 }
 
-/// Whether `profile` is metered, and whether it is constrained.
-fn cost_of(profile: &ConnectionProfile) -> (bool, bool) {
+/// Whether `profile` is metered, whether it is constrained, and whether its cost is the one
+/// Windows gives a phone's hotspot (`Variable`, or roaming).
+fn cost_of(profile: &ConnectionProfile) -> (bool, bool, bool) {
     let Ok(cost) = profile.GetConnectionCost() else {
-        return (false, false);
+        return (false, false, false);
     };
     let kind = cost.NetworkCostType().unwrap_or(NetworkCostType::Unknown);
     let metered = kind == NetworkCostType::Fixed || kind == NetworkCostType::Variable;
+    let roaming = cost.Roaming().unwrap_or(false);
     let constrained = cost.ApproachingDataLimit().unwrap_or(false)
         || cost.OverDataLimit().unwrap_or(false)
-        || cost.Roaming().unwrap_or(false)
+        || roaming
         // Windows 10 and later (IConnectionCost2): Data Saver.
         || cost.BackgroundDataUsageRestricted().unwrap_or(false);
-    (metered, constrained)
+    (metered, constrained, kind == NetworkCostType::Variable || roaming)
 }
 
 /// The internet connection profile now; `None` when WinRT cannot say.
@@ -80,12 +84,13 @@ fn reading() -> Option<NetworkState> {
             ..NetworkState::OFFLINE
         });
     }
-    let (metered, constrained) = cost_of(&profile);
+    let (metered, constrained, hotspot_cost) = cost_of(&profile);
     Some(NetworkState {
         kind,
         connected: true,
         metered,
         constrained,
+        hotspot: hotspot_guess(kind, hotspot_cost),
     })
 }
 

@@ -84,6 +84,29 @@ keys do not change, so AzDrive browses a meeting's folder like any other.
   meeting's calendar event (AzCalendar invitees) or AzContacts; the "Send summary" dialog shows
   them and lets the user edit the list before anything is queued.
 
+## Client health (TODO, not built)
+
+azul-appkit's `client_health` (AzDrive uses it already) makes one number from 0 to 100 out of
+this computer's power, battery, temperature and network (azul's `sensor` module: `PowerState`,
+`BatteryState`, `NetworkState`, which read no identifier at all): 100 a desktop on mains power
+and a free network, lower on battery, in Low Power Mode, hot, on a metered network or a phone's
+hotspot, 0 offline. The weights are in `azul-appkit/src/client_health.rs`.
+
+AzMeet could use it in two places. Neither changes the protocol in this step; the rule for both
+is that only the `u8` ever travels to a peer, never its parts (on battery, the level, the
+temperature, what the network costs):
+
+- Who relays. Today `routes::Sync` carries an `on_battery` bit (set only by `AZMEET_ON_BATTERY`)
+  that `capacity_of` hands to `IrohLoadBalancer` as `IrohPeerCapacity::on_battery`. The
+  integration point: replace that bit by the sender's client health in the `Sync` message (one
+  byte, a new wire version), read it from `Device::query()` in `refresh_sync`, and let the load
+  balancer prefer healthy peers as backbone parents (a peer under about 40 forwards nobody's
+  media; `IrohPeerCapacity` would take the number instead of the bit).
+- Which video quality to offer. This side's own health caps the largest rendition it encodes
+  (`rate::RateControl`'s ceiling): under about 40 only the smallest rendition asked for, under
+  about 80 not the stage's largest one. This needs no wire change at all: it stays on this
+  computer, so it can come first.
+
 ## Order of work
 
 1. The consent control message and the "Recording" indicator (RED test in `audio.rs` first).

@@ -34,11 +34,14 @@ use azcloud_kit::sync::{
 use azul::{
     callbacks::{TimerCallbackInfo, TimerCallbackReturn},
     prelude::*,
+    sensor::NetworkState,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    window::NetworkState,
 };
-use azul_appkit::l10n::{Phrase, Text};
+use azul_appkit::{
+    client_health::Device,
+    l10n::{Phrase, Text},
+};
 use azul_storage::{key, Drive};
 
 use crate::{
@@ -104,8 +107,10 @@ pub(crate) struct SyncWork {
     #[cfg(feature = "encryption")]
     pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
     /// Files over this many bytes wait for a pass on a free network, either way (a metered
-    /// network: [`sync_view::network_hold`]).
+    /// network, a weak computer: [`sync_view::transfer_hold`]).
     pub transfer_limit: Option<u64>,
+    /// Small files moved at once (the computer's health: [`crate::health::transfers`]).
+    pub parallel: usize,
 }
 
 impl SyncWork {
@@ -119,6 +124,7 @@ impl SyncWork {
             #[cfg(feature = "encryption")]
             objects: None,
             transfer_limit: None,
+            parallel: crate::health::transfers(100),
         }
     }
 
@@ -127,9 +133,11 @@ impl SyncWork {
     }
 
     /// The session (on the worker: an Azlin drive decides on its first call whether it is
-    /// encrypted), with the work's transfer limit.
-    fn session(&self) -> SyncSession {
-        self.drive_session().with_transfer_limit(self.transfer_limit)
+    /// encrypted), with the work's transfer limit and its transfers at once.
+    pub(crate) fn session(&self) -> SyncSession {
+        self.drive_session()
+            .with_transfer_limit(self.transfer_limit)
+            .with_parallel(self.parallel)
     }
 
     /// The session of the drive's kind.
@@ -571,7 +579,7 @@ extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
     let Some(mut s) = data.downcast_mut::<DriveState>() else {
         return TimerCallbackReturn::continue_unchanged();
     };
-    let changed = network_changed(&mut *s, NetworkState::query());
+    let changed = conditions_changed(&mut *s, NetworkState::query(), crate::health::read());
     let due: Vec<String> = s
         .settings
         .synced
@@ -590,30 +598,34 @@ extern "C" fn on_sync_timer(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
 }
 
 /// Keeps `network` as the network now; a change prints `AZDRIVE_NETWORK <kind> connected=..
-/// metered=.. constrained=..`. Whether it changed.
+/// metered=.. constrained=.. hotspot=..`. Whether it changed.
 fn note_network(s: &mut DriveState, network: NetworkState) -> bool {
     if s.sync_view.network == Some(network) {
         return false;
     }
     s.sync_view.network = Some(network);
     println!(
-        "AZDRIVE_NETWORK {:?} connected={} metered={} constrained={}",
-        network.kind, network.connected, network.metered, network.constrained
+        "AZDRIVE_NETWORK {:?} connected={} metered={} constrained={} hotspot={}",
+        network.kind, network.connected, network.metered, network.constrained, network.hotspot
     );
     true
 }
 
-/// The poll's reading of the network: on a change every synced drive says its status again,
-/// and a pass that runs without the limit the new network sets stops before its next file (and
-/// runs again with it). Whether it changed.
-fn network_changed(s: &mut DriveState, network: NetworkState) -> bool {
-    let before = s.sync_view.network;
-    if !note_network(s, network) {
+/// The poll's reading of the network and of the computer (its client health's parts): on a
+/// change every synced drive says its status again, and a pass that runs without the limit the
+/// new network or computer sets stops before its next file (and runs again with it). Whether
+/// either changed.
+fn conditions_changed(s: &mut DriveState, network: NetworkState, device: Device) -> bool {
+    let (network_before, device_before) = (s.sync_view.network, s.sync_view.device);
+    let network_changed = note_network(s, network);
+    let device_changed = crate::health::note(s, device);
+    if !network_changed && !device_changed {
         return false;
     }
     for setup in s.settings.synced.clone() {
-        let held = sync_view::network_hold(Some(&network), &setup);
-        let was = sync_view::network_hold(before.as_ref(), &setup);
+        let held = sync_view::transfer_hold(Some(&network), Some(&device), &setup);
+        let was =
+            sync_view::transfer_hold(network_before.as_ref(), device_before.as_ref(), &setup);
         if held.is_some() && held != was {
             if let Some(sync) = s.sync_view.drives.get_mut(&setup.drive_id) {
                 if let Some(running) = &sync.running {
@@ -667,8 +679,14 @@ pub(crate) fn request_pass(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     let Some(mut work) = work_of(info, s, drive_id) else {
         return;
     };
-    // A metered or low-data network holds the big files back ("Paused (metered network)").
-    work.transfer_limit = sync_view::network_hold(s.sync_view.network.as_ref(), &work.setup);
+    // A metered or low-data network holds the big files back ("Paused (metered network)"), and
+    // so does a weak computer; a weak computer moves fewer files at once.
+    work.transfer_limit = sync_view::transfer_hold(
+        s.sync_view.network.as_ref(),
+        s.sync_view.device.as_ref(),
+        &work.setup,
+    );
+    work.parallel = crate::health::health_of(s).map_or(work.parallel, crate::health::transfers);
     let cancel = Arc::new(AtomicBool::new(false));
     s.sync_view.drives.entry(drive_id.to_string()).or_default().running = Some(Running {
         cancel: cancel.clone(),

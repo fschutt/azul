@@ -20,6 +20,9 @@
 //!   app to weigh under its own switch and variable.
 //! - [`shortcuts`]: the keyboard-shortcut table, `Mod` = Cmd / Ctrl.
 //! - [`about`]: the About facts.
+//! - [`client_health`]: this device's client health, 0 to 100, for how much background work
+//!   it takes on - computed locally from azul's device-state readings (power, battery,
+//!   network); only the number may ever travel, never its parts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
@@ -62,6 +65,7 @@
 pub mod about;
 pub mod args;
 pub mod azlin_config;
+pub mod client_health;
 pub mod css;
 pub mod csv;
 pub mod data;

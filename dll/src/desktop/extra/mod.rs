@@ -52,27 +52,26 @@ pub mod keyring;
 pub mod map;
 pub mod media_keys;
 pub mod natural_scroll;
-/// The computer's network state for background transfers (`NetworkState`: connected, metered,
-/// constrained, its kind), kept current by a platform monitor; a fixed reading (or a test's
-/// switch file) in headless runs.
-pub mod network;
 /// PDF (P5 AzulDoc). The `Pdf` handle is always present (so it codegen-exposes
 /// with no feature-gating); the `printpdf` engine behind it is opt-in via the
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
 pub mod pdf;
 pub mod permission;
-/// The computer's power state for background work (`PowerState`: on mains power, seconds
-/// since the last input), per platform; a fixed reading in headless runs.
-pub mod power;
 /// Platform-accelerated whole-frame scaler (Accelerate/vImage on macOS)
 /// behind the `capture_common::register_frame_resampler` seam.
 pub mod resample;
 pub mod screencap;
-/// Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
-/// platform subscription once via [`sensors::ensure_started`] (CoreMotion on
-/// Apple — pending; `SensorManager` JNI on Android) and the backends park
-/// each sample through `azul_layout::managers::sensors::push_sensor_reading`,
-/// which the layout pass folds into the per-`App` `SensorManager`.
+/// The device's sensors and states, every reading of the device in one place.
+///
+/// - Motion-sensor subscriptions (P6 feature 5). The dispatcher kicks the
+///   platform subscription once via [`sensors::ensure_started`] (CoreMotion on
+///   Apple — pending; `SensorManager` JNI on Android) and the backends park
+///   each sample through `azul_layout::managers::sensors::push_sensor_reading`,
+///   which the layout pass folds into the per-`App` `SensorManager`.
+/// - The device-state readings for background work: the power state
+///   ([`sensors::power`]), the battery and the device's temperature ([`sensors::battery`]) and
+///   the network ([`sensors::network`]), each a synchronous query
+///   of a cached or cheap reading; a fixed reading (or a test's switch file) in headless runs.
 pub mod sensors;
 /// SQLite-backed `Db` engine (P4.3). The `Db` handle is always present
 /// (so it flows through the normal api.json codegen with no feature

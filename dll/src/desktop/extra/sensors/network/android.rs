@@ -8,6 +8,9 @@
 //! - metered: `isActiveNetworkMetered()`;
 //! - constrained: `getRestrictBackgroundStatus()` (API 24) is `ENABLED`: Data Saver is on and
 //!   the app is not let past it;
+//! - hotspot: a metered Wi-Fi - another phone's hotspot, which Android recognises by its
+//!   `ANDROID_METERED` DHCP option ([`super::hotspot_guess`]); this phone's own mobile data is
+//!   cellular, and whether it shares it (tethering) is not asked;
 //! - the kind: `NetworkCapabilities.hasTransport` - Wi-Fi, cellular, Ethernet, anything else
 //!   other.
 //!
@@ -18,10 +21,11 @@ use std::{sync::OnceLock, time::Duration};
 
 use jni::{
     objects::{JObject, JValue},
-    JNIEnv, JavaVM,
+    JNIEnv,
 };
 
-use super::{last_seen, seen, NetworkKind, NetworkState};
+use super::{hotspot_guess, last_seen, seen, NetworkKind, NetworkState};
+use crate::desktop::extra::sensors::{system_service, with_activity};
 
 /// How often the thread reads the service.
 const POLL: Duration = Duration::from_secs(10);
@@ -51,19 +55,7 @@ fn caps_say(env: &mut JNIEnv<'_>, caps: &JObject<'_>, method: &str, value: i32) 
 /// The connectivity service's answer; `None` when it cannot be asked (an exception is left for
 /// the caller to clear).
 fn read_with(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Option<NetworkState> {
-    let name = JObject::from(env.new_string("connectivity").ok()?);
-    let manager = env
-        .call_method(
-            activity,
-            "getSystemService",
-            "(Ljava/lang/String;)Ljava/lang/Object;",
-            &[JValue::Object(&name)],
-        )
-        .and_then(|v| v.l())
-        .ok()?;
-    if manager.is_null() {
-        return None;
-    }
+    let manager = system_service(env, activity, "connectivity")?;
     let network = env
         .call_method(&manager, "getActiveNetwork", "()Landroid/net/Network;", &[])
         .and_then(|v| v.l())
@@ -113,29 +105,14 @@ fn read_with(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Option<NetworkStat
         connected,
         metered,
         constrained,
+        hotspot: hotspot_guess(kind, metered),
     })
 }
 
 /// One reading on this thread, attached to the app's Java VM for it; `None` before the activity
 /// published its VM and when the service cannot be asked.
 fn reading() -> Option<NetworkState> {
-    let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
-    let activity_ptr = crate::desktop::shell2::android::activity_ptr();
-    if vm_ptr.is_null() || activity_ptr.is_null() {
-        return None;
-    }
-    // SAFETY: the VM and the activity (a global reference the activity layer keeps alive) the
-    // activity published.
-    let vm = unsafe { JavaVM::from_raw(vm_ptr.cast()) }.ok()?;
-    // Detached again when the guard drops, which frees this reading's local references.
-    let mut env = vm.attach_current_thread().ok()?;
-    // SAFETY: as above.
-    let activity = unsafe { JObject::from_raw(activity_ptr.cast()) };
-    let state = read_with(&mut env, &activity);
-    if state.is_none() {
-        let _ = env.exception_clear();
-    }
-    state
+    with_activity(read_with)
 }
 
 /// Starts the monitor thread once.

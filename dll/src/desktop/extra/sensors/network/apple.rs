@@ -7,6 +7,7 @@
 //! - connected: `nw_path_get_status` is satisfied;
 //! - metered: `nw_path_is_expensive` (a cellular path, a phone's Personal Hotspot);
 //! - constrained: `nw_path_is_constrained` (Low Data Mode; macOS 10.15 / iOS 13, false before);
+//! - hotspot: an expensive Wi-Fi path (a phone's Personal Hotspot; [`super::hotspot_guess`]);
 //! - the kind: `nw_path_uses_interface_type` - Wi-Fi, cellular, wired, else other (a VPN's
 //!   path uses its own interface over the physical one, which is found first).
 
@@ -17,7 +18,7 @@ use std::{
 
 use block2::RcBlock;
 
-use super::{last_seen, seen, NetworkKind, NetworkState};
+use super::{hotspot_guess, last_seen, seen, NetworkKind, NetworkState};
 
 const NETWORK_FRAMEWORK: &str = "/System/Library/Frameworks/Network.framework/Network";
 
@@ -75,13 +76,18 @@ unsafe fn reading_of(path: *mut c_void, f: &PathFns) -> NetworkState {
         NetworkKind::Other
     };
     // SAFETY: as above.
-    unsafe {
-        NetworkState {
-            kind,
-            connected: true,
-            metered: (f.expensive)(path),
-            constrained: f.constrained.is_some_and(|constrained| constrained(path)),
-        }
+    let (expensive, constrained) = unsafe {
+        (
+            (f.expensive)(path),
+            f.constrained.is_some_and(|constrained| constrained(path)),
+        )
+    };
+    NetworkState {
+        kind,
+        connected: true,
+        metered: expensive,
+        constrained,
+        hotspot: hotspot_guess(kind, expensive),
     }
 }
 

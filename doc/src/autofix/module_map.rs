@@ -193,9 +193,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "attention",
             "ime",
             "platform",
-            "powerstate", // PowerState (on mains, idle seconds): beside PlatformCapability
-            "networkstate", // NetworkState (connected, metered, constrained): beside PowerState
-            "networkkind",  // NetworkKind (wired, Wi-Fi, cellular)
+            // PowerState / NetworkState / NetworkKind moved to `sensor` (DEVHEALTH17).
             "handle",
             "wayland",
             "x11",
@@ -206,6 +204,21 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "android",
             "windows",
             "web",
+        ],
+    );
+
+    // Sensor module: the motion sensors route by their path (`azul_core::sensors::`); the
+    // device-state readings beside them (`azul_dll::unified::sensors::`, DEVHEALTH17 - the
+    // user: "the Azul API should expose this under the sensors module") by name too, so no
+    // keyword of another module claims them.
+    map.insert(
+        "sensor",
+        vec![
+            "powerstate",   // PowerState (on mains, idle seconds)
+            "batterystate", // BatteryState (level, charger, Low Power Mode, thermal state)
+            "thermalstate", // ThermalState (nominal, fair, serious, critical)
+            "networkstate", // NetworkState (connected, metered, constrained, hotspot)
+            "networkkind",  // NetworkKind (wired, Wi-Fi, cellular)
         ],
     );
 
@@ -1124,7 +1137,8 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_core::biometric::") {
         return Some("biometric".to_string());
     }
-    if path.starts_with("azul_core::sensors::") {
+    if path.starts_with("azul_core::sensors::") || path.starts_with("azul_dll::unified::sensors::")
+    {
         return Some("sensor".to_string());
     }
     if path.starts_with("azul_core::gamepad::") {
@@ -2021,6 +2035,51 @@ mod tests {
                 "DomVecSlice",
                 "dom",
                 Some("azul_core::dom::DomVecSlice")
+            ),
+            None
+        );
+    }
+
+    /// The device-state readings live in `sensor`, with the accelerometer and the compass
+    /// (DEVHEALTH17, the user: "the Azul API should expose this under the sensors module"):
+    /// named so by their names, and confirmed by their unified path.
+    #[test]
+    fn test_device_state_readings_live_in_sensor() {
+        for name in [
+            "PowerState",
+            "NetworkState",
+            "NetworkKind",
+            "BatteryState",
+            "ThermalState",
+        ] {
+            let path = format!("azul_dll::unified::sensors::{name}");
+            assert_eq!(
+                determine_module(name),
+                ("sensor".to_string(), false),
+                "{name} by its name"
+            );
+            assert_eq!(
+                get_correct_module_with_path(name, "window", Some(&path)).as_deref(),
+                Some("sensor"),
+                "{name} moves out of window"
+            );
+            assert_eq!(
+                get_correct_module_with_path(name, "sensor", Some(&path)),
+                None,
+                "{name} stays in sensor"
+            );
+            assert_eq!(
+                new_type_module(name, &path),
+                ("sensor".to_string(), false),
+                "{name} added"
+            );
+        }
+        // The motion sensors keep their place.
+        assert_eq!(
+            get_correct_module_with_path(
+                "SensorReading",
+                "sensor",
+                Some("azul_core::sensors::SensorReading")
             ),
             None
         );

@@ -235,6 +235,8 @@ mod sync_jobs;
 mod sync_store;
 /// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
 mod sync_view;
+/// This computer's client health (power, battery, network) and the background work it scales.
+mod health;
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -1661,7 +1663,9 @@ fn usable_index(
         .and_then(|known| known.status)
         .and_then(|status| status.updated)
         .is_none_or(|at| now.saturating_sub(at) > INDEX_REFRESH_SECS);
-    if old {
+    // The catch-up runs in the background: not on a weak computer (the search asks the index
+    // as it is).
+    if old && health::index_allowed(health::health_of(s)) {
         update_index(info, app, s, &drive_id);
     }
     if !s.indexes.get(&drive_id).is_some_and(find::IndexInfo::usable) {
@@ -2995,9 +2999,14 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         // Encrypted drives get smaller while the computer is idle on mains power.
         #[cfg(feature = "encryption")]
         encryption::start_recompression(info, app);
-        // The drives' indexes catch up with what changed while AzDrive was closed.
-        for drive_id in s.settings.indexed_drives.clone() {
-            update_index(info, app, s, &drive_id);
+        // This computer's client health: what the background work below scales by.
+        health::note(s, health::read());
+        // The drives' indexes catch up with what changed while AzDrive was closed - on a
+        // healthy computer; a weak one leaves it to a search (or the user) later.
+        if health::index_allowed(health::health_of(s)) {
+            for drive_id in s.settings.indexed_drives.clone() {
+                update_index(info, app, s, &drive_id);
+            }
         }
         // The synced drives show their kept states, and sync.
         sync_jobs::start(info, app, s);
@@ -3342,9 +3351,11 @@ pub fn start() {
     // The title bar shows the ribbon's tabs: the title is what the system's window list names
     // the window by - the open place's path.
     window.window_state.title = AzString::from(window_title(&state));
-    // azul's network monitor starts now, so it has read the network by the first sync pass at
-    // the window's start (a metered one holds big files back).
-    let _ = azul::window::NetworkState::query();
+    // azul's network and battery monitors start now, so they have read the network and the
+    // battery by the first sync pass at the window's start (a metered network, a drained
+    // battery hold big files back).
+    let _ = azul::sensor::NetworkState::query();
+    let _ = azul::sensor::BatteryState::query();
     let app = App::create(RefAny::new(state), config);
     app.run(window);
 }

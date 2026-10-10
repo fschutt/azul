@@ -3712,6 +3712,9 @@ fn network_changed(s: &mut MeetState, always: bool) {
 }
 
 /// A report as `IrohLoadBalancer` takes it.
+///
+/// TODO(client health): the `on_battery` bit becomes the peer's client health (azul-appkit's
+/// `client_health`, only the number on the wire) - ROADMAP.md, "Client health".
 fn capacity_of(key: u64, sync: &routes::Sync) -> IrohPeerCapacity {
     let mut capacity = IrohPeerCapacity::create(key, sync.uplink_kbps);
     capacity.stability = f32::from(sync.stability_permille) / 1000.0;

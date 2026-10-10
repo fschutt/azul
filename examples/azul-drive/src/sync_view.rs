@@ -53,15 +53,18 @@ use azul::{
         DropDownOnChoiceChangeCallbackType, TextInputOnTextInputCallbackType,
     },
     prelude::*,
+    sensor::NetworkState,
     str::String as AzString,
     vec::StringVec,
     widgets::{
         ButtonType, CheckBoxState, DropDown, OnTextInputReturn, TextInputState, TextInputValid,
     },
-    window::NetworkState,
 };
 
-use azul_appkit::l10n::{self, t, t_phrase, t_text, Phrase, Text};
+use azul_appkit::{
+    client_health::{client_health, Device},
+    l10n::{self, t, t_phrase, t_text, Phrase, Text},
+};
 
 pub(crate) use crate::sync_store::SyncStore;
 use crate::{
@@ -115,6 +118,9 @@ pub(crate) struct SyncView {
     pub waiting_transfer: Option<sync_jobs::Transfer>,
     /// The network as the poll timer last read it (azul's `NetworkState`); `None` before.
     pub network: Option<NetworkState>,
+    /// This computer as last read (its power, battery and network: the client health's parts,
+    /// [`crate::health`]); `None` before. Kept here only, never sent anywhere.
+    pub device: Option<Device>,
 }
 
 /// The status line while a metered or low-data network holds big transfers back.
@@ -246,6 +252,40 @@ pub(crate) fn network_hold(network: Option<&NetworkState>, setup: &SyncSetup) ->
         return None;
     }
     Some(under_mb(setup).saturating_mul(MB))
+}
+
+/// Whether a pass of `setup`'s drive on a weak computer (`device`'s client health under
+/// [`crate::health::GENTLE`]) holds big transfers back, and from which size on: the files over
+/// the auto-download size wait, both ways, for a healthier pass, as on a metered network.
+/// "Sync anyway on this network" (`sync_on_metered`) leaves the network's part out of the
+/// health: the battery and the temperature still count. `None` on a healthy computer, offline
+/// and before the computer was read.
+#[must_use]
+pub(crate) fn health_hold(device: Option<&Device>, setup: &SyncSetup) -> Option<u64> {
+    let mut device = *device?;
+    if !device.connected {
+        return None;
+    }
+    if setup.sync_on_metered {
+        device.metered = false;
+        device.constrained = false;
+        device.hotspot = false;
+    }
+    (client_health(&device) < crate::health::GENTLE).then(|| under_mb(setup).saturating_mul(MB))
+}
+
+/// The limit a pass of `setup`'s drive runs with: the smaller of the network's
+/// ([`network_hold`]) and the computer's ([`health_hold`]).
+#[must_use]
+pub(crate) fn transfer_hold(
+    network: Option<&NetworkState>,
+    device: Option<&Device>,
+    setup: &SyncSetup,
+) -> Option<u64> {
+    match (network_hold(network, setup), health_hold(device, setup)) {
+        (Some(network), Some(computer)) => Some(network.min(computer)),
+        (network, computer) => network.or(computer),
+    }
 }
 
 /// A file state's icon (a Material name of the icon set).
@@ -1476,6 +1516,14 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
     }
     if rows.is_empty() {
         rows.push(line("azdrive-sync-none"));
+    } else if let Some(device) = s.sync_view.device.as_ref() {
+        // The one place the computer's health shows: what holds the sync back, and its pace.
+        rows.insert(
+            0,
+            Dom::create_span_with_text(AzString::from(crate::health::line(device)))
+                .with_css("font-size: 12px; opacity: 0.75; padding: 6px 0px;")
+                .with_id(ids::SYNC_HEALTH),
+        );
     }
     Dom::create_div()
         .with_id(ids::SYNC_OPTIONS)

@@ -17,7 +17,7 @@ use azcloud_kit::sync::{
     session::{AutoDownload, FileRecord, FileState, SyncSetup, SyncStates},
     HeldConflict,
 };
-use azul::window::{NetworkKind, NetworkState};
+use azul::sensor::{NetworkKind, NetworkState};
 use azul_storage::{
     testing::TempDir, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
     Precondition,
@@ -833,7 +833,98 @@ fn network(kind: NetworkKind, metered: bool, constrained: bool) -> NetworkState 
         connected: true,
         metered,
         constrained,
+        hotspot: false,
     }
+}
+
+/// A computer on battery at `percent`, on `network` (azul-appkit's client health parts).
+fn computer(percent: u8, network: &NetworkState) -> azul_appkit::client_health::Device {
+    azul_appkit::client_health::Device {
+        on_mains: false,
+        battery_percent: Some(percent),
+        connected: network.connected,
+        metered: network.metered,
+        constrained: network.constrained,
+        hotspot: network.hotspot,
+        ..azul_appkit::client_health::Device::DESK
+    }
+}
+
+#[test]
+fn a_weak_computer_holds_big_files_back_and_sync_anyway_lifts_only_the_networks_part() {
+    let mut paired = setup();
+    let wifi = network(NetworkKind::WiFi, false, false);
+    let hotspot = NetworkState {
+        hotspot: true,
+        ..network(NetworkKind::WiFi, true, false)
+    };
+    // 23 % on a free Wi-Fi: 70, gently, nothing held.
+    assert_eq!(sync_view::health_hold(Some(&computer(23, &wifi)), &paired), None);
+    // 8 %: 40, still gently. 5 % in Low Power Mode: under it.
+    assert_eq!(sync_view::health_hold(Some(&computer(8, &wifi)), &paired), None);
+    let drained = azul_appkit::client_health::Device {
+        low_power_mode: true,
+        ..computer(5, &wifi)
+    };
+    assert_eq!(
+        sync_view::health_hold(Some(&drained), &paired),
+        Some(25 * MB),
+        "the auto-download size"
+    );
+    assert_eq!(sync_view::health_hold(None, &paired), None, "not read yet");
+    // 23 % on a phone's hotspot: 35 - held by the computer too.
+    let on_hotspot = computer(23, &hotspot);
+    assert_eq!(sync_view::health_hold(Some(&on_hotspot), &paired), Some(25 * MB));
+    // Sync anyway on this network: the hotspot no longer counts (70), the battery would.
+    paired.sync_on_metered = true;
+    assert_eq!(sync_view::health_hold(Some(&on_hotspot), &paired), None);
+    assert_eq!(
+        sync_view::transfer_hold(Some(&hotspot), Some(&on_hotspot), &paired),
+        None,
+        "sync anyway on this network: nothing waits"
+    );
+    assert_eq!(
+        sync_view::health_hold(Some(&drained), &paired),
+        Some(25 * MB),
+        "a drained battery still holds big files back"
+    );
+    paired.sync_on_metered = false;
+    // The pass takes the smaller limit of the two.
+    paired.auto_download = AutoDownload::NewUnder(4);
+    assert_eq!(
+        sync_view::transfer_hold(Some(&wifi), Some(&drained), &paired),
+        Some(4 * MB),
+        "the computer's limit on a free network"
+    );
+    assert_eq!(
+        sync_view::transfer_hold(Some(&hotspot), Some(&computer(90, &hotspot)), &paired),
+        Some(4 * MB),
+        "the network's limit on a healthy battery"
+    );
+    assert_eq!(
+        sync_view::transfer_hold(Some(&wifi), Some(&computer(90, &wifi)), &paired),
+        None
+    );
+    let offline = azul_appkit::client_health::Device {
+        connected: false,
+        ..drained
+    };
+    assert_eq!(
+        sync_view::health_hold(Some(&offline), &paired),
+        None,
+        "offline: the pass says why it failed"
+    );
+}
+
+#[test]
+fn a_pass_on_a_weak_computer_moves_one_small_file_at_a_time() {
+    let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
+    let a = Device::new("gentle-a", &drive, AutoDownload::NewUnder(1));
+    let mut work = a.work();
+    assert_eq!(work.parallel, 4, "the default");
+    work.parallel = crate::health::transfers(35);
+    assert_eq!(work.parallel, 1);
+    assert_eq!(work.session().parallel(), 1, "the session takes it");
 }
 
 /// What a pass answered.

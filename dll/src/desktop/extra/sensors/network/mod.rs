@@ -12,14 +12,27 @@
 //! decides at its start asks once early, so the monitor has answered by then.
 //!
 //! * macOS, iOS: Network.framework's path monitor (`nw_path_is_expensive` is metered,
-//!   `nw_path_is_constrained` - Low Data Mode - constrained).
+//!   `nw_path_is_constrained` - Low Data Mode - constrained). Hotspot: an expensive Wi-Fi path -
+//!   Apple marks an iPhone's Personal Hotspot (and an Android hotspot that says it is one)
+//!   expensive.
 //! * Windows: WinRT's `NetworkInformation` (the connection profile's cost: Fixed / Variable is
-//!   metered; near or over the data limit, roaming or Data Saver is constrained).
-//! * Linux: NetworkManager over D-Bus (`Metered` yes / guess-yes); never constrained. Without
-//!   NetworkManager: UNKNOWN.
+//!   metered; near or over the data limit, roaming or Data Saver is constrained). Hotspot: a
+//!   WLAN profile whose cost is Variable or roaming - what Windows gives a phone's hotspot it
+//!   recognises (a Windows Mobile Hotspot's or an Android hotspot's cost element).
+//! * Linux: NetworkManager over D-Bus (`Metered` yes / guess-yes); never constrained. Hotspot:
+//!   a Wi-Fi NetworkManager itself guesses metered (guess-yes: Android's DHCP option 43
+//!   `ANDROID_METERED`, an access point's vendor element), never one the user set metered.
+//!   Without NetworkManager: UNKNOWN.
 //! * Android: `ConnectivityManager` through JNI, read every 10 s (`isActiveNetworkMetered`,
-//!   Data Saver's `RESTRICT_BACKGROUND_STATUS_ENABLED` is constrained).
+//!   Data Saver's `RESTRICT_BACKGROUND_STATUS_ENABLED` is constrained). Hotspot: a metered
+//!   Wi-Fi (another phone's hotspot); the phone's own mobile data is cellular, and whether the
+//!   phone shares it (tethering) is not asked.
 //! * Other targets: UNKNOWN.
+//!
+//! The hotspot is an ESTIMATE ([`NetworkState::hotspot`]), from the flags above and the kind
+//! only. No network name (SSID), access point (BSSID), carrier, address or any other identifier
+//! is read for it, or for anything else here; nothing of the reading leaves the device (the
+//! privacy section of `crate::desktop::extra::sensors`).
 //! * A headless or E2E run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`): [`NetworkState::HEADLESS`]
 //!   (wired, connected, free), or what the file named by `AZ_NETWORK_STATE_FILE`
 //!   ([`NETWORK_STATE_FILE_VAR`]) says, read at every query - so a test switches the network
@@ -65,6 +78,14 @@ pub struct NetworkState {
     /// The user asked to save data on it: Low Data Mode, Data Saver, a plan near or over its
     /// data limit, roaming.
     pub constrained: bool,
+    /// An ESTIMATE that the connection is a phone's hotspot (or a tethered phone's data plan):
+    /// a Wi-Fi the system itself marks as costly (each platform's rule is in the module
+    /// documentation). Only the system's own flags and the kind are read - never a
+    /// network's name, an access point, a carrier or an address - so it can be wrong both ways:
+    /// a hotspot the system does not recognise is a free Wi-Fi, and a Wi-Fi the user's
+    /// router marks metered is a hotspot. Last in the struct: the FFI layout of the fields
+    /// before it is unchanged.
+    pub hotspot: bool,
 }
 
 impl NetworkState {
@@ -74,6 +95,7 @@ impl NetworkState {
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     /// What a platform without a reading reports: connected and free, its kind unknown.
@@ -82,6 +104,7 @@ impl NetworkState {
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     /// No connection.
@@ -90,12 +113,13 @@ impl NetworkState {
         connected: false,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
 
     /// The network state now (see the module documentation).
     #[must_use]
     pub fn query() -> NetworkState {
-        if headless_run() {
+        if super::headless_run() {
             return headless_reading();
         }
         platform::read().unwrap_or(NetworkState::UNKNOWN)
@@ -115,11 +139,12 @@ impl NetworkState {
     }
 
     /// A headless run's network in words, any case, separated by spaces, commas or new lines:
-    /// `offline` (or `online`), `metered`, `constrained`, and its kind - `wired`, `wifi`,
-    /// `cellular`, `other`, `unknown`. What the words leave out is [`NetworkState::HEADLESS`]'s
-    /// (an offline network without a kind is of the unknown kind); words it does not know are
-    /// left out. `cellular metered` is a phone's mobile data, `wifi constrained` a Wi-Fi in Low
-    /// Data Mode.
+    /// `offline` (or `online`), `metered`, `constrained`, `hotspot`, and its kind - `wired`,
+    /// `wifi`, `cellular`, `other`, `unknown`. What the words leave out is
+    /// [`NetworkState::HEADLESS`]'s (an offline network without a kind is of the unknown kind);
+    /// words it does not know are left out. `hotspot` is a phone's hotspot as the systems see
+    /// one: metered, and a Wi-Fi unless the words name another kind. `cellular metered` is a
+    /// phone's mobile data, `wifi constrained` a Wi-Fi in Low Data Mode.
     #[must_use]
     pub fn from_words(text: &str) -> NetworkState {
         let mut state = NetworkState::HEADLESS;
@@ -145,6 +170,11 @@ impl NetworkState {
                     state.constrained = true;
                     None
                 }
+                "hotspot" => {
+                    state.hotspot = true;
+                    state.metered = true;
+                    None
+                }
                 "wired" => Some(NetworkKind::Wired),
                 "wifi" => Some(NetworkKind::WiFi),
                 "cellular" => Some(NetworkKind::Cellular),
@@ -157,16 +187,31 @@ impl NetworkState {
                 named_kind = true;
             }
         }
-        if !state.connected && !named_kind {
+        if state.hotspot && !named_kind {
+            state.kind = NetworkKind::WiFi;
+        } else if !state.connected && !named_kind {
             state.kind = NetworkKind::Unknown;
         }
         state
     }
 }
 
-/// A headless or E2E run (the power and biometric modules' test, the same variables).
-fn headless_run() -> bool {
-    std::env::var("AZ_BACKEND").as_deref() == Ok("headless") || std::env::var("AZ_E2E_TEST").is_ok()
+/// The hotspot estimate ([`NetworkState::hotspot`]): a Wi-Fi the system itself marks as costly
+/// (`system_says_costly`: Apple's expensive path, Windows' variable or roaming cost,
+/// NetworkManager's own metered guess, Android's metered network). A costly mobile network is
+/// the device's own data plan, not a hotspot; a costly wired one is the user's setting.
+#[cfg_attr(
+    not(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "windows"
+    )),
+    allow(dead_code)
+)]
+fn hotspot_guess(kind: NetworkKind, system_says_costly: bool) -> bool {
+    kind == NetworkKind::WiFi && system_says_costly
 }
 
 /// A headless run's network: the switch file's words, else [`NetworkState::HEADLESS`].
@@ -178,10 +223,9 @@ fn headless_reading() -> NetworkState {
 /// The network the file at `path` says ([`NetworkState::from_words`]); without a file, or one
 /// that cannot be read, [`NetworkState::HEADLESS`].
 fn reading_of_file(path: Option<&Path>) -> NetworkState {
-    path.and_then(|path| std::fs::read_to_string(path).ok())
-        .map_or(NetworkState::HEADLESS, |text| {
-            NetworkState::from_words(&text)
-        })
+    super::switch_file_words(path).map_or(NetworkState::HEADLESS, |text| {
+        NetworkState::from_words(&text)
+    })
 }
 
 /// What the platform monitor saw last; `None` before its first reading.
@@ -252,14 +296,33 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{reading_of_file, NetworkKind, NetworkState};
+    use super::{hotspot_guess, reading_of_file, NetworkKind, NetworkState};
 
     const WIFI: NetworkState = NetworkState {
         kind: NetworkKind::WiFi,
         connected: true,
         metered: false,
         constrained: false,
+        hotspot: false,
     };
+
+    #[test]
+    fn a_hotspot_is_a_wifi_the_system_itself_marks_costly() {
+        assert!(hotspot_guess(NetworkKind::WiFi, true));
+        assert!(!hotspot_guess(NetworkKind::WiFi, false), "a free Wi-Fi");
+        assert!(
+            !hotspot_guess(NetworkKind::Cellular, true),
+            "on the phone itself it is its data plan"
+        );
+        assert!(!hotspot_guess(NetworkKind::Wired, true), "a wired line set to metered");
+        assert!(!hotspot_guess(NetworkKind::Unknown, true));
+    }
+
+    #[test]
+    fn a_hotspot_holds_big_transfers_back_as_a_metered_network_does() {
+        let hotspot = NetworkState::from_words("hotspot");
+        assert!(!hotspot.allows_background_transfer(), "{hotspot:?}");
+    }
 
     #[test]
     fn big_transfers_wait_on_a_metered_or_low_data_network_and_while_offline() {
@@ -288,6 +351,21 @@ mod tests {
     #[test]
     fn a_headless_runs_network_is_written_in_words() {
         assert_eq!(NetworkState::from_words(""), NetworkState::HEADLESS);
+        let hotspot = NetworkState {
+            metered: true,
+            hotspot: true,
+            ..WIFI
+        };
+        assert_eq!(NetworkState::from_words("hotspot"), hotspot, "a Wi-Fi, metered");
+        assert_eq!(NetworkState::from_words("Hotspot wifi"), hotspot);
+        assert_eq!(
+            NetworkState::from_words("other hotspot"),
+            NetworkState {
+                kind: NetworkKind::Other,
+                ..hotspot
+            },
+            "Bluetooth tethering: the kind named"
+        );
         assert_eq!(
             NetworkState::from_words("wifi metered"),
             NetworkState {
@@ -302,6 +380,7 @@ mod tests {
                 connected: true,
                 metered: true,
                 constrained: true,
+                hotspot: false,
             }
         );
         assert_eq!(NetworkState::from_words("offline\n"), NetworkState::OFFLINE);
@@ -351,5 +430,11 @@ mod tests {
         assert_eq!(core::mem::size_of::<NetworkKind>(), 4);
         assert_eq!(core::mem::size_of::<NetworkState>(), 8);
         assert_eq!(core::mem::align_of::<NetworkState>(), 4);
+        assert_eq!(
+            core::mem::offset_of!(NetworkState, constrained),
+            6,
+            "the fields before the hotspot keep their places"
+        );
+        assert_eq!(core::mem::offset_of!(NetworkState, hotspot), 7);
     }
 }

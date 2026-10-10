@@ -513,7 +513,7 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
-    # The network state for background transfers (extra/network/windows.rs): the internet
+    # The network state for background transfers (extra/sensors/network/windows.rs): the internet
     # connection profile, its cost (metered, data limit, roaming, Data Saver) and
     # NetworkStatusChanged. A feature of the windows crate already here, no new crate.
     "Networking_Connectivity",

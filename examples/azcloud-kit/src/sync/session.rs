@@ -567,6 +567,9 @@ pub struct SyncSession {
     remote: SessionRemote,
     /// Files over this many bytes wait, both ways ([`SyncSession::with_transfer_limit`]).
     transfer_limit: Option<u64>,
+    /// Small transfers in flight at once ([`SyncSession::with_parallel`]); `None`: the run's
+    /// default.
+    parallel: Option<usize>,
 }
 
 impl SyncSession {
@@ -610,6 +613,7 @@ impl SyncSession {
             device: device.to_string(),
             remote,
             transfer_limit: None,
+            parallel: None,
         }
     }
 
@@ -622,6 +626,22 @@ impl SyncSession {
     pub fn with_transfer_limit(mut self, bytes: Option<u64>) -> SyncSession {
         self.transfer_limit = bytes;
         self
+    }
+
+    /// The session's passes move at most `transfers` small files at once (at least one) - an
+    /// app on a weak computer (on battery, hot, in Low Power Mode: AzDrive's client health)
+    /// syncs gently. A big file goes alone either way.
+    #[must_use]
+    pub fn with_parallel(mut self, transfers: usize) -> SyncSession {
+        self.parallel = Some(transfers.max(1));
+        self
+    }
+
+    /// The small transfers a pass moves at once ([`SyncSession::with_parallel`]; the run's
+    /// default, [`super::SyncOptions::new`]'s, unless set).
+    #[must_use]
+    pub fn parallel(&self) -> usize {
+        self.options().map_or(4, |opts| opts.parallel)
     }
 
     /// Whether a transfer of `size` bytes waits for a pass without the limit.
@@ -651,7 +671,11 @@ impl SyncSession {
     }
 
     fn options(&self) -> CloudResult<SyncOptions> {
-        SyncOptions::new(&self.setup.prefix, &self.setup.drive_id, &self.device)
+        let mut opts = SyncOptions::new(&self.setup.prefix, &self.setup.drive_id, &self.device)?;
+        if let Some(parallel) = self.parallel {
+            opts.parallel = parallel;
+        }
+        Ok(opts)
     }
 
     fn root(&self) -> LocalRoot {

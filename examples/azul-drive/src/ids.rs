@@ -295,6 +295,8 @@ pub const SYNC_KEEP_MINE: AzString = AzString::from_const_str("__azdrive_sync_ke
 pub const SYNC_TAKE_THEIRS: AzString = AzString::from_const_str("__azdrive_sync_take_theirs");
 pub const SYNC_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_sync_keep_both");
 pub const SYNC_OPTIONS: AzString = AzString::from_const_str("__azdrive_sync_options");
+/// Options > Drives > Sync's line about this computer (its client health).
+pub const SYNC_HEALTH: AzString = AzString::from_const_str("__azdrive_sync_health");
 pub const SYNC_DELETE: AzString = AzString::from_const_str("__azdrive_sync_delete");
 pub const SYNC_DELETE_OK: AzString = AzString::from_const_str("__azdrive_sync_delete_ok");
 /// The burst guard's question, "I was hacked", the mass delete's question.
