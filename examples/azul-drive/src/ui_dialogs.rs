@@ -939,6 +939,7 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                 .map_or_else(|| String::from("(none)"), |p| p.display().to_string());
             vec![
                 section("Drives", column_of(rows)),
+                section("Use with other programs", crate::ui_bridge::section(&s.bridge, app)),
                 section(
                     "Add a drive",
                     column_of(vec![

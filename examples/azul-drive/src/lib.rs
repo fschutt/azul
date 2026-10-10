@@ -125,6 +125,8 @@ pub mod model;
 pub mod preview;
 /// The Add drive dialog's pages.
 mod ui_add_drive;
+/// Options > Drives' "Use with other programs": the Azlin Bridge's settings to copy.
+mod ui_bridge;
 mod ui_dialogs;
 /// The search's results in the folder view.
 mod ui_find;
@@ -591,6 +593,8 @@ pub(crate) struct DriveState {
     /// AzDrive's own settings as the Options found them when they opened: what their Cancel
     /// puts back (`reload_settings`).
     pub settings_found: Option<Settings>,
+    /// The Azlin Bridge's settings (Options > Drives), read when the Options open.
+    pub(crate) bridge: ui_bridge::BridgeView,
     pub clipboard: Option<ClipboardItems>,
     pub queue: TransferQueue,
     pub transfers: HashMap<u64, TransferJob>,
@@ -1382,6 +1386,7 @@ pub(crate) fn tree_invalidate(
 pub(crate) fn options_opened(s: &mut DriveState, was_open: bool) {
     if !was_open {
         s.settings_found = Some(s.settings.clone());
+        s.bridge = ui_bridge::BridgeView::load();
     }
 }
 
@@ -1426,6 +1431,8 @@ pub(crate) enum KeyringOp {
     Store { drive_id: String },
     /// Removing a forgotten drive's keys.
     Forget,
+    /// The Azlin Bridge's password, read into the clipboard (Options > Drives).
+    BridgePassword,
 }
 
 /// Whether `secret` is what the keyring entry of `entry` holds: an S3 drive's keys, an Azlin
@@ -1609,6 +1616,13 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
             }
         }
         KeyringOp::Forget => {}
+        KeyringOp::BridgePassword => match &result {
+            KeyringResult::Retrieved(secret) => ui_bridge::copy_password(&mut info, s, secret.as_str()),
+            other => s.error(format!(
+                "The bridge's password could not be read: {}. azul-bridge password makes a new one.",
+                keyring_problem(other)
+            )),
+        },
     }
     if let Some((next, call)) = s.keyring_queue.pop_front() {
         issue(&mut info, &call);
@@ -2461,6 +2475,11 @@ pub fn start() {
         backstage: (args.screen == args::Screen::Settings).then_some(0),
         ribbon_tab: ui_ribbon::RibbonTabKind::default(),
         settings_found: None,
+        bridge: if args.screen == args::Screen::Settings {
+            ui_bridge::BridgeView::load()
+        } else {
+            ui_bridge::BridgeView::default()
+        },
         clipboard: None,
         queue: TransferQueue::default(),
         transfers: HashMap::new(),
