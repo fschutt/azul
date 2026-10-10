@@ -25,6 +25,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # store) and the drive the tasks are written through; both plain Rust, no new crates.
 azul-pim = { path = "../azul-pim" }
 azul-storage = { path = "../azul-storage" }
+# The events without azul types (event files, calendars, iCalendar), shared with the Azlin Bridge's
+# CalDAV; lib.rs re-exports its modules under their old names.
+azul-calendar-core = { path = "../azul-calendar-core" }
 # The Azlin data root (where the shared task store is), and the file jobs on an azul Thread every
 # durable write goes through (`ui::spawn_file_jobs`, feature `azul`).
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }

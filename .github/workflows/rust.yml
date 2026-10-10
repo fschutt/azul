@@ -717,6 +717,12 @@ jobs:
           cargo test -p AzMeet --lib --no-fail-fast 2>&1 | tee azul-meet-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-meet-tests.txt
 
+      - name: Run azul-calendar-core tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-calendar-core --no-fail-fast 2>&1 | tee azul-calendar-core-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-calendar-core-tests.txt
+
       - name: Run AzCalendar tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi

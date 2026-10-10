@@ -646,21 +646,16 @@ pub fn load(drive: &dyn Drive) -> (Vec<Event>, Vec<Skipped>) {
     (events, skipped)
 }
 
-/// A new event's id: a random version-4 UUID (lower case, hyphenated), azul's
-/// `Uuid::from_seed` of a random seed.
+/// A new event's id: a random version-4 UUID (lower case, hyphenated) of two
+/// `azul_storage::ids::random_seed`s - the seed every Azlin app mints file ids from
+/// (DEDUP_EDITORS B1), and the same kind of id azul's `Uuid::from_seed` makes, without libazul.
 ///
-/// Not azul's `Uuid::v4`: that is a deterministic marker mint (the same
-/// sequence in every process), fine for DOM markers and wrong for a file
-/// name that other devices and an S3 bucket share. `Uuid::from_seed` is a
-/// pure function of its seed, so the id is exactly as random as the seed.
-///
-/// The seed is `azul_storage::ids::random_seed`, the one every Azlin app mints file ids from
-/// (this file had its own copy, as AzTasks had - DEDUP_EDITORS B1).
+/// Not azul's `Uuid::v4`: that is a deterministic marker mint (the same sequence in every
+/// process), fine for DOM markers and wrong for a file name that other devices and an S3 bucket
+/// share.
 #[must_use]
 pub fn new_event_id() -> String {
-    azul::uuid::Uuid::from_seed(azul_storage::ids::random_seed())
-        .as_str()
-        .to_string()
+    azul_storage::ids::new_uuid()
 }
 
 #[cfg(test)]

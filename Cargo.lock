@@ -26,6 +26,7 @@ name = "AzCalendar"
 version = "0.1.0"
 dependencies = [
  "azul-appkit",
+ "azul-calendar-core",
  "azul-dll",
  "azul-pim",
  "azul-storage",
@@ -1186,6 +1187,17 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+]
+
+[[package]]
+name = "azul-calendar-core"
+version = "0.1.0"
+dependencies = [
+ "azul-pim",
+ "azul-storage",
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

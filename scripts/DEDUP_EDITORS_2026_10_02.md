@@ -159,7 +159,7 @@ harmless), template choice (diverged as above).
 ## B. Duplication (helpers, storage glue, dates, ids) - each confirmed by reading both sides
 
 B1. **Random record ids: three copies, and AzNotes uses the WRONG mint (data-loss bug).**
-- `examples/azul-calendar/src/event.rs:698-724` (`new_event_id` + `random_seed`) and `examples/azul-tasks/src/state.rs:170-194`
+- `examples/azul-calendar-core/src/event.rs:698-724` (`new_event_id` + `random_seed`) and `examples/azul-tasks/src/state.rs:170-194`
   (`new_id` + `random_seed`): IDENTICAL bodies (diffed by eye line for line: RandomState + counter + nanos + pid ->
   `Uuid::from_seed`). Third copy, different mixing: `examples/azul-appkit/src/data.rs:76-110` (`new_uuid` +
   `uuid_from_words`), used by AzContacts. `is_uuid` (appkit data.rs:114) vs AzCalendar `is_event_id` (event.rs) same check.
@@ -174,7 +174,7 @@ B1. **Random record ids: three copies, and AzNotes uses the WRONG mint (data-los
   three app copies; switch AzNotes (S, urgent) and the other three apps. Effort S. Risk low. Benefits: Notes, Tasks,
   Calendar, Contacts, Photo, Show, VideoCut, Sheets (uses the `uuid` crate instead, storage.rs:25).
 
-B2. **Atomic file write: six copies.** `examples/azul-calendar/src/event.rs:627-639`, `calendars.rs:269-280`,
+B2. **Atomic file write: six copies.** `examples/azul-calendar-core/src/event.rs:627-639`, `calendars.rs:269-280`,
 `tasks.rs:88-99`, `settings.rs:58-70` (four copies INSIDE one app: write `.x.tmp`, rename, remove on failure) +
 `examples/azul-mail-core/src/store.rs:75-100 write_atomic` (adds fsync/`durable`) + `examples/azul-storage/src/local.rs:58
 write_atomically` (the library one, used by LocalDrive). Calendar also does these writes synchronously inside
@@ -278,7 +278,7 @@ scope, reported by three agents). S per script.
 B14. **E-mail address checks: three rules, one concept (diverged -> visible inconsistencies).**
 - `examples/azul-mail-core/src/account.rs:209-222 is_email`: exactly one `@`, NO dot required (accepts `x@localhost`, needed for
   test servers), rejects `..`, controls.
-- `examples/azul-calendar/src/event.rs:241-257 is_email`: dot REQUIRED in the domain, rejects `< > , ; "`.
+- `examples/azul-calendar-core/src/event.rs:241-257 is_email`: dot REQUIRED in the domain, rejects `< > , ; "`.
 - `examples/azul-contacts/src/contact.rs:326-331` (inline in the form check): dot required, but `split_once('@')` lets
   `a@b@c.de` through (second `@` lands in the domain).
 - Address LINE splitting: `examples/azul-mail/src/compose.rs:89-134 split_addresses` (quote- and angle-aware) +
@@ -291,7 +291,7 @@ B14. **E-mail address checks: three rules, one concept (diverged -> visible inco
 
 B15. **vCard (RFC 6350) and iCalendar (RFC 5545) content-line code twice.** `examples/azul-contacts/src/vcard.rs:181-365`
 (`unfold`, `fold`, `escape_text`, `unescape`, `split_unescaped`, `parse_line`, `quote_param`, `split_param_values`) vs
-`examples/azul-calendar/src/ics.rs:46-192` (`ContentLine`, `unfold`, `fold`, `escape_text`, `unescape_text`,
+`examples/azul-calendar-core/src/ics.rs:46-192` (`ContentLine`, `unfold`, `fold`, `escape_text`, `unescape_text`,
 `parse_line`, `param`). `fold` is the same algorithm with renamed variables (diffed: 75 octets, CRLF+space, never inside
 a char); `unfold` diverged (vCard keeps inner empty lines, ICS drops them); `escape_text` identical modulo arm order.
 ~150 lines twice. Proposal: `content_line.rs` (fold/unfold/escape/params/`ContentLine`) in the shared PIM crate; AzMail
