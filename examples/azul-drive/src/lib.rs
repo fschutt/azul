@@ -140,6 +140,10 @@ mod add_drive;
 mod add_drive_tests;
 /// What the Add drive dialog's buttons start, and the answers of its jobs.
 mod add_flow;
+/// Cash by post: the two pages, the waiting line, a claim code picked up, the daily look.
+mod cash;
+#[cfg(test)]
+mod cash_tests;
 /// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
 mod sign_in;
 pub mod args;

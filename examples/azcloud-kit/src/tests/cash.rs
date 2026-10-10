@@ -171,6 +171,7 @@ fn a_cash_checkout_awaits_its_letter_and_a_rejected_one_says_why() {
 
 fn slip() -> CashKept {
     CashKept {
+        months: 12,
         amount_cents: 990,
         currency: String::from("EUR"),
         activation_code: ACTIVATION.to_string(),
