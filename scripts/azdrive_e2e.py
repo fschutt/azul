@@ -83,8 +83,9 @@ node layout, AzDrive's stdout markers and the files on disk:
         an Azlin drive synced from the start whose token server says it takes no writes says
         "Read-only (payment due)"; 12 of its files turned random at once pause the uploads
         (what the drive changes still comes down) until "These changes are mine"; again with
-        other files, "I was hacked..." restores the drive as of before the change and the
-        encrypted copies here wait for a choice (D52); a metered network (the headless network file
+        other files, "I was hacked..." restores the drive as of before the change, the
+        encrypted copies here wait for a choice (D52) and the drive's version brings each back;
+        a metered network (the headless network file
         AZ_NETWORK_STATE_FILE: "cellular metered") says "Paused (metered network)", a 26 MB file
         waits while a small one goes up, "Sync anyway on this network" (Options > Drives > Sync,
         kept in view.json) sends it, a Low Data Mode Wi-Fi pauses too, a free Wi-Fi syncs.
@@ -1672,21 +1673,24 @@ def sync_step(args, logs, binary, out):
         # too, which sent its encrypted q0.txt: I was hacked... -> Restore as of before the
         # change. The drive has q0.txt back; the encrypted copies here never went up, and against
         # the restored drive (its index older than this folder's last pass) each waits for a
-        # choice (D52) instead of overwriting either side.
+        # choice (D52) instead of overwriting either side; "Take the drive's version" brings
+        # each restored file back here.
         text_files("q")
         time.sleep(1.2)
         as_of = int(time.time())
         time.sleep(1.2)
         turn_random("q")
-        passes = app.count("AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*")
         other_device_writes(s3_root, "q0.txt", os.urandom(2048), bucket=paid_bucket)
-        app.until("a pass saw the other computer's q0.txt", lambda: app.count(
-            "AZDRIVE_SYNC_DONE", re.escape(paid_id) + r" .*") > passes)
+        app.until("a pass saw the other computer's q0.txt", lambda: app.printed(
+            "AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q0\.txt"))
+        # That pass held q0.txt as a conflict and told the open question its new list (the 11
+        # files left to send): the dialog changed its height and its buttons slide to their new
+        # place. `app.click` waits until they stand still - a click mid-slide hits nothing.
+        app.until("the guard's question still open", lambda: app.has("#" + I("sync-burst")))
         app.after("I was hacked...", "AZDRIVE_SYNC_HACKED", re.escape(paid_id),
-                  lambda: (app.must("click", selector="#" + I("sync-burst-hacked")), app.frame()))
+                  lambda: app.click(selector="#" + I("sync-burst-hacked")))
         app.until("lock down / restore", lambda: app.has("#" + I("sync-hacked")))
-        app.must("click", selector="#" + I("sync-hacked-restore"))
-        app.frame(2)
+        app.click(selector="#" + I("sync-hacked-restore"))
         app.until("the restore's time field", lambda: app.has("#__azdrive_restore_time"))
         app.must("focus_node", selector="#__azdrive_restore_time")
         app.frame(2)
@@ -1698,7 +1702,7 @@ def sync_step(args, logs, binary, out):
         held = app.count("AZDRIVE_SYNC_FILE", re.escape(paid_id) + r" conflict q1\.txt")
         app.after("restored as of before the change", "AZDRIVE_RESTORED",
                   r"%s \S+ objects \d+" % re.escape(paid_id),
-                  lambda: app.must("click", selector="#__azdrive_restore_go"))
+                  lambda: app.click(selector="#__azdrive_restore_go"))
         if app.has("#__azdrive_restore"):
             app.key("escape")
         app.until("the drive has q0.txt back", lambda: sync_index(
@@ -1708,9 +1712,22 @@ def sync_step(args, logs, binary, out):
         files = sync_index(s3_root, paid_bucket)["files"]
         if any(files.get("q%d.txt" % i, {}).get("hash") != prose_of(i) for i in range(12)):
             raise Failure("an encrypted copy went up over the restored drive")
+        # Each question in turn (the next comes with the pass after an answer): the drive's
+        # restored version over the encrypted copy here. With nothing left to send the pause
+        # ends by itself, and no question is left open for the next steps.
+        for n in range(12):
+            app.until("choice %d of 12" % (n + 1), lambda: app.has("#" + I("sync-conflict")))
+            app.after("Take the drive's version", "AZDRIVE_SYNC_RESOLVED",
+                      re.escape(paid_id) + r" theirs q\d+\.txt",
+                      lambda: app.click(selector="#" + I("sync-take-theirs")))
+        for i in range(12):
+            path = os.path.join(paid_folder, "q%d.txt" % i)
+            app.until("q%d.txt restored here" % i, lambda: read_file(path)
+                      == prose[:2040] + b"%08d" % i)
+        app.until("no question left open", lambda: not app.has("#" + I("sync-conflict")))
         log("25j. again with other files, and it was ransomware (on the other computer too): I "
             "was hacked... restored the drive as of before the change; the encrypted copies "
-            "here wait for a choice (D52)")
+            "here waited for a choice (D52), and the drive's version brought each file back")
 
         # 25k. A metered network (azul's NetworkState, switched through the headless network
         # file AZ_NETWORK_STATE_FILE, read at every query): "Paused (metered network)"; a file
