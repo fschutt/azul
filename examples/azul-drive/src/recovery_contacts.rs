@@ -107,8 +107,10 @@ pub(crate) enum Page {
         reply: Option<String>,
         error: String,
     },
-    /// The owner on a computer that lost the drive: the request, the shares that came back.
+    /// The owner on a computer that lost the drive: the request, the shares that came back;
+    /// `test`: Options > Drives' Test - the shares are checked here, nothing is locked down.
     Recover {
+        test: bool,
         drive_id: String,
         request: String,
         safety: String,
@@ -337,16 +339,18 @@ pub(crate) fn ask_paste(s: &mut DriveState, answer: bool) {
     );
 }
 
-/// The drive's menu: "Recover with trusted contacts...": the request first (its key from the
-/// keyring, or a new one), on a worker thread.
+/// The drive's menu: "Recover with trusted contacts..." (`test`: Options > Drives' Test of the
+/// contacts): the request first (its key from the keyring, or a new one), on a worker thread.
 pub(crate) fn ask_recover(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
+    test: bool,
 ) {
     let job = ContactsJob::Request {
         drive_id: drive_id.to_string(),
+        test,
     };
     spawn(info, app, s, Job::Encryption(EncryptionJob::Contacts(job)));
 }
@@ -743,6 +747,7 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
             (String::from("Is it really them?"), body)
         }
         Page::Recover {
+            test,
             drive_id,
             request,
             safety,
@@ -750,10 +755,13 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
             error,
         } => {
             let mut body = column(vec![
-                line(
+                line(if *test {
+                    "A test of your trusted contacts: send this request to two of them. Their \
+                     answers are checked on this computer; nothing is locked down."
+                } else {
                     "Send this request to two of your trusted contacts, and call them or meet \
-                     them: they answer only when the safety number on their screen is this one.",
-                ),
+                     them: they answer only when the safety number on their screen is this one."
+                }),
                 copy_row(app, request, ids::CONTACTS_REQUEST),
                 Dom::create_span_with_text(AzString::from(safety.as_str()))
                     .with_css("font-family: monospace; font-size: 22px; margin-top: 10px;")
@@ -774,13 +782,20 @@ pub(crate) fn dialog_parts(page: &Page, s: &DriveState, app: &RefAny) -> (String
             }
             body.add_child(buttons(vec![
                 button("Cancel", app, crate::ui_dialogs::on_cancel_popup),
-                typed_button("Recover", ButtonType::Primary, app, on_recover)
-                    .with_id(ids::CONTACTS_RECOVER),
+                typed_button(
+                    if *test { "Check" } else { "Recover" },
+                    ButtonType::Primary,
+                    app,
+                    on_recover,
+                )
+                .with_id(ids::CONTACTS_RECOVER),
             ]));
-            (
-                format!("Recover \"{}\" with trusted contacts", name_of(drive_id)),
-                body,
-            )
+            let title = if *test {
+                format!("Test the trusted contacts of \"{}\"", name_of(drive_id))
+            } else {
+                format!("Recover \"{}\" with trusted contacts", name_of(drive_id))
+            };
+            (title, body)
         }
         Page::Rebuilt {
             drive_id,
@@ -1009,12 +1024,15 @@ extern "C" fn on_answer(mut data: RefAny, mut info: CallbackInfo) -> Update {
 extern "C" fn on_recover(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         let Some(Popup::Encryption(Dialog::Contacts(Page::Recover {
-            drive_id, shares, ..
+            test,
+            drive_id,
+            shares,
+            ..
         }))) = s.popup.as_ref()
         else {
             return;
         };
-        let drive_id = drive_id.clone();
+        let (test, drive_id) = (*test, drive_id.clone());
         let shares: Vec<Zeroizing<String>> = shares
             .iter()
             .map(|share| Zeroizing::new(share.as_str().to_string()))
@@ -1028,6 +1046,7 @@ extern "C" fn on_recover(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return;
         };
         let job = ContactsJob::Recover {
+            test,
             drive_id,
             shares,
             token_url,
@@ -1048,9 +1067,10 @@ pub(crate) enum ContactsJob {
     /// A held share answered to a request.
     Answer { request: String, sealed: String },
     /// The drive's recovery request (its key from the keyring, else new).
-    Request { drive_id: String },
-    /// Two shares into the code, and the code's lockdown.
+    Request { drive_id: String, test: bool },
+    /// Two shares into the code, and the code's lockdown (`test`: no lockdown).
     Recover {
+        test: bool,
         drive_id: String,
         shares: Vec<Zeroizing<String>>,
         token_url: String,
@@ -1068,11 +1088,18 @@ pub(crate) enum ContactsDone {
     Answered(Result<String, String>),
     Request {
         drive_id: String,
+        test: bool,
         result: Result<(String, String), String>,
     },
     Recovered {
         drive_id: String,
         result: Result<(Zeroizing<String>, Option<u64>), String>,
+    },
+    /// A test's two shares gave back a code: its public recovery key (the drive's when they
+    /// work).
+    Tested {
+        drive_id: String,
+        result: Result<String, String>,
     },
 }
 
@@ -1108,16 +1135,36 @@ pub(crate) fn run(job: ContactsJob) -> ContactsDone {
             })();
             ContactsDone::Answered(result)
         }
-        ContactsJob::Request { drive_id } => {
+        ContactsJob::Request { drive_id, test } => {
             let result = request_key(&keyring, &drive_id)
                 .map(|secret| {
                     let public = secret.public();
                     (request_text(&public), safety_number(&public))
                 })
                 .map_err(|e| e.to_string());
-            ContactsDone::Request { drive_id, result }
+            ContactsDone::Request {
+                drive_id,
+                test,
+                result,
+            }
         }
         ContactsJob::Recover {
+            test: true,
+            drive_id,
+            shares,
+            ..
+        } => {
+            let result = (|| -> Result<String, String> {
+                let request = request_key(&keyring, &drive_id).map_err(|e| e.to_string())?;
+                let texts: Vec<&str> = shares.iter().map(|s| s.as_str()).collect();
+                let code = recovered_code(&texts, &request)?;
+                let _ = forget_request_key(&keyring, &drive_id);
+                Ok(crate::encryption::recovery_key_of(&code, &drive_id).public_base64())
+            })();
+            ContactsDone::Tested { drive_id, result }
+        }
+        ContactsJob::Recover {
+            test: false,
             drive_id,
             shares,
             token_url,
@@ -1209,12 +1256,17 @@ pub(crate) fn on_done(
                 }
             }
         }
-        ContactsDone::Request { drive_id, result } => match result {
+        ContactsDone::Request {
+            drive_id,
+            test,
+            result,
+        } => match result {
             Ok((request, safety)) => {
                 println!("AZDRIVE_CONTACTS_REQUEST {drive_id}");
                 open(
                     s,
                     Page::Recover {
+                        test,
                         drive_id,
                         request,
                         safety,
@@ -1225,6 +1277,40 @@ pub(crate) fn on_done(
             }
             Err(why) => s.error(format!("No recovery request was made: {why}")),
         },
+        ContactsDone::Tested { drive_id, result } => {
+            let known = state_of(&s.settings.recovery.drives, &drive_id)
+                .and_then(|state| state.recovery_key.clone());
+            let outcome = match result {
+                Ok(key) if known.as_deref() == Some(key.as_str()) => Ok(()),
+                Ok(_) => Err(String::from(
+                    "The two shares give a code, but not this drive's: they are of a code made \
+                     before the last one. Add the contacts again.",
+                )),
+                Err(why) => Err(why),
+            };
+            match outcome {
+                Ok(()) => {
+                    println!("AZDRIVE_CONTACTS_TESTED {drive_id}");
+                    s.popup = Some(Popup::Encryption(Dialog::Message {
+                        title: String::from("Your trusted contacts work"),
+                        text: String::from(
+                            "Two of their shares give back this drive's recovery code. Nothing \
+                             was locked down.",
+                        ),
+                    }));
+                }
+                Err(why) => {
+                    if let Some(Popup::Encryption(Dialog::Contacts(Page::Recover {
+                        error, ..
+                    }))) = s.popup.as_mut()
+                    {
+                        *error = why;
+                    } else {
+                        s.error(why);
+                    }
+                }
+            }
+        }
         ContactsDone::Recovered { drive_id, result } => match result {
             Ok((code, until)) => {
                 println!("AZDRIVE_CONTACTS_RECOVERED {drive_id}");

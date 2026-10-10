@@ -42,7 +42,10 @@ use crate::{
     encryption::{Dialog, EncryptionJob},
     ids,
     jobs::Job,
-    recovery_health::{state_mut, state_of, RecoveryState},
+    recovery_health::{
+        health_line, methods_list, methods_warning, state_mut, state_of, Method, MethodAction,
+        RecoveryState,
+    },
     save_settings, spawn,
     ui_dialogs::line,
     with_state, DriveState, Popup,
@@ -847,6 +850,163 @@ extern "C" fn on_drill_stop(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         save_settings(info, app, s);
     })
+}
+
+// ==== Options > Drives: the methods list ====
+
+/// What a method's button carries.
+struct MethodRef {
+    app: RefAny,
+    drive_id: String,
+    method: Method,
+    action: MethodAction,
+}
+
+fn method_button(app: &RefAny, drive_id: &str, method: Method, action: MethodAction) -> Dom {
+    let text = match action {
+        MethodAction::Test => "Test",
+        MethodAction::Add => "Add\u{2026}",
+        MethodAction::Remove => "Remove",
+        MethodAction::CountAgain => "Count again",
+    };
+    Button::create(AzString::from(text))
+        .with_on_click(
+            RefAny::new(MethodRef {
+                app: app.clone(),
+                drive_id: drive_id.to_string(),
+                method,
+                action,
+            }),
+            on_method as ButtonOnClickCallbackType,
+        )
+        .dom()
+        .with_id(ids::method_button(drive_id, method, action))
+        .with_css("margin-left: 6px;")
+}
+
+/// Options > Drives' recovery sections: each encrypted drive's methods (with its Recovery
+/// health and the warning below two), and the shares this computer holds for others.
+pub(crate) fn options_sections(s: &DriveState, app: &RefAny) -> Vec<(String, Dom)> {
+    let now = now();
+    let mut drives: Vec<Dom> = Vec::new();
+    for state in &s.settings.recovery.drives {
+        if s.slot_index(&state.drive_id).is_none() {
+            continue;
+        }
+        let name = s.drive_name(&crate::browse::Place::folder(&state.drive_id, ""));
+        let health =
+            health_line(&s.settings.recovery.drives, &state.drive_id, now).unwrap_or_default();
+        let mut block = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; padding: 6px 0px;")
+            .with_child(line(&format!("{name} - {health}")).with_css("font-weight: bold;"));
+        if let Some(warning) = methods_warning(state) {
+            block.add_child(
+                line(warning)
+                    .with_css("color: #C42B1C;")
+                    .with_id(ids::method_warning(&state.drive_id)),
+            );
+        }
+        for row in methods_list(state, now) {
+            let mut item = Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; margin-top: 4px;",
+                )
+                .with_child(
+                    Dom::create_div()
+                        .with_css("display: flex; flex-direction: column; flex-grow: 1;")
+                        .with_child(Dom::create_span_with_text(AzString::from(
+                            row.method.name(),
+                        )))
+                        .with_child(
+                            Dom::create_span_with_text(AzString::from(row.status.as_str()))
+                                .with_css("font-size: 12px; opacity: 0.75;"),
+                        ),
+                );
+            for action in &row.actions {
+                item.add_child(method_button(app, &state.drive_id, row.method, *action));
+            }
+            block.add_child(item);
+        }
+        drives.push(block);
+    }
+    if drives.is_empty() {
+        drives.push(
+            line(
+                "No encrypted drive yet: an Azlin drive's menu in the source list offers \
+                 \"Encrypt this drive\".",
+            )
+            .with_css("font-size: 12px; opacity: 0.75;"),
+        );
+    }
+    vec![
+        (
+            String::from("Recovery"),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column;")
+                .with_children(DomVec::from(drives))
+                .with_id(ids::RECOVERY_METHODS),
+        ),
+        (
+            String::from("Shares you hold for others"),
+            crate::recovery_contacts::held_section(s, app),
+        ),
+    ]
+}
+
+extern "C" fn on_method(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, drive_id, method, action)) = data
+        .downcast_ref::<MethodRef>()
+        .map(|m| (m.app.clone(), m.drive_id.clone(), m.method, m.action))
+    else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| match (method, action) {
+        (Method::Code, MethodAction::Test) => open_drill(s, &drive_id),
+        (Method::Contacts, MethodAction::Add) => crate::recovery_contacts::ask_add(s, &drive_id),
+        (Method::Contacts, MethodAction::Test) => {
+            crate::recovery_contacts::ask_recover(info, app, s, &drive_id, true);
+        }
+        (Method::Contacts, MethodAction::Remove) => {
+            crate::recovery_contacts::forget(info, app, s, &drive_id);
+        }
+        (Method::OtherDevice, MethodAction::CountAgain) => {
+            crate::encryption::count_devices(info, app, s, &drive_id);
+        }
+        (Method::OtherDevice, MethodAction::Add) => {
+            if s.popup.is_none() {
+                s.popups_opened += 1;
+                s.popup = Some(Popup::Encryption(Dialog::Message {
+                    title: String::from("Another device"),
+                    text: String::from(
+                        "A phone or a second computer that has the drive's key is a way back \
+                         in when this one is lost: join it with a join code from this computer \
+                         (azcloud invite), pass the code by a file or a QR code, then Count \
+                         again here. It counts best as a device of another kind - a phone \
+                         beside a computer - since both can be lost together.",
+                    ),
+                }));
+            }
+        }
+        _ => {}
+    })
+}
+
+/// The other devices were counted.
+pub(crate) fn devices_counted(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    result: Result<u32, String>,
+) {
+    match result {
+        Ok(count) => {
+            println!("AZDRIVE_DEVICES_COUNTED {drive_id} {count}");
+            state_mut(&mut s.settings.recovery.drives, drive_id).other_devices = count;
+            save_settings(info, app, s);
+        }
+        Err(why) => s.error(format!("The other devices were not counted: {why}")),
+    }
 }
 
 #[cfg(test)]

@@ -958,6 +958,11 @@ pub(crate) enum EncryptionJob {
     },
     /// A task of the trusted contacts (keys in the keyring, a recovery's lockdown).
     Contacts(crate::recovery_contacts::ContactsJob),
+    /// The drive's other devices counted (member wraps beside this computer's).
+    CountDevices {
+        drive_id: String,
+        auto: Arc<AutoEncrypted>,
+    },
 }
 
 /// What a rotation brings back to the UI thread.
@@ -1021,6 +1026,11 @@ pub(crate) enum EncryptionOutcome {
     },
     /// What a task of the trusted contacts found.
     Contacts(crate::recovery_contacts::ContactsDone),
+    /// How many other devices have the drive's key.
+    DevicesCounted {
+        drive_id: String,
+        result: Result<u32, String>,
+    },
 }
 
 /// Runs on a worker thread.
@@ -1245,6 +1255,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
         }
         EncryptionJob::Contacts(job) => {
             EncryptionOutcome::Contacts(crate::recovery_contacts::run(job))
+        }
+        EncryptionJob::CountDevices { drive_id, auto } => {
+            let result = device::other_devices(auto.bucket().as_ref(), &keyring, auto.drive())
+                .map_err(|e| e.to_string());
+            EncryptionOutcome::DevicesCounted { drive_id, result }
         }
     }
 }
@@ -1499,6 +1514,9 @@ pub(crate) fn on_outcome(
             result,
         } => crate::recovery::bucket_answered(info, app, s, &drive_id, recovery_key, result),
         EncryptionOutcome::Contacts(done) => crate::recovery_contacts::on_done(info, app, s, done),
+        EncryptionOutcome::DevicesCounted { drive_id, result } => {
+            crate::recovery::devices_counted(info, app, s, &drive_id, result);
+        }
     }
 }
 
@@ -1522,6 +1540,23 @@ pub(crate) fn check_code_in_bucket(
         drive_id: drive_id.to_string(),
         auto,
         code,
+    };
+    spawn(info, app, s, Job::Encryption(job));
+}
+
+/// Counts the drive's other devices on a worker thread (Options > Drives' Count again).
+pub(crate) fn count_devices(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let Some(auto) = auto_of(s, drive_id) else {
+        return;
+    };
+    let job = EncryptionJob::CountDevices {
+        drive_id: drive_id.to_string(),
+        auto,
     };
     spawn(info, app, s, Job::Encryption(job));
 }

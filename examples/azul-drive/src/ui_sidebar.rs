@@ -648,7 +648,7 @@ fn run(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, action: SideAc
         }
         #[cfg(feature = "encryption")]
         SideAction::ContactsRecover(drive_id) => {
-            crate::recovery_contacts::ask_recover(info, app, s, &drive_id);
+            crate::recovery_contacts::ask_recover(info, app, s, &drive_id, false);
         }
     }
 }

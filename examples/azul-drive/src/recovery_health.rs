@@ -348,14 +348,89 @@ pub struct MethodRow {
 
 /// The methods list of a drive: the code, trusted contacts, other devices, a passkey (later).
 #[must_use]
-pub fn methods_list(_state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
-    Vec::new()
+pub fn methods_list(state: &RecoveryState, _now: u64) -> Vec<MethodRow> {
+    let code = match state.code_checked {
+        Some(at) => {
+            let next = if state.drills_off && state.may_stop_drills() {
+                String::from(", no more checks")
+            } else {
+                state
+                    .next_drill()
+                    .map_or_else(String::new, |due| format!(", next check on {}", day(due)))
+            };
+            MethodRow {
+                method: Method::Code,
+                present: true,
+                status: format!("Checked on {}{next}", day(at)),
+                actions: vec![MethodAction::Test],
+            }
+        }
+        None => MethodRow {
+            method: Method::Code,
+            present: false,
+            status: String::from("Never typed back: make a new recovery code"),
+            actions: vec![MethodAction::Test],
+        },
+    };
+    let handed = state.shares_handed(None);
+    let total = state.contacts.len();
+    let contacts = if total == 0 {
+        MethodRow {
+            method: Method::Contacts,
+            present: false,
+            status: String::from("None"),
+            actions: vec![MethodAction::Add],
+        }
+    } else {
+        let names: Vec<&str> = state.contacts.iter().map(|c| c.name.as_str()).collect();
+        let enough = handed >= SHARES_NEEDED;
+        MethodRow {
+            method: Method::Contacts,
+            present: enough,
+            status: if enough {
+                format!(
+                    "{handed} of {total} shares handed over ({})",
+                    names.join(", ")
+                )
+            } else {
+                format!(
+                    "{handed} of {total} shares handed over ({}): two open the code",
+                    names.join(", ")
+                )
+            },
+            actions: if enough {
+                vec![MethodAction::Test, MethodAction::Remove]
+            } else {
+                vec![MethodAction::Remove]
+            },
+        }
+    };
+    let devices = MethodRow {
+        method: Method::OtherDevice,
+        present: state.other_devices > 0,
+        status: match state.other_devices {
+            0 => String::from("None counted"),
+            1 => String::from("1 other device has the key"),
+            n => format!("{n} other devices have the key"),
+        },
+        actions: vec![MethodAction::CountAgain, MethodAction::Add],
+    };
+    let passkey = MethodRow {
+        method: Method::Passkey,
+        present: false,
+        status: String::from("Not yet: a passkey comes with a later AzDrive"),
+        actions: Vec::new(),
+    };
+    vec![code, contacts, devices, passkey]
 }
 
 /// The warning over the list when the drive has fewer than two methods.
 #[must_use]
-pub fn methods_warning(_state: &RecoveryState) -> Option<&'static str> {
-    None
+pub fn methods_warning(state: &RecoveryState) -> Option<&'static str> {
+    (state.methods().len() < 2).then_some(
+        "Fewer than two ways back in: with one, losing it locks you out of the drive. Add \
+         trusted contacts or another device.",
+    )
 }
 
 #[cfg(test)]

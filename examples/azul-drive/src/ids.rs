@@ -376,3 +376,31 @@ pub fn contacts_answer_box(slot: usize) -> AzString {
 }
 pub const CONTACTS_RECOVER: AzString = AzString::from_const_str("__azdrive_contacts_recover");
 pub const REBUILT_CODE: AzString = AzString::from_const_str("__azdrive_rebuilt_code");
+/// Options > Drives' Recovery section, a drive's warning below two methods, a method's button:
+/// `__azdrive_method_<drive>_<code|contacts|devices|passkey>_<test|add|remove|count>`.
+pub const RECOVERY_METHODS: AzString = AzString::from_const_str("__azdrive_recovery_methods");
+#[must_use]
+pub fn method_warning(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_method_warning_{}", id_part(drive_id)))
+}
+#[must_use]
+pub fn method_button(
+    drive_id: &str,
+    method: crate::recovery_health::Method,
+    action: crate::recovery_health::MethodAction,
+) -> AzString {
+    use crate::recovery_health::{Method, MethodAction};
+    let method = match method {
+        Method::Code => "code",
+        Method::Contacts => "contacts",
+        Method::OtherDevice => "devices",
+        Method::Passkey => "passkey",
+    };
+    let action = match action {
+        MethodAction::Test => "test",
+        MethodAction::Add => "add",
+        MethodAction::Remove => "remove",
+        MethodAction::CountAgain => "count",
+    };
+    AzString::from(format!("__azdrive_method_{}_{method}_{action}", id_part(drive_id)))
+}

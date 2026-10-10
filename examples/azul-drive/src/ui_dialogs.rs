@@ -988,7 +988,8 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                 .drives_file
                 .as_deref()
                 .map_or_else(|| String::from("(none)"), |p| p.display().to_string());
-            vec![
+            #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
+            let mut sections = vec![
                 section("Drives", column_of(rows)),
                 section("Sync", crate::sync_view::options_section(s, app)),
                 section("Use with other programs", crate::ui_bridge::section(&s.bridge, app)),
@@ -1010,7 +1011,13 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                         .with_css("font-size: 12px; opacity: 0.75;"),
                     ]),
                 ),
-            ]
+            ];
+            // An encrypted drive's recovery methods, and the shares held for others (D51).
+            #[cfg(feature = "encryption")]
+            for (at, extra) in crate::recovery::options_sections(s, app).into_iter().enumerate() {
+                sections.insert(1 + at, extra);
+            }
+            sections
         }
     }
 }
