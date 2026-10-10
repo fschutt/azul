@@ -100,6 +100,12 @@ impl Phrase {
     pub fn get(&self, name: &str) -> Option<&Arg> {
         self.args.iter().find(|(n, _)| n == name).map(|(_, v)| v)
     }
+
+    /// This phrase, then `other` (`"<name> cannot be uploaded:" + " " + why`).
+    #[must_use]
+    pub fn then(self, other: impl Into<Text>) -> Text {
+        Text::from(self).then(other)
+    }
 }
 
 /// One part of a [`Text`].

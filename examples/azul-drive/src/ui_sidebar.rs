@@ -597,7 +597,7 @@ fn menu_of(app: &RefAny, entries: Vec<(String, SideAction)>) -> Menu {
             .into_iter()
             .map(|(label, action)| {
                 MenuItem::String(
-                    StringMenuItem::create(AzString::from(label))
+                    StringMenuItem::create(azul_appkit::l10n::label(&label))
                         .with_callback(row_ref(app, action), on_row_click),
                 )
             })
@@ -1028,7 +1028,7 @@ fn activity(s: &DriveState, app: &RefAny) -> Option<Dom> {
         .with_child(block(look::ACTIVITY_HEAD, text("Transfers")));
     if let Some(job) = s.queue.running() {
         let p = &job.progress;
-        area.add_child(line(job.label.clone()));
+        area.add_child(line(azul_appkit::l10n::t_text(&job.label)));
         area.add_child(block(
             "padding: 3px 10px 2px 10px;",
             ProgressBar::create(p.percent()).dom(),

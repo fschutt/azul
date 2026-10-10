@@ -477,17 +477,12 @@ pub(crate) fn mass_delete_text(asked: &azcloud_kit::sync::MassDelete) -> String 
 
 /// What a synced row's preview says instead of its bytes: a file in the cloud only (its bytes
 /// are not here), or - `from_index`, a plain drive's own listing showing the sync's names - a
-/// file whose copy is in the synced folder. `None`: it previews as any file.
+/// file whose copy is in the synced folder. `None`: it previews as any file. The sentence's key.
 #[must_use]
 pub(crate) fn preview_note(state: &FileState, from_index: bool) -> Option<&'static str> {
     match state {
-        FileState::CloudOnly => Some(
-            "In the cloud only: open it to download it, or keep it on this device (Share > \
-             Sync).",
-        ),
-        _ if from_index => Some(
-            "Synced: its copy is in the synced folder - open it, or preview it there.",
-        ),
+        FileState::CloudOnly => Some("azdrive-preview-cloud-only"),
+        _ if from_index => Some("azdrive-preview-synced"),
         _ => None,
     }
 }
@@ -660,30 +655,20 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
     let synced = target.as_deref().and_then(|id| setup_of(s, id));
     match what {
         SyncAction::Pair => match target.as_deref() {
-            None => Some(String::from("Open a cloud drive to sync it with a folder.")),
-            Some(id) if s.is_local_drive(id) => Some(String::from(
-                "This drive is on this computer already: open a cloud drive to sync it.",
-            )),
-            Some(_) if synced.is_some() => Some(String::from(
-                "This drive syncs with a folder already (Options > Drives).",
-            )),
-            Some(_) if s.cache_dir.is_none() => Some(String::from(
-                "There is no cache folder to keep the sync's state in.",
-            )),
+            None => Some(String::from("azdrive-sync-why-open-cloud")),
+            Some(id) if s.is_local_drive(id) => Some(String::from("azdrive-sync-why-local")),
+            Some(_) if synced.is_some() => Some(String::from("azdrive-sync-why-synced")),
+            Some(_) if s.cache_dir.is_none() => Some(String::from("azdrive-sync-why-no-cache")),
             Some(_) => None,
         },
-        SyncAction::Now | SyncAction::Pause | SyncAction::Stop | SyncAction::OpenFolder => {
-            synced.is_none().then(|| {
-                String::from("Open a synced folder or drive first (Share > Sync with a folder).")
-            })
-        }
+        SyncAction::Now | SyncAction::Pause | SyncAction::Stop | SyncAction::OpenFolder => synced
+            .is_none()
+            .then(|| String::from("azdrive-sync-why-open-synced")),
         SyncAction::KeepOnDevice | SyncAction::FreeUpSpace => {
             if s.selection.is_empty() {
-                Some(String::from("Select files or folders of a synced folder first."))
+                Some(String::from("azdrive-sync-why-select"))
             } else if selected_keys(s).is_none() {
-                Some(String::from(
-                    "Only the files of a synced folder are kept on this device or freed.",
-                ))
+                Some(String::from("azdrive-sync-why-only-synced"))
             } else {
                 None
             }
@@ -691,26 +676,25 @@ pub(crate) fn why_not(s: &DriveState, what: SyncAction) -> Option<String> {
     }
 }
 
-/// The sync's entries of a cloud drive's menu in the source list.
+/// The sync's entries of a cloud drive's menu in the source list (their keys).
 pub(crate) fn menu_entries(s: &DriveState, drive_id: &str) -> Vec<(String, SyncAction)> {
     match setup_of(s, drive_id) {
-        None if s.cache_dir.is_some() => vec![(
-            String::from("Sync with a folder on this computer\u{2026}"),
-            SyncAction::Pair,
-        )],
+        None if s.cache_dir.is_some() => {
+            vec![(String::from("azdrive-sync-menu-pair"), SyncAction::Pair)]
+        }
         None => Vec::new(),
         Some(setup) => vec![
-            (String::from("Open the synced folder"), SyncAction::OpenFolder),
-            (String::from("Sync now"), SyncAction::Now),
+            (String::from("azdrive-sync-menu-open-folder"), SyncAction::OpenFolder),
+            (String::from("azdrive-sync-menu-now"), SyncAction::Now),
             (
                 String::from(if setup.paused {
-                    "Resume syncing"
+                    "azdrive-sync-menu-resume"
                 } else {
-                    "Pause syncing"
+                    "azdrive-sync-menu-pause"
                 }),
                 SyncAction::Pause,
             ),
-            (String::from("Stop syncing\u{2026}"), SyncAction::Stop),
+            (String::from("azdrive-sync-menu-stop"), SyncAction::Stop),
         ],
     }
 }

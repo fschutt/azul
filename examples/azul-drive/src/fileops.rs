@@ -11,6 +11,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use azul_appkit::l10n::{Phrase, Text};
 use azul_storage::{key, ops as storage_ops, transfer, Drive, DriveError};
 
 use crate::browse;
@@ -136,6 +137,17 @@ pub enum TransferKind {
 }
 
 impl TransferKind {
+    /// The kind as a message's argument (`azdrive-transfer-label`'s `$kind`).
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            TransferKind::Copy => "copy",
+            TransferKind::Move => "move",
+            TransferKind::Upload => "upload",
+            TransferKind::Download => "download",
+        }
+    }
+
     /// "Copying", "Moving", ...
     #[must_use]
     pub fn verb(self) -> &'static str {
@@ -657,7 +669,7 @@ pub enum JobState {
     Waiting,
     Running,
     Done,
-    Failed(String),
+    Failed(Text),
     Cancelled,
 }
 
@@ -666,7 +678,7 @@ pub enum JobState {
 pub struct QueuedJob {
     pub id: u64,
     /// "Copying 3 items to docs".
-    pub label: String,
+    pub label: Text,
     pub state: JobState,
     pub progress: Progress,
     /// When it started running (milliseconds since 1970; 0 while it waits).
@@ -684,7 +696,7 @@ pub struct TransferQueue {
 
 impl TransferQueue {
     /// Queues a transfer; returns its id.
-    pub fn push(&mut self, label: String) -> u64 {
+    pub fn push(&mut self, label: Text) -> u64 {
         self.next_id += 1;
         self.jobs.push(QueuedJob {
             id: self.next_id,
@@ -728,7 +740,7 @@ impl TransferQueue {
     }
 
     /// The transfer ended: with an error, or without.
-    pub fn finish(&mut self, id: u64, error: Option<String>) {
+    pub fn finish(&mut self, id: u64, error: Option<Text>) {
         if let Some(job) = self.job_mut(id) {
             job.state = match error {
                 Some(e) => JobState::Failed(e),
@@ -776,26 +788,26 @@ impl TransferQueue {
 
     /// The running transfer's line: "Copying 3 items - 1 of 3 (25%), 2 waiting".
     #[must_use]
-    pub fn status_text(&self) -> String {
+    pub fn status_text(&self) -> Text {
+        let waiting = Phrase::new("azdrive-queue-waiting").arg("count", self.waiting());
         let Some(job) = self.running() else {
             return match self.waiting() {
-                0 => String::new(),
-                n => format!("{n} waiting"),
+                0 => Text::default(),
+                _ => waiting.into(),
             };
         };
         let p = &job.progress;
-        let mut text = format!(
-            "{} - {} of {} ({:.0}%)",
-            job.label,
-            p.files_done,
-            p.files_total,
-            p.percent()
+        let text = job.label.clone().then(" - ").then(
+            Phrase::new("azdrive-queue-progress")
+                .arg("done", p.files_done)
+                .arg("total", p.files_total)
+                .arg("percent", format!("{:.0}", p.percent())),
         );
-        let waiting = self.waiting();
-        if waiting > 0 {
-            text.push_str(&format!(", {waiting} waiting"));
+        if self.waiting() > 0 {
+            text.then(", ").then(waiting)
+        } else {
+            text
         }
-        text
     }
 
     /// The transfers that failed.
@@ -841,6 +853,7 @@ mod tests {
         sync::atomic::{AtomicBool, AtomicU32, Ordering},
     };
 
+    use azul_appkit::l10n::Arg;
     use azul_storage::{testing::TempDir, Drive, LocalDrive};
 
     use super::*;
@@ -1125,7 +1138,7 @@ mod tests {
     #[test]
     fn a_transfer_running_two_seconds_asks_for_the_progress_dialog_once() {
         let mut queue = TransferQueue::default();
-        let a = queue.push("Copying 1 item to docs".to_string());
+        let a = queue.push(Text::plain("Copying 1 item to docs"));
         assert_eq!(queue.wants_progress_dialog(5_000, 2_000), None, "nothing runs");
         queue.start(a, 1_000);
         assert_eq!(
@@ -1141,7 +1154,7 @@ mod tests {
             "a dialog the user closed stays closed"
         );
         queue.finish(a, None);
-        let b = queue.push("Copying 2 items to docs".to_string());
+        let b = queue.push(Text::plain("Copying 2 items to docs"));
         queue.start(b, 10_000);
         assert_eq!(queue.wants_progress_dialog(12_000, 2_000), Some(b), "the next one asks again");
     }
@@ -1149,8 +1162,8 @@ mod tests {
     #[test]
     fn a_transfer_queue_runs_one_job_at_a_time_and_sums_the_progress() {
         let mut queue = TransferQueue::default();
-        let a = queue.push("Copying 3 items".to_string());
-        let b = queue.push("Uploading photo.jpg".to_string());
+        let a = queue.push(Text::plain("Copying 3 items"));
+        let b = queue.push(Text::plain("Uploading photo.jpg"));
         assert_eq!(queue.next_to_start(), Some(a));
         queue.start(a, 1_000);
         assert_eq!(queue.next_to_start(), None, "one at a time");
@@ -1165,15 +1178,22 @@ mod tests {
             },
         );
         assert_eq!(queue.percent(), Some(25.0));
-        assert!(
-            queue.status_text().contains("Copying 3 items"),
-            "{}",
-            queue.status_text()
+        let status = queue.status_text();
+        assert!(status.to_string().starts_with("Copying 3 items - "), "{status}");
+        let progress = status.phrase("azdrive-queue-progress").expect("the progress");
+        assert_eq!(progress.get("done"), Some(&Arg::Int(1)));
+        assert_eq!(progress.get("total"), Some(&Arg::Int(3)));
+        assert_eq!(progress.get("percent"), Some(&Arg::from("25")));
+        assert_eq!(
+            status
+                .phrase("azdrive-queue-waiting")
+                .and_then(|w| w.get("count")),
+            Some(&Arg::Int(1))
         );
         queue.finish(a, None);
         assert_eq!(queue.next_to_start(), Some(b));
         queue.start(b, 2_000);
-        queue.finish(b, Some("no answer".to_string()));
+        queue.finish(b, Some(Text::plain("no answer")));
         assert!(queue.is_idle());
         assert_eq!(queue.failed().len(), 1);
         queue.clear_finished();

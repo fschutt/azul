@@ -50,7 +50,7 @@ use azul::{
     },
 };
 use azul_appkit::{
-    l10n::{label, t, t_args, t_label},
+    l10n::{label, t, t_args, t_label, t_text},
     ribbon::{self as ribbon_kit, group, RibbonCommand},
 };
 
@@ -234,7 +234,7 @@ fn home_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
     let undo = s
         .undo
         .last()
-        .map_or_else(|| String::from("azdrive-undo"), crate::UndoOp::label);
+        .map_or_else(|| String::from("azdrive-undo"), |op| t_text(&op.label()));
     RibbonTab::create(label(RibbonTabKind::Home.key()))
         .with_group(group(
             "azdrive-group-clipboard",
@@ -817,16 +817,12 @@ fn file_menu(s: &DriveState, app: &RefAny) -> Dom {
     )
     .with_child(with_reason(
         RibbonFileMenuCommand::create(AzString::from("terminal"), label("azdrive-file-terminal"))
-            .with_description(AzString::from(
-                "azdrive-file-terminal-system",
-            )),
+            .with_description(label("azdrive-file-terminal-system")),
         terminal_reason.clone(),
     ))
     .with_child(with_reason(
         RibbonFileMenuCommand::create(AzString::from("keyboard"), label("azdrive-file-azterm"))
-            .with_description(AzString::from(
-                "azdrive-file-azterm-about",
-            )),
+            .with_description(label("azdrive-file-azterm-about")),
         azterm_reason,
     ));
     if let Some(reason) = terminal_reason {

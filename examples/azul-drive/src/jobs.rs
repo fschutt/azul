@@ -28,6 +28,7 @@ use azcloud_kit::{
     PendingCheckout, PeriodTokenStore, PeriodTokens, SharedKeyring, Tiers, TokenError,
     TokenServer, UserError, VoucherRedeemed,
 };
+use azul_appkit::l10n::Text;
 use azul_pay::{Choice, Created, Look, SurfaceKind};
 use azul::{
     image::{ImageRef, RawImage},
@@ -46,6 +47,7 @@ use crate::{
     browse::{self, Entry},
     fileops::{self, Plan, Progress, SourceItem, TransferKind, TransferReport},
     find::{self, FindEnd, FindPhase},
+    l10n::drive_error_text,
     listing::{self, Stat},
     preview::{self, PreviewKind},
     TreeKey, USER_AGENT,
@@ -72,7 +74,12 @@ pub(crate) enum PreviewContent {
     /// A WAV file's samples, for azul's AudioSink.
     Audio(preview::WavSamples),
     /// Why there is nothing to show.
-    Message(String),
+    Message(Text),
+}
+
+/// "No preview: " and why.
+fn no_preview(why: Text) -> PreviewContent {
+    PreviewContent::Message(Text::key("azdrive-preview-failed").then(" ").then(why))
 }
 
 /// A test drive a development token server made: its bundle, its session's keyring text, and
@@ -697,16 +704,12 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
     };
     let pages = azul::pdf::Pdf::create().to_svg_pages(azul::vec::U8VecRef::from(&bytes[..]));
     let Some(svg) = pages.as_slice().first().map(|s| s.as_str().to_string()) else {
-        return PreviewContent::Message(String::from(
-            "No preview: azul could not read this PDF.",
-        ));
+        return PreviewContent::Message(Text::key("azdrive-preview-pdf-unreadable"));
     };
     let parsed = match ParsedSvg::from_string(svg, SvgParseOptions::create_default()) {
         ResultParsedSvgSvgParseError::Ok(parsed) => parsed,
         ResultParsedSvgSvgParseError::Err(_) => {
-            return PreviewContent::Message(String::from(
-                "No preview: the PDF's first page could not be drawn.",
-            ))
+            return PreviewContent::Message(Text::key("azdrive-preview-pdf-not-drawn"))
         }
     };
     let mut options = SvgRenderOptions::create_default();
@@ -729,9 +732,7 @@ fn pdf_first_page(bytes: &[u8]) -> PreviewContent {
             width,
             height,
         },
-        None => PreviewContent::Message(String::from(
-            "No preview: the PDF's first page could not be drawn.",
-        )),
+        None => PreviewContent::Message(Text::key("azdrive-preview-pdf-not-drawn")),
     }
 }
 
@@ -754,30 +755,25 @@ fn make_preview(
     });
     if kind == PreviewKind::Audio && preview::is_playable_audio(key) {
         if !size.is_some_and(|s| s <= preview::AUDIO_PREVIEW_MAX_BYTES) {
-            return PreviewContent::Message(String::from(
-                "No preview: the WAV file is too big to fetch for a preview.",
-            ));
+            return PreviewContent::Message(Text::key("azdrive-preview-wav-too-big"));
         }
-        return match drive
-            .get(key)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| preview::wav_samples(&bytes).map_err(String::from))
-        {
-            Ok(wav) => PreviewContent::Audio(wav),
-            Err(why) => PreviewContent::Message(format!("No preview: {why}.")),
+        return match drive.get(key) {
+            Err(e) => no_preview(drive_error_text(&e)),
+            Ok(bytes) => match preview::wav_samples(&bytes) {
+                Ok(wav) => PreviewContent::Audio(wav),
+                Err(why) => PreviewContent::Message(Text::key(why)),
+            },
         };
     }
     if let Some(reason) = preview::no_preview_reason(kind) {
-        return PreviewContent::Message(reason.to_string());
+        return PreviewContent::Message(Text::key(reason));
     }
     if kind == PreviewKind::Video {
         if let Some(path) = drive.local_path(key) {
             return PreviewContent::Video(path);
         }
         if !preview::fits_preview(kind, size) {
-            return PreviewContent::Message(String::from(
-                "No preview: the video is too big to fetch for a preview; open it instead.",
-            ));
+            return PreviewContent::Message(Text::key("azdrive-preview-video-too-big"));
         }
         return match transfer::download_path(temp_dir, key)
             .ok_or_else(|| DriveError::InvalidKey {
@@ -789,22 +785,20 @@ fn make_preview(
                 Ok(dest)
             }) {
             Ok(path) => PreviewContent::Video(path),
-            Err(e) => PreviewContent::Message(format!("No preview: {e}")),
+            Err(e) => no_preview(drive_error_text(&e)),
         };
     }
     if !preview::fits_preview(kind, size) {
-        return PreviewContent::Message(String::from(
-            "No preview: the file is too big to fetch for a preview.",
-        ));
+        return PreviewContent::Message(Text::key("azdrive-preview-too-big"));
     }
     let (bytes, truncated) = match preview_bytes(drive, key, size, kind) {
         Ok(read) => read,
-        Err(e) => return PreviewContent::Message(format!("No preview: {e}")),
+        Err(e) => return no_preview(drive_error_text(&e)),
     };
     match kind {
         PreviewKind::Text => match preview::text_preview(&bytes, truncated) {
             Ok(text) => PreviewContent::Text(text),
-            Err(why) => PreviewContent::Message(format!("No preview: {why}.")),
+            Err(why) => PreviewContent::Message(Text::key(why)),
         },
         PreviewKind::Pdf => pdf_first_page(&bytes),
         PreviewKind::Image => {
@@ -817,17 +811,17 @@ fn make_preview(
                             width,
                             height,
                         },
-                        None => PreviewContent::Message(String::from(
-                            "No preview: the image could not be prepared.",
-                        )),
+                        None => {
+                            PreviewContent::Message(Text::key("azdrive-preview-image-not-prepared"))
+                        }
                     }
                 }
-                azul::error::ResultRawImageDecodeImageError::Err(_) => PreviewContent::Message(
-                    String::from("No preview: azul cannot decode this image."),
-                ),
+                azul::error::ResultRawImageDecodeImageError::Err(_) => {
+                    PreviewContent::Message(Text::key("azdrive-preview-image-undecodable"))
+                }
             }
         }
-        _ => PreviewContent::Message(String::from("No preview available.")),
+        _ => PreviewContent::Message(Text::key("azdrive-preview-none")),
     }
 }
 

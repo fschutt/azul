@@ -561,13 +561,25 @@ pub(crate) enum UndoOp {
 }
 
 impl UndoOp {
-    pub fn label(&self) -> String {
-        match self {
-            UndoOp::Rename { to, .. } => format!("Undo rename of \"{}\"", key::last_segment(to)),
-            UndoOp::Trash { gone, .. } => format!("Undo delete of {} item(s)", gone.len()),
-            UndoOp::Move { pairs, .. } => format!("Undo move of {} item(s)", pairs.len()),
-            UndoOp::Create { key, .. } => format!("Undo new \"{}\"", key::last_segment(key)),
-        }
+    /// "Undo rename of "a.txt"" (the ribbon's Undo, the message while it runs).
+    #[must_use]
+    pub fn label(&self) -> azul_appkit::l10n::Text {
+        use azul_appkit::l10n::Phrase;
+        let phrase = match self {
+            UndoOp::Rename { to, .. } => {
+                Phrase::new("azdrive-undo-rename").arg("name", key::last_segment(to))
+            }
+            UndoOp::Trash { gone, .. } => {
+                Phrase::new("azdrive-undo-delete").arg("count", gone.len())
+            }
+            UndoOp::Move { pairs, .. } => {
+                Phrase::new("azdrive-undo-move").arg("count", pairs.len())
+            }
+            UndoOp::Create { key, .. } => {
+                Phrase::new("azdrive-undo-new").arg("name", key::last_segment(key))
+            }
+        };
+        phrase.into()
     }
 }
 
@@ -634,7 +646,7 @@ pub(crate) enum Popup {
     ChooseLocation {
         kind: TransferKind,
         text: String,
-        error: String,
+        error: azul_appkit::l10n::Text,
     },
     /// The transfer queue, with Cancel: the running transfer as azul's ProgressDialog over the
     /// others. `auto`: it opened by itself (a long transfer) and closes when the queue is done.

@@ -387,7 +387,7 @@ pub(crate) fn status_line(s: &DriveState, app: &RefAny) -> Dom {
                     on_action,
                 )
         };
-        let transfer = s.queue.status_text();
+        let transfer = azul_appkit::l10n::t_text(&s.queue.status_text());
         if !transfer.is_empty() {
             line.add_child(chip("sync", transfer));
         }
@@ -459,7 +459,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
             let name = key::last_segment(&preview.key).to_string();
             match &preview.content {
                 None => note(&format!("Loading the preview of \"{name}\"...")),
-                Some(PreviewContent::Message(text)) => note(text),
+                Some(PreviewContent::Message(text)) => note(&azul_appkit::l10n::t_text(text)),
                 Some(PreviewContent::Text(text)) => Dom::create_div()
                     .with_id(ids::PREVIEW_TEXT)
                     .with_css(

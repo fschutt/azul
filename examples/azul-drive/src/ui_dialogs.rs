@@ -144,7 +144,7 @@ extern "C" fn on_form_text(
             text: typed, error, ..
         }) => {
             *typed = text;
-            error.clear();
+            *error = azul_appkit::l10n::Text::default();
         }
         Some(Popup::Voucher { code, error, .. }) => {
             *code = text;
@@ -219,7 +219,7 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
                 .with_child(label("The folder (a drive's name, then its folders: Home/docs)"))
                 .with_child(input(app, text, "Home/docs", ids::LOCATION_PATH));
             if !error.is_empty() {
-                body.add_child(line(error).with_css("color: #C42B1C;"));
+                body.add_child(line(&azul_appkit::l10n::t_text(error)).with_css("color: #C42B1C;"));
             }
             body.add_child(buttons(vec![
                 button("Cancel", app, on_cancel_popup),
@@ -583,7 +583,7 @@ fn transfers_dialog(s: &DriveState, app: &RefAny) -> (String, Dom) {
             ));
         }
         body.add_child(
-            ProgressDialog::create(job.label.as_str(), p.percent())
+            ProgressDialog::create(azul_appkit::l10n::t_text(&job.label).as_str(), p.percent())
                 .with_text(text)
                 .with_detail(p.current.as_str())
                 .with_indeterminate(p.files_total == 0 && p.bytes_total == 0)
@@ -603,14 +603,17 @@ fn transfers_dialog(s: &DriveState, app: &RefAny) -> (String, Dom) {
             JobState::Waiting => String::from("waiting"),
             JobState::Running => format!("{:.0}%", job.progress.percent()),
             JobState::Done => String::from("done"),
-            JobState::Failed(e) => format!("failed: {e}"),
+            JobState::Failed(e) => format!("failed: {}", azul_appkit::l10n::t_text(e)),
             JobState::Cancelled => String::from("cancelled"),
         };
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 0px;")
             .with_child(
-                Dom::create_span_with_text(AzString::from(format!("{} - {state}", job.label)))
-                    .with_css("flex-grow: 1;"),
+                Dom::create_span_with_text(AzString::from(format!(
+                    "{} - {state}",
+                    azul_appkit::l10n::t_text(&job.label)
+                )))
+                .with_css("flex-grow: 1;"),
             );
         if matches!(job.state, JobState::Waiting | JobState::Running) {
             row.add_child(

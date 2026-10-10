@@ -652,10 +652,14 @@ fn a_plain_synced_drive_lists_the_files_of_its_sync_index() {
 /// drive's sync index previews from the synced folder, so its own listing says where.
 #[test]
 fn a_cloud_only_row_previews_as_a_sentence() {
-    assert!(sync_view::preview_note(&FileState::CloudOnly, false)
-        .is_some_and(|note| note.contains("cloud only")));
-    assert!(sync_view::preview_note(&FileState::OnDevice, true)
-        .is_some_and(|note| note.contains("synced folder")));
+    assert_eq!(
+        sync_view::preview_note(&FileState::CloudOnly, false),
+        Some("azdrive-preview-cloud-only")
+    );
+    assert_eq!(
+        sync_view::preview_note(&FileState::OnDevice, true),
+        Some("azdrive-preview-synced")
+    );
     assert_eq!(sync_view::preview_note(&FileState::OnDevice, false), None);
     assert_eq!(sync_view::preview_note(&FileState::Pinned, false), None);
 }
