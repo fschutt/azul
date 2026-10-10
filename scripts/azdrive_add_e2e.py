@@ -28,7 +28,10 @@ sheet of `--dialogs inline`:
        window; then a second checkout, "Stop waiting", AzDrive closes, the payment is approved
        while it is closed, AzDrive starts again and the drive arrives at its start: in the
        drives file under the name typed, its session in the keyring, the checkout off the
-       keyring's list, its bucket listed.
+       keyring's list, its bucket listed. Each paid checkout's period tokens (AZLINSEC17 F24)
+       are issued against the issue key of its sealed sign-up before its checkout leaves the
+       list, and AzDrive keeps them (a 0600 file per drive beside the drives file), each one
+       a token the mock's issuer key verifies.
 
 Url::open starts no browser in a headless run (the engine's stand-in), so the payment page of
 step 6 stays closed and the mock's test provider is paid directly.
@@ -57,6 +60,7 @@ import tempfile
 import azlin_claim
 import azlin_e2e as e2e
 import azlin_mock_stack
+import azlin_period
 from azlin_e2e import Failure
 from azdrive_e2e import Drive, I, item_names, open_item
 
@@ -182,6 +186,30 @@ def pending_checkouts(path):
     if not text:
         return {}
     return {c["checkout_id"]: c for c in json.loads(text).get("checkouts") or []}
+
+
+def check_period_tokens(stack, drives_file, checkout, drive_id):
+    """AZLINSEC17 F24: the paid checkout's period tokens were issued (against the issue key of
+    its sealed sign-up) and AzDrive keeps them - one 0600 file per drive beside the drives file -
+    each one a token the mock's issuer key verifies. How many."""
+    record = stack.token.state.checkouts.get(checkout) or {}
+    months = record.get("months")
+    if not months or record.get("tokens_issued") != months:
+        raise Failure("the checkout %s's period tokens were not issued: %s of %r"
+                      % (checkout, record.get("tokens_issued"), months))
+    path = os.path.join(os.path.dirname(drives_file), "period-tokens", drive_id + ".json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            tokens = json.load(f).get("tokens") or []
+    except (OSError, ValueError) as e:
+        raise Failure("AzDrive keeps no period tokens of %s at %s: %s" % (drive_id, path, e))
+    if os.name == "posix" and os.stat(path).st_mode & 0o077:
+        raise Failure("the period tokens file is readable by others: %o" % os.stat(path).st_mode)
+    n, e, _ = stack.token.state.issuer
+    if len(tokens) != months or not all(azlin_period.verify(n, e, t) for t in tokens):
+        raise Failure("the kept period tokens of %s are %d, not %d that verify"
+                      % (drive_id, len(tokens), months))
+    return months
 
 
 def buy_and_stop_waiting(app, stack, keyring_file, name):
@@ -419,11 +447,13 @@ def run(args, logs):
             raise Failure("the late drive closed the dialog it did not come from")
         app.until("the checkout off the keyring's list",
                   lambda: first not in pending_checkouts(keyring_file))
+        months = check_period_tokens(stack, drives_file, first, late)
         dialog.click("cancel")
         wait_closed(app)
         log("6a. Buy -> Stop waiting -> paid at the token server: %s joined the source list in "
-            "the background (the window stayed where it was), its checkout left the keyring's "
-            "list" % late)
+            "the background (the window stayed where it was), its %d period token(s) issued "
+            "against the sealed issue key and kept, then its checkout left the keyring's list"
+            % (late, months))
 
         # 6b. Paid while AzDrive is closed: the drive arrives at the next start.
         second, dialog = buy_and_stop_waiting(app, stack, keyring_file, "Paid while closed")
@@ -442,6 +472,7 @@ def run(args, logs):
         app.until("its row in CLOUD", lambda: app.has(side_drive(paid)))
         app.until("the checkout off the keyring's list",
                   lambda: second not in pending_checkouts(keyring_file))
+        check_period_tokens(stack, drives_file, second, paid)
         text, entries = drives_file_entries(drives_file)
         entry = next((e for e in entries if e["id"] == paid), None)
         if not entry or entry["name"] != "Paid while closed":
@@ -457,8 +488,8 @@ def run(args, logs):
                   lambda: app.click(selector=side_drive(paid)))
         app.screenshot(os.path.join(out, "6-claimed.png"))
         log("6b. Buy -> Stop waiting -> AzDrive closed -> paid -> AzDrive started: %s arrived at "
-            "the start under the name typed, its session in the keyring, its checkout off the "
-            "keyring's list, its bucket listed" % paid)
+            "the start under the name typed, its session in the keyring, its period tokens "
+            "kept, its checkout off the keyring's list, its bucket listed" % paid)
 
         log("PASS: Add drive connected an S3 bucket, a folder and a SQLite database (tables as "
             "folders), bought a test drive, and claimed two paid drives - one in the background "
