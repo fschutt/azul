@@ -50,9 +50,14 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     again is 409 `nonce_used`, one signed by another key 401; the drive's status names the
     pending lockdown; the pending family gets no credentials before the 48 hours are over (403
     `lockdown_pending`: D42, the drive is handed over only when the notice ends - so the
-    recovery wrap, and with the code the drive key, stays out of reach meanwhile); the pending
-    family cannot cancel it (403), the owner can (200), and then there is none to cancel (409
-    `no_pending_lockdown`).
+    recovery wrap, and with the code the drive key, stays out of reach meanwhile). F12, "the
+    recovery code always wins": a cancel needs the recovery key's signature over
+    `lockdown-cancel:<drive>:<nonce>` - a device's drive token alone is 401, another key's
+    signature 401 -; a device's own lockdown meanwhile leaves the pending recovery as it is (the
+    status still names it, the pending family still waits: 403 `lockdown_pending`); the signed
+    cancel is 200, the same request again 409 `nonce_used`, and then there is none to cancel
+    (409 `no_pending_lockdown`). Replacing the recovery key needs the CURRENT key's signature
+    over `recovery:<drive>:<new key>:<nonce>` (without it 401); then the old key signs nothing.
 13. Vouchers (AZLINSEC17 F29), with a development server's test codes (`AZLIN-TEST-1M`: a month,
     `AZLIN-TEST-EUR10`: EUR 10, any case, never used up): one without a drive is 201 with a new
     drive's sign-up; one on a drive (its drive token) is 200 with `days_added` (its value pro
@@ -389,21 +394,73 @@ def recovery_checks(suite, client):
                 'lockdown_pending)',
                 status == 403 and error_code(value) == 'lockdown_pending',
                 '(HTTP %d %r)' % (status, error_code(value)))
-    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=pending_token)
-    suite.check('the pending family cannot cancel its own lockdown (403)', status == 403,
-                '(HTTP %d %r)' % (status, error_code(value)))
+    # F12: the recovery key wins. A device's token alone cancels nothing.
     status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
-    suite.check('the owner cancels the pending lockdown',
+    suite.check("a cancel with a device's drive token and no recovery-key signature is 401",
+                status == 401, '(HTTP %d %r)' % (status, error_code(value)))
+    # A device's own lockdown leaves the pending recovery alone.
+    status, locked, _ = client.call('POST', path + '/lockdown', {}, bearer=owner)
+    owner = (locked or {}).get('drive_token') or owner
+    suite.check("the owner's device lockdown during a pending recovery is 200",
+                status == 200, '(HTTP %d %r)' % (status, error_code(locked)))
+    status, value, _ = client.call('GET', path, bearer=owner)
+    suite.check('the recovery lockdown is still pending after the device lockdown',
+                status == 200 and unix_of((value or {}).get('lockdown_pending_until')) is not None,
+                '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
+    status, value, _ = client.call('POST', path + '/credentials', {}, bearer=pending_token)
+    suite.check('the pending family still waits after the device lockdown (403 '
+                'lockdown_pending)',
+                status == 403 and error_code(value) == 'lockdown_pending',
+                '(HTTP %d %r)' % (status, error_code(value)))
+
+    def cancel_request(key):
+        nonce = os.urandom(16).hex()
+        message = ('lockdown-cancel:%s:%s' % (drive_id, nonce)).encode('utf-8')
+        return {'nonce': nonce, 'signature': azlin_ed25519.sign_b64(key, message)}
+
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', cancel_request(other))
+    suite.check('a cancel signed by another key is 401', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    request = cancel_request(secret)
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', request)
+    suite.check('a cancel signed with the recovery key cancels the pending lockdown',
                 status == 200 and (value or {}).get('cancelled') is True,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', request)
+    suite.check('the same cancel request again is 409 nonce_used',
+                status == 409 and error_code(value) == 'nonce_used',
                 '(HTTP %d %r)' % (status, error_code(value)))
     status, value, _ = client.call('GET', path, bearer=owner)
     suite.check('then no lockdown is pending',
                 status == 200 and (value or {}).get('lockdown_pending_until') is None,
                 '(HTTP %d %r)' % (status, (value or {}).get('lockdown_pending_until')))
-    status, value, _ = client.call('POST', path + '/lockdown/cancel', {}, bearer=owner)
+    status, value, _ = client.call('POST', path + '/lockdown/cancel', cancel_request(secret))
     suite.check('nothing left to cancel is 409 no_pending_lockdown',
                 status == 409 and error_code(value) == 'no_pending_lockdown',
                 '(HTTP %d %r)' % (status, error_code(value)))
+
+    # F12 C: the recovery key is replaced only with the current key's signature.
+    new_secret, new_public = azlin_ed25519.new_key()
+    status, value, _ = client.call('POST', path + '/recovery', {'recovery_pubkey': new_public},
+                                   bearer=owner)
+    suite.check('replacing the recovery key without the current key\'s signature is 401',
+                status == 401, '(HTTP %d %r)' % (status, error_code(value)))
+    nonce = os.urandom(16).hex()
+    message = ('recovery:%s:%s:%s' % (drive_id, new_public, nonce)).encode('utf-8')
+    status, value, _ = client.call('POST', path + '/recovery',
+                                   {'recovery_pubkey': new_public, 'nonce': nonce,
+                                    'signature': azlin_ed25519.sign_b64(secret, message)},
+                                   bearer=owner)
+    suite.check('the current key signs its replacement (200)', status == 200,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    nonce = os.urandom(16).hex()
+    message = ('lockdown:%s:%s' % (drive_id, nonce)).encode('utf-8')
+    status, value, _ = client.call('POST', path + '/lockdown',
+                                   {'nonce': nonce,
+                                    'signature': azlin_ed25519.sign_b64(secret, message)})
+    suite.check('the replaced key signs no lockdown any more (401)', status == 401,
+                '(HTTP %d %r)' % (status, error_code(value)))
+    del new_secret
 
 
 def claim_checks(suite, client):
