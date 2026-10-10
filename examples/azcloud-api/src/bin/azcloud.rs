@@ -51,6 +51,9 @@ commands:
                                  CODE, shown once (--out writes it to a file only you can read)
   unlock                         the drive key from this device's own wrap in the bucket
   recover <code> | --code-file F | -   this device gets the drive key with the recovery code
+  rotate --yes [--out F]         "I was hacked": locks the drive down (every other device, key and
+                                 link), then a new drive key; the new RECOVERY CODE shows once
+  reencrypt                      after rotate: every file into a new object (recommended)
   mail-drop [--cloudflare-account ID --cloudflare-token-file F] [--worker W]
                                  incoming mail for the encrypted drive: its drop key; with your
                                  Cloudflare account and API token, set on your mail Worker
@@ -1055,6 +1058,99 @@ fn cmd_recover(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     ))
 }
 
+/// The drive index encrypted drives' files are named in: none in this build yet (the bucket's
+/// encrypted metadata repository), so `rotate` and `reencrypt` say so.
+#[cfg(feature = "encryption")]
+fn index_provider() -> Option<Box<dyn azcloud_kit::encryption::IndexProvider>> {
+    None
+}
+
+#[cfg(feature = "encryption")]
+fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    if !args.on("--yes") {
+        bail!(
+            "azcloud rotate --yes [--out F]: locks the drive down (every other device, key and \
+             link loses access at once; the other devices join again with new codes), then makes \
+             a new drive key and a new RECOVERY CODE, shown once. Then run azcloud reencrypt"
+        );
+    }
+    let Some(provider) = index_provider() else {
+        bail!("rotate: this azcloud has no drive index yet (it opens no encrypted files)");
+    };
+    let mut account = encrypted_account(settings, net, args)?;
+    let keyring = account.state().secrets();
+    let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
+    let rotated = account.rotate_drive_key(&keyring, provider.as_ref(), kdf)?;
+    let code = rotated.recovery_code.to_text();
+    let id = account.record().id.clone();
+    let drop = rotated.drop_key.map(|k| k.to_hex());
+    let mut value = json!({"ok": true, "drive": id, "rotated": true,
+                           "rewrapped": rotated.rewrapped,
+                           "members_removed": rotated.members_removed,
+                           "shares_revoked": rotated.shares_revoked,
+                           "drop_public_key": drop});
+    let mut text = format!(
+        "drive {id} is locked down and has a new key ({} files re-wrapped; {} other devices and \
+         invites removed, {} shares revoked).\n",
+        rotated.rewrapped, rotated.members_removed, rotated.shares_revoked
+    );
+    match args.path("--out") {
+        Some(path) => {
+            write_atomic(&path, format!("{}\n", code.as_str()).as_bytes(), true)
+                .with_context(|| format!("{}", path.display()))?;
+            value["recovery_code_file"] = json!(path.display().to_string());
+            text.push_str(&format!(
+                "The NEW RECOVERY CODE is in {} (readable by you only); the old one opens nothing.\n",
+                path.display()
+            ));
+        }
+        None => {
+            value["recovery_code"] = json!(code.as_str());
+            text.push_str(&format!(
+                "NEW RECOVERY CODE (shown once; the old one opens nothing):\n\n    {}\n\n",
+                code.as_str()
+            ));
+        }
+    }
+    if let Some(drop) = drop {
+        text.push_str(&format!(
+            "Incoming mail has a new drop key: azcloud mail-drop sets it on your mail Worker \
+             ({drop}).\n"
+        ));
+    }
+    text.push_str(
+        "Recommended after a compromise: azcloud reencrypt (every file into a new object, so \
+         nothing in the bucket opens with the old key).\n",
+    );
+    Ok((value, text))
+}
+
+#[cfg(feature = "encryption")]
+fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    let Some(provider) = index_provider() else {
+        bail!("reencrypt: this azcloud has no drive index yet (it opens no encrypted files)");
+    };
+    let account = encrypted_account(settings, net, args)?;
+    let keyring = account.state().secrets();
+    let mut state =
+        azul_storage::rotation::ReencryptState::new(azul_storage::time::now_unix());
+    let done = account.reencrypt(&keyring, provider.as_ref(), &mut state, &mut |_| Ok(()), &|| false)?;
+    let id = account.record().id.clone();
+    let value = json!({"ok": done, "drive": id, "reencrypted": state.done, "failed": state.failed});
+    Ok((
+        value,
+        format!(
+            "drive {id}: {} files in new objects{}\n",
+            state.done,
+            if state.failed > 0 {
+                format!(", {} damaged ones left as they were", state.failed)
+            } else {
+                String::new()
+            }
+        ),
+    ))
+}
+
 #[cfg(feature = "encryption")]
 fn cmd_mail_drop(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     use azcloud_kit::cloudflare::{Cloudflare, DEFAULT_WORKER, DROP_KEY_VARIABLE};
@@ -1121,8 +1217,12 @@ fn run(args: &Args, net: &Net) -> Result<Output> {
         "recover" => cmd_recover(&settings, net, args),
         #[cfg(feature = "encryption")]
         "mail-drop" => cmd_mail_drop(&settings, net, args),
+        #[cfg(feature = "encryption")]
+        "rotate" => cmd_rotate(&settings, net, args),
+        #[cfg(feature = "encryption")]
+        "reencrypt" => cmd_reencrypt(&settings, net, args),
         #[cfg(not(feature = "encryption"))]
-        "encryption" | "encrypt" | "unlock" | "recover" | "mail-drop" => {
+        "encryption" | "encrypt" | "unlock" | "recover" | "mail-drop" | "rotate" | "reencrypt" => {
             bail!("{command}: this azcloud was built without the feature `encryption`")
         }
         "info" => cmd_info(&settings, net, args),

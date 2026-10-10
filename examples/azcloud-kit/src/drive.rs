@@ -28,6 +28,7 @@ use azul_storage::{
 };
 
 use crate::{
+    bundle::DriveBundle,
     session::AzlinSession,
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
@@ -221,6 +222,44 @@ impl AzlinDrive {
         let session = bundle.session();
         // In the keyring BEFORE the lock is let go: the token just spent is dead, and the next
         // process to refresh must find this one.
+        let saved = self
+            .keyring
+            .set(&key, &session.to_keyring_secret())
+            .map_err(|e| e.to_string());
+        (self.on_rotated)(&session, saved);
+        current.session = session;
+        current.drive = None;
+        Ok(())
+    }
+
+    /// Locks the drive down from this device ("I was hacked"): every other device, key and
+    /// public link of the drive loses access at once; this drive continues with the new grant
+    /// the answer carries - stored in the keyring and handed to `on_rotated` like a refresh's,
+    /// under the drive's lock (the drive token spent here is dead afterwards).
+    ///
+    /// # Errors
+    ///
+    /// No answer, the token server's refusal, a lock or keyring that cannot be used.
+    pub fn lockdown(&self) -> Result<(), DriveError> {
+        let mut current = self.lock();
+        let key = keyring_key(&current.session.drive_id);
+        let _held = self
+            .keyring
+            .lock(&key)
+            .map_err(|e| DriveError::Io(e.to_string()))?;
+        if let Some(newer) = self.newer_in_keyring(&key, &current.session) {
+            current.session = newer;
+            current.drive = None;
+        }
+        let transport = (self.transports)();
+        let server =
+            TokenServer::new(&self.token_url, transport.as_ref()).map_err(|e| drive_error_of(&e))?;
+        let answer = server
+            .lockdown(&current.session.drive_id, &current.session.drive_token)
+            .map_err(|e| drive_error_of(&e))?;
+        let session = DriveBundle::from_value(&answer)
+            .map_err(|e| drive_error_of(&e))?
+            .session();
         let saved = self
             .keyring
             .set(&key, &session.to_keyring_secret())
