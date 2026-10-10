@@ -569,9 +569,9 @@ fn condstore_and_qresync_tell_only_what_changed_since_a_mod_sequence() {
     let now = highest_of(&resync);
     assert!(now > highest);
 
-    let refused = other.run("r2", &format!("UID STORE 2 +FLAGS (\\Seen) (UNCHANGEDSINCE {highest})"));
+    let refused = other.run("r2", &format!("UID STORE 2 (UNCHANGEDSINCE {highest}) +FLAGS (\\Seen)"));
     assert!(refused.last().unwrap().contains("[MODIFIED 2]"), "{refused:?}");
-    let stored = other.ok("r3", &format!("UID STORE 2 +FLAGS (\\Seen) (UNCHANGEDSINCE {now})"));
+    let stored = other.ok("r3", &format!("UID STORE 2 (UNCHANGEDSINCE {now}) +FLAGS (\\Seen)"));
     assert!(has(&stored, "MODSEQ ("), "{stored:?}");
     let status = other.ok("r4", "STATUS INBOX (HIGHESTMODSEQ MESSAGES)");
     assert!(has(&status, "HIGHESTMODSEQ ") && has(&status, "MESSAGES 1"), "{status:?}");

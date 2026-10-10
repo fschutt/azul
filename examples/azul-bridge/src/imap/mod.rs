@@ -38,11 +38,11 @@ use crate::{
 };
 
 /// What the server offers once signed in.
-pub const CAPABILITIES: &str =
-    "IMAP4rev1 SASL-IR LITERAL+ ID ENABLE IDLE NAMESPACE UNSELECT UIDPLUS MOVE SPECIAL-USE CHILDREN";
+pub const CAPABILITIES: &str = "IMAP4rev1 SASL-IR LITERAL+ ID ENABLE IDLE NAMESPACE UNSELECT UIDPLUS MOVE \
+     SPECIAL-USE CHILDREN CONDSTORE QRESYNC";
 /// ...and before: the sign-in methods too.
 pub const CAPABILITIES_BEFORE_LOGIN: &str = "IMAP4rev1 SASL-IR LITERAL+ ID ENABLE IDLE NAMESPACE \
-     UNSELECT UIDPLUS MOVE SPECIAL-USE CHILDREN AUTH=PLAIN AUTH=LOGIN";
+     UNSELECT UIDPLUS MOVE SPECIAL-USE CHILDREN CONDSTORE QRESYNC AUTH=PLAIN AUTH=LOGIN";
 /// Keywords one message gets at most (each is a marker object).
 pub const MAX_KEYWORDS: usize = 32;
 /// How long a listing of every message's marks is reused (a client's STATUS of every

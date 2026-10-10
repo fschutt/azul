@@ -19,7 +19,7 @@ use crate::{
 use super::{
     fetch,
     parse::{
-        self, Command, CommandKind, FetchAtt, SearchKey, SequenceSet, StatusItem,
+        self, Command, CommandKind, FetchAtt, Modifiers, SearchKey, SequenceSet, StatusItem,
         StoreMode,
     },
     search::{self, Candidate, Largest, Need},
@@ -42,6 +42,8 @@ struct Msg {
     size: u64,
     arrived: u64,
     flags: Flags,
+    /// CONDSTORE's mod-sequence.
+    modseq: u64,
 }
 
 /// The selected mailbox: its messages by UID (the sequence number is the place + 1).
@@ -51,6 +53,60 @@ struct Selected {
     read_only: bool,
     validity: u32,
     msgs: Vec<Msg>,
+    /// HIGHESTMODSEQ as the session last told it.
+    highest: u64,
+}
+
+/// A mailbox now: its numbers and messages, and CONDSTORE / QRESYNC's mod-sequences.
+struct Snap {
+    validity: u32,
+    next: u32,
+    highest: u64,
+    msgs: Vec<Msg>,
+    /// The newest expunged UIDs with their mod-sequences, and the highest one forgotten.
+    vanished: Vec<(u32, u64)>,
+    vanished_floor: u64,
+}
+
+/// UIDs (or sequence numbers) as a sequence set: `1:3,5,9:10` (ascending, each once).
+fn uid_set(numbers: &[u32]) -> String {
+    let mut sorted = numbers.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut parts: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < sorted.len() {
+        let start = sorted[i];
+        let mut end = start;
+        while i + 1 < sorted.len() && sorted[i + 1] == end + 1 {
+            i += 1;
+            end = sorted[i];
+        }
+        parts.push(if start == end {
+            start.to_string()
+        } else {
+            format!("{start}:{end}")
+        });
+        i += 1;
+    }
+    parts.join(",")
+}
+
+/// The UIDs below `next` that are not `present` (sorted), as ranges: what a program that knew
+/// less than the oldest remembered expunge is told went.
+fn missing_set(present: &[u32], next: u32) -> String {
+    let mut sorted = present.to_vec();
+    sorted.sort_unstable();
+    let mut parts: Vec<String> = Vec::new();
+    let mut from = 1u32;
+    for uid in sorted.into_iter().chain(std::iter::once(next.max(1))) {
+        if uid > from {
+            let to = uid - 1;
+            parts.push(if from == to { from.to_string() } else { format!("{from}:{to}") });
+        }
+        from = from.max(uid.saturating_add(1));
+    }
+    parts.join(",")
 }
 
 #[derive(Debug)]
@@ -75,6 +131,12 @@ pub(super) struct Session<'s, C: Conn> {
     state: State,
     failures: u32,
     cache: Vec<(String, Arc<Vec<u8>>)>,
+    /// CONDSTORE is on (ENABLE, or a command that uses it): mod-sequences in the answers.
+    condstore: bool,
+    /// QRESYNC is on (ENABLE QRESYNC): expunges told as VANISHED.
+    qresync: bool,
+    /// SEARCHRES: the UIDs the last `SEARCH RETURN (SAVE)` found (`$`).
+    saved: Option<Vec<u32>>,
 }
 
 /// A mailbox's name as IMAP lists it: `INBOX`, else its path in modified UTF-7.
@@ -146,6 +208,9 @@ impl<'s, C: Conn> Session<'s, C> {
             state: State::NotAuthenticated,
             failures: 0,
             cache: Vec::new(),
+            condstore: false,
+            qresync: false,
+            saved: None,
         }
     }
 
@@ -306,6 +371,7 @@ impl<'s, C: Conn> Session<'s, C> {
 
     fn dispatch(&mut self, command: Command) -> Next {
         let tag = command.tag;
+        let modifiers = command.modifiers;
         let signed_in = !matches!(self.state, State::NotAuthenticated);
         let selected = matches!(self.state, State::Selected(_));
         match command.kind {
@@ -338,10 +404,30 @@ impl<'s, C: Conn> Session<'s, C> {
                 self.ok(&tag, "ID completed")
             }
             CommandKind::Enable => {
-                if !self.line("* ENABLED") {
+                let mut enabled: Vec<&str> = Vec::new();
+                for name in &modifiers.enable {
+                    match name.as_str() {
+                        "CONDSTORE" => {
+                            self.condstore = true;
+                            enabled.push("CONDSTORE");
+                        }
+                        "QRESYNC" => {
+                            self.condstore = true;
+                            self.qresync = true;
+                            enabled.push("QRESYNC");
+                        }
+                        _ => {}
+                    }
+                }
+                let line = if enabled.is_empty() {
+                    String::from("* ENABLED")
+                } else {
+                    format!("* ENABLED {}", enabled.join(" "))
+                };
+                if !self.line(&line) {
                     return Next::Close;
                 }
-                self.ok(&tag, "Nothing to enable")
+                self.ok(&tag, "ENABLE completed")
             }
             CommandKind::StartTls => self.no(
                 &tag,
@@ -366,8 +452,8 @@ impl<'s, C: Conn> Session<'s, C> {
                 }
                 self.ok(&tag, "NAMESPACE completed")
             }
-            CommandKind::Select(name) => self.select(&tag, &name, false),
-            CommandKind::Examine(name) => self.select(&tag, &name, true),
+            CommandKind::Select(name) => self.select(&tag, &name, false, &modifiers),
+            CommandKind::Examine(name) => self.select(&tag, &name, true, &modifiers),
             CommandKind::Create(name) => self.create(&tag, &name),
             CommandKind::Delete(name) => self.delete(&tag, &name),
             CommandKind::Rename(from, to) => self.rename(&tag, &from, &to),
@@ -410,15 +496,15 @@ impl<'s, C: Conn> Session<'s, C> {
                     Err(None) => Next::Close,
                 }
             }
-            CommandKind::Search { uid, key } => self.search(&tag, uid, &key),
-            CommandKind::Fetch { uid, set, atts } => self.fetch(&tag, uid, &set, atts),
+            CommandKind::Search { uid, key } => self.search(&tag, uid, &key, &modifiers),
+            CommandKind::Fetch { uid, set, atts } => self.fetch(&tag, uid, &set, atts, &modifiers),
             CommandKind::Store {
                 uid,
                 set,
                 mode,
                 silent,
                 flags,
-            } => self.store(&tag, uid, &set, mode, silent, &flags),
+            } => self.store(&tag, uid, &set, mode, silent, &flags, &modifiers),
             CommandKind::Copy { uid, set, mailbox } => {
                 self.copy_or_move(&tag, uid, &set, &mailbox, false)
             }
@@ -541,50 +627,78 @@ impl<'s, C: Conn> Session<'s, C> {
             .any(|b| b.role == Role::Drafts && b.path == path))
     }
 
-    /// The messages of `path` now: UIDs and flags (the drive's markers; `\Draft` in Drafts).
-    fn snapshot(&self, path: &str) -> Result<(u32, u32, Vec<Msg>), StoreError> {
+    /// The messages of `path` now: UIDs and flags (the drive's markers; `\Draft` in Drafts),
+    /// each change of a flag tracked as a mod-sequence (the UID map's).
+    fn snapshot(&self, path: &str) -> Result<Snap, StoreError> {
         let in_drafts = self.is_drafts(path)?;
         let messages: Vec<StoredMessage> = self.imap.store.messages(path)?;
         let names: Vec<String> = messages.iter().map(|m| m.name.clone()).collect();
-        let numbered = self.imap.uids.number(path, &names);
         let marks = self.imap.marks()?;
-        let by_name: HashMap<&str, &StoredMessage> =
-            messages.iter().map(|m| (m.name.as_str(), m)).collect();
+        let by_name: HashMap<&str, (&StoredMessage, Flags)> = messages
+            .iter()
+            .map(|m| {
+                let flags = match marks.get(&m.id) {
+                    Some(marks) => Flags::from_marks(marks, in_drafts),
+                    None => Flags::from_marks(&Marks::default(), in_drafts),
+                };
+                (m.name.as_str(), (m, flags))
+            })
+            .collect();
+        let states: HashMap<String, String> = by_name
+            .iter()
+            .map(|(name, (_, flags))| ((*name).to_string(), flags.render()))
+            .collect();
+        let numbered = self.imap.uids.track(path, &names, &states);
         let msgs = numbered
             .uids
             .iter()
             .filter_map(|(name, uid)| {
-                let message = by_name.get(name.as_str())?;
-                let flags = match marks.get(&message.id) {
-                    Some(marks) => Flags::from_marks(marks, in_drafts),
-                    None => Flags::from_marks(&Marks::default(), in_drafts),
-                };
+                let (message, flags) = by_name.get(name.as_str())?;
                 Some(Msg {
                     uid: *uid,
                     name: name.clone(),
                     id: message.id.clone(),
                     size: message.size,
                     arrived: message.arrived,
-                    flags,
+                    flags: flags.clone(),
+                    modseq: numbered.modseqs.get(name).copied().unwrap_or(0),
                 })
             })
             .collect();
-        Ok((numbered.validity, numbered.next, msgs))
+        Ok(Snap {
+            validity: numbered.validity,
+            next: numbered.next,
+            highest: numbered.highest_modseq,
+            msgs,
+            vanished: numbered.vanished.clone(),
+            vanished_floor: numbered.vanished_floor,
+        })
     }
 
-    fn select(&mut self, tag: &str, raw: &[u8], read_only: bool) -> Next {
+    fn select(&mut self, tag: &str, raw: &[u8], read_only: bool, m: &Modifiers) -> Next {
+        if m.qresync.is_some() && !self.qresync {
+            return self.bad(tag, "ENABLE QRESYNC first");
+        }
+        let was_selected = matches!(self.state, State::Selected(_));
         // A failed SELECT leaves no mailbox selected (RFC 3501 6.3.1).
         self.state = State::Authenticated;
+        if m.condstore || m.qresync.is_some() {
+            self.condstore = true;
+        }
         let info = match self.resolve(raw) {
             Ok(Some(info)) => info,
             Ok(None) => return self.no(tag, "[NONEXISTENT] No such mailbox"),
             Err(e) => return self.store_no(tag, &e),
         };
-        let (validity, next, msgs) = match self.snapshot(&info.path) {
+        let snap = match self.snapshot(&info.path) {
             Ok(snapshot) => snapshot,
             Err(e) => return self.store_no(tag, &e),
         };
+        let (validity, next, msgs, highest) = (snap.validity, snap.next, snap.msgs.clone(), snap.highest);
         let mut out = String::new();
+        if was_selected && self.qresync {
+            out.push_str("* OK [CLOSED] The mailbox before is closed\r\n");
+        }
         out.push_str("* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)\r\n");
         if read_only {
             out.push_str("* OK [PERMANENTFLAGS ()] Read-only\r\n");
@@ -598,6 +712,40 @@ impl<'s, C: Conn> Session<'s, C> {
         }
         out.push_str(&format!("* OK [UIDVALIDITY {validity}] UIDs valid\r\n"));
         out.push_str(&format!("* OK [UIDNEXT {next}] Predicted next UID\r\n"));
+        if self.condstore {
+            out.push_str(&format!("* OK [HIGHESTMODSEQ {highest}] Highest mod-sequence\r\n"));
+        }
+        // QRESYNC: what went and what changed since the mod-sequence the program knew.
+        if let Some(q) = m.qresync.as_ref().filter(|q| q.validity == validity) {
+            let largest = next.saturating_sub(1);
+            let known = |uid: u32| q.known.as_ref().is_none_or(|set| set.contains(uid, largest));
+            let gone = if q.modseq < snap.vanished_floor {
+                let present: Vec<u32> = msgs.iter().map(|msg| msg.uid).collect();
+                missing_set(&present, next)
+            } else {
+                let uids: Vec<u32> = snap
+                    .vanished
+                    .iter()
+                    .filter(|(uid, modseq)| *modseq > q.modseq && known(*uid))
+                    .map(|(uid, _)| *uid)
+                    .collect();
+                uid_set(&uids)
+            };
+            if !gone.is_empty() {
+                out.push_str(&format!("* VANISHED (EARLIER) {gone}\r\n"));
+            }
+            for (i, msg) in msgs.iter().enumerate() {
+                if msg.modseq > q.modseq && known(msg.uid) {
+                    out.push_str(&format!(
+                        "* {} FETCH (UID {} FLAGS {} MODSEQ ({}))\r\n",
+                        i + 1,
+                        msg.uid,
+                        msg.flags.render(),
+                        msg.modseq
+                    ));
+                }
+            }
+        }
         if !self.send(out.as_bytes()) {
             return Next::Close;
         }
@@ -606,6 +754,7 @@ impl<'s, C: Conn> Session<'s, C> {
             read_only,
             validity,
             msgs,
+            highest,
         });
         let code = if read_only { "[READ-ONLY]" } else { "[READ-WRITE]" };
         self.ok(tag, &format!("{code} Selected"))
@@ -705,10 +854,14 @@ impl<'s, C: Conn> Session<'s, C> {
             Ok(None) => return self.no(tag, "[NONEXISTENT] No such mailbox"),
             Err(e) => return self.store_no(tag, &e),
         };
-        let (validity, next, msgs) = match self.snapshot(&info.path) {
+        let snap = match self.snapshot(&info.path) {
             Ok(snapshot) => snapshot,
             Err(e) => return self.store_no(tag, &e),
         };
+        if items.contains(&StatusItem::HighestModseq) {
+            self.condstore = true;
+        }
+        let (validity, next, msgs) = (snap.validity, snap.next, &snap.msgs);
         let values: Vec<String> = items
             .iter()
             .map(|item| match item {
@@ -718,6 +871,11 @@ impl<'s, C: Conn> Session<'s, C> {
                 StatusItem::UidValidity => format!("UIDVALIDITY {validity}"),
                 StatusItem::Unseen => {
                     format!("UNSEEN {}", msgs.iter().filter(|m| !m.flags.seen).count())
+                }
+                StatusItem::HighestModseq => format!("HIGHESTMODSEQ {}", snap.highest),
+                StatusItem::Size => format!("SIZE {}", msgs.iter().map(|m| m.size).sum::<u64>()),
+                StatusItem::Deleted => {
+                    format!("DELETED {}", msgs.iter().filter(|m| m.flags.deleted).count())
                 }
             })
             .collect();
@@ -806,9 +964,11 @@ impl<'s, C: Conn> Session<'s, C> {
         let Some(path) = self.selected().map(|s| s.path.clone()) else {
             return Vec::new();
         };
-        let Ok((validity, _next, fresh)) = self.snapshot(&path) else {
+        let Ok(snap) = self.snapshot(&path) else {
             return Vec::new();
         };
+        let (condstore, qresync) = (self.condstore, self.qresync);
+        let (validity, highest, fresh) = (snap.validity, snap.highest, snap.msgs);
         let State::Selected(selected) = &mut self.state else {
             return Vec::new();
         };
@@ -820,12 +980,21 @@ impl<'s, C: Conn> Session<'s, C> {
             return out;
         }
         let present: HashSet<u32> = fresh.iter().map(|m| m.uid).collect();
+        let mut vanished = Vec::new();
         for i in (0..selected.msgs.len()).rev() {
             if !present.contains(&selected.msgs[i].uid) {
-                out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
+                if qresync {
+                    vanished.push(selected.msgs[i].uid);
+                } else {
+                    out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
+                }
                 selected.msgs.remove(i);
             }
         }
+        if !vanished.is_empty() {
+            out.extend_from_slice(format!("* VANISHED {}\r\n", uid_set(&vanished)).as_bytes());
+        }
+        selected.highest = highest;
         let place: HashMap<u32, usize> = selected
             .msgs
             .iter()
@@ -836,18 +1005,26 @@ impl<'s, C: Conn> Session<'s, C> {
         for msg in fresh {
             match place.get(&msg.uid) {
                 Some(&i) => {
-                    if selected.msgs[i].flags != msg.flags {
+                    let changed = selected.msgs[i].flags != msg.flags
+                        || (condstore && selected.msgs[i].modseq != msg.modseq);
+                    if changed {
+                        let modseq = if condstore {
+                            format!(" MODSEQ ({})", msg.modseq)
+                        } else {
+                            String::new()
+                        };
                         out.extend_from_slice(
                             format!(
-                                "* {} FETCH (UID {} FLAGS {})\r\n",
+                                "* {} FETCH (UID {} FLAGS {}{modseq})\r\n",
                                 i + 1,
                                 msg.uid,
                                 msg.flags.render()
                             )
                             .as_bytes(),
                         );
-                        selected.msgs[i].flags = msg.flags;
                     }
+                    selected.msgs[i].flags = msg.flags;
+                    selected.msgs[i].modseq = msg.modseq;
                 }
                 None => added.push(msg),
             }
@@ -928,9 +1105,19 @@ impl<'s, C: Conn> Session<'s, C> {
         }
     }
 
-    fn fetch(&mut self, tag: &str, uid: bool, set: &SequenceSet, mut atts: Vec<FetchAtt>) -> Next {
+    fn fetch(&mut self, tag: &str, uid: bool, set: &SequenceSet, mut atts: Vec<FetchAtt>, m: &Modifiers) -> Next {
         if uid && !atts.contains(&FetchAtt::Uid) {
             atts.insert(0, FetchAtt::Uid);
+        }
+        let changed_since = m.changed_since;
+        if changed_since.is_some() || atts.contains(&FetchAtt::Modseq) {
+            self.condstore = true;
+        }
+        if changed_since.is_some() && !atts.contains(&FetchAtt::Modseq) {
+            atts.push(FetchAtt::Modseq);
+        }
+        if m.vanished && (!uid || !self.qresync || changed_since.is_none()) {
+            return self.bad(tag, "VANISHED is for UID FETCH with CHANGEDSINCE once QRESYNC is enabled");
         }
         let needs_whole = atts.iter().any(|att| match att {
             FetchAtt::Body | FetchAtt::BodyStructure | FetchAtt::Rfc822 | FetchAtt::Rfc822Text => true,
@@ -948,10 +1135,29 @@ impl<'s, C: Conn> Session<'s, C> {
         let Some((path, read_only)) = self.selected().map(|s| (s.path.clone(), s.read_only)) else {
             return self.bad(tag, "Select a mailbox first");
         };
+        // QRESYNC: the UIDs of the set expunged since, before the changed messages.
+        if let (true, Some(since)) = (m.vanished, changed_since) {
+            if let Ok(snap) = self.snapshot(&path) {
+                let largest = snap.next.saturating_sub(1);
+                let gone: Vec<u32> = snap
+                    .vanished
+                    .iter()
+                    .filter(|(gone_uid, modseq)| *modseq > since && set.contains(*gone_uid, largest))
+                    .map(|(gone_uid, _)| *gone_uid)
+                    .collect();
+                if !gone.is_empty() && !self.line(&format!("* VANISHED (EARLIER) {}", uid_set(&gone))) {
+                    return Next::Close;
+                }
+            }
+        }
+        let condstore = self.condstore;
         for i in self.targets(uid, set) {
-            let Some(msg) = self.selected().and_then(|s| s.msgs.get(i)).cloned() else {
+            let Some(mut msg) = self.selected().and_then(|s| s.msgs.get(i)).cloned() else {
                 continue;
             };
+            if changed_since.is_some_and(|since| msg.modseq <= since) {
+                continue;
+            }
             let bytes = if needs_whole {
                 self.read_whole(&path, &msg.name).ok()
             } else if needs_header {
@@ -965,19 +1171,27 @@ impl<'s, C: Conn> Session<'s, C> {
             }
             let mut flags = msg.flags.clone();
             let mut show_flags = atts.contains(&FetchAtt::Flags);
+            let mut flag_modseq = None;
             if marks_seen && !read_only && !flags.seen {
                 if self.imap.store.set_mark(&msg.id, Mark::Seen, true).is_ok() {
                     self.imap.marks_changed();
                     flags.seen = true;
                     show_flags = true;
+                    if let Some(modseq) = self.imap.uids.record(&path, &msg.name, &flags.render()) {
+                        msg.modseq = modseq;
+                        if condstore {
+                            flag_modseq = Some(modseq);
+                        }
+                    }
                     if let State::Selected(selected) = &mut self.state {
                         if let Some(m) = selected.msgs.get_mut(i) {
                             m.flags.seen = true;
+                            m.modseq = msg.modseq;
                         }
                     }
                 }
             }
-            let response = self.fetch_response(i + 1, &msg, &flags, show_flags, &atts, bytes.as_deref());
+            let response = self.fetch_response(i + 1, &msg, &flags, show_flags, flag_modseq, &atts, bytes.as_deref());
             if !self.send(&response) {
                 return Next::Close;
             }
@@ -991,6 +1205,7 @@ impl<'s, C: Conn> Session<'s, C> {
         msg: &Msg,
         flags: &Flags,
         show_flags: bool,
+        flag_modseq: Option<u64>,
         atts: &[FetchAtt],
         bytes: Option<&Vec<u8>>,
     ) -> Vec<u8> {
@@ -1003,11 +1218,16 @@ impl<'s, C: Conn> Session<'s, C> {
         if show_flags && !atts.contains(&FetchAtt::Flags) {
             items.push(format!("FLAGS {}", flags.render()).into_bytes());
         }
+        // A flag the fetch changed (\Seen): its mod-sequence, for a CONDSTORE program.
+        if let Some(modseq) = flag_modseq.filter(|_| !atts.contains(&FetchAtt::Modseq)) {
+            items.push(format!("MODSEQ ({modseq})").into_bytes());
+        }
         for att in atts {
             let mut item = Vec::new();
             match att {
                 FetchAtt::Flags => item.extend_from_slice(format!("FLAGS {}", flags.render()).as_bytes()),
                 FetchAtt::Uid => item.extend_from_slice(format!("UID {}", msg.uid).as_bytes()),
+                FetchAtt::Modseq => item.extend_from_slice(format!("MODSEQ ({})", msg.modseq).as_bytes()),
                 FetchAtt::InternalDate => item.extend_from_slice(
                     format!(
                         "INTERNALDATE \"{}\"",
@@ -1078,18 +1298,29 @@ impl<'s, C: Conn> Session<'s, C> {
         mode: StoreMode,
         silent: bool,
         flags: &[String],
+        m: &Modifiers,
     ) -> Next {
-        let Some(read_only) = self.selected().map(|s| s.read_only) else {
+        let Some((read_only, path)) = self.selected().map(|s| (s.read_only, s.path.clone())) else {
             return self.bad(tag, "Select a mailbox first");
         };
         if read_only {
             return self.no(tag, "[READ-ONLY] The mailbox is read-only");
         }
+        if m.unchanged_since.is_some() {
+            self.condstore = true;
+        }
+        let condstore = self.condstore;
         let mut out = Vec::new();
+        // CONDSTORE: the messages changed since the program's mod-sequence are not stored.
+        let mut modified: Vec<u32> = Vec::new();
         for i in self.targets(uid, set) {
             let Some(msg) = self.selected().and_then(|s| s.msgs.get(i)).cloned() else {
                 continue;
             };
+            if m.unchanged_since.is_some_and(|since| msg.modseq > since) {
+                modified.push(if uid { msg.uid } else { i as u32 + 1 });
+                continue;
+            }
             let mut new = match mode {
                 StoreMode::Replace => Flags::default(),
                 StoreMode::Add | StoreMode::Remove => msg.flags.clone(),
@@ -1103,25 +1334,44 @@ impl<'s, C: Conn> Session<'s, C> {
                 let _ = self.send(&out);
                 return self.store_no(tag, &e);
             }
+            let modseq = self
+                .imap
+                .uids
+                .record(&path, &msg.name, &new.render())
+                .unwrap_or(msg.modseq);
+            let uid_part = if uid { format!(" UID {}", msg.uid) } else { String::new() };
+            let modseq_part = if condstore { format!(" MODSEQ ({modseq})") } else { String::new() };
             if !silent {
-                let uid_part = if uid { format!(" UID {}", msg.uid) } else { String::new() };
                 out.extend_from_slice(
-                    format!("* {} FETCH (FLAGS {}{uid_part})\r\n", i + 1, new.render()).as_bytes(),
+                    format!("* {} FETCH (FLAGS {}{uid_part}{modseq_part})\r\n", i + 1, new.render()).as_bytes(),
                 );
+            } else if condstore {
+                // A CONDSTORE program is told the new mod-sequence even of a silent STORE.
+                let items = if uid {
+                    format!("UID {} MODSEQ ({modseq})", msg.uid)
+                } else {
+                    format!("MODSEQ ({modseq})")
+                };
+                out.extend_from_slice(format!("* {} FETCH ({items})\r\n", i + 1).as_bytes());
             }
             if let State::Selected(selected) = &mut self.state {
-                if let Some(m) = selected.msgs.get_mut(i) {
-                    m.flags = new;
+                if let Some(msg_now) = selected.msgs.get_mut(i) {
+                    msg_now.flags = new;
+                    msg_now.modseq = modseq;
                 }
             }
         }
         if !self.send(&out) {
             return Next::Close;
         }
-        self.ok(tag, "STORE completed")
+        if modified.is_empty() {
+            self.ok(tag, "STORE completed")
+        } else {
+            self.ok(tag, &format!("[MODIFIED {}] Changed since: not stored", uid_set(&modified)))
+        }
     }
 
-    fn search(&mut self, tag: &str, uid: bool, key: &SearchKey) -> Next {
+    fn search(&mut self, tag: &str, uid: bool, key: &SearchKey, m: &Modifiers) -> Next {
         let Some((path, msgs)) = self.selected().map(|s| (s.path.clone(), s.msgs.clone())) else {
             return self.bad(tag, "Select a mailbox first");
         };
@@ -1131,6 +1381,8 @@ impl<'s, C: Conn> Session<'s, C> {
             uid: msgs.last().map_or(0, |m| m.uid),
         };
         let mut found = Vec::new();
+        // The UIDs and mod-sequences of what was found (SEARCHRES saves UIDs, MODSEQ the highest).
+        let mut found_msgs: Vec<(u32, u64)> = Vec::new();
         for (i, msg) in msgs.iter().enumerate() {
             let bytes = match need {
                 Need::Nothing => None,
@@ -1144,20 +1396,100 @@ impl<'s, C: Conn> Session<'s, C> {
                 arrived: i64::try_from(msg.arrived).unwrap_or(0),
                 flags: &msg.flags,
                 bytes: bytes.as_deref().map(|b| &b[..]),
+                modseq: msg.modseq,
+                saved: self.saved.as_deref(),
             };
             if search::matches(key, &candidate, largest) {
                 found.push(if uid { msg.uid } else { i as u32 + 1 });
+                found_msgs.push((msg.uid, msg.modseq));
             }
         }
-        let mut line = String::from("* SEARCH");
-        for n in found {
-            line.push(' ');
-            line.push_str(&n.to_string());
+        let with_modseq = search::uses_modseq(key);
+        if with_modseq {
+            self.condstore = true;
         }
-        if !self.line(&line) {
-            return Next::Close;
+        let highest_found = found_msgs.iter().map(|(_, modseq)| *modseq).max();
+        let line = match &m.search_return {
+            Some(options) => self.esearch(tag, uid, options, &found, &found_msgs, with_modseq.then_some(highest_found).flatten()),
+            None => {
+                let mut line = String::from("* SEARCH");
+                for n in &found {
+                    line.push(' ');
+                    line.push_str(&n.to_string());
+                }
+                if let Some(modseq) = highest_found.filter(|_| with_modseq) {
+                    line.push_str(&format!(" (MODSEQ {modseq})"));
+                }
+                Some(line)
+            }
+        };
+        if let Some(line) = line {
+            if !self.line(&line) {
+                return Next::Close;
+            }
         }
         self.ok(tag, "SEARCH completed")
+    }
+
+    /// ESEARCH (RFC 4731), the answer to `SEARCH RETURN (...)`: MIN, MAX, COUNT, ALL (no option
+    /// named: ALL) and the highest MODSEQ found; SAVE (SEARCHRES, RFC 5182) keeps what was found
+    /// as `$` - only the MIN / MAX when only they are asked - and, alone, has no answer line.
+    fn esearch(
+        &mut self,
+        tag: &str,
+        uid: bool,
+        options: &[String],
+        found: &[u32],
+        found_msgs: &[(u32, u64)],
+        modseq: Option<u64>,
+    ) -> Option<String> {
+        let options: Vec<&str> = if options.is_empty() {
+            vec!["ALL"]
+        } else {
+            options.iter().map(String::as_str).collect()
+        };
+        let asks = |option: &str| options.contains(&option);
+        if asks("SAVE") {
+            let uids: Vec<u32> = found_msgs.iter().map(|(found_uid, _)| *found_uid).collect();
+            let only_ends = (asks("MIN") || asks("MAX")) && !asks("ALL") && !asks("COUNT");
+            self.saved = Some(if only_ends {
+                let mut ends = Vec::new();
+                if asks("MIN") {
+                    ends.extend(uids.iter().min().copied());
+                }
+                if asks("MAX") {
+                    ends.extend(uids.iter().max().copied());
+                }
+                ends
+            } else {
+                uids
+            });
+            if options.len() == 1 {
+                return None;
+            }
+        }
+        let mut line = format!("* ESEARCH (TAG \"{tag}\")");
+        if uid {
+            line.push_str(" UID");
+        }
+        if let (Some(min), Some(max)) = (found.iter().min(), found.iter().max()) {
+            if asks("MIN") {
+                line.push_str(&format!(" MIN {min}"));
+            }
+            if asks("MAX") {
+                line.push_str(&format!(" MAX {max}"));
+            }
+            if asks("ALL") {
+                line.push_str(&format!(" ALL {}", uid_set(found)));
+            }
+        }
+        if asks("COUNT") {
+            line.push_str(&format!(" COUNT {}", found.len()));
+        }
+        if let Some(modseq) = modseq {
+            line.push_str(&format!(" MODSEQ {modseq}"));
+        }
+        Some(line)
     }
 
     /// Removes the selected mailbox's `\Deleted` messages (those `uids` names, for UID
@@ -1185,12 +1517,21 @@ impl<'s, C: Conn> Session<'s, C> {
             .collect();
         self.imap.store.expunge(&path, &names).map_err(Some)?;
         self.imap.marks_changed();
+        let qresync = self.qresync;
         let mut out = Vec::new();
+        let mut vanished = Vec::new();
         if let State::Selected(selected) = &mut self.state {
             for &i in doomed.iter().rev() {
-                selected.msgs.remove(i);
-                out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
+                let gone = selected.msgs.remove(i);
+                if qresync {
+                    vanished.push(gone.uid);
+                } else {
+                    out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
+                }
             }
+        }
+        if !vanished.is_empty() {
+            out.extend_from_slice(format!("* VANISHED {}\r\n", uid_set(&vanished)).as_bytes());
         }
         if tell && !self.send(&out) {
             return Err(None);
@@ -1302,15 +1643,24 @@ impl<'s, C: Conn> Session<'s, C> {
         if !code.is_empty() {
             out.extend_from_slice(format!("* OK {}Moved\r\n", code).as_bytes());
         }
+        let qresync = self.qresync;
+        let mut vanished = Vec::new();
         if let State::Selected(selected) = &mut self.state {
             let mut places = places;
             places.sort_unstable();
             for &i in places.iter().rev() {
                 if i < selected.msgs.len() {
-                    selected.msgs.remove(i);
-                    out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
+                    let gone = selected.msgs.remove(i);
+                    if qresync {
+                        vanished.push(gone.uid);
+                    } else {
+                        out.extend_from_slice(format!("* {} EXPUNGE\r\n", i + 1).as_bytes());
+                    }
                 }
             }
+        }
+        if !vanished.is_empty() {
+            out.extend_from_slice(format!("* VANISHED {}\r\n", uid_set(&vanished)).as_bytes());
         }
         if !self.send(&out) {
             return Next::Close;
