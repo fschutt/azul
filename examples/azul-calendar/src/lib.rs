@@ -86,6 +86,7 @@ mod print_ui;
 mod timegrid;
 mod views_ui;
 mod writes;
+mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 
@@ -117,6 +118,7 @@ use azul::{
     vec::{StyledTextRunVec, U8Vec},
     window::WindowDecorations,
 };
+use azul_appkit::args::LanguagePref;
 use azul_pim::write_queue::WriteQueue;
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
@@ -252,6 +254,8 @@ pub(crate) struct CalState {
     pub(crate) selected: Option<(String, NaiveDate)>,
     pub(crate) todo_bar: bool,
     pub(crate) nav_folded: bool,
+    /// The language of the words (`--language`, else Options', else the system's).
+    pub(crate) language: LanguagePref,
     pub(crate) ribbon_tab: usize,
     /// FILE is open on this page.
     pub(crate) backstage: Option<BackstagePage>,
@@ -612,8 +616,10 @@ pub(crate) fn new_meeting(server: &str) -> Meeting {
 // ==== The window ====
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode makes a light / dark switch rebuild the window.
+    // Reading the mode makes a light / dark switch rebuild the window; the layout's language
+    // says the words (a switch of it too).
     let _mode = info.get_mode();
+    azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<CalState>() else {
         return Dom::create_body();
@@ -796,6 +802,11 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// The window is up: pending meeting links start being sent (now and every
 /// `AZCAL_SYNC_SECONDS`), reminders are looked for, and `--screen editor` opens the editor.
 extern "C" fn on_app_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // The language of the words: Options' or `--language` (the system's needs nothing).
+    let language = data.downcast_ref::<CalState>().map(|s| s.language);
+    if let Some(language) = language.filter(|l| *l != LanguagePref::System) {
+        info.set_locale(language.tag());
+    }
     start_syncing(&mut data, &mut info);
     let open_editor = data.downcast_mut::<CalState>().is_some_and(|mut s| {
         let open = s.editor_at_start;
@@ -1350,6 +1361,7 @@ pub fn start() {
         .unwrap_or_else(views::default_view);
     let todo_bar = settings::flag(text, settings::TODO_BAR_KEY).unwrap_or(true);
     let nav_folded = settings::flag(text, settings::NAVIGATION_FOLDED_KEY).unwrap_or(false);
+    let language = args.language.unwrap_or_else(|| settings::language(text));
     let mut backstage = None;
     let mut editor_at_start = false;
     match args.screen {
@@ -1389,6 +1401,7 @@ pub fn start() {
         selected: None,
         todo_bar,
         nav_folded,
+        language,
         ribbon_tab: 0,
         backstage,
         notice: String::new(),
@@ -1450,6 +1463,8 @@ pub fn start() {
     }
     // The kit's icons: Haiku's under flora, Material under flat.
     azul_appkit::ui::add_kit_icons(&mut config);
+    // AzCalendar's words and appkit's, the engine's locale deciding.
+    l10n::register(&mut config);
     let app = App::create(RefAny::new(state), config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.size.dimensions = LogicalSize::create(1280.0, 900.0);

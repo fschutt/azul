@@ -554,7 +554,7 @@ def run(opts, logs):
     err = open(os.path.join(logs, "azcalendar.err"), "w")
     # The hours views are the week's; the window opens on the Week view whatever was saved.
     app = subprocess.Popen(
-        [binary, "--screen", "week"], env=env, stdout=out, stderr=err, stdin=subprocess.DEVNULL
+        [binary, "--screen", "week", "--language", "en"], env=env, stdout=out, stderr=err, stdin=subprocess.DEVNULL
     )
     failed = []
     try:

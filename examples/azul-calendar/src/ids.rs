@@ -65,6 +65,9 @@ names! {
     SETTINGS_DARK = "settings-dark";
     SETTINGS_TODO = "settings-todo";
     SETTINGS_NAVIGATION = "settings-navigation";
+    SETTINGS_LANGUAGE_SYSTEM = "settings-language-system";
+    SETTINGS_LANGUAGE_ENGLISH = "settings-language-english";
+    SETTINGS_LANGUAGE_GERMAN = "settings-language-german";
     // ---- the calendar pane ----
     /// The calendar pane's content (the lines over the view, the header, the view).
     CALENDAR = "calendar";

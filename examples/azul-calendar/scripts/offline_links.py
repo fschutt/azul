@@ -132,7 +132,7 @@ def run(opts, logs, children):
     )
     cal_out = os.path.join(logs, "azcalendar.out")
     app = subprocess.Popen(
-        [binary, "--screen", "week"],
+        [binary, "--screen", "week", "--language", "en"],
         env=env,
         stdout=open(cal_out, "w"),
         stderr=open(os.path.join(logs, "azcalendar.err"), "w"),

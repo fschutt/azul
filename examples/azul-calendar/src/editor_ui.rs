@@ -172,6 +172,7 @@ fn closed(s: &mut CalState) {
 // ==== The window ====
 
 extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
     let app = data.clone();

@@ -73,6 +73,22 @@ pub const HIDDEN_CALENDARS_KEY: &str = "hidden_calendars=";
 pub const TODO_BAR_KEY: &str = "todo_bar=";
 /// Whether the navigation pane is folded to its strip (`1` / `0`).
 pub const NAVIGATION_FOLDED_KEY: &str = "navigation_folded=";
+/// The language of the words (`system`, `en`, `de`: appkit's `LanguagePref::name`).
+pub const LANGUAGE_KEY: &str = "language=";
+
+/// The language the settings file keeps; the system's without one (or an unknown one).
+#[must_use]
+pub fn language(text: &str) -> azul_appkit::args::LanguagePref {
+    value(text, LANGUAGE_KEY)
+        .and_then(azul_appkit::args::LanguagePref::parse)
+        .unwrap_or(azul_appkit::args::LanguagePref::System)
+}
+
+/// The settings line keeping `language`.
+#[must_use]
+pub fn language_line(language: azul_appkit::args::LanguagePref) -> String {
+    line(LANGUAGE_KEY, language.name())
+}
 
 /// The value of the settings file's last line with `key` (the key with its `=`), trimmed;
 /// `None` without one.

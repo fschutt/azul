@@ -103,6 +103,8 @@ pub struct Args {
     pub data: Option<PathBuf>,
     /// `--worker <url>`: the meeting server for this run (AzMeet's switch).
     pub worker: Option<String>,
+    /// `--language system|en|de`: the language of the words for this run (else Options').
+    pub language: Option<azul_appkit::args::LanguagePref>,
 }
 
 pub const HELP: &str = "\
@@ -122,6 +124,7 @@ OPTIONS:
     --data <DIR>        the data folder (else AZCAL_DATA, else the user's data folder)
     --worker <URL>      the meeting server for this run (else the saved one, AZMEET_WORKER,
                         endpoints.meet of the shared Azlin config, the built-in one)
+    --language <LANG>   system | en | de (else Options', else the system's)
     -h, --help          print this help
 ";
 
@@ -201,6 +204,12 @@ impl Args {
                 }
                 "--data" => a.data = Some(PathBuf::from(value("folder")?)),
                 "--worker" => a.worker = Some(value("meeting server")?),
+                "--language" => {
+                    let v = value("language")?;
+                    a.language = Some(azul_appkit::args::LanguagePref::parse(&v).ok_or_else(|| {
+                        format!("--language: expected system, en or de, got {v:?}")
+                    })?);
+                }
                 other => return Err(format!("unknown option {other:?}\n\n{HELP}")),
             }
             i += 1;

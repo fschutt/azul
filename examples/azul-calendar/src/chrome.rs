@@ -32,6 +32,8 @@ use azul::{
     },
 };
 use azul_appkit::{
+    args::LanguagePref,
+    l10n::label,
     pieces::{self, flex_row},
     ribbon::callback_button,
 };
@@ -698,7 +700,14 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
             "Show the navigation pane",
             ids::SETTINGS_NAVIGATION,
             on_navigation_checked,
-        ));
+        ))
+        // The language of the words: the system's, English, Deutsch (appkit's words).
+        .with_child(Dom::create_span_with_text(label("kit-general-language")).with_css(LABEL))
+        .with_child(line(vec![
+            language_button(s, LanguagePref::System, ids::SETTINGS_LANGUAGE_SYSTEM, app),
+            language_button(s, LanguagePref::English, ids::SETTINGS_LANGUAGE_ENGLISH, app),
+            language_button(s, LanguagePref::German, ids::SETTINGS_LANGUAGE_GERMAN, app),
+        ]));
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0;")
         .with_child(
@@ -712,6 +721,43 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
             .with_on_category(app.clone(), on_options_category)
             .dom(),
         )
+}
+
+/// A language of Options > Appearance > Language: the chosen one a primary button.
+fn language_button(s: &CalState, language: LanguagePref, id: AzString, app: &RefAny) -> Dom {
+    let cb: ButtonOnClickCallbackType = match language {
+        LanguagePref::System => on_language_system,
+        LanguagePref::English => on_language_english,
+        LanguagePref::German => on_language_german,
+    };
+    if s.language == language {
+        primary(language.key(), id, app, cb)
+    } else {
+        button(language.key(), id, app, cb)
+    }
+}
+
+/// A language chosen: kept in the settings file, the windows' words switch at once.
+fn choose_language(data: &mut RefAny, info: &mut CallbackInfo, language: LanguagePref) -> Update {
+    with_state(data, |s| {
+        s.language = language;
+        s.save_setting(&settings::language_line(language));
+        println!("AZCAL_LANGUAGE {}", language.name());
+        info.set_locale(language.tag());
+        Update::RefreshDom
+    })
+}
+
+extern "C" fn on_language_system(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    choose_language(&mut data, &mut info, LanguagePref::System)
+}
+
+extern "C" fn on_language_english(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    choose_language(&mut data, &mut info, LanguagePref::English)
+}
+
+extern "C" fn on_language_german(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    choose_language(&mut data, &mut info, LanguagePref::German)
 }
 
 /// About: what this is, and its keys.

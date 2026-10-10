@@ -161,7 +161,8 @@ class App:
         # No meeting links are made here: the default meeting server is never asked.
         env.pop("AZMEET_WORKER", None)
         self.process = subprocess.Popen(
-            [binary, "--screen", "week"],
+            # The checks read English words (the system may be German).
+            [binary, "--screen", "week", "--language", "en"],
             env=env,
             stdout=open(self.out, "w"),
             stderr=open(self.err, "w"),
