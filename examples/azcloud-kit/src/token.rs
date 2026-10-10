@@ -9,8 +9,10 @@
 //! |                                       | key the sign-up is sealed to)                     |
 //! | `GET /v1/checkout/{id}`               | pending / approved (the sealed sign-up, 30 days)  |
 //! |                                       | / declined / expired                              |
+//! | `GET /v1/tokens/keys`                 | the period tokens' issuer keys (tier and year)    |
 //! | `POST /v1/tokens/issue`               | a paid checkout's blind-signed period tokens      |
 //! |                                       | (against the sealed sign-up's issue key)          |
+//! | `POST /v1/drives/{id}/redeem`         | a period token: the drive's next month            |
 //! | `POST /v1/drives/{id}/credentials`    | fresh credentials for the drive token (rotates)   |
 //! | `GET /v1/drives/{id}`                 | the drive's tier, quota, members, lockdown        |
 //! | `POST /v1/drives/{id}/members`        | a token family for another device to join with    |
@@ -26,7 +28,11 @@ use std::{fmt, time::Duration};
 use azul_storage::{sigv4::uri_encode, HttpCall, HttpReply, Method, Transport};
 use serde_json::{json, Value};
 
-use crate::{bundle::DriveBundle, claim::ClaimKey};
+use crate::{
+    bundle::DriveBundle,
+    claim::ClaimKey,
+    period::{IssuerKey, PeriodToken},
+};
 
 /// The tier a sign-up without one gets (the token server's default too).
 pub const DEFAULT_TIER: &str = "100GB";
@@ -550,6 +556,33 @@ impl<'a> TokenServer<'a> {
         }
     }
 
+    /// The period tokens' issuer keys of this year, one per tier (`GET /v1/tokens/keys`): what
+    /// a token is blinded for ([`crate::period::Issuer`]). Entries without a tier, a year or a
+    /// key are left out.
+    pub fn issuer_keys(&self) -> Result<Vec<IssuerKey>, TokenError> {
+        let value = self.call(Method::Get, "/v1/tokens/keys", None, None)?;
+        let keys = value["keys"].as_array().ok_or_else(|| {
+            TokenError::Protocol(String::from("the answer lists no issuer keys"))
+        })?;
+        Ok(keys
+            .iter()
+            .filter_map(|key| {
+                let tier = key["tier"].as_str()?.trim().to_string();
+                let year = u32::try_from(key["year"].as_u64()?).ok()?;
+                let public_key_pem = key["public_key_pem"].as_str()?.to_string();
+                let key_id = key["key_id"]
+                    .as_str()
+                    .map_or_else(|| format!("{tier}/{year}"), str::to_string);
+                (!tier.is_empty()).then_some(IssuerKey {
+                    tier,
+                    year,
+                    key_id,
+                    public_key_pem,
+                })
+            })
+            .collect())
+    }
+
     /// Blind signatures of a paid checkout's period tokens (`POST /v1/tokens/issue`): one per
     /// message of `blinded` (standard base64, at most [`MAX_BLINDED`]), up to the checkout's
     /// months in all. Only with `issue_key`, the key its sealed sign-up carries
@@ -610,6 +643,35 @@ impl<'a> TokenServer<'a> {
             public_key_pem: text("public_key_pem"),
             signatures,
         })
+    }
+
+    /// One more month for `drive_id` paid with `token` (`POST /v1/drives/{id}/redeem`, with
+    /// this device's drive token, which it does not spend): the period's new end, in seconds
+    /// since 1970, when the answer names it.
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusals: `token_used` (409: redeemed before - drop it),
+    /// `wrong_tier`, `token_expired`, `bad_token`, `unknown_issuer`; a 401 is a sign-in.
+    pub fn redeem_period_token(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+        token: &PeriodToken,
+    ) -> Result<Option<u64>, TokenError> {
+        let path = format!("/v1/drives/{}/redeem", check_id(drive_id)?);
+        let body = json!({
+            "tier": token.tier,
+            "year": token.year,
+            "nonce": token.nonce,
+            "signature": token.signature,
+            "randomizer": token.randomizer,
+        });
+        let value =
+            self.call_or_null(Method::Post, &path, Some(token_of(drive_token)?), Some(&body))?;
+        Ok(value["period_until"]
+            .as_str()
+            .and_then(azul_storage::time::parse_iso8601))
     }
 
     /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the

@@ -15,6 +15,9 @@
 //!   token server seals to it and the app opens however late it asks.
 //! - [`pending`]: the checkouts this device has no drive of yet - one keyring entry that
 //!   outlives the app - polled into their drives (after "Stop waiting", at the next start).
+//! - [`period`]: a paid checkout's months as blind-signed period tokens (RFC 9474) - blinded
+//!   here, issued against the sealed sign-up's issue key, finalized, kept per drive until each
+//!   buys the drive a month.
 //! - [`session`]: what an app keeps in the OS keyring for an Azlin drive (the drive token and
 //!   the current credentials, one JSON text that azul-storage also reads as plain
 //!   credentials).
@@ -68,6 +71,7 @@ pub mod endpoints;
 pub mod error;
 pub mod lock;
 pub mod pending;
+pub mod period;
 pub mod secrets;
 pub mod session;
 pub mod settings;
@@ -91,6 +95,7 @@ pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
 pub use pending::{PendingCheckout, Polled};
+pub use period::{issue_tokens, Issuer, IssuerKey, PeriodToken, PeriodTokenStore};
 pub use session::AzlinSession;
 pub use settings::{Flags, OsDirs, Settings};
 pub use shared::SharedKeyring;
