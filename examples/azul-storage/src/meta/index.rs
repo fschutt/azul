@@ -252,7 +252,20 @@ impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
                 }],
                 message: "Drive change".to_string(),
             }))
-        })?;
+        });
+        let result = match result {
+            Ok(result) => result,
+            Err(e) => {
+                // A refused batch still brought the drive's head (and its commit) to
+                // this device: reads show what the expectation was checked against.
+                if let Ok(Some(head)) = remote_head(self.store.state()) {
+                    if self.local.objects.contains(&head) {
+                        self.head = Some(head);
+                    }
+                }
+                return Err(e);
+            }
+        };
         match (result, outcome) {
             (Some(published), Some((head, packed))) => {
                 self.landed(Some(published), &packed)?;
