@@ -1033,3 +1033,5 @@ mod an_assistive_technology_never_sees_a_stale_tree;
 mod the_accessibility_tree_speaks_the_apps_language;
 #[path = "a_screen_reader_announces_a_controls_declared_name.rs"]
 mod a_screen_reader_announces_a_controls_declared_name;
+#[path = "tab_and_shift_tab_walk_the_rendered_stops_in_reading_order.rs"]
+mod tab_and_shift_tab_walk_the_rendered_stops_in_reading_order;
