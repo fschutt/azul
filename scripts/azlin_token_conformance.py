@@ -19,7 +19,11 @@ The checks (each prints `ok:` or `FAILED:`; the exit status is the number of fai
     style, the session token signed).
  4. POST /v1/drives/<id>/credentials without a token: 401 `unauthorized`.
  5. With the drive token: 200, the same drive and bucket, a new drive token of the next
-    generation and the same family.
+    generation and the same family. The sign-up and the refresh list the drive's nodes (D35,
+    what the apps fail over to with DNS down): each with an http(s) `url` (or `public_url`) or
+    an iroh id (`iroh_id`, else `sign_pubkey`), `ipv4` / `ipv6` that are IP addresses, a
+    boolean `ready`, and `iroh_addrs` - only with an iroh id - a list of `ip:port` strings;
+    `failover` is a list of http(s) URLs.
  6. With the old token again: 401 `token_reuse` - and then the new one too: 401
     `credentials_revoked` (reuse revokes the family).
  7. POST /v1/drives/<a drive nobody has>/credentials: 404 `no_such_drive`.
@@ -129,6 +133,7 @@ Every drive token, claim secret and issue key is secret: none is printed.
 import argparse
 import base64
 import calendar
+import ipaddress
 import json
 import os
 import re
@@ -211,6 +216,61 @@ class MockOperator:
         self.state.advance(secs)
 
 
+HTTP_URL = re.compile(r'^https?://[^/\s]+')
+IP_PORT = re.compile(r'^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-fA-F:.]+\]):\d{1,5}$')
+
+
+def node_problems(nodes):
+    """What is wrong with a bundle's node list, as sentences (none: the apps can read it)."""
+    problems = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            problems.append('%r is no node' % (node,))
+            continue
+        name = node.get('name') or '?'
+        url = node.get('url') or node.get('public_url')
+        iroh_id = node.get('iroh_id') or node.get('sign_pubkey')
+        if not (isinstance(url, str) and HTTP_URL.match(url)) and not iroh_id:
+            problems.append('%s: no http(s) URL and no iroh id' % name)
+        if iroh_id is not None and not isinstance(iroh_id, str):
+            problems.append('%s: the iroh id %r is no string' % (name, iroh_id))
+        if 'ready' in node and not isinstance(node['ready'], bool):
+            problems.append('%s: ready %r is no boolean' % (name, node['ready']))
+        for field in ('ipv4', 'ipv6'):
+            value = node.get(field)
+            if value is None:
+                continue
+            try:
+                ipaddress.ip_address(value)
+            except (TypeError, ValueError):
+                problems.append('%s: %s %r is no IP address' % (name, field, value))
+        addrs = node.get('iroh_addrs')
+        if addrs is not None:
+            if not isinstance(addrs, list) or not all(
+                    isinstance(a, str) and IP_PORT.match(a) for a in addrs):
+                problems.append('%s: iroh_addrs %r are not ip:port strings' % (name, addrs))
+            elif addrs and not iroh_id:
+                problems.append('%s: iroh_addrs without an iroh id' % name)
+    return problems
+
+
+def node_checks(suite, answers):
+    """Section 5's node list and failover URLs of each of `answers` ((what, bundle) pairs)."""
+    for what, bundle in answers:
+        bundle = bundle if isinstance(bundle, dict) else {}
+        nodes = bundle.get('nodes')
+        failover = bundle.get('failover')
+        suite.check("%s lists the drive's nodes" % what,
+                    isinstance(nodes, list) and len(nodes) > 0, '(%r)' % (nodes,))
+        problems = node_problems(nodes if isinstance(nodes, list) else [])
+        suite.check('%s: every node has a URL or an iroh id, IP addresses, ip:port iroh sockets'
+                    % what, not problems, '(%s)' % '; '.join(problems))
+        suite.check('%s: the failover list is http(s) URLs' % what,
+                    isinstance(failover, list)
+                    and all(isinstance(u, str) and HTTP_URL.match(u) for u in failover),
+                    '(%r)' % (failover,))
+
+
 def run(token_url, s3_url=None, vouchers='auto', operator=None, cash_key=None):
     """`vouchers`: 'auto' (section 13 unless the server takes no test code), 'required' (the
     mock: never skipped), 'skip'. `operator`: the operator's switches (sections 16, 17, 19's
@@ -271,6 +331,7 @@ def run(token_url, s3_url=None, vouchers='auto', operator=None, cash_key=None):
                 bool(first and second) and new_token != token
                 and second.group(1) == first.group(1)
                 and int(second.group(2)) == int(first.group(2)) + 1)
+    node_checks(suite, [('the sign-up', bundle), ('the refresh', renewed)])
 
     status, value, _ = client.refresh(drive_id, token)
     suite.check('the old token again is 401 token_reuse',

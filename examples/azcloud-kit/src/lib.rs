@@ -52,11 +52,13 @@
 //! - [`bucket`]: [`Bucket`], the built-in one - S3 through azul-storage's SigV4 over the app's
 //!   transport, with the drive's endpoint failover, conditional requests, multipart uploads and
 //!   ranged downloads.
-//! - [`failover`]: the four failover layers of a drive's requests (the block endpoint, a node's
-//!   hint, the node list, the nodes' addresses) and their retries by the class of the answer -
-//!   the router of the bucket and of [`AzlinDrive`].
-//! - [`transport`]: [`CloudDrive`], one bucket over the transport a run chose: iroh first,
-//!   when a build that links iroh plugs in an [`IrohDialer`], HTTPS as the fallback.
+//! - [`failover`]: the failover layers of a drive's requests (the iroh lane, the block
+//!   endpoint, a node's hint, the node list, the nodes' addresses - known before the first
+//!   request) and their retries by the class of the answer - the router of the bucket and of
+//!   [`AzlinDrive`].
+//! - [`transport`]: the iroh lane ([`IrohLane`]: every ready node's iroh id at its iroh sockets,
+//!   probed, each node with its own backoff) for every app that plugs in an [`IrohDialer`], and
+//!   [`CloudDrive`], the command line's bucket over the transport a run chose.
 //! - [`sync`]: a folder against a drive prefix - one index object guarded by compare-and-swap,
 //!   content-addressed BLAKE3 blobs, a local index per folder, a three-way merge per file, the
 //!   Azlin tree (the data root and `~/.azlin`) with what never leaves the computer.
@@ -138,7 +140,7 @@ pub use token::{
     FoundDrive, IssueAnswer, OptionsQuery, RecoveryKeyInfo, RecoveryLockdown, Tier, Tiers, TokenError,
     TokenServer, VoucherRedeemed,
 };
-pub use transport::{CloudDrive, IrohDialer, Lane, TransportPref};
+pub use transport::{CloudDrive, IrohDialer, IrohLane, IrohTarget, Lane, TransportPref};
 pub use user_errors::{Lang, UserError};
 /// The secrets the kit hands out (a claim code's text) wipe their memory when dropped.
 pub use zeroize::Zeroizing;

@@ -26,6 +26,11 @@ Steps (each on servers of its own, under one temporary folder):
                   through B and its bytes match
   hint            node A answers 503 with x-azlin-alt-endpoints naming node B (Retry-After: 0);
                   the same request goes to B and the write lands
+  dns_down        DNS down from the start: the block endpoint and the node have names that never
+                  resolve (`.invalid`, RFC 6761, as azctl chaos --no-dns does); the node list
+                  carries the node's address (layer 4: the block host at every node's address).
+                  A big upload and its download complete at 127.0.0.1, every request still
+                  naming its host, and the bytes match - HTTPS (here HTTP) by IP, iroh off
 
 Exit code 0 when every step passed.
 """
@@ -351,6 +356,33 @@ def hint(run, base):
         b.stop()
 
 
+def dns_down(run, base, size):
+    root = os.path.join(base, "dns-store")
+    os.makedirs(os.path.join(root, BUCKET), exist_ok=True)
+    node = Node(root, os.path.join(base, "node-dns.jsonl"))
+    try:
+        port = node.url.rstrip("/").rsplit(":", 1)[1]
+        block = "http://blk.azlin-dns-test.invalid:%s" % port
+        named = "http://n1.azlin-dns-test.invalid:%s,127.0.0.1" % port
+        src = os.path.join(base, "dns-up.bin")
+        digest = random_file(src, size)
+        started = time.time()
+        code, answer = run.call("put", [src, "dns/big.bin"], block, nodes=[named])
+        expect(code == 0, "the upload with DNS down failed: %s" % answer)
+        dest = os.path.join(base, "dns-down.bin")
+        code, answer = run.call("get", ["dns/big.bin", dest], block, nodes=[named])
+        expect(code == 0, "the download with DNS down failed: %s" % answer)
+        took = time.time() - started
+        expect(sha256_file(dest) == digest, "the bytes through the addresses are not the file's")
+        hosts = sorted({str(r.get("host")) for r in node.requests()})
+        expect(hosts and all(h.endswith(".azlin-dns-test.invalid:%s" % port) for h in hosts),
+               "the requests did not name their hosts: %s" % hosts)
+        return "%d MiB up and down at 127.0.0.1 under %s (%.1f s)" % (size // MIB,
+                                                                    ", ".join(hosts), took)
+    finally:
+        node.kill()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--bin", help="the s3_transfer binary (else S3_TRANSFER_BIN, else target/)")
@@ -372,6 +404,7 @@ def main():
         ("download_resume", lambda: download_resume(run, base, size)),
         ("node_killed", lambda: node_killed(run, base, size)),
         ("hint", lambda: hint(run, base)),
+        ("dns_down", lambda: dns_down(run, base, size)),
     ]
     failed = 0
     try:

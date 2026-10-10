@@ -3,6 +3,10 @@
 //! Wire format, one unidirectional QUIC stream per frame and one per direction for messages:
 //! frame stream `[1][track u32][sequence u64][payload until FIN]`,
 //! message stream `[2]` then repeated `[sequence u64][length u32][payload]`, all little endian.
+//!
+//! A request (`Engine::request`) is the peer's protocol, not this one: its bytes on a new
+//! bidirectional stream of a connection kept per peer (not a peer of the events), the answer
+//! everything the peer writes until it finishes its side.
 
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -37,6 +41,8 @@ const FRAME_PRIORITY: i32 = 0;
 const MESSAGE_PRIORITY: i32 = 1;
 const CLOSED_BY_APP: u32 = 0;
 const PROTOCOL_VIOLATION: u32 = 1;
+/// How long a request waits for the connection to its peer (inside the request's own time).
+const REQUEST_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn runtime() -> Result<&'static Runtime, String> {
     static RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
@@ -74,6 +80,8 @@ struct State {
     frame_sequences: Mutex<BTreeMap<u32, u64>>,
     message_sequence: AtomicU64,
     priorities: Arc<Priorities>,
+    /// The connections of `request`, one per peer: no events, no frames, kept until they close.
+    requests: Mutex<BTreeMap<EndpointId, Connection>>,
 }
 
 struct Peer {
@@ -244,6 +252,58 @@ impl Engine {
             }
         });
         Ok(())
+    }
+
+    /// Sends `data` to `peer` (an endpoint id or a ticket) at `addresses` (`ip:port`: dialed
+    /// without discovery) and through `relay_url` (empty: none) on a new bidirectional stream,
+    /// and returns what the peer writes until it finishes its side (at most `max_frame_bytes`).
+    /// `half_close`: this side is finished right after `data` (a peer that reads the request to
+    /// its end); otherwise it stays open until the answer ended (an HTTP/1.1 server, which reads
+    /// a finished stream as a broken request). One connection per peer serves every request.
+    /// Blocks up to `timeout`: call it from a worker thread, never from the runtime.
+    pub(super) fn request(
+        &self,
+        peer: &str,
+        addresses: &[String],
+        relay_url: &str,
+        data: &[u8],
+        half_close: bool,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<u8>, String> {
+        let peer = peer.trim();
+        let mut addr = match EndpointTicket::from_str(peer) {
+            Ok(ticket) => EndpointAddr::from(ticket),
+            Err(_) => EndpointId::from_str(peer)
+                .map(EndpointAddr::new)
+                .map_err(|e| format!("{peer:?} is not an endpoint id or ticket: {e}"))?,
+        };
+        if addr.id == self.endpoint.id() {
+            return Err("the endpoint id belongs to this endpoint".to_string());
+        }
+        for address in addresses.iter().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+            let socket = SocketAddr::from_str(address)
+                .map_err(|e| format!("{address:?} is not a socket address (ip:port): {e}"))?;
+            addr = addr.with_ip_addr(socket);
+        }
+        let relay_url = relay_url.trim();
+        if !relay_url.is_empty() {
+            let url = RelayUrl::from_str(relay_url)
+                .map_err(|e| format!("invalid relay url {relay_url:?}: {e}"))?;
+            addr = addr.with_relay_url(url);
+        }
+        let runtime = runtime()?;
+        let endpoint = self.endpoint.clone();
+        let alpn = self.alpn.clone();
+        let state = self.state.clone();
+        let data = data.to_vec();
+        let timeout = timeout.max(std::time::Duration::from_secs(1));
+        runtime.block_on(async move {
+            let exchanged = exchange(&endpoint, &alpn, &state, addr, &data, half_close);
+            match tokio::time::timeout(timeout, exchanged).await {
+                Ok(answered) => answered,
+                Err(_) => Err(format!("no answer within {} s", timeout.as_secs())),
+            }
+        })
     }
 
     pub(super) fn send_frame(&self, peer: Option<u64>, track: u32, data: &[u8]) -> bool {
@@ -475,6 +535,91 @@ fn adopt(state: &Arc<State>, conn: Connection) {
             reason.to_string(),
         ));
     });
+}
+
+/// The request connection to `addr`'s peer: the kept one while it is open, else a new one.
+async fn request_connection(
+    endpoint: &Endpoint,
+    alpn: &[u8],
+    state: &State,
+    addr: EndpointAddr,
+) -> Result<Connection, String> {
+    let id = addr.id;
+    if let Some(conn) = lock(&state.requests).get(&id) {
+        if conn.close_reason().is_none() {
+            return Ok(conn.clone());
+        }
+    }
+    let conn = tokio::time::timeout(REQUEST_CONNECT_TIMEOUT, endpoint.connect(addr, alpn))
+        .await
+        .map_err(|_| {
+            format!(
+                "could not connect within {} s",
+                REQUEST_CONNECT_TIMEOUT.as_secs()
+            )
+        })?
+        .map_err(|e| format!("could not connect: {e}"))?;
+    lock(&state.requests).insert(id, conn.clone());
+    Ok(conn)
+}
+
+/// One request on a new bidirectional stream of `conn`: `Err(true)` when no stream could be
+/// opened (the connection is gone), `Err(false)` for anything else.
+async fn request_on(
+    conn: &Connection,
+    data: &[u8],
+    half_close: bool,
+    max: usize,
+) -> Result<Vec<u8>, (bool, String)> {
+    let (mut send, mut recv) = conn
+        .open_bi()
+        .await
+        .map_err(|e| (true, format!("could not open a stream: {e}")))?;
+    send.write_all(data)
+        .await
+        .map_err(|e| (false, format!("could not send the request: {e}")))?;
+    if half_close {
+        let _ = send.finish();
+    }
+    let answer = match recv.read_to_end(max).await {
+        Ok(answer) => answer,
+        Err(ReadToEndError::TooLong) => {
+            let _ = recv.stop(VarInt::from_u32(PROTOCOL_VIOLATION));
+            return Err((false, format!("the answer is larger than {max} bytes")));
+        }
+        Err(ReadToEndError::Read(e)) => {
+            return Err((false, format!("the answer broke off: {e}")));
+        }
+    };
+    if !half_close {
+        let _ = send.finish();
+    }
+    Ok(answer)
+}
+
+/// A request to `addr`'s peer on its kept connection; once more on a new one when the kept one
+/// turns out to be gone.
+async fn exchange(
+    endpoint: &Endpoint,
+    alpn: &[u8],
+    state: &State,
+    addr: EndpointAddr,
+    data: &[u8],
+    half_close: bool,
+) -> Result<Vec<u8>, String> {
+    let id = addr.id;
+    let conn = request_connection(endpoint, alpn, state, addr.clone()).await?;
+    match request_on(&conn, data, half_close, state.max_frame).await {
+        Ok(answer) => Ok(answer),
+        Err((true, _)) => {
+            lock(&state.requests).remove(&id);
+            let conn = request_connection(endpoint, alpn, state, addr).await?;
+            request_on(&conn, data, half_close, state.max_frame)
+                .await
+                .map_err(|(_, why)| why)
+        }
+        Err((false, why)) => Err(why),
+    }
 }
 
 async fn accept_connections(endpoint: Endpoint, state: Arc<State>) {
@@ -838,6 +983,122 @@ mod tests {
             !direct.endpoint.bound_sockets().is_empty(),
             "without relay_only the endpoint has a UDP socket"
         );
+    }
+
+    /// A bare iroh endpoint on the tests' protocol that answers each bidirectional stream with
+    /// `answer:` and the request: a request starting with `*` once this side finished its stream
+    /// (it reads the request to its end), any other once its line arrived (this side's stream
+    /// still open, as an HTTP/1.1 server reads). It finishes its side after the answer. Its id
+    /// and its IPv4 socket on this computer.
+    fn answering_peer() -> (String, String) {
+        let runtime = runtime().expect("the runtime");
+        let peer = runtime
+            .block_on(
+                Endpoint::builder(presets::Minimal)
+                    .alpns(vec![b"azul/iroh-test/1".to_vec()])
+                    .relay_mode(RelayMode::Disabled)
+                    .bind(),
+            )
+            .expect("the peer binds");
+        let port = peer
+            .bound_sockets()
+            .iter()
+            .find(|socket| socket.is_ipv4())
+            .expect("an IPv4 socket")
+            .port();
+        let id = peer.id().to_string();
+        runtime.spawn(async move {
+            while let Some(incoming) = peer.accept().await {
+                tokio::spawn(async move {
+                    let Ok(conn) = incoming.await else { return };
+                    while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                        tokio::spawn(async move {
+                            let mut request = vec![0u8; 1];
+                            if recv.read_exact(&mut request).await.is_err() {
+                                return;
+                            }
+                            if request[0] == b'*' {
+                                let Ok(rest) = recv.read_to_end(1024).await else {
+                                    return;
+                                };
+                                request.extend_from_slice(&rest);
+                            } else {
+                                let mut byte = [0u8; 1];
+                                while !request.ends_with(b"\n") {
+                                    if recv.read_exact(&mut byte).await.is_err() {
+                                        return;
+                                    }
+                                    request.push(byte[0]);
+                                }
+                            }
+                            let mut answer = b"answer:".to_vec();
+                            answer.extend_from_slice(&request);
+                            let _ = send.write_all(&answer).await;
+                            let _ = send.finish();
+                            let _ = send.stopped().await;
+                        });
+                    }
+                });
+            }
+        });
+        (id, format!("127.0.0.1:{port}"))
+    }
+
+    /// `request` dials a peer by its id at the socket it is given (no discovery, no relay), sends
+    /// on a new bidirectional stream and returns what the peer wrote until it finished its side:
+    /// with this side kept open until then (an HTTP/1.1 server, which reads a finished stream as
+    /// a broken request), or finished at once for a peer that reads the request to its end. The
+    /// connection is kept for the next request.
+    #[test]
+    fn a_request_gets_the_answer_of_a_peer_dialed_by_id_at_its_socket() {
+        let (id, socket) = answering_peer();
+        let client = local_endpoint();
+        let at = [socket];
+        let timeout = Duration::from_secs(20);
+        let answer = client
+            .request(&id, &at, "", b"GET /a\n", false, timeout)
+            .expect("the peer answers");
+        assert_eq!(answer, b"answer:GET /a\n");
+        let again = client
+            .request(&id, &at, "", b"GET /b\n", false, timeout)
+            .expect("the peer answers again");
+        assert_eq!(again, b"answer:GET /b\n");
+        let whole = client
+            .request(&id, &at, "", b"*all of it", true, timeout)
+            .expect("a peer that reads to the end answers once this side finished");
+        assert_eq!(whole, b"answer:*all of it");
+        assert!(client
+            .request("not an id", &at, "", b"x\n", false, timeout)
+            .is_err());
+        assert!(client
+            .request(
+                &id,
+                &[String::from("not a socket")],
+                "",
+                b"x\n",
+                false,
+                timeout
+            )
+            .is_err());
+    }
+
+    /// A peer that does not answer: the request gives up within its time.
+    #[test]
+    fn a_request_to_a_socket_nobody_answers_gives_up_within_its_time() {
+        let silent = local_endpoint();
+        let id = silent.endpoint_id();
+        let client = local_endpoint();
+        let started = Instant::now();
+        let result = client.request(
+            &id,
+            &[String::from("127.0.0.1:9")],
+            "",
+            b"GET /\n",
+            false,
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(15));
     }
 
     /// Relay-only with the relays disabled leaves nothing to carry a packet: refused at bind.

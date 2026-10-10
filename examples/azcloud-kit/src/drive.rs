@@ -13,8 +13,9 @@
 //! lock as well, so two calls that find the credentials running out at once refresh ONCE - the
 //! second sees the first's answer. Blocking, like every drive: call it from an azul `Thread`.
 //!
-//! Every request goes through the drive's [`Failover`] (the block endpoint, a node's hint, the
-//! node list, the nodes' addresses; retries by the class of the answer): each refresh hands it
+//! Every request goes through the drive's [`Failover`] (iroh to the nodes when the app plugs in
+//! a dialer - [`AzlinDrive::with_iroh`] -, then the block endpoint, a node's hint, the node
+//! list, the nodes' addresses; retries by the class of the answer): each refresh hands it
 //! the node list it answered with, and with a nodes file ([`AzlinDrive::with_nodes_file`]) the
 //! list outlives the app - the next start fails over before its first refresh.
 
@@ -38,6 +39,7 @@ use crate::{
     session::AzlinSession,
     shared::SharedKeyring,
     token::{TokenError, TokenServer},
+    transport::{IrohDialer, IrohLane},
     user_errors::Code,
 };
 
@@ -189,6 +191,24 @@ impl AzlinDrive {
     #[must_use]
     pub fn failover(&self) -> &Arc<Failover> {
         &self.failover
+    }
+
+    /// Sends every request over iroh first: to each ready node the node list names with an iroh
+    /// id, dialed through `dialer` (the app's: azul's iroh endpoint) at its iroh sockets and
+    /// relayed through `relay` (`off`, `default` or an address; `None`: the dialer's own); a node
+    /// that fails rests for five minutes and the request goes on over HTTPS
+    /// ([`crate::transport::IrohLane`]).
+    #[must_use]
+    pub fn with_iroh(self, dialer: Arc<dyn IrohDialer>, relay: Option<&str>) -> Self {
+        self.failover
+            .set_lane(Some(Arc::new(IrohLane::new(dialer, relay))));
+        self
+    }
+
+    /// The iroh lane, when the drive has one: what it did last.
+    #[must_use]
+    pub fn lane(&self) -> Option<Arc<IrohLane>> {
+        self.failover.lane()
     }
 
     /// Takes a bundle's node list and failover URLs (and keeps the list in the nodes file).

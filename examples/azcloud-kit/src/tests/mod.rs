@@ -14,6 +14,7 @@ mod encryption;
 mod endpoints;
 mod failover;
 mod fake_s3;
+mod lane;
 mod lock;
 mod lockdown;
 mod pending;

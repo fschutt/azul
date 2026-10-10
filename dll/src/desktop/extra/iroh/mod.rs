@@ -16,7 +16,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use azul_css::{AzString, U8Vec};
+use azul_css::{AzString, StringVec, U8Vec};
+use azul_layout::callbacks::ResultU8VecString;
 
 pub use self::types::*;
 
@@ -187,6 +188,44 @@ impl IrohEndpoint {
                 false
             }
         }
+    }
+
+    /// Sends `data` to the endpoint `endpoint_id` (an id or a ticket), dialed at `addresses` (`ip:port`, no discovery needed) and through `relay_url` (empty: none), on a new bidirectional stream of this endpoint's protocol, and returns what the peer writes until it finishes its side (at most `max_frame_bytes`). With `half_close` this side is finished right after `data` (a peer that reads the request to its end); without, it stays open until the answer ended (an HTTP/1.1 server). One connection per peer serves every request; it is not a peer of `recv`. Blocks up to `timeout_secs`: call it from a thread, never from a UI callback.
+    pub fn request(
+        &self,
+        endpoint_id: AzString,
+        addresses: StringVec,
+        relay_url: AzString,
+        data: U8Vec,
+        half_close: bool,
+        timeout_secs: u32,
+    ) -> ResultU8VecString {
+        #[cfg(az_iroh_engine)]
+        let result = match self.engine() {
+            Some(engine) => {
+                let addresses: Vec<String> = addresses
+                    .as_ref()
+                    .iter()
+                    .map(|a| a.as_str().to_string())
+                    .collect();
+                engine.request(
+                    endpoint_id.as_str(),
+                    &addresses,
+                    relay_url.as_str(),
+                    data.as_ref(),
+                    half_close,
+                    std::time::Duration::from_secs(u64::from(timeout_secs)),
+                )
+            }
+            None => Err("the endpoint is not bound".to_string()),
+        };
+        #[cfg(not(az_iroh_engine))]
+        let result: Result<Vec<u8>, String> = {
+            let _ = (endpoint_id, addresses, relay_url, half_close, timeout_secs);
+            drop(data);
+            Err("this build has no iroh engine".to_string())
+        };
+        ResultU8VecString::from(result.map_err(AzString::from))
     }
 
     /// Queues a frame for one peer. A newer frame of the same track replaces one that has not left yet.

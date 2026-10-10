@@ -165,6 +165,8 @@ mod sync_tests;
 mod ids;
 /// The Azlin drives' paid months: when their periods are looked at, the redemptions.
 mod periods;
+/// The Azlin drives' iroh dialer: iroh to the nodes first, HTTPS as the fallback.
+mod iroh_lane;
 /// A drive's errors as the user sees them: the table's words, the error ID, notifications.
 mod problems;
 /// An Azlin drive's space: the quota counts stored bytes, the original size as extra information.
@@ -362,12 +364,14 @@ impl Slot {
     /// The drive, opened on first use: an Azlin drive through azcloud-kit (it refreshes its
     /// credentials under the drive's lock in `keyring`, which it re-reads first - another window
     /// may have refreshed - and writes before it lets go; every session it switches to lands in
-    /// `rotated`; its token server is the one the entry names, else `token_url`), every other
-    /// one through azul-storage.
+    /// `rotated`; its token server is the one the entry names, else `token_url`; its requests go
+    /// over iroh to its nodes first, through `relay`, and over HTTPS as the fallback), every
+    /// other one through azul-storage (HTTPS only).
     pub fn open(
         &mut self,
         rotated: &RotatedSessions,
         token_url: Option<&str>,
+        relay: Option<&str>,
         keyring: &azcloud_kit::SharedKeyring,
     ) -> Result<Arc<dyn Drive>, DriveError> {
         if let Some(drive) = &self.drive {
@@ -387,7 +391,7 @@ impl Slot {
             let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
                 Box::new(AzulTransport::new(USER_AGENT)) as Box<dyn azul_storage::Transport>
             });
-            let concrete = Arc::new(azcloud_kit::AzlinDrive::new(
+            let concrete = azcloud_kit::AzlinDrive::new(
                 &self.entry,
                 session,
                 token_url.unwrap_or_default(),
@@ -407,7 +411,14 @@ impl Slot {
             )?
             // The node list of the last refresh outlives the app: the next start fails over to
             // the nodes before its first refresh.
-            .with_nodes_file(&nodes_file(&self.entry.id)),
+            .with_nodes_file(&nodes_file(&self.entry.id));
+            // iroh to the nodes first (their iroh ids and sockets come with the node list), then
+            // HTTPS; AZCLOUD_TRANSPORT=https keeps to HTTPS.
+            let concrete = Arc::new(
+                match crate::iroh_lane::dialer(&|var: &str| std::env::var(var).ok()) {
+                    Some(dialer) => concrete.with_iroh(dialer, relay),
+                    None => concrete,
+                },
             );
             self.azlin = Some(concrete.clone());
             let azlin: Arc<dyn Drive> = concrete;
@@ -1249,11 +1260,14 @@ pub(crate) fn open_current(s: &mut DriveState) -> Option<Arc<dyn Drive>> {
 pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
     let rotated = s.rotated.clone();
     let token_url = s.token.url.clone();
+    let relay = s.token.relay.clone();
     let keyring = s.keyring.clone();
-    let opened = s
-        .slots
-        .get_mut(index)?
-        .open(&rotated, token_url.as_deref(), &keyring);
+    let opened = s.slots.get_mut(index)?.open(
+        &rotated,
+        token_url.as_deref(),
+        relay.as_deref(),
+        &keyring,
+    );
     match opened {
         Ok(drive) => Some(drive),
         Err(e) => {

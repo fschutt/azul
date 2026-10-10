@@ -26,6 +26,8 @@ mod fake_bucket;
 mod multipart;
 /// An S3 drive's requests through a router (the endpoint failover's seam).
 mod router;
+/// A request and its answer as HTTP/1.1 bytes (S3 over iroh).
+mod http1;
 
 /// The OpenDAL drive (feature `opendal`).
 #[cfg(feature = "opendal")]

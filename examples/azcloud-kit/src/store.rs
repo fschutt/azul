@@ -3,8 +3,8 @@
 //!
 //! [`RemoteStore`] is the seam between them and the network. The built-in one is
 //! [`crate::bucket::Bucket`]: S3 over HTTPS through azul-storage (its SigV4, the app's
-//! `Transport`), with the drive's endpoint failover. [`crate::transport::CloudDrive`] puts two
-//! buckets behind it - iroh first, HTTPS as the fallback - when a build can dial iroh; any
+//! `Transport`), with the drive's endpoint failover - iroh to the nodes first when a build can
+//! dial it ([`crate::transport::IrohLane`], what [`crate::transport::CloudDrive`] sets up); any
 //! other store (a bucket in memory, a cache) implements the trait itself.
 
 use std::{io::Read, path::Path};
